@@ -17,7 +17,10 @@
     </div>
     <div class="runtime-group">
       <button id="integration" class="integration" type="button" hidden>Connect integration</button>
-      <button id="usage" class="usage" type="button" title="Click to copy usage diagnostics">Model usage…</button>
+      <div class="usage-controls">
+        <button id="usage" class="usage" type="button" title="Click to copy usage diagnostics">Model usage…</button>
+        <button id="refresh" class="top-refresh" type="button">Refresh</button>
+      </div>
       <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
     </div>
   </header>
@@ -47,7 +50,6 @@
           <p class="eyebrow">Chronological</p>
           <h2 id="requests-heading">Requests</h2>
         </div>
-        <button id="refresh" class="secondary compact" type="button">Refresh</button>
       </div>
       <div id="request-list" class="request-list"></div>
       <p id="empty" class="empty">No Agent Slayer requests yet.</p>

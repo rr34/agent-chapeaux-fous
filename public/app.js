@@ -299,6 +299,12 @@ elements.form.addEventListener("submit", async (event) => {
   }
 });
 
+elements.text.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.ctrlKey || event.isComposing) return;
+  event.preventDefault();
+  if (!elements.send.disabled) elements.form.requestSubmit();
+});
+
 elements.record.addEventListener("click", async () => {
   if (recorder?.state === "recording") {
     clearInterval(recordingTimer);

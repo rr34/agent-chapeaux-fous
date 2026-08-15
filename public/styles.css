@@ -48,7 +48,11 @@ button { touch-action: manipulation; }
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem max(1rem, calc((100vw - 920px) / 2));
+  padding:
+    calc(1rem + env(safe-area-inset-top, 0px))
+    max(1rem, env(safe-area-inset-right, 0px), calc((100vw - 920px) / 2))
+    1rem
+    max(1rem, env(safe-area-inset-left, 0px), calc((100vw - 920px) / 2));
   background: rgba(12, 14, 16, .88);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(14px);
@@ -148,8 +152,8 @@ button.secondary { color: var(--text); background: var(--panel-raised); border: 
 button.secondary:hover { border-color: #56616a; background: #252b31; }
 button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 
-.runtime-group { display: flex; align-items: center; gap: .45rem; }
-.runtime, .usage, .integration {
+.runtime-group, .usage-controls { display: flex; align-items: center; gap: .45rem; }
+.runtime, .usage, .integration, .top-refresh {
   min-height: 34px;
   padding: .35rem .65rem;
   color: var(--muted);
@@ -159,6 +163,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 }
 .usage { font-family: inherit; }
 .integration { font-family: inherit; }
+.top-refresh { font-family: inherit; }
 .runtime.ready, .usage.ready, .integration.ready { color: var(--good); }
 .runtime.not-ready, .usage.not-ready, .integration.not-ready { color: var(--bad); }
 .integration:disabled { cursor: default; opacity: 1; }
@@ -217,7 +222,13 @@ dialog form { display: grid; gap: .8rem; }
 dialog h2, dialog p { margin-bottom: 0; }
 
 @media (max-width: 580px) {
-  .topbar { padding: .8rem 1rem; }
+  .topbar {
+    padding:
+      calc(.8rem + env(safe-area-inset-top, 0px))
+      max(1rem, env(safe-area-inset-right, 0px))
+      .8rem
+      max(1rem, env(safe-area-inset-left, 0px));
+  }
   .runtime-group { align-items: flex-end; flex-direction: column-reverse; }
   .usage { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   main { padding: .7rem; }
