@@ -3,25 +3,71 @@ import test from "node:test";
 import { SlayerRuntime } from "../src/runtime.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
-test("the first model request contains exact callable tools and tool results return to the same exchange", async () => {
-  const requests = [];
-  const responses = [
-    {
-      id: "response-1",
-      output: [{ type: "function_call", call_id: "call-1", name: "echo_value", arguments: "{\"value\":\"hello\"}" }],
+function completedTurn(overrides = {}) {
+  return {
+    text: "The tool returned hello.",
+    threadId: "thread-1",
+    turnId: "codex-turn-1",
+    status: "completed",
+    messages: [{ type: "agentMessage", phase: "final_answer", text: "The tool returned hello." }],
+    events: [],
+    usage: {
+      before: null,
+      after: null,
+      windows: [],
+      tokenUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     },
-    {
-      id: "response-2",
-      output_text: "The tool returned hello.",
-      output: [{ type: "message", content: [{ type: "output_text", text: "The tool returned hello." }] }],
-    },
-  ];
-  const modelClient = {
-    async create(payload) {
-      requests.push(structuredClone(payload));
-      return responses.shift();
-    },
+    ...overrides,
   };
+}
+
+function runtimeConfig() {
+  return {
+    model: "test-model",
+    reasoningEffort: "high",
+    maxToolCalls: 4,
+    systemPromptPath: "unused",
+  };
+}
+
+function fakeTransport(runTurn) {
+  return {
+    id: "test-transport",
+    displayName: "Test model",
+    describeRequest(payload) {
+      return {
+        transport: this.id,
+        model: payload.model,
+        baseInstructions: payload.baseInstructions,
+        developerInstructions: payload.developerInstructions,
+        input: [{ type: "text", text: payload.input }],
+        tools: structuredClone(payload.tools),
+      };
+    },
+    runTurn,
+  };
+}
+
+test("the first model turn contains the exact request, context, and callable tools, and executes tools in that turn", async () => {
+  const requests = [];
+  const modelTransport = fakeTransport(async (payload) => {
+      requests.push({
+        model: payload.model,
+        effort: payload.effort,
+        baseInstructions: payload.baseInstructions,
+        developerInstructions: payload.developerInstructions,
+        input: payload.input,
+        tools: structuredClone(payload.tools),
+      });
+      const toolResponse = await payload.onToolCall({
+        callId: "call-1",
+        tool: "echo_value",
+        arguments: { value: "hello" },
+      });
+      assert.equal(toolResponse.ok, true);
+      assert.equal(toolResponse.result.value, "hello");
+      return completedTurn();
+    });
   const registry = new ToolRegistry();
   registry.register({
     name: "echo_value",
@@ -36,16 +82,11 @@ test("the first model request contains exact callable tools and tool results ret
   });
   const events = [];
   const runtime = new SlayerRuntime({
-    modelClient,
+    modelTransport,
     registry,
     contextBuilder: { async build() { return { text: "VISIBLE CONTEXT", profile: "profile", history: [] }; } },
     ledger: { append(event) { events.push(event); } },
-    config: {
-      model: "test-model",
-      reasoningEffort: "none",
-      maxToolRounds: 4,
-      systemPromptPath: "unused",
-    },
+    config: runtimeConfig(),
   });
   runtime.systemPrompt = "SYSTEM PROMPT";
 
@@ -56,29 +97,26 @@ test("the first model request contains exact callable tools and tool results ret
   });
 
   assert.equal(result, "The tool returned hello.");
-  assert.equal(requests.length, 2);
-  assert.deepEqual(requests[0].tools, registry.modelTools());
-  assert.equal(requests[0].input[0].content[0].text, "VISIBLE CONTEXT");
-  assert.equal(requests[0].input[1].content[0].text, "Use the echo tool.");
-  assert.ok(requests[1].input.some((item) => item.type === "function_call" && item.call_id === "call-1"));
-  assert.ok(requests[1].input.some((item) => item.type === "function_call_output" && item.call_id === "call-1" && item.output.includes("hello")));
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].tools, registry.toolDefinitions());
+  assert.equal(requests[0].developerInstructions, "VISIBLE CONTEXT");
+  assert.equal(requests[0].input, "Use the echo tool.");
+  assert.equal(requests[0].baseInstructions, "SYSTEM PROMPT");
   assert.deepEqual(
-    events.filter((event) => ["context.sent", "tools.sent", "model.request", "model.response", "tool.call", "tool.result"].includes(event.type)).map((event) => event.type),
-    ["context.sent", "tools.sent", "model.request", "model.response", "tool.call", "tool.result", "model.request", "model.response"],
+    events.filter((event) => ["context.sent", "tools.sent", "model.request", "model.response", "model.usage", "tool.call", "tool.result"].includes(event.type)).map((event) => event.type),
+    ["context.sent", "tools.sent", "model.request", "tool.call", "tool.result", "model.response", "model.usage"],
   );
+  const recordedRequest = events.find((event) => event.type === "model.request");
+  assert.equal(recordedRequest.payload.input[0].text, "Use the echo tool.");
+  assert.deepEqual(recordedRequest.payload.tools, registry.toolDefinitions());
 });
 
-test("a failed tool result is returned to the model instead of becoming a fabricated success", async () => {
-  const requests = [];
-  const modelClient = {
-    async create(payload) {
-      requests.push(structuredClone(payload));
-      if (requests.length === 1) {
-        return { output: [{ type: "function_call", call_id: "bad-1", name: "fails", arguments: "{}" }] };
-      }
-      return { output_text: "The operation failed.", output: [] };
-    },
-  };
+test("a failed tool result is returned to the model transport instead of becoming a fabricated success", async () => {
+  let toolResponse;
+  const modelTransport = fakeTransport(async (payload) => {
+      toolResponse = await payload.onToolCall({ callId: "bad-1", tool: "fails", arguments: {} });
+      return completedTurn({ text: "The operation failed." });
+    });
   const registry = new ToolRegistry();
   registry.register({
     name: "fails",
@@ -87,14 +125,14 @@ test("a failed tool result is returned to the model instead of becoming a fabric
     async execute() { throw new Error("expected failure"); },
   });
   const runtime = new SlayerRuntime({
-    modelClient, registry,
+    modelTransport,
+    registry,
     contextBuilder: { async build() { return { text: "context", profile: "", history: [] }; } },
     ledger: { append() {} },
-    config: { model: "test", reasoningEffort: "none", maxToolRounds: 3, systemPromptPath: "unused" },
+    config: runtimeConfig(),
   });
   runtime.systemPrompt = "prompt";
   assert.equal(await runtime.run({ requestId: "r", requestEventId: "e", text: "fail" }), "The operation failed.");
-  const output = requests[1].input.find((item) => item.type === "function_call_output");
-  assert.match(output.output, /"ok":false/);
-  assert.match(output.output, /expected failure/);
+  assert.equal(toolResponse.ok, false);
+  assert.match(toolResponse.error, /expected failure/);
 });

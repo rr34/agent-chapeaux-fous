@@ -5,6 +5,7 @@ const elements = {
   record: document.querySelector("#record"),
   status: document.querySelector("#composer-status"),
   runtime: document.querySelector("#runtime"),
+  usage: document.querySelector("#usage"),
   refresh: document.querySelector("#refresh"),
   list: document.querySelector("#request-list"),
   empty: document.querySelector("#empty"),
@@ -69,6 +70,46 @@ function formatTime(milliseconds) {
   }).format(new Date(milliseconds));
 }
 
+function usageWindows(usage) {
+  return (usage?.buckets ?? []).flatMap((bucket) => ["primary", "secondary"].flatMap((kind) => {
+    const window = bucket[kind];
+    return window ? [{ ...window, bucketId: bucket.id, bucketName: bucket.name, kind }] : [];
+  }));
+}
+
+function resetLabel(timestamp) {
+  if (!timestamp) return "reset unknown";
+  const milliseconds = Math.max(0, timestamp * 1000 - Date.now());
+  const minutes = Math.ceil(milliseconds / 60000);
+  if (minutes < 60) return `resets in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `resets in ${hours}h ${remainder}m`;
+}
+
+function healthUsageLabel(model) {
+  const name = model?.displayName || "Model";
+  const windows = usageWindows(model?.usage).filter((window) => Number.isFinite(window.remainingPercent));
+  if (!windows.length) return `${name} usage unavailable`;
+  const limiting = windows.toSorted((left, right) => left.remainingPercent - right.remainingPercent)[0];
+  return `${name} ${limiting.remainingPercent}% left · ${resetLabel(limiting.resetsAt)}`;
+}
+
+function requestUsageLabel(usage) {
+  if (!usage) return "";
+  const deltas = (usage.windows ?? []).map((window) => window.usedPercentDelta).filter(Number.isFinite);
+  const largestDelta = deltas.length ? Math.max(...deltas) : null;
+  const tokens = usage.tokenUsage?.totalTokens;
+  const parts = [];
+  if (largestDelta == null) parts.push("quota update pending");
+  else if (largestDelta === 0) parts.push("quota change <1%");
+  else parts.push(`+${largestDelta}% quota`);
+  if (Number.isFinite(tokens)) parts.push(`${tokens.toLocaleString()} tokens`);
+  const remaining = (usage.windows ?? []).map((window) => window.remainingPercent).filter(Number.isFinite);
+  if (remaining.length) parts.push(`${Math.min(...remaining)}% left`);
+  return parts.join(" · ");
+}
+
 function selectionTouchesRequests() {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
@@ -101,6 +142,9 @@ function requestNode(request, index) {
   const error = node.querySelector(".request-error");
   error.hidden = !request.error;
   error.textContent = request.error || "";
+  const usage = node.querySelector(".request-usage");
+  usage.textContent = requestUsageLabel(request.usage);
+  usage.hidden = !usage.textContent;
   node.style.order = index;
   return node;
 }
@@ -127,6 +171,7 @@ function traceLabel(event, index) {
     "tools.sent": "TOOLS SENT",
     "model.request": "MODEL REQUEST",
     "model.response": "MODEL RESPONSE",
+    "model.usage": "MODEL USAGE",
     "tool.call": "TOOL CALL",
     "tool.result": "TOOL RESULT",
     "assistant.response": "FINAL RESPONSE",
@@ -164,6 +209,9 @@ async function loadHealth() {
   elements.runtime.classList.toggle("ready", Boolean(body.ready));
   elements.runtime.classList.toggle("not-ready", !body.ready);
   elements.runtime.title = `${body.ready ? "Ready" : "Not ready"}. Click to copy full health diagnostics.`;
+  elements.usage.textContent = healthUsageLabel(body.model);
+  elements.usage.classList.toggle("ready", Boolean(body.model?.usage));
+  elements.usage.classList.toggle("not-ready", !body.model?.usage);
 }
 
 elements.form.addEventListener("submit", async (event) => {
@@ -217,6 +265,7 @@ elements.record.addEventListener("click", async () => {
 
 elements.refresh.addEventListener("click", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
 elements.runtime.addEventListener("click", (event) => copyText(JSON.stringify(lastHealth, null, 2), event.currentTarget));
+elements.usage.addEventListener("click", (event) => copyText(JSON.stringify(lastHealth?.body?.model?.usage ?? null, null, 2), event.currentTarget));
 elements.closeTrace.addEventListener("click", () => { elements.tracePanel.hidden = true; });
 elements.copyTrace.addEventListener("click", (event) => copyText(JSON.stringify(activeTrace, null, 2), event.currentTarget));
 elements.tokenForm.addEventListener("submit", () => {

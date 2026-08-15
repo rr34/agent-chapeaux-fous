@@ -18,12 +18,11 @@ export class ToolRegistry {
     return [...this.tools.values()].map(({ execute: _execute, source, ...tool }) => ({ ...tool, source }));
   }
 
-  modelTools() {
+  toolDefinitions() {
     return [...this.tools.values()].map((tool) => ({
-      type: "function",
       name: tool.name,
       description: tool.description,
-      parameters: tool.parameters,
+      inputSchema: tool.parameters,
       strict: tool.strict,
     }));
   }

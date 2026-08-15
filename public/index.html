@@ -15,7 +15,10 @@
       <p class="eyebrow">Direct model + tools</p>
       <h1>Agent Slayer</h1>
     </div>
-    <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+    <div class="runtime-group">
+      <button id="usage" class="usage" type="button" title="Click to copy usage diagnostics">Model usage…</button>
+      <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+    </div>
   </header>
 
   <main>
@@ -82,6 +85,7 @@
         <p></p>
         <button class="copy-response secondary compact" type="button">Copy response</button>
       </div>
+      <p class="request-usage" hidden></p>
       <p class="request-error" hidden></p>
       <button class="show-trace secondary compact" type="button">Show exact trace</button>
     </article>

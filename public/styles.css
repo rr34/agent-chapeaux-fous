@@ -103,7 +103,8 @@ button.secondary { color: var(--text); background: var(--panel-raised); border: 
 button.secondary:hover { border-color: #56616a; background: #252b31; }
 button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 
-.runtime {
+.runtime-group { display: flex; align-items: center; gap: .45rem; }
+.runtime, .usage {
   min-height: 34px;
   padding: .35rem .65rem;
   color: var(--muted);
@@ -111,8 +112,9 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
   background: var(--panel-raised);
   border: 1px solid var(--line);
 }
-.runtime.ready { color: var(--good); }
-.runtime.not-ready { color: var(--bad); }
+.usage { font-family: inherit; }
+.runtime.ready, .usage.ready { color: var(--good); }
+.runtime.not-ready, .usage.not-ready { color: var(--bad); }
 
 .status, .muted, .empty { color: var(--muted); }
 .status { min-height: 1.3rem; margin: .6rem 0 0; font-size: .88rem; }
@@ -129,6 +131,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .agent-response { margin: 0 0 .7rem; padding: .8rem; background: #1a1f23; border-left: 3px solid var(--accent); border-radius: 4px 9px 9px 4px; }
 .agent-response p { margin-bottom: .7rem; line-height: 1.5; white-space: pre-wrap; user-select: text; }
 .request-error { white-space: pre-wrap; }
+.request-usage { margin: -.1rem 0 .7rem; color: var(--muted); font-size: .76rem; }
 
 .trace-panel { position: fixed; inset: .5rem; z-index: 20; margin: 0 auto; width: min(1100px, calc(100% - 1rem)); overflow: auto; box-shadow: 0 20px 80px #000; }
 .sticky { position: sticky; top: -1rem; z-index: 2; margin: -1rem -1rem 1rem; padding: 1rem; background: rgba(21, 25, 29, .96); border-bottom: 1px solid var(--line); backdrop-filter: blur(12px); }
@@ -144,6 +147,8 @@ dialog h2, dialog p { margin-bottom: 0; }
 
 @media (max-width: 580px) {
   .topbar { padding: .8rem 1rem; }
+  .runtime-group { align-items: flex-end; flex-direction: column-reverse; }
+  .usage { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   main { padding: .7rem; }
   .composer, .requests { border-radius: 13px; }
   .trace-panel { inset: 0; width: 100%; border-radius: 0; }

@@ -137,6 +137,7 @@ export class Ledger {
       const terminal = [...events].reverse().find((event) => ["request.complete", "request.error"].includes(event.type));
       const response = [...events].reverse().find((event) => event.type === "assistant.response");
       const transcript = events.find((event) => event.type === "transcription.complete");
+      const usage = [...events].reverse().find((event) => event.type === "model.usage");
       return {
         requestId: request.turnId,
         channel: request.channel,
@@ -145,6 +146,7 @@ export class Ledger {
         request: request.content || transcript?.content || "Voice request",
         response: response?.content || null,
         error: terminal?.error || null,
+        usage: usage?.payload || null,
         eventCount: events.length,
       };
     });

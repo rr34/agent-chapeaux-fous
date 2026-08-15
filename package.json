@@ -1,6 +1,6 @@
 {
   "name": "agent-slayer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,6 +8,8 @@
   },
   "scripts": {
     "start": "node src/server.mjs",
+    "codex:login": "node scripts/codex-account.mjs login",
+    "codex:status": "node scripts/codex-account.mjs status",
     "test": "node --test test/*.test.mjs",
     "db:verify": "node scripts/verify-database.mjs"
   },

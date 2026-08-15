@@ -7,7 +7,7 @@ import { loadConfig } from "./config.mjs";
 import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
-import { OpenAIResponsesClient } from "./openai-client.mjs";
+import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
@@ -22,9 +22,9 @@ const identity = runtimeIdentity(config.repositoryRoot);
 const store = new SlayerDatabase(config.databasePath);
 const ledger = new Ledger(store);
 const registry = new ToolRegistry();
-const modelClient = new OpenAIResponsesClient({
-  apiKey: config.openAiApiKey,
-  baseUrl: config.openAiBaseUrl,
+const modelTransport = await createModelTransport(config);
+await modelTransport.start().catch((error) => {
+  console.error(`[agent-slayer] ${modelTransport.displayName} transport startup failed:`, error);
 });
 const mcp = new McpToolManager({ configPath: config.mcpConfigPath });
 if (store.status.ready) {
@@ -33,7 +33,7 @@ if (store.status.ready) {
 }
 await mcp.initialize(registry);
 const contextBuilder = new ContextBuilder({ ledger, profilePath: config.profilePath });
-const runtime = new SlayerRuntime({ modelClient, registry, contextBuilder, ledger, config });
+const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, ledger, config });
 const transcriber = new WhisperTranscriber({
   pythonExecutable: config.pythonExecutable,
   workerPath: config.whisperWorkerPath,
@@ -134,11 +134,11 @@ async function receiveAudio(request) {
 }
 
 function health() {
-  const model = modelClient.health();
+  const model = modelTransport.health();
   return {
     ready: store.status.ready && model.ready,
     runtime: identity,
-    model: { ...model, model: config.model },
+    model: { ...model, id: modelTransport.id, displayName: modelTransport.displayName, model: config.model },
     database: store.status,
     integrations: mcp.health(),
     tools: registry.list().map((tool) => ({ name: tool.name, source: tool.source })),
@@ -212,6 +212,7 @@ server.listen(config.port, config.host, () => {
 async function shutdown() {
   server.close();
   transcriber.close();
+  await modelTransport.close();
   await mcp.close();
   store.close();
 }
