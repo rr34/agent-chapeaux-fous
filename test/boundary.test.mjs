@@ -5,13 +5,20 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const excluded = new Set(["node_modules", ".git"]);
+const excludedDirectories = new Set(["node_modules", ".git", "data", "media", ".venv"]);
+const excludedFiles = new Set([".env"]);
 
 function files(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    if (excluded.has(entry.name)) return [];
+    if (excludedFiles.has(entry.name)) return [];
     const filename = path.join(directory, entry.name);
-    return entry.isDirectory() ? files(filename) : [filename];
+    if (entry.isDirectory()) {
+      return excludedDirectories.has(entry.name) ? [] : files(filename);
+    }
+    // Runtime state can contain sockets or symlinks to directories. The
+    // boundary assertion is about repository source files, so never follow or
+    // read non-regular entries.
+    return entry.isFile() ? [filename] : [];
   });
 }
 
