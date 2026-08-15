@@ -24,11 +24,17 @@
 
   <main>
     <section class="composer" aria-labelledby="request-heading">
-      <h2 id="request-heading">Request</h2>
+      <h2 id="request-heading" class="sr-only">New request</h2>
+      <div class="voice-recorder">
+        <button id="record" class="record-button" type="button" aria-label="Start recording">
+          <span class="record-core" aria-hidden="true"></span>
+        </button>
+        <p id="record-label" class="record-label" aria-live="polite">Tap to record</p>
+        <p id="record-timer" class="record-timer">00:00</p>
+      </div>
       <form id="request-form">
         <textarea id="request-text" rows="4" placeholder="Tell Slayer what to do…" required></textarea>
         <div class="composer-actions">
-          <button id="record" class="secondary" type="button">Record voice</button>
           <button id="send" type="submit">Send</button>
         </div>
       </form>
@@ -88,6 +94,13 @@
       </div>
       <p class="request-usage" hidden></p>
       <p class="request-error" hidden></p>
+      <div class="request-progress" hidden>
+        <span class="progress-spinner" aria-hidden="true"></span>
+        <div>
+          <strong class="progress-label"></strong>
+          <span class="progress-detail"></span>
+        </div>
+      </div>
       <button class="show-trace secondary compact" type="button">Show exact trace</button>
     </article>
   </template>

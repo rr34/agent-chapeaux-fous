@@ -41,6 +41,14 @@ function ensureGroup(database, name) {
   return { row, created: false, reactivated: true };
 }
 
+function publicGroup(row) {
+  return {
+    id: Number(row.todo_group_id),
+    name: row.name,
+    archivedAtUtc: row.archived_at_utc,
+  };
+}
+
 function publicTask(row) {
   if (!row) return null;
   return {
@@ -102,7 +110,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal todo item to a named group, creating that group when it does not exist. This is the authoritative path for requests such as 'add this as a dev todo'.",
+    description: "Add one native personal todo item. If the requested group does not exist, add it to Inbox and return usedInboxFallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly. This is the authoritative path for requests such as 'add this as a dev todo'.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -120,11 +128,17 @@ export function registerTodoTools(registry, store, ledger) {
       if (!taskText) throw new Error("Todo text cannot be empty");
       database.exec("BEGIN IMMEDIATE");
       try {
-        const selectedGroup = ensureGroup(database, groupName);
+        const requestedGroup = groupName?.trim() || "Inbox";
+        const requestedGroupRow = findGroup(database, requestedGroup);
+        const inbox = requestedGroupRow
+          ? null
+          : ensureGroup(database, "Inbox");
+        const selectedGroup = requestedGroupRow ?? inbox.row;
+        const usedInboxFallback = !requestedGroupRow && requestedGroup.toLowerCase() !== "inbox";
         const sortPosition = Number(database.prepare(`
           SELECT COALESCE(MAX(sort_position), 0) + 10 AS value
           FROM personal_tasks WHERE todo_group_id = ?
-        `).get(selectedGroup.row.todo_group_id).value);
+        `).get(selectedGroup.todo_group_id).value);
         const sourceEventId = context.requestEventId || null;
         const row = database.prepare(`
           INSERT INTO personal_tasks (
@@ -133,28 +147,73 @@ export function registerTodoTools(registry, store, ledger) {
           ) VALUES (?, ?, 'todo', ?, ?, ?, 'agent-slayer', ?)
           RETURNING *
         `).get(
-          selectedGroup.row.todo_group_id, taskText, sortPosition,
+          selectedGroup.todo_group_id, taskText, sortPosition,
           scheduledAtUtc || null, dueAtUtc || null, sourceEventId,
         );
-        const task = publicTask({ ...row, group_name: selectedGroup.row.name });
+        const task = publicTask({ ...row, group_name: selectedGroup.name });
+        const groupResolution = {
+          requestedGroup,
+          actualGroup: selectedGroup.name,
+          requestedGroupFound: Boolean(requestedGroupRow),
+          usedInboxFallback,
+          askToCreateRequestedGroup: usedInboxFallback,
+        };
         ledger.append({
           type: "personal_todo.created", status: "complete", actorType: "tool", actorName: "todo_add",
           turnId: context.requestId, operationId: context.callId, name: "Personal todo created",
           content: task.text,
-          payload: {
-            task,
-            groupCreated: selectedGroup.created,
-            groupReactivated: selectedGroup.reactivated,
-          },
+          payload: { task, groupResolution },
           subjectType: "personal_task", subjectId: String(task.id),
         });
         database.exec("COMMIT");
         return {
           created: true,
-          groupCreated: selectedGroup.created,
-          groupReactivated: selectedGroup.reactivated,
+          groupResolution,
           task,
         };
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  });
+
+  registry.register({
+    name: "todo_group_create",
+    description: "Create or reactivate a native personal todo group after Nate has confirmed that he wants it. Use todo_update afterward to move an Inbox task into the new group.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 200 },
+      },
+      required: ["name"],
+    },
+    async execute({ name }, context) {
+      const groupName = name.trim();
+      if (!groupName) throw new Error("Todo group name cannot be empty");
+      const database = store.requireReady();
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        const selectedGroup = ensureGroup(database, groupName);
+        const result = {
+          created: selectedGroup.created,
+          reactivated: selectedGroup.reactivated,
+          group: publicGroup(selectedGroup.row),
+        };
+        ledger.append({
+          type: selectedGroup.created
+            ? "personal_todo_group.created"
+            : selectedGroup.reactivated
+              ? "personal_todo_group.reactivated"
+              : "personal_todo_group.unchanged",
+          status: "complete", actorType: "tool", actorName: "todo_group_create",
+          turnId: context.requestId, operationId: context.callId, name: "Personal todo group resolved",
+          content: selectedGroup.row.name, payload: result,
+          subjectType: "todo_group", subjectId: String(selectedGroup.row.todo_group_id),
+        });
+        database.exec("COMMIT");
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;

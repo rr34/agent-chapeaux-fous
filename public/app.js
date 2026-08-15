@@ -3,6 +3,8 @@ const elements = {
   text: document.querySelector("#request-text"),
   send: document.querySelector("#send"),
   record: document.querySelector("#record"),
+  recordLabel: document.querySelector("#record-label"),
+  recordTimer: document.querySelector("#record-timer"),
   status: document.querySelector("#composer-status"),
   runtime: document.querySelector("#runtime"),
   integration: document.querySelector("#integration"),
@@ -25,7 +27,10 @@ let accessToken = localStorage.getItem("agent-slayer-token") || "";
 let lastHealth = null;
 let activeTrace = null;
 let recorder = null;
+let recordingStream = null;
 let recordingChunks = [];
+let recordingStartedAt = null;
+let recordingTimer = null;
 const requestNodes = new Map();
 
 function authHeaders(extra = {}) {
@@ -69,6 +74,39 @@ function formatTime(milliseconds) {
     day: "2-digit", month: "2-digit", year: "numeric",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
   }).format(new Date(milliseconds));
+}
+
+function formatClock(milliseconds) {
+  const totalSeconds = Math.floor(Math.max(0, Number(milliseconds) || 0) / 1000);
+  return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+function formatDuration(milliseconds) {
+  const seconds = Number(milliseconds) / 1000;
+  if (!Number.isFinite(seconds)) return "—";
+  return `${Math.max(.1, seconds).toFixed(1)} s`;
+}
+
+function progressDetail(progress) {
+  if (!progress) return "";
+  const elapsedMs = Math.max(0, Date.now() - Number(progress.startedAtMs || Date.now()));
+  const quietMs = Math.max(0, Date.now() - Number(progress.lastActivityAtMs || progress.startedAtMs || Date.now()));
+  const parts = [`${formatDuration(elapsedMs)} elapsed`];
+  if (progress.modelCalls) parts.push(`${progress.modelCalls} model call${progress.modelCalls === 1 ? "" : "s"}`);
+  if (progress.toolCalls) parts.push(`${progress.toolCalls} tool call${progress.toolCalls === 1 ? "" : "s"}`);
+  if (elapsedMs >= 120_000) parts.unshift("Still working");
+  if (quietMs >= 60_000) parts.push(`${formatDuration(quietMs)} since last activity`);
+  return parts.join(" · ");
+}
+
+function updateProgressClocks() {
+  for (const progress of document.querySelectorAll(".request-progress[data-progress]")) {
+    try {
+      progress.querySelector(".progress-detail").textContent = progressDetail(JSON.parse(progress.dataset.progress));
+    } catch {
+      // The next request poll replaces malformed progress state.
+    }
+  }
 }
 
 function usageWindows(usage) {
@@ -146,6 +184,15 @@ function requestNode(request, index) {
   const usage = node.querySelector(".request-usage");
   usage.textContent = requestUsageLabel(request.usage);
   usage.hidden = !usage.textContent;
+  const progress = node.querySelector(".request-progress");
+  progress.hidden = !request.progress;
+  if (request.progress) {
+    progress.dataset.progress = JSON.stringify(request.progress);
+    progress.querySelector(".progress-label").textContent = request.progress.label;
+    progress.querySelector(".progress-detail").textContent = progressDetail(request.progress);
+  } else {
+    delete progress.dataset.progress;
+  }
   node.style.order = index;
   return node;
 }
@@ -254,29 +301,61 @@ elements.form.addEventListener("submit", async (event) => {
 
 elements.record.addEventListener("click", async () => {
   if (recorder?.state === "recording") {
+    clearInterval(recordingTimer);
     recorder.stop();
-    elements.record.textContent = "Record voice";
+    elements.record.disabled = true;
+    elements.record.classList.remove("recording");
+    elements.record.setAttribute("aria-label", "Saving recording");
+    elements.recordLabel.textContent = "Saving recording…";
     return;
   }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordingStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
     recordingChunks = [];
-    recorder = new MediaRecorder(stream);
+    recorder = new MediaRecorder(recordingStream);
     recorder.addEventListener("dataavailable", (event) => { if (event.data.size) recordingChunks.push(event.data); });
     recorder.addEventListener("stop", async () => {
-      stream.getTracks().forEach((track) => track.stop());
+      recordingStream?.getTracks().forEach((track) => track.stop());
       const blob = new Blob(recordingChunks, { type: recorder.mimeType || "audio/webm" });
       elements.status.textContent = "Uploading voice request…";
       try {
         await api("/api/voice", { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
         elements.status.textContent = "Voice request queued.";
         await loadRequests({ force: true });
-      } catch (error) { elements.status.textContent = error.message; }
+      } catch (error) {
+        elements.status.textContent = error.message;
+      } finally {
+        recorder = null;
+        recordingStream = null;
+        recordingStartedAt = null;
+        elements.record.disabled = false;
+        elements.record.classList.remove("recording");
+        elements.record.setAttribute("aria-label", "Start recording");
+        elements.recordLabel.textContent = "Tap to record";
+        elements.recordTimer.textContent = "00:00";
+      }
     });
-    recorder.start();
-    elements.record.textContent = "Stop recording";
+    recorder.start(1000);
+    recordingStartedAt = Date.now();
+    elements.record.classList.add("recording");
+    elements.record.setAttribute("aria-label", "Stop and queue recording");
+    elements.recordLabel.textContent = "Tap to queue";
+    elements.recordTimer.textContent = "00:00";
+    recordingTimer = setInterval(() => {
+      elements.recordTimer.textContent = formatClock(Date.now() - recordingStartedAt);
+    }, 250);
     elements.status.textContent = "Recording…";
-  } catch (error) { elements.status.textContent = error.message; }
+  } catch (error) {
+    recordingStream?.getTracks().forEach((track) => track.stop());
+    recordingStream = null;
+    recorder = null;
+    elements.record.classList.remove("recording");
+    elements.recordLabel.textContent = "Tap to record";
+    elements.recordTimer.textContent = "00:00";
+    elements.status.textContent = error.message;
+  }
 });
 
 elements.refresh.addEventListener("click", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
@@ -312,4 +391,5 @@ loadHealth().catch(() => {});
 loadRequests({ force: true }).catch(() => {});
 setInterval(() => loadHealth().catch(() => {}), 5000);
 setInterval(() => loadRequests().catch(() => {}), 1500);
+setInterval(updateProgressClocks, 250);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(() => {});

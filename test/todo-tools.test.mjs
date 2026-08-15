@@ -43,7 +43,7 @@ test("native todo tools add and complete a Development task", async (context) =>
   assert.ok(updated.task.completedAtUtc);
 });
 
-test("todo_add creates an explicitly requested group when it does not exist", async (context) => {
+test("todo_add uses Inbox when a requested group is missing, then supports a confirmed create and move", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.filename);
@@ -63,9 +63,34 @@ test("todo_add creates an explicitly requested group when it does not exist", as
   }, { requestId: "request-create-group", requestEventId: request.eventId, callId: "call-create-group" });
 
   assert.equal(created.created, true);
-  assert.equal(created.groupCreated, true);
-  assert.equal(created.groupReactivated, false);
-  assert.equal(created.task.groupName, "Development");
+  assert.deepEqual(created.groupResolution, {
+    requestedGroup: "Development",
+    actualGroup: "Inbox",
+    requestedGroupFound: false,
+    usedInboxFallback: true,
+    askToCreateRequestedGroup: true,
+  });
+  assert.equal(created.task.groupName, "Inbox");
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM todo_groups WHERE name = 'Development'").get().count,
+    0,
+  );
+
+  const group = await registry.execute("todo_group_create", {
+    name: "Development",
+  }, { requestId: "request-create-group", callId: "call-group-create" });
+  assert.equal(group.created, true);
+  assert.equal(group.group.name, "Development");
+
+  const moved = await registry.execute("todo_update", {
+    taskId: created.task.id,
+    text: null,
+    group: "Development",
+    status: null,
+    scheduledAtUtc: null,
+    dueAtUtc: null,
+  }, { requestId: "request-create-group", callId: "call-move" });
+  assert.equal(moved.task.groupName, "Development");
   assert.equal(
     database.prepare("SELECT COUNT(*) AS count FROM todo_groups WHERE name = 'Development'").get().count,
     1,

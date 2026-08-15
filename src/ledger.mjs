@@ -53,6 +53,44 @@ function requestChannel(request) {
   return request.channel;
 }
 
+function operationFinished(events, start, terminalTypes) {
+  return events.some((event) => (
+    event.eventSeq > start.eventSeq
+    && terminalTypes.includes(event.type)
+    && (!start.operationId || event.operationId === start.operationId)
+  ));
+}
+
+function activeOperation(events, startType, terminalTypes) {
+  return [...events].reverse().find((event) => (
+    event.type === startType
+    && event.phase === "start"
+    && !operationFinished(events, event, terminalTypes)
+  ));
+}
+
+export function requestProgress(events, startedAtMs) {
+  const last = events.at(-1);
+  const tool = activeOperation(events, "tool.call", ["tool.result"]);
+  const transcription = activeOperation(events, "transcription.start", ["transcription.complete", "request.error"]);
+  const model = activeOperation(events, "model.request", ["model.response", "request.error"]);
+  let label = "Queued";
+  if (tool) label = `Running ${tool.name || tool.actorName || "tool"}`;
+  else if (transcription) label = "Transcribing";
+  else if (model) label = "Waiting for model";
+  else if (last?.type === "tools.sent" || last?.type === "context.sent") label = "Building model request";
+  else if (last?.type === "model.response" || last?.type === "model.usage" || last?.type === "assistant.response") label = "Finishing response";
+  else if (last?.type === "request.processing") label = "Preparing request";
+  else if (last?.type !== "request.received" && last?.type !== "voice.request.received") label = "Processing request";
+  return {
+    label,
+    startedAtMs,
+    lastActivityAtMs: last?.occurredAtMs ?? startedAtMs,
+    modelCalls: events.filter((event) => event.type === "model.request" && event.phase === "start").length,
+    toolCalls: events.filter((event) => event.type === "tool.call" && event.phase === "start").length,
+  };
+}
+
 export class Ledger {
   constructor(store) {
     this.store = store;
@@ -160,16 +198,18 @@ export class Ledger {
       const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
       const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
       const usage = [...events].reverse().find((event) => event.type === "model.usage");
+      const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
       return {
         requestId: request.turnId,
         channel: requestChannel(request),
         submittedAtMs: request.occurredAtMs,
-        status: terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued"),
+        status,
         request: request.content || transcript?.content || "Voice request",
         response: response?.content || null,
         error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
         usage: usage?.payload || null,
         eventCount: events.length,
+        ...(!terminal ? { progress: requestProgress(events, request.occurredAtMs) } : {}),
       };
     });
   }
