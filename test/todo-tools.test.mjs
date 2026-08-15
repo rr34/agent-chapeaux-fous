@@ -61,3 +61,56 @@ test("generic database writes cannot mutate the ledger", async (context) => {
     /not permitted/,
   );
 });
+
+test("legacy voice-service requests remain visible without rewriting their events", (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+
+  ledger.append({
+    type: "voice.request.received",
+    status: "queued",
+    actorType: "user",
+    actorName: "Nate",
+    source: "text_web",
+    channel: "tailnet_web",
+    turnId: "legacy-request",
+    subjectType: "voice_request",
+    subjectId: "legacy-request",
+    content: "Add the old request",
+    payload: { inputKind: "text" },
+  });
+  ledger.append({
+    type: "agent.turn.end",
+    phase: "end",
+    status: "complete",
+    actorType: "agent",
+    actorName: "Legacy runtime",
+    turnId: "legacy-request",
+    subjectType: "voice_request",
+    subjectId: "legacy-request",
+    content: "The old response",
+  });
+
+  assert.deepEqual(ledger.recentRequests(), [{
+    requestId: "legacy-request",
+    channel: "web",
+    submittedAtMs: ledger.trace("legacy-request")[0].occurredAtMs,
+    status: "complete",
+    request: "Add the old request",
+    response: "The old response",
+    error: null,
+    usage: null,
+    eventCount: 2,
+  }]);
+  assert.deepEqual(
+    ledger.recentConversation().map(({ role, content }) => ({ role, content })),
+    [
+      { role: "user", content: "Add the old request" },
+      { role: "assistant", content: "The old response" },
+    ],
+  );
+  assert.equal(ledger.searchHistory("old response").length, 1);
+});

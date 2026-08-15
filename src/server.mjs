@@ -141,7 +141,11 @@ function health() {
     model: { ...model, id: modelTransport.id, displayName: modelTransport.displayName, model: config.model },
     database: store.status,
     integrations: mcp.health(),
-    tools: registry.list().map((tool) => ({ name: tool.name, source: tool.source })),
+    tools: registry.list().map((tool) => ({
+      name: tool.name,
+      source: tool.source,
+      upstreamName: tool.upstreamName ?? null,
+    })),
   };
 }
 

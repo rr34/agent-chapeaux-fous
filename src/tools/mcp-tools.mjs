@@ -16,6 +16,13 @@ function safeName(value) {
   return normalized.length <= 64 ? normalized : `${normalized.slice(0, 55)}_${normalized.slice(-8)}`;
 }
 
+export function remoteToolName(serverName, toolName) {
+  // `mcp__` is a runtime-owned namespace in Codex App Server, not an
+  // application tool prefix. Source metadata already records that this tool
+  // came from MCP, so expose a provider-neutral application name instead.
+  return safeName(`remote_${serverName}_${toolName}`);
+}
+
 function resultContent(result) {
   if (result?.structuredContent != null) return result.structuredContent;
   if (!Array.isArray(result?.content)) return result;
@@ -81,13 +88,14 @@ export class McpToolManager {
         const allowed = server.includeTools ? new Set(server.includeTools) : null;
         const tools = response.tools.filter((tool) => !allowed || allowed.has(tool.name));
         for (const tool of tools) {
-          const modelName = safeName(`mcp__${serverName}__${tool.name}`);
+          const modelName = remoteToolName(serverName, tool.name);
           registry.register({
             name: modelName,
             description: `[${serverName}] ${tool.description || tool.name}`,
             parameters: tool.inputSchema || { type: "object", additionalProperties: true },
             strict: false,
             source: `mcp:${serverName}`,
+            upstreamName: tool.name,
             async execute(argumentsObject) {
               const result = await client.callTool({ name: tool.name, arguments: argumentsObject });
               if (result.isError) throw new Error(JSON.stringify(resultContent(result)));

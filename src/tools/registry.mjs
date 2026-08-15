@@ -24,6 +24,8 @@ export class ToolRegistry {
       description: tool.description,
       inputSchema: tool.parameters,
       strict: tool.strict,
+      source: tool.source,
+      upstreamName: tool.upstreamName ?? null,
     }));
   }
 

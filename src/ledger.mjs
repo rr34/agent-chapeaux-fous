@@ -31,6 +31,28 @@ function publicEvent(row) {
   };
 }
 
+const receivedEventTypes = ["request.received", "voice.request.received"];
+const responseEventTypes = ["assistant.response", "agent.turn.end"];
+const terminalEventTypes = [
+  "request.complete",
+  "request.error",
+  "agent.turn.end",
+  "agent.turn.error",
+  "voice.request.interrupted",
+  "voice.transcription.error",
+];
+
+function placeholders(values) {
+  return values.map(() => "?").join(", ");
+}
+
+function requestChannel(request) {
+  if (request.type === "voice.request.received") {
+    return request.payload?.inputKind === "voice" ? "voice" : "web";
+  }
+  return request.channel;
+}
+
 export class Ledger {
   constructor(store) {
     this.store = store;
@@ -129,23 +151,23 @@ export class Ledger {
     const bounded = Math.min(200, Math.max(1, Number(limit) || 100));
     const received = this.store.requireReady().prepare(`
       SELECT * FROM activity_events
-      WHERE event_type = 'request.received'
+      WHERE event_type IN (${placeholders(receivedEventTypes)})
       ORDER BY event_seq DESC LIMIT ?
-    `).all(bounded).map(publicEvent);
+    `).all(...receivedEventTypes, bounded).map(publicEvent);
     return received.map((request) => {
       const events = this.trace(request.turnId);
-      const terminal = [...events].reverse().find((event) => ["request.complete", "request.error"].includes(event.type));
-      const response = [...events].reverse().find((event) => event.type === "assistant.response");
-      const transcript = events.find((event) => event.type === "transcription.complete");
+      const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
+      const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
+      const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
       const usage = [...events].reverse().find((event) => event.type === "model.usage");
       return {
         requestId: request.turnId,
-        channel: request.channel,
+        channel: requestChannel(request),
         submittedAtMs: request.occurredAtMs,
-        status: terminal?.status || (events.some((event) => event.type === "request.processing") ? "processing" : "queued"),
+        status: terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued"),
         request: request.content || transcript?.content || "Voice request",
         response: response?.content || null,
-        error: terminal?.error || null,
+        error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
         usage: usage?.payload || null,
         eventCount: events.length,
       };
@@ -155,16 +177,26 @@ export class Ledger {
   recentConversation({ beforeRequestId = null, limit = 4 } = {}) {
     const database = this.store.requireReady();
     const before = beforeRequestId
-      ? database.prepare("SELECT event_seq FROM activity_events WHERE turn_id = ? AND event_type = 'request.received' ORDER BY event_seq LIMIT 1").get(beforeRequestId)?.event_seq
+      ? database.prepare(`
+          SELECT event_seq FROM activity_events
+          WHERE turn_id = ? AND event_type IN (${placeholders(receivedEventTypes)})
+          ORDER BY event_seq LIMIT 1
+        `).get(beforeRequestId, ...receivedEventTypes)?.event_seq
       : null;
     const rows = database.prepare(`
       SELECT * FROM activity_events
-      WHERE event_type IN ('request.received', 'assistant.response')
+      WHERE event_type IN (${placeholders([...receivedEventTypes, ...responseEventTypes])})
         AND (? IS NULL OR event_seq < ?)
       ORDER BY event_seq DESC LIMIT ?
-    `).all(before ?? null, before ?? null, Math.min(20, Math.max(2, limit * 2))).map(publicEvent).reverse();
+    `).all(
+      ...receivedEventTypes,
+      ...responseEventTypes,
+      before ?? null,
+      before ?? null,
+      Math.min(20, Math.max(2, limit * 2)),
+    ).map(publicEvent).reverse();
     return rows.map((event) => ({
-      role: event.type === "request.received" ? "user" : "assistant",
+      role: receivedEventTypes.includes(event.type) ? "user" : "assistant",
       content: event.content,
       requestId: event.turnId,
       occurredAtUtc: event.occurredAtUtc,
@@ -176,10 +208,10 @@ export class Ledger {
     const escaped = `%${String(query).replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
     return this.store.requireReady().prepare(`
       SELECT * FROM activity_events
-      WHERE event_type IN ('request.received', 'assistant.response')
+      WHERE event_type IN (${placeholders([...receivedEventTypes, ...responseEventTypes])})
         AND content_text LIKE ? ESCAPE '\\'
       ORDER BY event_seq DESC LIMIT ?
-    `).all(escaped, bounded).map(publicEvent);
+    `).all(...receivedEventTypes, ...responseEventTypes, escaped, bounded).map(publicEvent);
   }
 
   registerFile({ storagePath, originalFilename, mimeType, sha256, byteSize, mediaKind = "audio" }) {
