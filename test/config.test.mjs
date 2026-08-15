@@ -21,3 +21,28 @@ test("an explicitly configured Codex workspace inside the repository is rejected
     /must be outside the Agent Slayer repository/,
   );
 });
+
+test("the public URL controls browser OAuth callbacks", () => {
+  const config = loadConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_PUBLIC_URL: "https://slayer.example.test",
+    XDG_STATE_HOME: "/tmp/agent-slayer-state-test",
+  });
+  assert.equal(config.publicUrl, "https://slayer.example.test/");
+  assert.equal(config.mcpOAuthRoot, "/tmp/agent-slayer-state-test/agent-slayer/mcp-oauth");
+});
+
+test("the public URL rejects credentials and non-HTTP schemes", () => {
+  assert.throws(
+    () => loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "file:///tmp/slayer" }),
+    /must be an HTTPS origin/,
+  );
+  assert.throws(
+    () => loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "https://user:secret@example.test" }),
+    /must be an HTTPS origin/,
+  );
+  assert.throws(
+    () => loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "http://slayer.example.test" }),
+    /must be an HTTPS origin/,
+  );
+});

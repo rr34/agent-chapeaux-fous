@@ -104,7 +104,7 @@ button.secondary:hover { border-color: #56616a; background: #252b31; }
 button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 
 .runtime-group { display: flex; align-items: center; gap: .45rem; }
-.runtime, .usage {
+.runtime, .usage, .integration {
   min-height: 34px;
   padding: .35rem .65rem;
   color: var(--muted);
@@ -113,8 +113,10 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
   border: 1px solid var(--line);
 }
 .usage { font-family: inherit; }
-.runtime.ready, .usage.ready { color: var(--good); }
-.runtime.not-ready, .usage.not-ready { color: var(--bad); }
+.integration { font-family: inherit; }
+.runtime.ready, .usage.ready, .integration.ready { color: var(--good); }
+.runtime.not-ready, .usage.not-ready, .integration.not-ready { color: var(--bad); }
+.integration:disabled { cursor: default; opacity: 1; }
 
 .status, .muted, .empty { color: var(--muted); }
 .status { min-height: 1.3rem; margin: .6rem 0 0; font-size: .88rem; }

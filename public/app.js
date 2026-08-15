@@ -5,6 +5,7 @@ const elements = {
   record: document.querySelector("#record"),
   status: document.querySelector("#composer-status"),
   runtime: document.querySelector("#runtime"),
+  integration: document.querySelector("#integration"),
   usage: document.querySelector("#usage"),
   refresh: document.querySelector("#refresh"),
   list: document.querySelector("#request-list"),
@@ -212,6 +213,21 @@ async function loadHealth() {
   elements.usage.textContent = healthUsageLabel(body.model);
   elements.usage.classList.toggle("ready", Boolean(body.model?.usage));
   elements.usage.classList.toggle("not-ready", !body.model?.usage);
+  const oauthEntry = Object.entries(body.integrations ?? {}).find(([, integration]) => integration.oauth);
+  elements.integration.hidden = !oauthEntry;
+  if (oauthEntry) {
+    const [name, integration] = oauthEntry;
+    elements.integration.dataset.name = name;
+    elements.integration.disabled = Boolean(integration.ready);
+    elements.integration.classList.toggle("ready", Boolean(integration.ready));
+    elements.integration.classList.toggle("not-ready", !integration.ready);
+    elements.integration.textContent = integration.ready
+      ? `${name.toUpperCase()} connected`
+      : `Connect ${name.toUpperCase()}`;
+    elements.integration.title = integration.ready
+      ? `${name} MCP OAuth is connected.`
+      : `Authorize Agent Slayer to use ${name}.`;
+  }
 }
 
 elements.form.addEventListener("submit", async (event) => {
@@ -264,6 +280,19 @@ elements.record.addEventListener("click", async () => {
 });
 
 elements.refresh.addEventListener("click", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
+elements.integration.addEventListener("click", async () => {
+  const name = elements.integration.dataset.name;
+  if (!name) return;
+  elements.integration.disabled = true;
+  elements.status.textContent = `Starting ${name.toUpperCase()} authorization…`;
+  try {
+    const result = await api(`/api/integrations/${encodeURIComponent(name)}/oauth/start`, { method: "POST" });
+    window.location.assign(result.authorizationUrl);
+  } catch (error) {
+    elements.status.textContent = error.message;
+    elements.integration.disabled = false;
+  }
+});
 elements.runtime.addEventListener("click", (event) => copyText(JSON.stringify(lastHealth, null, 2), event.currentTarget));
 elements.usage.addEventListener("click", (event) => copyText(JSON.stringify(lastHealth?.body?.model?.usage ?? null, null, 2), event.currentTarget));
 elements.closeTrace.addEventListener("click", () => { elements.tracePanel.hidden = true; });
@@ -275,6 +304,10 @@ elements.tokenForm.addEventListener("submit", () => {
 });
 
 if (!accessToken) elements.tokenDialog.showModal();
+if (new URLSearchParams(window.location.search).get("oauth") === "connected") {
+  elements.status.textContent = "MCP OAuth connected.";
+  history.replaceState(null, "", window.location.pathname);
+}
 loadHealth().catch(() => {});
 loadRequests({ force: true }).catch(() => {});
 setInterval(() => loadHealth().catch(() => {}), 5000);

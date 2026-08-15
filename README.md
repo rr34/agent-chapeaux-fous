@@ -116,9 +116,23 @@ the active model transport. Codex's own MCP, app, plugin, shell, and filesystem
 facilities are not the application tool path. Missing or failed integrations
 are visible in `/health`; they are never silently represented as available.
 
-`TLOM_ACCESS_TOKEN` is intentionally a direct integration credential. OAuth
-bootstrap and refresh can be added inside the TLOM connection without changing
-the model loop.
+TLOM uses the MCP authorization-code flow with OAuth discovery, dynamic client
+registration, PKCE, and refresh tokens. Set `SLAYER_PUBLIC_URL` to the origin
+where a browser can reach Agent Slayer, start the service, then use **Connect
+TLOM** in the web header. The registered callback is:
+
+```text
+<SLAYER_PUBLIC_URL>/api/integrations/tlom/oauth/callback
+```
+
+OAuth client registrations and tokens are stored as mode `0600` files under
+`~/.local/state/agent-slayer/mcp-oauth` by default. The directory is mode
+`0700`. Set `SLAYER_MCP_OAUTH_ROOT` to override it. TLOM requests read and write
+scope; delete scope is deliberately not requested.
+
+TLOM is marked as a required integration. Until OAuth is connected, health is
+not ready and model requests are rejected with the integration status instead
+of falling back to unrelated local database tools.
 
 ## Database transition
 

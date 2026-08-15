@@ -34,6 +34,18 @@ export function loadConfig(environment = process.env) {
     environment.XDG_STATE_HOME?.trim() || path.join(os.homedir(), ".local", "state"),
     "agent-slayer",
   );
+  const host = environment.SLAYER_HOST?.trim() || "127.0.0.1";
+  const port = positiveInteger(environment.SLAYER_PORT, 8787);
+  const defaultPublicHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+  const publicUrl = new URL(environment.SLAYER_PUBLIC_URL?.trim() || `http://${defaultPublicHost}:${port}`);
+  const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+  if (
+    !["http:", "https:"].includes(publicUrl.protocol)
+    || (publicUrl.protocol === "http:" && !loopbackHosts.has(publicUrl.hostname))
+    || publicUrl.username || publicUrl.password || publicUrl.pathname !== "/" || publicUrl.search || publicUrl.hash
+  ) {
+    throw new Error("SLAYER_PUBLIC_URL must be an HTTPS origin (or an HTTP loopback origin) without credentials, a path, query parameters, or a fragment");
+  }
   const codexWorkDirectory = environment.SLAYER_CODEX_WORKDIR?.trim()
     ? resolveFromRoot(environment.SLAYER_CODEX_WORKDIR)
     : path.join(stateRoot, "codex-workspace");
@@ -43,8 +55,9 @@ export function loadConfig(environment = process.env) {
 
   return {
     repositoryRoot,
-    host: environment.SLAYER_HOST?.trim() || "127.0.0.1",
-    port: positiveInteger(environment.SLAYER_PORT, 8787),
+    host,
+    port,
+    publicUrl: publicUrl.toString(),
     accessToken,
     allowUnauthenticated,
     databasePath: resolveFromRoot(environment.SLAYER_DATABASE, "data/agent.sqlite"),
@@ -52,6 +65,9 @@ export function loadConfig(environment = process.env) {
     profilePath: resolveFromRoot(environment.SLAYER_PROFILE, "config/profile.md"),
     systemPromptPath: path.join(repositoryRoot, "config/system-prompt.md"),
     mcpConfigPath: resolveFromRoot(environment.SLAYER_MCP_CONFIG, "config/mcp-servers.json"),
+    mcpOAuthRoot: environment.SLAYER_MCP_OAUTH_ROOT?.trim()
+      ? resolveFromRoot(environment.SLAYER_MCP_OAUTH_ROOT)
+      : path.join(stateRoot, "mcp-oauth"),
     publicRoot: path.join(repositoryRoot, "public"),
     modelTransport: environment.SLAYER_MODEL_TRANSPORT?.trim() || "codex-app-server",
     codexCommand: environment.SLAYER_CODEX_COMMAND?.trim() || "codex",

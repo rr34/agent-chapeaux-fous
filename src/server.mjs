@@ -26,7 +26,11 @@ const modelTransport = await createModelTransport(config);
 await modelTransport.start().catch((error) => {
   console.error(`[agent-slayer] ${modelTransport.displayName} transport startup failed:`, error);
 });
-const mcp = new McpToolManager({ configPath: config.mcpConfigPath });
+const mcp = new McpToolManager({
+  configPath: config.mcpConfigPath,
+  oauthRoot: config.mcpOAuthRoot,
+  publicUrl: config.publicUrl,
+});
 if (store.status.ready) {
   registerTodoTools(registry, store, ledger);
   registerDatabaseTools(registry, store, ledger);
@@ -58,6 +62,23 @@ function sendJson(response, statusCode, body) {
     "Cache-Control": "no-store",
   });
   response.end(encoded);
+}
+
+function sendOAuthPage(response, statusCode, { title, message, redirect = false }) {
+  const escapedTitle = String(title).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
+  })[character]);
+  const escapedMessage = String(message).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
+  })[character]);
+  const body = Buffer.from(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapedTitle}</title><body><main><h1>${escapedTitle}</h1><p>${escapedMessage}</p><p><a href="/">Return to Agent Slayer</a></p></main>${redirect ? '<script>setTimeout(() => location.replace("/?oauth=connected"), 800)</script>' : ""}</body></html>`);
+  response.writeHead(statusCode, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": body.length,
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+  });
+  response.end(body);
 }
 
 async function readJson(request, maximumBytes = 64 * 1024) {
@@ -135,8 +156,10 @@ async function receiveAudio(request) {
 
 function health() {
   const model = modelTransport.health();
+  const integrationProblem = mcp.requiredProblem();
   return {
-    ready: store.status.ready && model.ready,
+    ready: store.status.ready && model.ready && !integrationProblem,
+    reason: store.status.ready ? (model.ready ? integrationProblem : model.reason) : store.status.reason,
     runtime: identity,
     model: { ...model, id: modelTransport.id, displayName: modelTransport.displayName, model: config.model },
     database: store.status,
@@ -162,6 +185,33 @@ async function serveStatic(pathname, response) {
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   try {
+    const oauthCallbackMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)\/oauth\/callback$/.exec(url.pathname);
+    if (request.method === "GET" && oauthCallbackMatch) {
+      const serverName = oauthCallbackMatch[1];
+      if (url.searchParams.has("error")) {
+        const description = url.searchParams.get("error_description") || url.searchParams.get("error");
+        sendOAuthPage(response, 400, { title: "Authorization failed", message: description });
+        return;
+      }
+      try {
+        await mcp.finishOAuth(serverName, {
+          code: url.searchParams.get("code"),
+          state: url.searchParams.get("state"),
+        });
+        if (store.status.ready) queue.notify();
+        sendOAuthPage(response, 200, {
+          title: `${serverName} connected`,
+          message: "OAuth authorization completed and the MCP tools are now available.",
+          redirect: true,
+        });
+      } catch (error) {
+        sendOAuthPage(response, 400, {
+          title: "Authorization failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       const body = health();
       sendJson(response, body.ready ? 200 : 503, body);
@@ -172,8 +222,18 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (!requireAuthorization(request, response)) return;
+    const oauthStartMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)\/oauth\/start$/.exec(url.pathname);
+    if (request.method === "POST" && oauthStartMatch) {
+      sendJson(response, 200, await mcp.beginOAuth(oauthStartMatch[1]));
+      return;
+    }
     if (!store.status.ready) {
       sendJson(response, 503, { error: store.status.reason });
+      return;
+    }
+    const integrationProblem = mcp.requiredProblem();
+    if (integrationProblem) {
+      sendJson(response, 503, { error: integrationProblem });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/requests") {
@@ -210,7 +270,7 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(config.port, config.host, () => {
   console.log(`[agent-slayer] ${identity.commit || "uncommitted"}${identity.dirty ? "-dirty" : ""} listening on http://${config.host}:${config.port}`);
-  if (store.status.ready) queue.notify();
+  if (store.status.ready && mcp.ready()) queue.notify();
 });
 
 async function shutdown() {
