@@ -1,16 +1,44 @@
 const todoStatuses = ["todo", "complete", "ignore", "archive", "ai_suggested"];
 
-function group(database, name) {
+function findGroup(database, name) {
   const requested = name?.trim() || "Inbox";
-  const row = database.prepare(`
+  return database.prepare(`
     SELECT * FROM todo_groups
     WHERE name = ? COLLATE NOCASE AND archived_at_utc IS NULL
   `).get(requested);
+}
+
+function requireGroup(database, name) {
+  const requested = name?.trim() || "Inbox";
+  const row = findGroup(database, requested);
   if (row) return row;
   const available = database.prepare(`
     SELECT name FROM todo_groups WHERE archived_at_utc IS NULL ORDER BY name COLLATE NOCASE
   `).all().map((item) => item.name);
   throw new Error(`Unknown todo group "${requested}". Available groups: ${available.join(", ") || "none"}`);
+}
+
+function ensureGroup(database, name) {
+  const requested = name?.trim() || "Inbox";
+  const existing = database.prepare(`
+    SELECT * FROM todo_groups WHERE name = ? COLLATE NOCASE
+  `).get(requested);
+  if (!existing) {
+    return {
+      row: database.prepare("INSERT INTO todo_groups (name) VALUES (?) RETURNING *").get(requested),
+      created: true,
+      reactivated: false,
+    };
+  }
+  if (existing.archived_at_utc === null) {
+    return { row: existing, created: false, reactivated: false };
+  }
+  const row = database.prepare(`
+    UPDATE todo_groups SET archived_at_utc = NULL
+    WHERE todo_group_id = ?
+    RETURNING *
+  `).get(existing.todo_group_id);
+  return { row, created: false, reactivated: true };
 }
 
 function publicTask(row) {
@@ -74,7 +102,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal todo item to an existing named group. This is the authoritative path for requests such as 'add this as a dev todo'.",
+    description: "Add one native personal todo item to a named group, creating that group when it does not exist. This is the authoritative path for requests such as 'add this as a dev todo'.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -88,31 +116,49 @@ export function registerTodoTools(registry, store, ledger) {
     },
     async execute({ text, group: groupName, scheduledAtUtc, dueAtUtc }, context) {
       const database = store.requireReady();
-      const selectedGroup = group(database, groupName);
       const taskText = text.trim();
       if (!taskText) throw new Error("Todo text cannot be empty");
-      const sortPosition = Number(database.prepare(`
-        SELECT COALESCE(MAX(sort_position), 0) + 10 AS value
-        FROM personal_tasks WHERE todo_group_id = ?
-      `).get(selectedGroup.todo_group_id).value);
-      const sourceEventId = context.requestEventId || null;
-      const row = database.prepare(`
-        INSERT INTO personal_tasks (
-          todo_group_id, text, status, sort_position, scheduled_at_utc,
-          due_at_utc, source, source_event_id
-        ) VALUES (?, ?, 'todo', ?, ?, ?, 'agent-slayer', ?)
-        RETURNING *
-      `).get(
-        selectedGroup.todo_group_id, taskText, sortPosition,
-        scheduledAtUtc || null, dueAtUtc || null, sourceEventId,
-      );
-      const task = publicTask({ ...row, group_name: selectedGroup.name });
-      ledger.append({
-        type: "personal_todo.created", status: "complete", actorType: "tool", actorName: "todo_add",
-        turnId: context.requestId, operationId: context.callId, name: "Personal todo created",
-        content: task.text, payload: { task }, subjectType: "personal_task", subjectId: String(task.id),
-      });
-      return { created: true, task };
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        const selectedGroup = ensureGroup(database, groupName);
+        const sortPosition = Number(database.prepare(`
+          SELECT COALESCE(MAX(sort_position), 0) + 10 AS value
+          FROM personal_tasks WHERE todo_group_id = ?
+        `).get(selectedGroup.row.todo_group_id).value);
+        const sourceEventId = context.requestEventId || null;
+        const row = database.prepare(`
+          INSERT INTO personal_tasks (
+            todo_group_id, text, status, sort_position, scheduled_at_utc,
+            due_at_utc, source, source_event_id
+          ) VALUES (?, ?, 'todo', ?, ?, ?, 'agent-slayer', ?)
+          RETURNING *
+        `).get(
+          selectedGroup.row.todo_group_id, taskText, sortPosition,
+          scheduledAtUtc || null, dueAtUtc || null, sourceEventId,
+        );
+        const task = publicTask({ ...row, group_name: selectedGroup.row.name });
+        ledger.append({
+          type: "personal_todo.created", status: "complete", actorType: "tool", actorName: "todo_add",
+          turnId: context.requestId, operationId: context.callId, name: "Personal todo created",
+          content: task.text,
+          payload: {
+            task,
+            groupCreated: selectedGroup.created,
+            groupReactivated: selectedGroup.reactivated,
+          },
+          subjectType: "personal_task", subjectId: String(task.id),
+        });
+        database.exec("COMMIT");
+        return {
+          created: true,
+          groupCreated: selectedGroup.created,
+          groupReactivated: selectedGroup.reactivated,
+          task,
+        };
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     },
   });
 
@@ -138,7 +184,7 @@ export function registerTodoTools(registry, store, ledger) {
       if (!before) throw new Error(`Todo ${taskId} does not exist`);
       const values = {};
       if (text !== null) values.text = text.trim();
-      if (groupName !== null) values.todo_group_id = group(database, groupName).todo_group_id;
+      if (groupName !== null) values.todo_group_id = requireGroup(database, groupName).todo_group_id;
       if (status !== null) {
         values.status = status;
         values.completed_at_utc = status === "complete" ? new Date().toISOString() : null;

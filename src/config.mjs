@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,17 @@ export function loadConfig(environment = process.env) {
     );
   }
 
+  const stateRoot = path.resolve(
+    environment.XDG_STATE_HOME?.trim() || path.join(os.homedir(), ".local", "state"),
+    "agent-slayer",
+  );
+  const codexWorkDirectory = environment.SLAYER_CODEX_WORKDIR?.trim()
+    ? resolveFromRoot(environment.SLAYER_CODEX_WORKDIR)
+    : path.join(stateRoot, "codex-workspace");
+  if (codexWorkDirectory === repositoryRoot || codexWorkDirectory.startsWith(`${repositoryRoot}${path.sep}`)) {
+    throw new Error("SLAYER_CODEX_WORKDIR must be outside the Agent Slayer repository so Codex cannot inherit AGENTS.md");
+  }
+
   return {
     repositoryRoot,
     host: environment.SLAYER_HOST?.trim() || "127.0.0.1",
@@ -45,7 +57,7 @@ export function loadConfig(environment = process.env) {
     codexCommand: environment.SLAYER_CODEX_COMMAND?.trim() || "codex",
     codexRequiredVersion: environment.SLAYER_CODEX_REQUIRED_VERSION?.trim() || "0.148.0-alpha.9",
     codexHome: resolveFromRoot(environment.SLAYER_CODEX_HOME, "data/codex-home"),
-    codexWorkDirectory: resolveFromRoot(environment.SLAYER_CODEX_WORKDIR, "data/codex-workspace"),
+    codexWorkDirectory,
     codexRequestTimeoutMs: positiveInteger(environment.SLAYER_CODEX_TIMEOUT_MS, 10 * 60 * 1000),
     model: environment.SLAYER_MODEL?.trim() || "gpt-5.6-terra",
     reasoningEffort: environment.SLAYER_REASONING_EFFORT?.trim() || "high",

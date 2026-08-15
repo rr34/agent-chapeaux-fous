@@ -440,6 +440,7 @@ export class CodexAppServerClient extends EventEmitter {
       requiredVersion: this.requiredVersion || null,
       versionMatches,
       codexHome: this.codexHome || null,
+      workDirectory: this.cwd || null,
       homeMatches,
       configAudit: this.configAudit,
       authMode: this.account?.type ?? null,

@@ -43,6 +43,44 @@ test("native todo tools add and complete a Development task", async (context) =>
   assert.ok(updated.task.completedAtUtc);
 });
 
+test("todo_add creates an explicitly requested group when it does not exist", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const database = store.requireReady();
+  database.prepare("DELETE FROM todo_groups WHERE name = 'Development'").run();
+  const ledger = new Ledger(store);
+  const request = ledger.createRequest({ text: "Add the cutover todo" });
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, ledger);
+
+  const created = await registry.execute("todo_add", {
+    text: "Verify Agent Slayer cutover",
+    group: "Development",
+    scheduledAtUtc: null,
+    dueAtUtc: null,
+  }, { requestId: "request-create-group", requestEventId: request.eventId, callId: "call-create-group" });
+
+  assert.equal(created.created, true);
+  assert.equal(created.groupCreated, true);
+  assert.equal(created.groupReactivated, false);
+  assert.equal(created.task.groupName, "Development");
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM todo_groups WHERE name = 'Development'").get().count,
+    1,
+  );
+  assert.equal(
+    database.prepare(`
+      SELECT COUNT(*) AS count
+      FROM personal_tasks AS task
+      JOIN todo_groups AS todo_group USING (todo_group_id)
+      WHERE todo_group.name = 'Development' AND task.text = 'Verify Agent Slayer cutover'
+    `).get().count,
+    1,
+  );
+});
+
 test("generic database writes cannot mutate the ledger", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

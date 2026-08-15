@@ -132,5 +132,6 @@ test("the client performs a complete dynamic-tool turn and records subscription 
   assert.ok(spawnArguments.includes("unified_exec"));
   assert.ok(spawnArguments.includes("tools.update_plan.enabled=false"));
   assert.deepEqual(client.health().configAudit.mcpServers, []);
+  assert.equal(client.health().workDirectory, "/fake/workspace");
   await client.close();
 });

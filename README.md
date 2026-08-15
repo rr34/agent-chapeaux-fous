@@ -60,7 +60,9 @@ Each request gets a fresh ephemeral Codex thread. Agent Slayer replaces the
 base instructions, supplies its bounded context and dynamic tools, executes
 tool calls itself, and owns the durable SQLite ledger. App Server's unrelated
 agent capabilities are disabled at startup. Every turn is also read-only,
-network-disabled, and rooted in the empty `data/codex-workspace` directory. If
+network-disabled, and rooted in the empty
+`~/.local/state/agent-slayer/codex-workspace` directory outside every source
+repository. If
 Codex nevertheless emits a shell, file, web, app, or subagent item, Agent Slayer
 interrupts and rejects the turn instead of accepting its answer.
 Startup also reads the effective Codex configuration and fails health if any
