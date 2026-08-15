@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111315">
+  <title>Agent Slayer</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Direct model + tools</p>
+      <h1>Agent Slayer</h1>
+    </div>
+    <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+  </header>
+
+  <main>
+    <section class="composer" aria-labelledby="request-heading">
+      <h2 id="request-heading">Request</h2>
+      <form id="request-form">
+        <textarea id="request-text" rows="4" placeholder="Tell Slayer what to do…" required></textarea>
+        <div class="composer-actions">
+          <button id="record" class="secondary" type="button">Record voice</button>
+          <button id="send" type="submit">Send</button>
+        </div>
+      </form>
+      <p id="composer-status" class="status" role="status"></p>
+    </section>
+
+    <section class="requests" aria-labelledby="requests-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Chronological</p>
+          <h2 id="requests-heading">Requests</h2>
+        </div>
+        <button id="refresh" class="secondary compact" type="button">Refresh</button>
+      </div>
+      <div id="request-list" class="request-list"></div>
+      <p id="empty" class="empty">No Agent Slayer requests yet.</p>
+    </section>
+
+    <section id="trace-panel" class="trace-panel" hidden aria-labelledby="trace-heading">
+      <div class="section-heading sticky">
+        <div>
+          <p class="eyebrow">Literal exchange</p>
+          <h2 id="trace-heading">Trace</h2>
+        </div>
+        <div class="button-row">
+          <button id="copy-trace" class="secondary compact" type="button">Copy trace</button>
+          <button id="close-trace" class="secondary compact" type="button">Close</button>
+        </div>
+      </div>
+      <div id="trace-events" class="trace-events"></div>
+    </section>
+  </main>
+
+  <dialog id="token-dialog">
+    <form id="token-form" method="dialog">
+      <p class="eyebrow">Private service</p>
+      <h2>Connect to Agent Slayer</h2>
+      <label for="token">Access token</label>
+      <input id="token" type="password" autocomplete="current-password" required>
+      <p class="muted">Stored only in this browser.</p>
+      <button type="submit">Connect</button>
+    </form>
+  </dialog>
+
+  <template id="request-template">
+    <article class="request-card">
+      <div class="request-meta">
+        <span class="request-number"></span>
+        <span class="request-channel"></span>
+        <span class="request-status"></span>
+        <time></time>
+      </div>
+      <p class="user-request"></p>
+      <div class="agent-response" hidden>
+        <p></p>
+        <button class="copy-response secondary compact" type="button">Copy response</button>
+      </div>
+      <p class="request-error" hidden></p>
+      <button class="show-trace secondary compact" type="button">Show exact trace</button>
+    </article>
+  </template>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "Agent Slayer",
+  "short_name": "Slayer",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0e10",
+  "theme_color": "#111315",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

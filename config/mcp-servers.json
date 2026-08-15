@@ -1,0 +1,40 @@
+{
+  "tlom": {
+    "enabled": true,
+    "url": "https://mytlom.com/api/mcp",
+    "headers": {
+      "Authorization": "Bearer ${TLOM_ACCESS_TOKEN}"
+    }
+  },
+  "nutrition": {
+    "enabled": false,
+    "url": "https://nutrition-mcp.com/mcp",
+    "headers": {
+      "Authorization": "Bearer ${NUTRITION_ACCESS_TOKEN}"
+    }
+  },
+  "weather": {
+    "enabled": true,
+    "url": "https://open-meteo.caseyjhand.com/mcp",
+    "includeTools": [
+      "openmeteo_search_locations",
+      "openmeteo_get_forecast"
+    ]
+  },
+  "github": {
+    "enabled": false,
+    "url": "https://api.githubcopilot.com/mcp/",
+    "headers": {
+      "Authorization": "Bearer ${GITHUB_MCP_PAT}",
+      "X-MCP-Toolsets": "context,repos,issues,pull_requests",
+      "X-MCP-Readonly": "true"
+    }
+  },
+  "fastmail": {
+    "enabled": false,
+    "url": "https://api.fastmail.com/mcp",
+    "headers": {
+      "Authorization": "Bearer ${FASTMAIL_MCP_TOKEN}"
+    }
+  }
+}

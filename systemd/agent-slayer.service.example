@@ -1,0 +1,17 @@
+[Unit]
+Description=Agent Slayer web, voice, model, and tool service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/nate/code/agent-slayer
+EnvironmentFile=/home/nate/code/agent-slayer/.env
+ExecStart=/usr/bin/node /home/nate/code/agent-slayer/src/server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
