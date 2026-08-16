@@ -67,9 +67,9 @@ export function loadConfig(environment = process.env) {
     allowUnauthenticated,
     databasePath: resolveFromRoot(environment.SLAYER_DATABASE, "data/agent.sqlite"),
     mediaRoot: resolveFromRoot(environment.SLAYER_MEDIA_ROOT, "media"),
-    profilePath: resolveFromRoot(environment.SLAYER_PROFILE, "config/profile.md"),
     systemPromptPath: path.join(repositoryRoot, "config/system-prompt.md"),
     mcpConfigPath: resolveFromRoot(environment.SLAYER_MCP_CONFIG, "config/mcp-servers.json"),
+    schemaSemanticsPath: path.join(repositoryRoot, "db/schema-semantics.json"),
     mcpOAuthRoot: environment.SLAYER_MCP_OAUTH_ROOT?.trim()
       ? resolveFromRoot(environment.SLAYER_MCP_OAUTH_ROOT)
       : path.join(stateRoot, "mcp-oauth"),

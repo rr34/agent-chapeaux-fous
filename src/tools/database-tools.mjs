@@ -1,6 +1,25 @@
 const nullableString = { type: ["string", "null"] };
 
-export function registerDatabaseTools(registry, store, ledger) {
+function fieldsForRead(argumentsObject) {
+  const fields = new Set(argumentsObject.columns ?? []);
+  for (const key of Object.keys(argumentsObject.where ?? {})) fields.add(key);
+  if (argumentsObject.orderBy) fields.add(argumentsObject.orderBy);
+  return fields.size ? [...fields] : null;
+}
+
+function fieldsForWrite(argumentsObject) {
+  const fields = new Set([
+    ...Object.keys(argumentsObject.values ?? {}),
+    ...Object.keys(argumentsObject.where ?? {}),
+  ]);
+  return fields.size ? [...fields] : null;
+}
+
+function projection(schemaSemantics, operation, context) {
+  return schemaSemantics?.compile(operation, context) ?? null;
+}
+
+export function registerDatabaseTools(registry, store, ledger, schemaSemantics = null) {
   registry.register({
     name: "database_schema",
     description: "Inspect the existing Slayer SQLite tables, views, columns, foreign keys, and CREATE statements. This never changes schema.",
@@ -10,9 +29,18 @@ export function registerDatabaseTools(registry, store, ledger) {
       properties: { objectName: nullableString },
       required: ["objectName"],
     },
-    async execute({ objectName }) {
-      if (objectName) return { objects: [store.objectInfo(objectName)] };
-      return { objects: store.objects().map((object) => store.objectInfo(object.name)) };
+    async execute({ objectName }, context) {
+      const objects = objectName
+        ? [store.objectInfo(objectName)]
+        : store.objects().map((object) => store.objectInfo(object.name));
+      const schemaProjection = objectName
+        ? projection(schemaSemantics, {
+            name: "inspect_database_object",
+            purpose: "Inspect one database object's mechanics and meaning.",
+            schemaObjects: [objectName],
+          }, context)
+        : null;
+      return { objects, schemaProjection };
     },
   });
 
@@ -33,8 +61,16 @@ export function registerDatabaseTools(registry, store, ledger) {
         limit: { type: "integer", minimum: 1, maximum: 200 },
       },
     },
-    async execute(argumentsObject) {
-      return store.read(argumentsObject);
+    async execute(argumentsObject, context) {
+      const schemaProjection = projection(schemaSemantics, {
+        name: "bounded_database_read",
+        purpose: "Read bounded rows through Agent Slayer's structured database interface.",
+        schemaObjects: [argumentsObject.objectName],
+        ...(fieldsForRead(argumentsObject)
+          ? { fields: { [argumentsObject.objectName]: fieldsForRead(argumentsObject) } }
+          : {}),
+      }, context);
+      return { ...store.read(argumentsObject), schemaProjection };
     },
   });
 
@@ -54,13 +90,21 @@ export function registerDatabaseTools(registry, store, ledger) {
       },
     },
     async execute(argumentsObject, context) {
+      const schemaProjection = projection(schemaSemantics, {
+        name: `bounded_database_${argumentsObject.action}`,
+        purpose: `${argumentsObject.action} rows through Agent Slayer's structured database interface.`,
+        schemaObjects: [argumentsObject.table],
+        ...(fieldsForWrite(argumentsObject)
+          ? { fields: { [argumentsObject.table]: fieldsForWrite(argumentsObject) } }
+          : {}),
+      }, context);
       const result = store.write(argumentsObject);
       ledger.append({
         type: "database.write", status: "complete", actorType: "tool", actorName: "database_write",
         turnId: context.requestId, operationId: context.callId, name: `${argumentsObject.action} ${argumentsObject.table}`,
-        payload: result,
+        payload: { ...result, schemaProjection },
       });
-      return result;
+      return { ...result, schemaProjection };
     },
   });
 

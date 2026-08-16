@@ -40,7 +40,11 @@ export class SlayerRuntime {
     this.ledger.append({
       type: "context.sent", status: "complete", actorType: "system", actorName: "Context builder",
       channel, turnId: requestId, name: "Context sent", content: context.text,
-      payload: { profile: context.profile, history: context.history },
+      payload: {
+        profileFacts: context.profileFacts,
+        history: context.history,
+        contextBudget: context.contextBudget,
+      },
     });
     this.ledger.append({
       type: "tools.sent", status: "complete", actorType: "system", actorName: "Tool registry",

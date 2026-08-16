@@ -15,7 +15,7 @@ function requireGroup(database, name) {
   const available = database.prepare(`
     SELECT name FROM todo_groups WHERE archived_at_utc IS NULL ORDER BY name COLLATE NOCASE
   `).all().map((item) => item.name);
-  throw new Error(`Unknown todo group "${requested}". Available groups: ${available.join(", ") || "none"}`);
+  throw new Error(`Unknown to-do group "${requested}". Available groups: ${available.join(", ") || "none"}`);
 }
 
 function ensureGroup(database, name) {
@@ -71,7 +71,7 @@ const optionalText = { type: ["string", "null"] };
 export function registerTodoTools(registry, store, ledger) {
   registry.register({
     name: "todo_list",
-    description: "List the user's native personal todo items. Use this whenever they ask about their personal todos or development todo list.",
+    description: "List the user's native personal to-do items. Use this whenever they ask about their personal to-dos or development to-do list.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -110,7 +110,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal todo item. If the requested group does not exist, add it to Inbox and return usedInboxFallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly. This is the authoritative path for requests such as 'add this as a dev todo'.",
+    description: "Add one native personal to-do item. If the requested group does not exist, add it to Inbox and return usedInboxFallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly. This is the authoritative path for requests such as 'add this as a development to-do'.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -125,7 +125,7 @@ export function registerTodoTools(registry, store, ledger) {
     async execute({ text, group: groupName, scheduledAtUtc, dueAtUtc }, context) {
       const database = store.requireReady();
       const taskText = text.trim();
-      if (!taskText) throw new Error("Todo text cannot be empty");
+      if (!taskText) throw new Error("To-do text cannot be empty");
       database.exec("BEGIN IMMEDIATE");
       try {
         const requestedGroup = groupName?.trim() || "Inbox";
@@ -160,7 +160,7 @@ export function registerTodoTools(registry, store, ledger) {
         };
         ledger.append({
           type: "personal_todo.created", status: "complete", actorType: "tool", actorName: "todo_add",
-          turnId: context.requestId, operationId: context.callId, name: "Personal todo created",
+          turnId: context.requestId, operationId: context.callId, name: "Personal to-do created",
           content: task.text,
           payload: { task, groupResolution },
           subjectType: "personal_task", subjectId: String(task.id),
@@ -180,7 +180,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_group_create",
-    description: "Create or reactivate a native personal todo group after the user has confirmed that they want it. Use todo_update afterward to move an Inbox task into the new group.",
+    description: "Create or reactivate a native personal to-do group after the user has confirmed that they want it. Use todo_update afterward to move an Inbox task into the new group.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -191,7 +191,7 @@ export function registerTodoTools(registry, store, ledger) {
     },
     async execute({ name }, context) {
       const groupName = name.trim();
-      if (!groupName) throw new Error("Todo group name cannot be empty");
+      if (!groupName) throw new Error("To-do group name cannot be empty");
       const database = store.requireReady();
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -208,7 +208,7 @@ export function registerTodoTools(registry, store, ledger) {
               ? "personal_todo_group.reactivated"
               : "personal_todo_group.unchanged",
           status: "complete", actorType: "tool", actorName: "todo_group_create",
-          turnId: context.requestId, operationId: context.callId, name: "Personal todo group resolved",
+          turnId: context.requestId, operationId: context.callId, name: "Personal to-do group resolved",
           content: selectedGroup.row.name, payload: result,
           subjectType: "todo_group", subjectId: String(selectedGroup.row.todo_group_id),
         });
@@ -223,7 +223,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_update",
-    description: "Update one native personal todo item by ID, including moving it to another group or completing it.",
+    description: "Update one native personal to-do item by ID, including moving it to another group or completing it.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -240,7 +240,7 @@ export function registerTodoTools(registry, store, ledger) {
     async execute({ taskId, text, group: groupName, status, scheduledAtUtc, dueAtUtc }, context) {
       const database = store.requireReady();
       const before = database.prepare("SELECT * FROM personal_tasks WHERE personal_task_id = ?").get(taskId);
-      if (!before) throw new Error(`Todo ${taskId} does not exist`);
+      if (!before) throw new Error(`To-do ${taskId} does not exist`);
       const values = {};
       if (text !== null) values.text = text.trim();
       if (groupName !== null) values.todo_group_id = requireGroup(database, groupName).todo_group_id;
@@ -250,7 +250,7 @@ export function registerTodoTools(registry, store, ledger) {
       }
       if (scheduledAtUtc !== null) values.scheduled_at_utc = scheduledAtUtc || null;
       if (dueAtUtc !== null) values.due_at_utc = dueAtUtc || null;
-      if (Object.keys(values).length === 0) throw new Error("No todo changes were supplied");
+      if (Object.keys(values).length === 0) throw new Error("No to-do changes were supplied");
       values.updated_at_utc = new Date().toISOString();
       const assignments = Object.keys(values).map((column) => `"${column}" = ?`).join(", ");
       database.prepare(`UPDATE personal_tasks SET ${assignments} WHERE personal_task_id = ?`)
@@ -263,7 +263,7 @@ export function registerTodoTools(registry, store, ledger) {
       const task = publicTask(row);
       ledger.append({
         type: "personal_todo.updated", status: "complete", actorType: "tool", actorName: "todo_update",
-        turnId: context.requestId, operationId: context.callId, name: "Personal todo updated",
+        turnId: context.requestId, operationId: context.callId, name: "Personal to-do updated",
         content: task.text, payload: { before: publicTask({ ...before, group_name: null }), task },
       });
       return { updated: true, task };

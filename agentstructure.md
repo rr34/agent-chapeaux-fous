@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Agent Slayer is Nate's private, self-hosted language-model interface to his own
+Agent Slayer is a private, self-hosted language-model interface to one user's
 tools and data. It is a normal application, not an agent framework or plugin
 host.
 
@@ -58,9 +58,10 @@ The immediate system priorities are:
 - **7. Agent-server transcription service** uses local faster-whisper. Original
   audio is stored before transcription begins. Audio is not sent through **8.
   Direct audio input to the OpenAI model**.
-- **19. Agent activity ledger** and conversation history are stored in the
-  existing SQLite database. The repository does not create, replace, or migrate
-  that database.
+- **19. Agent activity ledger**, conversation history, and active profile facts
+  are stored in the existing SQLite database. Explicitly approved schema
+  changes are applied by the repository migration runner after it creates a
+  backup.
 - Large recordings live in **20. Agent media storage**; SQLite stores their
   metadata and relationships.
 - The current UI displays the application revision, model quota, request list,
@@ -123,8 +124,8 @@ typed text or stored voice recording
 The first model request contains three visibly separate inputs:
 
 1. The exact user text, whether typed or transcribed.
-2. Bounded context assembled by the application from `config/profile.md` and
-   recent complete exchanges in **35. Agent database**.
+2. Bounded context assembled from active `profile_facts` and recent complete
+   exchanges in **35. Agent database**.
 3. The exact schemas returned by the live tool registry for that request.
 
 The model never receives a promised or hypothetical tool. Local tools are
@@ -160,9 +161,12 @@ it does not turn the application into a plugin system.
 
 The current local application tools are:
 
-- `todo_list`, `todo_add`, and `todo_update` for personal todos.
+- `todo_list`, `todo_add`, and `todo_update` for personal to-dos.
+- `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` for durable
+  user facts. Setting an existing key replaces and reactivates it; deleting a
+  fact archives it.
 - `database_schema` for inspecting existing SQLite objects without changing
-  schema.
+  schema. A selected object also returns its exact schema-semantic projection.
 - `database_read` for bounded reads with equality filters and no raw SQL.
 - `database_write` for inserts, updates, and deletes in approved existing domain
   tables. Ledger, file, metadata, and schema tables are protected.
@@ -282,9 +286,11 @@ and SQLite integrity.
 
 The minimum required tables are:
 
+- `database_meta` for the current schema version;
 - `activity_events` for **19. Agent activity ledger**;
 - `files` for references into **20. Agent media storage**;
-- `todo_groups` and `personal_tasks` for the native todo tools.
+- `todo_groups` and `personal_tasks` for the native to-do tools; and
+- `profile_facts` for active and archived durable user facts.
 
 Other compatible tables and views in the supplied snapshot may be inspected by
 `database_schema` and accessed through bounded database tools. Agent Slayer does
@@ -292,10 +298,18 @@ not accept raw SQL from the model. Identifiers are validated, result counts are
 bounded, update and delete require nonempty equality filters, writes are
 transactional, and runtime-owned tables are protected from model writes.
 
-The SQLite schema itself is authoritative. This repository currently has no
-migration runner and no tracked schema-semantic form. Any schema change is a
-separate, explicitly approved data operation and must be verified before and
-afterward.
+SQLite is authoritative for rows and schema mechanics. Approved schema changes
+are recorded in `db/migrations.sql`; `npm run schema:migrate` creates a backup,
+applies pending migrations transactionally, checks integrity, and synchronizes
+the mechanical catalog in `db/schema-semantics.json`. Humans own the meanings
+in that form. `npm run db:verify` checks the database shape, migration sequence,
+integrity, and semantic-form mechanics before and after database-dependent work.
+
+The schema semantic compiler is deterministic and read-only. Structured
+database tools return the exact relevant projection in their result, and the
+ledger records that compilation. The compiler does not read data, authorize an
+operation, select an access policy, or execute SQL. It is not currently used for
+pre-model request enrichment.
 
 ## Voice path
 
@@ -378,7 +392,8 @@ so old notes and future discussions stay understandable.
   reference. They are not part of the current request runtime.
 - **45. Adobe Premiere bridge** and **46. Android voice-client candidate** are
   not part of the current application.
-- **49. Schema semantic compiler** is not installed or invoked by this runtime.
+- **49. Schema semantic compiler** is installed and invoked for structured
+  local database operations. It is not a pre-model enrichment layer.
 
 ## Terminology
 
@@ -503,8 +518,8 @@ speech generation.
 schema, user isolation, authorization, and internal instrumentation.
 
 **35. Agent database** — The externally supplied SQLite snapshot containing
-Agent Slayer's ledger, history, files, personal todos, and any compatible domain
-tables and views.
+Agent Slayer's ledger, history, files, durable profile facts, personal to-dos,
+and any compatible domain tables and views.
 
 **36. Publishable-content filter** — A deferred boundary that would remove
 secrets and unrelated private material before selected activity becomes content
@@ -529,7 +544,7 @@ architecture. It is not a dependency of the current Agent Slayer application.
 and proposing an issue, test, documentation correction, or patch to an upstream
 dependency when explicitly authorized.
 
-**43. GitHub contribution identity** — Nate's GitHub account, credentials,
+**43. GitHub contribution identity** — The user's GitHub account, credentials,
 authorship, and permissions used for an authorized public contribution.
 
 **44. Contribution audit trail** — Ledger events connecting an observed issue
@@ -552,8 +567,9 @@ stores original audio, registers the file, creates a request, and wakes the FIFO
 worker.
 
 **49. Schema semantic compiler** — The deterministic schema-explanation package
-designed in the earlier system. It is not a dependency, tool, or context source
-in this repository.
+that combines SQLite mechanics with human-authored meanings. It is pinned as a
+dependency and compiles exact projections for structured database operations;
+it neither accesses rows nor decides or enforces authorization.
 
 **50. Agent request** — One user input and all processing until exactly one final
 user-visible response or error. Internally it is correlated by a request UUID

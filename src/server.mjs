@@ -12,16 +12,21 @@ import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
+import { SchemaSemantics } from "./schema-semantics.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
+import { ProfileFacts } from "./profile-facts.mjs";
 import { ToolRegistry } from "./tools/registry.mjs";
+import { registerProfileFactTools } from "./tools/profile-fact-tools.mjs";
 import { registerTodoTools } from "./tools/todo-tools.mjs";
 
 const config = loadConfig();
 const identity = runtimeIdentity(config.repositoryRoot);
 const store = new SlayerDatabase(config.databasePath);
 const ledger = new Ledger(store);
+const profileFacts = new ProfileFacts({ store, ledger });
+const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
 const registry = new ToolRegistry();
 const modelTransport = await createModelTransport(config);
 await modelTransport.start().catch((error) => {
@@ -34,10 +39,11 @@ const mcp = new McpToolManager({
 });
 if (store.status.ready) {
   registerTodoTools(registry, store, ledger);
-  registerDatabaseTools(registry, store, ledger);
+  registerProfileFactTools(registry, profileFacts);
+  registerDatabaseTools(registry, store, ledger, schemaSemantics);
 }
 await mcp.initialize(registry);
-const contextBuilder = new ContextBuilder({ ledger, profilePath: config.profilePath });
+const contextBuilder = new ContextBuilder({ ledger, profileFacts });
 const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, ledger, config });
 const transcriber = new WhisperTranscriber({
   pythonExecutable: config.pythonExecutable,
@@ -149,6 +155,7 @@ function health() {
     runtime: identity,
     model: { ...model, id: modelTransport.id, displayName: modelTransport.displayName, model: config.model },
     database: store.status,
+    schemaSemantics: schemaSemantics.health(),
     integrations: mcp.health(),
     tools: registry.list().map((tool) => ({
       name: tool.name,

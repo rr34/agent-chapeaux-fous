@@ -6,6 +6,9 @@ import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { inspectDatabase } from "../src/database.mjs";
+import { readMigrationLedger, validatePendingMigrations } from "./agent-migrations.mjs";
+import { migrationsFilename, semanticFormFilename } from "./agent-schema.mjs";
+import { agentSchemaVersion, assertAgentSemanticFormMatches } from "./agent-schema-semantics.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const environmentFilename = path.join(repositoryRoot, ".env");
@@ -25,8 +28,15 @@ if (!fs.existsSync(filename)) {
       for (const problem of result.problems) console.error(`- ${problem}`);
       process.exitCode = 1;
     } else {
+      assertAgentSemanticFormMatches(database, semanticFormFilename);
+      const pending = validatePendingMigrations(
+        readMigrationLedger(migrationsFilename),
+        agentSchemaVersion(database),
+      );
       console.log(`Agent Slayer database is ready: ${filename}`);
       console.log(`Verified ${result.objects.length} user-defined tables and views.`);
+      console.log("SQLite mechanics match db/schema-semantics.json.");
+      if (pending.length) console.log(`${pending.length} unapplied schema migration${pending.length === 1 ? " is" : "s are"} present.`);
     }
   } finally {
     database.close();

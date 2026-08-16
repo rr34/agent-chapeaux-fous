@@ -84,7 +84,7 @@ test("the first model turn contains the exact request, context, and callable too
   const runtime = new SlayerRuntime({
     modelTransport,
     registry,
-    contextBuilder: { async build() { return { text: "VISIBLE CONTEXT", profile: "profile", history: [] }; } },
+    contextBuilder: { async build() { return { text: "VISIBLE CONTEXT", profileFacts: [], history: [], contextBudget: { truncated: false } }; } },
     ledger: { append(event) { events.push(event); } },
     config: runtimeConfig(),
   });
@@ -127,7 +127,7 @@ test("a failed tool result is returned to the model transport instead of becomin
   const runtime = new SlayerRuntime({
     modelTransport,
     registry,
-    contextBuilder: { async build() { return { text: "context", profile: "", history: [] }; } },
+    contextBuilder: { async build() { return { text: "context", profileFacts: [], history: [], contextBudget: { truncated: false } }; } },
     ledger: { append() {} },
     config: runtimeConfig(),
   });

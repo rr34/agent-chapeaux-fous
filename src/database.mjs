@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 export const requiredDatabaseShape = {
+  database_meta: ["singleton", "schema_version"],
   activity_events: [
     "event_seq", "event_id", "event_type", "event_phase", "status", "actor_type",
     "source", "channel", "session_id", "turn_id", "trace_id", "operation_id",
@@ -13,6 +14,11 @@ export const requiredDatabaseShape = {
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
     "scheduled_at_utc", "due_at_utc", "completed_at_utc", "source_event_id",
   ],
+  profile_facts: [
+    "profile_fact_id", "fact_key", "value_text", "fact_status", "source_event_id",
+    "archived_by_event_id",
+    "created_at_utc", "updated_at_utc", "archived_at_utc",
+  ],
 };
 
 const protectedWriteTables = new Set([
@@ -22,6 +28,7 @@ const protectedWriteTables = new Set([
   "agent_turn_attempts",
   "database_meta",
   "files",
+  "profile_facts",
 ]);
 
 function identifier(name, label = "identifier") {

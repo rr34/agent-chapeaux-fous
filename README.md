@@ -3,7 +3,7 @@
 Agent Slayer is a small, inspectable model-and-tools application. It is not an
 agent framework and has no plugin host. The request compiler, tool registry,
 SQLite ledger, and web client are provider-neutral. Codex App Server is the
-initial model transport because it can use Nate's ChatGPT subscription instead
+initial model transport because it can use the user's ChatGPT subscription instead
 of separately billed API-key requests.
 
 The complete request path is:
@@ -33,6 +33,7 @@ npm run codex:login
 npm run codex:status
 cp /path/to/latest-snapshot.sqlite data/agent.sqlite
 npm install
+npm run schema:migrate
 npm run db:verify
 npm test
 npm start
@@ -101,11 +102,14 @@ visible even then.
 
 Local tools are ordinary JavaScript functions:
 
-- `todo_list`, `todo_add`, and `todo_update` provide the native personal todo
+- `todo_list`, `todo_add`, and `todo_update` provide the native personal to-do
   path without requiring the model to invent SQL.
+- `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
+  small set of durable user facts included in every first model request.
 - `database_schema`, `database_read`, and `database_write` expose bounded,
   structured access to the existing SQLite database. Ledger and schema tables
-  are protected from model writes.
+  are protected from model writes. Each operation returns the exact projection
+  compiled from the tracked schema-semantic form.
 - `history_recent` and `history_search` read the application-owned exchange
   history.
 
@@ -134,13 +138,24 @@ TLOM is marked as a required integration. Until OAuth is connected, health is
 not ready and model requests are rejected with the integration status instead
 of falling back to unrelated local database tools.
 
-## Database transition
+## Database and schema changes
 
 No database is committed. Put the latest consistent SQLite snapshot at
-`data/agent.sqlite` and run `npm run db:verify`. The first runtime uses the
-existing domain tables and the neutral `activity_events` ledger. Legacy columns
-that are not needed are ignored. A later database migration can remove them
-without coupling that work to this repository transition.
+`data/agent.sqlite`, run `npm run schema:migrate`, then run `npm run db:verify`.
+The migration runner creates a timestamped backup before applying explicitly
+approved migrations from `db/migrations.sql`. It applies each migration in a
+transaction, checks SQLite integrity, and synchronizes the mechanical portion
+of `db/schema-semantics.json` while preserving its human-authored meanings.
+
+`profile_facts` is the authoritative store for durable user facts. Updating a
+key replaces its active value; deletion archives the row so prior values remain
+observable without entering future model context. Do not seed personal facts in
+a tracked migration: populate each deployment through the profile-fact tools.
+
+The schema semantic compiler explains selected database objects and fields; it
+does not read rows, authorize access, choose tools, or execute SQL. The current
+runtime uses it on structured database tool operations. It does not perform
+pre-model enrichment or change which tools are supplied.
 
 ## Voice transcription
 
