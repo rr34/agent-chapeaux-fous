@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { JMAP_CAPABILITIES } from "../jmap-client.mjs";
 
 const { core: CORE, mail: MAIL, submission: SUBMISSION } = JMAP_CAPABILITIES;
@@ -18,9 +19,26 @@ const summaryProperties = [
   "messageId", "inReplyTo", "references", "sender", "from", "to", "cc", "bcc",
   "replyTo", "subject", "sentAt", "hasAttachment", "preview",
 ];
+const compactSummaryProperties = [
+  "id", "threadId", "mailboxIds", "keywords", "size", "receivedAt", "from",
+  "subject", "sentAt", "hasAttachment", "preview",
+];
 const completeProperties = [
   ...summaryProperties, "bodyStructure", "bodyValues", "textBody", "htmlBody", "attachments",
 ];
+const mailboxRoles = ["inbox", "archive", "drafts", "sent", "trash", "spam"];
+const cleanupCriterion = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    from: nullableString,
+    text: nullableString,
+    subject: nullableString,
+    after_utc: nullableString,
+    before_utc: nullableString,
+  },
+  required: ["from", "text", "subject", "after_utc", "before_utc"],
+};
 
 function account(client, value, capability = MAIL) {
   return client.resolveAccountId(value, capability);
@@ -46,11 +64,11 @@ function boundedInteger(value, fallback, minimum, maximum, name) {
   return result;
 }
 
-function getArguments(accountId, ids, bodyMode = "none", maximumBytes = 100_000) {
+function getArguments(accountId, ids, bodyMode = "none", maximumBytes = 100_000, properties = null) {
   return {
     accountId,
     ids,
-    properties: bodyMode === "none" ? summaryProperties : completeProperties,
+    properties: properties ?? (bodyMode === "none" ? summaryProperties : completeProperties),
     fetchTextBodyValues: bodyMode === "text" || bodyMode === "all",
     fetchHTMLBodyValues: bodyMode === "html" || bodyMode === "all",
     fetchAllBodyValues: bodyMode === "all",
@@ -64,6 +82,109 @@ async function identities(client, accountId) {
 
 async function mailboxes(client, accountId) {
   return client.call("Mailbox/get", { accountId, ids: null });
+}
+
+async function mailboxForRole(client, accountId, role) {
+  const result = await mailboxes(client, accountId);
+  const mailbox = result.list.find((item) => item.role === role);
+  if (!mailbox) throw new Error(`No JMAP mailbox with the ${role} role exists`);
+  return mailbox;
+}
+
+function criterionFilter(criterion, inMailbox) {
+  const filter = compact({
+    inMailbox,
+    from: criterion.from,
+    text: criterion.text,
+    subject: criterion.subject,
+    after: criterion.after_utc,
+    before: criterion.before_utc,
+  });
+  if (Object.keys(filter).length === 1) throw new Error("Each cleanup match must include a sender, text, subject, or date boundary");
+  return filter;
+}
+
+async function queryIds(client, accountId, filter, limit) {
+  const ids = [];
+  let total = 0;
+  while (ids.length < limit) {
+    const pageSize = Math.min(100, limit - ids.length);
+    const result = await client.call("Email/query", {
+      accountId,
+      filter,
+      sort: [{ property: "receivedAt", isAscending: false }],
+      collapseThreads: false,
+      position: ids.length,
+      limit: pageSize,
+      calculateTotal: ids.length === 0,
+    });
+    if (ids.length === 0) total = result.total;
+    ids.push(...result.ids);
+    if (result.ids.length < pageSize || ids.length >= total) break;
+  }
+  return { ids, total };
+}
+
+async function compactMessages(client, accountId, ids) {
+  const advertisedLimit = Number(client.publicSession()?.capabilities?.[CORE]?.maxObjectsInGet);
+  const batchSize = Number.isSafeInteger(advertisedLimit) && advertisedLimit > 0 ? advertisedLimit : 100;
+  const list = [];
+  const notFound = [];
+  let state = null;
+  for (let offset = 0; offset < ids.length; offset += batchSize) {
+    const result = await client.call("Email/get", getArguments(
+      accountId, ids.slice(offset, offset + batchSize), "none", 100_000, compactSummaryProperties,
+    ));
+    if (state && result.state !== state) {
+      throw new Error("Email state changed while building the cleanup preview; retry the preview");
+    }
+    state = result.state;
+    list.push(...result.list);
+    notFound.push(...result.notFound);
+  }
+  return { accountId, state, list, notFound };
+}
+
+async function emailAction(client, {
+  accountId, emailIds, action, ifInState = null, inboxId = null,
+}) {
+  let patch;
+  if (action === "trash") {
+    const trash = await mailboxForRole(client, accountId, "trash");
+    patch = { mailboxIds: { [trash.id]: true } };
+  } else if (action === "archive") {
+    const inbox = inboxId ? { id: inboxId } : await mailboxForRole(client, accountId, "inbox");
+    const archive = await mailboxForRole(client, accountId, "archive");
+    patch = {
+      [`mailboxIds/${patchSegment(inbox.id)}`]: null,
+      [`mailboxIds/${patchSegment(archive.id)}`]: true,
+    };
+  } else if (action === "mark_read") {
+    patch = { "keywords/$seen": true };
+  } else if (action === "mark_unread") {
+    patch = { "keywords/$seen": null };
+  } else {
+    throw new Error(`Unsupported email action: ${action}`);
+  }
+  const advertisedLimit = Number(client.publicSession()?.capabilities?.[CORE]?.maxObjectsInSet);
+  const batchSize = Number.isSafeInteger(advertisedLimit) && advertisedLimit > 0 ? advertisedLimit : 100;
+  const batches = [];
+  let state = ifInState;
+  for (let offset = 0; offset < emailIds.length; offset += batchSize) {
+    const ids = emailIds.slice(offset, offset + batchSize);
+    const update = Object.fromEntries(ids.map((id) => [id, patch]));
+    const result = await client.call("Email/set", compact({ accountId, ifInState: state, update }));
+    if (findSetFailures(result)) throw new Error(`Bulk email mutation was rejected: ${JSON.stringify(result)}`);
+    batches.push(result);
+    state = result.newState ?? state;
+  }
+  return {
+    accountId,
+    oldState: ifInState,
+    newState: state,
+    batchCount: batches.length,
+    batches,
+  };
 }
 
 function addressList(value) {
@@ -108,6 +229,16 @@ function findSetFailures(result) {
 
 export function registerJmapEmailTools(registry, client) {
   if (!client.health().ready) throw new Error("Cannot register JMAP email tools before the client is ready");
+  const cleanupSelections = new Map();
+  const cleanupLifetimeMs = 30 * 60 * 1000;
+
+  function pruneCleanupSelections() {
+    const now = Date.now();
+    for (const [id, selection] of cleanupSelections) {
+      if (selection.expiresAtMs <= now) cleanupSelections.delete(id);
+    }
+    while (cleanupSelections.size > 50) cleanupSelections.delete(cleanupSelections.keys().next().value);
+  }
 
   registry.register({
     name: "email_account_list",
@@ -146,12 +277,13 @@ export function registerJmapEmailTools(registry, client) {
 
   registry.register({
     name: "email_search",
-    description: "Search the live JMAP mail store and return matching message summaries plus the exact query and Email state tokens. All non-null filters are combined. Use mailbox ids from email_mailbox_list.",
+    description: "Search the live JMAP mail store and return bounded ids, compact summaries, or full metadata plus exact query and Email state tokens. All non-null filters are combined. Prefer compact for inbox triage and full only when complete headers are needed. A mailbox role can be resolved without listing all mailboxes.",
     parameters: {
       type: "object", additionalProperties: false,
       properties: {
         account_id: nullableString,
         in_mailbox: nullableString,
+        in_mailbox_role: { type: ["string", "null"], enum: [...mailboxRoles, null] },
         text: nullableString,
         from: nullableString,
         to: nullableString,
@@ -169,17 +301,24 @@ export function registerJmapEmailTools(registry, client) {
         sort_ascending: { type: "boolean" },
         position: { type: "integer", minimum: 0 },
         limit: { type: "integer", minimum: 1, maximum: 100 },
+        result_format: { type: "string", enum: ["ids", "compact", "full"] },
       },
       required: [
-        "account_id", "in_mailbox", "text", "from", "to", "cc", "bcc", "subject", "body",
+        "account_id", "in_mailbox", "in_mailbox_role", "text", "from", "to", "cc", "bcc", "subject", "body",
         "after_utc", "before_utc", "has_attachment", "has_keyword", "not_keyword",
-        "collapse_threads", "sort_property", "sort_ascending", "position", "limit",
+        "collapse_threads", "sort_property", "sort_ascending", "position", "limit", "result_format",
       ],
     },
     async execute(input) {
       const accountId = account(client, input.account_id);
+      if (input.in_mailbox && input.in_mailbox_role) {
+        throw new Error("Supply in_mailbox or in_mailbox_role, not both");
+      }
+      const inMailbox = input.in_mailbox_role
+        ? (await mailboxForRole(client, accountId, input.in_mailbox_role)).id
+        : input.in_mailbox;
       const filter = compact({
-        inMailbox: input.in_mailbox,
+        inMailbox,
         text: input.text,
         from: input.from,
         to: input.to,
@@ -198,14 +337,29 @@ export function registerJmapEmailTools(registry, client) {
         filter,
         sort: [{ property: input.sort_property, isAscending: input.sort_ascending }],
         collapseThreads: input.collapse_threads,
-        position: input.position,
-        limit: input.limit,
+        position: boundedInteger(input.position, 0, 0, Number.MAX_SAFE_INTEGER, "position"),
+        limit: boundedInteger(input.limit, 25, 1, 100, "limit"),
         calculateTotal: true,
       });
       const messages = query.ids.length
-        ? await client.call("Email/get", getArguments(accountId, query.ids))
+        ? await client.call("Email/get", getArguments(
+          accountId,
+          query.ids,
+          "none",
+          100_000,
+          input.result_format === "ids"
+            ? ["id"]
+            : input.result_format === "compact" ? compactSummaryProperties : summaryProperties,
+        ))
         : { accountId, state: null, list: [], notFound: [] };
-      return { ...query, emailState: messages.state, messages: messages.list, notFound: messages.notFound };
+      return {
+        ...query,
+        resolvedMailboxId: inMailbox ?? null,
+        resultFormat: input.result_format,
+        emailState: messages.state,
+        messages: messages.list,
+        notFound: messages.notFound,
+      };
     },
   });
 
@@ -346,6 +500,164 @@ export function registerJmapEmailTools(registry, client) {
       }));
       if (findSetFailures(result)) throw new Error(`Email mutation was rejected: ${JSON.stringify(result)}`);
       return result;
+    },
+  });
+
+  registry.register({
+    name: "email_bulk_update",
+    description: "Apply one recoverable inbox action to as many as 100 explicit live email ids in a single optimistic JMAP write. Use trash instead of permanent destruction for ordinary delete requests. Prefer email_cleanup_preview and email_cleanup_apply when the candidate set comes from several senders or search phrases.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        account_id: nullableString,
+        email_ids: { type: "array", minItems: 1, maxItems: 100, items: { type: "string", minLength: 1 } },
+        if_in_state: nullableString,
+        action: { type: "string", enum: ["trash", "archive", "mark_read", "mark_unread"] },
+      },
+      required: ["account_id", "email_ids", "if_in_state", "action"],
+    },
+    async execute({ account_id, email_ids, if_in_state, action }) {
+      const accountId = account(client, account_id);
+      const uniqueIds = [...new Set(email_ids)];
+      const result = await emailAction(client, {
+        accountId, emailIds: uniqueIds, action, ifInState: if_in_state,
+      });
+      return { action, affectedCount: uniqueIds.length, emailIds: uniqueIds, result };
+    },
+  });
+
+  registry.register({
+    name: "email_cleanup_preview",
+    description: "Build and temporarily save an exact compact Inbox cleanup selection of up to 250 messages from several OR-matched sender/text/subject/date criteria, with optional OR-matched exclusions. This is read-only. Use one preview instead of repeating many email_search calls. Set match_all=true only when the user explicitly wants every Inbox message considered.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        account_id: nullableString,
+        in_mailbox_id: nullableString,
+        match_all: { type: "boolean" },
+        match_any: { type: "array", maxItems: 25, items: cleanupCriterion },
+        exclude_any: { type: "array", maxItems: 25, items: cleanupCriterion },
+        max_results: { type: "integer", minimum: 1, maximum: 250 },
+      },
+      required: ["account_id", "in_mailbox_id", "match_all", "match_any", "exclude_any", "max_results"],
+    },
+    async execute({ account_id, in_mailbox_id, match_all, match_any, exclude_any, max_results }) {
+      const accountId = account(client, account_id);
+      const inboxId = in_mailbox_id || (await mailboxForRole(client, accountId, "inbox")).id;
+      const maximum = boundedInteger(max_results, 250, 1, 250, "max_results");
+      if (!match_all && match_any.length === 0) throw new Error("match_any is required unless match_all is true");
+      if (match_all && match_any.length) throw new Error("match_all cannot be combined with match_any");
+
+      const candidateIds = new Set();
+      let matchTotalAcrossCriteria = 0;
+      const includeFilters = match_all ? [{ inMailbox: inboxId }] : match_any.map((item) => criterionFilter(item, inboxId));
+      for (const filter of includeFilters) {
+        const query = await queryIds(client, accountId, filter, maximum);
+        matchTotalAcrossCriteria += query.total;
+        for (const id of query.ids) {
+          if (candidateIds.size >= maximum) break;
+          candidateIds.add(id);
+        }
+        if (candidateIds.size >= maximum) break;
+      }
+
+      const excludedIds = new Set();
+      for (const criterion of exclude_any) {
+        const query = await queryIds(client, accountId, criterionFilter(criterion, inboxId), maximum);
+        for (const id of query.ids) excludedIds.add(id);
+      }
+      const selectedIds = [...candidateIds].filter((id) => !excludedIds.has(id)).slice(0, maximum);
+      const excludedCount = candidateIds.size - selectedIds.length;
+      if (!selectedIds.length) {
+        return {
+          selectionId: null,
+          accountId,
+          inboxId,
+          candidateCountBeforeExclusions: candidateIds.size,
+          matchTotalAcrossCriteria,
+          reachedSelectionLimit: candidateIds.size >= maximum,
+          excludedCount,
+          selectedCount: 0,
+          emailState: null,
+          messages: [],
+        };
+      }
+      const messages = await compactMessages(client, accountId, selectedIds);
+      const foundIds = messages.list.map(({ id }) => id);
+      const selectionId = randomUUID();
+      const expiresAtMs = Date.now() + cleanupLifetimeMs;
+      cleanupSelections.set(selectionId, {
+        accountId,
+        inboxId,
+        emailState: messages.state,
+        emailIds: foundIds,
+        messages: messages.list,
+        expiresAtMs,
+      });
+      pruneCleanupSelections();
+      return {
+        selectionId,
+        expiresAtUtc: new Date(expiresAtMs).toISOString(),
+        accountId,
+        inboxId,
+        candidateCountBeforeExclusions: candidateIds.size,
+        matchTotalAcrossCriteria,
+        reachedSelectionLimit: candidateIds.size >= maximum,
+        excludedCount,
+        notFoundCount: selectedIds.length - foundIds.length,
+        selectedCount: foundIds.length,
+        emailState: messages.state,
+        messages: messages.list,
+        notFound: messages.notFound,
+      };
+    },
+  });
+
+  registry.register({
+    name: "email_cleanup_apply",
+    description: "Apply Trash or Archive to the exact saved selection returned by email_cleanup_preview in one optimistic JMAP write. Call only after the user has authorized that cleanup. selection_id may be null only when this account has exactly one pending cleanup selection. expected_count must match the preview, and any intervening mailbox change rejects the write instead of silently changing the target set.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        account_id: nullableString,
+        selection_id: nullableString,
+        expected_count: { type: "integer", minimum: 1, maximum: 250 },
+        action: { type: "string", enum: ["trash", "archive"] },
+      },
+      required: ["account_id", "selection_id", "expected_count", "action"],
+    },
+    async execute({ account_id, selection_id, expected_count, action }) {
+      pruneCleanupSelections();
+      const accountId = account(client, account_id);
+      let selectedId = selection_id;
+      if (!selectedId) {
+        const candidates = [...cleanupSelections.entries()]
+          .filter(([, item]) => item.accountId === accountId);
+        if (candidates.length !== 1) {
+          throw new Error(`selection_id is required because this account has ${candidates.length} pending cleanup selections`);
+        }
+        [[selectedId]] = candidates;
+      }
+      const selection = cleanupSelections.get(selectedId);
+      if (!selection) throw new Error("Cleanup selection is missing or expired; create a fresh preview");
+      if (selection.accountId !== accountId) throw new Error("Cleanup selection belongs to a different mail account");
+      if (selection.emailIds.length !== expected_count) {
+        throw new Error(`Cleanup selection contains ${selection.emailIds.length} messages, not ${expected_count}`);
+      }
+      const result = await emailAction(client, {
+        accountId,
+        emailIds: selection.emailIds,
+        action,
+        ifInState: selection.emailState,
+        inboxId: selection.inboxId,
+      });
+      cleanupSelections.delete(selectedId);
+      return {
+        action,
+        affectedCount: selection.emailIds.length,
+        messages: selection.messages,
+        result,
+      };
     },
   });
 

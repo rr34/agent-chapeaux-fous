@@ -146,11 +146,14 @@ to the model; UI transport objects remain an independent browser concern.
   exchange in the same lookup.
 - `email_account_list`, `email_mailbox_list`, `email_identity_list`,
   `email_search`, `email_get`, `email_thread_get`, `email_changes`,
-  `email_update`, `email_draft_create`, `email_send`,
+  `email_update`, `email_bulk_update`, `email_cleanup_preview`,
+  `email_cleanup_apply`, `email_draft_create`, `email_send`,
   `email_submission_get`, and `email_attachment_get` provide a native JMAP mail
-  path. Reads go to the live mail store rather than a SQLite cache. Stable JMAP
-  ids and state tokens preserve mailbox reality and allow stale mutations to be
-  rejected. Draft creation never implies delivery; `email_send` is a separate
+  path. Compact searches keep Inbox triage bounded. Cleanup previews retain an
+  exact candidate set for 30 minutes; applying one uses its Email state token to
+  reject stale writes and moves the reviewed set to Trash or Archive in one
+  recoverable operation. Reads go to the live mail store rather than a SQLite
+  cache. Draft creation never implies delivery; `email_send` is a separate
   externally effective operation and moves successful submissions from Drafts
   to Sent.
 

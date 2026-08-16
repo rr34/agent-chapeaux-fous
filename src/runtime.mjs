@@ -88,7 +88,7 @@ export class SlayerRuntime {
             name, payload: { callId, name, arguments: args },
           });
           if (toolCallCount > this.config.maxToolCalls) {
-            const message = `Model exceeded the ${this.config.maxToolCalls}-call tool limit`;
+            const message = `Tool-call budget exhausted after ${this.config.maxToolCalls} calls. Return a final answer now without calling another tool; state clearly which requested actions remain incomplete.`;
             this.ledger.append({
               type: "tool.result", phase: "error", status: "error", actorType: "tool",
               actorName: name, channel, turnId: requestId, operationId: callId, name,

@@ -298,7 +298,7 @@ test("log_import rejects duplicate IDs within a batch and missing occurrence tim
       source: "test-export",
       entries: [{ ...entry, external_id: "missing-time", occurred_at_utc: null }],
     }, { requestId: request.requestId, requestEventId: request.eventId, callId: "missing-time" }),
-    /require an occurrence time/,
+    /occurred_at_utc must be string/,
   );
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 0);
 });

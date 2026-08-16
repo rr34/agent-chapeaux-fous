@@ -295,11 +295,14 @@ export class CodexAppServerClient extends EventEmitter {
       return;
     }
     turn.toolCallCount += 1;
-    if (turn.toolCallCount > turn.maxToolCalls) {
+    if (turn.toolCallCount > turn.maxToolCalls + 1) {
       this.#write({
         id: message.id,
         result: {
-          contentItems: [{ type: "inputText", text: JSON.stringify({ ok: false, error: `Tool-call limit exceeded (${turn.maxToolCalls})` }) }],
+          contentItems: [{ type: "inputText", text: JSON.stringify({
+            ok: false,
+            error: `Tool-call limit exceeded (${turn.maxToolCalls}); return a final answer without more tool calls`,
+          }) }],
           success: false,
         },
       });

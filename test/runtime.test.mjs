@@ -154,3 +154,58 @@ test("a failed tool result is returned to the model transport instead of becomin
   assert.equal(toolResponse.ok, false);
   assert.match(toolResponse.error, /expected failure/);
 });
+
+test("strict tool schemas are enforced before application functions execute", async () => {
+  let executions = 0;
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "bounded",
+    description: "Accept a bounded number.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { limit: { type: "integer", minimum: 1, maximum: 100 } },
+      required: ["limit"],
+    },
+    async execute({ limit }) { executions += 1; return { limit }; },
+  });
+  await assert.rejects(registry.execute("bounded", { limit: 160 }), /limit must be at most 100/);
+  await assert.rejects(registry.execute("bounded", { limit: 10, surprise: true }), /surprise is not allowed/);
+  assert.equal(executions, 0);
+});
+
+test("tool-budget exhaustion is returned to the model so it can finish gracefully", async () => {
+  const responses = [];
+  const modelTransport = fakeTransport(async (payload) => {
+    for (let index = 1; index <= 5; index += 1) {
+      responses.push(await payload.onToolCall({
+        callId: `call-${index}`,
+        tool: "ping",
+        arguments: {},
+      }));
+    }
+    return completedTurn({ text: "I stopped after the tool budget was exhausted." });
+  });
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "ping",
+    description: "Return pong.",
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { return { pong: true }; },
+  });
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: { async build() { return { text: "context", profileFacts: [], history: [], contextBudget: { truncated: false } }; } },
+    ledger: { append() {} },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+  assert.equal(
+    await runtime.run({ requestId: "r", requestEventId: "e", text: "keep pinging" }),
+    "I stopped after the tool budget was exhausted.",
+  );
+  assert.equal(responses.slice(0, 4).every(({ ok }) => ok), true);
+  assert.equal(responses[4].ok, false);
+  assert.match(responses[4].error, /Return a final answer now/);
+});

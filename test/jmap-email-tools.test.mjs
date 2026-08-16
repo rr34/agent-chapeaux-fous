@@ -19,7 +19,11 @@ class FakeJmapClient {
     if (method === "Mailbox/get") {
       return {
         accountId: "account1", state: "mailbox-1", notFound: [],
-        list: [{ id: "drafts/one", role: "drafts" }, { id: "sent/one", role: "sent" }],
+        list: [
+          { id: "inbox/one", role: "inbox" }, { id: "archive/one", role: "archive" },
+          { id: "trash/one", role: "trash" }, { id: "drafts/one", role: "drafts" },
+          { id: "sent/one", role: "sent" },
+        ],
       };
     }
     if (method === "Identity/get") {
@@ -50,8 +54,9 @@ test("JMAP email tool schemas are exact and cover live read/write mail operation
   const definitions = registry.toolDefinitions();
   assert.deepEqual(definitions.map(({ name }) => name), [
     "email_account_list", "email_mailbox_list", "email_identity_list", "email_search",
-    "email_get", "email_thread_get", "email_changes", "email_update", "email_draft_create",
-    "email_send", "email_submission_get", "email_attachment_get",
+    "email_get", "email_thread_get", "email_changes", "email_update", "email_bulk_update",
+    "email_cleanup_preview", "email_cleanup_apply", "email_draft_create", "email_send",
+    "email_submission_get", "email_attachment_get",
   ]);
   for (const definition of definitions) {
     assert.equal(definition.inputSchema.additionalProperties, false);
@@ -65,6 +70,7 @@ test("email_search sends RFC 8621 filter names and returns both query and Email 
   const result = await registry.execute("email_search", {
     account_id: null,
     in_mailbox: "inbox1",
+    in_mailbox_role: null,
     text: "quarterly plan",
     from: "person@example.test",
     to: null,
@@ -82,6 +88,7 @@ test("email_search sends RFC 8621 filter names and returns both query and Email 
     sort_ascending: false,
     position: 0,
     limit: 25,
+    result_format: "compact",
   });
   assert.deepEqual(client.calls[0].argumentsObject.filter, {
     inMailbox: "inbox1",
@@ -94,7 +101,158 @@ test("email_search sends RFC 8621 filter names and returns both query and Email 
   });
   assert.equal(result.queryState, "query-1");
   assert.equal(result.emailState, "email-1");
+  assert.equal(result.resultFormat, "compact");
   assert.equal(result.messages[0].subject, "Reality");
+});
+
+test("email_search enforces its visible result limit before calling JMAP", async () => {
+  const { client, registry } = harness();
+  await assert.rejects(
+    registry.execute("email_search", {
+      account_id: null,
+      in_mailbox: null,
+      in_mailbox_role: "inbox",
+      text: null,
+      from: null,
+      to: null,
+      cc: null,
+      bcc: null,
+      subject: null,
+      body: null,
+      after_utc: null,
+      before_utc: null,
+      has_attachment: null,
+      has_keyword: null,
+      not_keyword: null,
+      collapse_threads: false,
+      sort_property: "receivedAt",
+      sort_ascending: false,
+      position: 0,
+      limit: 160,
+      result_format: "compact",
+    }),
+    /limit must be at most 100/,
+  );
+  assert.equal(client.calls.length, 0);
+});
+
+test("bulk updates and saved cleanup selections use one recoverable JMAP write", async () => {
+  const { client, registry } = harness();
+  const preview = await registry.execute("email_cleanup_preview", {
+    account_id: null,
+    in_mailbox_id: null,
+    match_all: false,
+    match_any: [{
+      from: "facebookmail.com", text: null, subject: null, after_utc: null, before_utc: null,
+    }],
+    exclude_any: [],
+    max_results: 100,
+  });
+  assert.equal(preview.selectedCount, 1);
+  assert.ok(preview.selectionId);
+
+  client.calls.length = 0;
+  const applied = await registry.execute("email_cleanup_apply", {
+    account_id: null,
+    selection_id: null,
+    expected_count: 1,
+    action: "trash",
+  });
+  assert.equal(applied.affectedCount, 1);
+  const cleanupWrite = client.calls.find(({ method }) => method === "Email/set");
+  assert.equal(cleanupWrite.argumentsObject.ifInState, "email-1");
+  assert.deepEqual(cleanupWrite.argumentsObject.update, {
+    email1: { mailboxIds: { "trash/one": true } },
+  });
+
+  client.calls.length = 0;
+  const bulk = await registry.execute("email_bulk_update", {
+    account_id: null,
+    email_ids: ["email1", "email2"],
+    if_in_state: "email-2",
+    action: "mark_read",
+  });
+  assert.equal(bulk.affectedCount, 2);
+  const bulkWrite = client.calls.find(({ method }) => method === "Email/set");
+  assert.deepEqual(bulkWrite.argumentsObject.update, {
+    email1: { "keywords/$seen": true },
+    email2: { "keywords/$seen": true },
+  });
+});
+
+test("whole-Inbox cleanup paginates large previews and server-sized writes inside two model tools", async () => {
+  class LargeInboxClient extends FakeJmapClient {
+    constructor() {
+      super();
+      this.ids = Array.from({ length: 160 }, (_, index) => `email-${index + 1}`);
+      this.setCount = 0;
+    }
+    publicSession() {
+      return { capabilities: { "urn:ietf:params:jmap:core": { maxObjectsInGet: 100, maxObjectsInSet: 100 } } };
+    }
+    async call(method, argumentsObject, options = {}) {
+      this.calls.push({ method, argumentsObject, options });
+      if (method === "Mailbox/get") {
+        return { accountId: "account1", state: "mailbox-1", notFound: [], list: [
+          { id: "inbox/one", role: "inbox" }, { id: "trash/one", role: "trash" },
+        ] };
+      }
+      if (method === "Email/query") {
+        return {
+          accountId: "account1",
+          queryState: "query-1",
+          position: argumentsObject.position,
+          ids: this.ids.slice(argumentsObject.position, argumentsObject.position + argumentsObject.limit),
+          total: this.ids.length,
+        };
+      }
+      if (method === "Email/get") {
+        return {
+          accountId: "account1",
+          state: "email-1",
+          list: argumentsObject.ids.map((id) => ({ id, subject: id })),
+          notFound: [],
+        };
+      }
+      if (method === "Email/set") {
+        this.setCount += 1;
+        return {
+          accountId: "account1",
+          oldState: this.setCount === 1 ? "email-1" : "email-2",
+          newState: `email-${this.setCount + 1}`,
+        };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    }
+  }
+  const client = new LargeInboxClient();
+  const registry = new ToolRegistry();
+  registerJmapEmailTools(registry, client);
+  const preview = await registry.execute("email_cleanup_preview", {
+    account_id: null,
+    in_mailbox_id: null,
+    match_all: true,
+    match_any: [],
+    exclude_any: [],
+    max_results: 250,
+  });
+  assert.equal(preview.selectedCount, 160);
+  assert.equal(client.calls.filter(({ method }) => method === "Email/query").length, 2);
+  assert.equal(client.calls.filter(({ method }) => method === "Email/get").length, 2);
+
+  client.calls.length = 0;
+  const applied = await registry.execute("email_cleanup_apply", {
+    account_id: null,
+    selection_id: null,
+    expected_count: 160,
+    action: "trash",
+  });
+  assert.equal(applied.affectedCount, 160);
+  const writes = client.calls.filter(({ method }) => method === "Email/set");
+  assert.equal(writes.length, 2);
+  assert.equal(Object.keys(writes[0].argumentsObject.update).length, 100);
+  assert.equal(Object.keys(writes[1].argumentsObject.update).length, 60);
+  assert.equal(writes[1].argumentsObject.ifInState, "email-2");
 });
 
 test("draft creation builds MIME alternatives and sending moves Drafts to Sent", async () => {
