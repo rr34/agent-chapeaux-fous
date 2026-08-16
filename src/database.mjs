@@ -9,7 +9,14 @@ export const requiredDatabaseShape = {
     "name", "content_text", "payload_json", "primary_file_id", "subject_type", "subject_id", "error_text",
   ],
   files: ["file_id", "storage_path", "original_filename", "media_kind", "mime_type", "sha256", "byte_size"],
-  contacts: ["contact_id", "contact_kind", "display_name", "status", "birth_date"],
+  contacts: [
+    "contact_id", "contact_kind", "display_name", "given_name", "family_name",
+    "organization_name", "is_self", "status", "birth_date", "notes",
+  ],
+  contact_methods: [
+    "contact_method_id", "contact_id", "method_kind", "label", "value",
+    "normalized_value", "is_primary", "can_receive",
+  ],
   calendar_events: [
     "calendar_event_id", "title", "description", "location_text", "starts_at_utc",
     "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule",

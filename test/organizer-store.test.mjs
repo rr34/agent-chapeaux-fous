@@ -76,6 +76,56 @@ test("calendar events can create, display, edit, and stop recurring series", () 
   }
 });
 
+test("contacts support searchable-page data, multiple methods, and safe edits", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const created = organizer.createContact({
+      kind: "person",
+      displayName: "Alex Rivera",
+      givenName: "Alex",
+      familyName: "Rivera",
+      birthDate: "--08-18",
+      notes: "Met through the neighborhood garden.",
+      methods: [
+        { kind: "email", label: "Personal", value: "Alex@Example.test", isPrimary: true },
+        { kind: "phone", label: "Mobile", value: "+1 (555) 010-0200" },
+      ],
+    });
+    assert.equal(created.displayName, "Alex Rivera");
+    assert.equal(created.methods.length, 2);
+    assert.equal(created.methods[0].kind, "email");
+    assert.equal(organizer.listContacts()[0].birthDate, "--08-18");
+
+    const email = created.methods.find(({ kind }) => kind === "email");
+    const updated = organizer.updateContact(created.id, {
+      version: created.version,
+      status: "inactive",
+      methods: [{ ...email, value: "alex.rivera@example.test" }],
+    });
+    assert.equal(updated.status, "inactive");
+    assert.equal(updated.methods.length, 1);
+    assert.equal(updated.methods[0].id, email.id);
+    assert.deepEqual(organizer.listContacts(), []);
+    assert.equal(organizer.listContacts({ scope: "all" })[0].displayName, "Alex Rivera");
+    assert.throws(
+      () => organizer.updateContact(created.id, { version: "stale", displayName: "Stale" }),
+      (error) => error instanceof OrganizerInputError && error.statusCode === 409,
+    );
+    assert.throws(
+      () => organizer.createContact({ displayName: "Bad birthday", birthDate: "--02-30" }),
+      (error) => error instanceof OrganizerInputError && /birthDate/.test(error.message),
+    );
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events
+      WHERE event_type IN ('contact.created', 'contact.updated')
+    `).get().count, 2);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("grouped and recurring todos use the existing task tables", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

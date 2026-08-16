@@ -41,8 +41,10 @@ npm start
 
 Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and
 stores it only in that browser. The same client includes the Agent request
-feed, the calendar, the grouped to-do list, and grouped personal logs with
-native entry creation. Agent requests may include one bounded UTF-8 CSV or
+feed, the calendar, the grouped to-do list, a searchable contacts address book,
+and grouped personal logs with native entry creation. Contacts support people,
+organizations, and services with status, birthday, notes, and multiple contact
+methods; stored birthdays continue to appear on the calendar. Agent requests may include one bounded UTF-8 CSV or
 plain-text attachment; its exact contents are recorded in the visible context
 sent with that request. A task's Schedule
 button opens the calendar in day-pick mode; selecting a day writes the task's

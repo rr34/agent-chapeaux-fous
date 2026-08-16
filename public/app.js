@@ -30,6 +30,7 @@ const elements = {
   agentView: document.querySelector("#agent-view"),
   calendarView: document.querySelector("#calendar-view"),
   todosView: document.querySelector("#todos-view"),
+  contactsView: document.querySelector("#contacts-view"),
   logsView: document.querySelector("#logs-view"),
   calendarMonthLabel: document.querySelector("#calendar-month-label"),
   calendarTimeZone: document.querySelector("#calendar-time-zone"),
@@ -99,6 +100,27 @@ const elements = {
   todoRepeatUntil: document.querySelector("#todo-repeat-until"),
   todoRepeatSummary: document.querySelector("#todo-repeat-summary"),
   todoFormError: document.querySelector("#todo-form-error"),
+  contactSearch: document.querySelector("#contact-search"),
+  contactStatusFilter: document.querySelector("#contact-status-filter"),
+  contactCount: document.querySelector("#contact-count"),
+  contactList: document.querySelector("#contact-list"),
+  newContact: document.querySelector("#new-contact"),
+  contactDialog: document.querySelector("#contact-dialog"),
+  contactForm: document.querySelector("#contact-form"),
+  contactDialogTitle: document.querySelector("#contact-dialog-title"),
+  contactId: document.querySelector("#contact-id"),
+  contactVersion: document.querySelector("#contact-version"),
+  contactDisplayName: document.querySelector("#contact-display-name"),
+  contactKind: document.querySelector("#contact-kind"),
+  contactGivenName: document.querySelector("#contact-given-name"),
+  contactFamilyName: document.querySelector("#contact-family-name"),
+  contactOrganizationName: document.querySelector("#contact-organization-name"),
+  contactBirthDate: document.querySelector("#contact-birth-date"),
+  contactStatus: document.querySelector("#contact-status"),
+  contactNotes: document.querySelector("#contact-notes"),
+  contactMethodList: document.querySelector("#contact-method-list"),
+  addContactMethod: document.querySelector("#add-contact-method"),
+  contactFormError: document.querySelector("#contact-form-error"),
   logGroupFilter: document.querySelector("#log-group-filter"),
   logTrackerFilter: document.querySelector("#log-tracker-filter"),
   logCount: document.querySelector("#log-count"),
@@ -137,6 +159,7 @@ let displayedTodos = [];
 let todoGroups = [];
 let loadedTodoRecurrenceTimeZone = null;
 let todoRecurrenceDirty = false;
+let contacts = [];
 let logTrackers = [];
 let logEntries = [];
 const requestNodes = new Map();
@@ -709,10 +732,12 @@ function switchView(view) {
   elements.agentView.hidden = view !== "agent";
   elements.calendarView.hidden = view !== "calendar";
   elements.todosView.hidden = view !== "todos";
+  elements.contactsView.hidden = view !== "contacts";
   elements.logsView.hidden = view !== "logs";
   for (const button of elements.navButtons) button.classList.toggle("active", button.dataset.view === view);
   if (view === "calendar") void refreshCalendar();
   if (view === "todos") void refreshTodos();
+  if (view === "contacts") void refreshContacts();
   if (view === "logs") void refreshLogs();
 }
 
@@ -1324,6 +1349,229 @@ async function renameTodoGroup(groupId, currentName) {
   }
 }
 
+function contactInitials(contact) {
+  const parts = contact.displayName.trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)[0]}` : parts[0]?.slice(0, 2) || "?").toUpperCase();
+}
+
+function formatContactBirthday(value) {
+  if (!value) return null;
+  const partial = /^--(\d{2})-(\d{2})$/.exec(value);
+  const date = new Date(`${partial ? `2000-${partial[1]}-${partial[2]}` : value}T12:00:00`);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short", day: "numeric", ...(partial ? {} : { year: "numeric" }),
+  }).format(date);
+}
+
+function contactMethodName(kind) {
+  return {
+    email: "Email", phone: "Phone", postal_address: "Address",
+    handle: "Handle", url: "URL", other: "Other",
+  }[kind] || kind;
+}
+
+function contactMethodHref(method) {
+  if (method.kind === "email") return `mailto:${method.value}`;
+  if (method.kind === "phone") return `tel:${method.value}`;
+  if (method.kind === "url" && /^https?:\/\//i.test(method.value)) return method.value;
+  return null;
+}
+
+async function refreshContacts() {
+  try {
+    const body = await api("/api/contacts?scope=all&limit=1000");
+    contacts = body.contacts;
+    renderContacts();
+  } catch (error) {
+    elements.contactList.replaceChildren(node("p", "empty", error.message || "Contacts unavailable."));
+  }
+}
+
+function renderContacts() {
+  elements.contactList.replaceChildren();
+  const query = elements.contactSearch.value.trim().toLocaleLowerCase();
+  const status = elements.contactStatusFilter.value;
+  const visible = contacts.filter((contact) => {
+    if (status !== "all" && contact.status !== status) return false;
+    if (!query) return true;
+    return [
+      contact.displayName, contact.givenName, contact.familyName,
+      contact.organizationName, contact.notes,
+      ...contact.methods.flatMap((method) => [method.label, method.value]),
+    ].some((value) => value?.toLocaleLowerCase().includes(query));
+  });
+  elements.contactCount.textContent = `${visible.length} ${visible.length === 1 ? "contact" : "contacts"}`;
+  if (visible.length === 0) {
+    elements.contactList.append(node(
+      "p", "empty",
+      query ? "No contacts match that search." : "No contacts in this view yet.",
+    ));
+    return;
+  }
+  for (const contact of visible) {
+    const card = node("article", "contact-card");
+    const heading = node("header", "contact-card-heading");
+    const identity = node("div", "contact-identity");
+    const avatar = node("span", "contact-avatar", contactInitials(contact));
+    avatar.setAttribute("aria-hidden", "true");
+    const names = node("div");
+    names.append(node("h3", "", contact.displayName));
+    if (contact.organizationName && contact.organizationName !== contact.displayName) {
+      names.append(node("span", "contact-organization", contact.organizationName));
+    }
+    identity.append(avatar, names);
+    const edit = node("button", "secondary compact", "Edit");
+    edit.type = "button";
+    edit.setAttribute("aria-label", `Edit ${contact.displayName}`);
+    edit.addEventListener("click", () => openContactEditor(contact));
+    heading.append(identity, edit);
+
+    const meta = node("div", "contact-meta");
+    meta.append(node("span", "contact-pill", contact.kind));
+    if (contact.isSelf) meta.append(node("span", "contact-pill self", "You"));
+    if (contact.status !== "active") meta.append(node("span", `contact-pill ${contact.status}`, contact.status));
+    const birthday = formatContactBirthday(contact.birthDate);
+    if (birthday) meta.append(node("span", "contact-pill birthday", `Birthday ${birthday}`));
+    card.append(heading, meta);
+
+    if (contact.methods.length) {
+      const methods = node("div", "contact-methods");
+      for (const method of contact.methods) {
+        const row = node("div", "contact-method");
+        const label = method.label || contactMethodName(method.kind);
+        row.append(node("span", "contact-method-label", `${label}${method.isPrimary ? " · primary" : ""}`));
+        const href = contactMethodHref(method);
+        const value = node(href ? "a" : "span", "contact-method-value", method.value);
+        if (href) value.href = href;
+        if (method.kind === "url") {
+          value.target = "_blank";
+          value.rel = "noreferrer";
+        }
+        row.append(value);
+        methods.append(row);
+      }
+      card.append(methods);
+    }
+    if (contact.notes) card.append(node("p", "contact-notes", contact.notes));
+    elements.contactList.append(card);
+  }
+}
+
+function updateContactMethodInput(row) {
+  const kind = row.querySelector(".contact-method-kind").value;
+  const value = row.querySelector(".contact-method-input");
+  value.type = kind === "email" ? "email" : kind === "phone" ? "tel" : kind === "url" ? "url" : "text";
+  value.autocomplete = kind === "email" ? "email" : kind === "phone" ? "tel" : kind === "postal_address" ? "street-address" : "off";
+  value.placeholder = contactMethodName(kind);
+}
+
+function addContactMethodRow(method = {}) {
+  const row = node("div", "contact-method-row");
+  if (method.id) row.dataset.methodId = String(method.id);
+  const kind = node("select", "contact-method-kind");
+  for (const [value, label] of [
+    ["email", "Email"], ["phone", "Phone"], ["postal_address", "Address"],
+    ["handle", "Handle"], ["url", "URL"], ["other", "Other"],
+  ]) {
+    const option = node("option", "", label);
+    option.value = value;
+    kind.append(option);
+  }
+  kind.value = method.kind || "email";
+  kind.setAttribute("aria-label", "Method type");
+  const label = node("input", "contact-method-label-input");
+  label.value = method.label || "";
+  label.placeholder = "Label";
+  label.maxLength = 100;
+  label.setAttribute("aria-label", "Method label");
+  const value = node("input", "contact-method-input");
+  value.value = method.value || "";
+  value.required = true;
+  value.maxLength = 2000;
+  value.setAttribute("aria-label", "Contact method value");
+  const primaryLabel = node("label", "contact-method-check");
+  const primary = node("input", "contact-method-primary");
+  primary.type = "checkbox";
+  primary.checked = Boolean(method.isPrimary);
+  primaryLabel.append(primary, node("span", "", "Primary"));
+  const receiveLabel = node("label", "contact-method-check");
+  const receive = node("input", "contact-method-receive");
+  receive.type = "checkbox";
+  receive.checked = method.canReceive !== false;
+  receiveLabel.append(receive, node("span", "", "Can receive"));
+  const remove = node("button", "secondary compact contact-method-remove", "Remove");
+  remove.type = "button";
+  remove.addEventListener("click", () => row.remove());
+  kind.addEventListener("change", () => updateContactMethodInput(row));
+  row.append(kind, label, value, primaryLabel, receiveLabel, remove);
+  elements.contactMethodList.append(row);
+  updateContactMethodInput(row);
+  return row;
+}
+
+function openContactEditor(contact = null) {
+  elements.contactForm.reset();
+  elements.contactMethodList.replaceChildren();
+  elements.contactFormError.textContent = "";
+  elements.contactDialogTitle.textContent = contact ? "Edit contact" : "New contact";
+  elements.contactId.value = contact?.id ?? "";
+  elements.contactVersion.value = contact?.version ?? "";
+  elements.contactDisplayName.value = contact?.displayName ?? "";
+  elements.contactKind.value = contact?.kind ?? "person";
+  elements.contactGivenName.value = contact?.givenName ?? "";
+  elements.contactFamilyName.value = contact?.familyName ?? "";
+  elements.contactOrganizationName.value = contact?.organizationName ?? "";
+  elements.contactBirthDate.value = contact?.birthDate ?? "";
+  elements.contactStatus.value = contact?.status ?? "active";
+  elements.contactNotes.value = contact?.notes ?? "";
+  for (const method of contact?.methods ?? []) addContactMethodRow(method);
+  elements.contactDialog.showModal();
+  elements.contactDisplayName.focus();
+}
+
+async function saveContact(event) {
+  event.preventDefault();
+  elements.contactFormError.textContent = "";
+  const submit = elements.contactForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  try {
+    const methods = [...elements.contactMethodList.querySelectorAll(".contact-method-row")].map((row) => ({
+      id: row.dataset.methodId ? Number(row.dataset.methodId) : null,
+      kind: row.querySelector(".contact-method-kind").value,
+      label: row.querySelector(".contact-method-label-input").value,
+      value: row.querySelector(".contact-method-input").value,
+      isPrimary: row.querySelector(".contact-method-primary").checked,
+      canReceive: row.querySelector(".contact-method-receive").checked,
+    }));
+    const payload = {
+      kind: elements.contactKind.value,
+      displayName: elements.contactDisplayName.value,
+      givenName: elements.contactGivenName.value,
+      familyName: elements.contactFamilyName.value,
+      organizationName: elements.contactOrganizationName.value,
+      birthDate: elements.contactBirthDate.value,
+      status: elements.contactStatus.value,
+      notes: elements.contactNotes.value,
+      methods,
+    };
+    const id = elements.contactId.value;
+    if (id) payload.version = elements.contactVersion.value;
+    await api(id ? `/api/contacts/${id}` : "/api/contacts", {
+      method: id ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    elements.contactDialog.close();
+    await refreshContacts();
+    if (activeView === "calendar") await refreshCalendar();
+  } catch (error) {
+    elements.contactFormError.textContent = error.message || "Could not save the contact.";
+  } finally {
+    submit.disabled = false;
+  }
+}
+
 async function refreshLogs() {
   try {
     const [trackerBody, entryBody] = await Promise.all([
@@ -1720,6 +1968,13 @@ for (const control of [
   if (control.matches('input[type="number"]')) control.addEventListener("input", recurrenceChanged);
 }
 elements.todoScheduled.addEventListener("change", updateTodoRecurrenceEditor);
+elements.newContact.addEventListener("click", () => openContactEditor());
+elements.contactSearch.addEventListener("input", renderContacts);
+elements.contactStatusFilter.addEventListener("change", renderContacts);
+elements.addContactMethod.addEventListener("click", () => {
+  addContactMethodRow().querySelector(".contact-method-input").focus();
+});
+elements.contactForm.addEventListener("submit", saveContact);
 elements.newLogEntry.addEventListener("click", () => openLogEditor());
 elements.logGroupFilter.addEventListener("change", () => {
   populateLogTrackerFilter("");

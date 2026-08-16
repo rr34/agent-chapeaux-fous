@@ -142,6 +142,25 @@ test("the standalone client restores calendar, grouped to-do, and personal log s
   assert.match(server, /\/api\/log-entries/);
 });
 
+test("the standalone client provides a native contacts address book", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  assert.match(document, /data-view="contacts"/);
+  assert.match(document, /id="contacts-view"/);
+  assert.match(document, /id="contact-search"/);
+  assert.match(document, /id="contact-dialog"/);
+  assert.match(document, /id="contact-method-list"/);
+  assert.match(application, /async function refreshContacts/);
+  assert.match(application, /function renderContacts/);
+  assert.match(application, /function addContactMethodRow/);
+  assert.match(application, /function saveContact/);
+  assert.match(application, /\/api\/contacts\?scope=all/);
+  assert.match(server, /organizer\.listContacts/);
+  assert.match(server, /organizer\.createContact/);
+  assert.match(server, /organizer\.updateContact/);
+});
+
 test("the request composer keeps Shift+Enter for newlines and submits other Enter shortcuts", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   assert.match(application, /event\.key !== "Enter" \|\| event\.shiftKey \|\| event\.isComposing/);

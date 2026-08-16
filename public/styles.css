@@ -76,7 +76,7 @@ section { margin-bottom: 1rem; }
 
 .app-nav {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 5px;
   margin-bottom: 1rem;
   padding: 5px;
@@ -187,7 +187,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .runtime.not-ready, .usage.not-ready, .integration.not-ready { color: var(--bad); }
 .integration:disabled { cursor: default; opacity: 1; }
 
-.organizer-heading, .calendar-toolbar, .todo-toolbar, .log-toolbar, .dialog-heading, .editor-actions {
+.organizer-heading, .calendar-toolbar, .todo-toolbar, .contact-toolbar, .log-toolbar, .dialog-heading, .editor-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -196,7 +196,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .organizer-heading { margin: .25rem .15rem .75rem; }
 .organizer-heading h2 { margin: 0; font-size: clamp(1.5rem, 5vw, 2.1rem); letter-spacing: -.035em; }
 .organizer-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 15px; }
-.calendar-toolbar, .todo-toolbar, .log-toolbar { margin-bottom: 1rem; padding: .65rem .8rem; }
+.calendar-toolbar, .todo-toolbar, .contact-toolbar, .log-toolbar { margin-bottom: 1rem; padding: .65rem .8rem; }
 .calendar-navigation { display: flex; align-items: center; gap: .45rem; }
 .calendar-toolbar small { color: var(--muted); }
 .calendar-schedule-mode { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding: .8rem; border-color: rgba(112, 167, 255, .6); background: rgba(112, 167, 255, .09); }
@@ -245,9 +245,11 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .agenda-item span { margin-top: .25rem; color: var(--muted); font-size: .74rem; }
 .agenda-item.todo { border-left: 3px solid #70a7ff; }
 .agenda-empty { color: var(--muted); font-size: .83rem; line-height: 1.45; }
-.todo-toolbar, .log-toolbar { justify-content: flex-start; }
-.todo-toolbar label, .log-toolbar label { color: var(--muted); font-size: .8rem; font-weight: 750; }
-.todo-toolbar select, .log-toolbar select, .editor-dialog select { width: auto; padding: .6rem; color: var(--text); background: #0e1113; border: 1px solid var(--line); border-radius: 10px; }
+.todo-toolbar, .contact-toolbar, .log-toolbar { justify-content: flex-start; }
+.todo-toolbar label, .contact-toolbar label, .log-toolbar label { color: var(--muted); font-size: .8rem; font-weight: 750; }
+.todo-toolbar select, .contact-toolbar select, .log-toolbar select, .editor-dialog select { width: auto; padding: .6rem; color: var(--text); background: #0e1113; border: 1px solid var(--line); border-radius: 10px; }
+.contact-search { display: grid; grid-template-columns: auto minmax(10rem, 1fr); align-items: center; gap: .55rem; flex: 1 1 22rem; }
+.contact-search input { padding: .6rem; }
 .toolbar-count { margin-left: auto; color: var(--muted); font-size: .8rem; }
 .todo-list { display: grid; gap: .65rem; }
 .todo-group-section { margin: 0; }
@@ -271,6 +273,27 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-pill { padding: 3px 7px; background: #252b31; border-radius: 999px; }
 .todo-pill.overdue { color: var(--bad); }
 .todo-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 3px; }
+
+.contact-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: .75rem; }
+.contact-card { min-width: 0; padding: .9rem; color: var(--text); background: #101316; border: 1px solid var(--line); border-radius: 13px; }
+.contact-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.contact-identity { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+.contact-identity > div { min-width: 0; }
+.contact-avatar { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 42px; color: #ffd7c9; background: rgba(240, 90, 40, .16); border: 1px solid rgba(240, 90, 40, .35); border-radius: 50%; font-size: .78rem; font-weight: 850; letter-spacing: .04em; }
+.contact-card h3 { overflow: hidden; margin: 0; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
+.contact-organization { display: block; overflow: hidden; margin-top: .18rem; color: var(--muted); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+.contact-meta { display: flex; flex-wrap: wrap; gap: 5px; margin: .75rem 0; }
+.contact-pill { padding: 3px 7px; color: var(--muted); background: #252b31; border-radius: 999px; font-size: .69rem; text-transform: capitalize; }
+.contact-pill.blocked { color: var(--bad); }
+.contact-pill.deceased, .contact-pill.inactive { color: var(--warn); }
+.contact-pill.self { color: var(--good); }
+.contact-pill.birthday { color: #9fc2ff; text-transform: none; }
+.contact-methods { display: grid; gap: .5rem; padding-top: .72rem; border-top: 1px solid var(--line); }
+.contact-method { display: grid; grid-template-columns: minmax(5rem, .65fr) minmax(0, 1.35fr); gap: .65rem; align-items: baseline; }
+.contact-method-label { overflow: hidden; color: var(--muted); font-size: .71rem; text-overflow: ellipsis; white-space: nowrap; }
+.contact-method-value { overflow-wrap: anywhere; color: var(--text); font-size: .82rem; }
+a.contact-method-value { color: #9fc2ff; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.contact-notes { display: -webkit-box; margin: .75rem 0 0; overflow: hidden; color: #c8d0d5; font-size: .8rem; line-height: 1.42; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 
 .log-list { display: grid; gap: 1rem; }
 .log-group-section { margin: 0; }
@@ -301,11 +324,23 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .integration-identity span { margin-top: .2rem; color: var(--muted); font-size: .78rem; }
 .integration-card.ready .integration-identity span { color: var(--good); }
 .editor-dialog { width: min(620px, calc(100% - 1.5rem)); max-height: calc(100dvh - 1.5rem); overflow: auto; }
+.contact-dialog { width: min(860px, calc(100% - 1.5rem)); }
 .editor-dialog form { display: grid; gap: .85rem; }
 .editor-dialog label { display: grid; gap: .4rem; color: var(--muted); font-size: .78rem; font-weight: 750; }
 .editor-dialog textarea { min-height: 6rem; }
 .editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
 .todo-group-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .5rem; }
+.contact-method-editor { margin: 0; padding: .8rem; background: #101316; border: 1px solid var(--line); border-radius: 11px; }
+.contact-method-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.contact-method-heading strong, .contact-method-heading span { display: block; }
+.contact-method-heading strong { color: var(--text); font-size: .85rem; }
+.contact-method-heading span { margin-top: .2rem; color: var(--muted); font-size: .72rem; }
+.contact-method-list { display: grid; gap: .55rem; margin-top: .7rem; }
+.contact-method-list:empty { display: none; }
+.contact-method-row { display: grid; grid-template-columns: 7rem 7rem minmax(10rem, 1fr) auto auto auto; align-items: center; gap: .45rem; padding-top: .55rem; border-top: 1px solid var(--line); }
+.contact-method-row select, .contact-method-row input { width: 100%; min-width: 0; padding: .55rem; }
+.contact-method-check { display: flex !important; grid-auto-flow: initial !important; align-items: center; gap: .3rem !important; color: var(--muted) !important; font-size: .7rem !important; white-space: nowrap; }
+.contact-method-check input { width: auto; }
 .checkbox-row { display: flex !important; align-items: center; }
 .checkbox-row input { width: auto; }
 .recurrence-editor { padding: .8rem; background: #101316; border: 1px solid var(--line); border-radius: 11px; }
@@ -414,7 +449,11 @@ dialog h2, dialog p { margin-bottom: 0; }
   .day-more { display: none; }
   .editor-grid { grid-template-columns: 1fr; }
   .recurrence-ending { grid-template-columns: 1fr; }
-  .todo-toolbar, .log-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .todo-toolbar, .contact-toolbar, .log-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .contact-search { grid-template-columns: 1fr; flex-basis: 100%; }
+  .contact-method-row { grid-template-columns: 1fr 1fr; }
+  .contact-method-input { grid-column: 1 / -1; }
+  .contact-method-remove { justify-self: end; }
   .toolbar-count { width: 100%; margin-left: 0; }
   .todo-card { grid-template-columns: auto minmax(0, 1fr); }
   .todo-actions { grid-column: 2; }

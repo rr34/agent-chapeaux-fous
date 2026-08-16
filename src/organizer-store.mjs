@@ -11,6 +11,9 @@ const defaultCalendarTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 const calendarStatuses = new Set(["active", "archived"]);
 const visibleCalendarStorageStatuses = ["tentative", "confirmed"];
 const todoStatuses = new Set(["todo", "complete", "ignore", "archive", "ai_suggested"]);
+const contactKinds = new Set(["person", "organization", "service"]);
+const contactStatuses = new Set(["active", "inactive", "blocked", "deceased"]);
+const contactMethodKinds = new Set(["email", "phone", "postal_address", "handle", "url", "other"]);
 
 export class OrganizerInputError extends Error {
   constructor(message, statusCode = 400) {
@@ -44,6 +47,62 @@ function booleanInteger(value, fallback = 0) {
   if (value === true || value === 1) return 1;
   if (value === false || value === 0) return 0;
   throw new OrganizerInputError("isAllDay must be a boolean.");
+}
+
+function contactBirthDate(value) {
+  const result = optionalText(value, "birthDate", 10);
+  if (result === null) return null;
+  const full = /^(\d{4})-(\d{2})-(\d{2})$/.exec(result);
+  const partial = /^--(\d{2})-(\d{2})$/.exec(result);
+  const comparable = full ? result : partial ? `2000-${partial[1]}-${partial[2]}` : null;
+  const date = comparable ? new Date(`${comparable}T00:00:00.000Z`) : null;
+  if (!date || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== comparable) {
+    throw new OrganizerInputError("birthDate must be YYYY-MM-DD or --MM-DD.");
+  }
+  return result;
+}
+
+function normalizedContactMethod(kind, value) {
+  if (kind === "email") return value.toLowerCase();
+  if (kind === "phone") {
+    const digits = value.replace(/\D/g, "");
+    return value.startsWith("+") ? `+${digits}` : digits;
+  }
+  return value.toLowerCase().replace(/\s+/g, " ");
+}
+
+function contactMethodBoolean(value, label, fallback) {
+  if (value == null) return fallback;
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  throw new OrganizerInputError(`${label} must be a boolean.`);
+}
+
+function contactMethods(value) {
+  if (value == null) return null;
+  if (!Array.isArray(value) || value.length > 100) {
+    throw new OrganizerInputError("methods must be an array of at most 100 contact methods.");
+  }
+  const seen = new Set();
+  return value.map((method, index) => {
+    if (!method || typeof method !== "object" || Array.isArray(method)) {
+      throw new OrganizerInputError(`methods[${index}] must be an object.`);
+    }
+    const kind = enumValue(method.kind, contactMethodKinds, `methods[${index}].kind`, "other");
+    const item = {
+      id: optionalPositiveInteger(method.id, `methods[${index}].id`),
+      kind,
+      label: optionalText(method.label, `methods[${index}].label`, 100),
+      value: requiredText(method.value, `methods[${index}].value`, 2000),
+      isPrimary: contactMethodBoolean(method.isPrimary, `methods[${index}].isPrimary`, false),
+      canReceive: contactMethodBoolean(method.canReceive, `methods[${index}].canReceive`, true),
+    };
+    item.normalizedValue = normalizedContactMethod(item.kind, item.value);
+    const key = `${item.kind}\u0000${item.normalizedValue}`;
+    if (seen.has(key)) throw new OrganizerInputError("Duplicate contact methods are not allowed.");
+    seen.add(key);
+    return item;
+  });
 }
 
 function integer(value, label, { fallback = 0, minimum = -100, maximum = 100 } = {}) {
@@ -242,6 +301,37 @@ function publicCalendarEvent(row) {
     isAllDay: Boolean(row.is_all_day),
     status: visibleCalendarStorageStatuses.includes(row.status) ? "active" : "archived",
     recurrenceRule: row.recurrence_rule,
+    createdAtUtc: row.created_at_utc,
+    updatedAtUtc: row.updated_at_utc,
+    version: row.updated_at_utc ?? row.created_at_utc,
+  };
+}
+
+function publicContactMethod(row) {
+  return {
+    id: row.contact_method_id,
+    kind: row.method_kind,
+    label: row.label,
+    value: row.value,
+    isPrimary: Boolean(row.is_primary),
+    canReceive: Boolean(row.can_receive),
+  };
+}
+
+function publicContact(row, methods = []) {
+  if (!row) return null;
+  return {
+    id: row.contact_id,
+    kind: row.contact_kind,
+    displayName: row.display_name,
+    givenName: row.given_name,
+    familyName: row.family_name,
+    organizationName: row.organization_name,
+    isSelf: Boolean(row.is_self),
+    status: row.status,
+    birthDate: row.birth_date,
+    notes: row.notes,
+    methods,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
     version: row.updated_at_utc ?? row.created_at_utc,
@@ -474,6 +564,181 @@ export class OrganizerStore {
       String(subjectId),
     );
     return eventId;
+  }
+
+  #contact(id) {
+    const row = this.database.prepare("SELECT * FROM contacts WHERE contact_id = ?").get(id);
+    if (!row) return null;
+    const methods = this.database.prepare(`
+      SELECT * FROM contact_methods
+      WHERE contact_id = ?
+      ORDER BY is_primary DESC, method_kind, contact_method_id
+    `).all(id).map(publicContactMethod);
+    return publicContact(row, methods);
+  }
+
+  #replaceContactMethods(contactId, methods) {
+    if (methods === null) return;
+    const existingIds = new Set(this.database.prepare(
+      "SELECT contact_method_id FROM contact_methods WHERE contact_id = ?",
+    ).all(contactId).map(({ contact_method_id: id }) => Number(id)));
+    for (const method of methods) {
+      if (method.id !== null && !existingIds.has(method.id)) {
+        throw new OrganizerInputError("A contact method does not belong to this contact.", 409);
+      }
+    }
+    this.database.prepare("DELETE FROM contact_methods WHERE contact_id = ?").run(contactId);
+    const insert = this.database.prepare(`
+      INSERT INTO contact_methods (
+        contact_method_id, contact_id, method_kind, label, value,
+        normalized_value, is_primary, can_receive
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const method of methods) {
+      insert.run(
+        method.id, contactId, method.kind, method.label, method.value,
+        method.normalizedValue, method.isPrimary ? 1 : 0, method.canReceive ? 1 : 0,
+      );
+    }
+  }
+
+  listContacts({ scope = "active", limit = 500 } = {}) {
+    if (!new Set(["active", "all"]).has(scope)) {
+      throw new OrganizerInputError("scope must be active or all.");
+    }
+    const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 1000 });
+    const rows = this.database.prepare(`
+      SELECT * FROM contacts
+      ${scope === "active" ? "WHERE status = 'active'" : ""}
+      ORDER BY status <> 'active', display_name COLLATE NOCASE, contact_id
+      LIMIT ?
+    `).all(boundedLimit);
+    if (rows.length === 0) return [];
+    const methodsByContact = new Map();
+    const placeholders = rows.map(() => "?").join(", ");
+    const methods = this.database.prepare(`
+      SELECT * FROM contact_methods
+      WHERE contact_id IN (${placeholders})
+      ORDER BY is_primary DESC, method_kind, contact_method_id
+    `).all(...rows.map(({ contact_id: id }) => id));
+    for (const method of methods) {
+      const values = methodsByContact.get(method.contact_id) ?? [];
+      values.push(publicContactMethod(method));
+      methodsByContact.set(method.contact_id, values);
+    }
+    return rows.map((row) => publicContact(row, methodsByContact.get(row.contact_id) ?? []));
+  }
+
+  createContact(input) {
+    const contact = {
+      kind: enumValue(input?.kind, contactKinds, "kind", "person"),
+      displayName: requiredText(input?.displayName, "displayName", 500),
+      givenName: optionalText(input?.givenName, "givenName", 500),
+      familyName: optionalText(input?.familyName, "familyName", 500),
+      organizationName: optionalText(input?.organizationName, "organizationName", 500),
+      status: enumValue(input?.status, contactStatuses, "status", "active"),
+      birthDate: contactBirthDate(input?.birthDate),
+      notes: optionalText(input?.notes, "notes", 10_000),
+      methods: contactMethods(input?.methods) ?? [],
+    };
+    const now = new Date().toISOString();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const result = this.database.prepare(`
+        INSERT INTO contacts (
+          contact_kind, display_name, given_name, family_name,
+          organization_name, status, birth_date, notes, updated_at_utc
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        contact.kind, contact.displayName, contact.givenName, contact.familyName,
+        contact.organizationName, contact.status, contact.birthDate, contact.notes, now,
+      );
+      const id = Number(result.lastInsertRowid);
+      this.#replaceContactMethods(id, contact.methods);
+      const created = this.#contact(id);
+      this.#activity({
+        eventType: "contact.created",
+        status: "complete",
+        name: "Contact created",
+        subjectType: "contact",
+        subjectId: id,
+        contentText: created.displayName,
+        payload: { contact: created },
+      });
+      this.database.exec("COMMIT");
+      return created;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("UNIQUE constraint failed: contact_methods")) {
+        throw new OrganizerInputError("Duplicate contact methods are not allowed.", 409);
+      }
+      throw error;
+    }
+  }
+
+  updateContact(idValue, input) {
+    const id = identifier(idValue, "contact id");
+    const before = this.#contact(id);
+    if (!before) throw new OrganizerInputError("Contact not found.", 404);
+    if (typeof input?.version !== "string" || input.version !== before.version) {
+      throw new OrganizerInputError("This contact changed after it was opened. Refresh and try again.", 409);
+    }
+    const contact = {
+      kind: enumValue(input?.kind, contactKinds, "kind", before.kind),
+      displayName: input?.displayName == null
+        ? before.displayName
+        : requiredText(input.displayName, "displayName", 500),
+      givenName: input?.givenName === undefined ? before.givenName : optionalText(input.givenName, "givenName", 500),
+      familyName: input?.familyName === undefined ? before.familyName : optionalText(input.familyName, "familyName", 500),
+      organizationName: input?.organizationName === undefined
+        ? before.organizationName
+        : optionalText(input.organizationName, "organizationName", 500),
+      status: enumValue(input?.status, contactStatuses, "status", before.status),
+      birthDate: input?.birthDate === undefined ? before.birthDate : contactBirthDate(input.birthDate),
+      notes: input?.notes === undefined ? before.notes : optionalText(input.notes, "notes", 10_000),
+      methods: contactMethods(input?.methods),
+    };
+    const candidate = new Date().toISOString();
+    const now = candidate > before.version
+      ? candidate
+      : new Date(new Date(before.version).getTime() + 1).toISOString();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(`
+        UPDATE contacts
+        SET contact_kind = ?, display_name = ?, given_name = ?, family_name = ?,
+            organization_name = ?, status = ?, birth_date = ?, notes = ?, updated_at_utc = ?
+        WHERE contact_id = ?
+      `).run(
+        contact.kind, contact.displayName, contact.givenName, contact.familyName,
+        contact.organizationName, contact.status, contact.birthDate, contact.notes, now, id,
+      );
+      this.#replaceContactMethods(id, contact.methods);
+      const updated = this.#contact(id);
+      this.#activity({
+        eventType: "contact.updated",
+        status: "complete",
+        name: "Contact updated",
+        subjectType: "contact",
+        subjectId: id,
+        contentText: updated.displayName,
+        payload: {
+          contact: updated,
+          changedFields: changedFields(before, updated, [
+            "kind", "displayName", "givenName", "familyName", "organizationName",
+            "status", "birthDate", "notes", "methods",
+          ]),
+        },
+      });
+      this.database.exec("COMMIT");
+      return updated;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("UNIQUE constraint failed: contact_methods")) {
+        throw new OrganizerInputError("Duplicate contact methods are not allowed.", 409);
+      }
+      throw error;
+    }
   }
 
   listCalendar({ from, to }) {

@@ -72,11 +72,27 @@ export function temporaryDatabase() {
       contact_id INTEGER PRIMARY KEY,
       contact_kind TEXT NOT NULL DEFAULT 'person',
       display_name TEXT NOT NULL,
+      given_name TEXT,
+      family_name TEXT,
+      organization_name TEXT,
       is_self INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active',
       birth_date TEXT,
+      notes TEXT,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT
+    ) STRICT;
+    CREATE TABLE contact_methods (
+      contact_method_id INTEGER PRIMARY KEY,
+      contact_id INTEGER NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,
+      method_kind TEXT NOT NULL,
+      label TEXT,
+      value TEXT NOT NULL,
+      normalized_value TEXT,
+      is_primary INTEGER NOT NULL DEFAULT 0,
+      can_receive INTEGER NOT NULL DEFAULT 1,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      UNIQUE (contact_id, method_kind, value)
     ) STRICT;
     CREATE TABLE calendar_events (
       calendar_event_id INTEGER PRIMARY KEY,

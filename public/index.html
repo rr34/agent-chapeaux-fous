@@ -30,6 +30,7 @@
       <button class="nav-button active" type="button" data-view="agent">Agent</button>
       <button class="nav-button" type="button" data-view="calendar">Calendar</button>
       <button class="nav-button" type="button" data-view="todos">To-Do List</button>
+      <button class="nav-button" type="button" data-view="contacts">Contacts</button>
       <button class="nav-button" type="button" data-view="logs">Logs</button>
     </nav>
 
@@ -130,6 +131,28 @@
         <span id="todo-count" class="toolbar-count"></span>
       </div>
       <section id="todo-list" class="todo-list" aria-live="polite"></section>
+    </section>
+
+    <section id="contacts-view" class="app-view" hidden>
+      <header class="organizer-heading">
+        <div>
+          <p class="eyebrow">People and places</p>
+          <h2>Contacts</h2>
+        </div>
+        <button id="new-contact" type="button">New contact</button>
+      </header>
+      <div class="contact-toolbar organizer-panel">
+        <label class="contact-search">Search<input id="contact-search" type="search" placeholder="Name, note, email, phone…"></label>
+        <label>Status<select id="contact-status-filter">
+          <option value="active">Active</option>
+          <option value="all">Everything</option>
+          <option value="inactive">Inactive</option>
+          <option value="blocked">Blocked</option>
+          <option value="deceased">Deceased</option>
+        </select></label>
+        <span id="contact-count" class="toolbar-count"></span>
+      </div>
+      <section id="contact-list" class="contact-list" aria-live="polite"></section>
     </section>
 
     <section id="logs-view" class="app-view" hidden>
@@ -333,6 +356,51 @@
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save entry</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="contact-dialog" class="editor-dialog contact-dialog">
+    <form id="contact-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Address book</p><h2 id="contact-dialog-title">New contact</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <input id="contact-id" type="hidden">
+      <input id="contact-version" type="hidden">
+      <div class="editor-grid">
+        <label>Display name<input id="contact-display-name" required maxlength="500" autocomplete="name"></label>
+        <label>Type<select id="contact-kind">
+          <option value="person">Person</option>
+          <option value="organization">Organization</option>
+          <option value="service">Service</option>
+        </select></label>
+        <label>Given name<input id="contact-given-name" maxlength="500" autocomplete="given-name"></label>
+        <label>Family name<input id="contact-family-name" maxlength="500" autocomplete="family-name"></label>
+        <label>Organization<input id="contact-organization-name" maxlength="500" autocomplete="organization"></label>
+        <label>Birthday <span class="field-hint">YYYY-MM-DD or --MM-DD</span><input id="contact-birth-date" maxlength="10" placeholder="--08-18" inputmode="numeric"></label>
+        <label>Status<select id="contact-status">
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+          <option value="blocked">Blocked</option>
+          <option value="deceased">Deceased</option>
+        </select></label>
+      </div>
+      <label>Notes<textarea id="contact-notes" rows="4" maxlength="10000" placeholder="Context worth remembering…"></textarea></label>
+      <section class="contact-method-editor" aria-labelledby="contact-method-heading">
+        <div class="contact-method-heading">
+          <div>
+            <strong id="contact-method-heading">Contact methods</strong>
+            <span>Email, phone, address, handle, or URL</span>
+          </div>
+          <button id="add-contact-method" class="secondary compact" type="button">Add method</button>
+        </div>
+        <div id="contact-method-list" class="contact-method-list"></div>
+      </section>
+      <p id="contact-form-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Save contact</button>
       </footer>
     </form>
   </dialog>
