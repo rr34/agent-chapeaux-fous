@@ -19,6 +19,7 @@ import { WhisperTranscriber } from "./transcriber.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
 import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
 import { registerCalendarTools } from "./tools/calendar-tools.mjs";
+import { registerContactTools } from "./tools/contact-tools.mjs";
 import { registerLogTools } from "./tools/log-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
 import { ProfileFacts } from "./profile-facts.mjs";
@@ -54,6 +55,7 @@ const jmap = new JmapClient({
 });
 if (store.status.ready) {
   registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);
+  registerContactTools(registry, store, ledger, schemaSemantics);
   registerTodoTools(registry, store, ledger, schemaSemantics);
   registerLogTools(registry, store, ledger, schemaSemantics);
   registerProfileFactTools(registry, profileFacts, schemaSemantics);

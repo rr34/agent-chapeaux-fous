@@ -11,12 +11,14 @@ export const requiredDatabaseShape = {
   files: ["file_id", "storage_path", "original_filename", "media_kind", "mime_type", "sha256", "byte_size"],
   contacts: [
     "contact_id", "contact_kind", "display_name", "given_name", "family_name",
-    "organization_name", "is_self", "status", "birth_date", "notes",
+    "organization_name", "is_self", "status", "birth_date", "notes", "source", "external_id",
   ],
   contact_methods: [
     "contact_method_id", "contact_id", "method_kind", "label", "value",
     "normalized_value", "is_primary", "can_receive",
   ],
+  tags: ["tag_id", "slug", "label", "is_active"],
+  record_tags: ["tag_id", "record_type", "record_id"],
   calendar_events: [
     "calendar_event_id", "title", "description", "location_text", "starts_at_utc",
     "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule",

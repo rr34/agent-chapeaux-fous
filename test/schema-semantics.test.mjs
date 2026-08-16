@@ -9,6 +9,7 @@ import { SchemaSemantics } from "../src/schema-semantics.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
+import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerLogTools } from "../src/tools/log-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
@@ -91,6 +92,7 @@ test("native database-backed tools return stored field names with semantic proje
   context.after(() => organizer.close());
   const registry = new ToolRegistry();
   registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);
+  registerContactTools(registry, store, ledger, schemaSemantics);
   registerTodoTools(registry, store, ledger, schemaSemantics);
   registerLogTools(registry, store, ledger, schemaSemantics);
   registerProfileFactTools(registry, profileFacts, schemaSemantics);
@@ -105,6 +107,7 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "factType"), false);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "starts_at_utc"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "startsAtUtc"), false);
+  assert.equal(Object.hasOwn(definitions.contact_import, "entries"), true);
   const request = ledger.createRequest({ text: "Inspect native semantic results" });
   const toolContext = {
     requestId: request.requestId,

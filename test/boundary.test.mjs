@@ -48,6 +48,7 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /personal-log tools/);
   assert.match(instructions, /complete natural-language log\s+content/);
   assert.match(instructions, /log_import in bounded\s+batches/);
+  assert.match(instructions, /use contact_import in bounded batches/);
   assert.match(instructions, /profile_fact_set/);
   assert.match(instructions, /profile_fact_delete/);
   assert.match(instructions, /calendar_event_list/);
@@ -159,6 +160,7 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(server, /organizer\.listContacts/);
   assert.match(server, /organizer\.createContact/);
   assert.match(server, /organizer\.updateContact/);
+  assert.match(server, /registerContactTools/);
 });
 
 test("the request composer keeps Shift+Enter for newlines and submits other Enter shortcuts", () => {

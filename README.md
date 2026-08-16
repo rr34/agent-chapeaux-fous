@@ -137,6 +137,10 @@ to the model; UI transport objects remain an independent browser concern.
   natural-language content with optional numeric and unit projections for
   calculation and trends. Bounded imports use generic source and external IDs
   for safe replay without source-specific application code.
+- `contact_import` imports up to 200 normalized contacts from an attached CSV or
+  another supplied source in one transaction. Stable source IDs make replays
+  idempotent, and each contact can retain multiple methods, notes, and reusable
+  overlapping tags.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
 - `database_schema`, `database_read`, and `database_write` expose bounded,

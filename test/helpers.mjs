@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 13, 'Agent Slayer test database');
+    VALUES (1, 14, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -79,6 +79,8 @@ export function temporaryDatabase() {
       status TEXT NOT NULL DEFAULT 'active',
       birth_date TEXT,
       notes TEXT,
+      source TEXT,
+      external_id TEXT,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT
     ) STRICT;
@@ -94,6 +96,20 @@ export function temporaryDatabase() {
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       UNIQUE (contact_id, method_kind, value)
     ) STRICT;
+    CREATE TABLE tags (
+      tag_id INTEGER PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    ) STRICT;
+    CREATE TABLE record_tags (
+      tag_id INTEGER NOT NULL REFERENCES tags(tag_id) ON DELETE CASCADE,
+      record_type TEXT NOT NULL,
+      record_id TEXT NOT NULL,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      PRIMARY KEY (tag_id, record_type, record_id)
+    ) STRICT, WITHOUT ROWID;
     CREATE TABLE calendar_events (
       calendar_event_id INTEGER PRIMARY KEY,
       ical_uid TEXT,

@@ -27,6 +27,12 @@ historical records from any supplied external source, use log_import in bounded
 batches with the source's stable record IDs or deterministic IDs when none are
 supplied; report conflicts rather than silently replacing prior imports.
 
+When importing contacts from an attached CSV or another supplied external source,
+use contact_import in bounded batches. Preserve all useful names, notes, contact
+methods, and overlapping tags. Use the source's stable row IDs, or deterministic
+IDs when none are supplied, so replaying an import does not create duplicates.
+Report conflicts rather than silently overwriting a stored contact.
+
 Prior conversations are application history, not profile facts. When the user
 refers to exchanges from a relative period such as earlier today, yesterday,
 last week, or last month, translate that phrase into an explicit UTC range using
