@@ -152,11 +152,20 @@ async function emailAction(client, {
   if (action === "trash") {
     const trash = await mailboxForRole(client, accountId, "trash");
     patch = { mailboxIds: { [trash.id]: true } };
+  } else if (action === "restore_to_inbox") {
+    const inbox = inboxId ? { id: inboxId } : await mailboxForRole(client, accountId, "inbox");
+    const trash = await mailboxForRole(client, accountId, "trash");
+    patch = {
+      [`mailboxIds/${patchSegment(trash.id)}`]: null,
+      [`mailboxIds/${patchSegment(inbox.id)}`]: true,
+    };
   } else if (action === "archive") {
     const inbox = inboxId ? { id: inboxId } : await mailboxForRole(client, accountId, "inbox");
     const archive = await mailboxForRole(client, accountId, "archive");
+    const trash = await mailboxForRole(client, accountId, "trash");
     patch = {
       [`mailboxIds/${patchSegment(inbox.id)}`]: null,
+      [`mailboxIds/${patchSegment(trash.id)}`]: null,
       [`mailboxIds/${patchSegment(archive.id)}`]: true,
     };
   } else if (action === "mark_read") {
@@ -505,14 +514,14 @@ export function registerJmapEmailTools(registry, client) {
 
   registry.register({
     name: "email_bulk_update",
-    description: "Apply one recoverable inbox action to as many as 100 explicit live email ids in a single optimistic JMAP write. Use trash instead of permanent destruction for ordinary delete requests. Prefer email_cleanup_preview and email_cleanup_apply when the candidate set comes from several senders or search phrases.",
+    description: "Apply one recoverable mailbox action to as many as 100 explicit live email ids in a single optimistic JMAP write. restore_to_inbox removes Trash and adds Inbox. archive removes both Inbox and Trash before adding Archive, so it can recover a mistakenly trashed message directly to Archive. Use trash instead of permanent destruction for ordinary delete requests. Prefer email_cleanup_preview and email_cleanup_apply when the candidate set comes from several senders or search phrases.",
     parameters: {
       type: "object", additionalProperties: false,
       properties: {
         account_id: nullableString,
         email_ids: { type: "array", minItems: 1, maxItems: 100, items: { type: "string", minLength: 1 } },
         if_in_state: nullableString,
-        action: { type: "string", enum: ["trash", "archive", "mark_read", "mark_unread"] },
+        action: { type: "string", enum: ["trash", "restore_to_inbox", "archive", "mark_read", "mark_unread"] },
       },
       required: ["account_id", "email_ids", "if_in_state", "action"],
     },

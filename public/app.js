@@ -480,6 +480,9 @@ function requestNode(request, index) {
   if (!node) {
     node = elements.template.content.firstElementChild.cloneNode(true);
     node.dataset.requestId = request.requestId;
+    node.querySelector(".request-number").addEventListener("click", (event) => {
+      copyText(request.requestId, event.currentTarget);
+    });
     node.querySelector(".copy-response").addEventListener("click", (event) => {
       copyText(node.querySelector(".agent-response p").textContent, event.currentTarget);
     });
@@ -487,7 +490,10 @@ function requestNode(request, index) {
     requestNodes.set(request.requestId, node);
   }
   node.dataset.status = request.status;
-  node.querySelector(".request-number").textContent = `Request ${request.requestId.slice(0, 8)}`;
+  const requestNumber = node.querySelector(".request-number");
+  requestNumber.textContent = `Request ${request.requestId.slice(0, 8)}`;
+  requestNumber.title = `Copy request ID ${request.requestId}`;
+  requestNumber.setAttribute("aria-label", `Copy request ID ${request.requestId}`);
   node.querySelector(".request-channel").textContent = request.channel === "voice" ? "Voice" : "Typed";
   node.querySelector(".request-status").textContent = request.status;
   const time = node.querySelector("time");

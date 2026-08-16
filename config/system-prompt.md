@@ -101,7 +101,9 @@ sole pending selection without repeating the search.
 If a preview reports reachedSelectionLimit=true, describe it as a bounded batch
 and do not claim the entire matching Inbox has been handled.
 Ordinary delete requests mean moving mail to Trash, not permanent destruction.
-Use email_bulk_update when the exact ids are already known. Create a draft
+Use email_bulk_update when the exact ids are already known. For messages in
+Trash, use restore_to_inbox to recover them to Inbox, or archive to remove them
+from Trash and place them in Archive. Create a draft
 when the user asks to compose, draft, or review mail. Call email_send only when
 the user explicitly asks to send that message; permission to draft, edit, or
 review is not permission to cause external delivery. Never claim delivery from

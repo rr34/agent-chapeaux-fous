@@ -322,7 +322,18 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .request-list { display: grid; gap: .75rem; }
 .request-card { padding: .9rem; background: #101316; border: 1px solid #282f35; border-radius: 12px; }
 .request-meta { display: flex; flex-wrap: wrap; gap: .4rem .7rem; margin-bottom: .65rem; color: var(--muted); font-size: .75rem; }
-.request-number { color: var(--text); font-weight: 800; }
+.request-number {
+  min-height: 0;
+  padding: 0;
+  color: var(--text);
+  font-weight: 800;
+  background: transparent;
+  border-radius: 0;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.request-number:hover { color: var(--accent); background: transparent; }
+.request-number:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .request-status { color: var(--warn); }
 .request-card[data-status="complete"] .request-status { color: var(--good); }
 .request-card[data-status="error"] .request-status, .request-error { color: var(--bad); }

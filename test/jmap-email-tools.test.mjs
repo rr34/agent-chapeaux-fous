@@ -178,6 +178,36 @@ test("bulk updates and saved cleanup selections use one recoverable JMAP write",
     email1: { "keywords/$seen": true },
     email2: { "keywords/$seen": true },
   });
+
+  client.calls.length = 0;
+  const restored = await registry.execute("email_bulk_update", {
+    account_id: null,
+    email_ids: ["email1", "email2"],
+    if_in_state: "email-2",
+    action: "restore_to_inbox",
+  });
+  assert.equal(restored.affectedCount, 2);
+  const restoreWrite = client.calls.find(({ method }) => method === "Email/set");
+  assert.deepEqual(restoreWrite.argumentsObject.update, {
+    email1: { "mailboxIds/trash~1one": null, "mailboxIds/inbox~1one": true },
+    email2: { "mailboxIds/trash~1one": null, "mailboxIds/inbox~1one": true },
+  });
+
+  client.calls.length = 0;
+  await registry.execute("email_bulk_update", {
+    account_id: null,
+    email_ids: ["email1"],
+    if_in_state: "email-2",
+    action: "archive",
+  });
+  const archiveWrite = client.calls.find(({ method }) => method === "Email/set");
+  assert.deepEqual(archiveWrite.argumentsObject.update, {
+    email1: {
+      "mailboxIds/inbox~1one": null,
+      "mailboxIds/trash~1one": null,
+      "mailboxIds/archive~1one": true,
+    },
+  });
 });
 
 test("whole-Inbox cleanup paginates large previews and server-sized writes inside two model tools", async () => {

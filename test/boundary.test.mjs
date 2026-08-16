@@ -142,6 +142,15 @@ test("the request composer keeps Shift+Enter for newlines and submits other Ente
   assert.doesNotMatch(application, /event\.key !== "Enter" \|\| event\.ctrlKey/);
 });
 
+test("clicking a displayed request ID copies the complete request ID", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(document, /<button class="request-number" type="button"><\/button>/);
+  assert.match(application, /querySelector\("\.request-number"\)\.addEventListener\("click"/);
+  assert.match(application, /copyText\(request\.requestId, event\.currentTarget\)/);
+  assert.match(application, /requestNumber\.setAttribute\("aria-label", `Copy request ID \$\{request\.requestId\}`\)/);
+});
+
 test("hard-coded UI datetimes use the TLOM display convention", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   assert.match(application, /function formatDisplayDate/);
