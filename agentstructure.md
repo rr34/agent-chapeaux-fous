@@ -327,6 +327,13 @@ require `SLAYER_ACCESS_TOKEN`; only isolated local development may explicitly
 allow unauthenticated access. A reverse proxy or private tunnel may publish the
 loopback service, but that host configuration is outside this repository.
 
+An optional, separate `SLAYER_INSPECT_TOKEN` grants only live request listing,
+trace retrieval, schema inspection, and bounded structured reads. Route-level
+authorization rejects that credential before any request, voice, OAuth, or
+database mutation handler can run. This gives development work immediate
+observability without copying the production SQLite files or granting a shell
+on the live host.
+
 Secrets belong in the repository-root `.env`, which is ignored by Git. The
 current required integration secret is:
 

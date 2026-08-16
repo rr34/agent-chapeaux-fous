@@ -24,10 +24,14 @@ function resolveFromRoot(value, fallback) {
 export function loadConfig(environment = process.env) {
   const allowUnauthenticated = environment.SLAYER_ALLOW_UNAUTHENTICATED === "true";
   const accessToken = environment.SLAYER_ACCESS_TOKEN?.trim() || "";
+  const inspectToken = environment.SLAYER_INSPECT_TOKEN?.trim() || "";
   if (!allowUnauthenticated && !accessToken) {
     throw new Error(
       "SLAYER_ACCESS_TOKEN is required. Set SLAYER_ALLOW_UNAUTHENTICATED=true only for isolated local development.",
     );
+  }
+  if (inspectToken && inspectToken === accessToken) {
+    throw new Error("SLAYER_INSPECT_TOKEN must be different from SLAYER_ACCESS_TOKEN");
   }
 
   const stateRoot = path.resolve(
@@ -59,6 +63,7 @@ export function loadConfig(environment = process.env) {
     port,
     publicUrl: publicUrl.toString(),
     accessToken,
+    inspectToken,
     allowUnauthenticated,
     databasePath: resolveFromRoot(environment.SLAYER_DATABASE, "data/agent.sqlite"),
     mediaRoot: resolveFromRoot(environment.SLAYER_MEDIA_ROOT, "media"),

@@ -71,7 +71,7 @@ const optionalText = { type: ["string", "null"] };
 export function registerTodoTools(registry, store, ledger) {
   registry.register({
     name: "todo_list",
-    description: "List Nate's native personal todo items. Use this whenever he asks about his personal todos or development todo list.",
+    description: "List the user's native personal todo items. Use this whenever they ask about their personal todos or development todo list.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -180,7 +180,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_group_create",
-    description: "Create or reactivate a native personal todo group after Nate has confirmed that he wants it. Use todo_update afterward to move an Inbox task into the new group.",
+    description: "Create or reactivate a native personal todo group after the user has confirmed that they want it. Use todo_update afterward to move an Inbox task into the new group.",
     parameters: {
       type: "object",
       additionalProperties: false,

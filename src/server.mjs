@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import http from "node:http";
@@ -7,6 +7,7 @@ import { loadConfig } from "./config.mjs";
 import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
+import { authorizationScope, isInspectionRequest } from "./http-auth.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
@@ -94,21 +95,6 @@ async function readJson(request, maximumBytes = 64 * 1024) {
   }
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
   catch { throw Object.assign(new Error("Body must be valid JSON"), { statusCode: 400 }); }
-}
-
-function authorized(request) {
-  if (config.allowUnauthenticated) return true;
-  const header = String(request.headers.authorization || "");
-  if (!header.startsWith("Bearer ")) return false;
-  const supplied = Buffer.from(header.slice(7));
-  const expected = Buffer.from(config.accessToken);
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
-}
-
-function requireAuthorization(request, response) {
-  if (authorized(request)) return true;
-  sendJson(response, 401, { error: "A valid Slayer access token is required" });
-  return false;
 }
 
 async function receiveAudio(request) {
@@ -221,7 +207,16 @@ const server = http.createServer(async (request, response) => {
       await serveStatic(url.pathname, response);
       return;
     }
-    if (!requireAuthorization(request, response)) return;
+    const scope = authorizationScope(request, config);
+    if (!scope) {
+      sendJson(response, 401, { error: "A valid Slayer access token is required" });
+      return;
+    }
+    const inspectionRequest = isInspectionRequest(request.method, url.pathname);
+    if (scope === "inspect" && !inspectionRequest) {
+      sendJson(response, 403, { error: "The supplied Slayer token permits inspection only" });
+      return;
+    }
     const oauthStartMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)\/oauth\/start$/.exec(url.pathname);
     if (request.method === "POST" && oauthStartMatch) {
       sendJson(response, 200, await mcp.beginOAuth(oauthStartMatch[1]));
@@ -229,6 +224,40 @@ const server = http.createServer(async (request, response) => {
     }
     if (!store.status.ready) {
       sendJson(response, 503, { error: store.status.reason });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/requests") {
+      sendJson(response, 200, { requests: ledger.recentRequests(url.searchParams.get("limit")) });
+      return;
+    }
+    const traceMatch = /^\/api\/requests\/([0-9a-f][0-9a-f-]{7,35})\/trace$/.exec(url.pathname);
+    if (request.method === "GET" && traceMatch) {
+      const resolved = ledger.resolveRequestId(traceMatch[1]);
+      if (resolved.status === "missing") {
+        sendJson(response, 404, { error: `No request matches ${traceMatch[1]}` });
+        return;
+      }
+      if (resolved.status === "ambiguous") {
+        sendJson(response, 409, { error: `More than one request matches ${traceMatch[1]}` });
+        return;
+      }
+      if (resolved.status === "invalid") {
+        sendJson(response, 400, { error: "Request ID must be an 8-36 character hexadecimal UUID or prefix" });
+        return;
+      }
+      sendJson(response, 200, { requestId: resolved.requestId, events: ledger.trace(resolved.requestId) });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/database/schema") {
+      const objectName = url.searchParams.get("objectName");
+      const objects = objectName
+        ? [store.objectInfo(objectName)]
+        : store.objects().map((object) => store.objectInfo(object.name));
+      sendJson(response, 200, { objects });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/database/read") {
+      sendJson(response, 200, store.read(await readJson(request)));
       return;
     }
     const integrationProblem = mcp.requiredProblem();
@@ -250,15 +279,6 @@ const server = http.createServer(async (request, response) => {
       const created = ledger.createRequest({ channel: "voice", primaryFileId: file.fileId });
       queue.notify();
       sendJson(response, 202, { ...created, fileId: file.fileId });
-      return;
-    }
-    if (request.method === "GET" && url.pathname === "/api/requests") {
-      sendJson(response, 200, { requests: ledger.recentRequests(url.searchParams.get("limit")) });
-      return;
-    }
-    const traceMatch = /^\/api\/requests\/([0-9a-f-]+)\/trace$/.exec(url.pathname);
-    if (request.method === "GET" && traceMatch) {
-      sendJson(response, 200, { requestId: traceMatch[1], events: ledger.trace(traceMatch[1]) });
       return;
     }
     sendJson(response, 404, { error: "Not found" });

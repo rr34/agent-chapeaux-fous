@@ -46,3 +46,28 @@ test("active request progress follows the latest unfinished ledger operation", (
     temporary.cleanup();
   }
 });
+
+test("request IDs resolve from an unambiguous visible prefix", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    ledger.append({
+      type: "request.received", actorType: "user", turnId: "6bce8f9c-1111-4111-8111-111111111111",
+    });
+    assert.deepEqual(ledger.resolveRequestId("6bce8f9c"), {
+      status: "resolved",
+      requestId: "6bce8f9c-1111-4111-8111-111111111111",
+    });
+    assert.deepEqual(ledger.resolveRequestId("aaaaaaaa"), { status: "missing", requestId: null });
+    assert.deepEqual(ledger.resolveRequestId("not-an-id"), { status: "invalid", requestId: null });
+
+    ledger.append({
+      type: "request.received", actorType: "user", turnId: "6bce8f9c-2222-4222-8222-222222222222",
+    });
+    assert.deepEqual(ledger.resolveRequestId("6bce8f9c"), { status: "ambiguous", requestId: null });
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});

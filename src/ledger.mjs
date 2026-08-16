@@ -124,7 +124,7 @@ export class Ledger {
       type: "request.received",
       status: "queued",
       actorType: "user",
-      actorName: "Nate",
+      actorName: "User",
       source: channel === "voice" ? "voice_recorder" : "web_client",
       channel,
       turnId: requestId,
@@ -183,6 +183,21 @@ export class Ledger {
     return this.store.requireReady().prepare(`
       SELECT * FROM activity_events WHERE turn_id = ? ORDER BY event_seq
     `).all(requestId).map(publicEvent);
+  }
+
+  resolveRequestId(requestIdOrPrefix) {
+    const candidate = String(requestIdOrPrefix || "").toLowerCase();
+    if (!/^[0-9a-f][0-9a-f-]{7,35}$/.test(candidate)) return { status: "invalid", requestId: null };
+    const rows = this.store.requireReady().prepare(`
+      SELECT DISTINCT turn_id
+      FROM activity_events
+      WHERE turn_id LIKE ?
+      ORDER BY turn_id
+      LIMIT 2
+    `).all(`${candidate}%`);
+    if (rows.length === 0) return { status: "missing", requestId: null };
+    if (rows.length > 1) return { status: "ambiguous", requestId: null };
+    return { status: "resolved", requestId: rows[0].turn_id };
   }
 
   recentRequests(limit = 100) {

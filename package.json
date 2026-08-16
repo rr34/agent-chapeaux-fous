@@ -10,6 +10,7 @@
     "start": "node src/server.mjs",
     "codex:login": "node scripts/codex-account.mjs login",
     "codex:status": "node scripts/codex-account.mjs status",
+    "live:inspect": "node scripts/live-inspect.mjs",
     "test": "node --test test/*.test.mjs",
     "db:verify": "node scripts/verify-database.mjs"
   },
