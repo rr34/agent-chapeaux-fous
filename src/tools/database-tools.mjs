@@ -163,4 +163,19 @@ export function registerDatabaseTools(registry, store, ledger, schemaSemantics =
       });
     },
   });
+
+  registry.register({
+    name: "email_cleanup_receipt_list",
+    description: "Recover exact recent email mutation receipts from Agent Slayer's durable tool ledger. Use this when the user asks which messages were just trashed, archived, updated, or deleted, especially when a prior response omitted or misstated them. Results reconstruct message ids and available sender, subject, and received time from the successful mutation and its same-request search or preview results.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { limit: { type: "integer", minimum: 1, maximum: 10 } },
+      required: ["limit"],
+    },
+    async execute({ limit }) {
+      const receipts = ledger.recentEmailCleanupReceipts(limit);
+      return { count: receipts.length, receipts };
+    },
+  });
 }

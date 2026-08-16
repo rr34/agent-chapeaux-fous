@@ -52,6 +52,8 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /profile_fact_delete/);
   assert.match(instructions, /calendar_event_list/);
   assert.match(instructions, /calendar_event_recurrence_set/);
+  assert.match(instructions, /email_cleanup_receipt_list/);
+  assert.match(instructions, /do not replace that receipt with unrelated\s+mail already present in Trash/);
   assert.match(instructions, /native JMAP tools as the live authority/);
   assert.match(instructions, /Call email_send only when\s+the user explicitly asks to send/);
   assert.match(instructions, /open-ended\s+collection/);

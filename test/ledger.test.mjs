@@ -181,3 +181,79 @@ test("history_range exposes paired history without returning its current request
     temporary.cleanup();
   }
 });
+
+test("email cleanup receipts recover exact messages from successful prior tool operations", async () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const cleanup = ledger.createRequest({ text: "Trash the social notifications" });
+    ledger.append({
+      type: "tool.result",
+      phase: "end",
+      status: "complete",
+      actorType: "tool",
+      actorName: "email_search",
+      turnId: cleanup.requestId,
+      operationId: "search-1",
+      name: "email_search",
+      payload: {
+        callId: "search-1",
+        name: "email_search",
+        result: {
+          messages: [
+            { id: "mail-1", threadId: "thread-1", receivedAt: "2026-08-16T12:00:00Z", from: [{ name: "Facebook", email: "notify@facebookmail.com" }], subject: "A new post" },
+            { id: "mail-2", threadId: "thread-2", receivedAt: "2026-08-16T13:00:00Z", from: [{ name: "Instagram", email: "notify@instagram.com" }], subject: "Your recap" },
+          ],
+        },
+      },
+    });
+    ledger.append({
+      type: "tool.call",
+      phase: "start",
+      status: "processing",
+      actorType: "model",
+      actorName: "test-model",
+      turnId: cleanup.requestId,
+      operationId: "bulk-1",
+      name: "email_bulk_update",
+      payload: {
+        callId: "bulk-1",
+        name: "email_bulk_update",
+        arguments: { account_id: null, email_ids: ["mail-1", "mail-2"], if_in_state: "state-1", action: "trash" },
+      },
+    });
+    ledger.append({
+      type: "tool.result",
+      phase: "end",
+      status: "complete",
+      actorType: "tool",
+      actorName: "email_bulk_update",
+      turnId: cleanup.requestId,
+      operationId: "bulk-1",
+      name: "email_bulk_update",
+      payload: {
+        callId: "bulk-1",
+        name: "email_bulk_update",
+        result: { action: "trash", affectedCount: 2, emailIds: ["mail-1", "mail-2"] },
+      },
+    });
+    ledger.finish(ledger.trace(cleanup.requestId)[0], "Cleanup complete.");
+
+    const later = ledger.createRequest({ text: "What was just deleted?" });
+    ledger.finish(ledger.trace(later.requestId)[0], "I looked at the oldest Trash messages.");
+    const registry = new ToolRegistry();
+    registerDatabaseTools(registry, store, ledger);
+    const result = await registry.execute("email_cleanup_receipt_list", { limit: 5 });
+    assert.equal(result.count, 1);
+    assert.equal(result.receipts[0].requestId, cleanup.requestId);
+    assert.equal(result.receipts[0].affectedCount, 2);
+    assert.deepEqual(result.receipts[0].messages.map(({ id, subject }) => ({ id, subject })), [
+      { id: "mail-1", subject: "A new post" },
+      { id: "mail-2", subject: "Your recap" },
+    ]);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});

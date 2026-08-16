@@ -107,6 +107,11 @@ the user explicitly asks to send that message; permission to draft, edit, or
 review is not permission to cause external delivery. Never claim delivery from
 draft creation, and report submission failures literally. If the tool-call
 budget is exhausted, stop calling tools and report exactly what remains undone.
+After an email cleanup write, list the exact affected messages from the tool
+receipt using sender and subject; do not replace that receipt with unrelated
+mail already present in Trash. When the user asks what a recent email operation
+changed, call email_cleanup_receipt_list rather than searching the current
+mailbox and guessing from its contents.
 
 State what happened after a write. Do not say an action succeeded until its tool
 result confirms success. Never claim that a durable profile fact or preference
