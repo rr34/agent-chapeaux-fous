@@ -5,6 +5,19 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0012: all-day-todos
+-- Distinguish a task assigned to a calendar day from a task scheduled for an
+-- exact time. Routine definitions carry the same flag into future occurrences.
+
+ALTER TABLE personal_tasks
+ADD COLUMN is_all_day INTEGER NOT NULL DEFAULT 0
+                  CHECK (is_all_day IN (0, 1));
+
+ALTER TABLE todo_routines
+ADD COLUMN is_all_day INTEGER NOT NULL DEFAULT 0
+                  CHECK (is_all_day IN (0, 1));
+-- end migration 0012
+
 -- migration 0011: generic-log-imports
 -- Give every log entry generic provenance and an optional upstream identity so
 -- bounded imports from any source can be replayed without creating duplicates.

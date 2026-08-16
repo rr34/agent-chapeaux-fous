@@ -195,6 +195,13 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .calendar-toolbar, .todo-toolbar { margin-bottom: 1rem; padding: .65rem .8rem; }
 .calendar-navigation { display: flex; align-items: center; gap: .45rem; }
 .calendar-toolbar small { color: var(--muted); }
+.calendar-schedule-mode { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding: .8rem; border-color: rgba(112, 167, 255, .6); background: rgba(112, 167, 255, .09); }
+.calendar-schedule-mode[hidden] { display: none; }
+.calendar-schedule-mode p { margin: 0 0 .2rem; }
+.calendar-schedule-mode strong, .calendar-schedule-mode span { display: block; }
+.calendar-schedule-mode span { margin-top: .2rem; color: var(--muted); font-size: .78rem; }
+#calendar-view.scheduling .calendar-day { cursor: crosshair; }
+#calendar-view.scheduling .calendar-day:hover { background: rgba(112, 167, 255, .14); box-shadow: inset 0 0 0 2px #70a7ff; }
 .calendar-layout { display: grid; grid-template-columns: 1fr; gap: 1rem; align-items: start; }
 .month-panel { overflow: hidden; }
 .weekday-row, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
@@ -243,6 +250,8 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: .35rem .15rem .55rem; }
 .todo-group-heading h3 { margin: 0; font-size: 1.05rem; }
 .todo-group-heading span { color: var(--muted); font-size: .75rem; }
+.todo-group-heading-actions { display: flex; align-items: center; gap: .5rem; }
+.todo-group-heading .todo-group-archived { color: var(--warn); }
 .todo-group-cards { display: grid; gap: .65rem; }
 .todo-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .75rem; padding: .85rem; }
 .todo-check { display: grid; place-items: center; width: 27px; height: 27px; min-height: 27px; padding: 0; color: var(--good); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 8px; }
@@ -253,7 +262,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-meta { display: flex; flex-wrap: wrap; gap: 6px; color: var(--muted); font-size: .71rem; }
 .todo-pill { padding: 3px 7px; background: #252b31; border-radius: 999px; }
 .todo-pill.overdue { color: var(--bad); }
-.todo-actions { display: flex; align-items: center; gap: 3px; }
+.todo-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 3px; }
 
 .dialog-heading { align-items: flex-start; margin-bottom: .9rem; }
 .integration-list { display: grid; gap: .55rem; margin: 1rem 0; }
@@ -271,6 +280,17 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-group-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .5rem; }
 .checkbox-row { display: flex !important; align-items: center; }
 .checkbox-row input { width: auto; }
+.recurrence-editor { padding: .8rem; background: #101316; border: 1px solid var(--line); border-radius: 11px; }
+.recurrence-toggle { gap: .55rem !important; color: var(--text) !important; font-size: .9rem !important; }
+.recurrence-fields { display: grid; gap: .75rem; margin-top: .8rem; }
+.recurrence-every { display: grid; grid-template-columns: auto 5.5rem minmax(8rem, 1fr); align-items: center; gap: .55rem; }
+.recurrence-weekdays { display: flex; flex-wrap: wrap; gap: .45rem .8rem; margin: 0; padding: .65rem .75rem; border: 1px solid var(--line); border-radius: 9px; }
+.recurrence-weekdays legend { padding: 0 .25rem; color: var(--muted); font-size: .75rem; font-weight: 750; }
+.recurrence-weekdays label { display: flex; grid-auto-flow: column; align-items: center; gap: .3rem; color: var(--text); }
+.recurrence-weekdays input { width: auto; }
+.recurrence-ending { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .75rem; }
+.recurrence-summary { margin: 0; color: var(--text); font-size: .82rem; font-weight: 700; }
+.recurrence-hint { margin: -.35rem 0 0; color: var(--muted); font-size: .75rem; }
 .editor-actions { justify-content: flex-end; }
 .form-error { min-height: 1.2em; margin: 0; color: var(--bad); font-size: .8rem; }
 
@@ -342,12 +362,14 @@ dialog h2, dialog p { margin-bottom: 0; }
   .button-row { align-items: stretch; flex-direction: column; }
   .calendar-toolbar { align-items: flex-start; }
   .calendar-toolbar small { max-width: 42%; text-align: right; }
+  .calendar-schedule-mode { align-items: stretch; flex-direction: column; }
   .calendar-day { min-height: 76px; padding: 4px; }
   .day-event, .day-todo { height: 6px; padding: 0; font-size: 0; border-radius: 999px; }
   .day-event { background: var(--accent); border-left: 0; }
   .day-todo { background: #70a7ff; }
   .day-more { display: none; }
   .editor-grid { grid-template-columns: 1fr; }
+  .recurrence-ending { grid-template-columns: 1fr; }
   .todo-toolbar { align-items: stretch; flex-wrap: wrap; }
   .toolbar-count { width: 100%; margin-left: 0; }
   .todo-card { grid-template-columns: auto minmax(0, 1fr); }

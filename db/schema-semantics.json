@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 11,
-    "schemaFingerprint": "827c412ccb10a897d4c5af51819029f88756a3646f2c0529394d2ec5e61ab762",
-    "extractedAt": "2026-08-16T14:47:22.959Z"
+    "schemaVersion": 12,
+    "schemaFingerprint": "40616aa980d35299451fa4a3b6c1cba74e1ca7730da620e89966a5d9443eca07",
+    "extractedAt": "2026-08-16T17:53:18.300Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -9949,6 +9949,33 @@
             "importantRules": [],
             "sensitivity": null
           }
+        },
+        "is_all_day": {
+          "mechanics": {
+            "present": true,
+            "name": "is_all_day",
+            "ordinal": 16,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": "personal_tasks.is_all_day",
+            "meaning": null,
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
         }
       },
       "relationships": {}
@@ -10513,7 +10540,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE personal_tasks (\n    personal_task_id    INTEGER PRIMARY KEY,\n    todo_group_id       INTEGER NOT NULL\n                        REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    todo_routine_id     INTEGER\n                        REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,\n    sequence            INTEGER CHECK (sequence IS NULL OR sequence > 0),\n    related_contact_id  INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    text                TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'todo'\n                        CHECK (status IN ('todo', 'complete', 'ignore', 'archive', 'ai_suggested')),\n    sort_position       INTEGER NOT NULL DEFAULT 0,\n    scheduled_at_utc    TEXT,\n    due_at_utc          TEXT,\n    completed_at_utc    TEXT,\n    source              TEXT,\n    external_id         TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT,\n    UNIQUE (todo_group_id, sequence),\n    UNIQUE (source, external_id)\n) STRICT",
+        "definition": "CREATE TABLE personal_tasks (\n    personal_task_id    INTEGER PRIMARY KEY,\n    todo_group_id       INTEGER NOT NULL\n                        REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    todo_routine_id     INTEGER\n                        REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,\n    sequence            INTEGER CHECK (sequence IS NULL OR sequence > 0),\n    related_contact_id  INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    text                TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'todo'\n                        CHECK (status IN ('todo', 'complete', 'ignore', 'archive', 'ai_suggested')),\n    sort_position       INTEGER NOT NULL DEFAULT 0,\n    scheduled_at_utc    TEXT,\n    due_at_utc          TEXT,\n    completed_at_utc    TEXT,\n    source              TEXT,\n    external_id         TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT, is_all_day INTEGER NOT NULL DEFAULT 0\n                  CHECK (is_all_day IN (0, 1)),\n    UNIQUE (todo_group_id, sequence),\n    UNIQUE (source, external_id)\n) STRICT",
         "indexes": [
           {
             "name": "personal_tasks_contact",
@@ -10650,9 +10677,9 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": null,
+            "meaning": "1 when the task is assigned to its scheduled calendar date without an exact clock time; otherwise 0.",
             "units": null,
-            "format": null,
+            "format": "SQLite boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -11047,6 +11074,33 @@
             "meaning": null,
             "units": null,
             "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "is_all_day": {
+          "mechanics": {
+            "present": true,
+            "name": "is_all_day",
+            "ordinal": 16,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": "0",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "1 when the task is assigned to its scheduled calendar date without an exact clock time; otherwise 0.",
+            "units": null,
+            "format": "SQLite boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -13707,7 +13761,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE todo_routines (\n    todo_routine_id        INTEGER PRIMARY KEY,\n    todo_group_id          INTEGER NOT NULL\n                           REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    text                   TEXT NOT NULL,\n    first_scheduled_at_utc TEXT NOT NULL,\n    first_due_at_utc       TEXT,\n    time_zone              TEXT NOT NULL,\n    recurrence_rule        TEXT NOT NULL,\n    disabled_at_utc        TEXT,\n    created_at_utc         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc         TEXT\n) STRICT",
+        "definition": "CREATE TABLE todo_routines (\n    todo_routine_id        INTEGER PRIMARY KEY,\n    todo_group_id          INTEGER NOT NULL\n                           REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    text                   TEXT NOT NULL,\n    first_scheduled_at_utc TEXT NOT NULL,\n    first_due_at_utc       TEXT,\n    time_zone              TEXT NOT NULL,\n    recurrence_rule        TEXT NOT NULL,\n    disabled_at_utc        TEXT,\n    created_at_utc         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc         TEXT\n, is_all_day INTEGER NOT NULL DEFAULT 0\n                  CHECK (is_all_day IN (0, 1))) STRICT",
         "indexes": []
       },
       "semantics": {
@@ -13996,6 +14050,33 @@
           },
           "semantics": {
             "inheritsFrom": null,
+            "meaning": null,
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "is_all_day": {
+          "mechanics": {
+            "present": true,
+            "name": "is_all_day",
+            "ordinal": 10,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": "0",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": "personal_tasks.is_all_day",
             "meaning": null,
             "units": null,
             "format": null,

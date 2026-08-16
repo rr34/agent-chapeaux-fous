@@ -41,7 +41,10 @@ npm start
 
 Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and
 stores it only in that browser. The same client includes the Agent request
-feed, the existing calendar, and the grouped to-do list.
+feed, the existing calendar, and the grouped to-do list. A task's Schedule
+button opens the calendar in day-pick mode; selecting a day writes the task's
+scheduled date as an all-day task. Timed tasks remain available through the
+to-do editor and agent tools.
 
 `.env` intentionally lives beside `.env.example` in the repository root. It is
 ignored by Git and loaded by the process before configuration is evaluated.
@@ -103,8 +106,14 @@ visible even then.
 
 Local tools are ordinary JavaScript functions:
 
-- `todo_list`, `todo_add`, and `todo_update` provide the native personal to-do
-  path without requiring the model to invent SQL.
+- `todo_group_list`, `todo_group_create`, `todo_group_rename`,
+  `todo_group_archive`, `todo_list`, `todo_add`, `todo_recurrence_set`, and
+  `todo_update` provide the native personal to-do path without
+  requiring the model to invent SQL. The agent inspects existing groups before
+  assigning an otherwise ungrouped task; Inbox is the catchall when no group is
+  a clear match. Group archival fails while active tasks remain and preserves
+  the group on terminal task history. Recurrence is supplied as structured,
+  human concepts and stored internally as RRULE.
 - `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update`
   provide the native grouped personal-log path. Each entry keeps complete
   natural-language content with optional numeric and unit projections for
@@ -116,8 +125,11 @@ Local tools are ordinary JavaScript functions:
   structured access to the existing SQLite database. Ledger and schema tables
   are protected from model writes. Each operation returns the exact projection
   compiled from the tracked schema-semantic form.
-- `history_recent` and `history_search` read the application-owned exchange
-  history.
+- `history_recent`, `history_search`, and `history_range` read the
+  application-owned exchange history. Date-range retrieval returns paired
+  requests and responses, supports relative local periods through explicit UTC
+  boundaries, and can apply a topical term filter across both sides of each
+  exchange in the same lookup.
 
 `config/profile-fact-questions.json` is the versioned catalog of standard
 secretary question families. It defines a broad repeatable fact type, the exact

@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 11, 'Agent Slayer test database');
+    VALUES (1, 12, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -109,7 +109,8 @@ export function temporaryDatabase() {
       recurrence_rule TEXT NOT NULL,
       disabled_at_utc TEXT,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-      updated_at_utc TEXT
+      updated_at_utc TEXT,
+      is_all_day INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1))
     ) STRICT;
     CREATE TABLE personal_tasks (
       personal_task_id INTEGER PRIMARY KEY,
@@ -127,7 +128,8 @@ export function temporaryDatabase() {
       external_id TEXT,
       source_event_id TEXT REFERENCES activity_events(event_id),
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-      updated_at_utc TEXT
+      updated_at_utc TEXT,
+      is_all_day INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1))
     ) STRICT;
     CREATE UNIQUE INDEX personal_tasks_group_sequence
       ON personal_tasks(todo_group_id, sequence)

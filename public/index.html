@@ -79,6 +79,14 @@
         </div>
         <small id="calendar-time-zone"></small>
       </div>
+      <div id="calendar-schedule-mode" class="calendar-schedule-mode organizer-panel" role="status" aria-live="polite" hidden>
+        <div>
+          <p class="eyebrow">Scheduling task</p>
+          <strong id="calendar-schedule-task"></strong>
+          <span id="calendar-schedule-hint"></span>
+        </div>
+        <button id="cancel-calendar-schedule" class="secondary compact" type="button">Cancel</button>
+      </div>
       <div class="calendar-layout">
         <aside class="agenda-panel organizer-panel">
           <p class="eyebrow">Selected day</p>
@@ -185,14 +193,53 @@
         </div>
         <label>Sequence<input id="todo-sequence" type="number" min="1" step="1"></label>
         <label>Scheduled<input id="todo-scheduled" type="datetime-local"></label>
+        <label class="checkbox-row"><input id="todo-all-day" type="checkbox"><span>All day</span></label>
         <label>Due<input id="todo-due" type="datetime-local"></label>
         <label>Status<select id="todo-status">
           <option value="todo">To do</option><option value="complete">Complete</option>
           <option value="ignore">Ignore</option><option value="archive">Archive</option>
           <option value="ai_suggested">AI suggested</option>
         </select></label>
-        <label>Routine RRULE<input id="todo-recurrence-rule" placeholder="FREQ=WEEKLY;BYDAY=MO"></label>
       </div>
+      <section class="recurrence-editor" aria-labelledby="todo-repeat-heading">
+        <label class="checkbox-row recurrence-toggle">
+          <input id="todo-repeat-enabled" type="checkbox">
+          <span id="todo-repeat-heading">Repeat this task</span>
+        </label>
+        <div id="todo-repeat-fields" class="recurrence-fields" hidden>
+          <div class="recurrence-every">
+            <span>Every</span>
+            <input id="todo-repeat-interval" type="number" min="1" max="999" step="1" value="1" aria-label="Repeat interval">
+            <select id="todo-repeat-frequency" aria-label="Repeat frequency">
+              <option value="DAILY">day</option>
+              <option value="WEEKLY">week</option>
+              <option value="MONTHLY">month</option>
+              <option value="YEARLY">year</option>
+            </select>
+          </div>
+          <fieldset id="todo-repeat-weekdays" class="recurrence-weekdays" hidden>
+            <legend>On</legend>
+            <label><input type="checkbox" value="MO">Mon</label>
+            <label><input type="checkbox" value="TU">Tue</label>
+            <label><input type="checkbox" value="WE">Wed</label>
+            <label><input type="checkbox" value="TH">Thu</label>
+            <label><input type="checkbox" value="FR">Fri</label>
+            <label><input type="checkbox" value="SA">Sat</label>
+            <label><input type="checkbox" value="SU">Sun</label>
+          </fieldset>
+          <div class="recurrence-ending">
+            <label>Ends<select id="todo-repeat-end">
+              <option value="never">Never</option>
+              <option value="count">After a number of occurrences</option>
+              <option value="until">On a date</option>
+            </select></label>
+            <label id="todo-repeat-count-label" hidden>Occurrences<input id="todo-repeat-count" type="number" min="1" max="9999" step="1" value="10"></label>
+            <label id="todo-repeat-until-label" hidden>Last date<input id="todo-repeat-until" type="date"></label>
+          </div>
+          <p id="todo-repeat-summary" class="recurrence-summary"></p>
+          <p class="recurrence-hint">The scheduled date and time is the first occurrence.</p>
+        </div>
+      </section>
       <p id="todo-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>

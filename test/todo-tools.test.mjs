@@ -7,6 +7,82 @@ import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
+test("todo_group_list exposes every active group including empty catchalls", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+
+  const result = await registry.execute("todo_group_list", {});
+  assert.deepEqual(result.groups, [
+    { id: 2, name: "Development", archivedAtUtc: null, openTaskCount: 0 },
+    { id: 1, name: "Inbox", archivedAtUtc: null, openTaskCount: 0 },
+  ]);
+});
+
+test("todo_group_archive rejects active groups and preserves terminal-only groups", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, ledger);
+
+  const created = await registry.execute("todo_add", {
+    text: "Disposable task", group: "Development", scheduledAtUtc: null, dueAtUtc: null,
+  }, { requestId: "delete-group", callId: "add" });
+  await assert.rejects(
+    registry.execute("todo_group_archive", { name: "Development" }, { requestId: "archive-group", callId: "archive" }),
+    /active task/,
+  );
+  await registry.execute("todo_update", {
+    taskId: created.task.id, text: null, group: null, status: "complete",
+    scheduledAtUtc: null, dueAtUtc: null,
+  }, { requestId: "delete-group", callId: "complete" });
+  const archived = await registry.execute(
+    "todo_group_archive", { name: "Development" }, { requestId: "archive-group", callId: "archive" },
+  );
+  assert.equal(archived.archived, true);
+  assert.equal(archived.retainedTerminalTaskCount, 1);
+  const task = store.requireReady().prepare(`
+    SELECT todo_group.name, todo_group.archived_at_utc
+    FROM personal_tasks AS task JOIN todo_groups AS todo_group USING (todo_group_id)
+    WHERE task.personal_task_id = ?
+  `).get(created.task.id);
+  assert.equal(task.name, "Development");
+  assert.ok(task.archived_at_utc);
+});
+
+test("todo_group_rename keeps tasks attached through the stable group ID", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, ledger);
+
+  const created = await registry.execute("todo_add", {
+    text: "Rename-safe task", group: "Development", scheduledAtUtc: null, dueAtUtc: null,
+  }, { requestId: "rename-group", callId: "add" });
+  const renamed = await registry.execute("todo_group_rename", {
+    currentName: "Development", newName: "Engineering",
+  }, { requestId: "rename-group", callId: "rename" });
+  assert.equal(renamed.group.previousName, "Development");
+  assert.equal(renamed.group.name, "Engineering");
+  const listed = await registry.execute("todo_list", { group: "Engineering", status: null, limit: 20 });
+  assert.deepEqual(listed.tasks.map(({ id }) => id), [created.task.id]);
+  await assert.rejects(
+    registry.execute("todo_group_rename", {
+      currentName: "Inbox", newName: "Incoming",
+    }, { requestId: "rename-group", callId: "rename-inbox" }),
+    /cannot be renamed/,
+  );
+});
+
 test("native todo tools add and complete a Development task", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
@@ -41,6 +117,84 @@ test("native todo tools add and complete a Development task", async (context) =>
   }, { requestId: "request-1", callId: "call-update" });
   assert.equal(updated.task.status, "complete");
   assert.ok(updated.task.completedAtUtc);
+});
+
+test("native todo tools accept structured recurrence and generate the next task", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, ledger);
+
+  const created = await registry.execute("todo_add", {
+    text: "Take weekly measurement",
+    group: "Development",
+    scheduledAtUtc: "2026-08-17T13:00:00.000Z",
+    dueAtUtc: null,
+    recurrence: {
+      frequency: "WEEKLY", interval: 1, weekdays: ["MO"], count: 6,
+      untilDate: null, timeZone: "America/New_York",
+    },
+  }, { requestId: "recurring", callId: "add-recurring" });
+  assert.ok(created.task.routineId);
+  assert.equal(created.task.recurrenceRule, "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;COUNT=6");
+
+  const changed = await registry.execute("todo_recurrence_set", {
+    taskId: created.task.id,
+    enabled: true,
+    recurrence: {
+      frequency: "WEEKLY", interval: 2, weekdays: ["TU", "FR"], count: null,
+      untilDate: "2026-12-31", timeZone: "America/New_York",
+    },
+  }, { requestId: "recurring", callId: "change-recurring" });
+  assert.equal(
+    changed.task.recurrenceRule,
+    "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,FR;UNTIL=20261231T235959",
+  );
+
+  const completed = await registry.execute("todo_update", {
+    taskId: created.task.id, text: null, group: null, status: "complete",
+    scheduledAtUtc: null, dueAtUtc: null,
+  }, { requestId: "recurring", callId: "complete-recurring" });
+  assert.ok(completed.generatedTaskId);
+  assert.equal(store.requireReady().prepare(
+    "SELECT todo_routine_id FROM personal_tasks WHERE personal_task_id = ?",
+  ).get(completed.generatedTaskId).todo_routine_id, created.task.routineId);
+  assert.equal(store.requireReady().prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'personal_todo.generated' AND subject_id = ?
+  `).get(String(completed.generatedTaskId)).count, 1);
+});
+
+test("native todo tools preserve an explicit all-day schedule", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+
+  const created = await registry.execute("todo_add", {
+    text: "Spend the day outside",
+    group: "Inbox",
+    scheduledAtUtc: "2026-08-22T04:00:00.000Z",
+    isAllDay: true,
+    dueAtUtc: null,
+  }, { requestId: "all-day", callId: "add" });
+  assert.equal(created.task.isAllDay, true);
+
+  const updated = await registry.execute("todo_update", {
+    taskId: created.task.id,
+    text: null,
+    group: null,
+    status: null,
+    scheduledAtUtc: null,
+    isAllDay: false,
+    dueAtUtc: null,
+  }, { requestId: "all-day", callId: "make-timed" });
+  assert.equal(updated.task.isAllDay, false);
 });
 
 test("todo_add uses Inbox when a requested group is missing, then supports a confirmed create and move", async (context) => {

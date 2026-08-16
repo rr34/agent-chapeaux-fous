@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
+import { ToolRegistry } from "../src/tools/registry.mjs";
+import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
 test("active request progress follows the latest unfinished ledger operation", () => {
@@ -85,6 +87,95 @@ test("completed requests report elapsed time from receipt through the terminal e
     const request = ledger.recentRequests()[0];
     assert.equal(request.elapsedMs, events.at(-1).occurredAtMs - events[0].occurredAtMs);
     assert.equal(request.progress, undefined);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
+test("conversation history can be retrieved as paired exchanges within a date range", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const addExchange = (requestText, responseText, occurredAtUtc) => {
+      const created = ledger.createRequest({ text: requestText });
+      ledger.finish(ledger.trace(created.requestId)[0], responseText);
+      store.requireReady().prepare(`
+        UPDATE activity_events
+        SET occurred_at_ms = ?, occurred_at_utc = ?
+        WHERE turn_id = ?
+      `).run(new Date(occurredAtUtc).getTime(), occurredAtUtc, created.requestId);
+      return created.requestId;
+    };
+    addExchange("Yesterday's topic", "Yesterday's answer", "2026-08-15T15:00:00.000Z");
+    const firstToday = addExchange("Morning topic", "Morning answer", "2026-08-16T12:00:00.000Z");
+    const secondToday = addExchange("Afternoon topic", "Afternoon answer", "2026-08-16T18:00:00.000Z");
+
+    const firstPage = ledger.conversationRange({
+      startAtUtc: "2026-08-16T00:00:00.000Z",
+      endAtUtc: "2026-08-17T00:00:00.000Z",
+      limit: 1,
+    });
+    assert.equal(firstPage.count, 1);
+    assert.equal(firstPage.hasMore, true);
+    assert.equal(firstPage.nextAfterRequestId, firstToday);
+    assert.deepEqual(firstPage.entries.map(({ request, response }) => ({ request, response })), [{
+      request: "Morning topic", response: "Morning answer",
+    }]);
+
+    const secondPage = ledger.conversationRange({
+      startAtUtc: "2026-08-16T00:00:00.000Z",
+      endAtUtc: "2026-08-17T00:00:00.000Z",
+      afterRequestId: firstPage.nextAfterRequestId,
+      limit: 10,
+    });
+    assert.equal(secondPage.hasMore, false);
+    assert.deepEqual(secondPage.entries.map(({ requestId }) => requestId), [secondToday]);
+    assert.equal(secondPage.entries[0].submittedAtUtc, "2026-08-16T18:00:00.000Z");
+
+    const topical = ledger.conversationRange({
+      startAtUtc: "2026-08-16T00:00:00.000Z",
+      endAtUtc: "2026-08-17T00:00:00.000Z",
+      query: "morning answer",
+      limit: 10,
+    });
+    assert.deepEqual(topical.topic, { query: "morning answer", terms: ["morning", "answer"] });
+    assert.deepEqual(topical.entries.map(({ requestId }) => requestId), [firstToday]);
+
+    const withoutCurrentRequest = ledger.conversationRange({
+      startAtUtc: "2026-08-16T00:00:00.000Z",
+      endAtUtc: "2026-08-17T00:00:00.000Z",
+      excludeRequestId: secondToday,
+      limit: 10,
+    });
+    assert.deepEqual(withoutCurrentRequest.entries.map(({ requestId }) => requestId), [firstToday]);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
+test("history_range exposes paired history without returning its current request", async () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const prior = ledger.createRequest({ text: "Prior request" });
+    ledger.finish(ledger.trace(prior.requestId)[0], "Prior response");
+    const current = ledger.createRequest({ text: "What did we discuss today?" });
+    const registry = new ToolRegistry();
+    registerDatabaseTools(registry, store, ledger);
+    const result = await registry.execute("history_range", {
+      startAtUtc: "2020-01-01T00:00:00.000Z",
+      endAtUtc: "2030-01-01T00:00:00.000Z",
+      query: "prior response",
+      afterRequestId: null,
+      limit: 100,
+    }, { requestId: current.requestId });
+    assert.deepEqual(result.entries.map(({ request, response }) => ({ request, response })), [{
+      request: "Prior request", response: "Prior response",
+    }]);
   } finally {
     store.close();
     temporary.cleanup();

@@ -319,6 +319,16 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 201, { group: organizer.createTodoGroup(await readJson(request)) });
       return;
     }
+    const todoGroupMatch = /^\/api\/todo-groups\/(\d+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && todoGroupMatch) {
+      sendJson(response, 200, organizer.renameTodoGroup(todoGroupMatch[1], await readJson(request)));
+      return;
+    }
+    const todoGroupArchiveMatch = /^\/api\/todo-groups\/(\d+)\/archive$/.exec(url.pathname);
+    if (request.method === "POST" && todoGroupArchiveMatch) {
+      sendJson(response, 200, organizer.archiveTodoGroup(todoGroupArchiveMatch[1]));
+      return;
+    }
     const todoGroupReorderMatch = /^\/api\/todo-groups\/(\d+)\/reorder$/.exec(url.pathname);
     if (request.method === "POST" && todoGroupReorderMatch) {
       sendJson(response, 200, {

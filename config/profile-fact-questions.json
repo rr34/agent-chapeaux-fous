@@ -41,7 +41,7 @@
       "factType": "time_zone",
       "question": "What time zone should I use for you?",
       "askWhen": "Scheduling or interpreting a time cannot be done reliably from the saved location.",
-      "triggers": ["my time zone", "time zone", "timezone", "local time", "what time is it", "schedule across time zones"]
+      "triggers": ["my time zone", "time zone", "timezone", "local time", "what time is it", "schedule across time zones", "earlier today", "talked about today", "discussed today", "yesterday", "this week", "last week", "this month", "last month"]
     },
     {
       "factType": "primary_email",

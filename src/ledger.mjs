@@ -33,6 +33,12 @@ function publicEvent(row) {
 
 const receivedEventTypes = ["request.received", "voice.request.received"];
 const responseEventTypes = ["assistant.response", "agent.turn.end"];
+const conversationTextEventTypes = [
+  ...receivedEventTypes,
+  ...responseEventTypes,
+  "transcription.complete",
+  "voice.transcription.end",
+];
 const terminalEventTypes = [
   "request.complete",
   "request.error",
@@ -44,6 +50,26 @@ const terminalEventTypes = [
 
 function placeholders(values) {
   return values.map(() => "?").join(", ");
+}
+
+function escapedLike(value) {
+  return `%${value.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+}
+
+function historyTopic(query) {
+  if (query == null) return { query: null, terms: [] };
+  if (typeof query !== "string" || !query.trim()) {
+    throw new Error("History topic query must be a non-empty string or null");
+  }
+  const normalized = query.trim();
+  if (normalized.length > 500) throw new Error("History topic query cannot exceed 500 characters");
+  const terms = [...new Set(
+    (normalized.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu) || [])
+      .map((term) => term.toLowerCase()),
+  )];
+  if (terms.length === 0) throw new Error("History topic query must contain searchable text");
+  if (terms.length > 12) throw new Error("History topic query must contain no more than 12 terms");
+  return { query: normalized, terms };
 }
 
 function requestChannel(request) {
@@ -200,6 +226,28 @@ export class Ledger {
     return { status: "resolved", requestId: rows[0].turn_id };
   }
 
+  #requestDetails(request) {
+    const events = this.trace(request.turnId);
+    const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
+    const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
+    const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
+    const usage = [...events].reverse().find((event) => event.type === "model.usage");
+    const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
+    return {
+      requestId: request.turnId,
+      channel: requestChannel(request),
+      submittedAtMs: request.occurredAtMs,
+      elapsedMs: terminal ? Math.max(0, terminal.occurredAtMs - request.occurredAtMs) : null,
+      status,
+      request: request.content || transcript?.content || "Voice request",
+      response: response?.content || null,
+      error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
+      usage: usage?.payload || null,
+      eventCount: events.length,
+      ...(!terminal ? { progress: requestProgress(events, request.occurredAtMs) } : {}),
+    };
+  }
+
   recentRequests(limit = 100) {
     const bounded = Math.min(200, Math.max(1, Number(limit) || 100));
     const received = this.store.requireReady().prepare(`
@@ -207,27 +255,83 @@ export class Ledger {
       WHERE event_type IN (${placeholders(receivedEventTypes)})
       ORDER BY event_seq DESC LIMIT ?
     `).all(...receivedEventTypes, bounded).map(publicEvent);
-    return received.map((request) => {
-      const events = this.trace(request.turnId);
-      const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
-      const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
-      const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
-      const usage = [...events].reverse().find((event) => event.type === "model.usage");
-      const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
+    return received.map((request) => this.#requestDetails(request));
+  }
+
+  conversationRange({
+    startAtUtc, endAtUtc, query = null, afterRequestId = null, limit = 50, excludeRequestId = null,
+  }) {
+    const start = new Date(startAtUtc);
+    const end = new Date(endAtUtc);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+      throw new Error("History range boundaries must be valid ISO-8601 date-times");
+    }
+    if (start >= end) throw new Error("History range endAtUtc must be later than startAtUtc");
+    const topic = historyTopic(query);
+    const bounded = Math.min(100, Math.max(1, Number(limit) || 50));
+    const database = this.store.requireReady();
+    let afterEventSeq = 0;
+    if (afterRequestId) {
+      const cursor = database.prepare(`
+        SELECT event_seq FROM activity_events
+        WHERE turn_id = ? AND event_type IN (${placeholders(receivedEventTypes)})
+        ORDER BY event_seq LIMIT 1
+      `).get(afterRequestId, ...receivedEventTypes);
+      if (!cursor) throw new Error("History range cursor request was not found");
+      afterEventSeq = Number(cursor.event_seq);
+    }
+    const topicParameters = [];
+    const topicClauses = topic.terms.map((term) => {
+      topicParameters.push(...conversationTextEventTypes, escapedLike(term));
+      return `AND EXISTS (
+        SELECT 1 FROM activity_events AS topic_event
+        WHERE topic_event.turn_id = received.turn_id
+          AND topic_event.event_type IN (${placeholders(conversationTextEventTypes)})
+          AND topic_event.content_text LIKE ? ESCAPE '\\'
+      )`;
+    }).join("\n");
+    const rows = database.prepare(`
+      SELECT received.* FROM activity_events AS received
+      WHERE received.event_type IN (${placeholders(receivedEventTypes)})
+        AND received.occurred_at_ms >= ?
+        AND received.occurred_at_ms < ?
+        AND received.event_seq > ?
+        AND (? IS NULL OR received.turn_id <> ?)
+        ${topicClauses}
+      ORDER BY received.event_seq
+      LIMIT ?
+    `).all(
+      ...receivedEventTypes,
+      start.getTime(),
+      end.getTime(),
+      afterEventSeq,
+      excludeRequestId,
+      excludeRequestId,
+      ...topicParameters,
+      bounded + 1,
+    ).map(publicEvent);
+    const hasMore = rows.length > bounded;
+    const selected = rows.slice(0, bounded);
+    const entries = selected.map((request) => {
+      const details = this.#requestDetails(request);
       return {
-        requestId: request.turnId,
-        channel: requestChannel(request),
-        submittedAtMs: request.occurredAtMs,
-        elapsedMs: terminal ? Math.max(0, terminal.occurredAtMs - request.occurredAtMs) : null,
-        status,
-        request: request.content || transcript?.content || "Voice request",
-        response: response?.content || null,
-        error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
-        usage: usage?.payload || null,
-        eventCount: events.length,
-        ...(!terminal ? { progress: requestProgress(events, request.occurredAtMs) } : {}),
+        requestId: details.requestId,
+        channel: details.channel,
+        submittedAtUtc: request.occurredAtUtc,
+        status: details.status,
+        request: details.request,
+        response: details.response,
+        error: details.error,
       };
     });
+    return {
+      range: { startAtUtc: start.toISOString(), endAtUtc: end.toISOString() },
+      topic: { query: topic.query, terms: topic.terms },
+      count: entries.length,
+      hasMore,
+      nextAfterRequestId: hasMore ? entries.at(-1)?.requestId ?? null : null,
+      entries,
+    };
   }
 
   recentConversation({ beforeRequestId = null, limit = 4 } = {}) {
@@ -261,7 +365,7 @@ export class Ledger {
 
   searchHistory(query, limit = 20) {
     const bounded = Math.min(100, Math.max(1, Number(limit) || 20));
-    const escaped = `%${String(query).replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+    const escaped = escapedLike(String(query));
     return this.store.requireReady().prepare(`
       SELECT * FROM activity_events
       WHERE event_type IN (${placeholders([...receivedEventTypes, ...responseEventTypes])})

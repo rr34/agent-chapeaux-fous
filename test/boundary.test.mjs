@@ -39,6 +39,10 @@ test("base instructions are integration-neutral and route durable profile change
   const instructions = fs.readFileSync(path.join(root, "config", "system-prompt.md"), "utf8");
   assert.doesNotMatch(instructions, /TLOM/i);
   assert.match(instructions, /personal to-dos/);
+  assert.match(instructions, /call history_range/);
+  assert.match(instructions, /date and topic are filtered in\s+one lookup/);
+  assert.match(instructions, /previous Monday-through-Monday interval/);
+  assert.match(instructions, /never ask the user to\s+write RRULE syntax/);
   assert.match(instructions, /personal-log tools/);
   assert.match(instructions, /complete natural-language log\s+content/);
   assert.match(instructions, /log_import in bounded\s+batches/);
@@ -47,6 +51,14 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /open-ended\s+collection/);
   assert.match(instructions, /Relevant profile types/);
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
+});
+
+test("the todo editor builds recurrence without exposing an RRULE input", () => {
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(document, /id="todo-repeat-enabled"/);
+  assert.match(document, /id="todo-repeat-frequency"/);
+  assert.match(document, /id="todo-repeat-weekdays"/);
+  assert.doesNotMatch(document, /Routine RRULE|todo-recurrence-rule/);
 });
 
 test("the web client provides a provider-neutral OAuth integrations manager", () => {
@@ -76,9 +88,19 @@ test("the standalone client restores calendar and grouped to-do surfaces", () =>
   assert.match(application, /populateTodoGroupEditor\(group\.id\)/);
   assert.match(application, /actions\.append\(top, up, down, bottom, edit\)/);
   assert.match(application, /\/api\/todo-groups\/\$\{todo\.groupId\}\/reorder/);
+  assert.match(application, /Archive group/);
+  assert.match(application, /archiveTodoGroup/);
+  assert.match(document, /id="calendar-schedule-mode"/);
+  assert.match(application, /beginCalendarScheduling/);
+  assert.match(application, /scheduleTodoOnDate/);
+  assert.match(application, /todo\.scheduledAtUtc \? "Reschedule" : "Schedule"/);
+  assert.match(document, /id="todo-all-day"/);
+  assert.match(application, /isAllDay: true/);
+  assert.match(application, /scheduled for that whole day/);
   assert.match(server, /\/api\/calendar-events/);
   assert.match(server, /\/api\/todo-groups/);
   assert.match(server, /todoGroupReorderMatch/);
+  assert.match(server, /todoGroupArchiveMatch/);
   assert.match(server, /\/api\/todos/);
 });
 

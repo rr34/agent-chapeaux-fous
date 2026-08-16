@@ -66,9 +66,11 @@ The immediate system priorities are:
 - Large recordings live in **20. Agent media storage**; SQLite stores their
   metadata and relationships.
 - The current UI displays the application revision, model quota, request list,
-  literal event trace, calendar, grouped to-do list, and provider-neutral OAuth
-  integration manager. Its voice-first composer and live request progress
-  follow the interface requirements below.
+literal event trace, calendar, grouped to-do list, and provider-neutral OAuth
+integration manager. Its voice-first composer and live request progress
+follow the interface requirements below. To-do task actions can enter a
+temporary calendar day-pick mode for direct visual all-day scheduling. Timed
+and all-day task schedules are stored distinctly.
 
 ## System boundary
 
@@ -175,7 +177,13 @@ it does not turn the application into a plugin system.
 
 The current local application tools are:
 
-- `todo_list`, `todo_add`, and `todo_update` for personal to-dos.
+- `todo_group_list`, `todo_group_create`, `todo_group_rename`,
+  `todo_group_archive`, `todo_list`, `todo_add`, `todo_recurrence_set`, and
+  `todo_update` for personal to-dos. Inbox is the fallback,
+  while the model first inspects existing groups when the user did not name
+  one. Archiving a non-Inbox group fails while active tasks remain and preserves
+  the group on terminal task history. The UI and agent accept ordinary
+  recurrence concepts and keep RRULE as an internal storage detail.
 - `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update` for
   grouped, reusable personal tracking, complete time-stamped observations, and
   idempotent bounded imports from any source.
@@ -187,8 +195,11 @@ The current local application tools are:
 - `database_read` for bounded reads with equality filters and no raw SQL.
 - `database_write` for inserts, updates, and deletes in approved existing domain
   tables. Ledger, file, metadata, and schema tables are protected.
-- `history_recent` and `history_search` for the application-owned chronological
-  conversation history.
+- `history_recent`, `history_search`, and `history_range` for the
+  application-owned chronological conversation history. Range results pair
+  requests with responses and paginate within inclusive-start, exclusive-end
+  UTC boundaries. An optional topical query intersects that time window with
+  terms found across either side of each exchange.
 
 These are JavaScript functions registered directly with the runtime. There is
 no runtime plugin loading mechanism.
@@ -235,10 +246,11 @@ There is one chronological application history. Recent memory and old memory
 are different queries over it, not separate stores.
 
 For each request the context builder includes a small recent tail before the
-first model call. The model can explicitly invoke `history_recent` or
-`history_search` when more history is needed. Each new request uses a new Codex
-thread, so Codex's own transcript is neither durable memory nor cross-request
-context.
+first model call. The model can explicitly invoke `history_recent`,
+`history_search`, or `history_range` when more history is needed. A range lookup
+can apply the topic inferred from the current request during the same database
+operation. Each new request uses a new Codex thread, so Codex's own transcript
+is neither durable memory nor cross-request context.
 
 This preserves the distinction between:
 

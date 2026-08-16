@@ -45,6 +45,12 @@ test("only relevant profile types and questions become model context", async () 
   assert.deepEqual(knownLocation.map(({ factType }) => factType), ["default_location"]);
   assert.match(profileFactQuestionInstructions(knownLocation), /default_location:/);
 
+  const temporalHistory = selectRelevantProfileFactQuestions(catalog, {
+    activeFacts: [{ factType: "time_zone", text: "My time zone is America/New_York." }],
+    requestText: "What did we talk about earlier today?",
+  });
+  assert.deepEqual(temporalHistory.map(({ factType }) => factType), ["time_zone"]);
+
   const everythingKnownAndIrrelevant = selectRelevantProfileFactQuestions(catalog, {
     activeFacts: catalog.questions.map(({ factType }) => ({ factType, text: "known" })),
     requestText: "Tell me a joke.",

@@ -49,16 +49,21 @@ export class ContextBuilder {
     const historyText = history.length
       ? history.map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`).join("\n\n")
       : "No prior Agent Slayer exchanges are available.";
-    const sections = [];
+    const sections = [
+      "# Current time",
+      `Current UTC time: ${new Date().toISOString()}`,
+      "Resolve relative dates using an active time_zone profile fact when one is available.",
+      "",
+    ];
     if (relevantProfileTypes.length) {
       sections.push(
         "# Relevant active profile facts",
         profileFactsContext(relevantProfileFacts),
         "",
         questionInstructions,
+        "",
       );
     }
-    if (sections.length) sections.push("");
     sections.push("# Recent complete exchanges", historyText);
     const result = bounded(sections.join("\n"), this.maximumCharacters);
     return {

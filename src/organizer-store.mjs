@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import rrulePackage from "rrule";
 import { redactText, safeJson } from "./redaction.mjs";
+import { archiveEmptyTodoGroup, renameTodoGroup } from "./todo-group-operations.mjs";
 
 const { rrulestr } = rrulePackage;
 const dayMilliseconds = 86_400_000;
@@ -305,6 +306,7 @@ function publicTodo(row) {
     id: row.personal_task_id,
     groupId: row.todo_group_id,
     groupName: row.group_name,
+    groupArchivedAtUtc: row.group_archived_at_utc ?? null,
     routineId: row.todo_routine_id,
     sequence: row.sequence,
     relatedContactId: row.related_contact_id,
@@ -312,6 +314,7 @@ function publicTodo(row) {
     status: row.status,
     sortPosition: row.sort_position,
     scheduledAtUtc: row.scheduled_at_utc,
+    isAllDay: Boolean(row.is_all_day),
     dueAtUtc: row.due_at_utc,
     completedAtUtc: row.completed_at_utc,
     recurrenceRule: row.routine_recurrence_rule,
@@ -371,14 +374,14 @@ export function generateNextRoutineTask(database, personalTaskId, { now = new Da
   const result = database.prepare(`
     INSERT INTO personal_tasks (
       todo_group_id, todo_routine_id, text, status, sort_position,
-      scheduled_at_utc, due_at_utc, source
-    ) VALUES (?, ?, ?, 'todo', ?, ?, ?, 'routine')
+      scheduled_at_utc, is_all_day, due_at_utc, source
+    ) VALUES (?, ?, ?, 'todo', ?, ?, ?, ?, 'routine')
     ON CONFLICT (todo_routine_id, scheduled_at_utc) WHERE
       todo_routine_id IS NOT NULL AND scheduled_at_utc IS NOT NULL
     DO NOTHING
   `).run(
     routine.todo_group_id, routine.todo_routine_id, routine.text, sortPosition,
-    scheduled.toISOString(), dueAtUtc,
+    scheduled.toISOString(), routine.is_all_day, dueAtUtc,
   );
   return result.changes === 1 ? Number(result.lastInsertRowid) : null;
 }
@@ -533,6 +536,7 @@ export class OrganizerStore {
         : "";
     return this.database.prepare(`
       SELECT task.*, todo_group.name AS group_name,
+             todo_group.archived_at_utc AS group_archived_at_utc,
              routine.recurrence_rule AS routine_recurrence_rule,
              routine.time_zone AS routine_time_zone
       FROM personal_tasks AS task
@@ -571,6 +575,50 @@ export class OrganizerStore {
       if (error?.code === "ERR_SQLITE_ERROR") {
         throw new OrganizerInputError("A to-do group with that name already exists.", 409);
       }
+      throw error;
+    }
+  }
+
+  renameTodoGroup(idValue, input) {
+    const id = identifier(idValue, "to-do group id");
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const result = renameTodoGroup(this.database, { groupId: id, newName: input?.name });
+      this.#activity({
+        eventType: "personal_todo_group.renamed",
+        status: "complete",
+        name: "Personal to-do group renamed",
+        subjectType: "todo_group",
+        subjectId: id,
+        contentText: `${result.group.previousName} → ${result.group.name}`,
+        payload: result,
+      });
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  archiveTodoGroup(idValue) {
+    const id = identifier(idValue, "to-do group id");
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const result = archiveEmptyTodoGroup(this.database, { groupId: id });
+      this.#activity({
+        eventType: "personal_todo_group.archived",
+        status: "complete",
+        name: "Personal to-do group archived",
+        subjectType: "todo_group",
+        subjectId: id,
+        contentText: result.group.name,
+        payload: result,
+      });
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
       throw error;
     }
   }
@@ -701,6 +749,7 @@ export class OrganizerStore {
       text: requiredText(input?.text, "text", 10_000),
       status: enumValue(input?.status, todoStatuses, "status", "todo"),
       scheduledAtUtc: isoDateTime(input?.scheduledAtUtc, "scheduledAtUtc"),
+      isAllDay: Boolean(booleanInteger(input?.isAllDay)),
       dueAtUtc: isoDateTime(input?.dueAtUtc, "dueAtUtc"),
       recurrenceRule: optionalText(input?.recurrenceRule, "recurrenceRule", 2000),
       recurrenceTimeZone: timeZone(input?.recurrenceTimeZone) ?? defaultCalendarTimeZone,
@@ -713,6 +762,9 @@ export class OrganizerStore {
     ).get(groupId)) throw new OrganizerInputError("To-do group not found.", 404);
     if (todo.recurrenceRule && !todo.scheduledAtUtc) {
       throw new OrganizerInputError("A routine requires a scheduled date and time.");
+    }
+    if (todo.isAllDay && !todo.scheduledAtUtc) {
+      throw new OrganizerInputError("An all-day to-do requires a scheduled date.");
     }
     if (todo.scheduledAtUtc && todo.dueAtUtc && todo.dueAtUtc < todo.scheduledAtUtc) {
       throw new OrganizerInputError("dueAtUtc cannot be earlier than scheduledAtUtc.");
@@ -737,11 +789,11 @@ export class OrganizerStore {
         const routine = this.database.prepare(`
           INSERT INTO todo_routines (
             todo_group_id, text, first_scheduled_at_utc, first_due_at_utc,
-            time_zone, recurrence_rule
-          ) VALUES (?, ?, ?, ?, ?, ?)
+            time_zone, is_all_day, recurrence_rule
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(
           groupId, todo.text, todo.scheduledAtUtc, todo.dueAtUtc,
-          todo.recurrenceTimeZone, todo.recurrenceRule,
+          todo.recurrenceTimeZone, todo.isAllDay ? 1 : 0, todo.recurrenceRule,
         );
         routineId = Number(routine.lastInsertRowid);
       }
@@ -753,11 +805,12 @@ export class OrganizerStore {
       const result = this.database.prepare(`
         INSERT INTO personal_tasks (
           todo_group_id, todo_routine_id, sequence, related_contact_id, text,
-          status, sort_position, scheduled_at_utc, due_at_utc, completed_at_utc, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
+          status, sort_position, scheduled_at_utc, is_all_day, due_at_utc, completed_at_utc, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
       `).run(
         groupId, routineId, todo.sequence, todo.relatedContactId, todo.text,
-        todo.status, sortPosition, todo.scheduledAtUtc, todo.dueAtUtc, completedAtUtc,
+        todo.status, sortPosition, todo.scheduledAtUtc, todo.isAllDay ? 1 : 0,
+        todo.dueAtUtc, completedAtUtc,
       );
       const id = Number(result.lastInsertRowid);
       const created = this.getTodo(id);
@@ -787,6 +840,7 @@ export class OrganizerStore {
   getTodo(id) {
     return publicTodo(this.database.prepare(
       `SELECT task.*, todo_group.name AS group_name,
+              todo_group.archived_at_utc AS group_archived_at_utc,
               routine.recurrence_rule AS routine_recurrence_rule,
               routine.time_zone AS routine_time_zone
        FROM personal_tasks AS task
@@ -879,6 +933,12 @@ export class OrganizerStore {
     if (input?.version !== before.version) {
       throw new OrganizerInputError("This todo changed after you opened it. Refresh and try again.", 409);
     }
+    const requestedRecurrenceRule = input.recurrenceRule === undefined
+      ? before.recurrenceRule
+      : optionalText(input.recurrenceRule, "recurrenceRule", 2000);
+    const requestedRecurrenceTimeZone = input.recurrenceTimeZone === undefined
+      ? before.recurrenceTimeZone
+      : timeZone(input.recurrenceTimeZone);
     const after = {
       ...before,
       groupId: input.groupId === undefined ? before.groupId : identifier(input.groupId, "group id"),
@@ -896,7 +956,14 @@ export class OrganizerStore {
       scheduledAtUtc: input.scheduledAtUtc === undefined
         ? before.scheduledAtUtc
         : isoDateTime(input.scheduledAtUtc, "scheduledAtUtc"),
+      isAllDay: input.isAllDay === undefined
+        ? before.isAllDay
+        : Boolean(booleanInteger(input.isAllDay)),
       dueAtUtc: input.dueAtUtc === undefined ? before.dueAtUtc : isoDateTime(input.dueAtUtc, "dueAtUtc"),
+      recurrenceRule: requestedRecurrenceRule,
+      recurrenceTimeZone: requestedRecurrenceRule
+        ? (requestedRecurrenceTimeZone ?? defaultCalendarTimeZone)
+        : null,
     };
     if (!this.database.prepare(
       "SELECT 1 FROM todo_groups WHERE todo_group_id = ? AND archived_at_utc IS NULL",
@@ -904,11 +971,28 @@ export class OrganizerStore {
     if (after.scheduledAtUtc && after.dueAtUtc && after.dueAtUtc < after.scheduledAtUtc) {
       throw new OrganizerInputError("dueAtUtc cannot be earlier than scheduledAtUtc.");
     }
+    if (after.isAllDay && !after.scheduledAtUtc) {
+      throw new OrganizerInputError("An all-day to-do requires a scheduled date.");
+    }
+    if (after.recurrenceRule && !after.scheduledAtUtc) {
+      throw new OrganizerInputError("A routine requires a scheduled date and time.");
+    }
+    if (after.recurrenceRule) {
+      try {
+        nextOccurrence({
+          startsAtUtc: after.scheduledAtUtc,
+          timeZone: after.recurrenceTimeZone,
+          recurrenceRule: after.recurrenceRule,
+        }, new Date(new Date(after.scheduledAtUtc).getTime() - 1000).toISOString());
+      } catch {
+        throw new OrganizerInputError("recurrenceRule must be a valid RRULE.");
+      }
+    }
     if (after.status === "complete" && before.status !== "complete") after.completedAtUtc = new Date().toISOString();
     if (after.status !== "complete" && before.status === "complete") after.completedAtUtc = null;
     const changes = changedFields(before, after, [
       "groupId", "sequence", "relatedContactId", "text", "status", "sortPosition",
-      "scheduledAtUtc", "dueAtUtc", "completedAtUtc",
+      "scheduledAtUtc", "isAllDay", "dueAtUtc", "completedAtUtc", "recurrenceRule", "recurrenceTimeZone",
     ]);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
@@ -918,17 +1002,50 @@ export class OrganizerStore {
       const result = this.database.prepare(`
         UPDATE personal_tasks
         SET todo_group_id = ?, sequence = ?, related_contact_id = ?, text = ?, status = ?,
-            sort_position = ?, scheduled_at_utc = ?, due_at_utc = ?,
+            sort_position = ?, scheduled_at_utc = ?, is_all_day = ?, due_at_utc = ?,
             completed_at_utc = ?, updated_at_utc = ?
         WHERE personal_task_id = ?
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
         after.groupId, after.sequence, after.relatedContactId, after.text, after.status,
-        after.sortPosition, after.scheduledAtUtc, after.dueAtUtc,
+        after.sortPosition, after.scheduledAtUtc, after.isAllDay ? 1 : 0, after.dueAtUtc,
         after.completedAtUtc, updatedAt, id, before.version,
       );
       if (result.changes !== 1) {
         throw new OrganizerInputError("This todo changed while you were saving it. Refresh and try again.", 409);
+      }
+      if (after.recurrenceRule && before.routineId) {
+        this.database.prepare(`
+          UPDATE todo_routines
+          SET todo_group_id = ?, text = ?, first_scheduled_at_utc = ?, first_due_at_utc = ?,
+              time_zone = ?, is_all_day = ?, recurrence_rule = ?, disabled_at_utc = NULL, updated_at_utc = ?
+          WHERE todo_routine_id = ?
+        `).run(
+          after.groupId, after.text, after.scheduledAtUtc, after.dueAtUtc,
+          after.recurrenceTimeZone, after.isAllDay ? 1 : 0,
+          after.recurrenceRule, updatedAt, before.routineId,
+        );
+      } else if (after.recurrenceRule) {
+        const routine = this.database.prepare(`
+          INSERT INTO todo_routines (
+            todo_group_id, text, first_scheduled_at_utc, first_due_at_utc,
+            time_zone, is_all_day, recurrence_rule
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          after.groupId, after.text, after.scheduledAtUtc, after.dueAtUtc,
+          after.recurrenceTimeZone, after.isAllDay ? 1 : 0, after.recurrenceRule,
+        );
+        this.database.prepare(`
+          UPDATE personal_tasks SET todo_routine_id = ? WHERE personal_task_id = ?
+        `).run(Number(routine.lastInsertRowid), id);
+      } else if (before.routineId) {
+        this.database.prepare(`
+          UPDATE todo_routines SET disabled_at_utc = ?, updated_at_utc = ?
+          WHERE todo_routine_id = ?
+        `).run(updatedAt, updatedAt, before.routineId);
+        this.database.prepare(`
+          UPDATE personal_tasks SET todo_routine_id = NULL WHERE personal_task_id = ?
+        `).run(id);
       }
       this.#activity({
         eventType: "personal_todo.updated",

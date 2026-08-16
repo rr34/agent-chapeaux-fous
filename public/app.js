@@ -30,6 +30,10 @@ const elements = {
   calendarMonthLabel: document.querySelector("#calendar-month-label"),
   calendarTimeZone: document.querySelector("#calendar-time-zone"),
   calendarGrid: document.querySelector("#calendar-grid"),
+  calendarScheduleMode: document.querySelector("#calendar-schedule-mode"),
+  calendarScheduleTask: document.querySelector("#calendar-schedule-task"),
+  calendarScheduleHint: document.querySelector("#calendar-schedule-hint"),
+  cancelCalendarSchedule: document.querySelector("#cancel-calendar-schedule"),
   agendaDate: document.querySelector("#agenda-date"),
   agendaList: document.querySelector("#agenda-list"),
   previousMonth: document.querySelector("#previous-month"),
@@ -65,9 +69,20 @@ const elements = {
   todoNewGroup: document.querySelector("#todo-new-group"),
   todoSequence: document.querySelector("#todo-sequence"),
   todoScheduled: document.querySelector("#todo-scheduled"),
+  todoAllDay: document.querySelector("#todo-all-day"),
   todoDue: document.querySelector("#todo-due"),
   todoStatus: document.querySelector("#todo-status"),
-  todoRecurrenceRule: document.querySelector("#todo-recurrence-rule"),
+  todoRepeatEnabled: document.querySelector("#todo-repeat-enabled"),
+  todoRepeatFields: document.querySelector("#todo-repeat-fields"),
+  todoRepeatInterval: document.querySelector("#todo-repeat-interval"),
+  todoRepeatFrequency: document.querySelector("#todo-repeat-frequency"),
+  todoRepeatWeekdays: document.querySelector("#todo-repeat-weekdays"),
+  todoRepeatEnd: document.querySelector("#todo-repeat-end"),
+  todoRepeatCountLabel: document.querySelector("#todo-repeat-count-label"),
+  todoRepeatCount: document.querySelector("#todo-repeat-count"),
+  todoRepeatUntilLabel: document.querySelector("#todo-repeat-until-label"),
+  todoRepeatUntil: document.querySelector("#todo-repeat-until"),
+  todoRepeatSummary: document.querySelector("#todo-repeat-summary"),
   todoFormError: document.querySelector("#todo-form-error"),
 };
 
@@ -84,8 +99,12 @@ let calendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1
 let selectedCalendarDate = new Date();
 let calendarEvents = [];
 let activeTodos = [];
+let calendarSchedulingTodo = null;
+let calendarSchedulingBusy = false;
 let displayedTodos = [];
 let todoGroups = [];
+let loadedTodoRecurrenceTimeZone = null;
+let todoRecurrenceDirty = false;
 const requestNodes = new Map();
 
 function authHeaders(extra = {}) {
@@ -145,6 +164,122 @@ function formatDisplayDate(value, { includeTime = true, fallback = "—" } = {})
   }).formatToParts(date);
   const timePart = (type) => timeParts.find((candidate) => candidate.type === type)?.value ?? "";
   return `${dateLabel} at ${timePart("hour")}:${timePart("minute")}`;
+}
+
+const recurrenceWeekdays = [
+  ["MO", "Mon"], ["TU", "Tue"], ["WE", "Wed"], ["TH", "Thu"],
+  ["FR", "Fri"], ["SA", "Sat"], ["SU", "Sun"],
+];
+const recurrenceFrequencyLabels = {
+  DAILY: ["day", "days"], WEEKLY: ["week", "weeks"],
+  MONTHLY: ["month", "months"], YEARLY: ["year", "years"],
+};
+
+function recurrenceParts(rule) {
+  const values = {};
+  for (const segment of String(rule || "").replace(/^RRULE:/i, "").split(";")) {
+    const separator = segment.indexOf("=");
+    if (separator > 0) values[segment.slice(0, separator).toUpperCase()] = segment.slice(separator + 1);
+  }
+  return values;
+}
+
+function selectedRepeatWeekdays() {
+  return [...elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]:checked')]
+    .map(({ value }) => value);
+}
+
+function scheduledWeekday() {
+  const date = elements.todoScheduled.value ? new Date(elements.todoScheduled.value) : new Date();
+  return ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][date.getDay()];
+}
+
+function ensureRepeatWeekday() {
+  if (elements.todoRepeatFrequency.value !== "WEEKLY" || selectedRepeatWeekdays().length) return;
+  const fallback = scheduledWeekday();
+  const checkbox = elements.todoRepeatWeekdays.querySelector(`input[value="${fallback}"]`);
+  if (checkbox) checkbox.checked = true;
+}
+
+function buildTodoRecurrenceRule() {
+  if (!elements.todoRepeatEnabled.checked) return null;
+  const interval = Number(elements.todoRepeatInterval.value);
+  if (!Number.isInteger(interval) || interval < 1 || interval > 999) {
+    throw new Error("Repeat interval must be a whole number from 1 to 999.");
+  }
+  const frequency = elements.todoRepeatFrequency.value;
+  const parts = [`FREQ=${frequency}`, `INTERVAL=${interval}`];
+  if (frequency === "WEEKLY") {
+    ensureRepeatWeekday();
+    const weekdays = selectedRepeatWeekdays();
+    if (!weekdays.length) throw new Error("Choose at least one weekday.");
+    parts.push(`BYDAY=${weekdays.join(",")}`);
+  }
+  if (elements.todoRepeatEnd.value === "count") {
+    const count = Number(elements.todoRepeatCount.value);
+    if (!Number.isInteger(count) || count < 1 || count > 9999) {
+      throw new Error("Occurrences must be a whole number from 1 to 9999.");
+    }
+    parts.push(`COUNT=${count}`);
+  } else if (elements.todoRepeatEnd.value === "until") {
+    const until = elements.todoRepeatUntil.value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(until)) throw new Error("Choose the last recurrence date.");
+    parts.push(`UNTIL=${until.replaceAll("-", "")}T235959`);
+  }
+  return parts.join(";");
+}
+
+function describeTodoRecurrence(rule) {
+  if (!rule) return "Does not repeat";
+  const parts = recurrenceParts(rule);
+  const interval = Math.max(1, Number(parts.INTERVAL) || 1);
+  const labels = recurrenceFrequencyLabels[parts.FREQ] || ["period", "periods"];
+  let description = interval === 1 ? `Every ${labels[0]}` : `Every ${interval} ${labels[1]}`;
+  if (parts.FREQ === "WEEKLY" && parts.BYDAY) {
+    const labelsByValue = Object.fromEntries(recurrenceWeekdays);
+    const days = parts.BYDAY.split(",").map((day) => labelsByValue[day] || day);
+    description += ` on ${days.join(", ")}`;
+  }
+  if (parts.COUNT) description += `, ${parts.COUNT} occurrences`;
+  if (parts.UNTIL) {
+    const match = /^(\d{4})(\d{2})(\d{2})/.exec(parts.UNTIL);
+    if (match) description += `, through ${formatDisplayDate(new Date(`${match[1]}-${match[2]}-${match[3]}T12:00:00`), { includeTime: false })}`;
+  }
+  return description;
+}
+
+function updateTodoRecurrenceEditor() {
+  const enabled = elements.todoRepeatEnabled.checked;
+  elements.todoRepeatFields.hidden = !enabled;
+  if (!enabled) return;
+  const weekly = elements.todoRepeatFrequency.value === "WEEKLY";
+  elements.todoRepeatWeekdays.hidden = !weekly;
+  if (weekly) ensureRepeatWeekday();
+  const ending = elements.todoRepeatEnd.value;
+  elements.todoRepeatCountLabel.hidden = ending !== "count";
+  elements.todoRepeatUntilLabel.hidden = ending !== "until";
+  try {
+    elements.todoRepeatSummary.textContent = describeTodoRecurrence(buildTodoRecurrenceRule());
+  } catch (error) {
+    elements.todoRepeatSummary.textContent = error.message;
+  }
+}
+
+function loadTodoRecurrenceEditor(rule, recurrenceTimeZone = null) {
+  loadedTodoRecurrenceTimeZone = recurrenceTimeZone || null;
+  todoRecurrenceDirty = false;
+  const parts = recurrenceParts(rule);
+  elements.todoRepeatEnabled.checked = Boolean(rule);
+  elements.todoRepeatFrequency.value = recurrenceFrequencyLabels[parts.FREQ] ? parts.FREQ : "WEEKLY";
+  elements.todoRepeatInterval.value = String(Math.max(1, Number(parts.INTERVAL) || 1));
+  for (const checkbox of elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
+    checkbox.checked = (parts.BYDAY || "").split(",").includes(checkbox.value);
+  }
+  elements.todoRepeatEnd.value = parts.COUNT ? "count" : parts.UNTIL ? "until" : "never";
+  elements.todoRepeatCount.value = parts.COUNT || "10";
+  const untilMatch = /^(\d{4})(\d{2})(\d{2})/.exec(parts.UNTIL || "");
+  elements.todoRepeatUntil.value = untilMatch ? `${untilMatch[1]}-${untilMatch[2]}-${untilMatch[3]}` : "";
+  updateTodoRecurrenceEditor();
 }
 
 function formatTime(milliseconds) {
@@ -439,6 +574,7 @@ function formatEventTime(calendarEvent) {
 }
 
 function switchView(view) {
+  if (view !== "calendar" && calendarSchedulingTodo) cancelCalendarScheduling({ render: false });
   activeView = view;
   elements.agentView.hidden = view !== "agent";
   elements.calendarView.hidden = view !== "calendar";
@@ -459,6 +595,10 @@ async function refreshCalendar() {
     calendarEvents = calendarBody.events;
     activeTodos = todoBody.todos;
     todoGroups = groupBody.groups;
+    if (calendarSchedulingTodo) {
+      calendarSchedulingTodo = activeTodos.find(({ id }) => id === calendarSchedulingTodo.id) ?? null;
+      updateCalendarSchedulingMode();
+    }
     renderCalendar();
   } catch (error) {
     elements.calendarGrid.replaceChildren(node("p", "empty", error.message || "Calendar unavailable."));
@@ -487,7 +627,7 @@ function renderCalendar() {
     const items = node("span", "day-items");
     const visible = [
       ...events.map((value) => ({ type: "event", value })),
-      ...scheduled.map((value) => ({ type: "todo", value, marker: "◷" })),
+      ...scheduled.map((value) => ({ type: "todo", value, marker: value.isAllDay ? "All day" : "◷" })),
       ...due.map((value) => ({ type: "todo", value, marker: "Due" })),
     ];
     for (const item of visible.slice(0, 3)) {
@@ -497,16 +637,95 @@ function renderCalendar() {
     }
     if (visible.length > 3) items.append(node("span", "day-more", `+${visible.length - 3} more`));
     button.append(items);
-    button.addEventListener("click", () => { selectedCalendarDate = date; renderCalendar(); });
+    button.disabled = calendarSchedulingBusy;
+    button.addEventListener("click", () => {
+      if (calendarSchedulingTodo) void scheduleTodoOnDate(date);
+      else {
+        selectedCalendarDate = date;
+        renderCalendar();
+      }
+    });
     elements.calendarGrid.append(button);
   }
   renderAgenda();
 }
 
+function scheduledDateOnDay(_todo, date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function updateCalendarSchedulingMode() {
+  const todo = calendarSchedulingTodo;
+  elements.calendarView.classList.toggle("scheduling", Boolean(todo));
+  elements.calendarScheduleMode.hidden = !todo;
+  elements.cancelCalendarSchedule.disabled = calendarSchedulingBusy;
+  if (!todo) return;
+  elements.calendarScheduleTask.textContent = todo.text;
+  elements.calendarScheduleHint.textContent = "Choose a day. This task will be scheduled for that whole day.";
+}
+
+function beginCalendarScheduling(todo) {
+  calendarSchedulingTodo = todo;
+  calendarSchedulingBusy = false;
+  if (todo.scheduledAtUtc) {
+    selectedCalendarDate = new Date(todo.scheduledAtUtc);
+    calendarCursor = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), 1);
+  } else {
+    selectedCalendarDate = new Date();
+    calendarCursor = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), 1);
+  }
+  updateCalendarSchedulingMode();
+  switchView("calendar");
+}
+
+function cancelCalendarScheduling({ render = true } = {}) {
+  calendarSchedulingTodo = null;
+  calendarSchedulingBusy = false;
+  updateCalendarSchedulingMode();
+  if (render && activeView === "calendar") renderCalendar();
+}
+
+async function scheduleTodoOnDate(date) {
+  if (!calendarSchedulingTodo || calendarSchedulingBusy) return;
+  const todo = calendarSchedulingTodo;
+  const scheduled = scheduledDateOnDay(todo, date);
+  const payload = { version: todo.version, scheduledAtUtc: scheduled.toISOString(), isAllDay: true };
+  if (todo.scheduledAtUtc && todo.dueAtUtc) {
+    const previousScheduled = new Date(todo.scheduledAtUtc);
+    const dayDifference = Math.round((
+      Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+      - Date.UTC(previousScheduled.getFullYear(), previousScheduled.getMonth(), previousScheduled.getDate())
+    ) / 86_400_000);
+    const movedDue = new Date(todo.dueAtUtc);
+    movedDue.setDate(movedDue.getDate() + dayDifference);
+    payload.dueAtUtc = movedDue.toISOString();
+  }
+  calendarSchedulingBusy = true;
+  updateCalendarSchedulingMode();
+  renderCalendar();
+  try {
+    await api(`/api/todos/${todo.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    selectedCalendarDate = new Date(date);
+    cancelCalendarScheduling({ render: false });
+    await refreshCalendar();
+  } catch (error) {
+    calendarSchedulingBusy = false;
+    updateCalendarSchedulingMode();
+    renderCalendar();
+    window.alert(error.message || "Could not schedule the task.");
+  }
+}
+
 function renderAgenda() {
   const events = calendarEvents.filter((calendarEvent) => occursOnDay(calendarEvent, selectedCalendarDate));
   const todoEntries = [
-    ...todosScheduledOnDay(selectedCalendarDate).map((todo) => ({ todo, timing: "Scheduled task" })),
+    ...todosScheduledOnDay(selectedCalendarDate).map((todo) => ({
+      todo, timing: todo.isAllDay ? "All-day task" : "Scheduled task",
+    })),
     ...todosDueOnDay(selectedCalendarDate).map((todo) => ({ todo, timing: "Task due" })),
   ];
   elements.agendaDate.textContent = formatDisplayDate(selectedCalendarDate, { includeTime: false });
@@ -551,6 +770,13 @@ function setEventInputTypes(allDay) {
     elements.eventStart.value = oldStart ? `${oldStart.slice(0, 10)}T09:00` : "";
     elements.eventEnd.value = oldEnd ? `${oldEnd.slice(0, 10)}T10:00` : "";
   }
+}
+
+function setTodoScheduledInputType(allDay) {
+  const previous = elements.todoScheduled.value;
+  elements.todoScheduled.type = allDay ? "date" : "datetime-local";
+  if (allDay) elements.todoScheduled.value = previous.slice(0, 10);
+  else if (previous) elements.todoScheduled.value = `${previous.slice(0, 10)}T09:00`;
 }
 
 function openEventEditor(calendarEvent = null) {
@@ -646,24 +872,42 @@ function renderTodos() {
     ? displayedTodos.filter(({ groupId }) => String(groupId) === elements.todoGroupFilter.value)
     : displayedTodos;
   elements.todoCount.textContent = `${visibleTodos.length} ${visibleTodos.length === 1 ? "task" : "tasks"}`;
-  if (visibleTodos.length === 0) {
-    elements.todoList.append(node("p", "empty", "No tasks in this view."));
-    return;
-  }
   const groupedTodos = new Map();
+  const visibleGroups = elements.todoGroupFilter.value
+    ? todoGroups.filter(({ id }) => String(id) === elements.todoGroupFilter.value)
+    : todoGroups;
+  for (const group of visibleGroups) {
+    groupedTodos.set(group.id, { name: group.name, archivedAtUtc: group.archivedAtUtc, todos: [] });
+  }
   for (const todo of visibleTodos) {
-    const group = groupedTodos.get(todo.groupId) ?? { name: todo.groupName, todos: [] };
+    const group = groupedTodos.get(todo.groupId) ?? {
+      name: todo.groupName, archivedAtUtc: todo.groupArchivedAtUtc, todos: [],
+    };
     group.todos.push(todo);
     groupedTodos.set(todo.groupId, group);
+  }
+  if (groupedTodos.size === 0) {
+    elements.todoList.append(node("p", "empty", "No to-do groups in this view."));
+    return;
   }
   for (const [groupId, group] of groupedTodos) {
     const section = node("section", "todo-group-section");
     section.dataset.groupId = String(groupId);
     const heading = node("header", "todo-group-heading");
-    heading.append(
-      node("h3", "", group.name),
-      node("span", "", `${group.todos.length} ${group.todos.length === 1 ? "task" : "tasks"}`),
-    );
+    const headingActions = node("div", "todo-group-heading-actions");
+    headingActions.append(node("span", "", `${group.todos.length} ${group.todos.length === 1 ? "task" : "tasks"}`));
+    if (group.archivedAtUtc) {
+      headingActions.append(node("span", "todo-group-archived", "Archived group"));
+    } else if (group.name.toLowerCase() !== "inbox") {
+      const rename = node("button", "secondary compact", "Rename");
+      const archive = node("button", "secondary compact", "Archive group");
+      rename.type = "button";
+      archive.type = "button";
+      rename.addEventListener("click", () => void renameTodoGroup(groupId, group.name));
+      archive.addEventListener("click", () => void archiveTodoGroup(groupId, group.name));
+      headingActions.append(rename, archive);
+    }
+    heading.append(node("h3", "", group.name), headingActions);
     const cards = node("div", "todo-group-cards");
     for (const todo of group.todos) {
       const card = node("article", `todo-card ${todo.status === "complete" ? "completed" : ""}`);
@@ -690,20 +934,28 @@ function renderTodos() {
       const metadata = node("div", "todo-meta");
       if (todo.sequence != null) metadata.append(node("span", "todo-pill", `#${todo.sequence}`));
       metadata.append(node("span", "todo-pill", todo.status.replaceAll("_", " ")));
-      if (todo.scheduledAtUtc) metadata.append(node("span", "todo-pill", `scheduled ${formatTodoDateTime(todo.scheduledAtUtc)}`));
+      if (todo.scheduledAtUtc) {
+        metadata.append(node(
+          "span",
+          "todo-pill",
+          `scheduled ${formatDisplayDate(todo.scheduledAtUtc, { includeTime: !todo.isAllDay })}`,
+        ));
+      }
       if (todo.dueAtUtc) {
         const due = new Date(todo.dueAtUtc);
         metadata.append(node("span", `todo-pill ${todo.status !== "complete" && due < new Date() ? "overdue" : ""}`, `due ${formatTodoDateTime(due)}`));
       }
-      if (todo.recurrenceRule) metadata.append(node("span", "todo-pill", todo.recurrenceRule));
+      if (todo.recurrenceRule) metadata.append(node("span", "todo-pill", describeTodoRecurrence(todo.recurrenceRule)));
       body.append(metadata);
       const actions = node("div", "todo-actions");
+      const schedule = node("button", "secondary compact", todo.scheduledAtUtc ? "Reschedule" : "Schedule");
       const top = node("button", "secondary compact", "⇈");
       const up = node("button", "secondary compact", "↑");
       const down = node("button", "secondary compact", "↓");
       const bottom = node("button", "secondary compact", "⇊");
       const edit = node("button", "secondary compact", "Edit");
-      top.type = up.type = down.type = bottom.type = edit.type = "button";
+      schedule.type = top.type = up.type = down.type = bottom.type = edit.type = "button";
+      schedule.title = todo.scheduledAtUtc ? "Choose a new day on the calendar" : "Choose a day on the calendar";
       top.title = "Move task to top of group";
       up.title = "Move task up";
       down.title = "Move task down";
@@ -712,11 +964,13 @@ function renderTodos() {
       up.setAttribute("aria-label", `Move ${todo.text} up`);
       down.setAttribute("aria-label", `Move ${todo.text} down`);
       bottom.setAttribute("aria-label", `Move ${todo.text} to bottom of group`);
+      schedule.addEventListener("click", () => beginCalendarScheduling(todo));
       top.addEventListener("click", () => void moveTodo(todo, "top", visibleTodos));
       up.addEventListener("click", () => void moveTodo(todo, "up", visibleTodos));
       down.addEventListener("click", () => void moveTodo(todo, "down", visibleTodos));
       bottom.addEventListener("click", () => void moveTodo(todo, "bottom", visibleTodos));
       edit.addEventListener("click", () => openTodoEditor(todo));
+      if (["todo", "ai_suggested"].includes(todo.status)) actions.append(schedule);
       actions.append(top, up, down, bottom, edit);
       card.append(check, body, actions);
       cards.append(card);
@@ -759,12 +1013,14 @@ function openTodoEditor(todo = null) {
   populateTodoGroupEditor(todo?.groupId ?? (elements.todoGroupFilter.value || todoGroups[0]?.id || ""));
   elements.todoText.value = todo?.text ?? "";
   elements.todoSequence.value = todo?.sequence ?? "";
-  elements.todoScheduled.value = localDateTimeInput(todo?.scheduledAtUtc);
+  elements.todoAllDay.checked = Boolean(todo?.isAllDay);
+  setTodoScheduledInputType(elements.todoAllDay.checked);
+  elements.todoScheduled.value = todo?.scheduledAtUtc
+    ? (todo.isAllDay ? localDateKey(todo.scheduledAtUtc) : localDateTimeInput(todo.scheduledAtUtc))
+    : "";
   elements.todoDue.value = localDateTimeInput(todo?.dueAtUtc);
   elements.todoStatus.value = todo?.status ?? "todo";
-  elements.todoRecurrenceRule.value = todo?.recurrenceRule ?? "";
-  elements.todoRecurrenceRule.disabled = Boolean(todo?.routineId);
-  elements.todoRecurrenceRule.title = todo?.routineId ? "Edit the routine definition through the agent." : "";
+  loadTodoRecurrenceEditor(todo?.recurrenceRule ?? null, todo?.recurrenceTimeZone ?? null);
   elements.todoDialog.showModal();
   elements.todoText.focus();
 }
@@ -789,13 +1045,16 @@ async function saveTodo(event) {
       text: elements.todoText.value,
       groupId: Number(elements.todoGroup.value),
       sequence: elements.todoSequence.value ? Number(elements.todoSequence.value) : null,
-      scheduledAtUtc: inputToIso(elements.todoScheduled.value),
+      scheduledAtUtc: inputToIso(elements.todoScheduled.value, elements.todoAllDay.checked),
+      isAllDay: elements.todoAllDay.checked && Boolean(elements.todoScheduled.value),
       dueAtUtc: inputToIso(elements.todoDue.value),
       status: elements.todoStatus.value,
     };
-    if (!elements.todoRecurrenceRule.disabled) {
-      payload.recurrenceRule = elements.todoRecurrenceRule.value;
-      payload.recurrenceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (todoRecurrenceDirty) {
+      payload.recurrenceRule = buildTodoRecurrenceRule();
+      payload.recurrenceTimeZone = payload.recurrenceRule
+        ? (loadedTodoRecurrenceTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone)
+        : null;
     }
     const id = elements.todoId.value;
     if (id) payload.version = elements.todoVersion.value;
@@ -828,6 +1087,40 @@ async function createTodoGroup({ selectFilter = true } = {}) {
   } catch (error) {
     window.alert(error.message || "Could not create the group.");
     return null;
+  }
+}
+
+async function archiveTodoGroup(groupId, groupName) {
+  const confirmed = window.confirm(
+    `Archive the ${groupName} group? This fails if it has active tasks. Terminal tasks will retain this historical group.`,
+  );
+  if (!confirmed) return;
+  try {
+    const result = await api(`/api/todo-groups/${groupId}/archive`, { method: "POST" });
+    const retained = result.retainedTerminalTaskCount
+      ? ` ${result.retainedTerminalTaskCount} terminal ${result.retainedTerminalTaskCount === 1 ? "task retains" : "tasks retain"} this historical group.`
+      : "";
+    elements.status.textContent = `${groupName} was archived.${retained}`;
+    await refreshTodos();
+  } catch (error) {
+    window.alert(error.message || "Could not archive the group.");
+  }
+}
+
+async function renameTodoGroup(groupId, currentName) {
+  const name = window.prompt("New name for this to-do group:", currentName)?.trim();
+  if (!name || name === currentName) return;
+  try {
+    const result = await api(`/api/todo-groups/${groupId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    elements.status.textContent = `${result.group.previousName} was renamed to ${result.group.name}.`;
+    await refreshTodos();
+    if (activeView === "calendar") await refreshCalendar();
+  } catch (error) {
+    window.alert(error.message || "Could not rename the group.");
   }
 }
 
@@ -967,6 +1260,7 @@ elements.today.addEventListener("click", () => {
   calendarCursor = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), 1);
   void refreshCalendar();
 });
+elements.cancelCalendarSchedule.addEventListener("click", () => cancelCalendarScheduling());
 elements.newEvent.addEventListener("click", () => openEventEditor());
 elements.eventAllDay.addEventListener("change", () => setEventInputTypes(elements.eventAllDay.checked));
 elements.eventForm.addEventListener("submit", saveEvent);
@@ -982,6 +1276,23 @@ elements.todoNewGroup.addEventListener("click", async () => {
 elements.todoScope.addEventListener("change", () => void refreshTodos());
 elements.todoGroupFilter.addEventListener("change", renderTodos);
 elements.todoForm.addEventListener("submit", saveTodo);
+elements.todoAllDay.addEventListener("change", () => {
+  setTodoScheduledInputType(elements.todoAllDay.checked);
+  updateTodoRecurrenceEditor();
+});
+for (const control of [
+  elements.todoRepeatEnabled, elements.todoRepeatInterval, elements.todoRepeatFrequency,
+  elements.todoRepeatEnd, elements.todoRepeatCount, elements.todoRepeatUntil,
+  ...elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]'),
+]) {
+  const recurrenceChanged = () => {
+    todoRecurrenceDirty = true;
+    updateTodoRecurrenceEditor();
+  };
+  control.addEventListener("change", recurrenceChanged);
+  if (control.matches('input[type="number"]')) control.addEventListener("input", recurrenceChanged);
+}
+elements.todoScheduled.addEventListener("change", updateTodoRecurrenceEditor);
 for (const button of document.querySelectorAll(".dialog-close")) {
   button.addEventListener("click", () => button.closest("dialog")?.close());
 }

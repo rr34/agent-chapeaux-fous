@@ -140,4 +140,27 @@ export function registerDatabaseTools(registry, store, ledger, schemaSemantics =
       return { count: entries.length, entries };
     },
   });
+
+  registry.register({
+    name: "history_range",
+    description: "Return paired user requests and Slayer responses submitted within an explicit UTC date-time range, optionally filtered to a topic in the same lookup. Use this for relative-time references such as earlier today, yesterday, last week, or last month after resolving the user's words and time zone into startAtUtc inclusive and endAtUtc exclusive. When the request also suggests a topic, pass 1-5 concise distinctive terms in query; every term must occur somewhere in the paired user request or response. Pass null when no topic is implied. Results are chronological. Continue with nextAfterRequestId when hasMore is true.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        startAtUtc: { type: "string", description: "Inclusive ISO-8601 UTC boundary." },
+        endAtUtc: { type: "string", description: "Exclusive ISO-8601 UTC boundary." },
+        query: { type: ["string", "null"], minLength: 1, maxLength: 500, description: "Concise topical terms to match across each paired request and response, or null for date-only retrieval." },
+        afterRequestId: { type: ["string", "null"], description: "Pagination cursor from nextAfterRequestId, or null for the first page." },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+      },
+      required: ["startAtUtc", "endAtUtc", "query", "afterRequestId", "limit"],
+    },
+    async execute(argumentsObject, context) {
+      return ledger.conversationRange({
+        ...argumentsObject,
+        excludeRequestId: context?.requestId ?? null,
+      });
+    },
+  });
 }
