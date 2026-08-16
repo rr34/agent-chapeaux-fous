@@ -240,7 +240,39 @@ test("group reordering atomically normalizes every task position", () => {
   }
 });
 
-test("renaming a group preserves membership and updates alphabetical ordering", () => {
+test("to-do group reordering atomically moves whole groups", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const first = organizer.createTodoGroup({ name: "First custom group" });
+    const second = organizer.createTodoGroup({ name: "Second custom group" });
+    organizer.createTodo({ text: "First grouped task", groupId: first.id });
+    organizer.createTodo({ text: "Second grouped task", groupId: second.id });
+
+    organizer.reorderTodoGroups({ orderedGroupIds: [second.id, first.id, 1, 2] });
+    organizer.reorderTodoGroups({ orderedGroupIds: [2, second.id] });
+
+    const groups = organizer.listTodoGroups();
+    assert.deepEqual(
+      groups.map(({ name }) => name),
+      ["Development", "First custom group", "Inbox", "Second custom group"],
+    );
+    assert.deepEqual(groups.map(({ sortPosition }) => sortPosition), [10, 20, 30, 40]);
+    assert.deepEqual(
+      organizer.listTodos({ scope: "all" }).map(({ text }) => text),
+      ["First grouped task", "Second grouped task"],
+    );
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events
+      WHERE event_type = 'personal_todo_group.reordered'
+    `).get().count, 2);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
+test("renaming a group preserves membership and explicit ordering", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);
   try {
@@ -252,7 +284,7 @@ test("renaming a group preserves membership and updates alphabetical ordering", 
     assert.equal(organizer.getTodo(task.id).groupName, "Alpha");
     assert.deepEqual(
       organizer.listTodoGroups().map(({ name }) => name),
-      ["Alpha", "Development", "Inbox"],
+      ["Development", "Inbox", "Alpha"],
     );
     assert.throws(
       () => organizer.renameTodoGroup(group.id, { name: "Development" }),

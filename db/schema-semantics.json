@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 12,
-    "schemaFingerprint": "40616aa980d35299451fa4a3b6c1cba74e1ca7730da620e89966a5d9443eca07",
-    "extractedAt": "2026-08-16T17:53:18.300Z"
+    "schemaVersion": 13,
+    "schemaFingerprint": "1a91c2a5e0688d9f91c1b76810743e59115164be3f041a5eb43ccecbe2f47005",
+    "extractedAt": "2026-08-16T20:01:28.566Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -13580,7 +13580,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE todo_groups (\n    todo_group_id   INTEGER PRIMARY KEY,\n    name            TEXT NOT NULL COLLATE NOCASE UNIQUE,\n    archived_at_utc TEXT,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT\n) STRICT",
+        "definition": "CREATE TABLE todo_groups (\n    todo_group_id   INTEGER PRIMARY KEY,\n    name            TEXT NOT NULL COLLATE NOCASE UNIQUE,\n    archived_at_utc TEXT,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT\n, sort_position INTEGER NOT NULL DEFAULT 0) STRICT",
         "indexes": [
           {
             "name": "sqlite_autoindex_todo_groups_1",
@@ -13590,6 +13590,17 @@
             "unique": true,
             "partial": false,
             "origin": "u"
+          },
+          {
+            "name": "todo_groups_order",
+            "columns": [
+              "archived_at_utc",
+              "sort_position",
+              "todo_group_id"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
           }
         ]
       },
@@ -13751,6 +13762,35 @@
             "routingWeight": null,
             "examples": [],
             "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "sort_position": {
+          "mechanics": {
+            "present": true,
+            "name": "sort_position",
+            "ordinal": 5,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": "0",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Mutable presentation order used to place this group and all of its tasks in the to-do list.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Lower values appear first; moving a group does not change task membership or task order within the group."
+            ],
             "sensitivity": null
           }
         }

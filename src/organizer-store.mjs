@@ -343,6 +343,7 @@ function publicTodoGroup(row) {
   return {
     id: row.todo_group_id,
     name: row.name,
+    sortPosition: row.sort_position,
     archivedAtUtc: row.archived_at_utc,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
@@ -591,7 +592,8 @@ export class OrganizerStore {
       LEFT JOIN todo_routines AS routine USING (todo_routine_id)
       ${where}
       ORDER BY
-        todo_group.name COLLATE NOCASE,
+        todo_group.sort_position,
+        todo_group.todo_group_id,
         task.sort_position,
         task.personal_task_id
       LIMIT ?
@@ -603,7 +605,7 @@ export class OrganizerStore {
       SELECT *
       FROM todo_groups
       ${includeArchived ? "" : "WHERE archived_at_utc IS NULL"}
-      ORDER BY name COLLATE NOCASE, todo_group_id
+      ORDER BY sort_position, todo_group_id
     `).all().map(publicTodoGroup);
   }
 
@@ -612,8 +614,9 @@ export class OrganizerStore {
     const now = new Date().toISOString();
     try {
       const result = this.database.prepare(`
-        INSERT INTO todo_groups (name, created_at_utc)
-        VALUES (?, ?)
+        INSERT INTO todo_groups (name, sort_position, created_at_utc)
+        SELECT ?, COALESCE(MAX(sort_position), 0) + 10, ?
+        FROM todo_groups
       `).run(name, now);
       return publicTodoGroup(this.database.prepare(
         "SELECT * FROM todo_groups WHERE todo_group_id = ?",
@@ -664,6 +667,59 @@ export class OrganizerStore {
       });
       this.database.exec("COMMIT");
       return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  reorderTodoGroups(input) {
+    if (!Array.isArray(input?.orderedGroupIds) || input.orderedGroupIds.length === 0) {
+      throw new OrganizerInputError("orderedGroupIds must contain at least one to-do group id.");
+    }
+    const orderedGroupIds = input.orderedGroupIds.map((value) => identifier(value, "to-do group id"));
+    if (new Set(orderedGroupIds).size !== orderedGroupIds.length) {
+      throw new OrganizerInputError("orderedGroupIds cannot contain duplicates.");
+    }
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.database.prepare(`
+        SELECT todo_group_id
+        FROM todo_groups
+        WHERE archived_at_utc IS NULL
+        ORDER BY sort_position, todo_group_id
+      `).all();
+      if (rows.length === 0) throw new OrganizerInputError("There are no active to-do groups.", 404);
+      const activeGroupIds = new Set(rows.map((row) => Number(row.todo_group_id)));
+      if (orderedGroupIds.some((id) => !activeGroupIds.has(id))) {
+        throw new OrganizerInputError("Every reordered group must be active.", 409);
+      }
+
+      const reorderedSet = new Set(orderedGroupIds);
+      let reorderedIndex = 0;
+      const completeOrder = rows.map((row) => {
+        const id = Number(row.todo_group_id);
+        return reorderedSet.has(id) ? orderedGroupIds[reorderedIndex++] : id;
+      });
+      const updatedAt = new Date().toISOString();
+      const update = this.database.prepare(`
+        UPDATE todo_groups
+        SET sort_position = ?, updated_at_utc = ?
+        WHERE todo_group_id = ? AND archived_at_utc IS NULL
+      `);
+      completeOrder.forEach((id, index) => update.run((index + 1) * 10, updatedAt, id));
+      this.#activity({
+        eventType: "personal_todo_group.reordered",
+        status: "complete",
+        name: "Personal to-do groups reordered",
+        subjectType: "todo_group_order",
+        subjectId: "active",
+        contentText: `Reordered ${completeOrder.length} groups`,
+        payload: { orderedGroupIds: completeOrder },
+      });
+      this.database.exec("COMMIT");
+      return this.listTodoGroups();
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;

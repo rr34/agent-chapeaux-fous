@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 12, 'Agent Slayer test database');
+    VALUES (1, 13, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -63,6 +63,7 @@ export function temporaryDatabase() {
     CREATE TABLE todo_groups (
       todo_group_id INTEGER PRIMARY KEY,
       name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      sort_position INTEGER NOT NULL DEFAULT 0,
       archived_at_utc TEXT,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT
@@ -196,7 +197,7 @@ export function temporaryDatabase() {
     ) STRICT;
     CREATE INDEX profile_facts_status_type
       ON profile_facts(fact_status, fact_type, profile_fact_id);
-    INSERT INTO todo_groups (name) VALUES ('Inbox'), ('Development');
+    INSERT INTO todo_groups (name, sort_position) VALUES ('Inbox', 20), ('Development', 10);
   `);
   database.close();
   return {

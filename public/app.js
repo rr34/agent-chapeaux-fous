@@ -1017,6 +1017,24 @@ function renderTodos() {
     section.dataset.groupId = String(groupId);
     const heading = node("header", "todo-group-heading");
     const headingActions = node("div", "todo-group-heading-actions");
+    const top = node("button", "secondary compact", "⇈");
+    const up = node("button", "secondary compact", "↑");
+    const down = node("button", "secondary compact", "↓");
+    const bottom = node("button", "secondary compact", "⇊");
+    top.type = up.type = down.type = bottom.type = "button";
+    top.title = "Move group to top";
+    up.title = "Move group up";
+    down.title = "Move group down";
+    bottom.title = "Move group to bottom";
+    top.setAttribute("aria-label", `Move ${group.name} group to top`);
+    up.setAttribute("aria-label", `Move ${group.name} group up`);
+    down.setAttribute("aria-label", `Move ${group.name} group down`);
+    bottom.setAttribute("aria-label", `Move ${group.name} group to bottom`);
+    top.addEventListener("click", () => void moveTodoGroup(groupId, "top"));
+    up.addEventListener("click", () => void moveTodoGroup(groupId, "up"));
+    down.addEventListener("click", () => void moveTodoGroup(groupId, "down"));
+    bottom.addEventListener("click", () => void moveTodoGroup(groupId, "bottom"));
+    headingActions.append(top, up, down, bottom);
     headingActions.append(node("span", "", `${group.todos.length} ${group.todos.length === 1 ? "task" : "tasks"}`));
     if (group.archivedAtUtc) {
       headingActions.append(node("span", "todo-group-archived", "Archived group"));
@@ -1099,6 +1117,29 @@ function renderTodos() {
     }
     section.append(heading, cards);
     elements.todoList.append(section);
+  }
+}
+
+async function moveTodoGroup(groupId, movement) {
+  const currentIndex = todoGroups.findIndex(({ id }) => id === groupId);
+  const targetIndex = movement === "top"
+    ? 0
+    : movement === "bottom"
+      ? todoGroups.length - 1
+      : currentIndex + (movement === "up" ? -1 : 1);
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= todoGroups.length || targetIndex === currentIndex) return;
+  const orderedGroupIds = todoGroups.map(({ id }) => id);
+  orderedGroupIds.splice(currentIndex, 1);
+  orderedGroupIds.splice(targetIndex, 0, groupId);
+  try {
+    await api("/api/todo-groups/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderedGroupIds }),
+    });
+    await refreshTodos();
+  } catch (error) {
+    window.alert(error.message || "Could not reorder the group.");
   }
 }
 

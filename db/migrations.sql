@@ -5,6 +5,29 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0013: ordered-todo-groups
+-- Give to-do groups an explicit presentation order independent of their names.
+-- Seed existing groups in their current alphabetical order.
+
+ALTER TABLE todo_groups
+ADD COLUMN sort_position INTEGER NOT NULL DEFAULT 0;
+
+WITH ordered_groups AS (
+    SELECT todo_group_id,
+           ROW_NUMBER() OVER (ORDER BY name COLLATE NOCASE, todo_group_id) * 10 AS sort_position
+    FROM todo_groups
+)
+UPDATE todo_groups
+SET sort_position = (
+    SELECT ordered_groups.sort_position
+    FROM ordered_groups
+    WHERE ordered_groups.todo_group_id = todo_groups.todo_group_id
+);
+
+CREATE INDEX todo_groups_order
+    ON todo_groups(archived_at_utc, sort_position, todo_group_id);
+-- end migration 0013
+
 -- migration 0012: all-day-todos
 -- Distinguish a task assigned to a calendar day from a task scheduled for an
 -- exact time. Routine definitions carry the same flag into future occurrences.

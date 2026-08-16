@@ -16,7 +16,7 @@ export const requiredDatabaseShape = {
     "source_event_id", "created_at_utc", "updated_at_utc",
   ],
   calendar_event_exclusions: ["calendar_event_id", "excluded_starts_at_utc"],
-  todo_groups: ["todo_group_id", "name", "archived_at_utc"],
+  todo_groups: ["todo_group_id", "name", "sort_position", "archived_at_utc"],
   personal_tasks: [
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
     "scheduled_at_utc", "is_all_day", "due_at_utc", "completed_at_utc", "source_event_id",
