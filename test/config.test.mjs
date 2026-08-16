@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { loadConfig, repositoryRoot } from "../src/config.mjs";
@@ -59,4 +60,13 @@ test("the public URL rejects credentials and non-HTTP schemes", () => {
     () => loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "http://slayer.example.test" }),
     /must be an HTTPS origin/,
   );
+});
+
+test("Nutrition selects generic MCP OAuth without a static access token", () => {
+  const integrations = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "config", "mcp-servers.json"), "utf8"));
+  assert.deepEqual(integrations.nutrition.oauth, { enabled: true, scopes: [] });
+  assert.equal(integrations.nutrition.headers, undefined);
+
+  const environmentExample = fs.readFileSync(path.join(repositoryRoot, ".env.example"), "utf8");
+  assert.doesNotMatch(environmentExample, /NUTRITION_ACCESS_TOKEN/);
 });

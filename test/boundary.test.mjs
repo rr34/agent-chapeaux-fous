@@ -48,3 +48,12 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /Relevant profile types/);
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
 });
+
+test("the web client renders every OAuth integration instead of selecting only one", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(document, /id="integrations"/);
+  assert.match(application, /\.filter\(\(\[, integration\]\) => integration\.oauth\)/);
+  assert.doesNotMatch(application, /\.find\(\(\[, integration\]\) => integration\.oauth\)/);
+  assert.match(application, /for \(const \[name, integration\] of oauthEntries\)/);
+});

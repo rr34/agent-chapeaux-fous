@@ -199,3 +199,72 @@ test("an OAuth MCP is unavailable until the callback completes, then its tools a
   assert.deepEqual(calls, [{ name: "clock_update", arguments: { id: 42 } }]);
   await manager.close();
 });
+
+test("multiple OAuth MCP integrations authorize and connect independently", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    alpha: {
+      enabled: true,
+      url: "https://alpha.example.test/mcp",
+      oauth: { enabled: true, scopes: [] },
+    },
+    beta: {
+      enabled: true,
+      url: "https://beta.example.test/mcp",
+      oauth: { enabled: true, scopes: [] },
+    },
+  }));
+
+  const manager = new McpToolManager({
+    configPath,
+    oauthRoot: path.join(temporary.directory, "oauth"),
+    publicUrl: "https://slayer.example.test",
+    clientFactory: () => ({
+      async connect() {},
+      async listTools() {
+        return { tools: [{ name: "ping", description: "Ping this service", inputSchema: { type: "object" } }] };
+      },
+      async callTool() { return { structuredContent: { ok: true } }; },
+      async close() {},
+    }),
+    transportFactory: () => ({ async close() {} }),
+    authFn: async (provider, options) => {
+      if (options.authorizationCode) {
+        await provider.saveTokens({ access_token: `${provider.serverName}-token`, token_type: "Bearer" });
+        return "AUTHORIZED";
+      }
+      const state = await provider.state();
+      await provider.saveClientInformation({
+        client_id: `${provider.serverName}-client`,
+        redirect_uris: [provider.redirectUrl.toString()],
+      });
+      await provider.saveCodeVerifier(`${provider.serverName}-verifier`);
+      await provider.redirectToAuthorization(new URL(`https://${provider.serverName}.example.test/authorize?state=${state}`));
+      return "REDIRECT";
+    },
+  });
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+  assert.equal(manager.health().alpha.authorization, "required");
+  assert.equal(manager.health().beta.authorization, "required");
+
+  const alphaStart = await manager.beginOAuth("alpha");
+  await manager.finishOAuth("alpha", {
+    code: "alpha-code",
+    state: new URL(alphaStart.authorizationUrl).searchParams.get("state"),
+  });
+  assert.equal(manager.health().alpha.ready, true);
+  assert.equal(manager.health().beta.ready, false);
+
+  const betaStart = await manager.beginOAuth("beta");
+  await manager.finishOAuth("beta", {
+    code: "beta-code",
+    state: new URL(betaStart.authorizationUrl).searchParams.get("state"),
+  });
+  assert.equal(manager.health().alpha.ready, true);
+  assert.equal(manager.health().beta.ready, true);
+  assert.deepEqual(registry.list().map(({ name }) => name).sort(), ["remote_alpha_ping", "remote_beta_ping"]);
+  await manager.close();
+});

@@ -52,9 +52,10 @@ The immediate system priorities are:
   token supplied as `TLOM_ACCESS_TOKEN`. TLOM is required, so an unavailable
   TLOM connection prevents requests from running rather than pretending those
   tools exist.
-- Generic MCP OAuth authorization-code support remains implemented, but the
-  current TLOM entry in `config/mcp-servers.json` does not select it. Token
-  authentication does not require Agent Slayer to have a public domain.
+- Generic MCP OAuth authorization-code support is selected independently by
+  every server entry with an `oauth` block. Nutrition currently selects it;
+  TLOM does not. Bearer-token integrations do not require Agent Slayer to have
+  a public domain.
 - **7. Agent-server transcription service** uses local faster-whisper. Original
   audio is stored before transcription begins. Audio is not sent through **8.
   Direct audio input to the OpenAI model**.
@@ -219,6 +220,12 @@ storage. It becomes active only for a server entry with an `oauth` block. A
 public HTTPS callback origin is therefore an OAuth deployment requirement, not
 a requirement for the current TLOM bearer-token connection.
 
+Nutrition selects that generic OAuth path at `https://nutrition-mcp.com/mcp`.
+It has no provider-specific authentication code or static access-token setting.
+The web client renders a separate connection control for every configured OAuth
+integration, and each integration's client registration and tokens are stored
+in its own private file.
+
 ## Complete history and memory
 
 There is one chronological application history. Recent memory and old memory
@@ -340,7 +347,7 @@ cd /home/nate/code/agent-slayer
 systemctl --user stop agent-slayer.service
 npm ci
 
-npm run schema:migrate
+npm run schema:migrate -- --no-semantics
 npm run db:verify
 
 systemctl --user start agent-slayer.service
@@ -351,9 +358,10 @@ journalctl --user -u agent-slayer.service -n 100 --no-pager
 Do not start the service if migration or verification fails. The migration
 runner checks foreign keys and SQLite integrity before changing the database,
 creates a timestamped backup under `data/backups/`, applies each pending
-migration transactionally, checks integrity again, and synchronizes the tracked
-schema-semantic form. Running it again after migration is safe and reports that
-the database is already at the current schema version.
+migration transactionally, and checks integrity again. `--no-semantics` keeps a
+deployment from rewriting the tracked catalog: development commits that catalog,
+and the runtime compiler selects relevant projections from it. Running the
+migration again is safe and reports that the database is already current.
 
 ## Voice path
 

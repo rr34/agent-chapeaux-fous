@@ -152,7 +152,9 @@ button.secondary { color: var(--text); background: var(--panel-raised); border: 
 button.secondary:hover { border-color: #56616a; background: #252b31; }
 button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 
-.runtime-group, .usage-controls { display: flex; align-items: center; gap: .45rem; }
+.runtime-group, .usage-controls, .integrations { display: flex; align-items: center; gap: .45rem; }
+.runtime-group, .integrations { flex-wrap: wrap; justify-content: flex-end; }
+.integrations[hidden] { display: none; }
 .runtime, .usage, .integration, .top-refresh {
   min-height: 34px;
   padding: .35rem .65rem;

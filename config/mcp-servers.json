@@ -10,8 +10,9 @@
   "nutrition": {
     "enabled": true,
     "url": "https://nutrition-mcp.com/mcp",
-    "headers": {
-      "Authorization": "Bearer ${NUTRITION_ACCESS_TOKEN}"
+    "oauth": {
+      "enabled": true,
+      "scopes": []
     }
   },
   "weather": {
