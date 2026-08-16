@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 9, 'Agent Slayer test database');
+    VALUES (1, 11, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -85,6 +85,48 @@ export function temporaryDatabase() {
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT
     ) STRICT;
+    CREATE TABLE log_groups (
+      log_group_id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE
+        CHECK (length(trim(name)) BETWEEN 1 AND 200),
+      archived_at_utc TEXT,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT
+    ) STRICT;
+    CREATE TABLE trackers (
+      tracker_id INTEGER PRIMARY KEY,
+      log_group_id INTEGER NOT NULL REFERENCES log_groups(log_group_id) ON DELETE RESTRICT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE
+        CHECK (length(trim(name)) BETWEEN 1 AND 200),
+      default_unit TEXT
+        CHECK (default_unit IS NULL OR length(trim(default_unit)) BETWEEN 1 AND 100),
+      archived_at_utc TEXT,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT
+    ) STRICT;
+    CREATE INDEX trackers_group_name
+      ON trackers(log_group_id, archived_at_utc, name);
+    CREATE TABLE log_entries (
+      log_entry_id INTEGER PRIMARY KEY,
+      tracker_id INTEGER NOT NULL REFERENCES trackers(tracker_id) ON DELETE RESTRICT,
+      occurred_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      content_text TEXT NOT NULL CHECK (length(trim(content_text)) BETWEEN 1 AND 10000),
+      number_value REAL,
+      unit TEXT CHECK (unit IS NULL OR length(trim(unit)) BETWEEN 1 AND 100),
+      source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT,
+      source TEXT NOT NULL DEFAULT 'agent-slayer'
+        CHECK (length(trim(source)) BETWEEN 1 AND 200),
+      external_id TEXT
+        CHECK (external_id IS NULL OR length(trim(external_id)) BETWEEN 1 AND 1000),
+      CHECK (unit IS NULL OR number_value IS NOT NULL)
+    ) STRICT;
+    CREATE INDEX log_entries_tracker_occurred
+      ON log_entries(tracker_id, occurred_at_utc DESC, log_entry_id DESC);
+    CREATE UNIQUE INDEX log_entries_source_external
+      ON log_entries(source, external_id)
+      WHERE external_id IS NOT NULL;
     CREATE TABLE profile_facts (
       profile_fact_id INTEGER PRIMARY KEY,
       fact_type TEXT NOT NULL CHECK (length(trim(fact_type)) BETWEEN 1 AND 200),

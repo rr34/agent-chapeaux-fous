@@ -104,6 +104,11 @@ Local tools are ordinary JavaScript functions:
 
 - `todo_list`, `todo_add`, and `todo_update` provide the native personal to-do
   path without requiring the model to invent SQL.
+- `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update`
+  provide the native grouped personal-log path. Each entry keeps complete
+  natural-language content with optional numeric and unit projections for
+  calculation and trends. Bounded imports use generic source and external IDs
+  for safe replay without source-specific application code.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
 - `database_schema`, `database_read`, and `database_write` expose bounded,

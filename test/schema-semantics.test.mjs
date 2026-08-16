@@ -51,4 +51,21 @@ test("structured database reads return an exact schema-semantic projection", asy
     ledger.trace(request.requestId).some((event) => event.type === "schema.semantics.compiled"),
     true,
   );
+
+  const logResult = await registry.execute("database_read", {
+    objectName: "log_entries",
+    columns: ["content_text", "number_value", "unit", "source", "external_id"],
+    where: {},
+    orderBy: "occurred_at_utc",
+    orderDirection: "desc",
+    limit: 20,
+  }, {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "log-schema-read",
+  });
+  const logFields = logResult.schemaProjection.schemaProjection.schemaObjects.log_entries.fields;
+  assert.match(logFields.content_text.meaning, /Complete self-contained natural-language content/);
+  assert.match(logFields.number_value.meaning, /Optional numeric projection/);
+  assert.match(logFields.external_id.meaning, /make imports idempotent/);
 });

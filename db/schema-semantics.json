@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 9,
-    "schemaFingerprint": "8095f31cc08788d82fbe8a0b3a20a75b2e61bccfb4ffef6c25e19349be755f8b",
-    "extractedAt": "2026-08-16T14:16:54.801Z"
+    "schemaVersion": 11,
+    "schemaFingerprint": "827c412ccb10a897d4c5af51819029f88756a3646f2c0529394d2ec5e61ab762",
+    "extractedAt": "2026-08-16T14:47:22.959Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -8489,6 +8489,607 @@
       },
       "relationships": {}
     },
+    "log_entries": {
+      "mechanics": {
+        "present": true,
+        "kind": "table",
+        "definition": "CREATE TABLE log_entries (\n    log_entry_id    INTEGER PRIMARY KEY,\n    tracker_id      INTEGER NOT NULL\n                    REFERENCES trackers(tracker_id) ON DELETE RESTRICT,\n    occurred_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    content_text    TEXT NOT NULL\n                    CHECK (length(trim(content_text)) BETWEEN 1 AND 10000),\n    number_value    REAL,\n    unit            TEXT\n                    CHECK (unit IS NULL OR length(trim(unit)) BETWEEN 1 AND 100),\n    source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT, source TEXT NOT NULL DEFAULT 'agent-slayer'\n                  CHECK (length(trim(source)) BETWEEN 1 AND 200), external_id TEXT\n                       CHECK (external_id IS NULL OR length(trim(external_id)) BETWEEN 1 AND 1000),\n    CHECK (unit IS NULL OR number_value IS NOT NULL)\n) STRICT",
+        "indexes": [
+          {
+            "name": "log_entries_source_external",
+            "columns": [
+              "source",
+              "external_id"
+            ],
+            "unique": true,
+            "partial": true,
+            "origin": "c"
+          },
+          {
+            "name": "log_entries_tracker_occurred",
+            "columns": [
+              "tracker_id",
+              "occurred_at_utc",
+              "log_entry_id"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          }
+        ]
+      },
+      "semantics": {
+        "purpose": "Stores the user's authoritative time-stamped personal observations under reusable trackers.",
+        "rowMeaning": "One row represents one complete personal observation, with optional numeric and unit projections for querying.",
+        "sourceOfTruth": true,
+        "derivedFrom": [],
+        "synonyms": [
+          "personal logs",
+          "tracking entries",
+          "observations"
+        ],
+        "keywords": [
+          "log",
+          "track",
+          "record",
+          "weight",
+          "health",
+          "mood",
+          "food",
+          "import",
+          "external record"
+        ],
+        "routingWeight": 1,
+        "importantRules": [
+          "content_text is the complete human-readable observation; number_value and unit are optional query projections rather than replacements for it.",
+          "occurred_at_utc records when the observed event happened, while created_at_utc records when the row was saved.",
+          "A unit is valid only when number_value is present.",
+          "For imported rows, the source and non-null external_id pair is a stable idempotency key and must never identify two different observations."
+        ],
+        "sensitivity": "Contains private personal observations that may include health, nutrition, habits, symptoms, and daily activities."
+      },
+      "fields": {
+        "log_entry_id": {
+          "mechanics": {
+            "present": true,
+            "name": "log_entry_id",
+            "ordinal": 0,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 1,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable local identifier for one personal log entry.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "tracker_id": {
+          "mechanics": {
+            "present": true,
+            "name": "tracker_id",
+            "ordinal": 1,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Tracker under which this observation is recorded.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "occurred_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "occurred_at_utc",
+            "ordinal": 2,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC instant when the logged observation or event occurred.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "This may differ from created_at_utc when the user logs something retrospectively."
+            ],
+            "sensitivity": null
+          }
+        },
+        "content_text": {
+          "mechanics": {
+            "present": true,
+            "name": "content_text",
+            "ordinal": 3,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Complete self-contained natural-language content of the observation.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Preserve supporting context here instead of fragmenting it into a separate note field.",
+              "When a numeric projection exists, this text still remains the complete readable entry."
+            ],
+            "sensitivity": "May contain private health, nutrition, behavioral, or situational context."
+          }
+        },
+        "number_value": {
+          "mechanics": {
+            "present": true,
+            "name": "number_value",
+            "ordinal": 4,
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional numeric projection extracted from the complete log content for calculation, comparison, and trends.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Null is valid for observations without a useful numeric component.",
+              "Interpret this value together with unit and the tracker definition."
+            ],
+            "sensitivity": null
+          }
+        },
+        "unit": {
+          "mechanics": {
+            "present": true,
+            "name": "unit",
+            "ordinal": 5,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Unit applying to number_value for this exact historical entry.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "This snapshot remains authoritative if the tracker's default unit later changes.",
+              "Must be null when number_value is null."
+            ],
+            "sensitivity": null
+          }
+        },
+        "source_event_id": {
+          "mechanics": {
+            "present": true,
+            "name": "source_event_id",
+            "ordinal": 6,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional activity event for the user request that caused this log entry to be recorded.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "created_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "created_at_utc",
+            "ordinal": 7,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp when this log row was created.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "updated_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "updated_at_utc",
+            "ordinal": 8,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp of the most recent modification to this log row, when modified.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "source": {
+          "mechanics": {
+            "present": true,
+            "name": "source",
+            "ordinal": 9,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'agent-slayer'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable generic name of the application, export, or local path from which this log entry originated.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Use agent-slayer for ordinary native log writes and a consistent source name for every page of one external import."
+            ],
+            "sensitivity": "May identify a private external application or data export."
+          }
+        },
+        "external_id": {
+          "mechanics": {
+            "present": true,
+            "name": "external_id",
+            "ordinal": 10,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional stable record identifier assigned by source and used with source to make imports idempotent.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Required by the generic import tool and null for ordinary native logs without an upstream identity.",
+              "The pair of source and external_id is unique whenever external_id is present."
+            ],
+            "sensitivity": "May expose an identifier from a private external data source."
+          }
+        }
+      },
+      "relationships": {
+        "fk:source_event_id->activity_events.event_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:source_event_id->activity_events.event_id",
+            "columns": [
+              "source_event_id"
+            ],
+            "targetObject": "activity_events",
+            "targetColumns": [
+              "event_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "SET NULL"
+          },
+          "semantics": {
+            "meaning": "Connects this log entry to the observable request event that created it.",
+            "cardinality": "Each log entry may reference zero or one activity event; one activity event may create multiple log entries.",
+            "importantRules": [
+              "Deleting the source event preserves the log entry and clears this reference."
+            ]
+          }
+        },
+        "fk:tracker_id->trackers.tracker_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:tracker_id->trackers.tracker_id",
+            "columns": [
+              "tracker_id"
+            ],
+            "targetObject": "trackers",
+            "targetColumns": [
+              "tracker_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "RESTRICT"
+          },
+          "semantics": {
+            "meaning": "Connects this observation to the reusable tracker that gives it identity and organization.",
+            "cardinality": "Each log entry belongs to exactly one tracker; one tracker may contain many log entries.",
+            "importantRules": [
+              "A tracker with historical entries cannot be deleted through this restricted relationship."
+            ]
+          }
+        }
+      }
+    },
+    "log_groups": {
+      "mechanics": {
+        "present": true,
+        "kind": "table",
+        "definition": "CREATE TABLE log_groups (\n    log_group_id    INTEGER PRIMARY KEY,\n    name            TEXT NOT NULL COLLATE NOCASE UNIQUE\n                    CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    archived_at_utc TEXT,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT\n) STRICT",
+        "indexes": [
+          {
+            "name": "sqlite_autoindex_log_groups_1",
+            "columns": [
+              "name"
+            ],
+            "unique": true,
+            "partial": false,
+            "origin": "u"
+          }
+        ]
+      },
+      "semantics": {
+        "purpose": "Defines broad named groups that organize the user's personal trackers.",
+        "rowMeaning": "One row represents one organizational group such as Health, Home, or General.",
+        "sourceOfTruth": true,
+        "derivedFrom": [],
+        "synonyms": [
+          "tracker groups",
+          "log categories"
+        ],
+        "keywords": [
+          "log group",
+          "tracker group",
+          "category",
+          "health"
+        ],
+        "routingWeight": 0.8,
+        "importantRules": [
+          "Groups organize trackers but do not identify individual observations.",
+          "Group names are unique without regard to letter case."
+        ],
+        "sensitivity": "Group names may reveal private areas of the user's life and health."
+      },
+      "fields": {
+        "log_group_id": {
+          "mechanics": {
+            "present": true,
+            "name": "log_group_id",
+            "ordinal": 0,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 1,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable local identifier for one personal-log group.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "name": {
+          "mechanics": {
+            "present": true,
+            "name": "name",
+            "ordinal": 1,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Complete human-facing name of the group.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Unique without regard to letter case."
+            ],
+            "sensitivity": "May identify a private area of activity or health."
+          }
+        },
+        "archived_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "archived_at_utc",
+            "ordinal": 2,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp when this group was archived, or null while it is active.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "created_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "created_at_utc",
+            "ordinal": 3,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp when this group was created.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "updated_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "updated_at_utc",
+            "ordinal": 4,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp of the most recent change to this group, when changed.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        }
+      },
+      "relationships": {}
+    },
     "notes": {
       "mechanics": {
         "present": true,
@@ -13427,6 +14028,279 @@
             "meaning": null,
             "cardinality": null,
             "importantRules": []
+          }
+        }
+      }
+    },
+    "trackers": {
+      "mechanics": {
+        "present": true,
+        "kind": "table",
+        "definition": "CREATE TABLE trackers (\n    tracker_id      INTEGER PRIMARY KEY,\n    log_group_id    INTEGER NOT NULL\n                    REFERENCES log_groups(log_group_id) ON DELETE RESTRICT,\n    name            TEXT NOT NULL COLLATE NOCASE UNIQUE\n                    CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    default_unit    TEXT\n                    CHECK (default_unit IS NULL OR length(trim(default_unit)) BETWEEN 1 AND 100),\n    archived_at_utc TEXT,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT\n) STRICT",
+        "indexes": [
+          {
+            "name": "sqlite_autoindex_trackers_1",
+            "columns": [
+              "name"
+            ],
+            "unique": true,
+            "partial": false,
+            "origin": "u"
+          },
+          {
+            "name": "trackers_group_name",
+            "columns": [
+              "log_group_id",
+              "archived_at_utc",
+              "name"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          }
+        ]
+      },
+      "semantics": {
+        "purpose": "Defines the reusable subjects under which the user records personal observations over time.",
+        "rowMeaning": "One row represents one globally named tracked subject, such as Weight, Bowel movement, Mood, or Medication.",
+        "sourceOfTruth": true,
+        "derivedFrom": [],
+        "synonyms": [
+          "tracked subjects",
+          "personal trackers",
+          "log types"
+        ],
+        "keywords": [
+          "tracker",
+          "track",
+          "logging",
+          "measurement",
+          "observation"
+        ],
+        "routingWeight": 0.9,
+        "importantRules": [
+          "Tracker names are globally unique without regard to letter case so a natural-language log request has one unambiguous target.",
+          "A tracker organizes repeated observations but does not impose a mandatory value type.",
+          "default_unit is a convenience for future numeric entries and does not reinterpret historical entry units."
+        ],
+        "sensitivity": "Tracker names may reveal private health conditions, habits, medications, or other personal interests."
+      },
+      "fields": {
+        "tracker_id": {
+          "mechanics": {
+            "present": true,
+            "name": "tracker_id",
+            "ordinal": 0,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 1,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable local identifier for one personal tracker.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "log_group_id": {
+          "mechanics": {
+            "present": true,
+            "name": "log_group_id",
+            "ordinal": 1,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Organizational group containing this tracker.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "name": {
+          "mechanics": {
+            "present": true,
+            "name": "name",
+            "ordinal": 2,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Complete human-facing name of the tracked subject.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Unique globally without regard to letter case."
+            ],
+            "sensitivity": "May name a private health condition, habit, medication, or activity."
+          }
+        },
+        "default_unit": {
+          "mechanics": {
+            "present": true,
+            "name": "default_unit",
+            "ordinal": 3,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional unit automatically applied when a new numeric entry omits its unit.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Changing this default does not alter the explicit unit stored on an existing entry."
+            ],
+            "sensitivity": null
+          }
+        },
+        "archived_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "archived_at_utc",
+            "ordinal": 4,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp when tracking was archived, or null while the tracker is active.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "created_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "created_at_utc",
+            "ordinal": 5,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp when this tracker was first defined.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "updated_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "updated_at_utc",
+            "ordinal": 6,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp of the most recent change to this tracker, when changed.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        }
+      },
+      "relationships": {
+        "fk:log_group_id->log_groups.log_group_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:log_group_id->log_groups.log_group_id",
+            "columns": [
+              "log_group_id"
+            ],
+            "targetObject": "log_groups",
+            "targetColumns": [
+              "log_group_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "RESTRICT"
+          },
+          "semantics": {
+            "meaning": "Connects this tracker to the group that organizes it.",
+            "cardinality": "Each tracker belongs to exactly one log group; one log group may contain many trackers.",
+            "importantRules": [
+              "A group containing trackers cannot be deleted through this restricted relationship."
+            ]
           }
         }
       }

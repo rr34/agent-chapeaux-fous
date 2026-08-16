@@ -14,6 +14,12 @@ export const requiredDatabaseShape = {
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
     "scheduled_at_utc", "due_at_utc", "completed_at_utc", "source_event_id",
   ],
+  log_groups: ["log_group_id", "name", "archived_at_utc"],
+  trackers: ["tracker_id", "log_group_id", "name", "default_unit", "archived_at_utc"],
+  log_entries: [
+    "log_entry_id", "tracker_id", "occurred_at_utc", "content_text",
+    "number_value", "unit", "source_event_id", "source", "external_id",
+  ],
   profile_facts: [
     "profile_fact_id", "fact_type", "fact_text", "fact_status", "source_event_id",
     "archived_by_event_id",

@@ -39,9 +39,12 @@ test("base instructions are integration-neutral and route durable profile change
   const instructions = fs.readFileSync(path.join(root, "config", "system-prompt.md"), "utf8");
   assert.doesNotMatch(instructions, /TLOM/i);
   assert.match(instructions, /personal to-dos/);
+  assert.match(instructions, /personal-log tools/);
+  assert.match(instructions, /complete natural-language log\s+content/);
+  assert.match(instructions, /log_import in bounded\s+batches/);
   assert.match(instructions, /profile_fact_set/);
   assert.match(instructions, /profile_fact_delete/);
-  assert.match(instructions, /open-ended collection/);
+  assert.match(instructions, /open-ended\s+collection/);
   assert.match(instructions, /Relevant profile types/);
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
 });

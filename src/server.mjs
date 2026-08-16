@@ -15,6 +15,7 @@ import { runtimeIdentity } from "./runtime-identity.mjs";
 import { SchemaSemantics } from "./schema-semantics.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
+import { registerLogTools } from "./tools/log-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
 import { ProfileFacts } from "./profile-facts.mjs";
 import { loadProfileFactQuestions } from "./profile-fact-questions.mjs";
@@ -41,6 +42,7 @@ const mcp = new McpToolManager({
 });
 if (store.status.ready) {
   registerTodoTools(registry, store, ledger);
+  registerLogTools(registry, store, ledger);
   registerProfileFactTools(registry, profileFacts);
   registerDatabaseTools(registry, store, ledger, schemaSemantics);
 }

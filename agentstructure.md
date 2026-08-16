@@ -174,6 +174,9 @@ it does not turn the application into a plugin system.
 The current local application tools are:
 
 - `todo_list`, `todo_add`, and `todo_update` for personal to-dos.
+- `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update` for
+  grouped, reusable personal tracking, complete time-stamped observations, and
+  idempotent bounded imports from any source.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` for durable
   user facts. Broad fact types may repeat; replacement and deletion target an
   exact stable row ID and archive the previous row.
@@ -301,7 +304,8 @@ The minimum required tables are:
 - `database_meta` for the current schema version;
 - `activity_events` for **19. Agent activity ledger**;
 - `files` for references into **20. Agent media storage**;
-- `todo_groups` and `personal_tasks` for the native to-do tools; and
+- `todo_groups` and `personal_tasks` for the native to-do tools;
+- `log_groups`, `trackers`, and `log_entries` for the native personal-log tools; and
 - `profile_facts` for active and archived durable user facts.
 
 Other compatible tables and views in the supplied snapshot may be inspected by
@@ -563,7 +567,7 @@ schema, user isolation, authorization, and internal instrumentation.
 
 **35. Agent database** — The externally supplied SQLite snapshot containing
 Agent Slayer's ledger, history, files, durable profile facts, personal to-dos,
-and any compatible domain tables and views.
+personal logs, and any compatible domain tables and views.
 
 **36. Publishable-content filter** — A deferred boundary that would remove
 secrets and unrelated private material before selected activity becomes content
