@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import http from "node:http";
@@ -9,7 +9,6 @@ import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
 import { JmapClient } from "./jmap-client.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
-import { authorizationScope, isInspectionRequest } from "./http-auth.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
@@ -120,6 +119,21 @@ async function readJson(request, maximumBytes = 64 * 1024) {
   }
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
   catch { throw Object.assign(new Error("Body must be valid JSON"), { statusCode: 400 }); }
+}
+
+function authorized(request) {
+  if (config.allowUnauthenticated) return true;
+  const header = String(request.headers.authorization || "");
+  if (!header.startsWith("Bearer ")) return false;
+  const supplied = Buffer.from(header.slice(7));
+  const expected = Buffer.from(config.accessToken);
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+function requireAuthorization(request, response) {
+  if (authorized(request)) return true;
+  sendJson(response, 401, { error: "A valid Slayer access token is required" });
+  return false;
 }
 
 async function receiveAudio(request) {
@@ -233,16 +247,7 @@ const server = http.createServer(async (request, response) => {
       await serveStatic(url.pathname, response);
       return;
     }
-    const scope = authorizationScope(request, config);
-    if (!scope) {
-      sendJson(response, 401, { error: "A valid Slayer access token is required" });
-      return;
-    }
-    const inspectionRequest = isInspectionRequest(request.method, url.pathname);
-    if (scope === "inspect" && !inspectionRequest) {
-      sendJson(response, 403, { error: "The supplied Slayer token permits inspection only" });
-      return;
-    }
+    if (!requireAuthorization(request, response)) return;
     const oauthStartMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)\/oauth\/start$/.exec(url.pathname);
     if (request.method === "POST" && oauthStartMatch) {
       sendJson(response, 200, await mcp.beginOAuth(oauthStartMatch[1]));
@@ -281,18 +286,6 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       sendJson(response, 200, { requestId: resolved.requestId, events: ledger.trace(resolved.requestId) });
-      return;
-    }
-    if (request.method === "GET" && url.pathname === "/api/database/schema") {
-      const objectName = url.searchParams.get("objectName");
-      const objects = objectName
-        ? [store.objectInfo(objectName)]
-        : store.objects().map((object) => store.objectInfo(object.name));
-      sendJson(response, 200, { objects });
-      return;
-    }
-    if (request.method === "POST" && url.pathname === "/api/database/read") {
-      sendJson(response, 200, store.read(await readJson(request)));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/calendar-events") {

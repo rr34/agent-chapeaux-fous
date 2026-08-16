@@ -269,26 +269,3 @@ The original recording is stored before transcription begins.
 `systemd/agent-slayer.service.example` is a reference only. Update its paths,
 copy it into the user systemd directory, and enable it during the separate
 deployment step.
-
-## Read-only live inspection
-
-Production may define `SLAYER_INSPECT_TOKEN` as a second, independently random
-credential. It is accepted only for request listing, exact traces, schema
-inspection, and bounded structured database reads. It cannot submit requests or
-voice, write database rows, or start integration authorization.
-
-In a trusted development checkout, copy `config/live-inspect.env.example` to
-the gitignored `.env.live-inspect`, set its mode to `0600`, then set the live
-HTTPS origin and matching inspection token. The CLI refuses a credential file
-that is accessible to group or other users. Common reads are:
-
-```bash
-npm run live:inspect -- trace 6bce8f9c
-npm run live:inspect -- requests 20
-npm run live:inspect -- schema activity_events
-npm run live:inspect -- read activity_events '{"turn_id":"full-request-id"}' 50
-```
-
-The CLI never prints its bearer token. Its database command accepts only an
-existing object name, equality filters, and a maximum of 200 rows; raw SQL is
-not part of the interface.

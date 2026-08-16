@@ -10,7 +10,6 @@
     "start": "node src/server.mjs",
     "codex:login": "node scripts/codex-account.mjs login",
     "codex:status": "node scripts/codex-account.mjs status",
-    "live:inspect": "node scripts/live-inspect.mjs",
     "schema:migrate": "node scripts/migrate-agent-db.mjs",
     "schema:semantics:sync": "node scripts/sync-agent-schema-semantics.mjs",
     "test": "node --test test/*.test.mjs",
