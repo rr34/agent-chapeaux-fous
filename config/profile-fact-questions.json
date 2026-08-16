@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "questions": [
+    {
+      "factType": "preferred_name",
+      "question": "What should I call you?",
+      "askWhen": "The user's preferred form of address becomes relevant.",
+      "triggers": ["call me", "what should you call me", "my name is", "preferred name", "name preference"]
+    },
+    {
+      "factType": "legal_name",
+      "question": "What is your full legal name?",
+      "askWhen": "A form, booking, contract, account, or official document requires the user's legal name.",
+      "triggers": ["legal name", "full name", "official name", "name on my id", "name on my identification"]
+    },
+    {
+      "factType": "pronouns",
+      "question": "What pronouns should I use for you?",
+      "askWhen": "The secretary is drafting a biography, introduction, correspondence, or other text that refers to the user in the third person.",
+      "triggers": ["my pronouns", "pronouns", "refer to me", "introduce me", "write my bio", "my biography"]
+    },
+    {
+      "factType": "date_of_birth",
+      "question": "What is your date of birth?",
+      "askWhen": "Age, birthday planning, identity verification, travel, healthcare, insurance, or an official form requires it.",
+      "triggers": ["date of birth", "birth date", "birthday", "how old am i", "my age", "age verification"]
+    },
+    {
+      "factType": "default_location",
+      "question": "What city and state or country should I use as your default location?",
+      "askWhen": "A request depends on local weather, time, nearby places, travel origin, or another location-based default.",
+      "triggers": ["my location", "where i live", "i live in", "i am in", "i'm in", "located in", "local weather", "weather", "forecast", "high today", "low today", "near me", "nearby", "local time"]
+    },
+    {
+      "factType": "address",
+      "question": "What address should I keep on file for you?",
+      "askWhen": "A request involves mail, deliveries, forms, directions, service visits, or the user's address.",
+      "triggers": ["my address", "address is", "home address", "mailing address", "street address", "ship to me", "deliver to me", "directions home", "zip code", "postal code"]
+    },
+    {
+      "factType": "time_zone",
+      "question": "What time zone should I use for you?",
+      "askWhen": "Scheduling or interpreting a time cannot be done reliably from the saved location.",
+      "triggers": ["my time zone", "time zone", "timezone", "local time", "what time is it", "schedule across time zones"]
+    },
+    {
+      "factType": "primary_email",
+      "question": "What is your primary email address?",
+      "askWhen": "A form, reservation, account, receipt, or correspondence requires the user's email address.",
+      "triggers": ["my email", "email address", "email me", "send me an email", "contact email", "receipt email"]
+    },
+    {
+      "factType": "primary_phone",
+      "question": "What is your primary phone number?",
+      "askWhen": "A form, reservation, delivery, account, or contact request requires the user's phone number.",
+      "triggers": ["my phone", "phone number", "mobile number", "cell number", "phone me", "text me", "contact number"]
+    },
+    {
+      "factType": "preferred_contact_method",
+      "question": "How do you prefer to be contacted?",
+      "askWhen": "Choosing among email, phone, text, or another available communication method matters.",
+      "triggers": ["contact preference", "contact me", "reach me", "preferred contact", "email or text", "call or text", "how should people contact me"]
+    },
+    {
+      "factType": "emergency_contact",
+      "question": "Who should I treat as your emergency contact, and how can they be reached?",
+      "askWhen": "Emergency planning, healthcare, travel, workplace, or another safety-related form requires it.",
+      "triggers": ["emergency contact", "in an emergency", "if something happens to me", "next of kin", "safety contact"]
+    },
+    {
+      "factType": "household_member",
+      "question": "Who are the people in your household that I should know about?",
+      "askWhen": "Household scheduling, invitations, travel, deliveries, errands, or family logistics depend on who lives with the user.",
+      "triggers": ["my household", "who lives with me", "family at home", "household members", "my spouse", "my partner", "my children", "my kids"]
+    },
+    {
+      "factType": "pet",
+      "question": "What pets do you have, and what should I call them?",
+      "askWhen": "Pet care, household access, travel, appointments, supplies, or service visits involve the user's animals.",
+      "triggers": ["my pet", "my pets", "my dog", "my cat", "pet sitter", "veterinarian", "vet appointment", "pet supplies"]
+    },
+    {
+      "factType": "employer",
+      "question": "Who is your employer?",
+      "askWhen": "Work correspondence, forms, scheduling, benefits, travel, or professional context requires the employer.",
+      "triggers": ["my employer", "i work for", "company i work for", "where i work", "workplace", "employment"]
+    },
+    {
+      "factType": "job_title",
+      "question": "What is your job title or role?",
+      "askWhen": "A professional introduction, biography, signature, form, or work-related request requires the user's role.",
+      "triggers": ["my job title", "my role", "what i do for work", "my occupation", "my profession", "professional title"]
+    },
+    {
+      "factType": "work_address",
+      "question": "What work address should I use for you?",
+      "askWhen": "Workplace directions, deliveries, forms, travel, or service arrangements require it.",
+      "triggers": ["my work address", "office address", "workplace address", "deliver to work", "directions to work"]
+    },
+    {
+      "factType": "work_hours",
+      "question": "What are your usual working hours?",
+      "askWhen": "Scheduling, reminders, availability, communications, or commute planning depends on the user's normal workday.",
+      "triggers": ["my work hours", "working hours", "office hours", "work schedule", "when i work", "my shift"]
+    },
+    {
+      "factType": "vehicle",
+      "question": "What vehicle do you drive?",
+      "askWhen": "A request involves driving, maintenance, repairs, parts, fuel, registration, or the user's vehicle.",
+      "triggers": ["my vehicle", "my car", "wife's car", "husband's car", "son's car", "daughter's car", "i drive", "vehicle i drive", "car maintenance", "oil change", "tires", "car parts", "fuel economy", "registration"]
+    },
+    {
+      "factType": "license_plate",
+      "question": "What is your vehicle's license plate?",
+      "askWhen": "Parking, registration, tolls, service, pickup, security, or another vehicle-identification task requires it.",
+      "triggers": ["license plate", "plate number", "registration plate", "parking permit", "vehicle registration", "identify my car"]
+    },
+    {
+      "factType": "home_airport",
+      "question": "Which airport should I use as your usual departure airport?",
+      "askWhen": "Searching or planning air travel requires a default origin airport.",
+      "triggers": ["home airport", "departure airport", "fly from", "flight from", "book a flight", "air travel", "nearest airport"]
+    },
+    {
+      "factType": "preferred_language",
+      "question": "What language should I normally use with you?",
+      "askWhen": "Writing, translation, forms, media, or communication language needs to be chosen.",
+      "triggers": ["preferred language", "speak to me in", "write in", "translate for me", "language preference", "my language"]
+    },
+    {
+      "factType": "communication_style",
+      "question": "How do you prefer me to communicate with you?",
+      "askWhen": "The user expresses or requests a lasting preference about brevity, tone, detail, directness, or formatting.",
+      "triggers": ["communication style", "be more concise", "be concise", "more detail", "less detail", "tone preference", "how you respond", "format your answers"]
+    },
+    {
+      "factType": "scheduling_preference",
+      "question": "What scheduling preferences should I normally follow?",
+      "askWhen": "Choosing meeting times, buffers, lead time, or calendar placement requires a default preference.",
+      "triggers": ["scheduling preference", "meeting preference", "calendar preference", "schedule meetings", "meeting buffer", "lead time", "best time for meetings"]
+    },
+    {
+      "factType": "quiet_hours",
+      "question": "What hours should I avoid interrupting or notifying you?",
+      "askWhen": "Notifications, reminders, calls, or other potentially interruptive actions need timing boundaries.",
+      "triggers": ["quiet hours", "do not disturb", "don't disturb", "do not notify", "don't notify", "avoid calling", "notification hours"]
+    },
+    {
+      "factType": "time_format",
+      "question": "Do you prefer 12-hour or 24-hour time?",
+      "askWhen": "Times are being formatted and the user's preference is not otherwise established.",
+      "triggers": ["time format", "12 hour time", "24 hour time", "am pm", "military time", "format times"]
+    },
+    {
+      "factType": "date_format",
+      "question": "What date format do you prefer?",
+      "askWhen": "Numeric dates are being presented and the desired ordering is ambiguous.",
+      "triggers": ["date format", "month day year", "day month year", "yyyy mm dd", "format dates", "numeric date"]
+    },
+    {
+      "factType": "measurement_system",
+      "question": "Should I normally use US customary or metric measurements?",
+      "askWhen": "Distances, dimensions, weight, volume, or other measurements need a default system.",
+      "triggers": ["measurement system", "metric units", "imperial units", "us customary", "miles or kilometers", "pounds or kilograms", "inches or centimeters"]
+    },
+    {
+      "factType": "temperature_unit",
+      "question": "Should I normally use Fahrenheit or Celsius?",
+      "askWhen": "Weather, cooking, health, or equipment temperatures are presented without an established unit preference.",
+      "triggers": ["temperature unit", "fahrenheit", "celsius", "degrees f", "degrees c", "weather units"]
+    },
+    {
+      "factType": "default_currency",
+      "question": "What currency should I use by default?",
+      "askWhen": "Prices, budgets, conversions, travel costs, or financial amounts need a default currency.",
+      "triggers": ["default currency", "my currency", "prices in", "currency preference", "dollars or euros", "convert prices"]
+    },
+    {
+      "factType": "dietary_information",
+      "question": "What dietary information should I keep on file, including preferences, restrictions, intolerances, or food allergies?",
+      "askWhen": "Meals, groceries, restaurants, events, recipes, travel food planning, or any potential food-safety risk is involved.",
+      "triggers": ["dietary information", "dietary preference", "dietary restriction", "my diet", "i am vegetarian", "i'm vegetarian", "prefer vegetarian", "vegetarian meals", "i am vegan", "i'm vegan", "prefer vegan", "vegan meals", "food preference", "food allergy", "food allergies", "allergic to", "wife's allergy", "husband's allergy", "son's allergy", "daughter's allergy", "allergy safe", "restaurant allergy", "ingredient allergy", "food intolerance", "lactose intolerant", "gluten free", "kosher", "halal", "restaurant", "meal planning"]
+    },
+    {
+      "factType": "accessibility_need",
+      "question": "Are there accessibility needs or accommodations I should account for?",
+      "askWhen": "Travel, venues, meetings, documents, communication, transportation, or appointments may require accommodations.",
+      "triggers": ["accessibility", "accommodation", "wheelchair access", "accessible seating", "mobility needs", "hearing accommodation", "vision accommodation"]
+    },
+    {
+      "factType": "clothing_size",
+      "question": "What clothing and shoe sizes should I keep on file for you?",
+      "askWhen": "Buying, renting, packing, gifting, or recommending clothing or footwear requires sizes.",
+      "triggers": ["my clothing size", "wife's clothing size", "husband's clothing size", "son's shoe size", "daughter's shoe size", "shirt size", "pants size", "dress size", "shoe size", "jacket size", "rent a suit", "buy clothes"]
+    },
+    {
+      "factType": "travel_preference",
+      "question": "What travel preferences should I normally follow?",
+      "askWhen": "Selecting flights, seats, lodging, transportation, pace, or itinerary details requires user preferences.",
+      "triggers": ["travel preference", "flight preference", "seat preference", "aisle or window", "hotel preference", "lodging preference", "plan a trip", "book travel"]
+    }
+  ]
+}

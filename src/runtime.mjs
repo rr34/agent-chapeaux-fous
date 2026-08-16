@@ -23,7 +23,7 @@ export class SlayerRuntime {
   }
 
   async run({ requestId, requestEventId, text, channel = "web" }) {
-    const context = await this.contextBuilder.build(requestId);
+    const context = await this.contextBuilder.build(requestId, text);
     const tools = this.registry.toolDefinitions();
     const baseInstructions = await this.loadSystemPrompt();
     const turnRequest = {
@@ -42,6 +42,9 @@ export class SlayerRuntime {
       channel, turnId: requestId, name: "Context sent", content: context.text,
       payload: {
         profileFacts: context.profileFacts,
+        activeProfileFactCount: context.activeProfileFactCount,
+        relevantProfileTypes: context.relevantProfileTypes,
+        relevantProfileQuestions: context.relevantProfileQuestions,
         history: context.history,
         contextBudget: context.contextBudget,
       },

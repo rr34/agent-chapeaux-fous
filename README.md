@@ -105,13 +105,24 @@ Local tools are ordinary JavaScript functions:
 - `todo_list`, `todo_add`, and `todo_update` provide the native personal to-do
   path without requiring the model to invent SQL.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
-  small set of durable user facts included in every first model request.
+  durable user facts selected as relevant to each first model request.
 - `database_schema`, `database_read`, and `database_write` expose bounded,
   structured access to the existing SQLite database. Ledger and schema tables
   are protected from model writes. Each operation returns the exact projection
   compiled from the tracked schema-semantic form.
 - `history_recent` and `history_search` read the application-owned exchange
   history.
+
+`config/profile-fact-questions.json` is the versioned catalog of standard
+secretary question families. It defines a broad repeatable fact type, the exact
+question, when it becomes relevant, and matching keyphrases. A deterministic
+pre-model filter supplies at most three relevant types and all active rows of
+those types. Each row has a stable ID and self-contained natural-language text
+identifying its person or item. The model replaces an exact row by ID when that
+same real-world fact changes, or adds another row for a different person or
+item. No extra model call is made, and no profile section is sent when no
+standard type is relevant. Answers live only in SQLite; the repository contains
+no user's profile values.
 
 Remote MCP tools are discovered by Agent Slayer from
 `config/mcp-servers.json` at process startup. Their exact discovered schemas are
@@ -147,10 +158,12 @@ approved migrations from `db/migrations.sql`. It applies each migration in a
 transaction, checks SQLite integrity, and synchronizes the mechanical portion
 of `db/schema-semantics.json` while preserving its human-authored meanings.
 
-`profile_facts` is the authoritative store for durable user facts. Updating a
-key replaces its active value; deletion archives the row so prior values remain
-observable without entering future model context. Do not seed personal facts in
-a tracked migration: populate each deployment through the profile-fact tools.
+`profile_facts` is the authoritative store for durable user facts. Multiple
+active rows may share a broad type such as `vehicle`; their text identifies the
+person or item. Replacement and deletion target one stable row ID and archive
+that row so prior versions remain observable without entering future model
+context. Do not seed personal facts in a tracked migration: populate each
+deployment through the profile-fact tools.
 
 The schema semantic compiler explains selected database objects and fields; it
 does not read rows, authorize access, choose tools, or execute SQL. The current

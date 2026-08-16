@@ -68,6 +68,7 @@ export function loadConfig(environment = process.env) {
     databasePath: resolveFromRoot(environment.SLAYER_DATABASE, "data/agent.sqlite"),
     mediaRoot: resolveFromRoot(environment.SLAYER_MEDIA_ROOT, "media"),
     systemPromptPath: path.join(repositoryRoot, "config/system-prompt.md"),
+    profileFactQuestionsPath: path.join(repositoryRoot, "config/profile-fact-questions.json"),
     mcpConfigPath: resolveFromRoot(environment.SLAYER_MCP_CONFIG, "config/mcp-servers.json"),
     schemaSemanticsPath: path.join(repositoryRoot, "db/schema-semantics.json"),
     mcpOAuthRoot: environment.SLAYER_MCP_OAUTH_ROOT?.trim()

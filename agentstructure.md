@@ -124,9 +124,21 @@ typed text or stored voice recording
 The first model request contains three visibly separate inputs:
 
 1. The exact user text, whether typed or transcribed.
-2. Bounded context assembled from active `profile_facts` and recent complete
-   exchanges in **35. Agent database**.
+2. Bounded context assembled from relevant active `profile_facts` and recent
+   complete exchanges in **35. Agent database**.
 3. The exact schemas returned by the live tool registry for that request.
+
+The repository owns the validated standard-question catalog in
+`config/profile-fact-questions.json`; **35. Agent database** alone owns the
+user's answers. Before the model call, deterministic keyphrase matching selects
+at most three broad, repeatable fact types relevant to the exact request. All
+active rows of those types enter bounded context with stable row IDs and
+self-contained natural-language text identifying their person or item. The
+model replaces an exact row by ID when the same real-world fact changes or adds
+another row when the fact concerns a different person or item. No extra model
+call is made, and no profile section is sent when no catalog type is relevant.
+The catalog is not a mandatory onboarding sequence, and stable facts outside it
+remain valid profile facts accessible through the profile tools.
 
 The model never receives a promised or hypothetical tool. Local tools are
 registered only when the SQLite database is ready. Remote tools are registered
@@ -163,8 +175,8 @@ The current local application tools are:
 
 - `todo_list`, `todo_add`, and `todo_update` for personal to-dos.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` for durable
-  user facts. Setting an existing key replaces and reactivates it; deleting a
-  fact archives it.
+  user facts. Broad fact types may repeat; replacement and deletion target an
+  exact stable row ID and archive the previous row.
 - `database_schema` for inspecting existing SQLite objects without changing
   schema. A selected object also returns its exact schema-semantic projection.
 - `database_read` for bounded reads with equality filters and no raw SQL.
@@ -311,6 +323,34 @@ ledger records that compilation. The compiler does not read data, authorize an
 operation, select an access policy, or execute SQL. It is not currently used for
 pre-model request enrichment.
 
+### Applying Agent Slayer database migrations
+
+Agent Slayer writes to `data/agent.sqlite`. Stop that writer before applying a
+migration, then verify the database before starting it again. After pulling a
+revision whose dependency lock changed, install that exact dependency set while
+the service is stopped:
+
+```bash
+cd /home/nate/code/agent-slayer
+
+systemctl --user stop agent-slayer.service
+npm ci
+
+npm run schema:migrate
+npm run db:verify
+
+systemctl --user start agent-slayer.service
+systemctl --user status agent-slayer.service --no-pager
+journalctl --user -u agent-slayer.service -n 100 --no-pager
+```
+
+Do not start the service if migration or verification fails. The migration
+runner checks foreign keys and SQLite integrity before changing the database,
+creates a timestamped backup under `data/backups/`, applies each pending
+migration transactionally, checks integrity again, and synchronizes the tracked
+schema-semantic form. Running it again after migration is safe and reports that
+the database is already at the current schema version.
+
 ## Voice path
 
 The implemented recorded-request path is:
@@ -360,11 +400,15 @@ The reference systemd unit is
 reverse-proxy changes, and restarts are separate live-system actions; repository
 changes do not perform them automatically.
 
-After deploying an application update, restart the installed user service:
+After deploying an application update with no pending database migration,
+restart the installed user service:
 
 ```bash
 systemctl --user restart agent-slayer.service
 ```
+
+When the update includes a database migration, use the stop, migrate, verify,
+and start sequence under **Applying Agent Slayer database migrations** instead.
 
 Confirm that the new process is running and inspect recent startup output:
 

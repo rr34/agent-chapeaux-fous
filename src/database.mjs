@@ -15,7 +15,7 @@ export const requiredDatabaseShape = {
     "scheduled_at_utc", "due_at_utc", "completed_at_utc", "source_event_id",
   ],
   profile_facts: [
-    "profile_fact_id", "fact_key", "value_text", "fact_status", "source_event_id",
+    "profile_fact_id", "fact_type", "fact_text", "fact_status", "source_event_id",
     "archived_by_event_id",
     "created_at_utc", "updated_at_utc", "archived_at_utc",
   ],

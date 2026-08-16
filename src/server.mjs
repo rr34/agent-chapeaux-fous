@@ -17,6 +17,7 @@ import { WhisperTranscriber } from "./transcriber.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
 import { ProfileFacts } from "./profile-facts.mjs";
+import { loadProfileFactQuestions } from "./profile-fact-questions.mjs";
 import { ToolRegistry } from "./tools/registry.mjs";
 import { registerProfileFactTools } from "./tools/profile-fact-tools.mjs";
 import { registerTodoTools } from "./tools/todo-tools.mjs";
@@ -26,6 +27,7 @@ const identity = runtimeIdentity(config.repositoryRoot);
 const store = new SlayerDatabase(config.databasePath);
 const ledger = new Ledger(store);
 const profileFacts = new ProfileFacts({ store, ledger });
+const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
 const registry = new ToolRegistry();
 const modelTransport = await createModelTransport(config);
@@ -43,7 +45,7 @@ if (store.status.ready) {
   registerDatabaseTools(registry, store, ledger, schemaSemantics);
 }
 await mcp.initialize(registry);
-const contextBuilder = new ContextBuilder({ ledger, profileFacts });
+const contextBuilder = new ContextBuilder({ ledger, profileFacts, profileFactQuestions });
 const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, ledger, config });
 const transcriber = new WhisperTranscriber({
   pythonExecutable: config.pythonExecutable,

@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 8,
-    "schemaFingerprint": "f70ae70ad6e270906d11e547baecefea360ee74583d339ecccf7b64dc9d3e393",
-    "extractedAt": "2026-08-16T13:24:16.287Z"
+    "schemaVersion": 9,
+    "schemaFingerprint": "8095f31cc08788d82fbe8a0b3a20a75b2e61bccfb4ffef6c25e19349be755f8b",
+    "extractedAt": "2026-08-16T14:16:54.801Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -11242,22 +11242,14 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE profile_facts (\n    profile_fact_id   INTEGER PRIMARY KEY,\n    fact_key          TEXT NOT NULL\n                      CHECK (length(trim(fact_key)) BETWEEN 1 AND 200),\n    value_text        TEXT NOT NULL\n                      CHECK (length(trim(value_text)) BETWEEN 1 AND 10000),\n    fact_status       TEXT NOT NULL DEFAULT 'active'\n                      CHECK (fact_status IN ('active', 'archived')),\n    source_event_id   TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    archived_by_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc    TEXT,\n    archived_at_utc   TEXT,\n    CHECK (\n        (fact_status = 'active' AND archived_at_utc IS NULL)\n        OR (fact_status = 'archived' AND archived_at_utc IS NOT NULL)\n    )\n) STRICT",
+        "definition": "CREATE TABLE profile_facts (\n    profile_fact_id   INTEGER PRIMARY KEY,\n    fact_type          TEXT NOT NULL\n                      CHECK (length(trim(fact_type)) BETWEEN 1 AND 200),\n    fact_text        TEXT NOT NULL\n                      CHECK (length(trim(fact_text)) BETWEEN 1 AND 10000),\n    fact_status       TEXT NOT NULL DEFAULT 'active'\n                      CHECK (fact_status IN ('active', 'archived')),\n    source_event_id   TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    archived_by_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc    TEXT,\n    archived_at_utc   TEXT,\n    CHECK (\n        (fact_status = 'active' AND archived_at_utc IS NULL)\n        OR (fact_status = 'archived' AND archived_at_utc IS NOT NULL)\n    )\n) STRICT",
         "indexes": [
           {
-            "name": "profile_facts_one_active_key",
-            "columns": [
-              "fact_key"
-            ],
-            "unique": true,
-            "partial": true,
-            "origin": "c"
-          },
-          {
-            "name": "profile_facts_status_key",
+            "name": "profile_facts_status_type",
             "columns": [
               "fact_status",
-              "fact_key"
+              "fact_type",
+              "profile_fact_id"
             ],
             "unique": false,
             "partial": false,
@@ -11267,7 +11259,7 @@
       },
       "semantics": {
         "purpose": "Stores the current and archived durable facts and preferences that describe the user to the secretary.",
-        "rowMeaning": "One row represents one version of a named profile fact; at most one row for each key is active.",
+        "rowMeaning": "One row represents one version of one self-contained typed profile fact; multiple active rows may share a fact type.",
         "sourceOfTruth": true,
         "derivedFrom": [],
         "synonyms": [
@@ -11287,9 +11279,10 @@
         ],
         "routingWeight": 1,
         "importantRules": [
-          "Only active facts are included automatically in first-call model context.",
-          "Setting a changed fact key archives its active row and inserts a new active version.",
-          "Deleting a fact archives it rather than erasing the historical row."
+          "Only active rows of repository-selected relevant fact types are included automatically in first-call model context.",
+          "A type is a broad repeatable category; the text identifies the person or item to which each row applies.",
+          "Replacing a fact targets its exact profile_fact_id, archives that row, and inserts a new active version.",
+          "Deleting a fact targets its exact profile_fact_id and archives it rather than erasing historical data."
         ],
         "sensitivity": "Contains private user identity, location, address, preferences, and other durable personal information."
       },
@@ -11309,7 +11302,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Stable identifier for this version of a profile fact.",
+            "meaning": "Stable row identifier used by profile tools to replace or archive this exact fact.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -11321,10 +11314,10 @@
             "sensitivity": null
           }
         },
-        "fact_key": {
+        "fact_type": {
           "mechanics": {
             "present": true,
-            "name": "fact_key",
+            "name": "fact_type",
             "ordinal": 1,
             "type": "TEXT",
             "nullable": false,
@@ -11336,7 +11329,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Stable lowercase identifier for one kind of durable profile information.",
+            "meaning": "Broad repeatable category for this fact, shared by related rows when appropriate.",
             "units": null,
             "format": "lowercase snake_case",
             "allowedValueMeanings": {},
@@ -11347,16 +11340,18 @@
               "preferred_name",
               "default_location",
               "vehicle",
-              "address"
+              "clothing_size"
             ],
-            "importantRules": [],
+            "importantRules": [
+              "Multiple active rows may have the same fact_type."
+            ],
             "sensitivity": null
           }
         },
-        "value_text": {
+        "fact_text": {
           "mechanics": {
             "present": true,
-            "name": "value_text",
+            "name": "fact_text",
             "ordinal": 2,
             "type": "TEXT",
             "nullable": false,
@@ -11368,15 +11363,21 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Human-readable value stored in this version of the profile fact.",
+            "meaning": "Self-contained natural-language statement identifying the fact's person or item.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
             "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
+            "examples": [
+              "My car is a 2017 Volkswagen Golf.",
+              "My wife's car is a 2020 Honda CR-V.",
+              "My son Vince's shoe size is 9 US."
+            ],
+            "importantRules": [
+              "The text must remain understandable without deriving a subject from fact_type."
+            ],
             "sensitivity": "May contain private personal information."
           }
         },
@@ -11402,7 +11403,7 @@
             "units": null,
             "format": null,
             "allowedValueMeanings": {
-              "active": "Current fact included automatically in first-call model context.",
+              "active": "Current fact eligible for first-call context when its type is relevant.",
               "archived": "Historical fact omitted from ordinary model context."
             },
             "synonyms": [],
@@ -11546,6 +11547,65 @@
             "examples": [],
             "importantRules": [],
             "sensitivity": null
+          }
+        },
+        "fact_key": {
+          "mechanics": {
+            "present": false,
+            "name": "fact_key",
+            "ordinal": 1,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable lowercase identifier for one kind of durable profile information.",
+            "units": null,
+            "format": "lowercase snake_case",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [
+              "preferred_name",
+              "default_location",
+              "vehicle",
+              "address"
+            ],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "value_text": {
+          "mechanics": {
+            "present": false,
+            "name": "value_text",
+            "ordinal": 2,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Human-readable value stored in this version of the profile fact.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": "May contain private personal information."
           }
         }
       },

@@ -50,6 +50,7 @@ function fakeTransport(runTurn) {
 
 test("the first model turn contains the exact request, context, and callable tools, and executes tools in that turn", async () => {
   const requests = [];
+  let contextBuildInput;
   const modelTransport = fakeTransport(async (payload) => {
       requests.push({
         model: payload.model,
@@ -84,7 +85,20 @@ test("the first model turn contains the exact request, context, and callable too
   const runtime = new SlayerRuntime({
     modelTransport,
     registry,
-    contextBuilder: { async build() { return { text: "VISIBLE CONTEXT", profileFacts: [], history: [], contextBudget: { truncated: false } }; } },
+    contextBuilder: {
+      async build(requestId, requestText) {
+        contextBuildInput = { requestId, requestText };
+        return {
+          text: "VISIBLE CONTEXT",
+          profileFacts: [],
+          activeProfileFactCount: 0,
+          relevantProfileTypes: ["address"],
+          relevantProfileQuestions: [{ factType: "address" }],
+          history: [],
+          contextBudget: { truncated: false },
+        };
+      },
+    },
     ledger: { append(event) { events.push(event); } },
     config: runtimeConfig(),
   });
@@ -102,6 +116,7 @@ test("the first model turn contains the exact request, context, and callable too
   assert.equal(requests[0].developerInstructions, "VISIBLE CONTEXT");
   assert.equal(requests[0].input, "Use the echo tool.");
   assert.equal(requests[0].baseInstructions, "SYSTEM PROMPT");
+  assert.deepEqual(contextBuildInput, { requestId: "request-1", requestText: "Use the echo tool." });
   assert.deepEqual(
     events.filter((event) => ["context.sent", "tools.sent", "model.request", "model.response", "model.usage", "tool.call", "tool.result"].includes(event.type)).map((event) => event.type),
     ["context.sent", "tools.sent", "model.request", "tool.call", "tool.result", "model.response", "model.usage"],
@@ -109,6 +124,9 @@ test("the first model turn contains the exact request, context, and callable too
   const recordedRequest = events.find((event) => event.type === "model.request");
   assert.equal(recordedRequest.payload.input[0].text, "Use the echo tool.");
   assert.deepEqual(recordedRequest.payload.tools, registry.toolDefinitions());
+  const contextEvent = events.find((event) => event.type === "context.sent");
+  assert.deepEqual(contextEvent.payload.relevantProfileTypes, ["address"]);
+  assert.deepEqual(contextEvent.payload.relevantProfileQuestions, [{ factType: "address" }]);
 });
 
 test("a failed tool result is returned to the model transport instead of becoming a fabricated success", async () => {

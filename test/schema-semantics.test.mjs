@@ -27,9 +27,9 @@ test("structured database reads return an exact schema-semantic projection", asy
 
   const result = await registry.execute("database_read", {
     objectName: "profile_facts",
-    columns: ["fact_key", "value_text"],
+    columns: ["fact_type", "fact_text"],
     where: { fact_status: "active" },
-    orderBy: "fact_key",
+    orderBy: "fact_type",
     orderDirection: "asc",
     limit: 20,
   }, {
@@ -44,8 +44,8 @@ test("structured database reads return an exact schema-semantic projection", asy
     ["profile_facts"],
   );
   assert.equal(
-    result.schemaProjection.schemaProjection.schemaObjects.profile_facts.fields.value_text.meaning,
-    "Human-readable value stored in this version of the profile fact.",
+    result.schemaProjection.schemaProjection.schemaObjects.profile_facts.fields.fact_text.meaning,
+    "Self-contained natural-language statement identifying the fact's person or item.",
   );
   assert.equal(
     ledger.trace(request.requestId).some((event) => event.type === "schema.semantics.compiled"),

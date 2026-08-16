@@ -41,4 +41,7 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /personal to-dos/);
   assert.match(instructions, /profile_fact_set/);
   assert.match(instructions, /profile_fact_delete/);
+  assert.match(instructions, /open-ended collection/);
+  assert.match(instructions, /Relevant profile types/);
+  assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
 });

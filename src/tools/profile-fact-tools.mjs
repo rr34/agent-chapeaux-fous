@@ -1,21 +1,21 @@
-const factKey = {
+const factType = {
   type: "string",
   pattern: "^[a-z][a-z0-9_]{0,199}$",
-  description: "Stable lowercase key such as preferred_name, default_location, vehicle, or address.",
+  description: "Broad repeatable lowercase type such as preferred_name, default_location, vehicle, clothing_size, or address.",
 };
 
 export function registerProfileFactTools(registry, profileFacts) {
   registry.register({
     name: "profile_fact_list",
-    description: "List active or archived durable user profile facts. Active facts are loaded automatically into the bounded context for every first model request.",
+    description: "List active or archived durable profile facts, including stable row IDs. The first model request automatically includes active rows only for profile types selected as relevant to that request; use this tool when other durable facts clearly need inspection.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         status: { type: "string", enum: ["active", "archived", "all"] },
-        keys: { type: ["array", "null"], items: factKey, maxItems: 100 },
+        factTypes: { type: ["array", "null"], items: factType, maxItems: 100 },
       },
-      required: ["status", "keys"],
+      required: ["status", "factTypes"],
     },
     async execute(argumentsObject) {
       return profileFacts.list(argumentsObject);
@@ -24,15 +24,25 @@ export function registerProfileFactTools(registry, profileFacts) {
 
   registry.register({
     name: "profile_fact_set",
-    description: "Create or replace one durable user profile fact, archiving the prior value when it changes. Use this when the user asks to remember or change stable personal information or preferences.",
+    description: "Add or replace one durable profile-fact row. Call this whenever the user states or corrects stable personal information, even casually. Use a broad repeatable factType and self-contained text identifying the person or item. Set replacesFactId to the exact active row ID only when that same real-world fact changed; use null for a different person or item even if another active row has the same type.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        key: factKey,
-        value: { type: "string", minLength: 1, maxLength: 10000 },
+        factType,
+        text: {
+          type: "string",
+          minLength: 1,
+          maxLength: 10000,
+          description: "Self-contained natural-language fact, such as 'My wife's car is a 2020 Honda CR-V.'",
+        },
+        replacesFactId: {
+          type: ["integer", "null"],
+          minimum: 1,
+          description: "Exact active profile fact ID being corrected, or null to add another row.",
+        },
       },
-      required: ["key", "value"],
+      required: ["factType", "text", "replacesFactId"],
     },
     async execute(argumentsObject, context) {
       return profileFacts.set(argumentsObject, context);
@@ -41,12 +51,12 @@ export function registerProfileFactTools(registry, profileFacts) {
 
   registry.register({
     name: "profile_fact_delete",
-    description: "Archive one durable user profile fact so it is retained as history but omitted from future model context.",
+    description: "Archive one durable profile-fact row by its exact stable ID so other active rows, including rows of the same type, remain unchanged.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: { key: factKey },
-      required: ["key"],
+      properties: { factId: { type: "integer", minimum: 1 } },
+      required: ["factId"],
     },
     async execute(argumentsObject, context) {
       return profileFacts.archive(argumentsObject, context);
