@@ -22,8 +22,8 @@ export class SlayerRuntime {
     return this.systemPrompt;
   }
 
-  async run({ requestId, requestEventId, text, channel = "web" }) {
-    const context = await this.contextBuilder.build(requestId, text);
+  async run({ requestId, requestEventId, text, channel = "web", attachment = null }) {
+    const context = await this.contextBuilder.build(requestId, text, { attachment });
     const tools = this.registry.toolDefinitions();
     const baseInstructions = await this.loadSystemPrompt();
     const turnRequest = {
@@ -47,6 +47,7 @@ export class SlayerRuntime {
         relevantProfileQuestions: context.relevantProfileQuestions,
         history: context.history,
         contextBudget: context.contextBudget,
+        attachment: context.attachment,
       },
     });
     this.ledger.append({

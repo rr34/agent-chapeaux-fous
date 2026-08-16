@@ -2,6 +2,9 @@ const elements = {
   form: document.querySelector("#request-form"),
   text: document.querySelector("#request-text"),
   send: document.querySelector("#send"),
+  requestFile: document.querySelector("#request-file"),
+  requestFileLabel: document.querySelector("#request-file-label"),
+  removeRequestFile: document.querySelector("#remove-request-file"),
   record: document.querySelector("#record"),
   recordLabel: document.querySelector("#record-label"),
   recordTimer: document.querySelector("#record-timer"),
@@ -159,6 +162,18 @@ function node(tag, className = "", textContent = "") {
   if (className) element.className = className;
   if (textContent !== "") element.textContent = textContent;
   return element;
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+}
+
+function updateRequestFileSelection() {
+  const file = elements.requestFile.files?.[0] ?? null;
+  elements.requestFileLabel.hidden = !file;
+  elements.removeRequestFile.hidden = !file;
+  elements.requestFileLabel.textContent = file ? `${file.name} · ${formatFileSize(file.size)}` : "";
 }
 
 async function copyText(text, button = null) {
@@ -1022,6 +1037,8 @@ function renderTodos() {
     const section = node("section", "todo-group-section");
     section.dataset.groupId = String(groupId);
     const heading = node("header", "todo-group-heading");
+    const headingTitle = node("div", "todo-group-heading-title");
+    headingTitle.append(node("h3", "", group.name));
     const headingActions = node("div", "todo-group-heading-actions");
     const top = node("button", "secondary compact", "⇈");
     const up = node("button", "secondary compact", "↑");
@@ -1040,20 +1057,27 @@ function renderTodos() {
     up.addEventListener("click", () => void moveTodoGroup(groupId, "up"));
     down.addEventListener("click", () => void moveTodoGroup(groupId, "down"));
     bottom.addEventListener("click", () => void moveTodoGroup(groupId, "bottom"));
-    headingActions.append(top, up, down, bottom);
-    headingActions.append(node("span", "", `${group.todos.length} ${group.todos.length === 1 ? "task" : "tasks"}`));
-    if (group.archivedAtUtc) {
-      headingActions.append(node("span", "todo-group-archived", "Archived group"));
-    } else if (group.name.toLowerCase() !== "inbox") {
+    if (!group.archivedAtUtc && group.name.toLowerCase() !== "inbox") {
       const rename = node("button", "secondary compact", "Rename");
       const archive = node("button", "secondary compact", "Archive group");
       rename.type = "button";
       archive.type = "button";
       rename.addEventListener("click", () => void renameTodoGroup(groupId, group.name));
       archive.addEventListener("click", () => void archiveTodoGroup(groupId, group.name));
-      headingActions.append(rename, archive);
+      headingTitle.append(rename, archive);
     }
-    heading.append(node("h3", "", group.name), headingActions);
+    headingTitle.append(top, up, down, bottom);
+    headingActions.append(node("span", "", `${group.todos.length} ${group.todos.length === 1 ? "task" : "tasks"}`));
+    if (group.archivedAtUtc) {
+      headingActions.append(node("span", "todo-group-archived", "Archived group"));
+    } else {
+      const addTask = node("button", "secondary compact", "Add task");
+      addTask.type = "button";
+      addTask.setAttribute("aria-label", `Add task to ${group.name}`);
+      addTask.addEventListener("click", () => openTodoEditor(null, groupId));
+      headingActions.append(addTask);
+    }
+    heading.append(headingTitle, headingActions);
     const cards = node("div", "todo-group-cards");
     for (const todo of group.todos) {
       const card = node("article", `todo-card ${todo.status === "complete" ? "completed" : ""}`);
@@ -1076,7 +1100,14 @@ function renderTodos() {
         }
       });
       const body = node("div", "todo-body");
-      body.append(node("h3", "", todo.text));
+      const title = node("h3");
+      const text = node("button", "todo-text", todo.text);
+      text.type = "button";
+      text.title = "Copy task text";
+      text.setAttribute("aria-label", `Copy task text: ${todo.text}`);
+      text.addEventListener("click", (event) => void copyText(todo.text, event.currentTarget));
+      title.append(text);
+      body.append(title);
       const metadata = node("div", "todo-meta");
       if (todo.sequence != null) metadata.append(node("span", "todo-pill", `#${todo.sequence}`));
       metadata.append(node("span", "todo-pill", todo.status.replaceAll("_", " ")));
@@ -1173,13 +1204,13 @@ async function moveTodo(todo, movement, visibleTodos) {
   }
 }
 
-function openTodoEditor(todo = null) {
+function openTodoEditor(todo = null, groupId = null) {
   elements.todoForm.reset();
   elements.todoFormError.textContent = "";
   elements.todoDialogTitle.textContent = todo ? "Edit todo" : "New todo";
   elements.todoId.value = todo?.id ?? "";
   elements.todoVersion.value = todo?.version ?? "";
-  populateTodoGroupEditor(todo?.groupId ?? (elements.todoGroupFilter.value || todoGroups[0]?.id || ""));
+  populateTodoGroupEditor(todo?.groupId ?? groupId ?? (elements.todoGroupFilter.value || todoGroups[0]?.id || ""));
   elements.todoText.value = todo?.text ?? "";
   elements.todoSequence.value = todo?.sequence ?? "";
   elements.todoAllDay.checked = Boolean(todo?.isAllDay);
@@ -1494,12 +1525,28 @@ elements.form.addEventListener("submit", async (event) => {
   elements.send.disabled = true;
   elements.status.textContent = "Submitting…";
   try {
+    const file = elements.requestFile.files?.[0] ?? null;
+    let primaryFileId = null;
+    if (file) {
+      elements.status.textContent = "Uploading attachment…";
+      const lowerName = file.name.toLowerCase();
+      const mimeType = file.type || (lowerName.endsWith(".csv") ? "text/csv" : "text/plain");
+      const uploaded = await api(`/api/request-files?filename=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        headers: { "Content-Type": mimeType },
+        body: file,
+      });
+      primaryFileId = uploaded.fileId;
+      elements.status.textContent = "Submitting request…";
+    }
     await api("/api/requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, primaryFileId }),
     });
     elements.text.value = "";
+    elements.requestFile.value = "";
+    updateRequestFileSelection();
     elements.status.textContent = "Queued.";
     await loadRequests({ force: true });
   } catch (error) {
@@ -1513,6 +1560,11 @@ elements.text.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
   event.preventDefault();
   if (!elements.send.disabled) elements.form.requestSubmit();
+});
+elements.requestFile.addEventListener("change", updateRequestFileSelection);
+elements.removeRequestFile.addEventListener("click", () => {
+  elements.requestFile.value = "";
+  updateRequestFileSelection();
 });
 
 elements.record.addEventListener("click", async () => {

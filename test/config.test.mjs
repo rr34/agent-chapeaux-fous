@@ -75,3 +75,13 @@ test("native JMAP email configuration is independent of MCP", () => {
   const integrations = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "config", "mcp-servers.json"), "utf8"));
   assert.equal(integrations.fastmail, undefined);
 });
+
+test("text request attachments have a separate bounded upload limit", () => {
+  const defaults = loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
+  assert.equal(defaults.maxTextAttachmentBytes, 256 * 1024);
+  const configured = loadConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_MAX_TEXT_ATTACHMENT_BYTES: "8192",
+  });
+  assert.equal(configured.maxTextAttachmentBytes, 8192);
+});

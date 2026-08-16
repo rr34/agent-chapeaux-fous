@@ -11,6 +11,7 @@ import { JmapClient } from "./jmap-client.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
+import { receiveTextAttachment } from "./request-attachments.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
 import { SchemaSemantics } from "./schema-semantics.mjs";
@@ -61,14 +62,25 @@ if (store.status.ready) {
 await mcp.initialize(registry);
 await jmap.initialize();
 if (jmap.health().ready) registerJmapEmailTools(registry, jmap);
-const contextBuilder = new ContextBuilder({ ledger, profileFacts, profileFactQuestions });
+const contextBuilder = new ContextBuilder({
+  ledger,
+  profileFacts,
+  profileFactQuestions,
+  maximumAttachmentCharacters: config.maxTextAttachmentBytes,
+});
 const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, ledger, config });
 const transcriber = new WhisperTranscriber({
   pythonExecutable: config.pythonExecutable,
   workerPath: config.whisperWorkerPath,
   timeoutMs: config.whisperTimeoutMs,
 });
-const queue = new RequestQueue({ ledger, runtime, transcriber, mediaRoot: config.mediaRoot });
+const queue = new RequestQueue({
+  ledger,
+  runtime,
+  transcriber,
+  mediaRoot: config.mediaRoot,
+  maxTextAttachmentBytes: config.maxTextAttachmentBytes,
+});
 
 const staticFiles = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -384,11 +396,31 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 503, { error: integrationProblem });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/request-files") {
+      const file = await receiveTextAttachment(request, {
+        filename: url.searchParams.get("filename"),
+        mediaRoot: config.mediaRoot,
+        maximumBytes: config.maxTextAttachmentBytes,
+        ledger,
+      });
+      sendJson(response, 201, file);
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/requests") {
       const body = await readJson(request);
       const text = typeof body.text === "string" ? body.text.trim() : "";
       if (!text) throw Object.assign(new Error("Request text is required"), { statusCode: 400 });
-      const created = ledger.createRequest({ text, channel: "web" });
+      const primaryFileId = body.primaryFileId == null ? null : Number(body.primaryFileId);
+      if (primaryFileId !== null) {
+        if (!Number.isSafeInteger(primaryFileId) || primaryFileId <= 0) {
+          throw Object.assign(new Error("Request attachment ID is invalid"), { statusCode: 400 });
+        }
+        const file = ledger.file(primaryFileId);
+        if (!file || file.media_kind !== "document") {
+          throw Object.assign(new Error("Request attachment was not found"), { statusCode: 404 });
+        }
+      }
+      const created = ledger.createRequest({ text, channel: "web", primaryFileId });
       queue.notify();
       sendJson(response, 202, created);
       return;

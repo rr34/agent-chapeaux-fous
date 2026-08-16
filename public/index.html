@@ -46,6 +46,12 @@
       <form id="request-form">
         <textarea id="request-text" rows="4" placeholder="Tell Slayer what to do…" required></textarea>
         <div class="composer-actions">
+          <div class="request-attachment-control">
+            <label class="attachment-button" for="request-file">Attach CSV/text</label>
+            <input id="request-file" class="sr-only" type="file" accept=".csv,.txt,text/csv,text/plain">
+            <span id="request-file-label" class="request-file-label" hidden></span>
+            <button id="remove-request-file" class="secondary compact" type="button" hidden>Remove</button>
+          </div>
           <button id="send" type="submit">Send</button>
         </div>
       </form>

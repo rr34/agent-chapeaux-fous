@@ -113,6 +113,12 @@ test("the standalone client restores calendar, grouped to-do, and personal log s
   assert.match(application, /refreshTodos/);
   assert.match(application, /refreshLogs/);
   assert.match(application, /todo-group-heading/);
+  assert.match(application, /const headingTitle = node\("div", "todo-group-heading-title"\)/);
+  assert.match(application, /headingTitle\.append\(rename, archive\)/);
+  assert.match(application, /headingTitle\.append\(top, up, down, bottom\)/);
+  assert.match(application, /node\("button", "secondary compact", "Add task"\)/);
+  assert.match(application, /addTask\.addEventListener\("click", \(\) => openTodoEditor\(null, groupId\)\)/);
+  assert.match(application, /todo\?\.groupId \?\? groupId \?\?/);
   assert.match(application, /for \(const \[groupId, group\] of groupedTodos\)/);
   assert.match(document, /id="todo-new-group"/);
   assert.match(application, /populateTodoGroupEditor\(group\.id\)/);
@@ -142,6 +148,18 @@ test("the request composer keeps Shift+Enter for newlines and submits other Ente
   assert.doesNotMatch(application, /event\.key !== "Enter" \|\| event\.ctrlKey/);
 });
 
+test("the request composer accepts one bounded CSV or text attachment", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  assert.match(document, /id="request-file"[^>]+accept="\.csv,\.txt,text\/csv,text\/plain"/);
+  assert.match(application, /\/api\/request-files\?filename=/);
+  assert.match(application, /JSON\.stringify\(\{ text, primaryFileId \}\)/);
+  assert.match(server, /receiveTextAttachment/);
+  assert.match(server, /url\.pathname === "\/api\/request-files"/);
+  assert.match(server, /ledger\.createRequest\(\{ text, channel: "web", primaryFileId \}\)/);
+});
+
 test("clicking a displayed request ID copies the complete request ID", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
@@ -149,6 +167,13 @@ test("clicking a displayed request ID copies the complete request ID", () => {
   assert.match(application, /querySelector\("\.request-number"\)\.addEventListener\("click"/);
   assert.match(application, /copyText\(request\.requestId, event\.currentTarget\)/);
   assert.match(application, /requestNumber\.setAttribute\("aria-label", `Copy request ID \$\{request\.requestId\}`\)/);
+});
+
+test("clicking a to-do item's text copies the complete task text", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(application, /node\("button", "todo-text", todo\.text\)/);
+  assert.match(application, /text\.setAttribute\("aria-label", `Copy task text: \$\{todo\.text\}`\)/);
+  assert.match(application, /text\.addEventListener\("click", \(event\) => void copyText\(todo\.text, event\.currentTarget\)\)/);
 });
 
 test("hard-coded UI datetimes use the TLOM display convention", () => {

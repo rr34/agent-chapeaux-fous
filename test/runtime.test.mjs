@@ -51,6 +51,10 @@ function fakeTransport(runTurn) {
 test("the first model turn contains the exact request, context, and callable tools, and executes tools in that turn", async () => {
   const requests = [];
   let contextBuildInput;
+  const attachment = {
+    filename: "contacts.csv", mimeType: "text/csv", byteSize: 18,
+    sha256: "attachment-sha", text: "name\nAlice\n",
+  };
   const modelTransport = fakeTransport(async (payload) => {
       requests.push({
         model: payload.model,
@@ -86,16 +90,17 @@ test("the first model turn contains the exact request, context, and callable too
     modelTransport,
     registry,
     contextBuilder: {
-      async build(requestId, requestText) {
-        contextBuildInput = { requestId, requestText };
+      async build(requestId, requestText, options) {
+        contextBuildInput = { requestId, requestText, options };
         return {
-          text: "VISIBLE CONTEXT",
+          text: `VISIBLE CONTEXT\n${options.attachment.text}`,
           profileFacts: [],
           activeProfileFactCount: 0,
           relevantProfileTypes: ["address"],
           relevantProfileQuestions: [{ factType: "address" }],
           history: [],
           contextBudget: { truncated: false },
+          attachment: options.attachment,
         };
       },
     },
@@ -108,15 +113,20 @@ test("the first model turn contains the exact request, context, and callable too
     requestId: "request-1",
     requestEventId: "event-1",
     text: "Use the echo tool.",
+    attachment,
   });
 
   assert.equal(result, "The tool returned hello.");
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0].tools, registry.toolDefinitions());
-  assert.equal(requests[0].developerInstructions, "VISIBLE CONTEXT");
+  assert.equal(requests[0].developerInstructions, "VISIBLE CONTEXT\nname\nAlice\n");
   assert.equal(requests[0].input, "Use the echo tool.");
   assert.equal(requests[0].baseInstructions, "SYSTEM PROMPT");
-  assert.deepEqual(contextBuildInput, { requestId: "request-1", requestText: "Use the echo tool." });
+  assert.deepEqual(contextBuildInput, {
+    requestId: "request-1",
+    requestText: "Use the echo tool.",
+    options: { attachment },
+  });
   assert.deepEqual(
     events.filter((event) => ["context.sent", "tools.sent", "model.request", "model.response", "model.usage", "tool.call", "tool.result"].includes(event.type)).map((event) => event.type),
     ["context.sent", "tools.sent", "model.request", "tool.call", "tool.result", "model.response", "model.usage"],
@@ -127,6 +137,7 @@ test("the first model turn contains the exact request, context, and callable too
   const contextEvent = events.find((event) => event.type === "context.sent");
   assert.deepEqual(contextEvent.payload.relevantProfileTypes, ["address"]);
   assert.deepEqual(contextEvent.payload.relevantProfileQuestions, [{ factType: "address" }]);
+  assert.equal(contextEvent.payload.attachment.filename, "contacts.csv");
 });
 
 test("a failed tool result is returned to the model transport instead of becoming a fabricated success", async () => {

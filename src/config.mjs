@@ -84,6 +84,10 @@ export function loadConfig(environment = process.env) {
     reasoningEffort: environment.SLAYER_REASONING_EFFORT?.trim() || "high",
     maxToolCalls: positiveInteger(environment.SLAYER_MAX_TOOL_CALLS, 24),
     maxUploadBytes: positiveInteger(environment.SLAYER_MAX_AUDIO_BYTES, 50 * 1024 * 1024),
+    maxTextAttachmentBytes: positiveInteger(
+      environment.SLAYER_MAX_TEXT_ATTACHMENT_BYTES,
+      256 * 1024,
+    ),
     pythonExecutable: resolveFromRoot(environment.SLAYER_PYTHON, "voice/.venv/bin/python"),
     whisperWorkerPath: path.join(repositoryRoot, "voice/whisper_worker.py"),
     whisperTimeoutMs: positiveInteger(environment.SLAYER_WHISPER_TIMEOUT_MS, 10 * 60 * 1000),

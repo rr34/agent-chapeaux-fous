@@ -148,7 +148,11 @@ textarea:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   justify-content: space-between;
   gap: .6rem;
 }
-.composer-actions { justify-content: flex-end; margin-top: .75rem; }
+.composer-actions { justify-content: space-between; margin-top: .75rem; }
+.request-attachment-control { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; min-width: 0; }
+.attachment-button { display: inline-flex; align-items: center; min-height: 42px; padding: .65rem 1rem; color: var(--text); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-weight: 750; }
+.attachment-button:hover { border-color: #56616a; background: #252b31; }
+.request-file-label { overflow: hidden; max-width: 24rem; color: var(--muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
 
 button {
   min-height: 42px;
@@ -250,6 +254,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: .35rem .15rem .55rem; }
 .todo-group-heading h3 { margin: 0; font-size: 1.05rem; }
 .todo-group-heading span { color: var(--muted); font-size: .75rem; }
+.todo-group-heading-title { display: flex; align-items: center; gap: .5rem; min-width: 0; }
 .todo-group-heading-actions { display: flex; align-items: center; gap: .5rem; }
 .todo-group-heading .todo-group-archived { color: var(--warn); }
 .todo-group-cards { display: grid; gap: .65rem; }
@@ -259,6 +264,9 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-card.completed h3 { text-decoration: line-through; }
 .todo-body { min-width: 0; }
 .todo-body h3 { margin: 1px 0 6px; font-size: .96rem; white-space: pre-wrap; }
+.todo-text { display: block; max-width: 100%; padding: 0; color: inherit; background: transparent; border: 0; text-align: left; cursor: copy; }
+.todo-text:hover { color: var(--accent); }
+.todo-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 .todo-meta { display: flex; flex-wrap: wrap; gap: 6px; color: var(--muted); font-size: .71rem; }
 .todo-pill { padding: 3px 7px; background: #252b31; border-radius: 999px; }
 .todo-pill.overdue { color: var(--bad); }
@@ -386,6 +394,10 @@ dialog h2, dialog p { margin-bottom: 0; }
       .8rem
       max(1rem, env(safe-area-inset-left, 0px));
   }
+  .composer-actions { align-items: stretch; flex-direction: column; }
+  .request-attachment-control { width: 100%; }
+  .request-file-label { max-width: calc(100vw - 10rem); }
+  .composer-actions > #send { align-self: flex-end; }
   .runtime-group { align-items: flex-end; flex-direction: column-reverse; }
   .usage { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   main { padding: .7rem; }

@@ -1,19 +1,12 @@
-import path from "node:path";
-
-function safeMediaPath(mediaRoot, storagePath) {
-  const root = path.resolve(mediaRoot);
-  const relative = String(storagePath ?? "").replace(/^media\//, "");
-  const filename = path.resolve(root, relative);
-  if (!filename.startsWith(`${root}${path.sep}`)) throw new Error("Stored media path escapes the media directory");
-  return filename;
-}
+import { readTextAttachment, safeMediaPath } from "./request-attachments.mjs";
 
 export class RequestQueue {
-  constructor({ ledger, runtime, transcriber, mediaRoot }) {
+  constructor({ ledger, runtime, transcriber, mediaRoot, maxTextAttachmentBytes = 256 * 1024 }) {
     this.ledger = ledger;
     this.runtime = runtime;
     this.transcriber = transcriber;
     this.mediaRoot = mediaRoot;
+    this.maxTextAttachmentBytes = maxTextAttachmentBytes;
     this.running = false;
     this.wakeRequested = false;
   }
@@ -41,9 +34,9 @@ export class RequestQueue {
     this.ledger.markProcessing(request);
     try {
       let text = request.content?.trim() || "";
+      const file = request.primaryFileId == null ? null : this.ledger.file(request.primaryFileId);
       if (!text) {
-        const file = this.ledger.file(request.primaryFileId);
-        if (!file) throw new Error("Voice request has no stored audio file");
+        if (!file || file.media_kind !== "audio") throw new Error("Voice request has no stored audio file");
         const operationId = `transcription:${request.turnId}`;
         this.ledger.append({
           type: "transcription.start", phase: "start", status: "processing", actorType: "service",
@@ -60,11 +53,32 @@ export class RequestQueue {
           primaryFileId: request.primaryFileId,
         });
       }
+      let attachment = null;
+      if (file?.media_kind === "document") {
+        attachment = await readTextAttachment({
+          mediaRoot: this.mediaRoot,
+          file,
+          maximumBytes: this.maxTextAttachmentBytes,
+        });
+        this.ledger.append({
+          type: "attachment.read", status: "complete", actorType: "service",
+          actorName: "Request attachment reader", channel: request.channel,
+          turnId: request.turnId, name: "Request attachment read",
+          payload: {
+            filename: attachment.filename,
+            mimeType: attachment.mimeType,
+            byteSize: attachment.byteSize,
+            sha256: attachment.sha256,
+          },
+          primaryFileId: request.primaryFileId,
+        });
+      }
       const response = await this.runtime.run({
         requestId: request.turnId,
         requestEventId: request.eventId,
         text,
         channel: request.channel,
+        attachment,
       });
       this.ledger.finish(request, response);
     } catch (error) {
