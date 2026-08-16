@@ -818,6 +818,60 @@ export class OrganizerStore {
     return this.getTodo(id);
   }
 
+  reorderTodos(groupIdValue, input) {
+    const groupId = identifier(groupIdValue, "to-do group id");
+    if (!Array.isArray(input?.orderedTodoIds) || input.orderedTodoIds.length === 0) {
+      throw new OrganizerInputError("orderedTodoIds must contain at least one to-do id.");
+    }
+    const orderedTodoIds = input.orderedTodoIds.map((value) => identifier(value, "todo id"));
+    if (new Set(orderedTodoIds).size !== orderedTodoIds.length) {
+      throw new OrganizerInputError("orderedTodoIds cannot contain duplicates.");
+    }
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.database.prepare(`
+        SELECT personal_task_id
+        FROM personal_tasks
+        WHERE todo_group_id = ?
+        ORDER BY sort_position, personal_task_id
+      `).all(groupId);
+      if (rows.length === 0) throw new OrganizerInputError("To-do group has no tasks.", 404);
+      const groupTodoIds = new Set(rows.map((row) => Number(row.personal_task_id)));
+      if (orderedTodoIds.some((id) => !groupTodoIds.has(id))) {
+        throw new OrganizerInputError("Every reordered todo must belong to the selected group.", 409);
+      }
+
+      const reorderedSet = new Set(orderedTodoIds);
+      let reorderedIndex = 0;
+      const completeOrder = rows.map((row) => {
+        const id = Number(row.personal_task_id);
+        return reorderedSet.has(id) ? orderedTodoIds[reorderedIndex++] : id;
+      });
+      const updatedAt = new Date().toISOString();
+      const update = this.database.prepare(`
+        UPDATE personal_tasks
+        SET sort_position = ?, updated_at_utc = ?
+        WHERE personal_task_id = ? AND todo_group_id = ?
+      `);
+      completeOrder.forEach((id, index) => update.run((index + 1) * 10, updatedAt, id, groupId));
+      this.#activity({
+        eventType: "personal_todo.reordered",
+        status: "complete",
+        name: "Personal todos reordered",
+        subjectType: "todo_group",
+        subjectId: groupId,
+        contentText: `Reordered ${completeOrder.length} tasks`,
+        payload: { orderedTodoIds: completeOrder },
+      });
+      this.database.exec("COMMIT");
+      return completeOrder.map((id) => this.getTodo(id));
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   updateTodo(idValue, input) {
     const id = identifier(idValue, "todo id");
     const before = this.getTodo(id);
@@ -899,4 +953,3 @@ export class OrganizerStore {
     }
   }
 }
-

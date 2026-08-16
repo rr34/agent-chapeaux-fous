@@ -72,7 +72,26 @@ test("the standalone client restores calendar and grouped to-do surfaces", () =>
   assert.match(application, /refreshTodos/);
   assert.match(application, /todo-group-heading/);
   assert.match(application, /for \(const \[groupId, group\] of groupedTodos\)/);
+  assert.match(document, /id="todo-new-group"/);
+  assert.match(application, /populateTodoGroupEditor\(group\.id\)/);
+  assert.match(application, /actions\.append\(top, up, down, bottom, edit\)/);
+  assert.match(application, /\/api\/todo-groups\/\$\{todo\.groupId\}\/reorder/);
   assert.match(server, /\/api\/calendar-events/);
   assert.match(server, /\/api\/todo-groups/);
+  assert.match(server, /todoGroupReorderMatch/);
   assert.match(server, /\/api\/todos/);
+});
+
+test("the request composer keeps Shift+Enter for newlines and submits other Enter shortcuts", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(application, /event\.key !== "Enter" \|\| event\.shiftKey \|\| event\.isComposing/);
+  assert.doesNotMatch(application, /event\.key !== "Enter" \|\| event\.ctrlKey/);
+});
+
+test("hard-coded UI datetimes use the TLOM display convention", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(application, /function formatDisplayDate/);
+  assert.match(application, /weekday: "short", day: "2-digit", month: "short", year: "numeric"/);
+  assert.match(application, /`\$\{dateLabel\} at \$\{timePart\("hour"\)\}:\$\{timePart\("minute"\)\}`/);
+  assert.match(application, /return formatDisplayDate\(value\)/);
 });

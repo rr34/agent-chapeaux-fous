@@ -62,6 +62,7 @@ const elements = {
   todoVersion: document.querySelector("#todo-version"),
   todoText: document.querySelector("#todo-text"),
   todoGroup: document.querySelector("#todo-group"),
+  todoNewGroup: document.querySelector("#todo-new-group"),
   todoSequence: document.querySelector("#todo-sequence"),
   todoScheduled: document.querySelector("#todo-scheduled"),
   todoDue: document.querySelector("#todo-due"),
@@ -130,11 +131,24 @@ async function copyText(text, button = null) {
   }
 }
 
+function formatDisplayDate(value, { includeTime = true, fallback = "—" } = {}) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return fallback;
+  const dateParts = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short", day: "2-digit", month: "short", year: "numeric",
+  }).formatToParts(date);
+  const part = (type) => dateParts.find((candidate) => candidate.type === type)?.value ?? "";
+  const dateLabel = `${part("weekday")}, ${part("day")} ${part("month")} ${part("year")}`;
+  if (!includeTime) return dateLabel;
+  const timeParts = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(date);
+  const timePart = (type) => timeParts.find((candidate) => candidate.type === type)?.value ?? "";
+  return `${dateLabel} at ${timePart("hour")}:${timePart("minute")}`;
+}
+
 function formatTime(milliseconds) {
-  return new Intl.DateTimeFormat(undefined, {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-  }).format(new Date(milliseconds));
+  return formatDisplayDate(milliseconds);
 }
 
 function formatClock(milliseconds) {
@@ -468,7 +482,7 @@ function renderCalendar() {
     button.classList.toggle("outside", date.getMonth() !== calendarCursor.getMonth());
     button.classList.toggle("today", localDateKey(date) === todayKey);
     button.classList.toggle("selected", localDateKey(date) === selectedKey);
-    button.setAttribute("aria-label", new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(date));
+    button.setAttribute("aria-label", formatDisplayDate(date, { includeTime: false }));
     button.append(node("span", "day-number", String(date.getDate())));
     const items = node("span", "day-items");
     const visible = [
@@ -495,9 +509,7 @@ function renderAgenda() {
     ...todosScheduledOnDay(selectedCalendarDate).map((todo) => ({ todo, timing: "Scheduled task" })),
     ...todosDueOnDay(selectedCalendarDate).map((todo) => ({ todo, timing: "Task due" })),
   ];
-  elements.agendaDate.textContent = new Intl.DateTimeFormat(undefined, {
-    weekday: "long", month: "long", day: "numeric",
-  }).format(selectedCalendarDate);
+  elements.agendaDate.textContent = formatDisplayDate(selectedCalendarDate, { includeTime: false });
   elements.agendaList.replaceChildren();
   if (events.length === 0 && todoEntries.length === 0) {
     elements.agendaList.append(node("p", "agenda-empty", "Nothing scheduled. Add an event here or tell Slayer what to put on the calendar."));
@@ -625,9 +637,7 @@ async function refreshTodos() {
 }
 
 function formatTodoDateTime(value) {
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium", timeStyle: "short", hour12: false, hourCycle: "h23",
-  }).format(new Date(value));
+  return formatDisplayDate(value);
 }
 
 function renderTodos() {
@@ -688,16 +698,26 @@ function renderTodos() {
       if (todo.recurrenceRule) metadata.append(node("span", "todo-pill", todo.recurrenceRule));
       body.append(metadata);
       const actions = node("div", "todo-actions");
+      const top = node("button", "secondary compact", "⇈");
       const up = node("button", "secondary compact", "↑");
       const down = node("button", "secondary compact", "↓");
+      const bottom = node("button", "secondary compact", "⇊");
       const edit = node("button", "secondary compact", "Edit");
-      up.type = down.type = edit.type = "button";
+      top.type = up.type = down.type = bottom.type = edit.type = "button";
+      top.title = "Move task to top of group";
       up.title = "Move task up";
       down.title = "Move task down";
-      up.addEventListener("click", () => void moveTodo(todo, -1, visibleTodos));
-      down.addEventListener("click", () => void moveTodo(todo, 1, visibleTodos));
+      bottom.title = "Move task to bottom of group";
+      top.setAttribute("aria-label", `Move ${todo.text} to top of group`);
+      up.setAttribute("aria-label", `Move ${todo.text} up`);
+      down.setAttribute("aria-label", `Move ${todo.text} down`);
+      bottom.setAttribute("aria-label", `Move ${todo.text} to bottom of group`);
+      top.addEventListener("click", () => void moveTodo(todo, "top", visibleTodos));
+      up.addEventListener("click", () => void moveTodo(todo, "up", visibleTodos));
+      down.addEventListener("click", () => void moveTodo(todo, "down", visibleTodos));
+      bottom.addEventListener("click", () => void moveTodo(todo, "bottom", visibleTodos));
       edit.addEventListener("click", () => openTodoEditor(todo));
-      actions.append(up, down, edit);
+      actions.append(top, up, down, bottom, edit);
       card.append(check, body, actions);
       cards.append(card);
     }
@@ -706,26 +726,24 @@ function renderTodos() {
   }
 }
 
-async function moveTodo(todo, offset, visibleTodos) {
+async function moveTodo(todo, movement, visibleTodos) {
   const groupTodos = visibleTodos.filter(({ groupId }) => groupId === todo.groupId);
-  const other = groupTodos[groupTodos.findIndex(({ id }) => id === todo.id) + offset];
-  if (!other) return;
+  const currentIndex = groupTodos.findIndex(({ id }) => id === todo.id);
+  const targetIndex = movement === "top"
+    ? 0
+    : movement === "bottom"
+      ? groupTodos.length - 1
+      : currentIndex + (movement === "up" ? -1 : 1);
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= groupTodos.length || targetIndex === currentIndex) return;
+  const orderedTodoIds = groupTodos.map(({ id }) => id);
+  orderedTodoIds.splice(currentIndex, 1);
+  orderedTodoIds.splice(targetIndex, 0, todo.id);
   try {
-    if (todo.sortPosition === other.sortPosition) {
-      await api(`/api/todos/${todo.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: todo.version, sortPosition: todo.sortPosition + offset }),
-      });
-    } else {
-      await api(`/api/todos/${other.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: other.version, sortPosition: todo.sortPosition }),
-      });
-      await api(`/api/todos/${todo.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: todo.version, sortPosition: other.sortPosition }),
-      });
-    }
+    await api(`/api/todo-groups/${todo.groupId}/reorder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderedTodoIds }),
+    });
     await refreshTodos();
   } catch (error) {
     window.alert(error.message || "Could not reorder the task.");
@@ -738,14 +756,8 @@ function openTodoEditor(todo = null) {
   elements.todoDialogTitle.textContent = todo ? "Edit todo" : "New todo";
   elements.todoId.value = todo?.id ?? "";
   elements.todoVersion.value = todo?.version ?? "";
-  elements.todoGroup.replaceChildren();
-  for (const group of todoGroups) {
-    const option = node("option", "", group.name);
-    option.value = String(group.id);
-    elements.todoGroup.append(option);
-  }
+  populateTodoGroupEditor(todo?.groupId ?? (elements.todoGroupFilter.value || todoGroups[0]?.id || ""));
   elements.todoText.value = todo?.text ?? "";
-  elements.todoGroup.value = String(todo?.groupId ?? (elements.todoGroupFilter.value || todoGroups[0]?.id || ""));
   elements.todoSequence.value = todo?.sequence ?? "";
   elements.todoScheduled.value = localDateTimeInput(todo?.scheduledAtUtc);
   elements.todoDue.value = localDateTimeInput(todo?.dueAtUtc);
@@ -755,6 +767,16 @@ function openTodoEditor(todo = null) {
   elements.todoRecurrenceRule.title = todo?.routineId ? "Edit the routine definition through the agent." : "";
   elements.todoDialog.showModal();
   elements.todoText.focus();
+}
+
+function populateTodoGroupEditor(selectedGroupId) {
+  elements.todoGroup.replaceChildren();
+  for (const group of todoGroups) {
+    const option = node("option", "", group.name);
+    option.value = String(group.id);
+    elements.todoGroup.append(option);
+  }
+  elements.todoGroup.value = String(selectedGroupId ?? "");
 }
 
 async function saveTodo(event) {
@@ -790,18 +812,22 @@ async function saveTodo(event) {
   }
 }
 
-async function createTodoGroup() {
+async function createTodoGroup({ selectFilter = true } = {}) {
   const name = window.prompt("Name the new to-do group:")?.trim();
-  if (!name) return;
+  if (!name) return null;
   try {
     const body = await api("/api/todo-groups", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
     });
     await refreshTodos();
-    elements.todoGroupFilter.value = String(body.group.id);
-    renderTodos();
+    if (selectFilter) {
+      elements.todoGroupFilter.value = String(body.group.id);
+      renderTodos();
+    }
+    return body.group;
   } catch (error) {
     window.alert(error.message || "Could not create the group.");
+    return null;
   }
 }
 
@@ -828,7 +854,7 @@ elements.form.addEventListener("submit", async (event) => {
 });
 
 elements.text.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" || event.ctrlKey || event.isComposing) return;
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
   event.preventDefault();
   if (!elements.send.disabled) elements.form.requestSubmit();
 });
@@ -949,6 +975,10 @@ elements.newTodo.addEventListener("click", async () => {
   openTodoEditor();
 });
 elements.newTodoGroup.addEventListener("click", () => void createTodoGroup());
+elements.todoNewGroup.addEventListener("click", async () => {
+  const group = await createTodoGroup({ selectFilter: false });
+  if (group) populateTodoGroupEditor(group.id);
+});
 elements.todoScope.addEventListener("change", () => void refreshTodos());
 elements.todoGroupFilter.addEventListener("change", renderTodos);
 elements.todoForm.addEventListener("submit", saveTodo);

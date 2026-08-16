@@ -65,3 +65,30 @@ test("grouped and recurring todos use the existing task tables", () => {
     temporary.cleanup();
   }
 });
+
+test("group reordering atomically normalizes every task position", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const group = organizer.createTodoGroup({ name: "Ordered work" });
+    const tasks = ["First", "Second", "Third", "Fourth"]
+      .map((text) => organizer.createTodo({ text, groupId: group.id }));
+
+    organizer.reorderTodos(group.id, {
+      orderedTodoIds: [tasks[3].id, tasks[0].id, tasks[1].id, tasks[2].id],
+    });
+    organizer.reorderTodos(group.id, {
+      orderedTodoIds: [tasks[2].id, tasks[0].id],
+    });
+
+    const ordered = organizer.listTodos({ scope: "all" }).filter(({ groupId }) => groupId === group.id);
+    assert.deepEqual(ordered.map(({ text }) => text), ["Fourth", "Third", "Second", "First"]);
+    assert.deepEqual(ordered.map(({ sortPosition }) => sortPosition), [10, 20, 30, 40]);
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_todo.reordered'
+    `).get().count, 2);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});

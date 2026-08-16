@@ -179,7 +179,10 @@
       <input id="todo-version" type="hidden">
       <label>Task<textarea id="todo-text" rows="4" required maxlength="10000"></textarea></label>
       <div class="editor-grid">
-        <label>Group<select id="todo-group" required></select></label>
+        <div class="todo-group-editor">
+          <label>Group<select id="todo-group" required></select></label>
+          <button id="todo-new-group" class="secondary compact" type="button">New group</button>
+        </div>
         <label>Sequence<input id="todo-sequence" type="number" min="1" step="1"></label>
         <label>Scheduled<input id="todo-scheduled" type="datetime-local"></label>
         <label>Due<input id="todo-due" type="datetime-local"></label>
