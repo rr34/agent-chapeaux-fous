@@ -195,7 +195,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .calendar-toolbar, .todo-toolbar { margin-bottom: 1rem; padding: .65rem .8rem; }
 .calendar-navigation { display: flex; align-items: center; gap: .45rem; }
 .calendar-toolbar small { color: var(--muted); }
-.calendar-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 1rem; align-items: start; }
+.calendar-layout { display: grid; grid-template-columns: 1fr; gap: 1rem; align-items: start; }
 .month-panel { overflow: hidden; }
 .weekday-row, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .calendar-grid > .empty { grid-column: 1 / -1; margin: 1rem; }
@@ -225,7 +225,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .day-event.tentative { background: rgba(240, 189, 79, .1); border-left-color: var(--warn); }
 .day-todo { overflow: hidden; color: var(--muted); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
 .day-more { color: var(--muted); font-size: .62rem; }
-.agenda-panel { position: sticky; top: 7rem; padding: 1rem; }
+.agenda-panel { padding: 1rem; }
 .agenda-panel h3 { margin: 0 0 .9rem; font-size: 1.05rem; }
 .agenda-list { display: grid; gap: .55rem; }
 .agenda-item, .todo-card { color: var(--text); background: #101316; border: 1px solid var(--line); border-radius: 13px; }
@@ -239,6 +239,11 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-toolbar select, .editor-dialog select { width: auto; padding: .6rem; color: var(--text); background: #0e1113; border: 1px solid var(--line); border-radius: 10px; }
 .toolbar-count { margin-left: auto; color: var(--muted); font-size: .8rem; }
 .todo-list { display: grid; gap: .65rem; }
+.todo-group-section { margin: 0; }
+.todo-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: .35rem .15rem .55rem; }
+.todo-group-heading h3 { margin: 0; font-size: 1.05rem; }
+.todo-group-heading span { color: var(--muted); font-size: .75rem; }
+.todo-group-cards { display: grid; gap: .65rem; }
 .todo-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .75rem; padding: .85rem; }
 .todo-check { display: grid; place-items: center; width: 27px; height: 27px; min-height: 27px; padding: 0; color: var(--good); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 8px; }
 .todo-card.completed { opacity: .64; }

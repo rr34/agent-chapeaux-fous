@@ -66,8 +66,12 @@ test("the standalone client restores calendar and grouped to-do surfaces", () =>
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /data-view="calendar"/);
   assert.match(document, /data-view="todos"/);
+  assert.match(document, /<span>Mon<\/span><span>Tue<\/span><span>Wed<\/span><span>Thu<\/span><span>Fri<\/span><span>Sat<\/span><span>Sun<\/span>/);
+  assert.ok(document.indexOf('class="agenda-panel') < document.indexOf('class="month-panel'));
   assert.match(application, /refreshCalendar/);
   assert.match(application, /refreshTodos/);
+  assert.match(application, /todo-group-heading/);
+  assert.match(application, /for \(const \[groupId, group\] of groupedTodos\)/);
   assert.match(server, /\/api\/calendar-events/);
   assert.match(server, /\/api\/todo-groups/);
   assert.match(server, /\/api\/todos/);

@@ -390,8 +390,8 @@ function startOfDay(value) {
 function monthGridRange(cursor) {
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const last = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
-  const gridStart = addDays(first, -first.getDay());
-  const gridEnd = addDays(last, 7 - last.getDay());
+  const gridStart = addDays(first, -((first.getDay() + 6) % 7));
+  const gridEnd = addDays(last, 7 - ((last.getDay() + 6) % 7));
   return { first, gridStart, gridEnd };
 }
 
@@ -640,52 +640,69 @@ function renderTodos() {
     elements.todoList.append(node("p", "empty", "No tasks in this view."));
     return;
   }
+  const groupedTodos = new Map();
   for (const todo of visibleTodos) {
-    const card = node("article", `todo-card ${todo.status === "complete" ? "completed" : ""}`);
-    const check = node("button", "todo-check", todo.status === "complete" ? "✓" : "");
-    check.type = "button";
-    check.setAttribute("aria-label", todo.status === "complete" ? `Reopen ${todo.text}` : `Complete ${todo.text}`);
-    check.addEventListener("click", async () => {
-      check.disabled = true;
-      try {
-        await api(`/api/todos/${todo.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ version: todo.version, status: todo.status === "complete" ? "todo" : "complete" }),
-        });
-        await refreshTodos();
-        if (activeView === "calendar") await refreshCalendar();
-      } catch (error) {
-        window.alert(error.message || "Could not update the todo.");
-        check.disabled = false;
+    const group = groupedTodos.get(todo.groupId) ?? { name: todo.groupName, todos: [] };
+    group.todos.push(todo);
+    groupedTodos.set(todo.groupId, group);
+  }
+  for (const [groupId, group] of groupedTodos) {
+    const section = node("section", "todo-group-section");
+    section.dataset.groupId = String(groupId);
+    const heading = node("header", "todo-group-heading");
+    heading.append(
+      node("h3", "", group.name),
+      node("span", "", `${group.todos.length} ${group.todos.length === 1 ? "task" : "tasks"}`),
+    );
+    const cards = node("div", "todo-group-cards");
+    for (const todo of group.todos) {
+      const card = node("article", `todo-card ${todo.status === "complete" ? "completed" : ""}`);
+      const check = node("button", "todo-check", todo.status === "complete" ? "✓" : "");
+      check.type = "button";
+      check.setAttribute("aria-label", todo.status === "complete" ? `Reopen ${todo.text}` : `Complete ${todo.text}`);
+      check.addEventListener("click", async () => {
+        check.disabled = true;
+        try {
+          await api(`/api/todos/${todo.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ version: todo.version, status: todo.status === "complete" ? "todo" : "complete" }),
+          });
+          await refreshTodos();
+          if (activeView === "calendar") await refreshCalendar();
+        } catch (error) {
+          window.alert(error.message || "Could not update the todo.");
+          check.disabled = false;
+        }
+      });
+      const body = node("div", "todo-body");
+      body.append(node("h3", "", todo.text));
+      const metadata = node("div", "todo-meta");
+      if (todo.sequence != null) metadata.append(node("span", "todo-pill", `#${todo.sequence}`));
+      metadata.append(node("span", "todo-pill", todo.status.replaceAll("_", " ")));
+      if (todo.scheduledAtUtc) metadata.append(node("span", "todo-pill", `scheduled ${formatTodoDateTime(todo.scheduledAtUtc)}`));
+      if (todo.dueAtUtc) {
+        const due = new Date(todo.dueAtUtc);
+        metadata.append(node("span", `todo-pill ${todo.status !== "complete" && due < new Date() ? "overdue" : ""}`, `due ${formatTodoDateTime(due)}`));
       }
-    });
-    const body = node("div", "todo-body");
-    body.append(node("h3", "", todo.text));
-    const metadata = node("div", "todo-meta");
-    metadata.append(node("span", "todo-pill", todo.groupName));
-    if (todo.sequence != null) metadata.append(node("span", "todo-pill", `#${todo.sequence}`));
-    metadata.append(node("span", "todo-pill", todo.status.replaceAll("_", " ")));
-    if (todo.scheduledAtUtc) metadata.append(node("span", "todo-pill", `scheduled ${formatTodoDateTime(todo.scheduledAtUtc)}`));
-    if (todo.dueAtUtc) {
-      const due = new Date(todo.dueAtUtc);
-      metadata.append(node("span", `todo-pill ${todo.status !== "complete" && due < new Date() ? "overdue" : ""}`, `due ${formatTodoDateTime(due)}`));
+      if (todo.recurrenceRule) metadata.append(node("span", "todo-pill", todo.recurrenceRule));
+      body.append(metadata);
+      const actions = node("div", "todo-actions");
+      const up = node("button", "secondary compact", "↑");
+      const down = node("button", "secondary compact", "↓");
+      const edit = node("button", "secondary compact", "Edit");
+      up.type = down.type = edit.type = "button";
+      up.title = "Move task up";
+      down.title = "Move task down";
+      up.addEventListener("click", () => void moveTodo(todo, -1, visibleTodos));
+      down.addEventListener("click", () => void moveTodo(todo, 1, visibleTodos));
+      edit.addEventListener("click", () => openTodoEditor(todo));
+      actions.append(up, down, edit);
+      card.append(check, body, actions);
+      cards.append(card);
     }
-    if (todo.recurrenceRule) metadata.append(node("span", "todo-pill", todo.recurrenceRule));
-    body.append(metadata);
-    const actions = node("div", "todo-actions");
-    const up = node("button", "secondary compact", "↑");
-    const down = node("button", "secondary compact", "↓");
-    const edit = node("button", "secondary compact", "Edit");
-    up.type = down.type = edit.type = "button";
-    up.title = "Move task up";
-    down.title = "Move task down";
-    up.addEventListener("click", () => void moveTodo(todo, -1, visibleTodos));
-    down.addEventListener("click", () => void moveTodo(todo, 1, visibleTodos));
-    edit.addEventListener("click", () => openTodoEditor(todo));
-    actions.append(up, down, edit);
-    card.append(check, body, actions);
-    elements.todoList.append(card);
+    section.append(heading, cards);
+    elements.todoList.append(section);
   }
 }
 
