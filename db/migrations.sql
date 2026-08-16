@@ -5,6 +5,22 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0014: remove-contact-relationships
+-- Contacts use notes and reusable tags for overlapping classifications. Abort
+-- instead of deleting anything if a relationship record appears before this
+-- migration is applied.
+
+CREATE TABLE migration_0014_contact_relationships_guard (
+    row_count INTEGER NOT NULL CHECK (row_count = 0)
+) STRICT;
+
+INSERT INTO migration_0014_contact_relationships_guard (row_count)
+SELECT COUNT(*) FROM contact_relationships;
+
+DROP TABLE contact_relationships;
+DROP TABLE migration_0014_contact_relationships_guard;
+-- end migration 0014
+
 -- migration 0013: ordered-todo-groups
 -- Give to-do groups an explicit presentation order independent of their names.
 -- Seed existing groups in their current alphabetical order.

@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 13,
-    "schemaFingerprint": "1a91c2a5e0688d9f91c1b76810743e59115164be3f041a5eb43ccecbe2f47005",
-    "extractedAt": "2026-08-16T20:01:28.566Z"
+    "schemaVersion": 14,
+    "schemaFingerprint": "5a4ec8eb44843d76097f1c71f3747ff78e7c0e07011211853be04c73153ae962",
+    "extractedAt": "2026-08-16T20:05:51.159Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -4406,7 +4406,7 @@
     },
     "contact_relationships": {
       "mechanics": {
-        "present": true,
+        "present": false,
         "kind": "table",
         "definition": "CREATE TABLE contact_relationships (\n    -- Directed relationship from contact_id to related_contact_id, such as spouse, customer, or employer.\n    relationship_id    INTEGER PRIMARY KEY,\n    contact_id          INTEGER NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,\n    related_contact_id  INTEGER NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,\n    relationship_type   TEXT NOT NULL,\n    started_on           TEXT,\n    ended_on             TEXT,\n    notes                TEXT,\n    created_at_utc       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    CHECK (contact_id <> related_contact_id),\n    UNIQUE (contact_id, related_contact_id, relationship_type)\n) STRICT",
         "indexes": [
