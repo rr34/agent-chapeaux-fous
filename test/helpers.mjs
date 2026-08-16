@@ -67,6 +67,50 @@ export function temporaryDatabase() {
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT
     ) STRICT;
+    CREATE TABLE contacts (
+      contact_id INTEGER PRIMARY KEY,
+      contact_kind TEXT NOT NULL DEFAULT 'person',
+      display_name TEXT NOT NULL,
+      is_self INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      birth_date TEXT,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT
+    ) STRICT;
+    CREATE TABLE calendar_events (
+      calendar_event_id INTEGER PRIMARY KEY,
+      ical_uid TEXT,
+      ical_recurrence_id TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      location_text TEXT,
+      starts_at_utc TEXT NOT NULL,
+      ends_at_utc TEXT,
+      time_zone TEXT,
+      is_all_day INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'confirmed',
+      recurrence_rule TEXT,
+      source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT
+    ) STRICT;
+    CREATE TABLE calendar_event_exclusions (
+      calendar_event_id INTEGER NOT NULL REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
+      excluded_starts_at_utc TEXT NOT NULL,
+      PRIMARY KEY (calendar_event_id, excluded_starts_at_utc)
+    ) STRICT, WITHOUT ROWID;
+    CREATE TABLE todo_routines (
+      todo_routine_id INTEGER PRIMARY KEY,
+      todo_group_id INTEGER NOT NULL REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
+      text TEXT NOT NULL,
+      first_scheduled_at_utc TEXT NOT NULL,
+      first_due_at_utc TEXT,
+      time_zone TEXT NOT NULL,
+      recurrence_rule TEXT NOT NULL,
+      disabled_at_utc TEXT,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT
+    ) STRICT;
     CREATE TABLE personal_tasks (
       personal_task_id INTEGER PRIMARY KEY,
       todo_group_id INTEGER NOT NULL REFERENCES todo_groups(todo_group_id),
@@ -85,6 +129,12 @@ export function temporaryDatabase() {
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT
     ) STRICT;
+    CREATE UNIQUE INDEX personal_tasks_group_sequence
+      ON personal_tasks(todo_group_id, sequence)
+      WHERE sequence IS NOT NULL;
+    CREATE UNIQUE INDEX personal_tasks_routine_occurrence
+      ON personal_tasks(todo_routine_id, scheduled_at_utc)
+      WHERE todo_routine_id IS NOT NULL AND scheduled_at_utc IS NOT NULL;
     CREATE TABLE log_groups (
       log_group_id INTEGER PRIMARY KEY,
       name TEXT NOT NULL COLLATE NOCASE UNIQUE

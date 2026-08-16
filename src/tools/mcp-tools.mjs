@@ -79,6 +79,7 @@ export class McpToolManager {
     this.connections = new Map();
     this.oauthProviders = new Map();
     this.registeredTools = new Set();
+    this.serverTools = new Map();
     this.states = {};
     this.servers = {};
     this.registry = null;
@@ -99,7 +100,13 @@ export class McpToolManager {
 
     for (const [serverName, server] of Object.entries(config)) {
       if (server.enabled === false) {
-        this.states[serverName] = { ready: false, disabled: true, required: false };
+        this.states[serverName] = {
+          ready: false,
+          disabled: true,
+          required: false,
+          oauth: server.oauth?.enabled !== false && Boolean(server.oauth),
+          url: server.url,
+        };
         continue;
       }
       const required = server.required === true;
@@ -189,6 +196,9 @@ export class McpToolManager {
       },
     });
     this.registeredTools.add(modelName);
+    const serverTools = this.serverTools.get(serverName) ?? new Set();
+    serverTools.add(modelName);
+    this.serverTools.set(serverName, serverTools);
   }
 
   async beginOAuth(serverName) {
@@ -236,6 +246,35 @@ export class McpToolManager {
       };
       throw error;
     }
+    return this.states[serverName];
+  }
+
+  async disconnectOAuth(serverName) {
+    const server = this.servers[serverName];
+    const provider = this.oauthProviders.get(serverName);
+    if (!server || !provider) throw new Error(`Unknown OAuth integration: ${serverName}`);
+
+    const connection = this.connections.get(serverName);
+    this.connections.delete(serverName);
+    if (connection) {
+      await Promise.allSettled([
+        connection.client.close(),
+        connection.transport?.close?.(),
+      ]);
+    }
+    for (const modelName of this.serverTools.get(serverName) ?? []) {
+      this.registry.unregister(modelName);
+      this.registeredTools.delete(modelName);
+    }
+    this.serverTools.delete(serverName);
+    await provider.invalidateCredentials("all");
+    this.states[serverName] = {
+      ready: false,
+      required: server.required === true,
+      oauth: true,
+      authorization: "required",
+      url: server.url,
+    };
     return this.states[serverName];
   }
 

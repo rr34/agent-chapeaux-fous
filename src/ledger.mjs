@@ -218,6 +218,7 @@ export class Ledger {
         requestId: request.turnId,
         channel: requestChannel(request),
         submittedAtMs: request.occurredAtMs,
+        elapsedMs: terminal ? Math.max(0, terminal.occurredAtMs - request.occurredAtMs) : null,
         status,
         request: request.content || transcript?.content || "Voice request",
         response: response?.content || null,

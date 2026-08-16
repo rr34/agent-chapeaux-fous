@@ -14,6 +14,10 @@ export class ToolRegistry {
     return this;
   }
 
+  unregister(name) {
+    return this.tools.delete(name);
+  }
+
   list() {
     return [...this.tools.values()].map(({ execute: _execute, source, ...tool }) => ({ ...tool, source }));
   }

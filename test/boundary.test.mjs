@@ -49,11 +49,26 @@ test("base instructions are integration-neutral and route durable profile change
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
 });
 
-test("the web client renders every OAuth integration instead of selecting only one", () => {
+test("the web client provides a provider-neutral OAuth integrations manager", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  assert.match(document, /id="integrations"/);
+  assert.match(document, /id="integrations-button"/);
+  assert.match(document, /id="integrations-dialog"/);
   assert.match(application, /\.filter\(\(\[, integration\]\) => integration\.oauth\)/);
   assert.doesNotMatch(application, /\.find\(\(\[, integration\]\) => integration\.oauth\)/);
   assert.match(application, /for \(const \[name, integration\] of oauthEntries\)/);
+  assert.match(application, /oauth\/disconnect/);
+});
+
+test("the standalone client restores calendar and grouped to-do surfaces", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  assert.match(document, /data-view="calendar"/);
+  assert.match(document, /data-view="todos"/);
+  assert.match(application, /refreshCalendar/);
+  assert.match(application, /refreshTodos/);
+  assert.match(server, /\/api\/calendar-events/);
+  assert.match(server, /\/api\/todo-groups/);
+  assert.match(server, /\/api\/todos/);
 });

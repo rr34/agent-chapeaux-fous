@@ -66,8 +66,9 @@ The immediate system priorities are:
 - Large recordings live in **20. Agent media storage**; SQLite stores their
   metadata and relationships.
 - The current UI displays the application revision, model quota, request list,
-  and the literal event trace for a selected request. Its voice-first composer
-  and live request progress follow the interface requirements below.
+  literal event trace, calendar, grouped to-do list, and provider-neutral OAuth
+  integration manager. Its voice-first composer and live request progress
+  follow the interface requirements below.
 
 ## System boundary
 
@@ -222,9 +223,11 @@ a requirement for the current TLOM bearer-token connection.
 
 Nutrition selects that generic OAuth path at `https://nutrition-mcp.com/mcp`.
 It has no provider-specific authentication code or static access-token setting.
-The web client renders a separate connection control for every configured OAuth
-integration, and each integration's client registration and tokens are stored
-in its own private file.
+The web client keeps one general Integrations control in the header and renders
+every configured OAuth provider inside it. Each integration's client
+registration and tokens are stored in its own private file. Disconnect closes
+that MCP client, unregisters only its tools, and removes the local credential
+file contents; it does not claim remote provider revocation.
 
 ## Complete history and memory
 

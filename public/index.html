@@ -16,8 +16,8 @@
       <h1>Agent Slayer</h1>
     </div>
     <div class="runtime-group">
-      <div id="integrations" class="integrations" hidden></div>
       <div class="usage-controls">
+        <button id="integrations-button" class="integration" type="button">Integrations</button>
         <button id="usage" class="usage" type="button" title="Click to copy usage diagnostics">Model usage…</button>
         <button id="refresh" class="top-refresh" type="button">Refresh</button>
       </div>
@@ -26,6 +26,13 @@
   </header>
 
   <main>
+    <nav class="app-nav" aria-label="Agent Slayer sections">
+      <button class="nav-button active" type="button" data-view="agent">Agent</button>
+      <button class="nav-button" type="button" data-view="calendar">Calendar</button>
+      <button class="nav-button" type="button" data-view="todos">To-Do List</button>
+    </nav>
+
+    <div id="agent-view" class="app-view">
     <section class="composer" aria-labelledby="request-heading">
       <h2 id="request-heading" class="sr-only">New request</h2>
       <div class="voice-recorder">
@@ -54,6 +61,61 @@
       <div id="request-list" class="request-list"></div>
       <p id="empty" class="empty">No Agent Slayer requests yet.</p>
     </section>
+    </div>
+
+    <section id="calendar-view" class="app-view" hidden>
+      <header class="organizer-heading">
+        <div>
+          <p class="eyebrow">Authoritative agent calendar</p>
+          <h2 id="calendar-month-label">Calendar</h2>
+        </div>
+        <button id="new-event" type="button">New event</button>
+      </header>
+      <div class="calendar-toolbar organizer-panel">
+        <div class="calendar-navigation">
+          <button id="previous-month" class="secondary compact" type="button" aria-label="Previous month">‹</button>
+          <button id="today" class="secondary compact" type="button">Today</button>
+          <button id="next-month" class="secondary compact" type="button" aria-label="Next month">›</button>
+        </div>
+        <small id="calendar-time-zone"></small>
+      </div>
+      <div class="calendar-layout">
+        <section class="month-panel organizer-panel" aria-label="Month calendar">
+          <div class="weekday-row" aria-hidden="true">
+            <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+          </div>
+          <div id="calendar-grid" class="calendar-grid"></div>
+        </section>
+        <aside class="agenda-panel organizer-panel">
+          <p class="eyebrow">Selected day</p>
+          <h3 id="agenda-date">Today</h3>
+          <div id="agenda-list" class="agenda-list"></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="todos-view" class="app-view" hidden>
+      <header class="organizer-heading">
+        <div>
+          <p class="eyebrow">Personal commitments</p>
+          <h2>To-Do List</h2>
+        </div>
+        <button id="new-todo" type="button">New todo</button>
+      </header>
+      <div class="todo-toolbar organizer-panel">
+        <label for="todo-scope">Show</label>
+        <select id="todo-scope">
+          <option value="active">Active</option>
+          <option value="completed">Completed</option>
+          <option value="all">Everything</option>
+        </select>
+        <label for="todo-group-filter">Group</label>
+        <select id="todo-group-filter"><option value="">All groups</option></select>
+        <button id="new-todo-group" class="secondary compact" type="button">New group</button>
+        <span id="todo-count" class="toolbar-count"></span>
+      </div>
+      <section id="todo-list" class="todo-list" aria-live="polite"></section>
+    </section>
 
     <section id="trace-panel" class="trace-panel" hidden aria-labelledby="trace-heading">
       <div class="section-heading sticky">
@@ -69,6 +131,72 @@
       <div id="trace-events" class="trace-events"></div>
     </section>
   </main>
+
+  <dialog id="integrations-dialog">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">External tools</p><h2>Integrations</h2></div>
+      <button class="secondary compact dialog-close" type="button">Close</button>
+    </div>
+    <div id="integration-list" class="integration-list"></div>
+    <p class="muted">Disconnect removes Agent Slayer's local OAuth credentials and tools. It does not claim to revoke the provider-side grant.</p>
+  </dialog>
+
+  <dialog id="event-dialog" class="editor-dialog">
+    <form id="event-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Agent calendar</p><h2 id="event-dialog-title">New event</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <input id="event-id" type="hidden">
+      <input id="event-version" type="hidden">
+      <label>Title<input id="event-title" required maxlength="500"></label>
+      <label class="checkbox-row"><input id="event-all-day" type="checkbox"><span>All day</span></label>
+      <div class="editor-grid">
+        <label>Starts<input id="event-start" type="datetime-local" required></label>
+        <label>Ends<input id="event-end" type="datetime-local"></label>
+      </div>
+      <label>Location<input id="event-location" maxlength="1000"></label>
+      <label>Description<textarea id="event-description" rows="4"></textarea></label>
+      <label>Status<select id="event-status">
+        <option value="confirmed">Confirmed</option><option value="tentative">Tentative</option>
+        <option value="completed">Completed</option><option value="cancelled">Cancelled</option>
+      </select></label>
+      <p id="event-form-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Save event</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="todo-dialog" class="editor-dialog">
+    <form id="todo-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Personal todo</p><h2 id="todo-dialog-title">New todo</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <input id="todo-id" type="hidden">
+      <input id="todo-version" type="hidden">
+      <label>Task<textarea id="todo-text" rows="4" required maxlength="10000"></textarea></label>
+      <div class="editor-grid">
+        <label>Group<select id="todo-group" required></select></label>
+        <label>Sequence<input id="todo-sequence" type="number" min="1" step="1"></label>
+        <label>Scheduled<input id="todo-scheduled" type="datetime-local"></label>
+        <label>Due<input id="todo-due" type="datetime-local"></label>
+        <label>Status<select id="todo-status">
+          <option value="todo">To do</option><option value="complete">Complete</option>
+          <option value="ignore">Ignore</option><option value="archive">Archive</option>
+          <option value="ai_suggested">AI suggested</option>
+        </select></label>
+        <label>Routine RRULE<input id="todo-recurrence-rule" placeholder="FREQ=WEEKLY;BYDAY=MO"></label>
+      </div>
+      <p id="todo-form-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Save todo</button>
+      </footer>
+    </form>
+  </dialog>
 
   <dialog id="token-dialog">
     <form id="token-form" method="dialog">
@@ -88,13 +216,14 @@
         <span class="request-channel"></span>
         <span class="request-status"></span>
         <time></time>
+        <span class="request-elapsed" hidden></span>
+        <span class="request-usage" hidden></span>
       </div>
       <p class="user-request"></p>
       <div class="agent-response" hidden>
         <p></p>
         <button class="copy-response secondary compact" type="button">Copy response</button>
       </div>
-      <p class="request-usage" hidden></p>
       <p class="request-error" hidden></p>
       <div class="request-progress" hidden>
         <span class="progress-spinner" aria-hidden="true"></span>

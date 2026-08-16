@@ -7,6 +7,7 @@ import { loadConfig } from "./config.mjs";
 import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
+import { OrganizerStore } from "./organizer-store.mjs";
 import { authorizationScope, isInspectionRequest } from "./http-auth.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
@@ -27,6 +28,7 @@ const config = loadConfig();
 const identity = runtimeIdentity(config.repositoryRoot);
 const store = new SlayerDatabase(config.databasePath);
 const ledger = new Ledger(store);
+const organizer = store.status.ready ? new OrganizerStore(config.databasePath) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
@@ -233,6 +235,15 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, await mcp.beginOAuth(oauthStartMatch[1]));
       return;
     }
+    const oauthDisconnectMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)\/oauth\/disconnect$/.exec(url.pathname);
+    if (request.method === "POST" && oauthDisconnectMatch) {
+      sendJson(response, 200, {
+        integration: await mcp.disconnectOAuth(oauthDisconnectMatch[1]),
+        localCredentialsRemoved: true,
+        providerGrantRevoked: false,
+      });
+      return;
+    }
     if (!store.status.ready) {
       sendJson(response, 503, { error: store.status.reason });
       return;
@@ -269,6 +280,52 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/api/database/read") {
       sendJson(response, 200, store.read(await readJson(request)));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/calendar-events") {
+      sendJson(response, 200, {
+        events: organizer.listCalendar({
+          from: url.searchParams.get("from"),
+          to: url.searchParams.get("to"),
+        }),
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/calendar-events") {
+      sendJson(response, 201, { event: organizer.createCalendar(await readJson(request)) });
+      return;
+    }
+    const calendarMatch = /^\/api\/calendar-events\/(\d+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && calendarMatch) {
+      sendJson(response, 200, {
+        event: organizer.updateCalendar(calendarMatch[1], await readJson(request)),
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/todos") {
+      sendJson(response, 200, {
+        todos: organizer.listTodos({
+          scope: url.searchParams.get("scope") || "active",
+          limit: url.searchParams.get("limit") || 500,
+        }),
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/todo-groups") {
+      sendJson(response, 200, { groups: organizer.listTodoGroups() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/todo-groups") {
+      sendJson(response, 201, { group: organizer.createTodoGroup(await readJson(request)) });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/todos") {
+      sendJson(response, 201, { todo: organizer.createTodo(await readJson(request)) });
+      return;
+    }
+    const todoMatch = /^\/api\/todos\/(\d+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && todoMatch) {
+      sendJson(response, 200, { todo: organizer.updateTodo(todoMatch[1], await readJson(request)) });
       return;
     }
     const integrationProblem = mcp.requiredProblem();
@@ -309,6 +366,7 @@ async function shutdown() {
   transcriber.close();
   await modelTransport.close();
   await mcp.close();
+  organizer?.close();
   store.close();
 }
 

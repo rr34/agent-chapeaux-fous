@@ -161,6 +161,7 @@ test("legacy voice-service requests remain visible without rewriting their event
     requestId: "legacy-request",
     channel: "web",
     submittedAtMs: ledger.trace("legacy-request")[0].occurredAtMs,
+    elapsedMs: Math.max(0, ledger.trace("legacy-request")[1].occurredAtMs - ledger.trace("legacy-request")[0].occurredAtMs),
     status: "complete",
     request: "Add the old request",
     response: "The old response",

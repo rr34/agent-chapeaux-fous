@@ -71,3 +71,22 @@ test("request IDs resolve from an unambiguous visible prefix", () => {
     temporary.cleanup();
   }
 });
+
+test("completed requests report elapsed time from receipt through the terminal event", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const created = ledger.createRequest({ text: "Time this request" });
+    const received = ledger.trace(created.requestId)[0];
+    ledger.finish(received, "Done");
+
+    const events = ledger.trace(created.requestId);
+    const request = ledger.recentRequests()[0];
+    assert.equal(request.elapsedMs, events.at(-1).occurredAtMs - events[0].occurredAtMs);
+    assert.equal(request.progress, undefined);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});

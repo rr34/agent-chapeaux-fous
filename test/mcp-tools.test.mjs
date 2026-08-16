@@ -197,6 +197,21 @@ test("an OAuth MCP is unavailable until the callback completes, then its tools a
   assert.equal(manager.health().tlom.authorization, "connected");
   assert.deepEqual(await registry.execute("remote_tlom_clock_update", { id: 42 }), { updated: true });
   assert.deepEqual(calls, [{ name: "clock_update", arguments: { id: 42 } }]);
+  const disconnected = await manager.disconnectOAuth("tlom");
+  assert.equal(disconnected.authorization, "required");
+  assert.match(manager.requiredProblem(), /OAuth authorization is required/);
+  assert.equal(registry.list().length, 0);
+  assert.equal(await manager.oauthProviders.get("tlom").tokens(), undefined);
+  await assert.rejects(
+    registry.execute("remote_tlom_clock_update", { id: 42 }),
+    /Unknown tool/,
+  );
+  const restarted = await manager.beginOAuth("tlom");
+  await manager.finishOAuth("tlom", {
+    code: "authorization-code",
+    state: new URL(restarted.authorizationUrl).searchParams.get("state"),
+  });
+  assert.deepEqual(await registry.execute("remote_tlom_clock_update", { id: 43 }), { updated: true });
   await manager.close();
 });
 

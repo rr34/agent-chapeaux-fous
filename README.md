@@ -40,7 +40,8 @@ npm start
 ```
 
 Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and
-stores it only in that browser.
+stores it only in that browser. The same client includes the Agent request
+feed, the existing calendar, and the grouped to-do list.
 
 `.env` intentionally lives beside `.env.example` in the repository root. It is
 ignored by Git and loaded by the process before configuration is evaluated.
@@ -140,7 +141,8 @@ MCP integrations with an `oauth` block use the standard MCP authorization-code
 flow with OAuth discovery, dynamic client registration, PKCE, and refresh
 tokens. Set `SLAYER_PUBLIC_URL` to the origin where a browser can reach Agent
 Slayer, start the service, then use that integration's **Connect** button in the
-web header. Each configured OAuth integration has its own button and callback:
+web client's provider-neutral **Integrations** manager. Each configured OAuth
+integration has its own status, action, and callback:
 
 ```text
 <SLAYER_PUBLIC_URL>/api/integrations/<server-name>/oauth/callback
@@ -151,6 +153,12 @@ OAuth client registrations and tokens are stored as mode `0600` files under
 `0700`. Set `SLAYER_MCP_OAUTH_ROOT` to override it. Nutrition selects this
 generic OAuth path and does not use a `NUTRITION_ACCESS_TOKEN`; connect it in the
 web interface and sign in to Nutrition there.
+
+**Disconnect** immediately closes the MCP client, removes that provider's tools
+from the callable registry, and deletes Agent Slayer's local OAuth registration
+and tokens. This is intentionally described as a local disconnect: it does not
+claim that the remote provider revoked its own grant when no revocation endpoint
+is available.
 
 TLOM currently uses its separately issued `TLOM_ACCESS_TOKEN` and is marked as
 a required integration. Until that connection succeeds, health is not ready
