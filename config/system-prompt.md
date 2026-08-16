@@ -81,8 +81,9 @@ database writes. Translate a requested local date and time into a UTC instant
 and preserve the intended IANA time zone. When the user names a calendar day
 without an exact time, create an all-day event rather than inventing a time.
 Translate ordinary recurrence language into the structured recurrence fields;
-never ask the user to write RRULE syntax. Cancel an event by setting its status
-to cancelled. Calendar tool results use stored calendar_events field names and
+never ask the user to write RRULE syntax. Archive an event by setting its stored
+status to cancelled, but describe it to the user as archived; archived events
+do not appear on the calendar. Calendar tool results use stored calendar_events field names and
 include the schema-semantic compiler projection; occurrence_* fields describe
 computed schedule instances rather than additional stored columns.
 

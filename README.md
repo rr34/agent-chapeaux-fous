@@ -41,7 +41,8 @@ npm start
 
 Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and
 stores it only in that browser. The same client includes the Agent request
-feed, the existing calendar, and the grouped to-do list. A task's Schedule
+feed, the calendar, the grouped to-do list, and grouped personal logs with
+native entry creation. A task's Schedule
 button opens the calendar in day-pick mode; selecting a day writes the task's
 scheduled date as an all-day task. Timed tasks remain available through the
 to-do editor and agent tools.
@@ -124,7 +125,9 @@ to the model; UI transport objects remain an independent browser concern.
   path. Event records retain exact `calendar_events` column names and compiler
   semantics, while range reads identify expanded recurrence and birthday
   instances as computed occurrences. All-day scheduling is explicit and
-  recurrence is supplied as structured concepts rather than raw RRULE.
+  recurrence is supplied as structured concepts rather than raw RRULE. The
+  product-facing event states are Active and Archived; iCalendar status values
+  remain an internal storage and interoperability detail.
 - `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update`
   provide the native grouped personal-log path. Each entry keeps complete
   natural-language content with optional numeric and unit projections for

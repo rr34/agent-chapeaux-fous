@@ -27,6 +27,7 @@ const elements = {
   agentView: document.querySelector("#agent-view"),
   calendarView: document.querySelector("#calendar-view"),
   todosView: document.querySelector("#todos-view"),
+  logsView: document.querySelector("#logs-view"),
   calendarMonthLabel: document.querySelector("#calendar-month-label"),
   calendarTimeZone: document.querySelector("#calendar-time-zone"),
   calendarGrid: document.querySelector("#calendar-grid"),
@@ -84,6 +85,23 @@ const elements = {
   todoRepeatUntil: document.querySelector("#todo-repeat-until"),
   todoRepeatSummary: document.querySelector("#todo-repeat-summary"),
   todoFormError: document.querySelector("#todo-form-error"),
+  logGroupFilter: document.querySelector("#log-group-filter"),
+  logTrackerFilter: document.querySelector("#log-tracker-filter"),
+  logCount: document.querySelector("#log-count"),
+  logList: document.querySelector("#log-list"),
+  newLogEntry: document.querySelector("#new-log-entry"),
+  logDialog: document.querySelector("#log-dialog"),
+  logForm: document.querySelector("#log-form"),
+  logTracker: document.querySelector("#log-tracker"),
+  newLogTrackerFields: document.querySelector("#new-log-tracker-fields"),
+  logTrackerName: document.querySelector("#log-tracker-name"),
+  logGroupName: document.querySelector("#log-group-name"),
+  logGroupOptions: document.querySelector("#log-group-options"),
+  logContent: document.querySelector("#log-content"),
+  logNumber: document.querySelector("#log-number"),
+  logUnit: document.querySelector("#log-unit"),
+  logOccurred: document.querySelector("#log-occurred"),
+  logFormError: document.querySelector("#log-form-error"),
 };
 
 let accessToken = localStorage.getItem("agent-slayer-token") || "";
@@ -105,6 +123,8 @@ let displayedTodos = [];
 let todoGroups = [];
 let loadedTodoRecurrenceTimeZone = null;
 let todoRecurrenceDirty = false;
+let logTrackers = [];
+let logEntries = [];
 const requestNodes = new Map();
 
 function authHeaders(extra = {}) {
@@ -579,9 +599,11 @@ function switchView(view) {
   elements.agentView.hidden = view !== "agent";
   elements.calendarView.hidden = view !== "calendar";
   elements.todosView.hidden = view !== "todos";
+  elements.logsView.hidden = view !== "logs";
   for (const button of elements.navButtons) button.classList.toggle("active", button.dataset.view === view);
   if (view === "calendar") void refreshCalendar();
   if (view === "todos") void refreshTodos();
+  if (view === "logs") void refreshLogs();
 }
 
 async function refreshCalendar() {
@@ -800,7 +822,7 @@ function openEventEditor(calendarEvent = null) {
     const start = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), selectedCalendarDate.getDate(), 9);
     elements.eventStart.value = localDateTimeInput(start);
     elements.eventEnd.value = localDateTimeInput(new Date(start.getTime() + 3_600_000));
-    elements.eventStatus.value = "confirmed";
+    elements.eventStatus.value = "active";
   }
   elements.eventDialog.showModal();
   elements.eventTitle.focus();
@@ -1124,6 +1146,200 @@ async function renameTodoGroup(groupId, currentName) {
   }
 }
 
+async function refreshLogs() {
+  try {
+    const [trackerBody, entryBody] = await Promise.all([
+      api("/api/log-trackers?limit=500"),
+      api("/api/log-entries?limit=500"),
+    ]);
+    logTrackers = trackerBody.trackers;
+    logEntries = entryBody.entries;
+    populateLogFilters();
+    renderLogs();
+  } catch (error) {
+    elements.logList.replaceChildren(node("p", "empty", error.message || "Logs unavailable."));
+  }
+}
+
+function logGroups() {
+  const groups = new Map();
+  for (const tracker of logTrackers) groups.set(tracker.groupId, tracker.groupName);
+  return [...groups].sort((left, right) => left[1].localeCompare(right[1]));
+}
+
+function populateLogFilters() {
+  const selectedGroup = elements.logGroupFilter.value;
+  const selectedTracker = elements.logTrackerFilter.value;
+  elements.logGroupFilter.replaceChildren(node("option", "", "All groups"));
+  elements.logGroupFilter.firstElementChild.value = "";
+  for (const [groupId, name] of logGroups()) {
+    const option = node("option", "", name);
+    option.value = String(groupId);
+    elements.logGroupFilter.append(option);
+  }
+  elements.logGroupFilter.value = selectedGroup;
+  if (!elements.logGroupFilter.value) elements.logGroupFilter.value = "";
+  populateLogTrackerFilter(selectedTracker);
+}
+
+function populateLogTrackerFilter(selectedTracker = elements.logTrackerFilter.value) {
+  const groupId = Number(elements.logGroupFilter.value) || null;
+  const visibleTrackers = logTrackers.filter((tracker) => groupId === null || tracker.groupId === groupId);
+  elements.logTrackerFilter.replaceChildren(node("option", "", "All trackers"));
+  elements.logTrackerFilter.firstElementChild.value = "";
+  for (const tracker of visibleTrackers) {
+    const option = node("option", "", tracker.name);
+    option.value = String(tracker.id);
+    elements.logTrackerFilter.append(option);
+  }
+  elements.logTrackerFilter.value = selectedTracker;
+  if (!elements.logTrackerFilter.value) elements.logTrackerFilter.value = "";
+}
+
+function renderLogs() {
+  elements.logList.replaceChildren();
+  const selectedGroupId = Number(elements.logGroupFilter.value) || null;
+  const selectedTrackerId = Number(elements.logTrackerFilter.value) || null;
+  const visibleTrackers = logTrackers.filter((tracker) => (
+    (selectedGroupId === null || tracker.groupId === selectedGroupId)
+    && (selectedTrackerId === null || tracker.id === selectedTrackerId)
+  ));
+  const visibleTrackerIds = new Set(visibleTrackers.map(({ id }) => id));
+  const visibleEntries = logEntries.filter(({ trackerId }) => visibleTrackerIds.has(trackerId));
+  const totalEntries = visibleTrackers.reduce((total, tracker) => total + tracker.entryCount, 0);
+  elements.logCount.textContent = `${totalEntries} ${totalEntries === 1 ? "entry" : "entries"} · ${visibleTrackers.length} ${visibleTrackers.length === 1 ? "tracker" : "trackers"}`;
+  if (visibleTrackers.length === 0) {
+    elements.logList.append(node("p", "empty", "No trackers in this view. Add an entry to create one."));
+    return;
+  }
+
+  const grouped = new Map();
+  for (const tracker of visibleTrackers) {
+    const group = grouped.get(tracker.groupId) ?? { name: tracker.groupName, trackers: [] };
+    group.trackers.push(tracker);
+    grouped.set(tracker.groupId, group);
+  }
+  for (const [, group] of grouped) {
+    const section = node("section", "log-group-section");
+    const heading = node("header", "log-group-heading");
+    heading.append(
+      node("h3", "", group.name),
+      node("span", "", `${group.trackers.length} ${group.trackers.length === 1 ? "tracker" : "trackers"}`),
+    );
+    const cards = node("div", "log-tracker-grid");
+    for (const tracker of group.trackers) {
+      const card = node("article", "log-tracker-card");
+      const cardHeading = node("header", "log-tracker-heading");
+      const headingText = node("div");
+      headingText.append(node("h4", "", tracker.name));
+      const trackerMeta = node("p", "log-tracker-meta");
+      trackerMeta.textContent = `${tracker.entryCount} ${tracker.entryCount === 1 ? "entry" : "entries"}`
+        + (tracker.defaultUnit ? ` · default ${tracker.defaultUnit}` : "");
+      headingText.append(trackerMeta);
+      const add = node("button", "secondary compact", "Log entry");
+      add.type = "button";
+      add.addEventListener("click", () => openLogEditor(tracker.id));
+      cardHeading.append(headingText, add);
+      const entries = visibleEntries.filter(({ trackerId }) => trackerId === tracker.id);
+      const entryList = node("div", "log-entry-list");
+      if (entries.length === 0) {
+        entryList.append(node("p", "empty", "No recent entries."));
+      } else {
+        for (const entry of entries) {
+          const item = node("article", "log-entry");
+          const metadata = node("div", "log-entry-meta");
+          metadata.append(node("time", "", formatDisplayDate(entry.occurredAtUtc)));
+          if (entry.numberValue !== null) {
+            metadata.append(node("span", "log-value", `${entry.numberValue}${entry.unit ? ` ${entry.unit}` : ""}`));
+          }
+          item.append(metadata, node("p", "", entry.contentText));
+          entryList.append(item);
+        }
+      }
+      card.append(cardHeading, entryList);
+      cards.append(card);
+    }
+    section.append(heading, cards);
+    elements.logList.append(section);
+  }
+}
+
+function populateLogTrackerEditor(selectedTrackerId = null) {
+  elements.logTracker.replaceChildren();
+  for (const [groupId, groupName] of logGroups()) {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = groupName;
+    for (const tracker of logTrackers.filter((item) => item.groupId === groupId)) {
+      const option = node("option", "", tracker.name);
+      option.value = String(tracker.id);
+      optgroup.append(option);
+    }
+    elements.logTracker.append(optgroup);
+  }
+  const newOption = node("option", "", "Create a new tracker…");
+  newOption.value = "new";
+  elements.logTracker.append(newOption);
+  elements.logTracker.value = selectedTrackerId == null ? "new" : String(selectedTrackerId);
+  if (!elements.logTracker.value) elements.logTracker.value = "new";
+
+  elements.logGroupOptions.replaceChildren();
+  for (const [, name] of logGroups()) {
+    const option = document.createElement("option");
+    option.value = name;
+    elements.logGroupOptions.append(option);
+  }
+  updateLogTrackerEditor();
+}
+
+function updateLogTrackerEditor() {
+  const isNew = elements.logTracker.value === "new";
+  elements.newLogTrackerFields.hidden = !isNew;
+  elements.logTrackerName.required = isNew;
+  elements.logGroupName.required = isNew;
+  const tracker = logTrackers.find(({ id }) => id === Number(elements.logTracker.value));
+  elements.logUnit.placeholder = tracker?.defaultUnit ? `Defaults to ${tracker.defaultUnit}` : "";
+}
+
+function openLogEditor(trackerId = null) {
+  elements.logForm.reset();
+  elements.logFormError.textContent = "";
+  elements.logOccurred.value = localDateTimeInput(new Date());
+  elements.logGroupName.value = "General";
+  populateLogTrackerEditor(trackerId);
+  elements.logDialog.showModal();
+  (trackerId == null ? elements.logTrackerName : elements.logContent).focus();
+}
+
+async function saveLogEntry(event) {
+  event.preventDefault();
+  elements.logFormError.textContent = "";
+  const submit = elements.logForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  try {
+    const creatingTracker = elements.logTracker.value === "new";
+    const payload = {
+      trackerId: creatingTracker ? null : Number(elements.logTracker.value),
+      trackerName: creatingTracker ? elements.logTrackerName.value : null,
+      groupName: creatingTracker ? elements.logGroupName.value : null,
+      contentText: elements.logContent.value,
+      numberValue: elements.logNumber.value === "" ? null : Number(elements.logNumber.value),
+      unit: elements.logUnit.value || null,
+      occurredAtUtc: inputToIso(elements.logOccurred.value),
+    };
+    await api("/api/log-entries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    elements.logDialog.close();
+    await refreshLogs();
+  } catch (error) {
+    elements.logFormError.textContent = error.message || "Could not save the log entry.";
+  } finally {
+    submit.disabled = false;
+  }
+}
+
 elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = elements.text.value.trim();
@@ -1293,6 +1509,14 @@ for (const control of [
   if (control.matches('input[type="number"]')) control.addEventListener("input", recurrenceChanged);
 }
 elements.todoScheduled.addEventListener("change", updateTodoRecurrenceEditor);
+elements.newLogEntry.addEventListener("click", () => openLogEditor());
+elements.logGroupFilter.addEventListener("change", () => {
+  populateLogTrackerFilter("");
+  renderLogs();
+});
+elements.logTrackerFilter.addEventListener("change", renderLogs);
+elements.logTracker.addEventListener("change", updateLogTrackerEditor);
+elements.logForm.addEventListener("submit", saveLogEntry);
 for (const button of document.querySelectorAll(".dialog-close")) {
   button.addEventListener("click", () => button.closest("dialog")?.close());
 }

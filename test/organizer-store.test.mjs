@@ -13,7 +13,7 @@ test("calendar events use the existing tables with optimistic concurrency", () =
       endsAtUtc: "2026-08-18T20:00:00.000Z",
       timeZone: "America/New_York",
     });
-    assert.equal(created.status, "confirmed");
+    assert.equal(created.status, "active");
     assert.equal(organizer.listCalendar({
       from: "2026-08-01T00:00:00.000Z",
       to: "2026-09-01T00:00:00.000Z",
@@ -22,9 +22,14 @@ test("calendar events use the existing tables with optimistic concurrency", () =
     const updated = organizer.updateCalendar(created.id, {
       version: created.version,
       title: "Dental cleaning",
-      status: "tentative",
+      status: "archived",
     });
     assert.equal(updated.title, "Dental cleaning");
+    assert.equal(updated.status, "archived");
+    assert.equal(organizer.listCalendar({
+      from: "2026-08-01T00:00:00.000Z",
+      to: "2026-09-01T00:00:00.000Z",
+    }).some(({ id }) => id === created.id), false);
     assert.throws(
       () => organizer.updateCalendar(created.id, { version: created.version, title: "Stale" }),
       (error) => error instanceof OrganizerInputError && error.statusCode === 409,
@@ -63,6 +68,61 @@ test("grouped and recurring todos use the existing task tables", () => {
     assert.ok(generated);
     assert.equal(generated.isAllDay, true);
     assert.ok(new Date(generated.scheduledAtUtc) > new Date(created.scheduledAtUtc));
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
+test("personal log entries and grouped trackers are available to the web organizer", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const first = organizer.createLogEntry({
+      trackerName: "Weight",
+      groupName: "Health",
+      contentText: "72.1 kg after dinner",
+      numberValue: 72.1,
+      unit: "kg",
+      occurredAtUtc: "2026-08-16T00:30:00.000Z",
+    });
+    assert.equal(first.trackerName, "Weight");
+    assert.equal(first.groupName, "Health");
+    assert.equal(first.source, "tailnet_web");
+    assert.equal(first.numberValue, 72.1);
+
+    const second = organizer.createLogEntry({
+      trackerId: first.trackerId,
+      contentText: "71.8 kg before breakfast",
+      numberValue: 71.8,
+      unit: null,
+      occurredAtUtc: "2026-08-16T08:00:00.000Z",
+    });
+    assert.equal(second.unit, "kg");
+    assert.deepEqual(
+      organizer.listLogEntries({ trackerId: first.trackerId }).map(({ contentText }) => contentText),
+      ["71.8 kg before breakfast", "72.1 kg after dinner"],
+    );
+
+    const trackers = organizer.listLogTrackers();
+    assert.equal(trackers.length, 1);
+    assert.equal(trackers[0].entryCount, 2);
+    assert.equal(trackers[0].lastLoggedAtUtc, "2026-08-16T08:00:00.000Z");
+    assert.throws(
+      () => organizer.createLogEntry({
+        trackerName: "Mood",
+        contentText: "Calm",
+        numberValue: null,
+        unit: "points",
+      }),
+      (error) => error instanceof OrganizerInputError && /requires a numeric value/.test(error.message),
+    );
+    assert.equal(organizer.database.prepare(
+      "SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_log.created'",
+    ).get().count, 2);
+    assert.equal(organizer.database.prepare(
+      "SELECT COUNT(*) AS count FROM log_entries WHERE source_event_id IS NOT NULL",
+    ).get().count, 2);
   } finally {
     organizer.close();
     temporary.cleanup();

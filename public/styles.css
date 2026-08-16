@@ -76,7 +76,7 @@ section { margin-bottom: 1rem; }
 
 .app-nav {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 5px;
   margin-bottom: 1rem;
   padding: 5px;
@@ -84,7 +84,7 @@ section { margin-bottom: 1rem; }
   border-radius: 15px;
   background: var(--panel);
 }
-.nav-button { color: var(--muted); background: transparent; }
+.nav-button { min-width: 0; padding-inline: .5rem; color: var(--muted); background: transparent; }
 .nav-button:hover { background: var(--panel-raised); }
 .nav-button.active { color: var(--text); background: var(--panel-raised); box-shadow: 0 3px 12px rgba(0, 0, 0, .2); }
 
@@ -183,7 +183,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .runtime.not-ready, .usage.not-ready, .integration.not-ready { color: var(--bad); }
 .integration:disabled { cursor: default; opacity: 1; }
 
-.organizer-heading, .calendar-toolbar, .todo-toolbar, .dialog-heading, .editor-actions {
+.organizer-heading, .calendar-toolbar, .todo-toolbar, .log-toolbar, .dialog-heading, .editor-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -192,7 +192,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .organizer-heading { margin: .25rem .15rem .75rem; }
 .organizer-heading h2 { margin: 0; font-size: clamp(1.5rem, 5vw, 2.1rem); letter-spacing: -.035em; }
 .organizer-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 15px; }
-.calendar-toolbar, .todo-toolbar { margin-bottom: 1rem; padding: .65rem .8rem; }
+.calendar-toolbar, .todo-toolbar, .log-toolbar { margin-bottom: 1rem; padding: .65rem .8rem; }
 .calendar-navigation { display: flex; align-items: center; gap: .45rem; }
 .calendar-toolbar small { color: var(--muted); }
 .calendar-schedule-mode { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding: .8rem; border-color: rgba(112, 167, 255, .6); background: rgba(112, 167, 255, .09); }
@@ -241,9 +241,9 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .agenda-item span { margin-top: .25rem; color: var(--muted); font-size: .74rem; }
 .agenda-item.todo { border-left: 3px solid #70a7ff; }
 .agenda-empty { color: var(--muted); font-size: .83rem; line-height: 1.45; }
-.todo-toolbar { justify-content: flex-start; }
-.todo-toolbar label { color: var(--muted); font-size: .8rem; font-weight: 750; }
-.todo-toolbar select, .editor-dialog select { width: auto; padding: .6rem; color: var(--text); background: #0e1113; border: 1px solid var(--line); border-radius: 10px; }
+.todo-toolbar, .log-toolbar { justify-content: flex-start; }
+.todo-toolbar label, .log-toolbar label { color: var(--muted); font-size: .8rem; font-weight: 750; }
+.todo-toolbar select, .log-toolbar select, .editor-dialog select { width: auto; padding: .6rem; color: var(--text); background: #0e1113; border: 1px solid var(--line); border-radius: 10px; }
 .toolbar-count { margin-left: auto; color: var(--muted); font-size: .8rem; }
 .todo-list { display: grid; gap: .65rem; }
 .todo-group-section { margin: 0; }
@@ -264,6 +264,26 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-pill.overdue { color: var(--bad); }
 .todo-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 3px; }
 
+.log-list { display: grid; gap: 1rem; }
+.log-group-section { margin: 0; }
+.log-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: .35rem .15rem .55rem; }
+.log-group-heading h3 { margin: 0; font-size: 1.05rem; }
+.log-group-heading span { color: var(--muted); font-size: .75rem; }
+.log-tracker-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: .7rem; }
+.log-tracker-card { min-width: 0; padding: .85rem; background: #101316; border: 1px solid var(--line); border-radius: 13px; }
+.log-tracker-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; padding-bottom: .7rem; border-bottom: 1px solid var(--line); }
+.log-tracker-heading h4 { margin: 0; font-size: 1rem; }
+.log-tracker-meta { margin: .22rem 0 0; color: var(--muted); font-size: .72rem; }
+.log-entry-list { display: grid; }
+.log-entry-list > .empty { margin: 1rem 0 .2rem; }
+.log-entry { padding: .75rem 0; border-bottom: 1px solid rgba(48, 56, 64, .72); }
+.log-entry:last-child { padding-bottom: 0; border-bottom: 0; }
+.log-entry p { margin: .38rem 0 0; line-height: 1.42; white-space: pre-wrap; }
+.log-entry-meta { display: flex; align-items: center; justify-content: space-between; gap: .6rem; color: var(--muted); font-size: .72rem; }
+.log-value { flex: 0 0 auto; padding: 3px 7px; color: var(--good); background: rgba(83, 200, 137, .1); border-radius: 999px; font-weight: 800; }
+.field-hint { color: #717a80; font-weight: 500; }
+#log-tracker { width: 100%; }
+
 .dialog-heading { align-items: flex-start; margin-bottom: .9rem; }
 .integration-list { display: grid; gap: .55rem; margin: 1rem 0; }
 .integration-card { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem; background: #101316; border: 1px solid var(--line); border-radius: 11px; }
@@ -283,6 +303,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .recurrence-editor { padding: .8rem; background: #101316; border: 1px solid var(--line); border-radius: 11px; }
 .recurrence-toggle { gap: .55rem !important; color: var(--text) !important; font-size: .9rem !important; }
 .recurrence-fields { display: grid; gap: .75rem; margin-top: .8rem; }
+.recurrence-editor [hidden] { display: none !important; }
 .recurrence-every { display: grid; grid-template-columns: auto 5.5rem minmax(8rem, 1fr); align-items: center; gap: .55rem; }
 .recurrence-weekdays { display: flex; flex-wrap: wrap; gap: .45rem .8rem; margin: 0; padding: .65rem .75rem; border: 1px solid var(--line); border-radius: 9px; }
 .recurrence-weekdays legend { padding: 0 .25rem; color: var(--muted); font-size: .75rem; font-weight: 750; }
@@ -370,7 +391,7 @@ dialog h2, dialog p { margin-bottom: 0; }
   .day-more { display: none; }
   .editor-grid { grid-template-columns: 1fr; }
   .recurrence-ending { grid-template-columns: 1fr; }
-  .todo-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .todo-toolbar, .log-toolbar { align-items: stretch; flex-wrap: wrap; }
   .toolbar-count { width: 100%; margin-left: 0; }
   .todo-card { grid-template-columns: auto minmax(0, 1fr); }
   .todo-actions { grid-column: 2; }

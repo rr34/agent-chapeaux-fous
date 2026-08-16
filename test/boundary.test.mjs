@@ -62,7 +62,16 @@ test("the todo editor builds recurrence without exposing an RRULE input", () => 
   assert.match(document, /id="todo-repeat-enabled"/);
   assert.match(document, /id="todo-repeat-frequency"/);
   assert.match(document, /id="todo-repeat-weekdays"/);
+  assert.match(document, /id="todo-repeat-fields" class="recurrence-fields" hidden/);
   assert.doesNotMatch(document, /Routine RRULE|todo-recurrence-rule/);
+});
+
+test("calendar controls use simple visibility states and 24-hour datetime locales", () => {
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const status = /<select id="event-status">([\s\S]*?)<\/select>/.exec(document)?.[1] ?? "";
+  assert.match(status, /<option value="active">Active<\/option><option value="archived">Archived<\/option>/);
+  assert.doesNotMatch(status, />Confirmed<|>Tentative<|>Completed<|>Cancelled</);
+  assert.equal((document.match(/type="datetime-local" lang="en-GB"/g) ?? []).length, 5);
 });
 
 test("the web client provides a provider-neutral OAuth integrations manager", () => {
@@ -76,16 +85,18 @@ test("the web client provides a provider-neutral OAuth integrations manager", ()
   assert.match(application, /oauth\/disconnect/);
 });
 
-test("the standalone client restores calendar and grouped to-do surfaces", () => {
+test("the standalone client restores calendar, grouped to-do, and personal log surfaces", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /data-view="calendar"/);
   assert.match(document, /data-view="todos"/);
+  assert.match(document, /data-view="logs"/);
   assert.match(document, /<span>Mon<\/span><span>Tue<\/span><span>Wed<\/span><span>Thu<\/span><span>Fri<\/span><span>Sat<\/span><span>Sun<\/span>/);
   assert.ok(document.indexOf('class="agenda-panel') < document.indexOf('class="month-panel'));
   assert.match(application, /refreshCalendar/);
   assert.match(application, /refreshTodos/);
+  assert.match(application, /refreshLogs/);
   assert.match(application, /todo-group-heading/);
   assert.match(application, /for \(const \[groupId, group\] of groupedTodos\)/);
   assert.match(document, /id="todo-new-group"/);
@@ -106,6 +117,8 @@ test("the standalone client restores calendar and grouped to-do surfaces", () =>
   assert.match(server, /todoGroupReorderMatch/);
   assert.match(server, /todoGroupArchiveMatch/);
   assert.match(server, /\/api\/todos/);
+  assert.match(server, /\/api\/log-trackers/);
+  assert.match(server, /\/api\/log-entries/);
 });
 
 test("the request composer keeps Shift+Enter for newlines and submits other Enter shortcuts", () => {

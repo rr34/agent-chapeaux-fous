@@ -8,7 +8,8 @@ const { rrulestr } = rrulePackage;
 const dayMilliseconds = 86_400_000;
 const defaultCalendarTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-const calendarStatuses = new Set(["tentative", "confirmed", "cancelled", "completed"]);
+const calendarStatuses = new Set(["active", "archived"]);
+const visibleCalendarStorageStatuses = ["tentative", "confirmed"];
 const todoStatuses = new Set(["todo", "complete", "ignore", "archive", "ai_suggested"]);
 
 export class OrganizerInputError extends Error {
@@ -56,6 +57,14 @@ function integer(value, label, { fallback = 0, minimum = -100, maximum = 100 } =
 function optionalPositiveInteger(value, label) {
   if (value == null || value === "") return null;
   return integer(value, label, { minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
+}
+
+function optionalFiniteNumber(value, label) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new OrganizerInputError(`${label} must be a finite number.`);
+  }
+  return value;
 }
 
 function identifier(value, label) {
@@ -231,7 +240,7 @@ function publicCalendarEvent(row) {
     endsAtUtc: row.ends_at_utc,
     timeZone: row.time_zone,
     isAllDay: Boolean(row.is_all_day),
-    status: row.status,
+    status: visibleCalendarStorageStatuses.includes(row.status) ? "active" : "archived",
     recurrenceRule: row.recurrence_rule,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
@@ -290,7 +299,7 @@ function birthdayOccurrence(contact, year, fromUtc, toUtc) {
     endsAtUtc: end.toISOString(),
     timeZone: defaultCalendarTimeZone,
     isAllDay: true,
-    status: "confirmed",
+    status: "active",
     recurrenceRule: null,
     sourceKind: "contact_birthday",
     age,
@@ -333,6 +342,42 @@ function publicTodoGroup(row) {
     id: row.todo_group_id,
     name: row.name,
     archivedAtUtc: row.archived_at_utc,
+    createdAtUtc: row.created_at_utc,
+    updatedAtUtc: row.updated_at_utc,
+  };
+}
+
+function publicLogTracker(row) {
+  if (!row) return null;
+  return {
+    id: row.tracker_id,
+    groupId: row.log_group_id,
+    groupName: row.group_name,
+    groupArchivedAtUtc: row.group_archived_at_utc ?? null,
+    name: row.name,
+    defaultUnit: row.default_unit,
+    archivedAtUtc: row.archived_at_utc,
+    entryCount: Number(row.entry_count ?? 0),
+    lastLoggedAtUtc: row.last_logged_at_utc ?? null,
+    createdAtUtc: row.created_at_utc,
+    updatedAtUtc: row.updated_at_utc,
+  };
+}
+
+function publicLogEntry(row) {
+  if (!row) return null;
+  return {
+    id: row.log_entry_id,
+    trackerId: row.tracker_id,
+    trackerName: row.tracker_name,
+    groupId: row.log_group_id,
+    groupName: row.group_name,
+    occurredAtUtc: row.occurred_at_utc,
+    contentText: row.content_text,
+    numberValue: row.number_value,
+    unit: row.unit,
+    source: row.source,
+    externalId: row.external_id,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
   };
@@ -437,7 +482,7 @@ export class OrganizerStore {
     const ordinary = this.database.prepare(`
       SELECT *
       FROM calendar_events
-      WHERE status <> 'cancelled'
+      WHERE status IN ('tentative', 'confirmed')
         AND recurrence_rule IS NULL
         AND starts_at_utc < ?
         AND COALESCE(ends_at_utc, starts_at_utc) >= ?
@@ -448,7 +493,7 @@ export class OrganizerStore {
     const masters = this.database.prepare(`
       SELECT *
       FROM calendar_events
-      WHERE status <> 'cancelled'
+      WHERE status IN ('tentative', 'confirmed')
         AND recurrence_rule IS NOT NULL
       ORDER BY calendar_event_id
     `).all().map(publicCalendarEvent);
@@ -623,6 +668,180 @@ export class OrganizerStore {
     }
   }
 
+  listLogTrackers({ groupId = null, includeArchived = false, limit = 200 } = {}) {
+    const conditions = [];
+    const values = [];
+    if (!includeArchived) {
+      conditions.push("tracker.archived_at_utc IS NULL");
+      conditions.push("log_group.archived_at_utc IS NULL");
+    }
+    if (groupId != null && groupId !== "") {
+      conditions.push("tracker.log_group_id = ?");
+      values.push(identifier(groupId, "log group id"));
+    }
+    const boundedLimit = integer(limit, "limit", { fallback: 200, minimum: 1, maximum: 500 });
+    return this.database.prepare(`
+      SELECT tracker.*, log_group.name AS group_name,
+             log_group.archived_at_utc AS group_archived_at_utc,
+             COUNT(entry.log_entry_id) AS entry_count,
+             MAX(entry.occurred_at_utc) AS last_logged_at_utc
+      FROM trackers AS tracker
+      JOIN log_groups AS log_group USING (log_group_id)
+      LEFT JOIN log_entries AS entry USING (tracker_id)
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+      GROUP BY tracker.tracker_id
+      ORDER BY log_group.name COLLATE NOCASE, tracker.name COLLATE NOCASE
+      LIMIT ?
+    `).all(...values, boundedLimit).map(publicLogTracker);
+  }
+
+  listLogEntries({ trackerId = null, groupId = null, limit = 200 } = {}) {
+    const conditions = [];
+    const values = [];
+    if (trackerId != null && trackerId !== "") {
+      conditions.push("entry.tracker_id = ?");
+      values.push(identifier(trackerId, "tracker id"));
+    }
+    if (groupId != null && groupId !== "") {
+      conditions.push("tracker.log_group_id = ?");
+      values.push(identifier(groupId, "log group id"));
+    }
+    const boundedLimit = integer(limit, "limit", { fallback: 200, minimum: 1, maximum: 500 });
+    return this.database.prepare(`
+      SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+             log_group.name AS group_name
+      FROM log_entries AS entry
+      JOIN trackers AS tracker USING (tracker_id)
+      JOIN log_groups AS log_group USING (log_group_id)
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+      ORDER BY entry.occurred_at_utc DESC, entry.log_entry_id DESC
+      LIMIT ?
+    `).all(...values, boundedLimit).map(publicLogEntry);
+  }
+
+  createLogEntry(input) {
+    const trackerId = input?.trackerId == null || input.trackerId === ""
+      ? null
+      : identifier(input.trackerId, "tracker id");
+    const trackerName = trackerId == null ? requiredText(input?.trackerName, "trackerName", 200) : null;
+    const groupName = optionalText(input?.groupName, "groupName", 200) ?? "General";
+    const contentText = requiredText(input?.contentText, "contentText", 10_000);
+    const numberValue = optionalFiniteNumber(input?.numberValue, "numberValue");
+    const suppliedUnit = optionalText(input?.unit, "unit", 100);
+    if (suppliedUnit !== null && numberValue === null) {
+      throw new OrganizerInputError("unit requires a numeric value.");
+    }
+    const occurredAtUtc = isoDateTime(
+      input?.occurredAtUtc ?? new Date().toISOString(),
+      "occurredAtUtc",
+      { required: true },
+    );
+    const now = new Date().toISOString();
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      let tracker = trackerId == null
+        ? this.database.prepare(`
+          SELECT tracker.*, log_group.name AS group_name,
+                 log_group.archived_at_utc AS group_archived_at_utc
+          FROM trackers AS tracker
+          JOIN log_groups AS log_group USING (log_group_id)
+          WHERE tracker.name = ? COLLATE NOCASE
+        `).get(trackerName)
+        : this.database.prepare(`
+          SELECT tracker.*, log_group.name AS group_name,
+                 log_group.archived_at_utc AS group_archived_at_utc
+          FROM trackers AS tracker
+          JOIN log_groups AS log_group USING (log_group_id)
+          WHERE tracker.tracker_id = ?
+        `).get(trackerId);
+
+      if (!tracker) {
+        if (trackerId !== null) throw new OrganizerInputError("Tracker not found.", 404);
+        let group = this.database.prepare(
+          "SELECT * FROM log_groups WHERE name = ? COLLATE NOCASE",
+        ).get(groupName);
+        if (!group) {
+          group = this.database.prepare(`
+            INSERT INTO log_groups (name, updated_at_utc) VALUES (?, ?) RETURNING *
+          `).get(groupName, now);
+        } else if (group.archived_at_utc !== null) {
+          group = this.database.prepare(`
+            UPDATE log_groups SET archived_at_utc = NULL, updated_at_utc = ?
+            WHERE log_group_id = ? RETURNING *
+          `).get(now, group.log_group_id);
+        }
+        const created = this.database.prepare(`
+          INSERT INTO trackers (log_group_id, name, default_unit, updated_at_utc)
+          VALUES (?, ?, ?, ?) RETURNING *
+        `).get(group.log_group_id, trackerName, suppliedUnit, now);
+        tracker = {
+          ...created,
+          group_name: group.name,
+          group_archived_at_utc: group.archived_at_utc,
+        };
+      } else {
+        if (tracker.archived_at_utc !== null || (tracker.default_unit === null && suppliedUnit !== null)) {
+          this.database.prepare(`
+            UPDATE trackers
+            SET archived_at_utc = NULL,
+                default_unit = COALESCE(default_unit, ?),
+                updated_at_utc = ?
+            WHERE tracker_id = ?
+          `).run(suppliedUnit, now, tracker.tracker_id);
+        }
+        if (tracker.group_archived_at_utc !== null) {
+          this.database.prepare(`
+            UPDATE log_groups SET archived_at_utc = NULL, updated_at_utc = ?
+            WHERE log_group_id = ?
+          `).run(now, tracker.log_group_id);
+        }
+        tracker = this.database.prepare(`
+          SELECT tracker.*, log_group.name AS group_name,
+                 log_group.archived_at_utc AS group_archived_at_utc
+          FROM trackers AS tracker
+          JOIN log_groups AS log_group USING (log_group_id)
+          WHERE tracker.tracker_id = ?
+        `).get(tracker.tracker_id);
+      }
+
+      const unit = numberValue === null ? null : suppliedUnit ?? tracker.default_unit;
+      const result = this.database.prepare(`
+        INSERT INTO log_entries (
+          tracker_id, occurred_at_utc, content_text, number_value, unit, updated_at_utc, source
+        ) VALUES (?, ?, ?, ?, ?, ?, 'tailnet_web')
+      `).run(tracker.tracker_id, occurredAtUtc, contentText, numberValue, unit, now);
+      const id = Number(result.lastInsertRowid);
+      const entry = publicLogEntry(this.database.prepare(`
+        SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+               log_group.name AS group_name
+        FROM log_entries AS entry
+        JOIN trackers AS tracker USING (tracker_id)
+        JOIN log_groups AS log_group USING (log_group_id)
+        WHERE entry.log_entry_id = ?
+      `).get(id));
+      const eventId = this.#activity({
+        eventType: "personal_log.created",
+        status: "complete",
+        name: "Personal log recorded",
+        subjectType: "log_entry",
+        subjectId: id,
+        contentText: entry.contentText,
+        payload: { logEntry: entry },
+      });
+      this.database.prepare("UPDATE log_entries SET source_event_id = ? WHERE log_entry_id = ?")
+        .run(eventId, id);
+      this.database.exec("COMMIT");
+      return entry;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("UNIQUE constraint failed: trackers.name")) {
+        throw new OrganizerInputError("A tracker with that name already exists.", 409);
+      }
+      throw error;
+    }
+  }
+
   createCalendar(input) {
     const event = {
       title: requiredText(input?.title, "title"),
@@ -632,7 +851,7 @@ export class OrganizerStore {
       endsAtUtc: isoDateTime(input?.endsAtUtc, "endsAtUtc"),
       timeZone: timeZone(input?.timeZone),
       isAllDay: booleanInteger(input?.isAllDay),
-      status: enumValue(input?.status, calendarStatuses, "status", "confirmed"),
+      status: enumValue(input?.status, calendarStatuses, "status", "active"),
     };
     if (event.endsAtUtc && event.endsAtUtc < event.startsAtUtc) {
       throw new OrganizerInputError("endsAtUtc cannot be earlier than startsAtUtc.");
@@ -647,7 +866,7 @@ export class OrganizerStore {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         event.title, event.description, event.location, event.startsAtUtc, event.endsAtUtc,
-        event.timeZone, event.isAllDay, event.status,
+        event.timeZone, event.isAllDay, event.status === "active" ? "confirmed" : "cancelled",
       );
       const id = Number(result.lastInsertRowid);
       const created = this.getCalendar(id);
@@ -717,7 +936,8 @@ export class OrganizerStore {
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
         after.title, after.description, after.location, after.startsAtUtc, after.endsAtUtc,
-        after.timeZone, after.isAllDay ? 1 : 0, after.status, updatedAt, id, before.version,
+        after.timeZone, after.isAllDay ? 1 : 0,
+        after.status === "active" ? "confirmed" : "cancelled", updatedAt, id, before.version,
       );
       if (result.changes !== 1) {
         throw new OrganizerInputError("This calendar event changed while you were saving it. Refresh and try again.", 409);

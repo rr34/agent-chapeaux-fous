@@ -30,6 +30,7 @@
       <button class="nav-button active" type="button" data-view="agent">Agent</button>
       <button class="nav-button" type="button" data-view="calendar">Calendar</button>
       <button class="nav-button" type="button" data-view="todos">To-Do List</button>
+      <button class="nav-button" type="button" data-view="logs">Logs</button>
     </nav>
 
     <div id="agent-view" class="app-view">
@@ -125,6 +126,24 @@
       <section id="todo-list" class="todo-list" aria-live="polite"></section>
     </section>
 
+    <section id="logs-view" class="app-view" hidden>
+      <header class="organizer-heading">
+        <div>
+          <p class="eyebrow">Personal observations</p>
+          <h2>Logs</h2>
+        </div>
+        <button id="new-log-entry" type="button">New entry</button>
+      </header>
+      <div class="log-toolbar organizer-panel">
+        <label for="log-group-filter">Group</label>
+        <select id="log-group-filter"><option value="">All groups</option></select>
+        <label for="log-tracker-filter">Tracker</label>
+        <select id="log-tracker-filter"><option value="">All trackers</option></select>
+        <span id="log-count" class="toolbar-count"></span>
+      </div>
+      <section id="log-list" class="log-list" aria-live="polite"></section>
+    </section>
+
     <section id="trace-panel" class="trace-panel" hidden aria-labelledby="trace-heading">
       <div class="section-heading sticky">
         <div>
@@ -160,14 +179,13 @@
       <label>Title<input id="event-title" required maxlength="500"></label>
       <label class="checkbox-row"><input id="event-all-day" type="checkbox"><span>All day</span></label>
       <div class="editor-grid">
-        <label>Starts<input id="event-start" type="datetime-local" required></label>
-        <label>Ends<input id="event-end" type="datetime-local"></label>
+        <label>Starts<input id="event-start" type="datetime-local" lang="en-GB" step="60" required></label>
+        <label>Ends<input id="event-end" type="datetime-local" lang="en-GB" step="60"></label>
       </div>
       <label>Location<input id="event-location" maxlength="1000"></label>
       <label>Description<textarea id="event-description" rows="4"></textarea></label>
       <label>Status<select id="event-status">
-        <option value="confirmed">Confirmed</option><option value="tentative">Tentative</option>
-        <option value="completed">Completed</option><option value="cancelled">Cancelled</option>
+        <option value="active">Active</option><option value="archived">Archived</option>
       </select></label>
       <p id="event-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
@@ -192,9 +210,9 @@
           <button id="todo-new-group" class="secondary compact" type="button">New group</button>
         </div>
         <label>Sequence<input id="todo-sequence" type="number" min="1" step="1"></label>
-        <label>Scheduled<input id="todo-scheduled" type="datetime-local"></label>
+        <label>Scheduled<input id="todo-scheduled" type="datetime-local" lang="en-GB" step="60"></label>
         <label class="checkbox-row"><input id="todo-all-day" type="checkbox"><span>All day</span></label>
-        <label>Due<input id="todo-due" type="datetime-local"></label>
+        <label>Due<input id="todo-due" type="datetime-local" lang="en-GB" step="60"></label>
         <label>Status<select id="todo-status">
           <option value="todo">To do</option><option value="complete">Complete</option>
           <option value="ignore">Ignore</option><option value="archive">Archive</option>
@@ -244,6 +262,32 @@
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save todo</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="log-dialog" class="editor-dialog">
+    <form id="log-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Personal log</p><h2>New entry</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <label>Tracker<select id="log-tracker" required></select></label>
+      <div id="new-log-tracker-fields" class="editor-grid" hidden>
+        <label>New tracker name<input id="log-tracker-name" maxlength="200"></label>
+        <label>Group<input id="log-group-name" maxlength="200" value="General" list="log-group-options"></label>
+        <datalist id="log-group-options"></datalist>
+      </div>
+      <label>Entry<textarea id="log-content" rows="4" required maxlength="10000" placeholder="Keep this complete and understandable on its own."></textarea></label>
+      <div class="editor-grid">
+        <label>Number <span class="field-hint">optional</span><input id="log-number" type="number" step="any"></label>
+        <label>Unit <span class="field-hint">requires a number</span><input id="log-unit" maxlength="100"></label>
+        <label>Occurred<input id="log-occurred" type="datetime-local" lang="en-GB" step="60" required></label>
+      </div>
+      <p id="log-form-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Save entry</button>
       </footer>
     </form>
   </dialog>

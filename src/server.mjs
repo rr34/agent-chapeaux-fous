@@ -347,6 +347,30 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { todo: organizer.updateTodo(todoMatch[1], await readJson(request)) });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/log-trackers") {
+      sendJson(response, 200, {
+        trackers: organizer.listLogTrackers({
+          groupId: url.searchParams.get("groupId"),
+          includeArchived: url.searchParams.get("includeArchived") === "true",
+          limit: url.searchParams.get("limit") || 200,
+        }),
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/log-entries") {
+      sendJson(response, 200, {
+        entries: organizer.listLogEntries({
+          trackerId: url.searchParams.get("trackerId"),
+          groupId: url.searchParams.get("groupId"),
+          limit: url.searchParams.get("limit") || 200,
+        }),
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/log-entries") {
+      sendJson(response, 201, { entry: organizer.createLogEntry(await readJson(request)) });
+      return;
+    }
     const integrationProblem = mcp.requiredProblem();
     if (integrationProblem) {
       sendJson(response, 503, { error: integrationProblem });
