@@ -87,6 +87,7 @@ test("contacts support searchable-page data, multiple methods, and safe edits", 
       familyName: "Rivera",
       birthDate: "--08-18",
       notes: "Met through the neighborhood garden.",
+      tags: ["Friend", "Garden"],
       methods: [
         { kind: "email", label: "Personal", value: "Alex@Example.test", isPrimary: true },
         { kind: "phone", label: "Mobile", value: "+1 (555) 010-0200" },
@@ -94,6 +95,7 @@ test("contacts support searchable-page data, multiple methods, and safe edits", 
     });
     assert.equal(created.displayName, "Alex Rivera");
     assert.equal(created.methods.length, 2);
+    assert.deepEqual(created.tags, ["Friend", "Garden"]);
     assert.equal(created.methods[0].kind, "email");
     assert.equal(organizer.listContacts()[0].birthDate, "--08-18");
 
@@ -120,6 +122,55 @@ test("contacts support searchable-page data, multiple methods, and safe edits", 
       SELECT COUNT(*) AS count FROM activity_events
       WHERE event_type IN ('contact.created', 'contact.updated')
     `).get().count, 2);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
+test("contact merges combine methods and tags while retaining inactive source records", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const kept = organizer.createContact({
+      displayName: "Jordan Lee",
+      givenName: "Jordan",
+      tags: ["Friend"],
+      methods: [{ kind: "email", value: "jordan@example.test", isPrimary: true }],
+    });
+    const duplicate = organizer.createContact({
+      displayName: "Jordan A. Lee",
+      familyName: "Lee",
+      birthDate: "1985-03-12",
+      notes: "Met at the library.",
+      tags: ["Library"],
+      methods: [
+        { kind: "email", value: "JORDAN@example.test" },
+        { kind: "phone", value: "+1 555 010 0199" },
+      ],
+    });
+    const merged = organizer.mergeContacts({
+      keepContactId: kept.id,
+      mergeContactIds: [duplicate.id],
+      versions: { [kept.id]: kept.version, [duplicate.id]: duplicate.version },
+    });
+    assert.equal(merged.contact.displayName, "Jordan Lee");
+    assert.notEqual(merged.contact.version, kept.version);
+    assert.equal(merged.contact.familyName, "Lee");
+    assert.equal(merged.contact.birthDate, "1985-03-12");
+    assert.deepEqual(merged.contact.methods.map(({ kind }) => kind), ["email", "phone"]);
+    assert.deepEqual(merged.contact.tags, ["Friend", "Library"]);
+    assert.equal(organizer.listContacts().length, 1);
+    const source = organizer.listContacts({ scope: "all" }).find(({ id }) => id === duplicate.id);
+    assert.equal(source.status, "inactive");
+    assert.match(source.notes, /Merged into Jordan Lee/);
+    assert.throws(
+      () => organizer.updateContact(kept.id, { version: kept.version, displayName: "Stale merge edit" }),
+      (error) => error instanceof OrganizerInputError && error.statusCode === 409,
+    );
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'contacts.merged'
+    `).get().count, 1);
   } finally {
     organizer.close();
     temporary.cleanup();

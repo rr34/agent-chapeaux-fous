@@ -150,16 +150,25 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(document, /data-view="contacts"/);
   assert.match(document, /id="contacts-view"/);
   assert.match(document, /id="contact-search"/);
+  assert.match(document, /id="contact-tag-filter"/);
+  assert.match(document, /id="review-contact-duplicates"/);
   assert.match(document, /id="contact-dialog"/);
+  assert.match(document, /id="contact-tags"/);
   assert.match(document, /id="contact-method-list"/);
+  assert.match(document, /id="contact-duplicates-dialog"/);
   assert.match(application, /async function refreshContacts/);
   assert.match(application, /function renderContacts/);
+  assert.match(application, /function duplicateContactGroups/);
+  assert.match(application, /function renderContactDuplicateReview/);
+  assert.match(application, /node\("button", "contact-method-value contact-method-copy", method\.value\)/);
+  assert.match(application, /copyText\(method\.value, event\.currentTarget\)/);
   assert.match(application, /function addContactMethodRow/);
   assert.match(application, /function saveContact/);
   assert.match(application, /\/api\/contacts\?scope=all/);
   assert.match(server, /organizer\.listContacts/);
   assert.match(server, /organizer\.createContact/);
   assert.match(server, /organizer\.updateContact/);
+  assert.match(server, /organizer\.mergeContacts/);
   assert.match(server, /registerContactTools/);
 });
 

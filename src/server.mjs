@@ -315,6 +315,10 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 201, { contact: organizer.createContact(await readJson(request)) });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/contacts/merge") {
+      sendJson(response, 200, organizer.mergeContacts(await readJson(request)));
+      return;
+    }
     const contactMatch = /^\/api\/contacts\/(\d+)$/.exec(url.pathname);
     if (request.method === "PATCH" && contactMatch) {
       sendJson(response, 200, { contact: organizer.updateContact(contactMatch[1], await readJson(request)) });

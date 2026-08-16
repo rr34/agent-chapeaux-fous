@@ -19,6 +19,8 @@ export const requiredDatabaseShape = {
   ],
   tags: ["tag_id", "slug", "label", "is_active"],
   record_tags: ["tag_id", "record_type", "record_id"],
+  tags: ["tag_id", "slug", "label", "is_active"],
+  record_tags: ["tag_id", "record_type", "record_id"],
   calendar_events: [
     "calendar_event_id", "title", "description", "location_text", "starts_at_utc",
     "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule",

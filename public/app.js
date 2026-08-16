@@ -101,7 +101,9 @@ const elements = {
   todoRepeatSummary: document.querySelector("#todo-repeat-summary"),
   todoFormError: document.querySelector("#todo-form-error"),
   contactSearch: document.querySelector("#contact-search"),
-  contactStatusFilter: document.querySelector("#contact-status-filter"),
+  contactTagFilter: document.querySelector("#contact-tag-filter"),
+  contactIncludeInactive: document.querySelector("#contact-include-inactive"),
+  reviewContactDuplicates: document.querySelector("#review-contact-duplicates"),
   contactCount: document.querySelector("#contact-count"),
   contactList: document.querySelector("#contact-list"),
   newContact: document.querySelector("#new-contact"),
@@ -116,11 +118,14 @@ const elements = {
   contactFamilyName: document.querySelector("#contact-family-name"),
   contactOrganizationName: document.querySelector("#contact-organization-name"),
   contactBirthDate: document.querySelector("#contact-birth-date"),
+  contactTags: document.querySelector("#contact-tags"),
   contactStatus: document.querySelector("#contact-status"),
   contactNotes: document.querySelector("#contact-notes"),
   contactMethodList: document.querySelector("#contact-method-list"),
   addContactMethod: document.querySelector("#add-contact-method"),
   contactFormError: document.querySelector("#contact-form-error"),
+  contactDuplicatesDialog: document.querySelector("#contact-duplicates-dialog"),
+  contactDuplicateList: document.querySelector("#contact-duplicate-list"),
   logGroupFilter: document.querySelector("#log-group-filter"),
   logTrackerFilter: document.querySelector("#log-tracker-filter"),
   logCount: document.querySelector("#log-count"),
@@ -1371,37 +1376,138 @@ function contactMethodName(kind) {
   }[kind] || kind;
 }
 
-function contactMethodHref(method) {
-  if (method.kind === "email") return `mailto:${method.value}`;
-  if (method.kind === "phone") return `tel:${method.value}`;
-  if (method.kind === "url" && /^https?:\/\//i.test(method.value)) return method.value;
-  return null;
-}
-
 async function refreshContacts() {
   try {
     const body = await api("/api/contacts?scope=all&limit=1000");
     contacts = body.contacts;
+    populateContactTagFilter();
     renderContacts();
   } catch (error) {
     elements.contactList.replaceChildren(node("p", "empty", error.message || "Contacts unavailable."));
   }
 }
 
+function populateContactTagFilter() {
+  const selected = elements.contactTagFilter.value;
+  const tags = [...new Set(contacts.flatMap((contact) => contact.tags))]
+    .sort((left, right) => left.localeCompare(right));
+  elements.contactTagFilter.replaceChildren(node("option", "", "All tags"));
+  elements.contactTagFilter.firstElementChild.value = "";
+  for (const tag of tags) {
+    const option = node("option", "", tag);
+    option.value = tag;
+    elements.contactTagFilter.append(option);
+  }
+  elements.contactTagFilter.value = tags.includes(selected) ? selected : "";
+}
+
+function contactDuplicateKey(method) {
+  if (method.kind === "email") return method.value.trim().toLocaleLowerCase();
+  if (method.kind === "phone") return method.value.replace(/\D/g, "");
+  return null;
+}
+
+function duplicateContactGroups() {
+  const active = contacts.filter(({ status }) => status === "active");
+  const parent = new Map(active.map(({ id }) => [id, id]));
+  const find = (id) => {
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root);
+    while (parent.get(id) !== id) {
+      const next = parent.get(id);
+      parent.set(id, root);
+      id = next;
+    }
+    return root;
+  };
+  const union = (left, right) => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
+  };
+  const owners = new Map();
+  const keysFor = (contact) => {
+    const name = contact.displayName.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const keys = name.length >= 3 ? [`name:${name}`] : [];
+    for (const method of contact.methods) {
+      const value = contactDuplicateKey(method);
+      if (value) keys.push(`${method.kind}:${value}`);
+    }
+    return keys;
+  };
+  for (const contact of active) {
+    for (const key of keysFor(contact)) {
+      if (owners.has(key)) union(contact.id, owners.get(key));
+      else owners.set(key, contact.id);
+    }
+  }
+  const grouped = new Map();
+  for (const contact of active) {
+    const root = find(contact.id);
+    const group = grouped.get(root) ?? [];
+    group.push(contact);
+    grouped.set(root, group);
+  }
+  return [...grouped.values()].filter((group) => group.length > 1).map((group) => {
+    const evidence = new Set();
+    const counts = new Map();
+    for (const contact of group) {
+      for (const key of keysFor(contact)) counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    for (const [key, count] of counts) {
+      if (count > 1) evidence.add(key.startsWith("name:") ? "same name" : `same ${key.split(":", 1)[0]}`);
+    }
+    return { contacts: group, evidence: [...evidence] };
+  });
+}
+
+function contactValueCell(contact, kinds, label) {
+  const cell = node("div", "contact-cell contact-value-stack");
+  cell.dataset.label = label;
+  const methods = contact.methods.filter(({ kind }) => kinds.includes(kind));
+  if (methods.length === 0) {
+    cell.append(node("span", "contact-empty-value", "—"));
+    return cell;
+  }
+  for (const method of methods) {
+    const line = node("div", "contact-value-line");
+    const value = node("button", "contact-method-value contact-method-copy", method.value);
+    value.type = "button";
+    value.title = `Copy ${contactMethodName(method.kind).toLowerCase()}`;
+    value.setAttribute("aria-label", `Copy ${contactMethodName(method.kind)}: ${method.value}`);
+    value.addEventListener("click", (event) => void copyText(method.value, event.currentTarget));
+    line.append(value);
+    if (method.label || method.isPrimary) {
+      line.append(node(
+        "small", "contact-value-label",
+        [method.label, method.isPrimary ? "primary" : null].filter(Boolean).join(" · "),
+      ));
+    }
+    cell.append(line);
+  }
+  return cell;
+}
+
 function renderContacts() {
   elements.contactList.replaceChildren();
   const query = elements.contactSearch.value.trim().toLocaleLowerCase();
-  const status = elements.contactStatusFilter.value;
+  const selectedTag = elements.contactTagFilter.value;
   const visible = contacts.filter((contact) => {
-    if (status !== "all" && contact.status !== status) return false;
+    if (!elements.contactIncludeInactive.checked && contact.status !== "active") return false;
+    if (selectedTag && !contact.tags.includes(selectedTag)) return false;
     if (!query) return true;
     return [
       contact.displayName, contact.givenName, contact.familyName,
-      contact.organizationName, contact.notes,
+      contact.organizationName, contact.notes, ...contact.tags,
       ...contact.methods.flatMap((method) => [method.label, method.value]),
     ].some((value) => value?.toLocaleLowerCase().includes(query));
   });
   elements.contactCount.textContent = `${visible.length} ${visible.length === 1 ? "contact" : "contacts"}`;
+  const duplicateCount = duplicateContactGroups().length;
+  elements.reviewContactDuplicates.textContent = duplicateCount
+    ? `Review duplicates · ${duplicateCount}`
+    : "No duplicates found";
+  elements.reviewContactDuplicates.disabled = duplicateCount === 0;
   if (visible.length === 0) {
     elements.contactList.append(node(
       "p", "empty",
@@ -1409,10 +1515,15 @@ function renderContacts() {
     ));
     return;
   }
+  const tableHeader = node("div", "contact-table-header");
+  for (const label of ["Contact", "Email", "Phone", "Birthday", "Tags", "Other", ""]) {
+    tableHeader.append(node("span", "", label));
+  }
+  elements.contactList.append(tableHeader);
   for (const contact of visible) {
-    const card = node("article", "contact-card");
-    const heading = node("header", "contact-card-heading");
+    const row = node("article", "contact-row");
     const identity = node("div", "contact-identity");
+    identity.dataset.label = "Contact";
     const avatar = node("span", "contact-avatar", contactInitials(contact));
     avatar.setAttribute("aria-hidden", "true");
     const names = node("div");
@@ -1420,42 +1531,112 @@ function renderContacts() {
     if (contact.organizationName && contact.organizationName !== contact.displayName) {
       names.append(node("span", "contact-organization", contact.organizationName));
     }
+    const identityMeta = [contact.kind, contact.isSelf ? "you" : null, contact.status !== "active" ? contact.status : null]
+      .filter(Boolean).join(" · ");
+    names.append(node("span", "contact-identity-meta", identityMeta));
+    if (contact.notes) {
+      const notes = node("span", "contact-row-notes", contact.notes);
+      notes.title = contact.notes;
+      names.append(notes);
+    }
     identity.append(avatar, names);
+    const email = contactValueCell(contact, ["email"], "Email");
+    const phone = contactValueCell(contact, ["phone"], "Phone");
+    const birthday = node("div", "contact-cell contact-birthday-cell");
+    birthday.dataset.label = "Birthday";
+    birthday.append(node("span", contact.birthDate ? "" : "contact-empty-value", formatContactBirthday(contact.birthDate) || "—"));
+    const tags = node("div", "contact-cell contact-tag-stack");
+    tags.dataset.label = "Tags";
+    if (contact.tags.length) {
+      for (const tag of contact.tags) {
+        const tagButton = node("button", "contact-tag", tag);
+        tagButton.type = "button";
+        tagButton.title = `Show contacts tagged ${tag}`;
+        tagButton.addEventListener("click", () => {
+          elements.contactTagFilter.value = tag;
+          renderContacts();
+        });
+        tags.append(tagButton);
+      }
+    } else {
+      tags.append(node("span", "contact-empty-value", "—"));
+    }
+    const other = contactValueCell(contact, ["postal_address", "handle", "url", "other"], "Other");
+    const actions = node("div", "contact-row-actions");
     const edit = node("button", "secondary compact", "Edit");
     edit.type = "button";
     edit.setAttribute("aria-label", `Edit ${contact.displayName}`);
     edit.addEventListener("click", () => openContactEditor(contact));
-    heading.append(identity, edit);
-
-    const meta = node("div", "contact-meta");
-    meta.append(node("span", "contact-pill", contact.kind));
-    if (contact.isSelf) meta.append(node("span", "contact-pill self", "You"));
-    if (contact.status !== "active") meta.append(node("span", `contact-pill ${contact.status}`, contact.status));
-    const birthday = formatContactBirthday(contact.birthDate);
-    if (birthday) meta.append(node("span", "contact-pill birthday", `Birthday ${birthday}`));
-    card.append(heading, meta);
-
-    if (contact.methods.length) {
-      const methods = node("div", "contact-methods");
-      for (const method of contact.methods) {
-        const row = node("div", "contact-method");
-        const label = method.label || contactMethodName(method.kind);
-        row.append(node("span", "contact-method-label", `${label}${method.isPrimary ? " · primary" : ""}`));
-        const href = contactMethodHref(method);
-        const value = node(href ? "a" : "span", "contact-method-value", method.value);
-        if (href) value.href = href;
-        if (method.kind === "url") {
-          value.target = "_blank";
-          value.rel = "noreferrer";
-        }
-        row.append(value);
-        methods.append(row);
-      }
-      card.append(methods);
-    }
-    if (contact.notes) card.append(node("p", "contact-notes", contact.notes));
-    elements.contactList.append(card);
+    actions.append(edit);
+    row.append(identity, email, phone, birthday, tags, other, actions);
+    elements.contactList.append(row);
   }
+}
+
+function renderContactDuplicateReview() {
+  elements.contactDuplicateList.replaceChildren();
+  const groups = duplicateContactGroups();
+  if (groups.length === 0) {
+    elements.contactDuplicateList.append(node("p", "empty", "No possible duplicates remain."));
+    return;
+  }
+  groups.forEach((group, groupIndex) => {
+    const card = node("section", "duplicate-group");
+    const heading = node("div", "duplicate-group-heading");
+    heading.append(
+      node("strong", "", `${group.contacts.length} possible matches`),
+      node("span", "", group.evidence.join(" · ")),
+    );
+    card.append(heading);
+    const choices = node("div", "duplicate-choices");
+    const defaultContact = [...group.contacts].sort((left, right) => (
+      right.methods.length + right.tags.length - left.methods.length - left.tags.length
+    ))[0];
+    for (const contact of group.contacts) {
+      const choice = node("label", "duplicate-choice");
+      const radio = node("input");
+      radio.type = "radio";
+      radio.name = `duplicate-group-${groupIndex}`;
+      radio.value = String(contact.id);
+      radio.checked = contact.id === defaultContact.id;
+      const summary = node("span");
+      summary.append(
+        node("strong", "", contact.displayName),
+        node("small", "", `${contact.methods.length} methods · ${contact.tags.length} tags${contact.birthDate ? " · birthday" : ""}`),
+      );
+      choice.append(radio, summary);
+      choices.append(choice);
+    }
+    const merge = node("button", "compact", "Merge into selected contact");
+    merge.type = "button";
+    merge.addEventListener("click", async () => {
+      const keepId = Number(choices.querySelector('input[type="radio"]:checked')?.value);
+      const keep = group.contacts.find(({ id }) => id === keepId);
+      const merged = group.contacts.filter(({ id }) => id !== keepId);
+      if (!keep || merged.length === 0) return;
+      if (!window.confirm(`Merge ${merged.map(({ displayName }) => displayName).join(", ")} into ${keep.displayName}? The source records will be retained as inactive history.`)) return;
+      merge.disabled = true;
+      try {
+        await api("/api/contacts/merge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            keepContactId: keep.id,
+            mergeContactIds: merged.map(({ id }) => id),
+            versions: Object.fromEntries(group.contacts.map((contact) => [contact.id, contact.version])),
+          }),
+        });
+        elements.status.textContent = `Merged ${merged.length} ${merged.length === 1 ? "contact" : "contacts"} into ${keep.displayName}.`;
+        await refreshContacts();
+        renderContactDuplicateReview();
+      } catch (error) {
+        window.alert(error.message || "Could not merge these contacts.");
+        merge.disabled = false;
+      }
+    });
+    card.append(choices, merge);
+    elements.contactDuplicateList.append(card);
+  });
 }
 
 function updateContactMethodInput(row) {
@@ -1523,6 +1704,7 @@ function openContactEditor(contact = null) {
   elements.contactFamilyName.value = contact?.familyName ?? "";
   elements.contactOrganizationName.value = contact?.organizationName ?? "";
   elements.contactBirthDate.value = contact?.birthDate ?? "";
+  elements.contactTags.value = contact?.tags?.join(", ") ?? "";
   elements.contactStatus.value = contact?.status ?? "active";
   elements.contactNotes.value = contact?.notes ?? "";
   for (const method of contact?.methods ?? []) addContactMethodRow(method);
@@ -1551,6 +1733,7 @@ async function saveContact(event) {
       familyName: elements.contactFamilyName.value,
       organizationName: elements.contactOrganizationName.value,
       birthDate: elements.contactBirthDate.value,
+      tags: elements.contactTags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
       status: elements.contactStatus.value,
       notes: elements.contactNotes.value,
       methods,
@@ -1970,7 +2153,12 @@ for (const control of [
 elements.todoScheduled.addEventListener("change", updateTodoRecurrenceEditor);
 elements.newContact.addEventListener("click", () => openContactEditor());
 elements.contactSearch.addEventListener("input", renderContacts);
-elements.contactStatusFilter.addEventListener("change", renderContacts);
+elements.contactTagFilter.addEventListener("change", renderContacts);
+elements.contactIncludeInactive.addEventListener("change", renderContacts);
+elements.reviewContactDuplicates.addEventListener("click", () => {
+  renderContactDuplicateReview();
+  elements.contactDuplicatesDialog.showModal();
+});
 elements.addContactMethod.addEventListener("click", () => {
   addContactMethodRow().querySelector(".contact-method-input").focus();
 });

@@ -105,6 +105,25 @@ function contactMethods(value) {
   });
 }
 
+function contactTags(value) {
+  if (value == null) return null;
+  if (!Array.isArray(value) || value.length > 50) {
+    throw new OrganizerInputError("tags must be an array of at most 50 labels.");
+  }
+  const tags = [];
+  const seen = new Set();
+  for (const [index, valueItem] of value.entries()) {
+    const label = requiredText(valueItem, `tags[${index}]`, 100);
+    const slug = label.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
+    if (!slug) throw new OrganizerInputError(`tags[${index}] must contain a letter or number.`);
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    tags.push({ slug, label });
+  }
+  return tags;
+}
+
 function integer(value, label, { fallback = 0, minimum = -100, maximum = 100 } = {}) {
   const result = value == null || value === "" ? fallback : Number(value);
   if (!Number.isInteger(result) || result < minimum || result > maximum) {
@@ -318,7 +337,7 @@ function publicContactMethod(row) {
   };
 }
 
-function publicContact(row, methods = []) {
+function publicContact(row, methods = [], tags = []) {
   if (!row) return null;
   return {
     id: row.contact_id,
@@ -332,6 +351,7 @@ function publicContact(row, methods = []) {
     birthDate: row.birth_date,
     notes: row.notes,
     methods,
+    tags,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
     version: row.updated_at_utc ?? row.created_at_utc,
@@ -574,7 +594,16 @@ export class OrganizerStore {
       WHERE contact_id = ?
       ORDER BY is_primary DESC, method_kind, contact_method_id
     `).all(id).map(publicContactMethod);
-    return publicContact(row, methods);
+    const tags = this.database.prepare(`
+      SELECT tag.label
+      FROM record_tags AS assignment
+      JOIN tags AS tag USING (tag_id)
+      WHERE assignment.record_type = 'contact'
+        AND assignment.record_id = ?
+        AND tag.is_active = 1
+      ORDER BY tag.label COLLATE NOCASE, tag.tag_id
+    `).all(String(id)).map(({ label }) => label);
+    return publicContact(row, methods, tags);
   }
 
   #replaceContactMethods(contactId, methods) {
@@ -602,6 +631,31 @@ export class OrganizerStore {
     }
   }
 
+  #replaceContactTags(contactId, tags) {
+    if (tags === null) return;
+    const recordId = String(contactId);
+    this.database.prepare(
+      "DELETE FROM record_tags WHERE record_type = 'contact' AND record_id = ?",
+    ).run(recordId);
+    const find = this.database.prepare("SELECT tag_id FROM tags WHERE slug = ?");
+    const insertTag = this.database.prepare("INSERT INTO tags (slug, label) VALUES (?, ?)");
+    const reactivate = this.database.prepare("UPDATE tags SET label = ?, is_active = 1 WHERE tag_id = ?");
+    const assign = this.database.prepare(`
+      INSERT INTO record_tags (tag_id, record_type, record_id)
+      VALUES (?, 'contact', ?)
+    `);
+    for (const tag of tags) {
+      let row = find.get(tag.slug);
+      if (!row) {
+        const result = insertTag.run(tag.slug, tag.label);
+        row = { tag_id: Number(result.lastInsertRowid) };
+      } else {
+        reactivate.run(tag.label, row.tag_id);
+      }
+      assign.run(row.tag_id, recordId);
+    }
+  }
+
   listContacts({ scope = "active", limit = 500 } = {}) {
     if (!new Set(["active", "all"]).has(scope)) {
       throw new OrganizerInputError("scope must be active or all.");
@@ -615,6 +669,7 @@ export class OrganizerStore {
     `).all(boundedLimit);
     if (rows.length === 0) return [];
     const methodsByContact = new Map();
+    const tagsByContact = new Map();
     const placeholders = rows.map(() => "?").join(", ");
     const methods = this.database.prepare(`
       SELECT * FROM contact_methods
@@ -626,7 +681,25 @@ export class OrganizerStore {
       values.push(publicContactMethod(method));
       methodsByContact.set(method.contact_id, values);
     }
-    return rows.map((row) => publicContact(row, methodsByContact.get(row.contact_id) ?? []));
+    const assignments = this.database.prepare(`
+      SELECT assignment.record_id, tag.label
+      FROM record_tags AS assignment
+      JOIN tags AS tag USING (tag_id)
+      WHERE assignment.record_type = 'contact'
+        AND assignment.record_id IN (${placeholders})
+        AND tag.is_active = 1
+      ORDER BY tag.label COLLATE NOCASE, tag.tag_id
+    `).all(...rows.map(({ contact_id: id }) => String(id)));
+    for (const assignment of assignments) {
+      const values = tagsByContact.get(assignment.record_id) ?? [];
+      values.push(assignment.label);
+      tagsByContact.set(assignment.record_id, values);
+    }
+    return rows.map((row) => publicContact(
+      row,
+      methodsByContact.get(row.contact_id) ?? [],
+      tagsByContact.get(String(row.contact_id)) ?? [],
+    ));
   }
 
   createContact(input) {
@@ -640,6 +713,7 @@ export class OrganizerStore {
       birthDate: contactBirthDate(input?.birthDate),
       notes: optionalText(input?.notes, "notes", 10_000),
       methods: contactMethods(input?.methods) ?? [],
+      tags: contactTags(input?.tags) ?? [],
     };
     const now = new Date().toISOString();
     this.database.exec("BEGIN IMMEDIATE");
@@ -655,6 +729,7 @@ export class OrganizerStore {
       );
       const id = Number(result.lastInsertRowid);
       this.#replaceContactMethods(id, contact.methods);
+      this.#replaceContactTags(id, contact.tags);
       const created = this.#contact(id);
       this.#activity({
         eventType: "contact.created",
@@ -697,6 +772,7 @@ export class OrganizerStore {
       birthDate: input?.birthDate === undefined ? before.birthDate : contactBirthDate(input.birthDate),
       notes: input?.notes === undefined ? before.notes : optionalText(input.notes, "notes", 10_000),
       methods: contactMethods(input?.methods),
+      tags: contactTags(input?.tags),
     };
     const candidate = new Date().toISOString();
     const now = candidate > before.version
@@ -714,6 +790,7 @@ export class OrganizerStore {
         contact.organizationName, contact.status, contact.birthDate, contact.notes, now, id,
       );
       this.#replaceContactMethods(id, contact.methods);
+      this.#replaceContactTags(id, contact.tags);
       const updated = this.#contact(id);
       this.#activity({
         eventType: "contact.updated",
@@ -726,7 +803,7 @@ export class OrganizerStore {
           contact: updated,
           changedFields: changedFields(before, updated, [
             "kind", "displayName", "givenName", "familyName", "organizationName",
-            "status", "birthDate", "notes", "methods",
+            "status", "birthDate", "notes", "methods", "tags",
           ]),
         },
       });
@@ -737,6 +814,105 @@ export class OrganizerStore {
       if (String(error?.message).includes("UNIQUE constraint failed: contact_methods")) {
         throw new OrganizerInputError("Duplicate contact methods are not allowed.", 409);
       }
+      throw error;
+    }
+  }
+
+  mergeContacts(input) {
+    const keepId = identifier(input?.keepContactId, "kept contact id");
+    if (!Array.isArray(input?.mergeContactIds) || input.mergeContactIds.length === 0 || input.mergeContactIds.length > 20) {
+      throw new OrganizerInputError("mergeContactIds must contain 1 through 20 contact ids.");
+    }
+    const mergeIds = input.mergeContactIds.map((value) => identifier(value, "merged contact id"));
+    if (mergeIds.includes(keepId) || new Set(mergeIds).size !== mergeIds.length) {
+      throw new OrganizerInputError("Merged contact ids must be unique and cannot include the kept contact.");
+    }
+    const allIds = [keepId, ...mergeIds];
+    const records = allIds.map((id) => this.#contact(id));
+    if (records.some((contact) => !contact)) throw new OrganizerInputError("A contact to merge was not found.", 404);
+    for (const contact of records) {
+      if (input?.versions?.[String(contact.id)] !== contact.version) {
+        throw new OrganizerInputError("A contact changed while the merge was being reviewed. Refresh and try again.", 409);
+      }
+    }
+
+    const kept = records[0];
+    const firstValue = (field) => records.map((contact) => contact[field]).find((value) => value != null && value !== "") ?? null;
+    const combinedMethods = [];
+    const methodByKey = new Map();
+    for (const [contactIndex, contact] of records.entries()) {
+      for (const method of contact.methods) {
+        const key = `${method.kind}\u0000${normalizedContactMethod(method.kind, method.value)}`;
+        const existing = methodByKey.get(key);
+        if (existing) {
+          if (!existing.label && method.label) existing.label = method.label;
+          if (method.isPrimary) existing.isPrimary = true;
+          if (method.canReceive) existing.canReceive = true;
+          continue;
+        }
+        const combined = { ...method, id: contactIndex === 0 ? method.id : null };
+        combinedMethods.push(combined);
+        methodByKey.set(key, combined);
+      }
+    }
+    const tagValues = contactTags(records.flatMap((contact) => contact.tags));
+    const notes = [];
+    if (kept.notes) notes.push(kept.notes);
+    for (const contact of records.slice(1)) {
+      if (contact.notes && !notes.includes(contact.notes)) notes.push(`From ${contact.displayName}:\n${contact.notes}`);
+    }
+    const candidate = new Date().toISOString();
+    const latestVersion = records.map(({ version }) => version).sort().at(-1);
+    const now = candidate > latestVersion
+      ? candidate
+      : new Date(new Date(latestVersion).getTime() + 1).toISOString();
+    const mergedOn = now.slice(0, 10);
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const deactivate = this.database.prepare(`
+        UPDATE contacts
+        SET status = 'inactive', notes = ?, updated_at_utc = ?
+        WHERE contact_id = ?
+      `);
+      for (const contact of records.slice(1)) {
+        const mergeNote = `Merged into ${kept.displayName} (#${keepId}) on ${mergedOn}.`;
+        deactivate.run(contact.notes ? `${mergeNote}\n\n${contact.notes}` : mergeNote, now, contact.id);
+      }
+      this.database.prepare(`
+        UPDATE contacts
+        SET contact_kind = ?, display_name = ?, given_name = ?, family_name = ?,
+            organization_name = ?, is_self = ?, status = 'active', birth_date = ?,
+            notes = ?, updated_at_utc = ?
+        WHERE contact_id = ?
+      `).run(
+        kept.kind,
+        kept.displayName,
+        firstValue("givenName"),
+        firstValue("familyName"),
+        firstValue("organizationName"),
+        records.some(({ isSelf }) => isSelf) ? 1 : 0,
+        firstValue("birthDate"),
+        notes.join("\n\n") || null,
+        now,
+        keepId,
+      );
+      this.#replaceContactMethods(keepId, contactMethods(combinedMethods));
+      this.#replaceContactTags(keepId, tagValues);
+      const result = this.#contact(keepId);
+      this.#activity({
+        eventType: "contacts.merged",
+        status: "complete",
+        name: "Contacts merged",
+        subjectType: "contact",
+        subjectId: keepId,
+        contentText: `${records.slice(1).map(({ displayName }) => displayName).join(", ")} → ${result.displayName}`,
+        payload: { keptContact: result, mergedContactIds: mergeIds },
+      });
+      this.database.exec("COMMIT");
+      return { contact: result, mergedContactIds: mergeIds };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
       throw error;
     }
   }
