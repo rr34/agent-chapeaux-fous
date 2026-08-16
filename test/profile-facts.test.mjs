@@ -34,26 +34,26 @@ test("profile facts replace by ID, archive, and supply relevant first-call conte
   };
 
   const created = await registry.execute("profile_fact_set", {
-    factType: "preferred_name",
-    text: "My preferred name is Nathan.",
-    replacesFactId: null,
+    fact_type: "preferred_name",
+    fact_text: "My preferred name is Nathan.",
+    replaces_profile_fact_id: null,
   }, toolContext);
   assert.equal(created.created, true);
-  assert.equal(created.fact.status, "active");
+  assert.equal(created.fact.fact_status, "active");
 
   const replaced = await registry.execute("profile_fact_set", {
-    factType: "preferred_name",
-    text: "My preferred name is Nathan Ruffing.",
-    replacesFactId: created.fact.id,
+    fact_type: "preferred_name",
+    fact_text: "My preferred name is Nathan Ruffing.",
+    replaces_profile_fact_id: created.fact.profile_fact_id,
   }, toolContext);
   assert.equal(replaced.replaced, true);
-  assert.equal(replaced.previousFact.text, "My preferred name is Nathan.");
-  assert.equal(replaced.previousFact.status, "archived");
+  assert.equal(replaced.previous_fact.fact_text, "My preferred name is Nathan.");
+  assert.equal(replaced.previous_fact.fact_status, "archived");
 
   const unchanged = await registry.execute("profile_fact_set", {
-    factType: "preferred_name",
-    text: "My preferred name is Nathan Ruffing.",
-    replacesFactId: replaced.fact.id,
+    fact_type: "preferred_name",
+    fact_text: "My preferred name is Nathan Ruffing.",
+    replaces_profile_fact_id: replaced.fact.profile_fact_id,
   }, toolContext);
   assert.equal(unchanged.unchanged, true);
 
@@ -64,13 +64,13 @@ test("profile facts replace by ID, archive, and supply relevant first-call conte
     profileFactQuestions: await standardCatalog(),
   });
   const built = await contextBuilder.build(next.requestId, "What should you call me?");
-  assert.match(built.text, new RegExp(`\\[fact ${replaced.fact.id}\\] preferred_name: My preferred name is Nathan Ruffing\\.`));
+  assert.match(built.text, new RegExp(`\\[fact ${replaced.fact.profile_fact_id}\\] preferred_name: My preferred name is Nathan Ruffing\\.`));
   assert.equal(built.profileFacts.length, 1);
   assert.deepEqual(built.relevantProfileTypes, ["preferred_name"]);
   assert.equal(built.contextBudget.truncated, false);
 
   const archived = await registry.execute("profile_fact_delete", {
-    factId: replaced.fact.id,
+    profile_fact_id: replaced.fact.profile_fact_id,
   }, toolContext);
   assert.equal(archived.archived, true);
   assert.equal(profileFacts.list({ status: "active" }).count, 0);

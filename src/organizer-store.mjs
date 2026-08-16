@@ -179,7 +179,7 @@ function recurrenceIdentifierDate(value, event) {
 
 function occurrenceDates(event, fromUtc, toUtc) {
   const start = new Date(event.startsAtUtc);
-  const zone = event.timeZone && !event.isAllDay ? event.timeZone : null;
+  const zone = event.timeZone || null;
   const startParts = zone ? zonedParts(start, zone) : utcParts(start);
   const rule = localizeUtcUntil(String(event.recurrenceRule).replace(/^RRULE:/i, ""), zone);
   const parsed = rrulestr(`DTSTART:${basicDateTime(startParts, zone ? "" : "Z")}\nRRULE:${rule}`);

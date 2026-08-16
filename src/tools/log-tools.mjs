@@ -1,3 +1,5 @@
+import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
+
 const nullableString = { type: ["string", "null"] };
 
 function requiredText(value, label, maximumLength) {
@@ -22,39 +24,77 @@ function normalizedInstant(value, { useNow = false, label = "Timestamp" } = {}) 
   return date.toISOString();
 }
 
-function publicTracker(row) {
+const logGroupFields = ["log_group_id", "name", "archived_at_utc"];
+const trackerFields = [
+  "tracker_id", "log_group_id", "name", "default_unit", "archived_at_utc", "created_at_utc", "updated_at_utc",
+];
+const logEntryFields = [
+  "log_entry_id", "tracker_id", "occurred_at_utc", "content_text", "number_value", "unit",
+  "source_event_id", "created_at_utc", "updated_at_utc", "source", "external_id",
+];
+const logProjection = {
+  schemaObjects: ["log_entries", "trackers", "log_groups"],
+  fields: {
+    log_entries: logEntryFields,
+    trackers: trackerFields,
+    log_groups: logGroupFields,
+  },
+};
+const logEntryProjection = {
+  schemaObjects: ["log_entries", "trackers", "log_groups"],
+  fields: {
+    log_entries: logEntryFields,
+    trackers: ["tracker_id", "log_group_id", "name"],
+    log_groups: ["log_group_id", "name"],
+  },
+};
+const trackerProjection = {
+  schemaObjects: ["trackers", "log_groups", "log_entries"],
+  fields: {
+    trackers: trackerFields,
+    log_groups: logGroupFields,
+    log_entries: ["log_entry_id", "tracker_id", "occurred_at_utc"],
+  },
+};
+
+function databaseTracker(row) {
   if (!row) return null;
   return {
-    id: Number(row.tracker_id),
-    groupId: Number(row.log_group_id),
-    groupName: row.group_name,
-    name: row.name,
-    defaultUnit: row.default_unit,
-    archivedAtUtc: row.archived_at_utc,
-    createdAtUtc: row.created_at_utc,
-    updatedAtUtc: row.updated_at_utc,
-    ...(row.entry_count === undefined ? {} : { entryCount: Number(row.entry_count) }),
-    ...(row.last_logged_at_utc === undefined ? {} : { lastLoggedAtUtc: row.last_logged_at_utc }),
+    ...selectedFields(row, trackerFields),
+    log_groups: {
+      log_group_id: row.log_group_id,
+      name: row.group_name ?? null,
+      archived_at_utc: row.group_archived_at_utc ?? null,
+    },
+    ...(row.entry_count === undefined ? {} : { entry_count: Number(row.entry_count) }),
+    ...(row.last_logged_at_utc === undefined ? {} : { last_logged_at_utc: row.last_logged_at_utc }),
   };
 }
 
-function publicEntry(row) {
+function databaseEntry(row) {
   if (!row) return null;
   return {
-    id: Number(row.log_entry_id),
-    trackerId: Number(row.tracker_id),
-    trackerName: row.tracker_name,
-    groupId: Number(row.log_group_id),
-    groupName: row.group_name,
-    occurredAtUtc: row.occurred_at_utc,
-    content: row.content_text,
-    number: row.number_value === null ? null : Number(row.number_value),
-    unit: row.unit,
-    source: row.source,
-    externalId: row.external_id,
-    createdAtUtc: row.created_at_utc,
-    updatedAtUtc: row.updated_at_utc,
+    ...selectedFields(row, logEntryFields),
+    trackers: {
+      tracker_id: row.tracker_id,
+      log_group_id: row.log_group_id ?? null,
+      name: row.tracker_name ?? null,
+    },
+    log_groups: {
+      log_group_id: row.log_group_id ?? null,
+      name: row.group_name ?? null,
+    },
   };
+}
+
+function logResult(schemaSemantics, context, result, {
+  name, purpose, trackersOnly = false, entriesOnly = false,
+}) {
+  return withSchemaProjection(schemaSemantics, context, result, {
+    name,
+    purpose,
+    ...(trackersOnly ? trackerProjection : entriesOnly ? logEntryProjection : logProjection),
+  });
 }
 
 function joinedTracker(database, trackerId) {
@@ -111,19 +151,19 @@ function normalizedLogInput(argumentsObject, { requireOccurredAt = false } = {})
   const requestedGroup = requestedGroupWasNull
     ? "General"
     : requiredText(argumentsObject.group, "Log group name", 200);
-  const content = requiredText(argumentsObject.content, "Log content", 10000);
-  const number = argumentsObject.number;
+  const content = requiredText(argumentsObject.content_text, "Log content", 10000);
+  const number = argumentsObject.number_value;
   if (number !== null && (typeof number !== "number" || !Number.isFinite(number))) {
     throw new Error("Log number must be a finite number or null");
   }
   const suppliedUnit = optionalUnit(argumentsObject.unit);
   if (suppliedUnit !== null && number === null) throw new Error("A log unit requires a numeric value");
-  if (requireOccurredAt && (argumentsObject.occurredAtUtc === null
-    || argumentsObject.occurredAtUtc === undefined
-    || argumentsObject.occurredAtUtc === "")) {
+  if (requireOccurredAt && (argumentsObject.occurred_at_utc === null
+    || argumentsObject.occurred_at_utc === undefined
+    || argumentsObject.occurred_at_utc === "")) {
     throw new Error("Imported logs require an occurrence time");
   }
-  const occurredAtUtc = normalizedInstant(argumentsObject.occurredAtUtc, {
+  const occurredAtUtc = normalizedInstant(argumentsObject.occurred_at_utc, {
     useNow: !requireOccurredAt,
     label: "Log occurrence time",
   });
@@ -235,7 +275,7 @@ function insertEntry(database, input, tracker, {
     source,
     externalId,
   );
-  return publicEntry({
+  return databaseEntry({
     ...row,
     tracker_name: tracker.name,
     log_group_id: tracker.log_group_id,
@@ -263,7 +303,7 @@ function sameImportedEntry(row, input) {
     && (effectiveRequestedUnit === null || row.unit === effectiveRequestedUnit);
 }
 
-export function registerLogTools(registry, store, ledger) {
+export function registerLogTools(registry, store, ledger, schemaSemantics = null) {
   registry.register({
     name: "log_add",
     description: "Record one entry in the user's authoritative personal log. The content must remain a complete human-readable entry; number and unit are optional queryable projections, not replacements for that text. Reuse a tracker by case-insensitive name. On first use, create the tracker and its requested group atomically; use General when group is null. A supplied group never silently moves an existing tracker.",
@@ -273,12 +313,12 @@ export function registerLogTools(registry, store, ledger) {
       properties: {
         tracker: { type: "string", minLength: 1, maxLength: 200 },
         group: nullableString,
-        content: { type: "string", minLength: 1, maxLength: 10000 },
-        number: { type: ["number", "null"] },
+        content_text: { type: "string", minLength: 1, maxLength: 10000 },
+        number_value: { type: ["number", "null"] },
         unit: { ...nullableString, maxLength: 100 },
-        occurredAtUtc: nullableString,
+        occurred_at_utc: nullableString,
       },
-      required: ["tracker", "group", "content", "number", "unit", "occurredAtUtc"],
+      required: ["tracker", "group", "content_text", "number_value", "unit", "occurred_at_utc"],
     },
     async execute(argumentsObject, context) {
       const input = normalizedLogInput(argumentsObject);
@@ -293,20 +333,29 @@ export function registerLogTools(registry, store, ledger) {
         });
         const result = {
           created: true,
-          trackerCreated: trackerResult.trackerCreated,
-          trackerReactivated: trackerResult.trackerReactivated,
-          groupResolution: trackerResult.groupResolution,
-          tracker: publicTracker(trackerResult.tracker),
+          tracker_created: trackerResult.trackerCreated,
+          tracker_reactivated: trackerResult.trackerReactivated,
+          group_resolution: {
+            requested_group: trackerResult.groupResolution.requestedGroup,
+            actual_group: trackerResult.groupResolution.actualGroup,
+            group_created: trackerResult.groupResolution.groupCreated,
+            group_reactivated: trackerResult.groupResolution.groupReactivated,
+          },
+          tracker: databaseTracker(trackerResult.tracker),
           entry,
         };
         ledger.append({
           type: "personal_log.created", status: "complete", actorType: "tool", actorName: "log_add",
           turnId: context.requestId, operationId: context.callId, name: "Personal log recorded",
-          content: entry.content, payload: result,
-          subjectType: "log_entry", subjectId: String(entry.id),
+          content: entry.content_text, payload: result,
+          subjectType: "log_entry", subjectId: String(entry.log_entry_id),
+        });
+        const semanticResult = logResult(schemaSemantics, context, result, {
+          name: "log_add",
+          purpose: "Return the stored log entry together with its tracker and log group database fields.",
         });
         database.exec("COMMIT");
-        return result;
+        return semanticResult;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -316,7 +365,7 @@ export function registerLogTools(registry, store, ledger) {
 
   registry.register({
     name: "log_import",
-    description: "Import a bounded batch of 1 through 100 personal-log entries from any external source. Each entry requires an occurrence time and a stable externalId supplied by the source or deterministically derived when the source has none. The pair of source and externalId is idempotent: exact replays are reported unchanged, while conflicting replays are reported and never overwrite the existing entry. New entries and any required groups or trackers are created in one transaction.",
+    description: "Import a bounded batch of 1 through 100 personal-log entries from any external source. Each entry requires an occurrence time and a stable external_id supplied by the source or deterministically derived when the source has none. The pair of source and external_id is idempotent: exact replays are reported unchanged, while conflicting replays are reported and never overwrite the existing entry. New entries and any required groups or trackers are created in one transaction.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -330,22 +379,22 @@ export function registerLogTools(registry, store, ledger) {
             type: "object",
             additionalProperties: false,
             properties: {
-              externalId: { type: ["string", "integer"], maxLength: 1000 },
+              external_id: { type: ["string", "integer"], maxLength: 1000 },
               tracker: { type: "string", minLength: 1, maxLength: 200 },
               group: nullableString,
-              content: { type: "string", minLength: 1, maxLength: 10000 },
-              number: { type: ["number", "null"] },
+              content_text: { type: "string", minLength: 1, maxLength: 10000 },
+              number_value: { type: ["number", "null"] },
               unit: { ...nullableString, maxLength: 100 },
-              occurredAtUtc: { type: "string" },
+              occurred_at_utc: { type: "string" },
             },
             required: [
-              "externalId",
+              "external_id",
               "tracker",
               "group",
-              "content",
-              "number",
+              "content_text",
+              "number_value",
               "unit",
-              "occurredAtUtc",
+              "occurred_at_utc",
             ],
           },
         },
@@ -359,7 +408,7 @@ export function registerLogTools(registry, store, ledger) {
       }
       const seenExternalIds = new Set();
       const inputs = entries.map((entry) => {
-        const externalId = normalizedExternalId(entry.externalId);
+        const externalId = normalizedExternalId(entry.external_id);
         if (seenExternalIds.has(externalId)) {
           throw new Error(`Duplicate external log ID in import batch: ${externalId}`);
         }
@@ -380,8 +429,7 @@ export function registerLogTools(registry, store, ledger) {
             const unchanged = sameImportedEntry(existingRow, input.log);
             items.push({
               status: unchanged ? "unchanged" : "conflict",
-              externalId: input.externalId,
-              entry: publicEntry(existingRow),
+              entry: databaseEntry(existingRow),
               ...(unchanged ? {} : {
                 reason: "The source and external ID already identify a different stored log entry",
               }),
@@ -397,9 +445,13 @@ export function registerLogTools(registry, store, ledger) {
           });
           items.push({
             status: "imported",
-            externalId: input.externalId,
-            trackerCreated: trackerResult.trackerCreated,
-            groupResolution: trackerResult.groupResolution,
+            tracker_created: trackerResult.trackerCreated,
+            group_resolution: {
+              requested_group: trackerResult.groupResolution.requestedGroup,
+              actual_group: trackerResult.groupResolution.actualGroup,
+              group_created: trackerResult.groupResolution.groupCreated,
+              group_reactivated: trackerResult.groupResolution.groupReactivated,
+            },
             entry,
           });
         }
@@ -409,9 +461,9 @@ export function registerLogTools(registry, store, ledger) {
         const result = {
           source: selectedSource,
           total: items.length,
-          importedCount,
-          unchangedCount,
-          conflictCount,
+          imported_count: importedCount,
+          unchanged_count: unchangedCount,
+          conflict_count: conflictCount,
           items,
         };
         ledger.append({
@@ -428,8 +480,13 @@ export function registerLogTools(registry, store, ledger) {
           },
           subjectType: "log_import", subjectId: selectedSource,
         });
+        const semanticResult = logResult(schemaSemantics, context, result, {
+          name: "log_import",
+          purpose: "Return imported, unchanged, or conflicting stored log entries with their database field semantics.",
+          entriesOnly: true,
+        });
         database.exec("COMMIT");
-        return result;
+        return semanticResult;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -447,13 +504,13 @@ export function registerLogTools(registry, store, ledger) {
         tracker: nullableString,
         group: nullableString,
         source: nullableString,
-        fromUtc: nullableString,
-        throughUtc: nullableString,
+        from_utc: nullableString,
+        through_utc: nullableString,
         limit: { type: "integer", minimum: 1, maximum: 200 },
       },
-      required: ["tracker", "group", "source", "fromUtc", "throughUtc", "limit"],
+      required: ["tracker", "group", "source", "from_utc", "through_utc", "limit"],
     },
-    async execute({ tracker, group, source, fromUtc, throughUtc, limit }) {
+    async execute({ tracker, group, source, from_utc: fromUtc, through_utc: throughUtc, limit }, context) {
       const conditions = [];
       const values = [];
       if (tracker !== null) {
@@ -488,8 +545,12 @@ export function registerLogTools(registry, store, ledger) {
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
         ORDER BY entry.occurred_at_utc DESC, entry.log_entry_id DESC
         LIMIT ?
-      `).all(...values, boundedLimit).map(publicEntry);
-      return { count: rows.length, entries: rows };
+      `).all(...values, boundedLimit).map(databaseEntry);
+      return logResult(schemaSemantics, context, { count: rows.length, entries: rows }, {
+        name: "log_list",
+        purpose: "List stored personal log entries together with their tracker and log group database fields.",
+        entriesOnly: true,
+      });
     },
   });
 
@@ -501,12 +562,12 @@ export function registerLogTools(registry, store, ledger) {
       additionalProperties: false,
       properties: {
         group: nullableString,
-        includeArchived: { type: "boolean" },
+        include_archived: { type: "boolean" },
         limit: { type: "integer", minimum: 1, maximum: 200 },
       },
-      required: ["group", "includeArchived", "limit"],
+      required: ["group", "include_archived", "limit"],
     },
-    async execute({ group, includeArchived, limit }) {
+    async execute({ group, include_archived: includeArchived, limit }, context) {
       const conditions = [];
       const values = [];
       if (!includeArchived) {
@@ -520,6 +581,7 @@ export function registerLogTools(registry, store, ledger) {
       const boundedLimit = Math.min(200, Math.max(1, Number(limit) || 50));
       const rows = store.requireReady().prepare(`
         SELECT tracker.*, log_group.name AS group_name,
+               log_group.archived_at_utc AS group_archived_at_utc,
                COUNT(entry.log_entry_id) AS entry_count,
                MAX(entry.occurred_at_utc) AS last_logged_at_utc
         FROM trackers AS tracker
@@ -529,27 +591,31 @@ export function registerLogTools(registry, store, ledger) {
         GROUP BY tracker.tracker_id
         ORDER BY log_group.name COLLATE NOCASE, tracker.name COLLATE NOCASE
         LIMIT ?
-      `).all(...values, boundedLimit).map(publicTracker);
-      return { count: rows.length, trackers: rows };
+      `).all(...values, boundedLimit).map(databaseTracker);
+      return logResult(schemaSemantics, context, { count: rows.length, trackers: rows }, {
+        name: "tracker_list",
+        purpose: "List stored trackers and log groups with computed entry counts and latest occurrence times.",
+        trackersOnly: true,
+      });
     },
   });
 
   registry.register({
     name: "tracker_update",
-    description: "Update one personal-log tracker by ID. Rename it, move it to a group (creating or reactivating that group), change or clear its default unit, or archive/reactivate it. Null leaves each field unchanged; an empty defaultUnit clears it.",
+    description: "Update one personal-log tracker by ID. Rename it, move it to a group (creating or reactivating that group), change or clear its default unit, or archive/reactivate it. Null leaves each field unchanged; an empty default_unit clears it.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        trackerId: { type: "integer", minimum: 1 },
+        tracker_id: { type: "integer", minimum: 1 },
         name: nullableString,
         group: nullableString,
-        defaultUnit: nullableString,
+        default_unit: nullableString,
         archived: { type: ["boolean", "null"] },
       },
-      required: ["trackerId", "name", "group", "defaultUnit", "archived"],
+      required: ["tracker_id", "name", "group", "default_unit", "archived"],
     },
-    async execute({ trackerId, name, group, defaultUnit, archived }, context) {
+    async execute({ tracker_id: trackerId, name, group, default_unit: defaultUnit, archived }, context) {
       const database = store.requireReady();
       const beforeRow = joinedTracker(database, trackerId);
       if (!beforeRow) throw new Error(`Tracker ${trackerId} does not exist`);
@@ -575,16 +641,21 @@ export function registerLogTools(registry, store, ledger) {
         const assignments = Object.keys(values).map((column) => `"${column}" = ?`).join(", ");
         database.prepare(`UPDATE trackers SET ${assignments} WHERE tracker_id = ?`)
           .run(...Object.values(values), trackerId);
-        const tracker = publicTracker(joinedTracker(database, trackerId));
-        const result = { updated: true, before: publicTracker(beforeRow), tracker };
+        const tracker = databaseTracker(joinedTracker(database, trackerId));
+        const result = { updated: true, before: databaseTracker(beforeRow), tracker };
         ledger.append({
           type: "personal_tracker.updated", status: "complete", actorType: "tool",
           actorName: "tracker_update", turnId: context.requestId, operationId: context.callId,
           name: "Personal tracker updated", content: tracker.name, payload: result,
-          subjectType: "tracker", subjectId: String(tracker.id),
+          subjectType: "tracker", subjectId: String(tracker.tracker_id),
+        });
+        const semanticResult = logResult(schemaSemantics, context, result, {
+          name: "tracker_update",
+          purpose: "Return the tracker before and after an update using stored database field names.",
+          trackersOnly: true,
         });
         database.exec("COMMIT");
-        return result;
+        return semanticResult;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;

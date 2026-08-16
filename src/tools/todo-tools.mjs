@@ -3,6 +3,7 @@ import { generateNextRoutineTask } from "../organizer-store.mjs";
 import {
   buildTodoRecurrenceRule, todoRecurrenceSchema, validateTimeZone,
 } from "../todo-recurrence.mjs";
+import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
 
 const todoStatuses = ["todo", "complete", "ignore", "archive", "ai_suggested"];
 
@@ -47,38 +48,64 @@ function ensureGroup(database, name) {
   return { row, created: false, reactivated: true };
 }
 
-function publicGroup(row) {
+const todoGroupFields = ["todo_group_id", "name", "archived_at_utc", "created_at_utc", "updated_at_utc"];
+const personalTaskFields = [
+  "personal_task_id", "todo_group_id", "todo_routine_id", "text", "status", "sort_position",
+  "scheduled_at_utc", "is_all_day", "due_at_utc", "completed_at_utc", "created_at_utc", "updated_at_utc",
+];
+const todoRoutineFields = ["todo_routine_id", "recurrence_rule", "time_zone"];
+
+const todoGroupProjection = {
+  schemaObjects: ["todo_groups"],
+  fields: { todo_groups: todoGroupFields },
+};
+const activeTodoGroupProjection = {
+  schemaObjects: ["todo_groups"],
+  fields: { todo_groups: ["todo_group_id", "name", "archived_at_utc"] },
+};
+const todoTaskProjection = {
+  schemaObjects: ["personal_tasks", "todo_groups", "todo_routines"],
+  fields: {
+    personal_tasks: personalTaskFields,
+    todo_groups: ["todo_group_id", "name"],
+    todo_routines: todoRoutineFields,
+  },
+};
+
+function databaseGroup(row) {
+  return selectedFields(row, todoGroupFields);
+}
+
+function databaseTask(row) {
+  if (!row) return null;
   return {
-    id: Number(row.todo_group_id),
-    name: row.name,
-    archivedAtUtc: row.archived_at_utc,
+    ...selectedFields(row, personalTaskFields),
+    todo_groups: {
+      todo_group_id: row.todo_group_id,
+      name: row.group_name ?? null,
+    },
+    todo_routines: row.todo_routine_id == null ? null : {
+      todo_routine_id: row.todo_routine_id,
+      recurrence_rule: row.routine_recurrence_rule ?? null,
+      time_zone: row.routine_time_zone ?? null,
+    },
   };
 }
 
-function publicTask(row) {
-  if (!row) return null;
-  return {
-    id: Number(row.personal_task_id),
-    groupId: Number(row.todo_group_id),
-    groupName: row.group_name,
-    routineId: row.todo_routine_id == null ? null : Number(row.todo_routine_id),
-    text: row.text,
-    status: row.status,
-    sortPosition: Number(row.sort_position),
-    scheduledAtUtc: row.scheduled_at_utc,
-    isAllDay: Boolean(row.is_all_day),
-    dueAtUtc: row.due_at_utc,
-    completedAtUtc: row.completed_at_utc,
-    createdAtUtc: row.created_at_utc,
-    updatedAtUtc: row.updated_at_utc,
-    recurrenceRule: row.routine_recurrence_rule ?? null,
-    recurrenceTimeZone: row.routine_time_zone ?? null,
-  };
+function todoResult(schemaSemantics, context, result, {
+  name, purpose, groupOnly = false, projection = null,
+}) {
+  const selected = projection ?? (groupOnly ? todoGroupProjection : todoTaskProjection);
+  return withSchemaProjection(schemaSemantics, context, result, {
+    name,
+    purpose,
+    ...selected,
+  });
 }
 
 const optionalText = { type: ["string", "null"] };
 
-export function registerTodoTools(registry, store, ledger) {
+export function registerTodoTools(registry, store, ledger, schemaSemantics = null) {
   registry.register({
     name: "todo_group_list",
     description: "List active native to-do groups and their open task counts. Before adding a to-do without an explicitly named group, use this to choose the best clear existing group from the task's subject and context. Use Inbox only when no existing group is a reasonable match.",
@@ -88,7 +115,7 @@ export function registerTodoTools(registry, store, ledger) {
       properties: {},
       required: [],
     },
-    async execute() {
+    async execute(_argumentsObject, context) {
       const rows = store.requireReady().prepare(`
         SELECT todo_group.todo_group_id, todo_group.name, todo_group.archived_at_utc,
                COUNT(task.personal_task_id) AS open_task_count
@@ -100,13 +127,17 @@ export function registerTodoTools(registry, store, ledger) {
         GROUP BY todo_group.todo_group_id
         ORDER BY todo_group.name COLLATE NOCASE, todo_group.todo_group_id
       `).all();
-      return {
+      return todoResult(schemaSemantics, context, {
         count: rows.length,
         groups: rows.map((row) => ({
-          ...publicGroup(row),
-          openTaskCount: Number(row.open_task_count),
+          ...databaseGroup(row),
+          open_task_count: Number(row.open_task_count),
         })),
-      };
+      }, {
+        name: "todo_group_list",
+        purpose: "List active to-do groups and the computed count of open tasks in each group.",
+        projection: activeTodoGroupProjection,
+      });
     },
   });
 
@@ -123,7 +154,7 @@ export function registerTodoTools(registry, store, ledger) {
       },
       required: ["group", "status", "limit"],
     },
-    async execute({ group: groupName, status, limit }) {
+    async execute({ group: groupName, status, limit }, context) {
       const database = store.requireReady();
       const conditions = [];
       const values = [];
@@ -147,37 +178,41 @@ export function registerTodoTools(registry, store, ledger) {
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
         ORDER BY todo_group.name COLLATE NOCASE, task.sort_position, task.personal_task_id
         LIMIT ?
-      `).all(...values, Math.min(200, Math.max(1, Number(limit) || 50))).map(publicTask);
-      return { count: rows.length, tasks: rows };
+      `).all(...values, Math.min(200, Math.max(1, Number(limit) || 50))).map(databaseTask);
+      return todoResult(schemaSemantics, context, { count: rows.length, tasks: rows }, {
+        name: "todo_list",
+        purpose: "List personal tasks together with their to-do group and optional routine fields.",
+      });
     },
   });
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal to-do item, optionally with an all-day schedule or structured recurrence. Set isAllDay=true when the user names a calendar day without an exact time; scheduledAtUtc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or untilDate, and timeZone. A recurring todo requires scheduledAtUtc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return usedInboxFallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
+    description: "Add one native personal to-do item, optionally with an all-day schedule or structured recurrence. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         text: { type: "string", minLength: 1, maxLength: 10000 },
         group: optionalText,
-        scheduledAtUtc: optionalText,
-        isAllDay: { type: "boolean" },
-        dueAtUtc: optionalText,
+        scheduled_at_utc: optionalText,
+        is_all_day: { type: "boolean" },
+        due_at_utc: optionalText,
         recurrence: todoRecurrenceSchema,
       },
-      required: ["text", "group", "scheduledAtUtc", "dueAtUtc"],
+      required: ["text", "group", "scheduled_at_utc", "due_at_utc"],
     },
     async execute({
-      text, group: groupName, scheduledAtUtc, isAllDay = false, dueAtUtc, recurrence = null,
+      text, group: groupName, scheduled_at_utc: scheduledAtUtc,
+      is_all_day: isAllDay = false, due_at_utc: dueAtUtc, recurrence = null,
     }, context) {
       const database = store.requireReady();
       const taskText = text.trim();
       if (!taskText) throw new Error("To-do text cannot be empty");
-      if (recurrence && !scheduledAtUtc) throw new Error("A recurring to-do requires scheduledAtUtc");
-      if (isAllDay && !scheduledAtUtc) throw new Error("An all-day to-do requires scheduledAtUtc");
+      if (recurrence && !scheduledAtUtc) throw new Error("A recurring to-do requires scheduled_at_utc");
+      if (isAllDay && !scheduledAtUtc) throw new Error("An all-day to-do requires scheduled_at_utc");
       const recurrenceRule = recurrence ? buildTodoRecurrenceRule(recurrence) : null;
-      const recurrenceTimeZone = recurrence ? validateTimeZone(recurrence.timeZone) : null;
+      const recurrenceTimeZone = recurrence ? validateTimeZone(recurrence.time_zone) : null;
       database.exec("BEGIN IMMEDIATE");
       try {
         const requestedGroup = groupName?.trim() || "Inbox";
@@ -215,32 +250,36 @@ export function registerTodoTools(registry, store, ledger) {
           selectedGroup.todo_group_id, routineId, taskText, sortPosition,
           scheduledAtUtc || null, isAllDay ? 1 : 0, dueAtUtc || null, sourceEventId,
         );
-        const task = publicTask({
+        const task = databaseTask({
           ...row,
           group_name: selectedGroup.name,
           routine_recurrence_rule: recurrenceRule,
           routine_time_zone: recurrenceTimeZone,
         });
         const groupResolution = {
-          requestedGroup,
-          actualGroup: selectedGroup.name,
-          requestedGroupFound: Boolean(requestedGroupRow),
-          usedInboxFallback,
-          askToCreateRequestedGroup: usedInboxFallback,
+          requested_group: requestedGroup,
+          actual_group: selectedGroup.name,
+          requested_group_found: Boolean(requestedGroupRow),
+          used_inbox_fallback: usedInboxFallback,
+          ask_to_create_requested_group: usedInboxFallback,
         };
         ledger.append({
           type: "personal_todo.created", status: "complete", actorType: "tool", actorName: "todo_add",
           turnId: context.requestId, operationId: context.callId, name: "Personal to-do created",
           content: task.text,
           payload: { task, groupResolution },
-          subjectType: "personal_task", subjectId: String(task.id),
+          subjectType: "personal_task", subjectId: String(task.personal_task_id),
+        });
+        const result = todoResult(schemaSemantics, context, {
+          created: true,
+          group_resolution: groupResolution,
+          task,
+        }, {
+          name: "todo_add",
+          purpose: "Return the personal task created by the native to-do tool and its selected group and routine fields.",
         });
         database.exec("COMMIT");
-        return {
-          created: true,
-          groupResolution,
-          task,
-        };
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -269,7 +308,7 @@ export function registerTodoTools(registry, store, ledger) {
         const result = {
           created: selectedGroup.created,
           reactivated: selectedGroup.reactivated,
-          group: publicGroup(selectedGroup.row),
+          group: databaseGroup(selectedGroup.row),
         };
         ledger.append({
           type: selectedGroup.created
@@ -282,8 +321,13 @@ export function registerTodoTools(registry, store, ledger) {
           content: selectedGroup.row.name, payload: result,
           subjectType: "todo_group", subjectId: String(selectedGroup.row.todo_group_id),
         });
+        const semanticResult = todoResult(schemaSemantics, context, result, {
+          name: "todo_group_create",
+          purpose: "Return the to-do group created, reactivated, or found unchanged.",
+          groupOnly: true,
+        });
         database.exec("COMMIT");
-        return result;
+        return semanticResult;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -298,27 +342,39 @@ export function registerTodoTools(registry, store, ledger) {
       type: "object",
       additionalProperties: false,
       properties: {
-        currentName: { type: "string", minLength: 1, maxLength: 200 },
-        newName: { type: "string", minLength: 1, maxLength: 200 },
+        current_name: { type: "string", minLength: 1, maxLength: 200 },
+        new_name: { type: "string", minLength: 1, maxLength: 200 },
       },
-      required: ["currentName", "newName"],
+      required: ["current_name", "new_name"],
     },
-    async execute({ currentName, newName }, context) {
+    async execute({ current_name: currentName, new_name: newName }, context) {
       const database = store.requireReady();
       database.exec("BEGIN IMMEDIATE");
       try {
-        const result = renameTodoGroup(database, { groupName: currentName, newName });
+        const operationResult = renameTodoGroup(database, { groupName: currentName, newName });
+        const groupRow = database.prepare("SELECT * FROM todo_groups WHERE todo_group_id = ?")
+          .get(operationResult.group.id);
+        const result = {
+          renamed: true,
+          previous_name: operationResult.group.previousName,
+          group: databaseGroup(groupRow),
+        };
         ledger.append({
           type: "personal_todo_group.renamed",
           status: "complete", actorType: "tool", actorName: "todo_group_rename",
           turnId: context.requestId, operationId: context.callId,
           name: "Personal to-do group renamed",
-          content: `${result.group.previousName} → ${result.group.name}`,
+          content: `${result.previous_name} → ${result.group.name}`,
           payload: result,
-          subjectType: "todo_group", subjectId: String(result.group.id),
+          subjectType: "todo_group", subjectId: String(result.group.todo_group_id),
+        });
+        const semanticResult = todoResult(schemaSemantics, context, result, {
+          name: "todo_group_rename",
+          purpose: "Return the renamed to-do group using its stored database fields.",
+          groupOnly: true,
         });
         database.exec("COMMIT");
-        return result;
+        return semanticResult;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -341,16 +397,28 @@ export function registerTodoTools(registry, store, ledger) {
       const database = store.requireReady();
       database.exec("BEGIN IMMEDIATE");
       try {
-        const result = archiveEmptyTodoGroup(database, { groupName: name });
+        const operationResult = archiveEmptyTodoGroup(database, { groupName: name });
+        const groupRow = database.prepare("SELECT * FROM todo_groups WHERE todo_group_id = ?")
+          .get(operationResult.group.id);
+        const result = {
+          archived: true,
+          retained_terminal_task_count: operationResult.retainedTerminalTaskCount,
+          group: databaseGroup(groupRow),
+        };
         ledger.append({
           type: "personal_todo_group.archived",
           status: "complete", actorType: "tool", actorName: "todo_group_archive",
           turnId: context.requestId, operationId: context.callId,
           name: "Personal to-do group archived", content: result.group.name, payload: result,
-          subjectType: "todo_group", subjectId: String(result.group.id),
+          subjectType: "todo_group", subjectId: String(result.group.todo_group_id),
+        });
+        const semanticResult = todoResult(schemaSemantics, context, result, {
+          name: "todo_group_archive",
+          purpose: "Return the archived to-do group using its stored database fields.",
+          groupOnly: true,
         });
         database.exec("COMMIT");
-        return result;
+        return semanticResult;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -360,18 +428,18 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_recurrence_set",
-    description: "Add, change, or remove recurrence for an existing native to-do. Use structured recurrence fields; never compose RRULE syntax. The task must already have scheduledAtUtc before recurrence can be enabled. Set enabled=false and recurrence=null to make the current task one-time and disable future occurrences.",
+    description: "Add, change, or remove recurrence for an existing native to-do. Use structured recurrence fields; never compose RRULE syntax. The task must already have scheduled_at_utc before recurrence can be enabled. Set enabled=false and recurrence=null to make the current task one-time and disable future occurrences.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        taskId: { type: "integer", minimum: 1 },
+        personal_task_id: { type: "integer", minimum: 1 },
         enabled: { type: "boolean" },
         recurrence: todoRecurrenceSchema,
       },
-      required: ["taskId", "enabled", "recurrence"],
+      required: ["personal_task_id", "enabled", "recurrence"],
     },
-    async execute({ taskId, enabled, recurrence }, context) {
+    async execute({ personal_task_id: taskId, enabled, recurrence }, context) {
       const database = store.requireReady();
       const before = database.prepare(`
         SELECT task.*, todo_group.name AS group_name,
@@ -386,7 +454,7 @@ export function registerTodoTools(registry, store, ledger) {
       if (enabled && !recurrence) throw new Error("recurrence is required when enabled is true");
       if (enabled && !before.scheduled_at_utc) throw new Error("Schedule the to-do before enabling recurrence");
       const recurrenceRule = enabled ? buildTodoRecurrenceRule(recurrence) : null;
-      const recurrenceTimeZone = enabled ? validateTimeZone(recurrence.timeZone) : null;
+      const recurrenceTimeZone = enabled ? validateTimeZone(recurrence.time_zone) : null;
       const updatedAt = new Date().toISOString();
 
       database.exec("BEGIN IMMEDIATE");
@@ -433,18 +501,22 @@ export function registerTodoTools(registry, store, ledger) {
           LEFT JOIN todo_routines AS routine USING (todo_routine_id)
           WHERE task.personal_task_id = ?
         `).get(taskId);
-        const task = publicTask(row);
+        const task = databaseTask(row);
         ledger.append({
           type: enabled ? "personal_todo.recurrence_set" : "personal_todo.recurrence_disabled",
           status: "complete", actorType: "tool", actorName: "todo_recurrence_set",
           turnId: context.requestId, operationId: context.callId,
           name: enabled ? "To-do recurrence set" : "To-do recurrence disabled",
           content: task.text,
-          payload: { before: publicTask(before), task },
-          subjectType: "personal_task", subjectId: String(task.id),
+          payload: { before: databaseTask(before), task },
+          subjectType: "personal_task", subjectId: String(task.personal_task_id),
+        });
+        const result = todoResult(schemaSemantics, context, { updated: true, task }, {
+          name: "todo_recurrence_set",
+          purpose: "Return the personal task and stored routine fields after changing recurrence.",
         });
         database.exec("COMMIT");
-        return { updated: true, task };
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -459,18 +531,19 @@ export function registerTodoTools(registry, store, ledger) {
       type: "object",
       additionalProperties: false,
       properties: {
-        taskId: { type: "integer", minimum: 1 },
+        personal_task_id: { type: "integer", minimum: 1 },
         text: optionalText,
         group: optionalText,
         status: { type: ["string", "null"], enum: [...todoStatuses, null] },
-        scheduledAtUtc: optionalText,
-        isAllDay: { type: ["boolean", "null"] },
-        dueAtUtc: optionalText,
+        scheduled_at_utc: optionalText,
+        is_all_day: { type: ["boolean", "null"] },
+        due_at_utc: optionalText,
       },
-      required: ["taskId", "text", "group", "status", "scheduledAtUtc", "dueAtUtc"],
+      required: ["personal_task_id", "text", "group", "status", "scheduled_at_utc", "due_at_utc"],
     },
     async execute({
-      taskId, text, group: groupName, status, scheduledAtUtc, isAllDay, dueAtUtc,
+      personal_task_id: taskId, text, group: groupName, status,
+      scheduled_at_utc: scheduledAtUtc, is_all_day: isAllDay, due_at_utc: dueAtUtc,
     }, context) {
       const database = store.requireReady();
       const before = database.prepare("SELECT * FROM personal_tasks WHERE personal_task_id = ?").get(taskId);
@@ -494,7 +567,7 @@ export function registerTodoTools(registry, store, ledger) {
           .run(...Object.values(values), taskId);
         const current = database.prepare("SELECT * FROM personal_tasks WHERE personal_task_id = ?").get(taskId);
         if (current.is_all_day && !current.scheduled_at_utc) {
-          throw new Error("An all-day to-do requires scheduledAtUtc");
+          throw new Error("An all-day to-do requires scheduled_at_utc");
         }
         if (current.todo_routine_id) {
           database.prepare(`
@@ -510,6 +583,7 @@ export function registerTodoTools(registry, store, ledger) {
         const becameTerminal = ["complete", "ignore"].includes(current.status)
           && !["complete", "ignore"].includes(before.status);
         const generatedTaskId = becameTerminal ? generateNextRoutineTask(database, taskId) : null;
+        let generatedTask = null;
         if (generatedTaskId) {
           const generated = database.prepare(`
             SELECT task.*, todo_group.name AS group_name,
@@ -525,12 +599,13 @@ export function registerTodoTools(registry, store, ledger) {
             actorType: "system", actorName: "Slayer routine scheduler",
             turnId: context.requestId, operationId: context.callId,
             name: "Routine task generated", content: generated.text,
-            payload: { task: publicTask(generated), routineId: generated.todo_routine_id },
+            payload: { task: databaseTask(generated), todo_routine_id: generated.todo_routine_id },
             subjectType: "personal_task", subjectId: String(generatedTaskId),
           });
           database.prepare(`
             UPDATE personal_tasks SET source_event_id = ? WHERE personal_task_id = ?
           `).run(generatedEventId, generatedTaskId);
+          generatedTask = databaseTask({ ...generated, source_event_id: generatedEventId });
         }
         const row = database.prepare(`
           SELECT task.*, todo_group.name AS group_name,
@@ -541,15 +616,23 @@ export function registerTodoTools(registry, store, ledger) {
           LEFT JOIN todo_routines AS routine USING (todo_routine_id)
           WHERE task.personal_task_id = ?
         `).get(taskId);
-        const task = publicTask(row);
+        const task = databaseTask(row);
         ledger.append({
           type: "personal_todo.updated", status: "complete", actorType: "tool", actorName: "todo_update",
           turnId: context.requestId, operationId: context.callId, name: "Personal to-do updated",
           content: task.text,
-          payload: { before: publicTask({ ...before, group_name: null }), task, generatedTaskId },
+          payload: { before: databaseTask({ ...before, group_name: null }), task, generated_task: generatedTask },
+        });
+        const result = todoResult(schemaSemantics, context, {
+          updated: true,
+          task,
+          generated_task: generatedTask,
+        }, {
+          name: "todo_update",
+          purpose: "Return the updated personal task and any next routine occurrence generated by the update.",
         });
         database.exec("COMMIT");
-        return { updated: true, task, generatedTaskId };
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;

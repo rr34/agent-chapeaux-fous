@@ -16,6 +16,7 @@ import { runtimeIdentity } from "./runtime-identity.mjs";
 import { SchemaSemantics } from "./schema-semantics.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
+import { registerCalendarTools } from "./tools/calendar-tools.mjs";
 import { registerLogTools } from "./tools/log-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
 import { ProfileFacts } from "./profile-facts.mjs";
@@ -43,9 +44,10 @@ const mcp = new McpToolManager({
   publicUrl: config.publicUrl,
 });
 if (store.status.ready) {
-  registerTodoTools(registry, store, ledger);
-  registerLogTools(registry, store, ledger);
-  registerProfileFactTools(registry, profileFacts);
+  registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);
+  registerTodoTools(registry, store, ledger, schemaSemantics);
+  registerLogTools(registry, store, ledger, schemaSemantics);
+  registerProfileFactTools(registry, profileFacts, schemaSemantics);
   registerDatabaseTools(registry, store, ledger, schemaSemantics);
 }
 await mcp.initialize(registry);

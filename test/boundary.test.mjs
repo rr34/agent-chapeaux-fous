@@ -41,6 +41,8 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /personal to-dos/);
   assert.match(instructions, /call history_range/);
   assert.match(instructions, /date and topic are filtered in\s+one lookup/);
+  assert.match(instructions, /stored SQLite field names/);
+  assert.match(instructions, /schema-semantic compiler projection/);
   assert.match(instructions, /previous Monday-through-Monday interval/);
   assert.match(instructions, /never ask the user to\s+write RRULE syntax/);
   assert.match(instructions, /personal-log tools/);
@@ -48,6 +50,8 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /log_import in bounded\s+batches/);
   assert.match(instructions, /profile_fact_set/);
   assert.match(instructions, /profile_fact_delete/);
+  assert.match(instructions, /calendar_event_list/);
+  assert.match(instructions, /calendar_event_recurrence_set/);
   assert.match(instructions, /open-ended\s+collection/);
   assert.match(instructions, /Relevant profile types/);
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);

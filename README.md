@@ -106,6 +106,11 @@ visible even then.
 
 Local tools are ordinary JavaScript functions:
 
+Native database-backed tool results preserve SQLite column names and attach the
+schema-semantic compiler's operation-specific projection. The tracked semantic
+form is therefore the single human-authored source for explaining stored fields
+to the model; UI transport objects remain an independent browser concern.
+
 - `todo_group_list`, `todo_group_create`, `todo_group_rename`,
   `todo_group_archive`, `todo_list`, `todo_add`, `todo_recurrence_set`, and
   `todo_update` provide the native personal to-do path without
@@ -114,6 +119,12 @@ Local tools are ordinary JavaScript functions:
   a clear match. Group archival fails while active tasks remain and preserves
   the group on terminal task history. Recurrence is supplied as structured,
   human concepts and stored internally as RRULE.
+- `calendar_event_list`, `calendar_event_add`, `calendar_event_update`, and
+  `calendar_event_recurrence_set` provide the native model-facing calendar
+  path. Event records retain exact `calendar_events` column names and compiler
+  semantics, while range reads identify expanded recurrence and birthday
+  instances as computed occurrences. All-day scheduling is explicit and
+  recurrence is supplied as structured concepts rather than raw RRULE.
 - `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update`
   provide the native grouped personal-log path. Each entry keeps complete
   natural-language content with optional numeric and unit projections for

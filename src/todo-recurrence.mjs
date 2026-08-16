@@ -14,17 +14,17 @@ export function validateTimeZone(value, fallback = Intl.DateTimeFormat().resolve
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(new Date());
   } catch {
-    throw new Error("recurrence timeZone must be a valid IANA time zone");
+    throw new Error("recurrence time_zone must be a valid IANA time zone");
   }
   return zone;
 }
 
-export function buildTodoRecurrenceRule({
+export function buildRecurrenceRule({
   frequency,
   interval = 1,
   weekdays: selectedWeekdays = [],
   count = null,
-  untilDate = null,
+  until_date: untilDate = null,
 } = {}) {
   const normalizedFrequency = String(frequency || "").toUpperCase();
   if (!frequencies.has(normalizedFrequency)) {
@@ -43,18 +43,20 @@ export function buildTodoRecurrenceRule({
   if (count != null) parts.push(`COUNT=${boundedInteger(count, "recurrence count", 9999)}`);
   if (untilDate) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(untilDate)) {
-      throw new Error("recurrence untilDate must be YYYY-MM-DD");
+      throw new Error("recurrence until_date must be YYYY-MM-DD");
     }
     const date = new Date(`${untilDate}T12:00:00Z`);
     if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== untilDate) {
-      throw new Error("recurrence untilDate is not a real calendar date");
+      throw new Error("recurrence until_date is not a real calendar date");
     }
     parts.push(`UNTIL=${untilDate.replaceAll("-", "")}T235959`);
   }
   return parts.join(";");
 }
 
-export const todoRecurrenceSchema = {
+export const buildTodoRecurrenceRule = buildRecurrenceRule;
+
+export const recurrenceSchema = {
   type: ["object", "null"],
   additionalProperties: false,
   properties: {
@@ -66,8 +68,10 @@ export const todoRecurrenceSchema = {
       uniqueItems: true,
     },
     count: { type: ["integer", "null"], minimum: 1, maximum: 9999 },
-    untilDate: { type: ["string", "null"], description: "Inclusive final date in YYYY-MM-DD format." },
-    timeZone: { type: ["string", "null"], description: "IANA time zone, for example America/New_York." },
+    until_date: { type: ["string", "null"], description: "Inclusive final date in YYYY-MM-DD format." },
+    time_zone: { type: ["string", "null"], description: "IANA time zone, for example America/New_York." },
   },
-  required: ["frequency", "interval", "weekdays", "count", "untilDate", "timeZone"],
+  required: ["frequency", "interval", "weekdays", "count", "until_date", "time_zone"],
 };
+
+export const todoRecurrenceSchema = recurrenceSchema;

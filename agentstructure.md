@@ -177,6 +177,12 @@ it does not turn the application into a plugin system.
 
 The current local application tools are:
 
+Model-facing results from native database-backed tools use the stored SQLite
+column names without a camelCase alias layer. Each such result carries the
+schema-semantic compiler projection for the exact participating objects and
+fields, keeping human field meaning in the tracked semantic form. Browser API
+view models are separate from this model-facing contract.
+
 - `todo_group_list`, `todo_group_create`, `todo_group_rename`,
   `todo_group_archive`, `todo_list`, `todo_add`, `todo_recurrence_set`, and
   `todo_update` for personal to-dos. Inbox is the fallback,
@@ -184,6 +190,11 @@ The current local application tools are:
   one. Archiving a non-Inbox group fails while active tasks remain and preserves
   the group on terminal task history. The UI and agent accept ordinary
   recurrence concepts and keep RRULE as an internal storage detail.
+- `calendar_event_list`, `calendar_event_add`, `calendar_event_update`, and
+  `calendar_event_recurrence_set` for native schedule reads and writes. Stored
+  events use exact `calendar_events` field names plus compiler semantics;
+  recurrence instances and contact birthdays are clearly separated as computed
+  occurrences. All-day events and structured recurrence are first-class.
 - `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update` for
   grouped, reusable personal tracking, complete time-stamped observations, and
   idempotent bounded imports from any source.
@@ -326,6 +337,8 @@ The minimum required tables are:
 - `database_meta` for the current schema version;
 - `activity_events` for **19. Agent activity ledger**;
 - `files` for references into **20. Agent media storage**;
+- `contacts`, `calendar_events`, and `calendar_event_exclusions` for the native
+  calendar and its derived birthday and recurrence views;
 - `todo_groups` and `personal_tasks` for the native to-do tools;
 - `log_groups`, `trackers`, and `log_entries` for the native personal-log tools; and
 - `profile_facts` for active and archived durable user facts.
