@@ -254,6 +254,8 @@ function recurringOccurrence(event, startsAt, duration) {
     ...event,
     id: `recurrence:${event.id}:${startsAt.toISOString()}`,
     seriesId: event.id,
+    seriesStartsAtUtc: event.startsAtUtc,
+    seriesEndsAtUtc: event.endsAtUtc,
     startsAtUtc: startsAt.toISOString(),
     endsAtUtc: duration > 0 ? new Date(startMs + duration).toISOString() : null,
     isGeneratedOccurrence: true,
@@ -852,9 +854,17 @@ export class OrganizerStore {
       timeZone: timeZone(input?.timeZone),
       isAllDay: booleanInteger(input?.isAllDay),
       status: enumValue(input?.status, calendarStatuses, "status", "active"),
+      recurrenceRule: optionalText(input?.recurrenceRule, "recurrenceRule", 2000),
     };
     if (event.endsAtUtc && event.endsAtUtc < event.startsAtUtc) {
       throw new OrganizerInputError("endsAtUtc cannot be earlier than startsAtUtc.");
+    }
+    if (event.recurrenceRule) {
+      try {
+        nextOccurrence(event, new Date(new Date(event.startsAtUtc).getTime() - 1000).toISOString());
+      } catch {
+        throw new OrganizerInputError("recurrenceRule must be a valid RRULE.");
+      }
     }
 
     this.database.exec("BEGIN IMMEDIATE");
@@ -862,11 +872,12 @@ export class OrganizerStore {
       const result = this.database.prepare(`
         INSERT INTO calendar_events (
           title, description, location_text, starts_at_utc, ends_at_utc,
-          time_zone, is_all_day, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          time_zone, is_all_day, status, recurrence_rule
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         event.title, event.description, event.location, event.startsAtUtc, event.endsAtUtc,
         event.timeZone, event.isAllDay, event.status === "active" ? "confirmed" : "cancelled",
+        event.recurrenceRule,
       );
       const id = Number(result.lastInsertRowid);
       const created = this.getCalendar(id);
@@ -916,12 +927,23 @@ export class OrganizerStore {
       status: input.status === undefined
         ? before.status
         : enumValue(input.status, calendarStatuses, "status", before.status),
+      recurrenceRule: input.recurrenceRule === undefined
+        ? before.recurrenceRule
+        : optionalText(input.recurrenceRule, "recurrenceRule", 2000),
     };
     if (after.endsAtUtc && after.endsAtUtc < after.startsAtUtc) {
       throw new OrganizerInputError("endsAtUtc cannot be earlier than startsAtUtc.");
     }
+    if (after.recurrenceRule) {
+      try {
+        nextOccurrence(after, new Date(new Date(after.startsAtUtc).getTime() - 1000).toISOString());
+      } catch {
+        throw new OrganizerInputError("recurrenceRule must be a valid RRULE.");
+      }
+    }
     const changes = changedFields(before, after, [
       "title", "description", "location", "startsAtUtc", "endsAtUtc", "timeZone", "isAllDay", "status",
+      "recurrenceRule",
     ]);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
@@ -931,13 +953,14 @@ export class OrganizerStore {
       const result = this.database.prepare(`
         UPDATE calendar_events
         SET title = ?, description = ?, location_text = ?, starts_at_utc = ?, ends_at_utc = ?,
-            time_zone = ?, is_all_day = ?, status = ?, updated_at_utc = ?
+            time_zone = ?, is_all_day = ?, status = ?, recurrence_rule = ?, updated_at_utc = ?
         WHERE calendar_event_id = ?
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
         after.title, after.description, after.location, after.startsAtUtc, after.endsAtUtc,
         after.timeZone, after.isAllDay ? 1 : 0,
-        after.status === "active" ? "confirmed" : "cancelled", updatedAt, id, before.version,
+        after.status === "active" ? "confirmed" : "cancelled", after.recurrenceRule,
+        updatedAt, id, before.version,
       );
       if (result.changes !== 1) {
         throw new OrganizerInputError("This calendar event changed while you were saving it. Refresh and try again.", 409);

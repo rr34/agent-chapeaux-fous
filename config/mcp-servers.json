@@ -31,12 +31,5 @@
       "X-MCP-Toolsets": "context,repos,issues,pull_requests",
       "X-MCP-Readonly": "true"
     }
-  },
-  "fastmail": {
-    "enabled": false,
-    "url": "https://api.fastmail.com/mcp",
-    "headers": {
-      "Authorization": "Bearer ${FASTMAIL_MCP_TOKEN}"
-    }
   }
 }

@@ -7,6 +7,7 @@ import { loadConfig } from "./config.mjs";
 import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
+import { JmapClient } from "./jmap-client.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { authorizationScope, isInspectionRequest } from "./http-auth.mjs";
 import { createModelTransport } from "./model-transport.mjs";
@@ -16,6 +17,7 @@ import { runtimeIdentity } from "./runtime-identity.mjs";
 import { SchemaSemantics } from "./schema-semantics.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
+import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
 import { registerCalendarTools } from "./tools/calendar-tools.mjs";
 import { registerLogTools } from "./tools/log-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
@@ -43,6 +45,13 @@ const mcp = new McpToolManager({
   oauthRoot: config.mcpOAuthRoot,
   publicUrl: config.publicUrl,
 });
+const jmap = new JmapClient({
+  sessionUrl: config.jmapSessionUrl,
+  accessToken: config.jmapAccessToken,
+  accountId: config.jmapAccountId,
+  required: config.jmapRequired,
+  timeoutMs: config.jmapTimeoutMs,
+});
 if (store.status.ready) {
   registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);
   registerTodoTools(registry, store, ledger, schemaSemantics);
@@ -51,6 +60,8 @@ if (store.status.ready) {
   registerDatabaseTools(registry, store, ledger, schemaSemantics);
 }
 await mcp.initialize(registry);
+await jmap.initialize();
+if (jmap.health().ready) registerJmapEmailTools(registry, jmap);
 const contextBuilder = new ContextBuilder({ ledger, profileFacts, profileFactQuestions });
 const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, ledger, config });
 const transcriber = new WhisperTranscriber({
@@ -156,7 +167,7 @@ async function receiveAudio(request) {
 
 function health() {
   const model = modelTransport.health();
-  const integrationProblem = mcp.requiredProblem();
+  const integrationProblem = mcp.requiredProblem() || jmap.requiredProblem();
   return {
     ready: store.status.ready && model.ready && !integrationProblem,
     reason: store.status.ready ? (model.ready ? integrationProblem : model.reason) : store.status.reason,
@@ -164,7 +175,7 @@ function health() {
     model: { ...model, id: modelTransport.id, displayName: modelTransport.displayName, model: config.model },
     database: store.status,
     schemaSemantics: schemaSemantics.health(),
-    integrations: mcp.health(),
+    integrations: { ...mcp.health(), email: jmap.health() },
     tools: registry.list().map((tool) => ({
       name: tool.name,
       source: tool.source,
@@ -371,7 +382,7 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 201, { entry: organizer.createLogEntry(await readJson(request)) });
       return;
     }
-    const integrationProblem = mcp.requiredProblem();
+    const integrationProblem = mcp.requiredProblem() || jmap.requiredProblem();
     if (integrationProblem) {
       sendJson(response, 503, { error: integrationProblem });
       return;
@@ -401,7 +412,7 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(config.port, config.host, () => {
   console.log(`[agent-slayer] ${identity.commit || "uncommitted"}${identity.dirty ? "-dirty" : ""} listening on http://${config.host}:${config.port}`);
-  if (store.status.ready && mcp.ready()) queue.notify();
+  if (store.status.ready && mcp.ready() && !jmap.requiredProblem()) queue.notify();
 });
 
 async function shutdown() {

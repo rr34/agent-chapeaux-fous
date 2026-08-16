@@ -70,3 +70,22 @@ test("Nutrition selects generic MCP OAuth without a static access token", () => 
   const environmentExample = fs.readFileSync(path.join(repositoryRoot, ".env.example"), "utf8");
   assert.doesNotMatch(environmentExample, /NUTRITION_ACCESS_TOKEN/);
 });
+
+test("native JMAP email configuration is independent of MCP", () => {
+  const config = loadConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_JMAP_SESSION_URL: "https://mail.example.test/jmap/session",
+    SLAYER_JMAP_ACCESS_TOKEN: "jmap-secret",
+    SLAYER_JMAP_ACCOUNT_ID: "account1",
+    SLAYER_JMAP_REQUIRED: "true",
+    SLAYER_JMAP_TIMEOUT_MS: "9000",
+  });
+  assert.equal(config.jmapSessionUrl, "https://mail.example.test/jmap/session");
+  assert.equal(config.jmapAccessToken, "jmap-secret");
+  assert.equal(config.jmapAccountId, "account1");
+  assert.equal(config.jmapRequired, true);
+  assert.equal(config.jmapTimeoutMs, 9000);
+
+  const integrations = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "config", "mcp-servers.json"), "utf8"));
+  assert.equal(integrations.fastmail, undefined);
+});

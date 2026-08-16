@@ -187,6 +187,45 @@
       <label>Status<select id="event-status">
         <option value="active">Active</option><option value="archived">Archived</option>
       </select></label>
+      <section class="recurrence-editor" aria-labelledby="event-repeat-heading">
+        <label class="checkbox-row recurrence-toggle">
+          <input id="event-repeat-enabled" type="checkbox">
+          <span id="event-repeat-heading">Repeat this event</span>
+        </label>
+        <div id="event-repeat-fields" class="recurrence-fields" hidden>
+          <div class="recurrence-every">
+            <span>Every</span>
+            <input id="event-repeat-interval" type="number" min="1" max="999" step="1" value="1" aria-label="Repeat interval">
+            <select id="event-repeat-frequency" aria-label="Repeat frequency">
+              <option value="DAILY">day</option>
+              <option value="WEEKLY">week</option>
+              <option value="MONTHLY">month</option>
+              <option value="YEARLY">year</option>
+            </select>
+          </div>
+          <fieldset id="event-repeat-weekdays" class="recurrence-weekdays" hidden>
+            <legend>On</legend>
+            <label><input type="checkbox" value="MO">Mon</label>
+            <label><input type="checkbox" value="TU">Tue</label>
+            <label><input type="checkbox" value="WE">Wed</label>
+            <label><input type="checkbox" value="TH">Thu</label>
+            <label><input type="checkbox" value="FR">Fri</label>
+            <label><input type="checkbox" value="SA">Sat</label>
+            <label><input type="checkbox" value="SU">Sun</label>
+          </fieldset>
+          <div class="recurrence-ending">
+            <label>Ends<select id="event-repeat-end">
+              <option value="never">Never</option>
+              <option value="count">After a number of occurrences</option>
+              <option value="until">On a date</option>
+            </select></label>
+            <label id="event-repeat-count-label" hidden>Occurrences<input id="event-repeat-count" type="number" min="1" max="9999" step="1" value="10"></label>
+            <label id="event-repeat-until-label" hidden>Last date<input id="event-repeat-until" type="date"></label>
+          </div>
+          <p id="event-repeat-summary" class="recurrence-summary"></p>
+          <p class="recurrence-hint">The start date and time is the first occurrence.</p>
+        </div>
+      </section>
       <p id="event-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>

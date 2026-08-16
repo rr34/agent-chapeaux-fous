@@ -144,6 +144,41 @@ to the model; UI transport objects remain an independent browser concern.
   requests and responses, supports relative local periods through explicit UTC
   boundaries, and can apply a topical term filter across both sides of each
   exchange in the same lookup.
+- `email_account_list`, `email_mailbox_list`, `email_identity_list`,
+  `email_search`, `email_get`, `email_thread_get`, `email_changes`,
+  `email_update`, `email_draft_create`, `email_send`,
+  `email_submission_get`, and `email_attachment_get` provide a native JMAP mail
+  path. Reads go to the live mail store rather than a SQLite cache. Stable JMAP
+  ids and state tokens preserve mailbox reality and allow stale mutations to be
+  rejected. Draft creation never implies delivery; `email_send` is a separate
+  externally effective operation and moves successful submissions from Drafts
+  to Sent.
+
+## JMAP email
+
+Agent Slayer discovers a standard JMAP Session resource at startup and only
+registers email tools after authenticated discovery confirms both core and mail
+capabilities. Set these values in `.env`:
+
+```text
+SLAYER_JMAP_SESSION_URL=https://api.fastmail.com/jmap/session
+SLAYER_JMAP_ACCESS_TOKEN=<JMAP API token>
+SLAYER_JMAP_REQUIRED=true
+```
+
+Fastmail API tokens are created under **Settings → Privacy & Security → Manage
+API tokens**. Other conforming providers may use a different session URL. Set
+`SLAYER_JMAP_ACCOUNT_ID` only when the session exposes multiple accounts and
+the advertised primary mail account is not the intended one. The token remains
+server-side and is excluded from health, traces, tool schemas, and tool results.
+
+JMAP is the email authority: mailbox membership, keywords, threads, message
+bodies, attachment blobs, identities, and submission state are read live.
+`email_changes` exposes standard state-token pagination for efficient future
+mirroring without making a local cache authoritative. Email does not use the
+MCP configuration or Codex's isolated network boundary; the named local tool
+function performs each JMAP request and returns its result to the same model
+exchange.
 
 `config/profile-fact-questions.json` is the versioned catalog of standard
 secretary question families. It defines a broad repeatable fact type, the exact

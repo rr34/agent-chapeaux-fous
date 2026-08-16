@@ -70,6 +70,11 @@ export function loadConfig(environment = process.env) {
     systemPromptPath: path.join(repositoryRoot, "config/system-prompt.md"),
     profileFactQuestionsPath: path.join(repositoryRoot, "config/profile-fact-questions.json"),
     mcpConfigPath: resolveFromRoot(environment.SLAYER_MCP_CONFIG, "config/mcp-servers.json"),
+    jmapSessionUrl: environment.SLAYER_JMAP_SESSION_URL?.trim() || "",
+    jmapAccessToken: environment.SLAYER_JMAP_ACCESS_TOKEN?.trim() || "",
+    jmapAccountId: environment.SLAYER_JMAP_ACCOUNT_ID?.trim() || "",
+    jmapRequired: environment.SLAYER_JMAP_REQUIRED === "true",
+    jmapTimeoutMs: positiveInteger(environment.SLAYER_JMAP_TIMEOUT_MS, 15_000),
     schemaSemanticsPath: path.join(repositoryRoot, "db/schema-semantics.json"),
     mcpOAuthRoot: environment.SLAYER_MCP_OAUTH_ROOT?.trim()
       ? resolveFromRoot(environment.SLAYER_MCP_OAUTH_ROOT)

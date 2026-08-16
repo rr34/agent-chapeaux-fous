@@ -40,6 +40,42 @@ test("calendar events use the existing tables with optimistic concurrency", () =
   }
 });
 
+test("calendar events can create, display, edit, and stop recurring series", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const created = organizer.createCalendar({
+      title: "Weekly planning",
+      startsAtUtc: "2026-08-17T13:00:00.000Z",
+      endsAtUtc: "2026-08-17T14:00:00.000Z",
+      timeZone: "America/New_York",
+      recurrenceRule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;COUNT=3",
+    });
+    assert.equal(created.recurrenceRule, "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;COUNT=3");
+
+    const occurrences = organizer.listCalendar({
+      from: "2026-08-01T00:00:00.000Z",
+      to: "2026-09-15T00:00:00.000Z",
+    }).filter(({ seriesId }) => seriesId === created.id);
+    assert.equal(occurrences.length, 3);
+    assert.equal(occurrences[0].seriesStartsAtUtc, created.startsAtUtc);
+    assert.equal(occurrences[0].seriesEndsAtUtc, created.endsAtUtc);
+
+    const updated = organizer.updateCalendar(created.id, {
+      version: created.version,
+      recurrenceRule: null,
+    });
+    assert.equal(updated.recurrenceRule, null);
+    assert.equal(organizer.listCalendar({
+      from: "2026-08-01T00:00:00.000Z",
+      to: "2026-09-15T00:00:00.000Z",
+    }).filter(({ id }) => id === created.id).length, 1);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("grouped and recurring todos use the existing task tables", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

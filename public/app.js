@@ -53,6 +53,17 @@ const elements = {
   eventLocation: document.querySelector("#event-location"),
   eventDescription: document.querySelector("#event-description"),
   eventStatus: document.querySelector("#event-status"),
+  eventRepeatEnabled: document.querySelector("#event-repeat-enabled"),
+  eventRepeatFields: document.querySelector("#event-repeat-fields"),
+  eventRepeatInterval: document.querySelector("#event-repeat-interval"),
+  eventRepeatFrequency: document.querySelector("#event-repeat-frequency"),
+  eventRepeatWeekdays: document.querySelector("#event-repeat-weekdays"),
+  eventRepeatEnd: document.querySelector("#event-repeat-end"),
+  eventRepeatCountLabel: document.querySelector("#event-repeat-count-label"),
+  eventRepeatCount: document.querySelector("#event-repeat-count"),
+  eventRepeatUntilLabel: document.querySelector("#event-repeat-until-label"),
+  eventRepeatUntil: document.querySelector("#event-repeat-until"),
+  eventRepeatSummary: document.querySelector("#event-repeat-summary"),
   eventFormError: document.querySelector("#event-form-error"),
   todoScope: document.querySelector("#todo-scope"),
   todoGroupFilter: document.querySelector("#todo-group-filter"),
@@ -209,9 +220,15 @@ function selectedRepeatWeekdays() {
     .map(({ value }) => value);
 }
 
-function scheduledWeekday() {
-  const date = elements.todoScheduled.value ? new Date(elements.todoScheduled.value) : new Date();
+function repeatAnchorWeekday(value) {
+  const date = value
+    ? new Date(value.includes("T") ? value : `${value}T12:00:00`)
+    : new Date();
   return ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][date.getDay()];
+}
+
+function scheduledWeekday() {
+  return repeatAnchorWeekday(elements.todoScheduled.value);
 }
 
 function ensureRepeatWeekday() {
@@ -300,6 +317,78 @@ function loadTodoRecurrenceEditor(rule, recurrenceTimeZone = null) {
   const untilMatch = /^(\d{4})(\d{2})(\d{2})/.exec(parts.UNTIL || "");
   elements.todoRepeatUntil.value = untilMatch ? `${untilMatch[1]}-${untilMatch[2]}-${untilMatch[3]}` : "";
   updateTodoRecurrenceEditor();
+}
+
+function selectedEventRepeatWeekdays() {
+  return [...elements.eventRepeatWeekdays.querySelectorAll('input[type="checkbox"]:checked')]
+    .map(({ value }) => value);
+}
+
+function ensureEventRepeatWeekday() {
+  if (elements.eventRepeatFrequency.value !== "WEEKLY" || selectedEventRepeatWeekdays().length) return;
+  const weekday = repeatAnchorWeekday(elements.eventStart.value);
+  const checkbox = elements.eventRepeatWeekdays.querySelector(`input[value="${weekday}"]`);
+  if (checkbox) checkbox.checked = true;
+}
+
+function buildEventRecurrenceRule() {
+  if (!elements.eventRepeatEnabled.checked) return null;
+  const interval = Number(elements.eventRepeatInterval.value);
+  if (!Number.isInteger(interval) || interval < 1 || interval > 999) {
+    throw new Error("Repeat interval must be a whole number from 1 to 999.");
+  }
+  const frequency = elements.eventRepeatFrequency.value;
+  const parts = [`FREQ=${frequency}`, `INTERVAL=${interval}`];
+  if (frequency === "WEEKLY") {
+    ensureEventRepeatWeekday();
+    const weekdays = selectedEventRepeatWeekdays();
+    if (!weekdays.length) throw new Error("Choose at least one weekday.");
+    parts.push(`BYDAY=${weekdays.join(",")}`);
+  }
+  if (elements.eventRepeatEnd.value === "count") {
+    const count = Number(elements.eventRepeatCount.value);
+    if (!Number.isInteger(count) || count < 1 || count > 9999) {
+      throw new Error("Occurrences must be a whole number from 1 to 9999.");
+    }
+    parts.push(`COUNT=${count}`);
+  } else if (elements.eventRepeatEnd.value === "until") {
+    const until = elements.eventRepeatUntil.value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(until)) throw new Error("Choose the last recurrence date.");
+    parts.push(`UNTIL=${until.replaceAll("-", "")}T235959`);
+  }
+  return parts.join(";");
+}
+
+function updateEventRecurrenceEditor() {
+  const enabled = elements.eventRepeatEnabled.checked;
+  elements.eventRepeatFields.hidden = !enabled;
+  if (!enabled) return;
+  const weekly = elements.eventRepeatFrequency.value === "WEEKLY";
+  elements.eventRepeatWeekdays.hidden = !weekly;
+  if (weekly) ensureEventRepeatWeekday();
+  const ending = elements.eventRepeatEnd.value;
+  elements.eventRepeatCountLabel.hidden = ending !== "count";
+  elements.eventRepeatUntilLabel.hidden = ending !== "until";
+  try {
+    elements.eventRepeatSummary.textContent = describeTodoRecurrence(buildEventRecurrenceRule());
+  } catch (error) {
+    elements.eventRepeatSummary.textContent = error.message;
+  }
+}
+
+function loadEventRecurrenceEditor(rule) {
+  const parts = recurrenceParts(rule);
+  elements.eventRepeatEnabled.checked = Boolean(rule);
+  elements.eventRepeatFrequency.value = recurrenceFrequencyLabels[parts.FREQ] ? parts.FREQ : "WEEKLY";
+  elements.eventRepeatInterval.value = String(Math.max(1, Number(parts.INTERVAL) || 1));
+  for (const checkbox of elements.eventRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
+    checkbox.checked = (parts.BYDAY || "").split(",").includes(checkbox.value);
+  }
+  elements.eventRepeatEnd.value = parts.COUNT ? "count" : parts.UNTIL ? "until" : "never";
+  elements.eventRepeatCount.value = parts.COUNT || "10";
+  const untilMatch = /^(\d{4})(\d{2})(\d{2})/.exec(parts.UNTIL || "");
+  elements.eventRepeatUntil.value = untilMatch ? `${untilMatch[1]}-${untilMatch[2]}-${untilMatch[3]}` : "";
+  updateEventRecurrenceEditor();
 }
 
 function formatTime(milliseconds) {
@@ -763,9 +852,18 @@ function renderAgenda() {
       node("strong", "", calendarEvent.title),
       node("span", "", [formatEventTime(calendarEvent), calendarEvent.location].filter(Boolean).join(" · ")),
     );
-    if (calendarEvent.readOnly) {
+    if (calendarEvent.seriesId) {
+      button.title = "Edit this recurring event series.";
+      button.addEventListener("click", () => openEventEditor({
+        ...calendarEvent,
+        id: calendarEvent.seriesId,
+        startsAtUtc: calendarEvent.seriesStartsAtUtc,
+        endsAtUtc: calendarEvent.seriesEndsAtUtc,
+        readOnly: false,
+      }));
+    } else if (calendarEvent.readOnly) {
       button.disabled = true;
-      button.title = "This item is generated from a recurring event or contact record.";
+      button.title = "This item is generated from a contact record.";
     } else {
       button.addEventListener("click", () => openEventEditor(calendarEvent));
     }
@@ -824,6 +922,7 @@ function openEventEditor(calendarEvent = null) {
     elements.eventEnd.value = localDateTimeInput(new Date(start.getTime() + 3_600_000));
     elements.eventStatus.value = "active";
   }
+  loadEventRecurrenceEditor(calendarEvent?.recurrenceRule ?? null);
   elements.eventDialog.showModal();
   elements.eventTitle.focus();
 }
@@ -844,6 +943,7 @@ async function saveEvent(event) {
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       isAllDay: allDay,
       status: elements.eventStatus.value,
+      recurrenceRule: buildEventRecurrenceRule(),
     };
     const id = elements.eventId.value;
     if (id) payload.version = elements.eventVersion.value;
@@ -1478,8 +1578,20 @@ elements.today.addEventListener("click", () => {
 });
 elements.cancelCalendarSchedule.addEventListener("click", () => cancelCalendarScheduling());
 elements.newEvent.addEventListener("click", () => openEventEditor());
-elements.eventAllDay.addEventListener("change", () => setEventInputTypes(elements.eventAllDay.checked));
+elements.eventAllDay.addEventListener("change", () => {
+  setEventInputTypes(elements.eventAllDay.checked);
+  updateEventRecurrenceEditor();
+});
 elements.eventForm.addEventListener("submit", saveEvent);
+for (const control of [
+  elements.eventRepeatEnabled, elements.eventRepeatInterval, elements.eventRepeatFrequency,
+  elements.eventRepeatEnd, elements.eventRepeatCount, elements.eventRepeatUntil,
+  ...elements.eventRepeatWeekdays.querySelectorAll('input[type="checkbox"]'),
+]) {
+  control.addEventListener("change", updateEventRecurrenceEditor);
+  if (control.matches('input[type="number"]')) control.addEventListener("input", updateEventRecurrenceEditor);
+}
+elements.eventStart.addEventListener("change", updateEventRecurrenceEditor);
 elements.newTodo.addEventListener("click", async () => {
   if (todoGroups.length === 0) await refreshTodos();
   openTodoEditor();

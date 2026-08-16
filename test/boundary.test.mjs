@@ -52,6 +52,8 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /profile_fact_delete/);
   assert.match(instructions, /calendar_event_list/);
   assert.match(instructions, /calendar_event_recurrence_set/);
+  assert.match(instructions, /native JMAP tools as the live authority/);
+  assert.match(instructions, /Call email_send only when\s+the user explicitly asks to send/);
   assert.match(instructions, /open-ended\s+collection/);
   assert.match(instructions, /Relevant profile types/);
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
@@ -64,6 +66,17 @@ test("the todo editor builds recurrence without exposing an RRULE input", () => 
   assert.match(document, /id="todo-repeat-weekdays"/);
   assert.match(document, /id="todo-repeat-fields" class="recurrence-fields" hidden/);
   assert.doesNotMatch(document, /Routine RRULE|todo-recurrence-rule/);
+});
+
+test("the calendar event editor exposes recurrence only after its repeat checkbox", () => {
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(document, /id="event-repeat-enabled"/);
+  assert.match(document, /id="event-repeat-fields" class="recurrence-fields" hidden/);
+  assert.match(document, /id="event-repeat-weekdays"/);
+  assert.ok(document.indexOf('id="event-repeat-enabled"') < document.indexOf('id="event-repeat-fields"'));
+  assert.match(application, /recurrenceRule: buildEventRecurrenceRule\(\)/);
+  assert.match(application, /loadEventRecurrenceEditor\(calendarEvent\?\.recurrenceRule \?\? null\)/);
 });
 
 test("calendar controls use simple visibility states and 24-hour datetime locales", () => {
