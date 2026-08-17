@@ -155,6 +155,8 @@ test("contacts support searchable-page data, multiple methods, and safe edits", 
       methods: [{ ...email, value: "alex.rivera@example.test" }],
     });
     assert.equal(updated.status, "inactive");
+    assert.equal(updated.givenName, "Alex");
+    assert.equal(updated.familyName, "Rivera");
     assert.equal(updated.methods.length, 1);
     assert.equal(updated.methods[0].id, email.id);
     assert.deepEqual(organizer.listContacts(), []);

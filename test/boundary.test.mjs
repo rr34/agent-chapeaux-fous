@@ -157,7 +157,9 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /data-view="calendar"/);
   assert.match(document, /data-view="todos"/);
+  assert.match(document, /id="agent-view-button"[^>]*>Agent<\/button>/);
   assert.match(document, /id="view-selector"/);
+  assert.doesNotMatch(document, /<option[^>]+value="agent"/);
   assert.match(document, /data-view="content"/);
   assert.match(document, /data-view="logs"/);
   assert.match(document, /id="content-view"/);
@@ -170,6 +172,7 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(application, /refreshCalendar/);
   assert.match(application, /refreshTodos/);
   assert.match(application, /refreshContent/);
+  assert.match(application, /agentViewButton\.addEventListener\("click", \(\) => switchView\("agent"\)\)/);
   assert.match(application, /renderContent/);
   assert.match(application, /safeContentUrl/);
   assert.match(application, /refreshLogs/);
@@ -221,6 +224,8 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(document, /id="contact-delete-selected"/);
   assert.match(document, /id="review-contact-duplicates"/);
   assert.match(document, /id="contact-dialog"/);
+  assert.doesNotMatch(document, /id="contact-given-name"/);
+  assert.doesNotMatch(document, /id="contact-family-name"/);
   assert.match(document, /id="contact-tags"/);
   assert.match(document, /id="contact-method-list"/);
   assert.match(document, /id="contact-duplicates-dialog"/);
@@ -229,6 +234,8 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(application, /function addTagToSelectedContacts/);
   assert.match(application, /function deleteSelectedContacts/);
   assert.match(application, /async function renameContactTag/);
+  assert.doesNotMatch(application, /contactGivenName/);
+  assert.doesNotMatch(application, /contactFamilyName/);
   assert.match(application, /node\("input", "contact-select-checkbox"\)/);
   assert.doesNotMatch(application, /contactInitials/);
   assert.match(application, /function duplicateContactGroups/);
@@ -237,6 +244,8 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(application, /node\("button", "contact-method-value contact-method-copy", method\.value\)/);
   assert.match(application, /copyText\(method\.value, event\.currentTarget\)/);
   assert.match(application, /function addContactMethodRow/);
+  assert.match(application, /function selectPrimaryContactMethod/);
+  assert.match(application, /primary\.addEventListener\("change", \(\) => selectPrimaryContactMethod\(row\)\)/);
   assert.match(application, /function saveContact/);
   assert.match(application, /\/api\/contacts\?scope=all/);
   assert.match(server, /organizer\.listContacts/);

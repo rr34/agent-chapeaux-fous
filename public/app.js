@@ -27,6 +27,7 @@ const elements = {
   tokenDialog: document.querySelector("#token-dialog"),
   tokenForm: document.querySelector("#token-form"),
   token: document.querySelector("#token"),
+  agentViewButton: document.querySelector("#agent-view-button"),
   viewSelector: document.querySelector("#view-selector"),
   agentView: document.querySelector("#agent-view"),
   calendarView: document.querySelector("#calendar-view"),
@@ -164,8 +165,6 @@ const elements = {
   contactVersion: document.querySelector("#contact-version"),
   contactDisplayName: document.querySelector("#contact-display-name"),
   contactKind: document.querySelector("#contact-kind"),
-  contactGivenName: document.querySelector("#contact-given-name"),
-  contactFamilyName: document.querySelector("#contact-family-name"),
   contactOrganizationName: document.querySelector("#contact-organization-name"),
   contactBirthDate: document.querySelector("#contact-birth-date"),
   contactTags: document.querySelector("#contact-tags"),
@@ -839,7 +838,14 @@ function switchView(view) {
   elements.contentView.hidden = view !== "content";
   elements.contactsView.hidden = view !== "contacts";
   elements.logsView.hidden = view !== "logs";
-  elements.viewSelector.value = view;
+  elements.agentViewButton.classList.toggle("active", view === "agent");
+  if (view === "agent") {
+    elements.agentViewButton.setAttribute("aria-current", "page");
+    elements.viewSelector.value = "";
+  } else {
+    elements.agentViewButton.removeAttribute("aria-current");
+    elements.viewSelector.value = view;
+  }
   if (view === "calendar") void refreshCalendar();
   if (view === "todos") void refreshTodos();
   if (view === "content") void refreshContent();
@@ -2388,6 +2394,16 @@ function updateContactMethodInput(row) {
   value.placeholder = contactMethodName(kind);
 }
 
+function selectPrimaryContactMethod(row) {
+  const primary = row.querySelector(".contact-method-primary");
+  if (!primary.checked) return;
+  const kind = row.querySelector(".contact-method-kind").value;
+  for (const candidate of elements.contactMethodList.querySelectorAll(".contact-method-row")) {
+    if (candidate === row || candidate.querySelector(".contact-method-kind").value !== kind) continue;
+    candidate.querySelector(".contact-method-primary").checked = false;
+  }
+}
+
 function addContactMethodRow(method = {}) {
   const row = node("div", "contact-method-row");
   if (method.id) row.dataset.methodId = String(method.id);
@@ -2425,10 +2441,15 @@ function addContactMethodRow(method = {}) {
   const remove = node("button", "secondary compact contact-method-remove", "Remove");
   remove.type = "button";
   remove.addEventListener("click", () => row.remove());
-  kind.addEventListener("change", () => updateContactMethodInput(row));
+  primary.addEventListener("change", () => selectPrimaryContactMethod(row));
+  kind.addEventListener("change", () => {
+    updateContactMethodInput(row);
+    selectPrimaryContactMethod(row);
+  });
   row.append(kind, label, value, primaryLabel, receiveLabel, remove);
   elements.contactMethodList.append(row);
   updateContactMethodInput(row);
+  selectPrimaryContactMethod(row);
   return row;
 }
 
@@ -2441,8 +2462,6 @@ function openContactEditor(contact = null) {
   elements.contactVersion.value = contact?.version ?? "";
   elements.contactDisplayName.value = contact?.displayName ?? "";
   elements.contactKind.value = contact?.kind ?? "person";
-  elements.contactGivenName.value = contact?.givenName ?? "";
-  elements.contactFamilyName.value = contact?.familyName ?? "";
   elements.contactOrganizationName.value = contact?.organizationName ?? "";
   elements.contactBirthDate.value = contact?.birthDate ?? "";
   elements.contactTags.value = contact?.tags?.join(", ") ?? "";
@@ -2470,8 +2489,6 @@ async function saveContact(event) {
     const payload = {
       kind: elements.contactKind.value,
       displayName: elements.contactDisplayName.value,
-      givenName: elements.contactGivenName.value,
-      familyName: elements.contactFamilyName.value,
       organizationName: elements.contactOrganizationName.value,
       birthDate: elements.contactBirthDate.value,
       tags: elements.contactTags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
@@ -2845,7 +2862,10 @@ elements.tokenForm.addEventListener("submit", () => {
   localStorage.setItem("agent-slayer-token", accessToken);
   setTimeout(() => Promise.allSettled([loadHealth(), loadRequests({ force: true })]), 0);
 });
-elements.viewSelector.addEventListener("change", () => switchView(elements.viewSelector.value));
+elements.agentViewButton.addEventListener("click", () => switchView("agent"));
+elements.viewSelector.addEventListener("change", () => {
+  if (elements.viewSelector.value) switchView(elements.viewSelector.value);
+});
 elements.previousMonth.addEventListener("click", () => {
   calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() - 1, 1);
   selectedCalendarDate = new Date(calendarCursor);

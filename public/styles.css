@@ -89,6 +89,8 @@ section { margin-bottom: 1rem; }
 }
 .app-nav label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
 .app-nav select { min-width: 10rem; padding: .5rem 2rem .5rem .65rem; }
+.app-nav-agent.active { color: white; background: var(--accent); border-color: var(--accent); }
+.app-nav-agent.active:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
 
 .composer, .requests, .trace-panel {
   padding: 1rem;
@@ -510,6 +512,9 @@ dialog form { display: grid; gap: .8rem; }
 dialog h2, dialog p { margin-bottom: 0; }
 
 @media (max-width: 580px) {
+  .app-nav { width: 100%; }
+  .app-nav label { display: none; }
+  .app-nav select { min-width: 0; flex: 1; }
   .topbar {
     padding:
       calc(.8rem + env(safe-area-inset-top, 0px))

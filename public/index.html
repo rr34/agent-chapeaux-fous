@@ -27,9 +27,10 @@
 
   <main>
     <nav class="app-nav" aria-label="Agent Slayer sections">
+      <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">Agent</button>
       <label for="view-selector">Screen</label>
       <select id="view-selector">
-        <option data-view="agent" value="agent">Agent</option>
+        <option value="">Choose screen…</option>
         <option data-view="calendar" value="calendar">Calendar</option>
         <option data-view="todos" value="todos">To-Do List</option>
         <option data-view="content" value="content">Content</option>
@@ -507,8 +508,6 @@
           <option value="organization">Organization</option>
           <option value="service">Service</option>
         </select></label>
-        <label>Given name<input id="contact-given-name" maxlength="500" autocomplete="given-name"></label>
-        <label>Family name<input id="contact-family-name" maxlength="500" autocomplete="family-name"></label>
         <label>Organization<input id="contact-organization-name" maxlength="500" autocomplete="organization"></label>
         <label>Birthday <span class="field-hint">YYYY-MM-DD or --MM-DD</span><input id="contact-birth-date" maxlength="10" placeholder="--08-18" inputmode="numeric"></label>
         <label class="contact-tags-field">Tags <span class="field-hint">comma-separated</span><input id="contact-tags" maxlength="2000" placeholder="friend, client, local"></label>
