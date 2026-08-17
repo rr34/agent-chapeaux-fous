@@ -163,6 +163,9 @@ to the model; UI transport objects remain an independent browser concern.
   one call. Both combine contact details while retaining source records as
   inactive history. Compact duplicate pages let one agent request review and
   resolve hundreds of groups without spending one tool call per merge.
+  `contact_dedupe_clear` handles up to 500 conservative source-aware groups per
+  call when names match and exact email or phone evidence connects records from
+  distinct imports; ambiguous groups remain queued for AI judgment.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
 - `database_schema`, `database_read`, and `database_write` expose bounded,

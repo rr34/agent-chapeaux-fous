@@ -536,6 +536,47 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
   });
 
   registry.register({
+    name: "contact_dedupe_clear",
+    description: "Recompute and atomically merge up to 500 conservative, source-aware duplicate groups without sending every candidate through model arguments. Repeat while eligible_group_count_remaining is positive. A group is eligible only when all active contacts have the same normalized display name and kind, come from distinct named import sources, have no conflicting birthdays, and every contact is connected by an exact email or phone match. Same-name-only, family-email with different names, same-source, malformed, oversized, and otherwise ambiguous groups are skipped for AI review. The richest record is retained unless preferred_source names a source present in the group.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        max_groups: { type: "integer", minimum: 1, maximum: 500 },
+        preferred_source: { ...nullableString, maxLength: 200 },
+      },
+      required: ["max_groups", "preferred_source"],
+    },
+    async execute({ max_groups: maxGroups, preferred_source: preferredSource }, context) {
+      const deduped = organizer.dedupeClearContacts(
+        { maxGroups, preferredSource },
+        contactToolActivity(context, "contact_dedupe_clear"),
+      );
+      const result = {
+        active_contact_count_before: deduped.activeContactCount,
+        scanned_contact_count: deduped.scannedContactCount,
+        scan_truncated: deduped.scanTruncated,
+        candidate_group_count_before: deduped.candidateGroupCount,
+        eligible_group_count_before: deduped.eligibleGroupCount,
+        eligible_group_count_remaining: deduped.eligibleGroupCountRemaining,
+        ambiguous_group_count: deduped.ambiguousGroupCount,
+        skipped_by_reason: deduped.skippedByReason,
+        merged_group_count: deduped.mergedGroupCount,
+        merged_contact_count: deduped.mergedContactCount,
+        groups: deduped.results.map((item) => ({
+          kept_contact_id: item.contact.id,
+          kept_source: item.contact.source,
+          merged_contact_ids: item.mergedContactIds,
+        })),
+      };
+      return contactResult(schemaSemantics, context, result, {
+        name: "contact_dedupe_clear",
+        purpose: "Return a bounded receipt for conservative source-aware duplicate merges and summarize ambiguous groups left for AI review.",
+      });
+    },
+  });
+
+  registry.register({
     name: "contact_duplicate_list",
     description: "List paginated groups of active contacts that may be duplicates because they share an exact normalized display name, email address, or phone number. This is a read-only review operation. Use compact detail and pages of about 50 groups for bulk work; use full only when complete notes and timestamps are necessary. Each candidate includes expected_version for contact_merge or contact_merge_batch. Same-name evidence alone can be ambiguous. Continue with next_offset while has_more is true.",
     parameters: {

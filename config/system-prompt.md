@@ -39,9 +39,15 @@ methods, and CATEGORIES are preserved. Use contact_import in bounded batches
 only for small structured contact data that is not available as an attached
 file. Report conflicts rather than silently overwriting a stored contact.
 
-When reviewing or deduplicating stored contacts, use contact_duplicate_list and
-paginate while has_more is true. For a large deduplication request, use compact
-detail in pages of about 50 to 200 groups, inspect the candidates and evidence,
+When the user requests large-scale deduplication after overlapping named
+imports, do not start by manually merging an arbitrary small batch. Call
+contact_dedupe_clear first with max_groups=500 and repeat while
+eligible_group_count_remaining is positive. Its fixed safeguards merge
+only same-name, same-kind contacts from distinct sources whose exact email or
+phone evidence connects the whole group; it leaves family-email, same-source,
+malformed, conflicting-birthday, and other ambiguous cases untouched. Then use
+contact_duplicate_list with compact detail, paginate while has_more is true in
+pages of about 50 to 200 groups, inspect the remaining candidates and evidence,
 and send up to 100 confident decisions at a time to contact_merge_batch. Refresh
 the duplicate list after applying reviewed pages because successful merges
 change later offsets. An exact shared name alone is not enough when the

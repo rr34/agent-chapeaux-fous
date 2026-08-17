@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import rrulePackage from "rrule";
 import { searchCalendarEventRows } from "./calendar-search.mjs";
-import { findContactDuplicateGroups } from "./contact-duplicates.mjs";
+import {
+  clearDuplicateGroup, findContactDuplicateGroups, selectDuplicateKeeper,
+} from "./contact-duplicates.mjs";
 import { redactText, safeJson } from "./redaction.mjs";
 import { archiveEmptyTodoGroup, renameTodoGroup } from "./todo-group-operations.mjs";
 import { moveOverdueTodosToToday } from "./todo-schedule-operations.mjs";
@@ -353,6 +355,8 @@ function publicContact(row, methods = [], tags = []) {
     status: row.status,
     birthDate: row.birth_date,
     notes: row.notes,
+    source: row.source,
+    externalId: row.external_id,
     methods,
     tags,
     createdAtUtc: row.created_at_utc,
@@ -711,7 +715,7 @@ export class OrganizerStore {
   }
 
   listContactDuplicates({ limit = 100, offset = 0, contactLimit = 10_000 } = {}) {
-    const boundedLimit = integer(limit, "limit", { fallback: 100, minimum: 1, maximum: 200 });
+    const boundedLimit = integer(limit, "limit", { fallback: 100, minimum: 1, maximum: 500 });
     const boundedOffset = integer(offset, "offset", { fallback: 0, minimum: 0, maximum: 10_000 });
     const boundedContactLimit = integer(contactLimit, "contactLimit", {
       fallback: 10_000, minimum: 1, maximum: 10_000,
@@ -950,8 +954,8 @@ export class OrganizerStore {
   }
 
   mergeContactBatch(inputs, activity = {}) {
-    if (!Array.isArray(inputs) || inputs.length === 0 || inputs.length > 100) {
-      throw new OrganizerInputError("Contact merge batch must contain 1 through 100 merge groups.");
+    if (!Array.isArray(inputs) || inputs.length === 0 || inputs.length > 500) {
+      throw new OrganizerInputError("Contact merge batch must contain 1 through 500 merge groups.");
     }
     this.database.exec("BEGIN IMMEDIATE");
     try {
@@ -981,6 +985,48 @@ export class OrganizerStore {
   mergeContacts(input, activity = {}) {
     const batch = this.mergeContactBatch([input], activity);
     return batch.results[0];
+  }
+
+  dedupeClearContacts({ maxGroups = 500, preferredSource = null } = {}, activity = {}) {
+    const boundedMaxGroups = integer(maxGroups, "maxGroups", { fallback: 500, minimum: 1, maximum: 500 });
+    const selectedPreferredSource = optionalText(preferredSource, "preferredSource", 200);
+    const activeContactCount = Number(this.database.prepare(
+      "SELECT COUNT(*) AS count FROM contacts WHERE status = 'active'",
+    ).get().count);
+    const contacts = this.listContacts({ scope: "active", limit: 10_000 });
+    const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
+    const groups = findContactDuplicateGroups(contacts);
+    const eligible = [];
+    const skippedByReason = new Map();
+    for (const group of groups) {
+      const candidates = group.contactIds.map((id) => contactsById.get(id));
+      const classification = clearDuplicateGroup(candidates);
+      if (!classification.eligible) {
+        skippedByReason.set(classification.reason, (skippedByReason.get(classification.reason) ?? 0) + 1);
+        continue;
+      }
+      const kept = selectDuplicateKeeper(candidates, selectedPreferredSource);
+      eligible.push({
+        keepContactId: kept.id,
+        mergeContactIds: candidates.filter(({ id }) => id !== kept.id).map(({ id }) => id),
+        versions: Object.fromEntries(candidates.map(({ id, version }) => [id, version])),
+      });
+    }
+    const selected = eligible.slice(0, boundedMaxGroups);
+    const batch = selected.length
+      ? this.mergeContactBatch(selected, activity)
+      : { results: [], mergedGroupCount: 0, mergedContactCount: 0 };
+    return {
+      ...batch,
+      activeContactCount,
+      scannedContactCount: contacts.length,
+      scanTruncated: activeContactCount > contacts.length,
+      candidateGroupCount: groups.length,
+      eligibleGroupCount: eligible.length,
+      eligibleGroupCountRemaining: Math.max(0, eligible.length - selected.length),
+      ambiguousGroupCount: groups.length - eligible.length,
+      skippedByReason: Object.fromEntries(skippedByReason),
+    };
   }
 
   listCalendar({ from, to }) {

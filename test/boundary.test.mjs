@@ -52,6 +52,9 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /full verified file in one\s+call/);
   assert.match(instructions, /contact_import in bounded batches\s+only/);
   assert.match(instructions, /contact_duplicate_list/);
+  assert.match(instructions, /contact_dedupe_clear/);
+  assert.match(instructions, /max_groups=500/);
+  assert.match(instructions, /do not start by manually merging an arbitrary small batch/);
   assert.match(instructions, /contact_merge/);
   assert.match(instructions, /contact_merge_batch/);
   assert.match(instructions, /batch is atomic/);

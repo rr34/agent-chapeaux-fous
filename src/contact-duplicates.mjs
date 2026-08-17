@@ -1,4 +1,4 @@
-function normalizedContactName(value) {
+export function normalizedContactName(value) {
   return String(value ?? "").toLocaleLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
@@ -18,6 +18,69 @@ function keysForContact(contact) {
     if (value) keys.push(`${method.kind}:${value}`);
   }
   return [...new Set(keys)];
+}
+
+function contactMethodKeys(contact) {
+  return new Set((contact.methods ?? []).flatMap((method) => {
+    const value = duplicateMethodKey(method);
+    return value ? [`${method.kind}:${value}`] : [];
+  }));
+}
+
+export function clearDuplicateGroup(contacts) {
+  if (!Array.isArray(contacts) || contacts.length < 2) return { eligible: false, reason: "fewer than two contacts" };
+  if (contacts.length > 21) return { eligible: false, reason: "group exceeds merge size limit" };
+  const names = new Set(contacts.map(({ displayName }) => normalizedContactName(displayName)));
+  if (names.size !== 1 || ![...names][0] || [...names][0].length < 3) {
+    return { eligible: false, reason: "display names are not the same" };
+  }
+  const kinds = new Set(contacts.map(({ kind }) => kind));
+  if (kinds.size !== 1) return { eligible: false, reason: "contact kinds differ" };
+  const sources = contacts.map(({ source }) => String(source ?? "").trim());
+  if (sources.some((source) => !source) || new Set(sources).size !== contacts.length) {
+    return { eligible: false, reason: "contacts are not from distinct named sources" };
+  }
+  const birthdays = new Set(contacts.map(({ birthDate }) => birthDate).filter(Boolean));
+  if (birthdays.size > 1) return { eligible: false, reason: "birthdays conflict" };
+
+  const keysById = new Map(contacts.map((contact) => [contact.id, contactMethodKeys(contact)]));
+  if ([...keysById.values()].some((keys) => keys.size === 0)) {
+    return { eligible: false, reason: "a contact has no exact email or phone evidence" };
+  }
+  const visited = new Set([contacts[0].id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const contact of contacts) {
+      if (visited.has(contact.id)) continue;
+      const connected = contacts.some((candidate) => (
+        visited.has(candidate.id)
+        && [...keysById.get(contact.id)].some((key) => keysById.get(candidate.id).has(key))
+      ));
+      if (connected) {
+        visited.add(contact.id);
+        changed = true;
+      }
+    }
+  }
+  if (visited.size !== contacts.length) {
+    return { eligible: false, reason: "exact email or phone evidence does not connect every contact" };
+  }
+  return { eligible: true, reason: "same name across distinct sources with connected exact email or phone evidence" };
+}
+
+export function selectDuplicateKeeper(contacts, preferredSource = null) {
+  const selectedSource = String(preferredSource ?? "").trim();
+  const score = (contact) => (
+    (selectedSource && contact.source === selectedSource ? 1_000_000 : 0)
+    + (contact.isSelf ? 100_000 : 0)
+    + [contact.givenName, contact.familyName, contact.organizationName].filter(Boolean).length * 100
+    + (contact.birthDate ? 100 : 0)
+    + Math.min(String(contact.notes ?? "").length, 2000)
+    + (contact.methods?.length ?? 0) * 25
+    + (contact.tags?.length ?? 0) * 10
+  );
+  return [...contacts].sort((left, right) => score(right) - score(left) || left.id - right.id)[0];
 }
 
 export function findContactDuplicateGroups(contacts) {

@@ -405,3 +405,85 @@ test("compact duplicate review and atomic batches resolve 240 groups in five too
     WHERE event_type = 'contacts.merged' AND actor_type = 'tool' AND actor_name = 'contact_merge_batch'
   `).get().count, 240);
 });
+
+test("source-aware clear dedupe resolves 505 groups in two calls and leaves ambiguous records", async (context) => {
+  const { store, registry, request } = harness(context);
+  const database = store.requireReady();
+  const insertContact = database.prepare(`
+    INSERT INTO contacts (display_name, source, external_id, updated_at_utc)
+    VALUES (?, ?, ?, '2026-08-17T12:00:00.000Z') RETURNING contact_id
+  `);
+  const insertMethod = database.prepare(`
+    INSERT INTO contact_methods (
+      contact_id, method_kind, label, value, normalized_value, is_primary, can_receive
+    ) VALUES (?, 'email', 'Imported', ?, ?, 1, 1)
+  `);
+  const add = ({ name, source, externalId, email = null }) => {
+    const contact = insertContact.get(name, source, externalId);
+    if (email) insertMethod.run(contact.contact_id, email, email.toLowerCase());
+    return Number(contact.contact_id);
+  };
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    for (let group = 1; group <= 505; group += 1) {
+      const email = `clear-${group}@example.test`;
+      add({ name: `Clear ${group}`, source: "source-a", externalId: `a-${group}`, email });
+      add({ name: `Clear ${group}`, source: "source-b", externalId: `b-${group}`, email });
+    }
+    add({ name: "Name only", source: "source-a", externalId: "a-name-only" });
+    add({ name: "Name only", source: "source-b", externalId: "b-name-only" });
+    add({ name: "Parent One", source: "source-a", externalId: "a-family", email: "family@example.test" });
+    add({ name: "Child Two", source: "source-b", externalId: "b-family", email: "family@example.test" });
+    add({ name: "Same source", source: "source-a", externalId: "a-same-1", email: "same-source@example.test" });
+    add({ name: "Same source", source: "source-a", externalId: "a-same-2", email: "same-source@example.test" });
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+  const toolContext = {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "clear-dedupe-1",
+    channel: "web",
+  };
+  const first = await registry.execute("contact_dedupe_clear", {
+    max_groups: 500,
+    preferred_source: "source-a",
+  }, toolContext);
+  assert.deepEqual(
+    [first.candidate_group_count_before, first.eligible_group_count_before, first.ambiguous_group_count],
+    [508, 505, 3],
+  );
+  assert.equal(first.merged_group_count, 500);
+  assert.equal(first.eligible_group_count_remaining, 5);
+  assert.equal(first.groups.every(({ kept_source: source }) => source === "source-a"), true);
+
+  const second = await registry.execute("contact_dedupe_clear", {
+    max_groups: 500,
+    preferred_source: "source-a",
+  }, { ...toolContext, callId: "clear-dedupe-2" });
+  assert.deepEqual(
+    [second.candidate_group_count_before, second.eligible_group_count_before, second.merged_group_count],
+    [8, 5, 5],
+  );
+  assert.equal(second.eligible_group_count_remaining, 0);
+
+  const final = await registry.execute("contact_dedupe_clear", {
+    max_groups: 500,
+    preferred_source: "source-a",
+  }, { ...toolContext, callId: "clear-dedupe-final" });
+  assert.deepEqual(
+    [final.candidate_group_count_before, final.eligible_group_count_before, final.merged_group_count],
+    [3, 0, 0],
+  );
+  assert.equal(final.ambiguous_group_count, 3);
+  assert.equal(final.skipped_by_reason["display names are not the same"], 1);
+  assert.equal(final.skipped_by_reason["a contact has no exact email or phone evidence"], 1);
+  assert.equal(final.skipped_by_reason["contacts are not from distinct named sources"], 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts WHERE status = 'active'").get().count, 511);
+  assert.equal(database.prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'contacts.merged' AND actor_name = 'contact_dedupe_clear'
+  `).get().count, 505);
+});
