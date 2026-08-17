@@ -61,6 +61,58 @@ test("UTF-8 CSV attachments are stored and read back with integrity metadata", a
   assert.equal(attachment.sha256, registration.sha256);
 });
 
+test("UTF-8 vCard attachments are stored and returned verbatim for model context", async (context) => {
+  const mediaRoot = temporaryMedia(context);
+  let registration;
+  const ledger = {
+    registerFile(input) {
+      registration = input;
+      return { fileId: 42, duplicate: false, storagePath: input.storagePath };
+    },
+  };
+  const vcard = [
+    "BEGIN:VCARD",
+    "VERSION:3.0",
+    "UID:alice-example",
+    "FN:Alice Example",
+    "N:Example;Alice;;;",
+    "EMAIL;TYPE=HOME:alice@example.test",
+    "NOTE:Met at the garden\\nPrefers email",
+    "END:VCARD",
+    "",
+  ].join("\r\n");
+  const uploaded = await receiveTextAttachment(uploadRequest(vcard, "text/vcard; charset=utf-8"), {
+    filename: "contacts.vcf",
+    mediaRoot,
+    maximumBytes: 4096,
+    ledger,
+    now: new Date("2026-08-17T12:00:00.000Z"),
+    uuid: () => "vcard-id",
+  });
+
+  assert.equal(uploaded.fileId, 42);
+  assert.equal(uploaded.originalFilename, "contacts.vcf");
+  assert.equal(uploaded.mimeType, "text/vcard");
+  assert.equal(registration.storagePath, "media/2026/08/vcard-id.vcf");
+
+  const attachment = await readTextAttachment({
+    mediaRoot,
+    maximumBytes: 4096,
+    file: {
+      file_id: uploaded.fileId,
+      storage_path: registration.storagePath,
+      original_filename: uploaded.originalFilename,
+      media_kind: uploaded.mediaKind,
+      mime_type: uploaded.mimeType,
+      sha256: registration.sha256,
+      byte_size: registration.byteSize,
+    },
+  });
+  assert.equal(attachment.text, vcard);
+  assert.equal(attachment.filename, "contacts.vcf");
+  assert.equal(attachment.sha256, registration.sha256);
+});
+
 test("request attachments reject spreadsheet binaries, invalid UTF-8, and oversized text", async (context) => {
   const mediaRoot = temporaryMedia(context);
   const ledger = { registerFile() { throw new Error("must not register"); } };

@@ -8,6 +8,7 @@ import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
 import { JmapClient } from "./jmap-client.mjs";
+import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
@@ -55,7 +56,7 @@ const jmap = new JmapClient({
 });
 if (store.status.ready) {
   registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);
-  registerContactTools(registry, store, ledger, schemaSemantics);
+  registerContactTools(registry, store, organizer, ledger, schemaSemantics);
   registerTodoTools(registry, store, ledger, schemaSemantics);
   registerLogTools(registry, store, ledger, schemaSemantics);
   registerProfileFactTools(registry, profileFacts, schemaSemantics);
@@ -329,6 +330,14 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 201, { contact: organizer.createContact(await readJson(request)) });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/contacts/duplicates") {
+      sendJson(response, 200, organizer.listContactDuplicates({
+        limit: url.searchParams.get("limit") || 100,
+        offset: url.searchParams.get("offset") || 0,
+        contactLimit: 1000,
+      }));
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/contacts/merge") {
       sendJson(response, 200, organizer.mergeContacts(await readJson(request)));
       return;
@@ -356,6 +365,23 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, {
         event: organizer.updateCalendar(calendarMatch[1], await readJson(request)),
       });
+      return;
+    }
+    const calendarInviteDraftMatch = /^\/api\/calendar-events\/(\d+)\/invite-draft$/.exec(url.pathname);
+    if (request.method === "POST" && calendarInviteDraftMatch) {
+      if (!jmap.health().ready) {
+        throw Object.assign(new Error("Fastmail email is not connected; the invitation draft was not created."), { statusCode: 503 });
+      }
+      const body = await readJson(request);
+      const draft = await createCalendarInviteDraft({
+        organizer,
+        ledger,
+        createEmailDraft: (input) => registry.execute("email_draft_create", input, { channel: "web" }),
+      }, {
+        calendarEventId: calendarInviteDraftMatch[1],
+        contactIds: body.contactIds,
+      });
+      sendJson(response, 201, { draft });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/todos") {

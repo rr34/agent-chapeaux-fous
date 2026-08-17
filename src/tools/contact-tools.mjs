@@ -177,10 +177,13 @@ function ensureTag(database, tag) {
   return row;
 }
 
-function contactResult(schemaSemantics, context, result) {
+function contactResult(schemaSemantics, context, result, {
+  name = "contact_import",
+  purpose = "Return imported, unchanged, or conflicting contacts with their methods, tags, and stored database field semantics.",
+} = {}) {
   return withSchemaProjection(schemaSemantics, context, result, {
-    name: "contact_import",
-    purpose: "Return imported, unchanged, or conflicting contacts with their methods, tags, and stored database field semantics.",
+    name,
+    purpose,
     schemaObjects: ["contacts", "contact_methods", "tags", "record_tags"],
     fields: {
       contacts: contactFields,
@@ -191,10 +194,10 @@ function contactResult(schemaSemantics, context, result) {
   });
 }
 
-export function registerContactTools(registry, store, ledger, schemaSemantics = null) {
+export function registerContactTools(registry, store, organizer, ledger, schemaSemantics = null) {
   registry.register({
     name: "contact_import",
-    description: "Import a bounded batch of 1 through 200 contacts from an attached CSV or other external source. Supply a stable source name and one stable external_id per source row (or a deterministic ID if the source has none). Contacts may include multiple methods and overlapping tags. The source and external_id pair is idempotent: exact replays are unchanged, conflicting replays are reported without overwriting, and all new contacts, methods, tags, and tag assignments are written in one transaction.",
+    description: "Import a bounded batch of 1 through 200 contacts from an attached CSV, vCard/VCF, or other external source. Supply a stable source name and one stable external_id per source record (use a vCard UID when present, or a deterministic ID if the source has none). Contacts may include multiple methods and overlapping tags. The source and external_id pair is idempotent: exact replays are unchanged, conflicting replays are reported without overwriting, and all new contacts, methods, tags, and tag assignments are written in one transaction.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -333,6 +336,104 @@ export function registerContactTools(registry, store, ledger, schemaSemantics = 
         database.exec("ROLLBACK");
         throw error;
       }
+    },
+  });
+
+  registry.register({
+    name: "contact_duplicate_list",
+    description: "List paginated groups of active contacts that may be duplicates because they share an exact normalized display name, email address, or phone number. This is a read-only review operation. Each candidate includes its complete stored contact data and expected_version for a later contact_merge call. Same-name evidence alone can be ambiguous, so inspect all available details before merging. Continue with next_offset while has_more is true.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0, maximum: 10000 },
+      },
+      required: ["limit", "offset"],
+    },
+    async execute({ limit, offset }, context) {
+      const database = store.requireReady();
+      const review = organizer.listContactDuplicates({ limit, offset });
+      const result = {
+        active_contact_count: review.activeContactCount,
+        scanned_contact_count: review.scannedContactCount,
+        scan_truncated: review.scanTruncated,
+        total_duplicate_groups: review.totalDuplicateGroups,
+        has_more: review.hasMore,
+        offset: review.offset,
+        next_offset: review.hasMore ? review.offset + review.groups.length : null,
+        groups: review.groups.map((group) => ({
+          evidence: group.evidence,
+          candidates: group.contactIds.map((contactId) => {
+            const contact = contactFromDatabase(database, contactId);
+            return {
+              expected_version: contact.updated_at_utc ?? contact.created_at_utc,
+              contact,
+            };
+          }),
+        })),
+      };
+      return contactResult(schemaSemantics, context, result, {
+        name: "contact_duplicate_list",
+        purpose: "Review possible duplicate contacts with exact matching evidence and the current versions required for a safe merge.",
+      });
+    },
+  });
+
+  registry.register({
+    name: "contact_merge",
+    description: "Merge 1 through 20 reviewed source contacts into one retained contact. Use contact_duplicate_list first and pass its exact expected_version values. The operation atomically combines unique methods and tags, preserves useful notes and missing identity fields, retains source records as inactive history, records the merge, and rejects stale or invalid candidates. Never merge merely because names match when the remaining details are ambiguous.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        keep_contact_id: { type: "integer", minimum: 1 },
+        keep_expected_version: { type: "string", minLength: 1, maxLength: 100 },
+        merge_contacts: {
+          type: "array", minItems: 1, maxItems: 20,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              contact_id: { type: "integer", minimum: 1 },
+              expected_version: { type: "string", minLength: 1, maxLength: 100 },
+            },
+            required: ["contact_id", "expected_version"],
+          },
+        },
+      },
+      required: ["keep_contact_id", "keep_expected_version", "merge_contacts"],
+    },
+    async execute({ keep_contact_id: keepContactId, keep_expected_version: keepVersion, merge_contacts: mergeContacts }, context) {
+      const versions = { [String(keepContactId)]: keepVersion };
+      const mergeContactIds = [];
+      for (const candidate of mergeContacts) {
+        if (Object.hasOwn(versions, String(candidate.contact_id))) {
+          throw new Error("Contact merge candidates must be unique and cannot include the retained contact");
+        }
+        versions[String(candidate.contact_id)] = candidate.expected_version;
+        mergeContactIds.push(candidate.contact_id);
+      }
+      const merged = organizer.mergeContacts({
+        keepContactId,
+        mergeContactIds,
+        versions,
+      }, {
+        actorType: "tool",
+        actorName: "contact_merge",
+        source: "model_tool",
+        channel: context.channel ?? "agent",
+        turnId: context.requestId ?? null,
+        operationId: context.callId ?? null,
+      });
+      const result = {
+        kept_contact: contactFromDatabase(store.requireReady(), merged.contact.id),
+        merged_contact_ids: merged.mergedContactIds,
+      };
+      return contactResult(schemaSemantics, context, result, {
+        name: "contact_merge",
+        purpose: "Return the retained contact after an atomic reviewed merge and identify the source contacts retained as inactive history.",
+      });
     },
   });
 }

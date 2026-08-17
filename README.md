@@ -46,8 +46,8 @@ and grouped personal logs with native entry creation. Contacts support people,
 organizations, and services with tags, birthday, notes, and stacked contact
 methods. Possible duplicates are reviewed and merged explicitly; source records
 remain as inactive history so existing references are preserved. Stored birthdays
-continue to appear on the calendar. Agent requests may include one bounded UTF-8 CSV or
-plain-text attachment; its exact contents are recorded in the visible context
+continue to appear on the calendar. Agent requests may include one bounded UTF-8 CSV,
+vCard/VCF, or plain-text attachment; its exact contents are recorded in the visible context
 sent with that request. A task's Schedule
 button opens the calendar in day-pick mode; selecting a day writes the task's
 scheduled date as an all-day task. Timed tasks remain available through the
@@ -135,16 +135,24 @@ to the model; UI transport objects remain an independent browser concern.
   instances as computed occurrences. All-day scheduling is explicit and
   recurrence is supplied as structured concepts rather than raw RRULE. The
   product-facing event states are Active and Archived; iCalendar status values
-  remain an internal storage and interoperability detail.
+  remain an internal storage and interoperability detail. A saved event can
+  create one standardized invitation email draft addressed to active contacts
+  through the configured JMAP mail account. This action creates a draft only:
+  it never sends the message, writes to a remote calendar, or changes the local
+  calendar's authority. Every displayed agenda event also has a phone-friendly
+  copy action for sharing its saved details through another app.
 - `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update`
   provide the native grouped personal-log path. Each entry keeps complete
   natural-language content with optional numeric and unit projections for
   calculation and trends. Bounded imports use generic source and external IDs
   for safe replay without source-specific application code.
-- `contact_import` imports up to 200 normalized contacts from an attached CSV or
-  another supplied source in one transaction. Stable source IDs make replays
+- `contact_import` imports up to 200 normalized contacts from an attached CSV,
+  vCard/VCF, or another supplied source in one transaction. Stable source IDs make replays
   idempotent, and each contact can retain multiple methods, notes, and reusable
-  overlapping tags.
+  overlapping tags. `contact_duplicate_list` gives the model the same exact-name,
+  email, and phone candidate groups shown by the Contacts review UI.
+  `contact_merge` performs the application’s version-checked merge, combining
+  contact details while retaining source records as inactive history.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
 - `database_schema`, `database_read`, and `database_write` expose bounded,

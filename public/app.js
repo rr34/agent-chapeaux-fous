@@ -70,6 +70,16 @@ const elements = {
   eventRepeatUntil: document.querySelector("#event-repeat-until"),
   eventRepeatSummary: document.querySelector("#event-repeat-summary"),
   eventFormError: document.querySelector("#event-form-error"),
+  eventInviteDraft: document.querySelector("#event-invite-draft"),
+  eventInviteDialog: document.querySelector("#event-invite-dialog"),
+  eventInviteForm: document.querySelector("#event-invite-form"),
+  eventInviteTitle: document.querySelector("#event-invite-title"),
+  eventInviteSearch: document.querySelector("#event-invite-search"),
+  eventInviteContactList: document.querySelector("#event-invite-contact-list"),
+  eventInviteFormError: document.querySelector("#event-invite-form-error"),
+  eventInviteResult: document.querySelector("#event-invite-result"),
+  eventInviteCount: document.querySelector("#event-invite-count"),
+  eventInviteSubmit: document.querySelector("#event-invite-submit"),
   todoScope: document.querySelector("#todo-scope"),
   todoGroupFilter: document.querySelector("#todo-group-filter"),
   todoCount: document.querySelector("#todo-count"),
@@ -162,6 +172,10 @@ let calendarEvents = [];
 let activeTodos = [];
 let calendarSchedulingTodo = null;
 let calendarSchedulingBusy = false;
+let eventInviteEventId = null;
+let eventInviteContacts = [];
+let eventInviteSelectedContactIds = new Set();
+let eventInviteCreated = false;
 let displayedTodos = [];
 let todoGroups = [];
 let loadedTodoRecurrenceTimeZone = null;
@@ -169,6 +183,7 @@ let todoRecurrenceDirty = false;
 let movingOverdueTodos = false;
 let moveOverdueFeedbackTimer = null;
 let contacts = [];
+let contactDuplicateReview = { groups: [], hasMore: false };
 let logTrackers = [];
 let logEntries = [];
 const requestNodes = new Map();
@@ -228,20 +243,28 @@ async function copyText(text, button = null) {
   }
 }
 
-function formatDisplayDate(value, { includeTime = true, fallback = "—" } = {}) {
+function formatDisplayTime(value, { timeZone = null, fallback = "—" } = {}) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return fallback;
+  const timeParts = new Intl.DateTimeFormat("en-GB", {
+    ...(timeZone ? { timeZone } : {}),
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type) => timeParts.find((candidate) => candidate.type === type)?.value ?? "";
+  return `${part("hour")}:${part("minute")}`;
+}
+
+function formatDisplayDate(value, { includeTime = true, fallback = "—", timeZone = null } = {}) {
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) return fallback;
   const dateParts = new Intl.DateTimeFormat("en-GB", {
+    ...(timeZone ? { timeZone } : {}),
     weekday: "short", day: "2-digit", month: "short", year: "numeric",
   }).formatToParts(date);
   const part = (type) => dateParts.find((candidate) => candidate.type === type)?.value ?? "";
   const dateLabel = `${part("weekday")}, ${part("day")} ${part("month")} ${part("year")}`;
   if (!includeTime) return dateLabel;
-  const timeParts = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-  }).formatToParts(date);
-  const timePart = (type) => timeParts.find((candidate) => candidate.type === type)?.value ?? "";
-  return `${dateLabel} at ${timePart("hour")}:${timePart("minute")}`;
+  return `${dateLabel} at ${formatDisplayTime(date, { timeZone, fallback })}`;
 }
 
 const recurrenceWeekdays = [
@@ -637,6 +660,7 @@ async function loadHealth() {
   elements.usage.classList.toggle("ready", Boolean(body.model?.usage));
   elements.usage.classList.toggle("not-ready", !body.model?.usage);
   renderIntegrations(body.integrations ?? {});
+  updateEventInviteDraftAvailability();
 }
 
 function renderIntegrations(integrations) {
@@ -727,13 +751,39 @@ function todosScheduledOnDay(day) {
 
 function formatEventTime(calendarEvent) {
   if (calendarEvent.isAllDay) return "All day";
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit", minute: "2-digit", hour12: false, hourCycle: "h23",
-  });
-  const start = formatter.format(new Date(calendarEvent.startsAtUtc));
+  const timeZone = calendarEvent.timeZone || null;
+  const start = formatDisplayTime(calendarEvent.startsAtUtc, { timeZone });
   return calendarEvent.endsAtUtc
-    ? `${start}–${formatter.format(new Date(calendarEvent.endsAtUtc))}`
+    ? `${start}–${formatDisplayTime(calendarEvent.endsAtUtc, { timeZone })}`
     : start;
+}
+
+function calendarEventCopyText(calendarEvent) {
+  const timeZone = calendarEvent.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const start = new Date(calendarEvent.startsAtUtc);
+  const end = calendarEvent.endsAtUtc ? new Date(calendarEvent.endsAtUtc) : null;
+  const date = (value) => formatDisplayDate(value, { includeTime: false, timeZone });
+  const dateTime = (value) => formatDisplayDate(value, { timeZone });
+  const time = (value) => formatDisplayTime(value, { timeZone });
+  let when;
+  if (calendarEvent.isAllDay) {
+    const startDate = date(start);
+    const inclusiveEnd = end && end > start ? new Date(end.getTime() - 1) : null;
+    const endDate = inclusiveEnd ? date(inclusiveEnd) : null;
+    when = endDate && endDate !== startDate ? `${startDate}–${endDate} · All day` : `${startDate} · All day`;
+  } else if (!end) {
+    when = dateTime(start);
+  } else if (date(start) === date(end)) {
+    when = `${dateTime(start)}–${time(end)}`;
+  } else {
+    when = `${dateTime(start)}–${dateTime(end)}`;
+  }
+  const lines = [calendarEvent.title, `When: ${when}`];
+  if (!calendarEvent.isAllDay) lines.push(`Time zone: ${timeZone}`);
+  if (calendarEvent.recurrenceRule) lines.push(`Repeats: ${describeTodoRecurrence(calendarEvent.recurrenceRule)}`);
+  if (calendarEvent.location) lines.push(`Where: ${calendarEvent.location}`);
+  if (calendarEvent.description) lines.push("", calendarEvent.description);
+  return lines.join("\n");
 }
 
 function switchView(view) {
@@ -902,6 +952,7 @@ function renderAgenda() {
     return;
   }
   for (const calendarEvent of events) {
+    const item = node("div", "agenda-event");
     const button = node("button", "agenda-item");
     button.type = "button";
     button.append(
@@ -923,7 +974,12 @@ function renderAgenda() {
     } else {
       button.addEventListener("click", () => openEventEditor(calendarEvent));
     }
-    elements.agendaList.append(button);
+    const copy = node("button", "secondary compact agenda-event-copy", "Copy details");
+    copy.type = "button";
+    copy.setAttribute("aria-label", `Copy calendar event details: ${calendarEvent.title}`);
+    copy.addEventListener("click", (event) => void copyText(calendarEventCopyText(calendarEvent), event.currentTarget));
+    item.append(button, copy);
+    elements.agendaList.append(item);
   }
   for (const { todo, timing } of todoEntries) {
     const button = node("button", "agenda-item todo");
@@ -979,8 +1035,121 @@ function openEventEditor(calendarEvent = null) {
     elements.eventStatus.value = "active";
   }
   loadEventRecurrenceEditor(calendarEvent?.recurrenceRule ?? null);
+  updateEventInviteDraftAvailability();
   elements.eventDialog.showModal();
   elements.eventTitle.focus();
+}
+
+function updateEventInviteDraftAvailability() {
+  const saved = Boolean(elements.eventId.value);
+  const emailReady = Boolean(lastHealth?.body?.integrations?.email?.ready);
+  elements.eventInviteDraft.hidden = !saved;
+  elements.eventInviteDraft.disabled = !emailReady;
+  elements.eventInviteDraft.title = emailReady
+    ? "Create an email draft from the currently saved event details."
+    : "Connect Fastmail email before creating an invitation draft.";
+}
+
+function preferredInviteEmail(contact) {
+  return contact.methods
+    .filter((method) => method.kind === "email" && method.canReceive && /^[^\s@]+@[^\s@]+$/.test(method.value.trim()))
+    .toSorted((left, right) => Number(right.isPrimary) - Number(left.isPrimary))[0]?.value.trim() || null;
+}
+
+function updateEventInviteSelection() {
+  const count = eventInviteSelectedContactIds.size;
+  elements.eventInviteCount.textContent = `${count} selected`;
+  elements.eventInviteSubmit.disabled = eventInviteCreated || count === 0;
+}
+
+function renderEventInviteContacts() {
+  const query = elements.eventInviteSearch.value.trim().toLocaleLowerCase();
+  const visible = eventInviteContacts.filter(({ contact, email }) => (
+    !query || contact.displayName.toLocaleLowerCase().includes(query) || email.toLocaleLowerCase().includes(query)
+  ));
+  elements.eventInviteContactList.replaceChildren();
+  if (visible.length === 0) {
+    elements.eventInviteContactList.append(node(
+      "p", "empty",
+      query ? "No invitation contacts match that search." : "No active contacts have a receivable email address.",
+    ));
+    updateEventInviteSelection();
+    return;
+  }
+  for (const { contact, email } of visible) {
+    const choice = node("label", "event-invite-choice");
+    const checkbox = node("input");
+    checkbox.type = "checkbox";
+    checkbox.value = String(contact.id);
+    checkbox.checked = eventInviteSelectedContactIds.has(contact.id);
+    checkbox.disabled = eventInviteCreated;
+    const identity = node("span");
+    identity.append(node("strong", "", contact.displayName), node("small", "", email));
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) eventInviteSelectedContactIds.add(contact.id);
+      else eventInviteSelectedContactIds.delete(contact.id);
+      updateEventInviteSelection();
+    });
+    choice.append(checkbox, identity);
+    elements.eventInviteContactList.append(choice);
+  }
+  updateEventInviteSelection();
+}
+
+async function openEventInviteDraft() {
+  const eventId = Number(elements.eventId.value);
+  if (!Number.isSafeInteger(eventId) || eventId <= 0) return;
+  if (!lastHealth?.body?.integrations?.email?.ready) {
+    elements.eventFormError.textContent = "Connect Fastmail email before creating an invitation draft.";
+    return;
+  }
+  eventInviteEventId = eventId;
+  eventInviteContacts = [];
+  eventInviteSelectedContactIds = new Set();
+  eventInviteCreated = false;
+  elements.eventInviteFormError.textContent = "";
+  elements.eventInviteResult.textContent = "";
+  elements.eventInviteSearch.value = "";
+  elements.eventInviteTitle.textContent = `Invite contacts to ${elements.eventTitle.value}`;
+  elements.eventInviteContactList.replaceChildren(node("p", "empty", "Loading contacts…"));
+  elements.eventInviteSubmit.textContent = "Create Fastmail draft";
+  updateEventInviteSelection();
+  elements.eventInviteDialog.showModal();
+  try {
+    const body = await api("/api/contacts?scope=active&limit=1000");
+    eventInviteContacts = body.contacts.flatMap((contact) => {
+      const email = preferredInviteEmail(contact);
+      return email && !contact.isSelf ? [{ contact, email }] : [];
+    });
+    renderEventInviteContacts();
+    elements.eventInviteSearch.focus();
+  } catch (error) {
+    elements.eventInviteContactList.replaceChildren();
+    elements.eventInviteFormError.textContent = error.message || "Could not load invitation contacts.";
+  }
+}
+
+async function createEventInviteDraft(event) {
+  event.preventDefault();
+  if (!eventInviteEventId || eventInviteSelectedContactIds.size === 0 || eventInviteCreated) return;
+  elements.eventInviteFormError.textContent = "";
+  elements.eventInviteResult.textContent = "";
+  elements.eventInviteSubmit.disabled = true;
+  try {
+    const body = await api(`/api/calendar-events/${eventInviteEventId}/invite-draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contactIds: [...eventInviteSelectedContactIds] }),
+    });
+    eventInviteCreated = true;
+    elements.eventInviteResult.textContent = `Draft created in Fastmail for ${body.draft.recipientCount} ${body.draft.recipientCount === 1 ? "recipient" : "recipients"}.`;
+    elements.eventInviteSubmit.textContent = "Draft created";
+    for (const checkbox of elements.eventInviteContactList.querySelectorAll('input[type="checkbox"]')) checkbox.disabled = true;
+  } catch (error) {
+    elements.eventInviteFormError.textContent = error.message || "Could not create the Fastmail draft.";
+  } finally {
+    updateEventInviteSelection();
+  }
 }
 
 async function saveEvent(event) {
@@ -1423,8 +1592,12 @@ function contactMethodName(kind) {
 
 async function refreshContacts() {
   try {
-    const body = await api("/api/contacts?scope=all&limit=1000");
+    const [body, duplicateReview] = await Promise.all([
+      api("/api/contacts?scope=all&limit=1000"),
+      api("/api/contacts/duplicates?limit=200"),
+    ]);
     contacts = body.contacts;
+    contactDuplicateReview = duplicateReview;
     populateContactTagFilter();
     renderContacts();
   } catch (error) {
@@ -1446,64 +1619,12 @@ function populateContactTagFilter() {
   elements.contactTagFilter.value = tags.includes(selected) ? selected : "";
 }
 
-function contactDuplicateKey(method) {
-  if (method.kind === "email") return method.value.trim().toLocaleLowerCase();
-  if (method.kind === "phone") return method.value.replace(/\D/g, "");
-  return null;
-}
-
 function duplicateContactGroups() {
-  const active = contacts.filter(({ status }) => status === "active");
-  const parent = new Map(active.map(({ id }) => [id, id]));
-  const find = (id) => {
-    let root = id;
-    while (parent.get(root) !== root) root = parent.get(root);
-    while (parent.get(id) !== id) {
-      const next = parent.get(id);
-      parent.set(id, root);
-      id = next;
-    }
-    return root;
-  };
-  const union = (left, right) => {
-    const leftRoot = find(left);
-    const rightRoot = find(right);
-    if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
-  };
-  const owners = new Map();
-  const keysFor = (contact) => {
-    const name = contact.displayName.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-    const keys = name.length >= 3 ? [`name:${name}`] : [];
-    for (const method of contact.methods) {
-      const value = contactDuplicateKey(method);
-      if (value) keys.push(`${method.kind}:${value}`);
-    }
-    return keys;
-  };
-  for (const contact of active) {
-    for (const key of keysFor(contact)) {
-      if (owners.has(key)) union(contact.id, owners.get(key));
-      else owners.set(key, contact.id);
-    }
-  }
-  const grouped = new Map();
-  for (const contact of active) {
-    const root = find(contact.id);
-    const group = grouped.get(root) ?? [];
-    group.push(contact);
-    grouped.set(root, group);
-  }
-  return [...grouped.values()].filter((group) => group.length > 1).map((group) => {
-    const evidence = new Set();
-    const counts = new Map();
-    for (const contact of group) {
-      for (const key of keysFor(contact)) counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    for (const [key, count] of counts) {
-      if (count > 1) evidence.add(key.startsWith("name:") ? "same name" : `same ${key.split(":", 1)[0]}`);
-    }
-    return { contacts: group, evidence: [...evidence] };
-  });
+  const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
+  return (contactDuplicateReview.groups ?? []).map((group) => ({
+    evidence: group.evidence,
+    contacts: group.contactIds.map((id) => contactsById.get(id)).filter(Boolean),
+  })).filter(({ contacts: candidates }) => candidates.length > 1);
 }
 
 function contactValueCell(contact, kinds, label) {
@@ -2006,7 +2127,9 @@ elements.form.addEventListener("submit", async (event) => {
     if (file) {
       elements.status.textContent = "Uploading attachment…";
       const lowerName = file.name.toLowerCase();
-      const mimeType = file.type || (lowerName.endsWith(".csv") ? "text/csv" : "text/plain");
+      const mimeType = file.type || (lowerName.endsWith(".csv")
+        ? "text/csv"
+        : (lowerName.endsWith(".vcf") ? "text/vcard" : "text/plain"));
       const uploaded = await api(`/api/request-files?filename=${encodeURIComponent(file.name)}`, {
         method: "POST",
         headers: { "Content-Type": mimeType },
@@ -2170,6 +2293,9 @@ elements.eventAllDay.addEventListener("change", () => {
   updateEventRecurrenceEditor();
 });
 elements.eventForm.addEventListener("submit", saveEvent);
+elements.eventInviteDraft.addEventListener("click", () => void openEventInviteDraft());
+elements.eventInviteSearch.addEventListener("input", renderEventInviteContacts);
+elements.eventInviteForm.addEventListener("submit", createEventInviteDraft);
 for (const control of [
   elements.eventRepeatEnabled, elements.eventRepeatInterval, elements.eventRepeatFrequency,
   elements.eventRepeatEnd, elements.eventRepeatCount, elements.eventRepeatUntil,

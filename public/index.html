@@ -48,8 +48,8 @@
         <textarea id="request-text" rows="4" placeholder="Tell Slayer what to do…" required></textarea>
         <div class="composer-actions">
           <div class="request-attachment-control">
-            <label class="attachment-button" for="request-file">Attach CSV/text</label>
-            <input id="request-file" class="sr-only" type="file" accept=".csv,.txt,text/csv,text/plain">
+            <label class="attachment-button" for="request-file">Attach CSV/vCard/text</label>
+            <input id="request-file" class="sr-only" type="file" accept=".csv,.vcf,.txt,text/csv,text/vcard,text/x-vcard,text/plain">
             <span id="request-file-label" class="request-file-label" hidden></span>
             <button id="remove-request-file" class="secondary compact" type="button" hidden>Remove</button>
           </div>
@@ -257,8 +257,31 @@
       </section>
       <p id="event-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
+        <button id="event-invite-draft" class="secondary event-invite-action" type="button" hidden>Create invite draft</button>
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save event</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="event-invite-dialog" class="editor-dialog event-invite-dialog">
+    <form id="event-invite-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Fastmail email draft</p><h2 id="event-invite-title">Invite contacts</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <p class="event-invite-intro">Uses the saved Agent Slayer event. This creates a draft only; it does not send email or add anything to Fastmail Calendar.</p>
+      <label>Find contacts<input id="event-invite-search" type="search" placeholder="Name or email…" autocomplete="off"></label>
+      <fieldset class="event-invite-recipients">
+        <legend>Recipients</legend>
+        <div id="event-invite-contact-list" class="event-invite-contact-list"></div>
+      </fieldset>
+      <p id="event-invite-form-error" class="form-error" role="alert"></p>
+      <p id="event-invite-result" class="form-success" role="status"></p>
+      <footer class="editor-actions">
+        <span id="event-invite-count" class="event-invite-count">0 selected</span>
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button id="event-invite-submit" type="submit" disabled>Create Fastmail draft</button>
       </footer>
     </form>
   </dialog>

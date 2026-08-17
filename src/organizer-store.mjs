@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import rrulePackage from "rrule";
+import { findContactDuplicateGroups } from "./contact-duplicates.mjs";
 import { redactText, safeJson } from "./redaction.mjs";
 import { archiveEmptyTodoGroup, renameTodoGroup } from "./todo-group-operations.mjs";
 import { moveOverdueTodosToToday } from "./todo-schedule-operations.mjs";
@@ -564,13 +565,15 @@ export class OrganizerStore {
   #activity({
     eventType, status, name, subjectType, subjectId, contentText, payload,
     actorType = "user", actorName = "Nate", source = "tailnet_web",
+    channel = "tailnet_web", turnId = null, operationId = null,
   }) {
     const eventId = randomUUID();
     this.database.prepare(`
       INSERT INTO activity_events (
         event_id, event_type, event_phase, status, actor_type, actor_name,
-        source, channel, name, content_text, payload_json, subject_type, subject_id
-      ) VALUES (?, ?, 'point', ?, ?, ?, ?, 'tailnet_web', ?, ?, ?, ?, ?)
+        source, channel, turn_id, operation_id, name, content_text, payload_json,
+        subject_type, subject_id
+      ) VALUES (?, ?, 'point', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       eventId,
       eventType,
@@ -578,6 +581,9 @@ export class OrganizerStore {
       actorType,
       actorName,
       source,
+      channel,
+      turnId,
+      operationId,
       name,
       redactText(contentText),
       safeJson(payload),
@@ -661,7 +667,7 @@ export class OrganizerStore {
     if (!new Set(["active", "all"]).has(scope)) {
       throw new OrganizerInputError("scope must be active or all.");
     }
-    const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 1000 });
+    const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 5000 });
     const rows = this.database.prepare(`
       SELECT * FROM contacts
       ${scope === "active" ? "WHERE status = 'active'" : ""}
@@ -701,6 +707,32 @@ export class OrganizerStore {
       methodsByContact.get(row.contact_id) ?? [],
       tagsByContact.get(String(row.contact_id)) ?? [],
     ));
+  }
+
+  listContactDuplicates({ limit = 100, offset = 0, contactLimit = 5000 } = {}) {
+    const boundedLimit = integer(limit, "limit", { fallback: 100, minimum: 1, maximum: 200 });
+    const boundedOffset = integer(offset, "offset", { fallback: 0, minimum: 0, maximum: 10_000 });
+    const boundedContactLimit = integer(contactLimit, "contactLimit", {
+      fallback: 5000, minimum: 1, maximum: 5000,
+    });
+    const activeContactCount = Number(this.database.prepare(
+      "SELECT COUNT(*) AS count FROM contacts WHERE status = 'active'",
+    ).get().count);
+    const contacts = this.listContacts({ scope: "active", limit: boundedContactLimit });
+    const allGroups = findContactDuplicateGroups(contacts);
+    return {
+      groups: allGroups.slice(boundedOffset, boundedOffset + boundedLimit),
+      offset: boundedOffset,
+      activeContactCount,
+      scannedContactCount: contacts.length,
+      scanTruncated: activeContactCount > contacts.length,
+      totalDuplicateGroups: allGroups.length,
+      hasMore: allGroups.length > boundedOffset + boundedLimit,
+    };
+  }
+
+  getContact(idValue) {
+    return this.#contact(identifier(idValue, "contact id"));
   }
 
   createContact(input) {
@@ -819,7 +851,7 @@ export class OrganizerStore {
     }
   }
 
-  mergeContacts(input) {
+  mergeContacts(input, activity = {}) {
     const keepId = identifier(input?.keepContactId, "kept contact id");
     if (!Array.isArray(input?.mergeContactIds) || input.mergeContactIds.length === 0 || input.mergeContactIds.length > 20) {
       throw new OrganizerInputError("mergeContactIds must contain 1 through 20 contact ids.");
@@ -909,6 +941,7 @@ export class OrganizerStore {
         subjectId: keepId,
         contentText: `${records.slice(1).map(({ displayName }) => displayName).join(", ")} → ${result.displayName}`,
         payload: { keptContact: result, mergedContactIds: mergeIds },
+        ...activity,
       });
       this.database.exec("COMMIT");
       return { contact: result, mergedContactIds: mergeIds };

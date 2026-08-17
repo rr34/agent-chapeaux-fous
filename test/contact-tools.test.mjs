@@ -4,6 +4,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
+import { OrganizerStore } from "../src/organizer-store.mjs";
 import { SchemaSemantics } from "../src/schema-semantics.mjs";
 import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
@@ -17,14 +18,16 @@ function harness(context) {
   const store = new SlayerDatabase(temporary.filename);
   context.after(() => store.close());
   const ledger = new Ledger(store);
+  const organizer = new OrganizerStore(temporary.filename);
+  context.after(() => organizer.close());
   const schemaSemantics = new SchemaSemantics({
     filename: path.join(root, "db", "schema-semantics.json"),
     ledger,
   });
   const registry = new ToolRegistry();
-  registerContactTools(registry, store, ledger, schemaSemantics);
+  registerContactTools(registry, store, organizer, ledger, schemaSemantics);
   const request = ledger.createRequest({ text: "Import the attached contacts" });
-  return { store, ledger, registry, request };
+  return { store, organizer, ledger, registry, request };
 }
 
 function contact(overrides = {}) {
@@ -140,4 +143,77 @@ test("contact_import validates the whole batch before writing", async (context) 
     /birth_date/,
   );
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM contacts").get().count, 0);
+});
+
+test("contact duplicate tools review and safely merge current candidates", async (context) => {
+  const { store, organizer, registry, request } = harness(context);
+  const kept = organizer.createContact({
+    displayName: "Jordan Lee",
+    tags: ["Friend"],
+    methods: [{ kind: "email", value: "jordan@example.test", isPrimary: true }],
+  });
+  const duplicate = organizer.createContact({
+    displayName: "Jordan A. Lee",
+    notes: "Met at the library.",
+    tags: ["Library"],
+    methods: [
+      { kind: "email", value: "JORDAN@example.test" },
+      { kind: "phone", value: "+1 555 010 0199" },
+    ],
+  });
+  const toolContext = {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "contact-duplicates",
+    channel: "web",
+  };
+
+  const review = await registry.execute("contact_duplicate_list", { limit: 10, offset: 0 }, toolContext);
+  assert.equal(review.total_duplicate_groups, 1);
+  assert.deepEqual(review.groups[0].evidence, ["same email"]);
+  const candidates = new Map(review.groups[0].candidates.map((candidate) => [
+    candidate.contact.contact_id,
+    candidate,
+  ]));
+  assert.equal(candidates.get(kept.id).contact.display_name, "Jordan Lee");
+  assert.equal(candidates.get(duplicate.id).contact.notes, "Met at the library.");
+  assert.ok(candidates.get(kept.id).expected_version);
+
+  await assert.rejects(
+    registry.execute("contact_merge", {
+      keep_contact_id: kept.id,
+      keep_expected_version: "stale-version",
+      merge_contacts: [{
+        contact_id: duplicate.id,
+        expected_version: candidates.get(duplicate.id).expected_version,
+      }],
+    }, { ...toolContext, callId: "stale-contact-merge" }),
+    /changed while the merge was being reviewed/,
+  );
+
+  const merged = await registry.execute("contact_merge", {
+    keep_contact_id: kept.id,
+    keep_expected_version: candidates.get(kept.id).expected_version,
+    merge_contacts: [{
+      contact_id: duplicate.id,
+      expected_version: candidates.get(duplicate.id).expected_version,
+    }],
+  }, { ...toolContext, callId: "contact-merge" });
+  assert.equal(merged.kept_contact.contact_id, kept.id);
+  assert.deepEqual(merged.merged_contact_ids, [duplicate.id]);
+  assert.deepEqual(merged.kept_contact.contact_methods.map(({ method_kind: kind }) => kind), ["email", "phone"]);
+  assert.deepEqual(merged.kept_contact.tags.map(({ label }) => label), ["Friend", "Library"]);
+  assert.equal(organizer.getContact(duplicate.id).status, "inactive");
+  const event = store.requireReady().prepare(`
+    SELECT actor_type, actor_name, source, channel, turn_id, operation_id
+    FROM activity_events WHERE event_type = 'contacts.merged'
+  `).get();
+  assert.deepEqual({ ...event }, {
+    actor_type: "tool",
+    actor_name: "contact_merge",
+    source: "model_tool",
+    channel: "web",
+    turn_id: request.requestId,
+    operation_id: "contact-merge",
+  });
 });

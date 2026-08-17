@@ -177,6 +177,42 @@ test("contact merges combine methods and tags while retaining inactive source re
   }
 });
 
+test("contact duplicate review shares exact name, email, and phone evidence with bounded callers", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const first = organizer.createContact({
+      displayName: "Casey Smith",
+      methods: [{ kind: "email", value: "casey.one@example.test" }],
+    });
+    const second = organizer.createContact({
+      displayName: "CASEY-SMITH",
+      methods: [{ kind: "phone", value: "+1 (555) 010-0101" }],
+    });
+    const third = organizer.createContact({
+      displayName: "C. Smith",
+      methods: [{ kind: "phone", value: "1-555-010-0101" }],
+    });
+    organizer.createContact({
+      displayName: "Inactive copy",
+      status: "inactive",
+      methods: [{ kind: "email", value: "CASEY.ONE@example.test" }],
+    });
+
+    const review = organizer.listContactDuplicates({ limit: 10 });
+    assert.equal(review.activeContactCount, 3);
+    assert.equal(review.scannedContactCount, 3);
+    assert.equal(review.scanTruncated, false);
+    assert.equal(review.totalDuplicateGroups, 1);
+    assert.equal(review.hasMore, false);
+    assert.deepEqual(new Set(review.groups[0].contactIds), new Set([first.id, second.id, third.id]));
+    assert.deepEqual(new Set(review.groups[0].evidence), new Set(["same name", "same phone"]));
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("grouped and recurring todos use the existing task tables", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

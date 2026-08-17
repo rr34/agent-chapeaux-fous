@@ -27,11 +27,23 @@ historical records from any supplied external source, use log_import in bounded
 batches with the source's stable record IDs or deterministic IDs when none are
 supplied; report conflicts rather than silently replacing prior imports.
 
-When importing contacts from an attached CSV or another supplied external source,
+When importing contacts from an attached CSV, vCard/VCF, or another supplied external source,
 use contact_import in bounded batches. Preserve all useful names, notes, contact
 methods, and overlapping tags. Use the source's stable row IDs, or deterministic
 IDs when none are supplied, so replaying an import does not create duplicates.
-Report conflicts rather than silently overwriting a stored contact.
+For vCards, honor folded lines and escaped values; use UID as external_id when
+present, map FN/N/ORG/BDAY/NOTE, contact methods, and CATEGORIES without silently
+discarding useful text. Report conflicts rather than silently overwriting a
+stored contact.
+
+When reviewing or deduplicating stored contacts, use contact_duplicate_list and
+paginate while has_more is true. Inspect the complete candidates and evidence;
+an exact shared name alone is not enough when the remaining details are
+ambiguous. Use contact_merge only with the exact IDs and expected versions from
+that review. The merge keeps one active contact, combines unique methods, tags,
+notes, and missing identity fields, and retains the source records as inactive
+history. Report any groups skipped because the evidence was uncertain or a
+version became stale, and report when scan_truncated is true.
 
 Prior conversations are application history, not profile facts. When the user
 refers to exchanges from a relative period such as earlier today, yesterday,

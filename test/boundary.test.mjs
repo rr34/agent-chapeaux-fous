@@ -49,6 +49,8 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /complete natural-language log\s+content/);
   assert.match(instructions, /log_import in bounded\s+batches/);
   assert.match(instructions, /use contact_import in bounded batches/);
+  assert.match(instructions, /contact_duplicate_list/);
+  assert.match(instructions, /contact_merge/);
   assert.match(instructions, /profile_fact_set/);
   assert.match(instructions, /profile_fact_delete/);
   assert.match(instructions, /calendar_event_list/);
@@ -80,6 +82,31 @@ test("the calendar event editor exposes recurrence only after its repeat checkbo
   assert.ok(document.indexOf('id="event-repeat-enabled"') < document.indexOf('id="event-repeat-fields"'));
   assert.match(application, /recurrenceRule: buildEventRecurrenceRule\(\)/);
   assert.match(application, /loadEventRecurrenceEditor\(calendarEvent\?\.recurrenceRule \?\? null\)/);
+});
+
+test("saved calendar events can create reviewable Fastmail invitation drafts without sending", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  assert.match(document, /id="event-invite-draft"[^>]+>Create invite draft</);
+  assert.match(document, /id="event-invite-dialog"/);
+  assert.match(document, /creates a draft only; it does not send email or add anything to Fastmail Calendar/i);
+  assert.match(application, /async function openEventInviteDraft/);
+  assert.match(application, /async function createEventInviteDraft/);
+  assert.match(application, /contactIds: \[\.\.\.eventInviteSelectedContactIds\]/);
+  assert.match(server, /\/invite-draft/);
+  assert.match(server, /createCalendarInviteDraft/);
+  assert.match(server, /registry\.execute\("email_draft_create"/);
+  assert.doesNotMatch(server, /invite-draft[\s\S]{0,1000}registry\.execute\("email_send"/);
+});
+
+test("each displayed calendar event has a phone-friendly copy-details action", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  assert.match(application, /function calendarEventCopyText/);
+  assert.match(application, /node\("button", "secondary compact agenda-event-copy", "Copy details"\)/);
+  assert.match(application, /copyText\(calendarEventCopyText\(calendarEvent\), event\.currentTarget\)/);
+  assert.match(application, /`Time zone: \$\{timeZone\}`/);
+  assert.match(application, /`Repeats: \$\{describeTodoRecurrence\(calendarEvent\.recurrenceRule\)\}`/);
 });
 
 test("calendar controls use simple visibility states and 24-hour datetime locales", () => {
@@ -159,6 +186,7 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(application, /async function refreshContacts/);
   assert.match(application, /function renderContacts/);
   assert.match(application, /function duplicateContactGroups/);
+  assert.match(application, /\/api\/contacts\/duplicates\?limit=200/);
   assert.match(application, /function renderContactDuplicateReview/);
   assert.match(application, /node\("button", "contact-method-value contact-method-copy", method\.value\)/);
   assert.match(application, /copyText\(method\.value, event\.currentTarget\)/);
@@ -169,6 +197,7 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(server, /organizer\.createContact/);
   assert.match(server, /organizer\.updateContact/);
   assert.match(server, /organizer\.mergeContacts/);
+  assert.match(server, /organizer\.listContactDuplicates/);
   assert.match(server, /registerContactTools/);
 });
 
@@ -178,12 +207,13 @@ test("the request composer keeps Shift+Enter for newlines and submits other Ente
   assert.doesNotMatch(application, /event\.key !== "Enter" \|\| event\.ctrlKey/);
 });
 
-test("the request composer accepts one bounded CSV or text attachment", () => {
+test("the request composer accepts one bounded CSV, vCard, or text attachment", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
-  assert.match(document, /id="request-file"[^>]+accept="\.csv,\.txt,text\/csv,text\/plain"/);
+  assert.match(document, /id="request-file"[^>]+accept="\.csv,\.vcf,\.txt,text\/csv,text\/vcard,text\/x-vcard,text\/plain"/);
   assert.match(application, /\/api\/request-files\?filename=/);
+  assert.match(application, /lowerName\.endsWith\("\.vcf"\) \? "text\/vcard"/);
   assert.match(application, /JSON\.stringify\(\{ text, primaryFileId \}\)/);
   assert.match(server, /receiveTextAttachment/);
   assert.match(server, /url\.pathname === "\/api\/request-files"/);
@@ -218,10 +248,13 @@ test("clicking a to-do item's text copies the complete task text", () => {
   assert.match(application, /text\.addEventListener\("click", \(event\) => void copyText\(todo\.text, event\.currentTarget\)\)/);
 });
 
-test("hard-coded UI datetimes use the TLOM display convention", () => {
+test("hard-coded UI datetimes use the TLOM 24-hour display convention", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   assert.match(application, /function formatDisplayDate/);
+  assert.match(application, /function formatDisplayTime/);
   assert.match(application, /weekday: "short", day: "2-digit", month: "short", year: "numeric"/);
-  assert.match(application, /`\$\{dateLabel\} at \$\{timePart\("hour"\)\}:\$\{timePart\("minute"\)\}`/);
+  assert.match(application, /hour: "2-digit", minute: "2-digit", hourCycle: "h23"/);
+  assert.match(application, /`\$\{dateLabel\} at \$\{formatDisplayTime\(date, \{ timeZone, fallback \}\)\}`/);
+  assert.match(application, /formatDisplayDate\(value, \{ includeTime: false, timeZone \}\)/);
   assert.match(application, /return formatDisplayDate\(value\)/);
 });

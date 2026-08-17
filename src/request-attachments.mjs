@@ -8,7 +8,13 @@ const allowedExtensions = new Map([
     "application/vnd.ms-excel", "text/plain", "application/octet-stream",
   ])],
   [".txt", new Set(["text/plain", "text/csv", "application/octet-stream"])],
+  [".vcf", new Set([
+    "text/vcard", "text/x-vcard", "text/directory", "application/vcard",
+    "application/x-vcard", "text/plain", "application/octet-stream",
+  ])],
 ]);
+
+const supportedAttachmentMessage = "Only UTF-8 .csv, .txt, and .vcf attachments are supported";
 
 function inputError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -60,7 +66,7 @@ export async function receiveTextAttachment(request, {
   const mimeType = normalizedMimeType(request.headers?.["content-type"]);
   const allowedMimeTypes = allowedExtensions.get(extension);
   if (!allowedMimeTypes || !allowedMimeTypes.has(mimeType)) {
-    throw inputError("Only UTF-8 .csv and .txt attachments are supported", 415);
+    throw inputError(supportedAttachmentMessage, 415);
   }
 
   const chunks = [];
@@ -119,7 +125,7 @@ export async function readTextAttachment({ mediaRoot, file, maximumBytes }) {
   const extension = path.extname(originalFilename).toLowerCase();
   const mimeType = normalizedMimeType(file.mime_type);
   if (!allowedExtensions.get(extension)?.has(mimeType)) {
-    throw new Error("Stored request attachment is not a supported CSV or text file");
+    throw new Error("Stored request attachment is not a supported CSV, text, or vCard file");
   }
   const bytes = await fsp.readFile(safeMediaPath(mediaRoot, file.storage_path));
   if (bytes.length > maximumBytes) throw new Error("Stored request attachment exceeds the configured limit");
