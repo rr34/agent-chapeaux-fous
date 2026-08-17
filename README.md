@@ -156,8 +156,10 @@ to the model; UI transport objects remain an independent browser concern.
   available for up to 200 contacts supplied as structured data without a file.
   Stable source IDs make replays idempotent, and each contact can retain multiple
   methods, notes, and reusable overlapping tags. `contact_duplicate_list` gives
-  the model the same exact-name,
-  email, and phone candidate groups shown by the Contacts review UI.
+  the model the same candidate groups shown by the Contacts review UI. Exact
+  normalized names are candidates directly; different full names require both
+  a shared normalized name word and an exact email or phone. Partial-name
+  candidates remain review-only.
   `contact_merge` performs one version-checked merge, while
   `contact_merge_batch` atomically applies up to 100 AI-reviewed merge groups in
   one call. Both combine contact details while retaining source records as

@@ -226,36 +226,99 @@ test("contact merges combine methods and tags while retaining inactive source re
   }
 });
 
-test("contact duplicate review shares exact name, email, and phone evidence with bounded callers", () => {
+test("contact duplicate review requires a shared name part and method to connect different full names", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);
   try {
     const first = organizer.createContact({
-      displayName: "Casey Smith",
-      methods: [{ kind: "email", value: "casey.one@example.test" }],
+      displayName: "Aaron Williams",
+      methods: [
+        { kind: "email", value: "aaron@example.test" },
+        { kind: "phone", value: "+1 (555) 010-0101" },
+      ],
     });
     const second = organizer.createContact({
-      displayName: "CASEY-SMITH",
-      methods: [{ kind: "phone", value: "+1 (555) 010-0101" }],
+      displayName: "AARON-WILLIAMS",
+      methods: [{ kind: "email", value: "AARON@example.test" }],
     });
     const third = organizer.createContact({
-      displayName: "C. Smith",
-      methods: [{ kind: "phone", value: "1-555-010-0101" }],
+      displayName: "Anne Ritchie",
+      methods: [
+        { kind: "email", value: "anne@example.test" },
+        { kind: "phone", value: "1-555-010-0101" },
+      ],
+    });
+    const fourth = organizer.createContact({
+      displayName: "ANNE RITCHIE",
+      methods: [{ kind: "email", value: "ANNE@example.test" }],
+    });
+    const ranked = organizer.createContact({
+      displayName: "SSgt. Allen",
+      methods: [{ kind: "phone", value: "+1 555 010 0199" }],
+    });
+    const named = organizer.createContact({
+      displayName: "Brandon Allen",
+      methods: [{ kind: "phone", value: "1-555-010-0199" }],
     });
     organizer.createContact({
       displayName: "Inactive copy",
       status: "inactive",
-      methods: [{ kind: "email", value: "CASEY.ONE@example.test" }],
+      methods: [{ kind: "phone", value: "1-555-010-0199" }],
     });
 
     const review = organizer.listContactDuplicates({ limit: 10 });
-    assert.equal(review.activeContactCount, 3);
-    assert.equal(review.scannedContactCount, 3);
+    assert.equal(review.activeContactCount, 6);
+    assert.equal(review.scannedContactCount, 6);
     assert.equal(review.scanTruncated, false);
-    assert.equal(review.totalDuplicateGroups, 1);
+    assert.equal(review.totalDuplicateGroups, 3);
     assert.equal(review.hasMore, false);
-    assert.deepEqual(new Set(review.groups[0].contactIds), new Set([first.id, second.id, third.id]));
-    assert.deepEqual(new Set(review.groups[0].evidence), new Set(["same name", "same phone"]));
+    const aaronGroup = review.groups.find(({ contactIds }) => contactIds.includes(first.id));
+    const anneGroup = review.groups.find(({ contactIds }) => contactIds.includes(third.id));
+    const allenGroup = review.groups.find(({ contactIds }) => contactIds.includes(ranked.id));
+    assert.deepEqual(new Set(aaronGroup.contactIds), new Set([first.id, second.id]));
+    assert.deepEqual(aaronGroup.evidence, ["same name", "same email"]);
+    assert.deepEqual(new Set(anneGroup.contactIds), new Set([third.id, fourth.id]));
+    assert.deepEqual(anneGroup.evidence, ["same name", "same email"]);
+    assert.equal(aaronGroup.contactIds.includes(third.id), false);
+    assert.deepEqual(new Set(allenGroup.contactIds), new Set([ranked.id, named.id]));
+    assert.deepEqual(allenGroup.evidence, ["same name part", "same phone"]);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
+test("automatic contact dedupe leaves partial-name matches for review", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const insertContact = organizer.database.prepare(`
+      INSERT INTO contacts (display_name, source, external_id, updated_at_utc)
+      VALUES (?, ?, ?, '2026-08-17T12:00:00.000Z') RETURNING contact_id
+    `);
+    const insertPhone = organizer.database.prepare(`
+      INSERT INTO contact_methods (
+        contact_id, method_kind, label, value, normalized_value, is_primary, can_receive
+      ) VALUES (?, 'phone', 'Imported', ?, ?, 1, 1)
+    `);
+    const add = (displayName, source, externalId, phone) => {
+      const { contact_id: contactId } = insertContact.get(displayName, source, externalId);
+      insertPhone.run(contactId, phone, phone.replace(/\D/g, ""));
+    };
+    add("Brandon Allen", "source-a", "source-a-brandon", "+1 555 010 0199");
+    add("BRANDON-ALLEN", "source-b", "source-b-brandon", "1-555-010-0199");
+    add("SSgt. Allen", "source-c", "source-c-allen", "1 (555) 010-0199");
+
+    assert.equal(organizer.listContactDuplicates({ limit: 10 }).groups[0].contactIds.length, 3);
+    const result = organizer.dedupeClearContacts({ maxGroups: 10, preferredSource: "source-a" });
+    assert.equal(result.candidateGroupCount, 1);
+    assert.equal(result.mergedGroupCount, 1);
+    assert.equal(result.mergedContactCount, 1);
+    assert.deepEqual(
+      new Set(organizer.listContacts().map(({ displayName }) => displayName)),
+      new Set(["Brandon Allen", "SSgt. Allen"]),
+    );
+    assert.equal(organizer.listContactDuplicates({ limit: 10 }).totalDuplicateGroups, 1);
   } finally {
     organizer.close();
     temporary.cleanup();

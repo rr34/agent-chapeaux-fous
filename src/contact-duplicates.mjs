@@ -10,20 +10,49 @@ function duplicateMethodKey(method) {
   return null;
 }
 
-function keysForContact(contact) {
-  const name = normalizedContactName(contact.displayName);
-  const keys = name.length >= 3 ? [`name:${name}`] : [];
-  for (const method of contact.methods ?? []) {
-    const value = duplicateMethodKey(method);
-    if (value) keys.push(`${method.kind}:${value}`);
-  }
-  return [...new Set(keys)];
-}
-
 function contactMethodKeys(contact) {
   return new Set((contact.methods ?? []).flatMap((method) => {
     const value = duplicateMethodKey(method);
     return value ? [`${method.kind}:${value}`] : [];
+  }));
+}
+
+function contactNameTokens(contact) {
+  return new Set(normalizedContactName(contact.displayName).split(" ").filter((token) => token.length >= 2));
+}
+
+function duplicateEvidence(group) {
+  const evidence = new Set();
+  const nameCounts = new Map();
+  const methodCounts = new Map();
+  for (const contact of group) {
+    const name = normalizedContactName(contact.displayName);
+    nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+    for (const key of contactMethodKeys(contact)) {
+      methodCounts.set(key, (methodCounts.get(key) ?? 0) + 1);
+    }
+  }
+  if ([...nameCounts.values()].some((count) => count > 1)) evidence.add("same name");
+  if (nameCounts.size > 1) evidence.add("same name part");
+  for (const [key, count] of methodCounts) {
+    if (count > 1) evidence.add(`same ${key.split(":", 1)[0]}`);
+  }
+  return [...evidence];
+}
+
+export function findExactContactDuplicateGroups(contacts) {
+  const grouped = new Map();
+  for (const contact of contacts) {
+    if (contact.status !== "active") continue;
+    const name = normalizedContactName(contact.displayName);
+    if (name.length < 3) continue;
+    const group = grouped.get(name) ?? [];
+    group.push(contact);
+    grouped.set(name, group);
+  }
+  return [...grouped.values()].filter((group) => group.length > 1).map((group) => ({
+    contactIds: group.map(({ id }) => id),
+    evidence: duplicateEvidence(group),
   }));
 }
 
@@ -84,7 +113,9 @@ export function selectDuplicateKeeper(contacts, preferredSource = null) {
 }
 
 export function findContactDuplicateGroups(contacts) {
-  const active = contacts.filter(({ status }) => status === "active");
+  const active = contacts.filter((contact) => (
+    contact.status === "active" && normalizedContactName(contact.displayName).length >= 3
+  ));
   const parent = new Map(active.map(({ id }) => [id, id]));
   const find = (selectedId) => {
     let id = selectedId;
@@ -102,11 +133,18 @@ export function findContactDuplicateGroups(contacts) {
     const rightRoot = find(right);
     if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
   };
-  const owners = new Map();
+  const exactNameOwners = new Map();
+  const nameMethodOwners = new Map();
   for (const contact of active) {
-    for (const key of keysForContact(contact)) {
-      if (owners.has(key)) union(contact.id, owners.get(key));
-      else owners.set(key, contact.id);
+    const name = normalizedContactName(contact.displayName);
+    if (exactNameOwners.has(name)) union(contact.id, exactNameOwners.get(name));
+    else exactNameOwners.set(name, contact.id);
+    for (const token of contactNameTokens(contact)) {
+      for (const method of contactMethodKeys(contact)) {
+        const key = `${token}\u0000${method}`;
+        if (nameMethodOwners.has(key)) union(contact.id, nameMethodOwners.get(key));
+        else nameMethodOwners.set(key, contact.id);
+      }
     }
   }
   const grouped = new Map();
@@ -116,15 +154,8 @@ export function findContactDuplicateGroups(contacts) {
     group.push(contact);
     grouped.set(root, group);
   }
-  return [...grouped.values()].filter((group) => group.length > 1).map((group) => {
-    const evidence = new Set();
-    const counts = new Map();
-    for (const contact of group) {
-      for (const key of keysForContact(contact)) counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    for (const [key, count] of counts) {
-      if (count > 1) evidence.add(key.startsWith("name:") ? "same name" : `same ${key.split(":", 1)[0]}`);
-    }
-    return { contactIds: group.map(({ id }) => id), evidence: [...evidence] };
-  });
+  return [...grouped.values()].filter((group) => group.length > 1).map((group) => ({
+    contactIds: group.map(({ id }) => id),
+    evidence: duplicateEvidence(group),
+  }));
 }

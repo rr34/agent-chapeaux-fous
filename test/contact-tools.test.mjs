@@ -258,7 +258,7 @@ test("contact duplicate tools review and safely merge current candidates", async
     methods: [{ kind: "email", value: "jordan@example.test", isPrimary: true }],
   });
   const duplicate = organizer.createContact({
-    displayName: "Jordan A. Lee",
+    displayName: "Jordan Lee",
     notes: "Met at the library.",
     tags: ["Library"],
     methods: [
@@ -277,7 +277,7 @@ test("contact duplicate tools review and safely merge current candidates", async
     limit: 10, offset: 0, detail: "full",
   }, toolContext);
   assert.equal(review.total_duplicate_groups, 1);
-  assert.deepEqual(review.groups[0].evidence, ["same email"]);
+  assert.deepEqual(review.groups[0].evidence, ["same name", "same email"]);
   const candidates = new Map(review.groups[0].candidates.map((candidate) => [
     candidate.contact.contact_id,
     candidate,
@@ -453,7 +453,7 @@ test("source-aware clear dedupe resolves 505 groups in two calls and leaves ambi
   }, toolContext);
   assert.deepEqual(
     [first.candidate_group_count_before, first.eligible_group_count_before, first.ambiguous_group_count],
-    [508, 505, 3],
+    [507, 505, 2],
   );
   assert.equal(first.merged_group_count, 500);
   assert.equal(first.eligible_group_count_remaining, 5);
@@ -465,7 +465,7 @@ test("source-aware clear dedupe resolves 505 groups in two calls and leaves ambi
   }, { ...toolContext, callId: "clear-dedupe-2" });
   assert.deepEqual(
     [second.candidate_group_count_before, second.eligible_group_count_before, second.merged_group_count],
-    [8, 5, 5],
+    [7, 5, 5],
   );
   assert.equal(second.eligible_group_count_remaining, 0);
 
@@ -475,10 +475,9 @@ test("source-aware clear dedupe resolves 505 groups in two calls and leaves ambi
   }, { ...toolContext, callId: "clear-dedupe-final" });
   assert.deepEqual(
     [final.candidate_group_count_before, final.eligible_group_count_before, final.merged_group_count],
-    [3, 0, 0],
+    [2, 0, 0],
   );
-  assert.equal(final.ambiguous_group_count, 3);
-  assert.equal(final.skipped_by_reason["display names are not the same"], 1);
+  assert.equal(final.ambiguous_group_count, 2);
   assert.equal(final.skipped_by_reason["a contact has no exact email or phone evidence"], 1);
   assert.equal(final.skipped_by_reason["contacts are not from distinct named sources"], 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts WHERE status = 'active'").get().count, 511);

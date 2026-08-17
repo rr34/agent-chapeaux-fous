@@ -578,7 +578,7 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
 
   registry.register({
     name: "contact_duplicate_list",
-    description: "List paginated groups of active contacts that may be duplicates because they share an exact normalized display name, email address, or phone number. This is a read-only review operation. Use compact detail and pages of about 50 groups for bulk work; use full only when complete notes and timestamps are necessary. Each candidate includes expected_version for contact_merge or contact_merge_batch. Same-name evidence alone can be ambiguous. Continue with next_offset while has_more is true.",
+    description: "List paginated groups of active contacts that may be duplicates. Candidates either share an exact normalized display name, or each different-name match shares both a normalized name word of at least two characters and an exact email address or phone number. Partial-name matches are review-only and are never handled by contact_dedupe_clear. This is a read-only review operation. Use compact detail and pages of about 50 groups for bulk work; use full only when complete notes and timestamps are necessary. Each candidate includes expected_version for contact_merge or contact_merge_batch. Same-name evidence alone can be ambiguous. Continue with next_offset while has_more is true.",
     parameters: {
       type: "object",
       additionalProperties: false,

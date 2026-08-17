@@ -3,7 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import rrulePackage from "rrule";
 import { searchCalendarEventRows } from "./calendar-search.mjs";
 import {
-  clearDuplicateGroup, findContactDuplicateGroups, selectDuplicateKeeper,
+  clearDuplicateGroup, findContactDuplicateGroups, findExactContactDuplicateGroups, selectDuplicateKeeper,
 } from "./contact-duplicates.mjs";
 import { redactText, safeJson } from "./redaction.mjs";
 import { archiveEmptyTodoGroup, renameTodoGroup } from "./todo-group-operations.mjs";
@@ -995,7 +995,7 @@ export class OrganizerStore {
     ).get().count);
     const contacts = this.listContacts({ scope: "active", limit: 10_000 });
     const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
-    const groups = findContactDuplicateGroups(contacts);
+    const groups = findExactContactDuplicateGroups(contacts);
     const eligible = [];
     const skippedByReason = new Map();
     for (const group of groups) {
