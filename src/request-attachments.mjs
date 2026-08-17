@@ -14,7 +14,8 @@ const allowedExtensions = new Map([
   ])],
 ]);
 
-const supportedAttachmentMessage = "Only UTF-8 .csv, .txt, and .vcf attachments are supported";
+const supportedAttachmentMessage = "Only text .csv, .txt, and .vcf attachments are supported";
+const allowedTextControlBytes = new Set([0x09, 0x0a, 0x0c, 0x0d]);
 
 function inputError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -32,15 +33,64 @@ function normalizedMimeType(value) {
   return String(value || "application/octet-stream").split(";", 1)[0].trim().toLowerCase();
 }
 
-function decodedUtf8(bytes) {
-  let text;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw inputError("Attachment must be valid UTF-8 text");
-  }
-  if (text.includes("\u0000")) throw inputError("Attachment must not contain null bytes");
+function withoutByteOrderMark(text) {
   return text.startsWith("\uFEFF") ? text.slice(1) : text;
+}
+
+function decoded(bytes, encoding) {
+  return withoutByteOrderMark(new TextDecoder(encoding, { fatal: true }).decode(bytes));
+}
+
+function utf16Encoding(bytes) {
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) return "utf-16le";
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) return "utf-16be";
+  if (bytes.length < 8) return null;
+  let evenNulls = 0;
+  let oddNulls = 0;
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] !== 0) continue;
+    if (index % 2 === 0) evenNulls += 1;
+    else oddNulls += 1;
+  }
+  const pairs = Math.floor(bytes.length / 2);
+  if (oddNulls / pairs > 0.3 && evenNulls / pairs < 0.05) return "utf-16le";
+  if (evenNulls / pairs > 0.3 && oddNulls / pairs < 0.05) return "utf-16be";
+  return null;
+}
+
+function looksBinary(bytes) {
+  let suspiciousControls = 0;
+  for (const byte of bytes) {
+    if (byte === 0) return true;
+    if ((byte < 0x20 && !allowedTextControlBytes.has(byte)) || byte === 0x7f) {
+      suspiciousControls += 1;
+    }
+  }
+  return suspiciousControls > Math.max(2, Math.floor(bytes.length * 0.01));
+}
+
+function decodedText(bytes) {
+  const utf16 = utf16Encoding(bytes);
+  if (utf16) {
+    try {
+      const text = decoded(bytes, utf16);
+      if (text.includes("\u0000")) throw new Error("decoded null byte");
+      return { text, encoding: utf16 };
+    } catch {
+      throw inputError("Attachment appears to contain binary data");
+    }
+  }
+  try {
+    const text = decoded(bytes, "utf-8");
+    if (text.includes("\u0000")) throw inputError("Attachment appears to contain binary data");
+    return { text, encoding: "utf-8" };
+  } catch {
+    if (looksBinary(bytes)) throw inputError("Attachment appears to contain binary data");
+    return {
+      text: withoutByteOrderMark(new TextDecoder("windows-1252").decode(bytes)),
+      encoding: "windows-1252",
+    };
+  }
 }
 
 export function safeMediaPath(mediaRoot, storagePath) {
@@ -80,7 +130,7 @@ export async function receiveTextAttachment(request, {
   }
   if (byteSize === 0) throw inputError("Attachment was empty");
   const bytes = Buffer.concat(chunks);
-  decodedUtf8(bytes);
+  const { encoding } = decodedText(bytes);
 
   const relativeDirectory = path.join(
     String(now.getUTCFullYear()),
@@ -116,6 +166,7 @@ export async function receiveTextAttachment(request, {
     mediaKind: "document",
     mimeType,
     byteSize,
+    encoding,
   };
 }
 
@@ -136,6 +187,7 @@ export async function readTextAttachment({ mediaRoot, file, maximumBytes }) {
   if (file.sha256 && file.sha256 !== sha256) {
     throw new Error("Stored request attachment checksum does not match its file record");
   }
+  const decodedAttachment = decodedText(bytes);
   return {
     fileId: Number(file.file_id),
     filename: originalFilename,
@@ -143,6 +195,7 @@ export async function readTextAttachment({ mediaRoot, file, maximumBytes }) {
     mimeType,
     byteSize: bytes.length,
     sha256,
-    text: decodedUtf8(bytes),
+    text: decodedAttachment.text,
+    encoding: decodedAttachment.encoding,
   };
 }

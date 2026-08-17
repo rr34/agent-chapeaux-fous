@@ -342,6 +342,14 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, organizer.mergeContacts(await readJson(request)));
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/contacts/bulk") {
+      sendJson(response, 200, organizer.bulkContacts(await readJson(request, 2 * 1024 * 1024)));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/contacts/tags/rename") {
+      sendJson(response, 200, organizer.renameContactTag(await readJson(request)));
+      return;
+    }
     const contactMatch = /^\/api\/contacts\/(\d+)$/.exec(url.pathname);
     if (request.method === "PATCH" && contactMatch) {
       sendJson(response, 200, { contact: organizer.updateContact(contactMatch[1], await readJson(request)) });

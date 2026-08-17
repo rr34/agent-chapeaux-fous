@@ -168,9 +168,17 @@
       <div class="contact-toolbar organizer-panel">
         <label class="contact-search">Search<input id="contact-search" type="search" placeholder="Name, note, email, phone…"></label>
         <label>Tag<select id="contact-tag-filter"><option value="">All tags</option></select></label>
+        <button id="contact-rename-tag" class="secondary compact" type="button">Rename tag</button>
         <label class="checkbox-row contact-inactive-toggle"><input id="contact-include-inactive" type="checkbox"><span>Show inactive</span></label>
         <button id="review-contact-duplicates" class="secondary compact" type="button">Review duplicates</button>
         <span id="contact-count" class="toolbar-count"></span>
+        <div id="contact-bulk-actions" class="contact-bulk-actions" hidden>
+          <strong id="contact-selected-count"></strong>
+          <label class="contact-bulk-tag">Add tag<input id="contact-bulk-tag" type="text" maxlength="100" placeholder="Tag name"></label>
+          <button id="contact-add-tag" class="secondary compact" type="button">Add tag</button>
+          <button id="contact-delete-selected" class="danger compact" type="button">Delete</button>
+          <button id="contact-clear-selection" class="secondary compact" type="button">Clear selection</button>
+        </div>
       </div>
       <section id="contact-list" class="contact-list organizer-panel" aria-live="polite"></section>
     </section>

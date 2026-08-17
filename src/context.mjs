@@ -95,6 +95,7 @@ export class ContextBuilder {
         mimeType: attachment.mimeType,
         byteSize: attachment.byteSize,
         sha256: attachment.sha256,
+        encoding: attachment.encoding,
         contextTruncated: attachmentResult.truncated,
       };
       const attachmentSection = [

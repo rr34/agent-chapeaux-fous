@@ -158,6 +158,25 @@ function identifier(value, label) {
   return result;
 }
 
+function reviewedContactSelections(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 10_000) {
+    throw new OrganizerInputError("contacts must contain 1 through 10000 reviewed contacts.");
+  }
+  const seen = new Set();
+  return value.map((selection, index) => {
+    if (!selection || typeof selection !== "object" || Array.isArray(selection)) {
+      throw new OrganizerInputError(`contacts[${index}] must be an object.`);
+    }
+    const id = identifier(selection.id, `contacts[${index}].id`);
+    if (seen.has(id)) throw new OrganizerInputError("contacts cannot contain duplicate ids.");
+    seen.add(id);
+    if (typeof selection.expectedVersion !== "string" || !selection.expectedVersion) {
+      throw new OrganizerInputError(`contacts[${index}].expectedVersion is required.`);
+    }
+    return { id, expectedVersion: selection.expectedVersion };
+  });
+}
+
 function isoDateTime(value, label, { required = false } = {}) {
   if (value == null || value === "") {
     if (required) throw new OrganizerInputError(`${label} is required.`);
@@ -649,23 +668,25 @@ export class OrganizerStore {
     this.database.prepare(
       "DELETE FROM record_tags WHERE record_type = 'contact' AND record_id = ?",
     ).run(recordId);
-    const find = this.database.prepare("SELECT tag_id FROM tags WHERE slug = ?");
-    const insertTag = this.database.prepare("INSERT INTO tags (slug, label) VALUES (?, ?)");
-    const reactivate = this.database.prepare("UPDATE tags SET label = ?, is_active = 1 WHERE tag_id = ?");
     const assign = this.database.prepare(`
       INSERT INTO record_tags (tag_id, record_type, record_id)
       VALUES (?, 'contact', ?)
     `);
     for (const tag of tags) {
-      let row = find.get(tag.slug);
-      if (!row) {
-        const result = insertTag.run(tag.slug, tag.label);
-        row = { tag_id: Number(result.lastInsertRowid) };
-      } else {
-        reactivate.run(tag.label, row.tag_id);
-      }
+      const row = this.#ensureContactTag(tag);
       assign.run(row.tag_id, recordId);
     }
+  }
+
+  #ensureContactTag(tag) {
+    let row = this.database.prepare("SELECT tag_id FROM tags WHERE slug = ?").get(tag.slug);
+    if (!row) {
+      const result = this.database.prepare("INSERT INTO tags (slug, label) VALUES (?, ?)").run(tag.slug, tag.label);
+      row = { tag_id: Number(result.lastInsertRowid) };
+    } else {
+      this.database.prepare("UPDATE tags SET label = ?, is_active = 1 WHERE tag_id = ?").run(tag.label, row.tag_id);
+    }
+    return row;
   }
 
   listContacts({ scope = "active", limit = 500 } = {}) {
@@ -852,6 +873,160 @@ export class OrganizerStore {
       if (String(error?.message).includes("UNIQUE constraint failed: contact_methods")) {
         throw new OrganizerInputError("Duplicate contact methods are not allowed.", 409);
       }
+      throw error;
+    }
+  }
+
+  bulkContacts(input, activity = {}) {
+    const action = enumValue(input?.action, new Set(["add_tag", "delete"]), "action");
+    const selections = reviewedContactSelections(input?.contacts);
+    const tag = action === "add_tag" ? contactTags([input?.tag])?.[0] : null;
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const find = this.database.prepare(`
+        SELECT contact_id, display_name, created_at_utc, updated_at_utc
+        FROM contacts WHERE contact_id = ?
+      `);
+      const records = selections.map((selection) => {
+        const row = find.get(selection.id);
+        if (!row) throw new OrganizerInputError("A selected contact was not found. Refresh and try again.", 404);
+        const version = row.updated_at_utc ?? row.created_at_utc;
+        if (selection.expectedVersion !== version) {
+          throw new OrganizerInputError("A selected contact changed after selection. Refresh and try again.", 409);
+        }
+        return { ...row, version };
+      });
+
+      if (action === "add_tag") {
+        const storedTag = this.#ensureContactTag(tag);
+        const assign = this.database.prepare(`
+          INSERT OR IGNORE INTO record_tags (tag_id, record_type, record_id)
+          VALUES (?, 'contact', ?)
+        `);
+        const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
+        const candidateVersion = new Date().toISOString();
+        for (const record of records) {
+          assign.run(storedTag.tag_id, String(record.contact_id));
+          const nextVersion = candidateVersion > record.version
+            ? candidateVersion
+            : new Date(new Date(record.version).getTime() + 1).toISOString();
+          update.run(nextVersion, record.contact_id);
+        }
+      } else {
+        const removeTags = this.database.prepare(
+          "DELETE FROM record_tags WHERE record_type = 'contact' AND record_id = ?",
+        );
+        const removeContact = this.database.prepare("DELETE FROM contacts WHERE contact_id = ?");
+        for (const record of records) {
+          removeTags.run(String(record.contact_id));
+          removeContact.run(record.contact_id);
+        }
+      }
+
+      this.#activity({
+        eventType: action === "add_tag" ? "contacts.tag_added" : "contacts.deleted",
+        status: "complete",
+        name: action === "add_tag" ? "Tag added to contacts" : "Contacts deleted",
+        subjectType: "contact_batch",
+        subjectId: records.length,
+        contentText: action === "add_tag"
+          ? `${tag.label} → ${records.length} contacts`
+          : `${records.length} contacts permanently deleted`,
+        payload: {
+          action,
+          affectedCount: records.length,
+          contactIds: records.map(({ contact_id: id }) => Number(id)),
+          ...(tag ? { tag: tag.label } : {}),
+        },
+        ...activity,
+      });
+      this.database.exec("COMMIT");
+      return { action, affectedCount: records.length, ...(tag ? { tag: tag.label } : {}) };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  renameContactTag(input, activity = {}) {
+    const previousInput = contactTags([input?.currentTag])?.[0];
+    const renamedInput = contactTags([input?.newTag])?.[0];
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const previous = this.database.prepare("SELECT * FROM tags WHERE slug = ?").get(previousInput.slug);
+      if (!previous) throw new OrganizerInputError("The contact tag to rename was not found.", 404);
+      const contacts = this.database.prepare(`
+        SELECT contact.contact_id, contact.created_at_utc, contact.updated_at_utc
+        FROM contacts AS contact
+        JOIN record_tags AS assignment
+          ON assignment.record_type = 'contact'
+          AND assignment.record_id = CAST(contact.contact_id AS TEXT)
+        WHERE assignment.tag_id = ?
+        ORDER BY contact.contact_id
+      `).all(previous.tag_id);
+      if (contacts.length === 0) throw new OrganizerInputError("The tag is not assigned to any contacts.", 404);
+
+      const existingTarget = this.database.prepare("SELECT * FROM tags WHERE slug = ?").get(renamedInput.slug);
+      const mergedWithExistingTag = Boolean(existingTarget && existingTarget.tag_id !== previous.tag_id);
+      let targetId;
+      if (previous.slug === renamedInput.slug) {
+        this.database.prepare("UPDATE tags SET label = ?, is_active = 1 WHERE tag_id = ?")
+          .run(renamedInput.label, previous.tag_id);
+        targetId = previous.tag_id;
+      } else {
+        const target = this.#ensureContactTag(renamedInput);
+        targetId = target.tag_id;
+        this.database.prepare(`
+          INSERT OR IGNORE INTO record_tags (tag_id, record_type, record_id)
+          SELECT ?, record_type, record_id
+          FROM record_tags
+          WHERE tag_id = ? AND record_type = 'contact'
+        `).run(targetId, previous.tag_id);
+        this.database.prepare(
+          "DELETE FROM record_tags WHERE tag_id = ? AND record_type = 'contact'",
+        ).run(previous.tag_id);
+        const remainingAssignments = Number(this.database.prepare(
+          "SELECT COUNT(*) AS count FROM record_tags WHERE tag_id = ?",
+        ).get(previous.tag_id).count);
+        if (remainingAssignments === 0) {
+          this.database.prepare("DELETE FROM tags WHERE tag_id = ?").run(previous.tag_id);
+        }
+      }
+
+      const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
+      const candidateVersion = new Date().toISOString();
+      for (const contact of contacts) {
+        const version = contact.updated_at_utc ?? contact.created_at_utc;
+        const nextVersion = candidateVersion > version
+          ? candidateVersion
+          : new Date(new Date(version).getTime() + 1).toISOString();
+        update.run(nextVersion, contact.contact_id);
+      }
+      this.#activity({
+        eventType: "contacts.tag_renamed",
+        status: "complete",
+        name: "Contact tag renamed",
+        subjectType: "contact_tag",
+        subjectId: targetId,
+        contentText: `${previous.label} → ${renamedInput.label}`,
+        payload: {
+          previousTag: previous.label,
+          tag: renamedInput.label,
+          affectedContactCount: contacts.length,
+          mergedWithExistingTag,
+          contactIds: contacts.map(({ contact_id: id }) => Number(id)),
+        },
+        ...activity,
+      });
+      this.database.exec("COMMIT");
+      return {
+        previousTag: previous.label,
+        tag: renamedInput.label,
+        affectedContactCount: contacts.length,
+        mergedWithExistingTag,
+      };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
       throw error;
     }
   }

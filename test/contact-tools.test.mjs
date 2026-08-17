@@ -104,6 +104,42 @@ test("contact_import stores methods and overlapping tags and is replay-safe", as
   );
 });
 
+test("contact_tag_rename atomically renames or combines tags for the agent", async (context) => {
+  const { store, organizer, registry, request } = harness(context);
+  organizer.createContact({ displayName: "One", tags: ["Mailing List"] });
+  organizer.createContact({ displayName: "Two", tags: ["Mailing List", "Newsletter"] });
+  organizer.createContact({ displayName: "Three", tags: ["Newsletter"] });
+  const definition = registry.toolDefinitions().find(({ name }) => name === "contact_tag_rename");
+  assert.deepEqual(definition.inputSchema.required, ["current_tag", "new_tag"]);
+
+  const result = await registry.execute("contact_tag_rename", {
+    current_tag: "Mailing List",
+    new_tag: "Newsletter",
+  }, {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "rename-contact-tag",
+    channel: "web",
+  });
+  assert.deepEqual({
+    previous_tag: result.previous_tag,
+    tag: result.tag,
+    affected_contact_count: result.affected_contact_count,
+    merged_with_existing_tag: result.merged_with_existing_tag,
+  }, {
+    previous_tag: "Mailing List",
+    tag: "Newsletter",
+    affected_contact_count: 2,
+    merged_with_existing_tag: true,
+  });
+  assert.equal(organizer.listContacts().every(({ tags }) => tags.length === 1 && tags[0] === "Newsletter"), true);
+  assert.equal(store.requireReady().prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'contacts.tag_renamed'
+      AND actor_type = 'tool' AND actor_name = 'contact_tag_rename'
+  `).get().count, 1);
+});
+
 test("contact_import accepts more than 100 rows in one bounded transaction", async (context) => {
   const { store, registry, request } = harness(context);
   const entries = Array.from({ length: 125 }, (_, index) => contact({

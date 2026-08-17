@@ -536,6 +536,35 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
   });
 
   registry.register({
+    name: "contact_tag_rename",
+    description: "Rename one tag across every contact currently assigned to it. Tag matching uses the same normalized form as contact imports. If the destination tag already exists, assignments are merged without duplicates. This operation is atomic and returns the number of affected contacts.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        current_tag: { type: "string", minLength: 1, maxLength: 100 },
+        new_tag: { type: "string", minLength: 1, maxLength: 100 },
+      },
+      required: ["current_tag", "new_tag"],
+    },
+    async execute({ current_tag: currentTag, new_tag: newTag }, context) {
+      const renamed = organizer.renameContactTag(
+        { currentTag, newTag },
+        contactToolActivity(context, "contact_tag_rename"),
+      );
+      return contactResult(schemaSemantics, context, {
+        previous_tag: renamed.previousTag,
+        tag: renamed.tag,
+        affected_contact_count: renamed.affectedContactCount,
+        merged_with_existing_tag: renamed.mergedWithExistingTag,
+      }, {
+        name: "contact_tag_rename",
+        purpose: "Return the result of an atomic contact tag rename, including collision merging and the number of affected contacts.",
+      });
+    },
+  });
+
+  registry.register({
     name: "contact_dedupe_clear",
     description: "Recompute and atomically merge up to 500 conservative, source-aware duplicate groups without sending every candidate through model arguments. Repeat while eligible_group_count_remaining is positive. A group is eligible only when all active contacts have the same normalized display name and kind, come from distinct named import sources, have no conflicting birthdays, and every contact is connected by an exact email or phone match. Same-name-only, family-email with different names, same-source, malformed, oversized, and otherwise ambiguous groups are skipped for AI review. The richest record is retained unless preferred_source names a source present in the group.",
     parameters: {

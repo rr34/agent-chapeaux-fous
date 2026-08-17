@@ -120,9 +120,16 @@ const elements = {
   todoFormError: document.querySelector("#todo-form-error"),
   contactSearch: document.querySelector("#contact-search"),
   contactTagFilter: document.querySelector("#contact-tag-filter"),
+  contactRenameTag: document.querySelector("#contact-rename-tag"),
   contactIncludeInactive: document.querySelector("#contact-include-inactive"),
   reviewContactDuplicates: document.querySelector("#review-contact-duplicates"),
   contactCount: document.querySelector("#contact-count"),
+  contactBulkActions: document.querySelector("#contact-bulk-actions"),
+  contactSelectedCount: document.querySelector("#contact-selected-count"),
+  contactBulkTag: document.querySelector("#contact-bulk-tag"),
+  contactAddTag: document.querySelector("#contact-add-tag"),
+  contactDeleteSelected: document.querySelector("#contact-delete-selected"),
+  contactClearSelection: document.querySelector("#contact-clear-selection"),
   contactList: document.querySelector("#contact-list"),
   newContact: document.querySelector("#new-contact"),
   contactDialog: document.querySelector("#contact-dialog"),
@@ -192,6 +199,7 @@ let movingOverdueTodos = false;
 let moveOverdueFeedbackTimer = null;
 let contacts = [];
 let contactDuplicateReview = { groups: [], hasMore: false };
+const selectedContactIds = new Set();
 let logTrackers = [];
 let logEntries = [];
 const requestNodes = new Map();
@@ -758,7 +766,7 @@ function todosScheduledOnDay(day) {
 }
 
 function formatEventTime(calendarEvent) {
-  if (calendarEvent.isAllDay) return "All day";
+  if (calendarEvent.isAllDay) return "";
   const timeZone = calendarEvent.timeZone || null;
   const start = formatDisplayTime(calendarEvent.startsAtUtc, { timeZone });
   return calendarEvent.endsAtUtc
@@ -1677,11 +1685,6 @@ async function renameTodoGroup(groupId, currentName) {
   }
 }
 
-function contactInitials(contact) {
-  const parts = contact.displayName.trim().split(/\s+/).filter(Boolean);
-  return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)[0]}` : parts[0]?.slice(0, 2) || "?").toUpperCase();
-}
-
 function formatContactBirthday(value) {
   if (!value) return null;
   const partial = /^--(\d{2})-(\d{2})$/.exec(value);
@@ -1702,10 +1705,14 @@ function contactMethodName(kind) {
 async function refreshContacts() {
   try {
     const [body, duplicateReview] = await Promise.all([
-      api("/api/contacts?scope=all&limit=1000"),
+      api("/api/contacts?scope=all&limit=10000"),
       api("/api/contacts/duplicates?limit=200"),
     ]);
     contacts = body.contacts;
+    const availableIds = new Set(contacts.map(({ id }) => id));
+    for (const id of selectedContactIds) {
+      if (!availableIds.has(id)) selectedContactIds.delete(id);
+    }
     contactDuplicateReview = duplicateReview;
     populateContactTagFilter();
     renderContacts();
@@ -1726,6 +1733,7 @@ function populateContactTagFilter() {
     elements.contactTagFilter.append(option);
   }
   elements.contactTagFilter.value = tags.includes(selected) ? selected : "";
+  elements.contactRenameTag.disabled = tags.length === 0;
 }
 
 function duplicateContactGroups() {
@@ -1763,6 +1771,114 @@ function contactValueCell(contact, kinds, label) {
   return cell;
 }
 
+function selectedContactRecords() {
+  return contacts.filter(({ id }) => selectedContactIds.has(id));
+}
+
+function updateContactBulkActions() {
+  const count = selectedContactIds.size;
+  elements.contactBulkActions.hidden = count === 0;
+  elements.contactSelectedCount.textContent = `${count} selected`;
+  elements.contactAddTag.disabled = count === 0;
+  elements.contactDeleteSelected.disabled = count === 0;
+}
+
+function reviewedContactPayload() {
+  return selectedContactRecords().map((contact) => ({
+    id: contact.id,
+    expectedVersion: contact.version,
+  }));
+}
+
+async function addTagToSelectedContacts() {
+  const tag = elements.contactBulkTag.value.trim();
+  const reviewed = reviewedContactPayload();
+  if (!tag || reviewed.length === 0) {
+    if (!tag) elements.contactBulkTag.focus();
+    return;
+  }
+  elements.contactAddTag.disabled = true;
+  elements.contactDeleteSelected.disabled = true;
+  try {
+    const result = await api("/api/contacts/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "add_tag", tag, contacts: reviewed }),
+    });
+    elements.contactBulkTag.value = "";
+    elements.status.textContent = `Added ${result.tag} to ${result.affectedCount} ${result.affectedCount === 1 ? "contact" : "contacts"}.`;
+    await refreshContacts();
+  } catch (error) {
+    window.alert(error.message || "Could not add the tag to the selected contacts.");
+  } finally {
+    updateContactBulkActions();
+  }
+}
+
+async function deleteSelectedContacts() {
+  const reviewed = reviewedContactPayload();
+  if (reviewed.length === 0) return;
+  const count = reviewed.length;
+  if (!window.confirm(`Permanently delete ${count} selected ${count === 1 ? "contact" : "contacts"}? This cannot be undone.`)) return;
+  elements.contactAddTag.disabled = true;
+  elements.contactDeleteSelected.disabled = true;
+  try {
+    const result = await api("/api/contacts/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete", contacts: reviewed }),
+    });
+    selectedContactIds.clear();
+    elements.status.textContent = `Deleted ${result.affectedCount} ${result.affectedCount === 1 ? "contact" : "contacts"}.`;
+    await refreshContacts();
+  } catch (error) {
+    window.alert(error.message || "Could not delete the selected contacts.");
+  } finally {
+    updateContactBulkActions();
+  }
+}
+
+function contactTagKey(value) {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
+}
+
+async function renameContactTag() {
+  const tags = [...new Set(contacts.flatMap((contact) => contact.tags))]
+    .sort((left, right) => left.localeCompare(right));
+  if (tags.length === 0) return;
+  const currentTag = window.prompt(
+    "Tag to rename:",
+    elements.contactTagFilter.value || tags[0],
+  )?.trim();
+  if (!currentTag) return;
+  const newTag = window.prompt(`Rename ${currentTag} to:`, currentTag)?.trim();
+  if (!newTag || newTag === currentTag) return;
+  const existing = tags.find((tag) => (
+    contactTagKey(tag) === contactTagKey(newTag)
+    && contactTagKey(tag) !== contactTagKey(currentTag)
+  ));
+  if (existing && !window.confirm(`${existing} already exists. Combine ${currentTag} into it?`)) return;
+  elements.contactRenameTag.disabled = true;
+  try {
+    const result = await api("/api/contacts/tags/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentTag, newTag }),
+    });
+    elements.status.textContent = `Renamed ${result.previousTag} to ${result.tag} on ${result.affectedContactCount} ${result.affectedContactCount === 1 ? "contact" : "contacts"}.`;
+    await refreshContacts();
+    if ([...elements.contactTagFilter.options].some(({ value }) => value === result.tag)) {
+      elements.contactTagFilter.value = result.tag;
+      renderContacts();
+    }
+  } catch (error) {
+    window.alert(error.message || "Could not rename the contact tag.");
+  } finally {
+    elements.contactRenameTag.disabled = tags.length === 0;
+  }
+}
+
 function renderContacts() {
   elements.contactList.replaceChildren();
   const query = elements.contactSearch.value.trim().toLocaleLowerCase();
@@ -1783,6 +1899,7 @@ function renderContacts() {
     ? `Review duplicates · ${duplicateCount}`
     : "No duplicates found";
   elements.reviewContactDuplicates.disabled = duplicateCount === 0;
+  updateContactBulkActions();
   if (visible.length === 0) {
     elements.contactList.append(node(
       "p", "empty",
@@ -1791,7 +1908,23 @@ function renderContacts() {
     return;
   }
   const tableHeader = node("div", "contact-table-header");
-  for (const label of ["Contact", "Email", "Phone", "Birthday", "Tags", "Other", ""]) {
+  const selectAllLabel = node("label", "contact-select-all");
+  const selectAll = node("input", "contact-select-checkbox");
+  selectAll.type = "checkbox";
+  selectAll.setAttribute("aria-label", "Select all visible contacts");
+  const selectedVisibleCount = visible.filter(({ id }) => selectedContactIds.has(id)).length;
+  selectAll.checked = selectedVisibleCount === visible.length;
+  selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visible.length;
+  selectAll.addEventListener("change", () => {
+    for (const contact of visible) {
+      if (selectAll.checked) selectedContactIds.add(contact.id);
+      else selectedContactIds.delete(contact.id);
+    }
+    renderContacts();
+  });
+  selectAllLabel.append(selectAll, node("span", "", "Contact"));
+  tableHeader.append(selectAllLabel);
+  for (const label of ["Email", "Phone", "Birthday", "Tags", "Other", ""]) {
     tableHeader.append(node("span", "", label));
   }
   elements.contactList.append(tableHeader);
@@ -1799,8 +1932,15 @@ function renderContacts() {
     const row = node("article", "contact-row");
     const identity = node("div", "contact-identity");
     identity.dataset.label = "Contact";
-    const avatar = node("span", "contact-avatar", contactInitials(contact));
-    avatar.setAttribute("aria-hidden", "true");
+    const select = node("input", "contact-select-checkbox");
+    select.type = "checkbox";
+    select.checked = selectedContactIds.has(contact.id);
+    select.setAttribute("aria-label", `Select ${contact.displayName}`);
+    select.addEventListener("change", () => {
+      if (select.checked) selectedContactIds.add(contact.id);
+      else selectedContactIds.delete(contact.id);
+      renderContacts();
+    });
     const names = node("div");
     names.append(node("h3", "", contact.displayName));
     if (contact.organizationName && contact.organizationName !== contact.displayName) {
@@ -1814,7 +1954,7 @@ function renderContacts() {
       notes.title = contact.notes;
       names.append(notes);
     }
-    identity.append(avatar, names);
+    identity.append(select, names);
     const email = contactValueCell(contact, ["email"], "Email");
     const phone = contactValueCell(contact, ["phone"], "Phone");
     const birthday = node("div", "contact-cell contact-birthday-cell");
@@ -2451,7 +2591,20 @@ elements.todoScheduled.addEventListener("change", updateTodoRecurrenceEditor);
 elements.newContact.addEventListener("click", () => openContactEditor());
 elements.contactSearch.addEventListener("input", renderContacts);
 elements.contactTagFilter.addEventListener("change", renderContacts);
+elements.contactRenameTag.addEventListener("click", () => void renameContactTag());
 elements.contactIncludeInactive.addEventListener("change", renderContacts);
+elements.contactAddTag.addEventListener("click", () => void addTagToSelectedContacts());
+elements.contactBulkTag.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void addTagToSelectedContacts();
+  }
+});
+elements.contactDeleteSelected.addEventListener("click", () => void deleteSelectedContacts());
+elements.contactClearSelection.addEventListener("click", () => {
+  selectedContactIds.clear();
+  renderContacts();
+});
 elements.reviewContactDuplicates.addEventListener("click", () => {
   renderContactDuplicateReview();
   elements.contactDuplicatesDialog.showModal();

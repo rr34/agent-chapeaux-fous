@@ -177,6 +177,115 @@ test("contacts support searchable-page data, multiple methods, and safe edits", 
   }
 });
 
+test("bulk contact tagging and deletion are version-checked and atomic", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const first = organizer.createContact({
+      displayName: "First Contact",
+      tags: ["Friend"],
+      methods: [{ kind: "email", value: "first@example.test" }],
+    });
+    const second = organizer.createContact({ displayName: "Second Contact", tags: ["Work"] });
+    const retained = organizer.createContact({ displayName: "Retained Contact", tags: ["Keep"] });
+
+    const tagged = organizer.bulkContacts({
+      action: "add_tag",
+      tag: "Holiday Card",
+      contacts: [
+        { id: first.id, expectedVersion: first.version },
+        { id: second.id, expectedVersion: second.version },
+      ],
+    });
+    assert.deepEqual(tagged, { action: "add_tag", affectedCount: 2, tag: "Holiday Card" });
+    assert.deepEqual(organizer.getContact(first.id).tags, ["Friend", "Holiday Card"]);
+    assert.deepEqual(organizer.getContact(second.id).tags, ["Holiday Card", "Work"]);
+    assert.deepEqual(organizer.getContact(retained.id).tags, ["Keep"]);
+
+    const firstTagged = organizer.getContact(first.id);
+    const secondTagged = organizer.getContact(second.id);
+    const secondChanged = organizer.updateContact(second.id, {
+      version: secondTagged.version,
+      notes: "Changed after selection",
+    });
+    assert.throws(
+      () => organizer.bulkContacts({
+        action: "delete",
+        contacts: [
+          { id: first.id, expectedVersion: firstTagged.version },
+          { id: second.id, expectedVersion: secondTagged.version },
+        ],
+      }),
+      (error) => error instanceof OrganizerInputError && error.statusCode === 409,
+    );
+    assert.ok(organizer.getContact(first.id));
+    assert.ok(organizer.getContact(second.id));
+
+    const deleted = organizer.bulkContacts({
+      action: "delete",
+      contacts: [
+        { id: first.id, expectedVersion: firstTagged.version },
+        { id: second.id, expectedVersion: secondChanged.version },
+      ],
+    });
+    assert.deepEqual(deleted, { action: "delete", affectedCount: 2 });
+    assert.equal(organizer.getContact(first.id), null);
+    assert.equal(organizer.getContact(second.id), null);
+    assert.equal(organizer.getContact(retained.id).displayName, "Retained Contact");
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM record_tags
+      WHERE record_type = 'contact' AND record_id IN (?, ?)
+    `).get(String(first.id), String(second.id)).count, 0);
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events
+      WHERE event_type IN ('contacts.tag_added', 'contacts.deleted')
+    `).get().count, 2);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
+test("contact tag rename merges existing destinations without touching other record types", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const first = organizer.createContact({ displayName: "First", tags: ["Old Tag", "Target"] });
+    const second = organizer.createContact({ displayName: "Second", tags: ["Old Tag"] });
+    const third = organizer.createContact({ displayName: "Third", tags: ["Target"] });
+    const oldTag = organizer.database.prepare("SELECT tag_id FROM tags WHERE slug = 'old-tag'").get();
+    organizer.database.prepare(`
+      INSERT INTO record_tags (tag_id, record_type, record_id)
+      VALUES (?, 'future_record', 'example')
+    `).run(oldTag.tag_id);
+
+    const renamed = organizer.renameContactTag({ currentTag: "Old Tag", newTag: "Target" });
+    assert.deepEqual(renamed, {
+      previousTag: "Old Tag",
+      tag: "Target",
+      affectedContactCount: 2,
+      mergedWithExistingTag: true,
+    });
+    assert.deepEqual(organizer.getContact(first.id).tags, ["Target"]);
+    assert.deepEqual(organizer.getContact(second.id).tags, ["Target"]);
+    assert.deepEqual(organizer.getContact(third.id).tags, ["Target"]);
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM record_tags
+      WHERE tag_id = ? AND record_type = 'contact'
+    `).get(oldTag.tag_id).count, 0);
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM record_tags
+      WHERE tag_id = ? AND record_type = 'future_record'
+    `).get(oldTag.tag_id).count, 1);
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'contacts.tag_renamed'
+    `).get().count, 1);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("contact merges combine methods and tags while retaining inactive source records", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

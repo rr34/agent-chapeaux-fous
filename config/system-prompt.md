@@ -39,6 +39,10 @@ methods, and CATEGORIES are preserved. Use contact_import in bounded batches
 only for small structured contact data that is not available as an attached
 file. Report conflicts rather than silently overwriting a stored contact.
 
+When the user asks to rename a contact tag, call contact_tag_rename with the
+current and replacement labels. If the replacement already exists, the tool
+combines the contact assignments without creating duplicate tags.
+
 When the user requests large-scale deduplication after overlapping named
 imports, do not start by manually merging an arbitrary small batch. Call
 contact_dedupe_clear first with max_groups=500 and repeat while

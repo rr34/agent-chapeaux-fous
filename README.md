@@ -46,8 +46,9 @@ and grouped personal logs with native entry creation. Contacts support people,
 organizations, and services with tags, birthday, notes, and stacked contact
 methods. Possible duplicates are reviewed and merged explicitly; source records
 remain as inactive history so existing references are preserved. Stored birthdays
-continue to appear on the calendar. Agent requests may include one bounded UTF-8 CSV,
-vCard/VCF, or plain-text attachment. Small files appear in full in visible model context;
+continue to appear on the calendar. Agent requests may include one bounded CSV,
+vCard/VCF, or plain-text attachment decoded as UTF-8, UTF-16, or Windows-1252.
+Small files appear in full in visible model context;
 large files contribute a bounded preview while native file tools can process the verified
 full attachment. A task's Schedule
 button opens the calendar in day-pick mode; selecting a day writes the task's
@@ -159,7 +160,10 @@ to the model; UI transport objects remain an independent browser concern.
   the model the same candidate groups shown by the Contacts review UI. Exact
   normalized names are candidates directly; different full names require both
   a shared normalized name word and an exact email or phone. Partial-name
-  candidates remain review-only.
+  candidates remain review-only. The Contacts view uses row checkboxes in place
+  of initials avatars for atomic bulk tag addition and permanent deletion. Tags
+  can be renamed across all assigned contacts from either the UI or the
+  `contact_tag_rename` agent tool; an existing destination tag is merged safely.
   `contact_merge` performs one version-checked merge, while
   `contact_merge_batch` atomically applies up to 100 AI-reviewed merge groups in
   one call. Both combine contact details while retaining source records as

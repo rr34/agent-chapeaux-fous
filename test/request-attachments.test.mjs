@@ -113,20 +113,20 @@ test("UTF-8 vCard attachments are stored and returned verbatim for model context
   assert.equal(attachment.sha256, registration.sha256);
 });
 
-test("request attachments reject spreadsheet binaries, invalid UTF-8, and oversized text", async (context) => {
+test("request attachments reject unsupported files, binary content, and oversized text", async (context) => {
   const mediaRoot = temporaryMedia(context);
   const ledger = { registerFile() { throw new Error("must not register"); } };
   await assert.rejects(
     receiveTextAttachment(uploadRequest("binary", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), {
       filename: "contacts.xlsx", mediaRoot, maximumBytes: 1024, ledger,
     }),
-    (error) => error.statusCode === 415 && /Only UTF-8/.test(error.message),
+    (error) => error.statusCode === 415 && /Only text/.test(error.message),
   );
   await assert.rejects(
-    receiveTextAttachment(uploadRequest(Buffer.from([0xc3, 0x28]), "text/csv"), {
+    receiveTextAttachment(uploadRequest(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01]), "text/csv"), {
       filename: "contacts.csv", mediaRoot, maximumBytes: 1024, ledger,
     }),
-    /valid UTF-8/,
+    /binary data/,
   );
   await assert.rejects(
     receiveTextAttachment(uploadRequest("too long", "text/plain"), {
@@ -134,6 +134,86 @@ test("request attachments reject spreadsheet binaries, invalid UTF-8, and oversi
     }),
     (error) => error.statusCode === 413,
   );
+});
+
+test("Windows-1252 contact exports are decoded without changing stored bytes", async (context) => {
+  const mediaRoot = temporaryMedia(context);
+  let registration;
+  const ledger = {
+    registerFile(input) {
+      registration = input;
+      return { fileId: 43, duplicate: false, storagePath: input.storagePath };
+    },
+  };
+  const bytes = Buffer.concat([
+    Buffer.from("name,notes\r\nRen"),
+    Buffer.from([0xe9]),
+    Buffer.from("e,It"),
+    Buffer.from([0x92]),
+    Buffer.from("s fine\r\n"),
+  ]);
+  const uploaded = await receiveTextAttachment(uploadRequest(bytes, "text/csv"), {
+    filename: "windows-contacts.csv",
+    mediaRoot,
+    maximumBytes: 4096,
+    ledger,
+    now: new Date("2026-08-17T12:00:00.000Z"),
+    uuid: () => "windows-id",
+  });
+  assert.equal(uploaded.encoding, "windows-1252");
+  const attachment = await readTextAttachment({
+    mediaRoot,
+    maximumBytes: 4096,
+    file: {
+      file_id: uploaded.fileId,
+      storage_path: registration.storagePath,
+      original_filename: uploaded.originalFilename,
+      media_kind: uploaded.mediaKind,
+      mime_type: uploaded.mimeType,
+      sha256: registration.sha256,
+      byte_size: registration.byteSize,
+    },
+  });
+  assert.equal(attachment.encoding, "windows-1252");
+  assert.equal(attachment.text, "name,notes\r\nRenée,It’s fine\r\n");
+  assert.deepEqual(fs.readFileSync(path.join(mediaRoot, "2026", "08", "windows-id.csv")), bytes);
+});
+
+test("UTF-16LE contact exports are detected from their byte order mark", async (context) => {
+  const mediaRoot = temporaryMedia(context);
+  let registration;
+  const ledger = {
+    registerFile(input) {
+      registration = input;
+      return { fileId: 44, duplicate: false, storagePath: input.storagePath };
+    },
+  };
+  const text = "name,email\r\nZoë,zoe@example.test\r\n";
+  const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")]);
+  const uploaded = await receiveTextAttachment(uploadRequest(bytes, "text/csv"), {
+    filename: "utf16-contacts.csv",
+    mediaRoot,
+    maximumBytes: 4096,
+    ledger,
+    now: new Date("2026-08-17T12:00:00.000Z"),
+    uuid: () => "utf16-id",
+  });
+  assert.equal(uploaded.encoding, "utf-16le");
+  const attachment = await readTextAttachment({
+    mediaRoot,
+    maximumBytes: 4096,
+    file: {
+      file_id: uploaded.fileId,
+      storage_path: registration.storagePath,
+      original_filename: uploaded.originalFilename,
+      media_kind: uploaded.mediaKind,
+      mime_type: uploaded.mimeType,
+      sha256: registration.sha256,
+      byte_size: registration.byteSize,
+    },
+  });
+  assert.equal(attachment.encoding, "utf-16le");
+  assert.equal(attachment.text, text);
 });
 
 test("attachment contents join bounded context without changing the exact request", async () => {

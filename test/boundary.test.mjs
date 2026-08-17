@@ -132,10 +132,12 @@ test("the calendar UI searches stored event details and can include archived rec
 
 test("calendar controls use simple visibility states and 24-hour datetime locales", () => {
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const status = /<select id="event-status">([\s\S]*?)<\/select>/.exec(document)?.[1] ?? "";
   assert.match(status, /<option value="active">Active<\/option><option value="archived">Archived<\/option>/);
   assert.doesNotMatch(status, />Confirmed<|>Tentative<|>Completed<|>Cancelled</);
   assert.equal((document.match(/type="datetime-local" lang="en-GB"/g) ?? []).length, 5);
+  assert.match(application, /if \(calendarEvent\.isAllDay\) return "";/);
 });
 
 test("the web client provides a provider-neutral OAuth integrations manager", () => {
@@ -199,6 +201,10 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(document, /id="contacts-view"/);
   assert.match(document, /id="contact-search"/);
   assert.match(document, /id="contact-tag-filter"/);
+  assert.match(document, /id="contact-rename-tag"/);
+  assert.match(document, /id="contact-bulk-actions"/);
+  assert.match(document, /id="contact-add-tag"/);
+  assert.match(document, /id="contact-delete-selected"/);
   assert.match(document, /id="review-contact-duplicates"/);
   assert.match(document, /id="contact-dialog"/);
   assert.match(document, /id="contact-tags"/);
@@ -206,6 +212,11 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(document, /id="contact-duplicates-dialog"/);
   assert.match(application, /async function refreshContacts/);
   assert.match(application, /function renderContacts/);
+  assert.match(application, /function addTagToSelectedContacts/);
+  assert.match(application, /function deleteSelectedContacts/);
+  assert.match(application, /async function renameContactTag/);
+  assert.match(application, /node\("input", "contact-select-checkbox"\)/);
+  assert.doesNotMatch(application, /contactInitials/);
   assert.match(application, /function duplicateContactGroups/);
   assert.match(application, /\/api\/contacts\/duplicates\?limit=200/);
   assert.match(application, /function renderContactDuplicateReview/);
@@ -217,6 +228,8 @@ test("the standalone client provides a native contacts address book", () => {
   assert.match(server, /organizer\.listContacts/);
   assert.match(server, /organizer\.createContact/);
   assert.match(server, /organizer\.updateContact/);
+  assert.match(server, /organizer\.bulkContacts/);
+  assert.match(server, /organizer\.renameContactTag/);
   assert.match(server, /organizer\.mergeContacts/);
   assert.match(server, /organizer\.listContactDuplicates/);
   assert.match(server, /registerContactTools/);
