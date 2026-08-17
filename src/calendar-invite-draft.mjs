@@ -89,7 +89,6 @@ export function calendarInviteMessage(event) {
     "",
     `When: ${formattedWhen(event)}`,
   ];
-  if (!event.isAllDay) lines.push(`Time zone: ${event.timeZone || "UTC"}`);
   const recurrence = formattedRecurrence(event.recurrenceRule);
   if (recurrence) lines.push(`Repeats: ${recurrence}`);
   if (event.location?.trim()) lines.push(`Where: ${event.location.trim()}`);

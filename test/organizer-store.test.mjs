@@ -324,6 +324,11 @@ test("contact merges combine methods and tags while retaining inactive source re
     const source = organizer.listContacts({ scope: "all" }).find(({ id }) => id === duplicate.id);
     assert.equal(source.status, "inactive");
     assert.match(source.notes, /Merged into Jordan Lee/);
+    const birthdays = organizer.listCalendar({
+      from: "2026-03-11T00:00:00.000Z",
+      to: "2026-03-14T00:00:00.000Z",
+    }).filter(({ sourceKind }) => sourceKind === "contact_birthday");
+    assert.deepEqual(birthdays.map(({ contactId }) => contactId), [kept.id]);
     assert.throws(
       () => organizer.updateContact(kept.id, { version: kept.version, displayName: "Stale merge edit" }),
       (error) => error instanceof OrganizerInputError && error.statusCode === 409,
@@ -716,11 +721,23 @@ test("to-do group sequence mode assigns stable next numbers only while enabled",
     );
     assert.equal(organizer.createTodo({ text: "Next watch job", groupId: group.id }).sequence, 10);
 
+    const reassigned = organizer.assignNextTodoSequence(first.id, {
+      version: organizer.getTodo(first.id).version,
+    });
+    assert.equal(reassigned.sequence, 11);
+    assert.equal(organizer.getTodo(second.id).sequence, 9);
+
     const disabled = organizer.setTodoGroupSequenceMode(group.id, { usesSequence: false });
     assert.equal(disabled.changed, true);
     assert.equal(disabled.assignedTaskCount, 0);
     assert.equal(organizer.createTodo({ text: "Optional number", groupId: group.id }).sequence, null);
     assert.equal(organizer.getTodo(numbered.id).sequence, 7);
+    assert.throws(
+      () => organizer.assignNextTodoSequence(numbered.id, {
+        version: organizer.getTodo(numbered.id).version,
+      }),
+      (error) => error.statusCode === 409 && /does not use automatic sequence/.test(error.message),
+    );
   } finally {
     organizer.close();
     temporary.cleanup();

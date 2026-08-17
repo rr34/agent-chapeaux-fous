@@ -140,6 +140,9 @@ test("calendar controls use simple visibility states and 24-hour datetime locale
   assert.doesNotMatch(status, />Confirmed<|>Tentative<|>Completed<|>Cancelled</);
   assert.equal((document.match(/type="datetime-local" lang="en-GB"/g) ?? []).length, 6);
   assert.match(application, /if \(calendarEvent\.isAllDay\) return "";/);
+  assert.match(application, /elements\.eventStart\.step = allDay \? "1" : "60";/);
+  assert.match(application, /elements\.eventEnd\.step = allDay \? "1" : "60";/);
+  assert.match(application, /elements\.todoScheduled\.step = allDay \? "1" : "60";/);
 });
 
 test("the web client provides a provider-neutral OAuth integrations manager", () => {
@@ -166,6 +169,7 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(document, /data-view="logs"/);
   assert.match(document, /id="content-view"/);
   assert.match(document, /id="content-dialog"/);
+  assert.match(document, /id="content-delete"[^>]+hidden>Delete content<\/button>/);
   assert.match(document, /id="content-title"/);
   assert.match(document, /id="content-description"/);
   assert.match(document, /id="content-transcript"/);
@@ -176,12 +180,17 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(application, /refreshContent/);
   assert.match(application, /agentViewButton\.addEventListener\("click", \(\) => switchView\("agent"\)\)/);
   assert.match(application, /renderContent/);
+  assert.match(application, /elements\.contentDelete\.hidden = !item/);
+  assert.match(application, /elements\.contentDelete\.addEventListener\("click"/);
+  assert.doesNotMatch(application, /node\("button", "danger compact", "Delete"\)/);
   assert.match(application, /safeContentUrl/);
   assert.match(application, /refreshLogs/);
   assert.match(application, /todo-group-heading/);
   assert.match(application, /todo-group-sequence-marker/);
   assert.match(application, /todo-sequence-display/);
   assert.match(application, /\/api\/todo-groups\/\$\{groupId\}\/sequence/);
+  assert.match(application, /Assign next #/);
+  assert.match(application, /\/api\/todos\/\$\{todo\.id\}\/assign-next-sequence/);
   assert.match(application, /const headingTitle = node\("div", "todo-group-heading-title"\)/);
   assert.match(application, /headingTitle\.append\(rename, archive\)/);
   assert.match(application, /headingTitle\.append\(top, up, down, bottom\)/);
@@ -308,11 +317,21 @@ test("the request feed can start a new native model conversation without clearin
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /id="new-conversation"/);
-  assert.match(document, /class="conversation-start"[^>]+hidden>New conversation/);
+  assert.match(document, /class="conversation-separator"[^>]+aria-label="New conversation"[^>]+hidden/);
   assert.match(application, /api\("\/api\/conversation\/reset", \{ method: "POST" \}\)/);
   assert.match(application, /request\.conversationStarted/);
   assert.match(server, /ledger\.resetModelConversation/);
   assert.match(server, /ledger\.unfinishedRequestCount/);
+});
+
+test("the request feed loads ten entries by default and offers larger limits", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(document, /<option value="10" selected>10 requests<\/option>/);
+  assert.match(document, /<option value="100">100 requests<\/option>/);
+  assert.match(application, /const limit = Number\(elements\.requestLimit\.value\) \|\| 10/);
+  assert.match(application, /api\(`\/api\/requests\?limit=\$\{limit\}`\)/);
+  assert.match(application, /elements\.requestLimit\.addEventListener\("change"/);
 });
 
 test("clicking a displayed request ID copies the complete request ID", () => {

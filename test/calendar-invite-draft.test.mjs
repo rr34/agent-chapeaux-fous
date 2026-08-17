@@ -29,11 +29,11 @@ const contacts = new Map([
   }],
 ]);
 
-test("calendar invitation text uses saved event details and its time zone", () => {
+test("calendar invitation text uses saved event details without a separate time-zone line", () => {
   const message = calendarInviteMessage(event);
   assert.equal(message.subject, "Invitation: Dinner at Bar Velo");
   assert.match(message.text, /When: Thu, 20 Aug 2026 at 18:30–20:00/);
-  assert.match(message.text, /Time zone: America\/New_York/);
+  assert.doesNotMatch(message.text, /Time zone:/);
   assert.doesNotMatch(message.text, /\b(?:AM|PM)\b/);
   assert.match(message.text, /Repeats: Every week on Thursday for 3 occurrences/);
   assert.match(message.text, /Where: 394 Main Street/);

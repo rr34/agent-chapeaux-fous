@@ -74,7 +74,18 @@
           <p class="eyebrow">Chronological</p>
           <h2 id="requests-heading">Requests</h2>
         </div>
-        <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
+        <div class="request-heading-actions">
+          <label class="request-limit-label" for="request-limit">
+            <span>Show</span>
+            <select id="request-limit">
+              <option value="10" selected>10 requests</option>
+              <option value="25">25 requests</option>
+              <option value="50">50 requests</option>
+              <option value="100">100 requests</option>
+            </select>
+          </label>
+          <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
+        </div>
       </div>
       <div id="request-list" class="request-list"></div>
       <p id="empty" class="empty">No Agent Slayer requests yet.</p>
@@ -471,6 +482,7 @@
       <label>Transcript<textarea id="content-transcript" rows="10"></textarea></label>
       <p id="content-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
+        <button id="content-delete" class="danger editor-delete" type="button" hidden>Delete content</button>
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save content</button>
       </footer>
@@ -592,30 +604,32 @@
   </dialog>
 
   <template id="request-template">
-    <article class="request-card">
-      <div class="request-meta">
-        <span class="conversation-start" hidden>New conversation</span>
-        <button class="request-number" type="button"></button>
-        <span class="request-channel"></span>
-        <span class="request-status"></span>
-        <time></time>
-        <span class="request-elapsed" hidden></span>
-        <span class="request-usage" hidden></span>
-      </div>
-      <p class="user-request"></p>
-      <div class="agent-response" hidden>
-        <p></p>
-        <button class="copy-response secondary compact" type="button">Copy response</button>
-      </div>
-      <p class="request-error" hidden></p>
-      <div class="request-progress" hidden>
-        <span class="progress-spinner" aria-hidden="true"></span>
-        <div>
-          <strong class="progress-label"></strong>
-          <span class="progress-detail"></span>
+    <article class="request-entry">
+      <hr class="conversation-separator" aria-label="New conversation" hidden>
+      <div class="request-card">
+        <div class="request-meta">
+          <button class="request-number" type="button"></button>
+          <span class="request-channel"></span>
+          <span class="request-status"></span>
+          <time></time>
+          <span class="request-elapsed" hidden></span>
+          <span class="request-usage" hidden></span>
         </div>
+        <p class="user-request"></p>
+        <div class="agent-response" hidden>
+          <p></p>
+          <button class="copy-response secondary compact" type="button">Copy response</button>
+        </div>
+        <p class="request-error" hidden></p>
+        <div class="request-progress" hidden>
+          <span class="progress-spinner" aria-hidden="true"></span>
+          <div>
+            <strong class="progress-label"></strong>
+            <span class="progress-detail"></span>
+          </div>
+        </div>
+        <button class="show-trace secondary compact" type="button">Show exact trace</button>
       </div>
-      <button class="show-trace secondary compact" type="button">Show exact trace</button>
     </article>
   </template>
 

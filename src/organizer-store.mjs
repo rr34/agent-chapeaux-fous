@@ -1456,7 +1456,7 @@ export class OrganizerStore {
       SELECT contact_id, display_name, birth_date
       FROM contacts
       WHERE contact_kind = 'person'
-        AND status <> 'blocked'
+        AND status = 'active'
         AND birth_date IS NOT NULL
     `).all();
     const birthdays = [];
@@ -2517,6 +2517,57 @@ export class OrganizerStore {
       });
       this.database.exec("COMMIT");
       return completeOrder.map((id) => this.getTodo(id));
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  assignNextTodoSequence(idValue, input) {
+    const id = identifier(idValue, "todo id");
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const before = this.getTodo(id);
+      if (!before) throw new OrganizerInputError("Todo not found.", 404);
+      if (input?.version !== before.version) {
+        throw new OrganizerInputError("This todo changed after you opened it. Refresh and try again.", 409);
+      }
+      const group = this.database.prepare(`
+        SELECT name, uses_sequence
+        FROM todo_groups
+        WHERE todo_group_id = ? AND archived_at_utc IS NULL
+      `).get(before.groupId);
+      if (!group) throw new OrganizerInputError("To-do group not found.", 404);
+      if (!group.uses_sequence) {
+        throw new OrganizerInputError("This to-do group does not use automatic sequence numbers.", 409);
+      }
+      const sequence = Number(this.database.prepare(`
+        SELECT COALESCE(MAX(sequence), 0) + 1 AS value
+        FROM personal_tasks
+        WHERE todo_group_id = ?
+      `).get(before.groupId).value);
+      const updatedAtUtc = new Date().toISOString();
+      const updated = this.database.prepare(`
+        UPDATE personal_tasks
+        SET sequence = ?, updated_at_utc = ?
+        WHERE personal_task_id = ?
+          AND COALESCE(updated_at_utc, created_at_utc) = ?
+      `).run(sequence, updatedAtUtc, id, before.version);
+      if (updated.changes !== 1) {
+        throw new OrganizerInputError("This todo changed while assigning its sequence. Refresh and try again.", 409);
+      }
+      const result = this.getTodo(id);
+      this.#activity({
+        eventType: "personal_todo.sequence_assigned",
+        status: "complete",
+        name: "Next personal todo sequence assigned",
+        subjectType: "personal_task",
+        subjectId: id,
+        contentText: `${group.name} #${sequence}: ${result.text}`,
+        payload: { previousSequence: before.sequence, personalTodo: result },
+      });
+      this.database.exec("COMMIT");
+      return result;
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;

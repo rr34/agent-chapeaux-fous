@@ -459,6 +459,13 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { todo: organizer.updateTodo(todoMatch[1], await readJson(request)) });
       return;
     }
+    const todoAssignSequenceMatch = /^\/api\/todos\/(\d+)\/assign-next-sequence$/.exec(url.pathname);
+    if (request.method === "POST" && todoAssignSequenceMatch) {
+      sendJson(response, 200, {
+        todo: organizer.assignNextTodoSequence(todoAssignSequenceMatch[1], await readJson(request)),
+      });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/content-items") {
       sendJson(response, 200, {
         content: organizer.listContent({

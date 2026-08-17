@@ -25,6 +25,7 @@ const elements = {
   usage: document.querySelector("#usage"),
   refresh: document.querySelector("#refresh"),
   newConversation: document.querySelector("#new-conversation"),
+  requestLimit: document.querySelector("#request-limit"),
   list: document.querySelector("#request-list"),
   empty: document.querySelector("#empty"),
   template: document.querySelector("#request-template"),
@@ -155,6 +156,7 @@ const elements = {
   contentUrl: document.querySelector("#content-url"),
   contentDescription: document.querySelector("#content-description"),
   contentTranscript: document.querySelector("#content-transcript"),
+  contentDelete: document.querySelector("#content-delete"),
   contentFormError: document.querySelector("#content-form-error"),
   contactSearch: document.querySelector("#contact-search"),
   contactTagFilter: document.querySelector("#contact-tag-filter"),
@@ -663,7 +665,7 @@ function requestNode(request, index) {
     requestNodes.set(request.requestId, node);
   }
   node.dataset.status = request.status;
-  node.querySelector(".conversation-start").hidden = !request.conversationStarted;
+  node.querySelector(".conversation-separator").hidden = !request.conversationStarted;
   const requestNumber = node.querySelector(".request-number");
   requestNumber.textContent = `Request ${request.requestId.slice(0, 8)}`;
   requestNumber.title = `Copy request ID ${request.requestId}`;
@@ -701,7 +703,8 @@ function requestNode(request, index) {
 
 async function loadRequests({ force = false } = {}) {
   if (!force && selectionTouchesRequests()) return;
-  const body = await api("/api/requests?limit=100");
+  const limit = Number(elements.requestLimit.value) || 10;
+  const body = await api(`/api/requests?limit=${limit}`);
   const seen = new Set();
   body.requests.forEach((request, index) => {
     seen.add(request.requestId);
@@ -1208,6 +1211,8 @@ function setEventInputTypes(allDay) {
   const oldEnd = elements.eventEnd.value;
   elements.eventStart.type = allDay ? "date" : "datetime-local";
   elements.eventEnd.type = allDay ? "date" : "datetime-local";
+  elements.eventStart.step = allDay ? "1" : "60";
+  elements.eventEnd.step = allDay ? "1" : "60";
   if (allDay) {
     elements.eventStart.value = oldStart.slice(0, 10);
     elements.eventEnd.value = oldEnd.slice(0, 10);
@@ -1220,6 +1225,7 @@ function setEventInputTypes(allDay) {
 function setTodoScheduledInputType(allDay) {
   const previous = elements.todoScheduled.value;
   elements.todoScheduled.type = allDay ? "date" : "datetime-local";
+  elements.todoScheduled.step = allDay ? "1" : "60";
   if (allDay) elements.todoScheduled.value = previous.slice(0, 10);
   else if (previous) elements.todoScheduled.value = `${previous.slice(0, 10)}T09:00`;
 }
@@ -1644,6 +1650,13 @@ function renderTodos() {
       bottom.addEventListener("click", () => void moveTodo(todo, "bottom", visibleTodos));
       edit.addEventListener("click", () => openTodoEditor(todo));
       if (["todo", "ai_suggested"].includes(todo.status)) actions.append(schedule);
+      if (group.usesSequence) {
+        const assignSequence = node("button", "secondary compact", "Assign next #");
+        assignSequence.type = "button";
+        assignSequence.title = "Assign the next available sequence number in this group";
+        assignSequence.addEventListener("click", () => void assignNextTodoSequence(todo, assignSequence));
+        actions.append(assignSequence);
+      }
       actions.append(top, up, down, bottom, edit);
       card.append(controls, body, actions);
       cards.append(card);
@@ -1728,6 +1741,21 @@ async function moveTodo(todo, movement, visibleTodos) {
     await refreshTodos();
   } catch (error) {
     window.alert(error.message || "Could not reorder the task.");
+  }
+}
+
+async function assignNextTodoSequence(todo, button) {
+  button.disabled = true;
+  try {
+    await api(`/api/todos/${todo.id}/assign-next-sequence`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: todo.version }),
+    });
+    await refreshTodos();
+  } catch (error) {
+    window.alert(error.message || "Could not assign the next sequence number.");
+    button.disabled = false;
   }
 }
 
@@ -2029,11 +2057,9 @@ function renderContent() {
       identity.append(metadata);
       const cardActions = node("div", "content-card-actions");
       const edit = node("button", "secondary compact", "Edit");
-      const remove = node("button", "danger compact", "Delete");
-      edit.type = remove.type = "button";
+      edit.type = "button";
       edit.addEventListener("click", () => openContentEditor(item));
-      remove.addEventListener("click", () => void deleteContent(item));
-      cardActions.append(edit, remove);
+      cardActions.append(edit);
       cardHeading.append(identity, cardActions);
       card.append(cardHeading);
       if (item.description) card.append(node("p", "content-description", item.description));
@@ -2099,6 +2125,7 @@ function openContentEditor(item = null, groupId = null) {
   elements.contentUrl.value = item?.contentUrl ?? "";
   elements.contentDescription.value = item?.description ?? "";
   elements.contentTranscript.value = item?.transcript ?? "";
+  elements.contentDelete.hidden = !item;
   elements.contentDialog.showModal();
   elements.contentTitle.focus();
 }
@@ -2137,17 +2164,25 @@ async function saveContent(event) {
   }
 }
 
-async function deleteContent(item) {
-  if (!window.confirm(`Permanently delete “${item.title}”? This cannot be undone.`)) return;
+async function deleteEditedContent() {
+  const id = Number(elements.contentId.value);
+  if (!Number.isSafeInteger(id) || id <= 0) return;
+  const title = elements.contentTitle.value.trim() || "this content";
+  if (!window.confirm(`Permanently delete “${title}”? This cannot be undone.`)) return;
+  elements.contentFormError.textContent = "";
+  elements.contentDelete.disabled = true;
   try {
-    await api(`/api/content-items/${item.id}`, {
+    await api(`/api/content-items/${id}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ version: item.version }),
+      body: JSON.stringify({ version: elements.contentVersion.value }),
     });
+    elements.contentDialog.close();
     await refreshContent();
   } catch (error) {
-    window.alert(error.message || "Could not delete the content.");
+    elements.contentFormError.textContent = error.message || "Could not delete the content.";
+  } finally {
+    elements.contentDelete.disabled = false;
   }
 }
 
@@ -3007,6 +3042,7 @@ elements.record.addEventListener("click", async () => {
 });
 
 elements.refresh.addEventListener("click", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
+elements.requestLimit.addEventListener("change", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
 elements.newConversation.addEventListener("click", async () => {
   if (!window.confirm("Start a new conversation? Slayer will stop carrying the current conversation context into the next request.")) return;
   elements.newConversation.disabled = true;
@@ -3138,6 +3174,7 @@ elements.contentSearch.addEventListener("input", queueContentSearch);
 elements.contentStatusFilter.addEventListener("change", () => void refreshContent());
 elements.contentGroupFilter.addEventListener("change", () => void refreshContent());
 elements.contentForm.addEventListener("submit", saveContent);
+elements.contentDelete.addEventListener("click", () => void deleteEditedContent());
 elements.newContact.addEventListener("click", () => openContactEditor());
 elements.contactSearch.addEventListener("input", renderContacts);
 elements.contactTagFilter.addEventListener("change", renderContacts);
