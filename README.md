@@ -47,8 +47,9 @@ organizations, and services with tags, birthday, notes, and stacked contact
 methods. Possible duplicates are reviewed and merged explicitly; source records
 remain as inactive history so existing references are preserved. Stored birthdays
 continue to appear on the calendar. Agent requests may include one bounded UTF-8 CSV,
-vCard/VCF, or plain-text attachment; its exact contents are recorded in the visible context
-sent with that request. A task's Schedule
+vCard/VCF, or plain-text attachment. Small files appear in full in visible model context;
+large files contribute a bounded preview while native file tools can process the verified
+full attachment. A task's Schedule
 button opens the calendar in day-pick mode; selecting a day writes the task's
 scheduled date as an all-day task. Timed tasks remain available through the
 to-do editor and agent tools.
@@ -128,14 +129,16 @@ to the model; UI transport objects remain an independent browser concern.
   a clear match. Group archival fails while active tasks remain and preserves
   the group on terminal task history. Recurrence is supplied as structured,
   human concepts and stored internally as RRULE.
-- `calendar_event_list`, `calendar_event_add`, `calendar_event_update`, and
+- `calendar_event_search`, `calendar_event_list`, `calendar_event_add`, `calendar_event_update`, and
   `calendar_event_recurrence_set` provide the native model-facing calendar
   path. Event records retain exact `calendar_events` column names and compiler
   semantics, while range reads identify expanded recurrence and birthday
   instances as computed occurrences. All-day scheduling is explicit and
   recurrence is supplied as structured concepts rather than raw RRULE. The
   product-facing event states are Active and Archived; iCalendar status values
-  remain an internal storage and interoperability detail. A saved event can
+  remain an internal storage and interoperability detail. Search matches every
+  supplied term across stored event titles, descriptions, and locations, with
+  archived events available only when requested. A saved event can
   create one standardized invitation email draft addressed to active contacts
   through the configured JMAP mail account. This action creates a draft only:
   it never sends the message, writes to a remote calendar, or changes the local
@@ -146,13 +149,20 @@ to the model; UI transport objects remain an independent browser concern.
   natural-language content with optional numeric and unit projections for
   calculation and trends. Bounded imports use generic source and external IDs
   for safe replay without source-specific application code.
-- `contact_import` imports up to 200 normalized contacts from an attached CSV,
-  vCard/VCF, or another supplied source in one transaction. Stable source IDs make replays
-  idempotent, and each contact can retain multiple methods, notes, and reusable
-  overlapping tags. `contact_duplicate_list` gives the model the same exact-name,
+- `contact_file_import` parses a complete attached CSV or vCard/VCF directly,
+  importing up to 10,000 contacts in one transaction without asking the model
+  to reproduce every row. The model maps CSV headers from a bounded preview;
+  the application processes the full verified file. `contact_import` remains
+  available for up to 200 contacts supplied as structured data without a file.
+  Stable source IDs make replays idempotent, and each contact can retain multiple
+  methods, notes, and reusable overlapping tags. `contact_duplicate_list` gives
+  the model the same exact-name,
   email, and phone candidate groups shown by the Contacts review UI.
-  `contact_merge` performs the application’s version-checked merge, combining
-  contact details while retaining source records as inactive history.
+  `contact_merge` performs one version-checked merge, while
+  `contact_merge_batch` atomically applies up to 100 AI-reviewed merge groups in
+  one call. Both combine contact details while retaining source records as
+  inactive history. Compact duplicate pages let one agent request review and
+  resolve hundreds of groups without spending one tool call per merge.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
 - `database_schema`, `database_read`, and `database_write` expose bounded,

@@ -76,6 +76,55 @@ test("calendar events can create, display, edit, and stop recurring series", () 
   }
 });
 
+test("calendar search matches all terms across stored event details and optionally includes archived events", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const matching = organizer.createCalendar({
+      title: "Dental cleaning",
+      description: "Bring insurance card",
+      location: "Main Street clinic",
+      startsAtUtc: "2099-08-18T19:00:00.000Z",
+      endsAtUtc: "2099-08-18T20:00:00.000Z",
+      timeZone: "America/New_York",
+    });
+    organizer.createCalendar({
+      title: "Garden planning",
+      description: "Bring sketches",
+      startsAtUtc: "2099-08-19T19:00:00.000Z",
+    });
+    organizer.createCalendar({
+      title: "Archived dental follow-up",
+      location: "Main Street clinic",
+      startsAtUtc: "2099-08-20T19:00:00.000Z",
+      status: "archived",
+    });
+    const percentage = organizer.createCalendar({
+      title: "Plan the 100% milestone",
+      startsAtUtc: "2099-08-21T19:00:00.000Z",
+    });
+
+    const active = organizer.searchCalendar({ query: "cleaning Main", limit: 20 });
+    assert.equal(active.query, "cleaning Main");
+    assert.deepEqual(active.events.map(({ id }) => id), [matching.id]);
+    assert.equal(active.events[0].location, "Main Street clinic");
+
+    assert.equal(organizer.searchCalendar({ query: "archived dental" }).events.length, 0);
+    assert.equal(organizer.searchCalendar({
+      query: "archived dental",
+      includeArchived: true,
+    }).events[0].status, "archived");
+    assert.deepEqual(
+      organizer.searchCalendar({ query: "%" }).events.map(({ id }) => id),
+      [percentage.id],
+    );
+    assert.throws(() => organizer.searchCalendar({ query: "   " }), /query is required/);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("contacts support searchable-page data, multiple methods, and safe edits", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);
@@ -207,6 +256,44 @@ test("contact duplicate review shares exact name, email, and phone evidence with
     assert.equal(review.hasMore, false);
     assert.deepEqual(new Set(review.groups[0].contactIds), new Set([first.id, second.id, third.id]));
     assert.deepEqual(new Set(review.groups[0].evidence), new Set(["same name", "same phone"]));
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
+test("contact merge batches roll back every group when one reviewed version is stale", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const firstKeep = organizer.createContact({ displayName: "First", methods: [{ kind: "email", value: "first@example.test" }] });
+    const firstMerge = organizer.createContact({ displayName: "First copy", methods: [{ kind: "email", value: "FIRST@example.test" }] });
+    const secondKeep = organizer.createContact({ displayName: "Second", methods: [{ kind: "email", value: "second@example.test" }] });
+    const secondMerge = organizer.createContact({ displayName: "Second copy", methods: [{ kind: "email", value: "SECOND@example.test" }] });
+    const operation = (keep, merged, keepVersion = keep.version) => ({
+      keepContactId: keep.id,
+      mergeContactIds: [merged.id],
+      versions: { [keep.id]: keepVersion, [merged.id]: merged.version },
+    });
+    assert.throws(
+      () => organizer.mergeContactBatch([
+        operation(firstKeep, firstMerge),
+        operation(secondKeep, secondMerge, "stale-version"),
+      ]),
+      /changed while the merge was being reviewed/,
+    );
+    assert.equal(organizer.listContacts().length, 4);
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'contacts.merged'
+    `).get().count, 0);
+
+    const merged = organizer.mergeContactBatch([
+      operation(firstKeep, firstMerge),
+      operation(secondKeep, secondMerge),
+    ]);
+    assert.equal(merged.mergedGroupCount, 2);
+    assert.equal(merged.mergedContactCount, 2);
+    assert.equal(organizer.listContacts().length, 2);
   } finally {
     organizer.close();
     temporary.cleanup();

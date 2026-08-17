@@ -48,12 +48,17 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /personal-log tools/);
   assert.match(instructions, /complete natural-language log\s+content/);
   assert.match(instructions, /log_import in bounded\s+batches/);
-  assert.match(instructions, /use contact_import in bounded batches/);
+  assert.match(instructions, /contact_file_import/);
+  assert.match(instructions, /full verified file in one\s+call/);
+  assert.match(instructions, /contact_import in bounded batches\s+only/);
   assert.match(instructions, /contact_duplicate_list/);
   assert.match(instructions, /contact_merge/);
+  assert.match(instructions, /contact_merge_batch/);
+  assert.match(instructions, /batch is atomic/);
   assert.match(instructions, /profile_fact_set/);
   assert.match(instructions, /profile_fact_delete/);
   assert.match(instructions, /calendar_event_list/);
+  assert.match(instructions, /calendar_event_search/);
   assert.match(instructions, /calendar_event_recurrence_set/);
   assert.match(instructions, /email_cleanup_receipt_list/);
   assert.match(instructions, /do not replace that receipt with unrelated\s+mail already present in Trash/);
@@ -107,6 +112,19 @@ test("each displayed calendar event has a phone-friendly copy-details action", (
   assert.match(application, /copyText\(calendarEventCopyText\(calendarEvent\), event\.currentTarget\)/);
   assert.match(application, /`Time zone: \$\{timeZone\}`/);
   assert.match(application, /`Repeats: \$\{describeTodoRecurrence\(calendarEvent\.recurrenceRule\)\}`/);
+});
+
+test("the calendar UI searches stored event details and can include archived records", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  assert.match(document, /id="calendar-search"[^>]+type="search"/);
+  assert.match(document, /id="calendar-search-include-archived"[^>]+type="checkbox"/);
+  assert.match(document, /Recurring series appear once/);
+  assert.match(application, /async function searchCalendarEvents/);
+  assert.match(application, /\/api\/calendar-events\/search/);
+  assert.match(application, /renderCalendarSearchResults/);
+  assert.match(server, /url\.pathname === "\/api\/calendar-events\/search"/);
 });
 
 test("calendar controls use simple visibility states and 24-hour datetime locales", () => {

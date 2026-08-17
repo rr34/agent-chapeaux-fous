@@ -1,6 +1,7 @@
 import {
   buildRecurrenceRule, recurrenceSchema, validateTimeZone,
 } from "../todo-recurrence.mjs";
+import { searchCalendarEventRows } from "../calendar-search.mjs";
 import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
 
 const statuses = ["tentative", "confirmed", "cancelled", "completed"];
@@ -121,6 +122,35 @@ function writeEvent(database, ledger, context, {
 }
 
 export function registerCalendarTools(registry, store, organizer, ledger, schemaSemantics = null) {
+  registry.register({
+    name: "calendar_event_search",
+    description: "Search stored native calendar event series by title, description, and location. Every whitespace-separated query term must match at least one of those fields. Results are stored event records, not expanded recurrence occurrences or derived contact birthdays, and archived events are excluded unless explicitly requested.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        query: { type: "string", minLength: 1, maxLength: 200 },
+        include_archived: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      required: ["query", "include_archived", "limit"],
+    },
+    async execute({ query, include_archived: includeArchived, limit }, context) {
+      const database = store.requireReady();
+      const search = searchCalendarEventRows(database, { query, includeArchived, limit });
+      const events = search.rows.map((row) => selectedFields(row, calendarEventFields));
+      return calendarResult(schemaSemantics, context, {
+        query: search.query,
+        include_archived: search.includeArchived,
+        count: events.length,
+        events,
+      }, {
+        name: "calendar_event_search",
+        purpose: "Return stored calendar event records matching title, description, or location search terms.",
+      });
+    },
+  });
+
   registry.register({
     name: "calendar_event_list",
     description: "List the user's calendar schedule in an explicit UTC range. Recurring events are expanded into computed occurrences and contact birthdays shown by the calendar are included. Stored records use exact calendar_events field names; occurrence_* fields describe the computed display instance.",

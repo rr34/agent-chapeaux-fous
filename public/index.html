@@ -86,6 +86,16 @@
           <button id="today" class="secondary compact" type="button">Today</button>
           <button id="next-month" class="secondary compact" type="button" aria-label="Next month">›</button>
         </div>
+        <div class="calendar-search-controls">
+          <label class="calendar-search" for="calendar-search">
+            <span>Search calendar</span>
+            <input id="calendar-search" type="search" maxlength="200" autocomplete="off" placeholder="Title, description, or location">
+          </label>
+          <label class="calendar-search-archived" for="calendar-search-include-archived">
+            <input id="calendar-search-include-archived" type="checkbox">
+            Include archived
+          </label>
+        </div>
         <small id="calendar-time-zone"></small>
       </div>
       <div id="calendar-schedule-mode" class="calendar-schedule-mode organizer-panel" role="status" aria-live="polite" hidden>
@@ -96,7 +106,17 @@
         </div>
         <button id="cancel-calendar-schedule" class="secondary compact" type="button">Cancel</button>
       </div>
-      <div class="calendar-layout">
+      <section id="calendar-search-results" class="calendar-search-results organizer-panel" aria-live="polite" hidden>
+        <div class="calendar-search-results-heading">
+          <div>
+            <p class="eyebrow">Stored events</p>
+            <h3 id="calendar-search-count">Search results</h3>
+          </div>
+          <small>Matches title, description, and location. Recurring series appear once.</small>
+        </div>
+        <div id="calendar-search-result-list" class="calendar-search-result-list"></div>
+      </section>
+      <div id="calendar-layout" class="calendar-layout">
         <aside class="agenda-panel organizer-panel">
           <p class="eyebrow">Selected day</p>
           <h3 id="agenda-date">Today</h3>

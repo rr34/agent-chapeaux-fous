@@ -159,6 +159,28 @@ test("attachment contents join bounded context without changing the exact reques
   assert.equal(context.contextBudget.attachment.truncated, false);
 });
 
+test("large attachment context is a bounded preview while retaining full-file metadata", async () => {
+  const builder = new ContextBuilder({
+    ledger: { recentConversation() { return []; } },
+    profileFacts: { list() { return { facts: [] }; } },
+    maximumCharacters: 1000,
+    maximumAttachmentCharacters: 40,
+  });
+  const attachment = {
+    filename: "contacts.csv",
+    mimeType: "text/csv",
+    byteSize: 200,
+    sha256: "large-sha",
+    text: `name,email\n${"Alice,a@example.test\n".repeat(8)}`,
+  };
+  const context = await builder.build("request-large", "Import every contact.", { attachment });
+  assert.equal(context.contextBudget.attachment.truncated, true);
+  assert.equal(context.contextBudget.attachment.sentCharacters, 40);
+  assert.match(context.text, /\[context truncated\]/);
+  assert.match(context.text, /"contextTruncated":true/);
+  assert.equal(context.attachment.sha256, "large-sha");
+});
+
 test("the request queue supplies a stored document to the same runtime request", async (context) => {
   const mediaRoot = temporaryMedia(context);
   const csv = "name\nAlice\n";

@@ -29,6 +29,51 @@ function calendarFixture(context, { semantics = false } = {}) {
   return { store, ledger, registry };
 }
 
+test("calendar_event_search returns exact stored fields with strict bounded arguments", async (context) => {
+  const { store, registry } = calendarFixture(context, { semantics: true });
+  const database = store.requireReady();
+  database.prepare(`
+    INSERT INTO calendar_events (
+      title, description, location_text, starts_at_utc, time_zone, status, recurrence_rule
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "Library planning",
+    "Discuss the autumn program",
+    "East branch",
+    "2099-09-10T18:30:00.000Z",
+    "America/New_York",
+    "confirmed",
+    "FREQ=MONTHLY;COUNT=3",
+  );
+  database.prepare(`
+    INSERT INTO calendar_events (title, starts_at_utc, status)
+    VALUES (?, ?, ?)
+  `).run("Archived library planning", "2099-09-11T18:30:00.000Z", "cancelled");
+
+  const definition = registry.toolDefinitions().find(({ name }) => name === "calendar_event_search");
+  assert.deepEqual(definition.inputSchema.required, ["query", "include_archived", "limit"]);
+  assert.equal(definition.inputSchema.additionalProperties, false);
+
+  const result = await registry.execute("calendar_event_search", {
+    query: "library East",
+    include_archived: false,
+    limit: 20,
+  }, { requestId: "search", callId: "calendar-search" });
+  assert.equal(result.count, 1);
+  assert.equal(result.events[0].title, "Library planning");
+  assert.equal(result.events[0].location_text, "East branch");
+  assert.equal(Object.hasOwn(result.events[0], "startsAtUtc"), false);
+  assert.ok(result.schemaProjection.schemaProjection.schemaObjects.calendar_events);
+
+  const archived = await registry.execute("calendar_event_search", {
+    query: "archived library",
+    include_archived: true,
+    limit: 20,
+  }, { requestId: "search", callId: "calendar-search-archived" });
+  assert.equal(archived.count, 1);
+  assert.equal(archived.events[0].status, "cancelled");
+});
+
 test("native calendar tools create, list, update, and cancel stored events", async (context) => {
   const { ledger, registry } = calendarFixture(context, { semantics: true });
   const request = ledger.createRequest({ text: "Schedule a dentist visit" });

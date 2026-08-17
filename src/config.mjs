@@ -86,7 +86,11 @@ export function loadConfig(environment = process.env) {
     maxUploadBytes: positiveInteger(environment.SLAYER_MAX_AUDIO_BYTES, 50 * 1024 * 1024),
     maxTextAttachmentBytes: positiveInteger(
       environment.SLAYER_MAX_TEXT_ATTACHMENT_BYTES,
-      256 * 1024,
+      10 * 1024 * 1024,
+    ),
+    maxAttachmentContextCharacters: positiveInteger(
+      environment.SLAYER_MAX_ATTACHMENT_CONTEXT_CHARACTERS,
+      64 * 1024,
     ),
     pythonExecutable: resolveFromRoot(environment.SLAYER_PYTHON, "voice/.venv/bin/python"),
     whisperWorkerPath: path.join(repositoryRoot, "voice/whisper_worker.py"),

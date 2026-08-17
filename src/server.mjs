@@ -69,7 +69,7 @@ const contextBuilder = new ContextBuilder({
   ledger,
   profileFacts,
   profileFactQuestions,
-  maximumAttachmentCharacters: config.maxTextAttachmentBytes,
+  maximumAttachmentCharacters: config.maxAttachmentContextCharacters,
 });
 const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, ledger, config });
 const transcriber = new WhisperTranscriber({
@@ -345,6 +345,14 @@ const server = http.createServer(async (request, response) => {
     const contactMatch = /^\/api\/contacts\/(\d+)$/.exec(url.pathname);
     if (request.method === "PATCH" && contactMatch) {
       sendJson(response, 200, { contact: organizer.updateContact(contactMatch[1], await readJson(request)) });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/calendar-events/search") {
+      sendJson(response, 200, organizer.searchCalendar({
+        query: url.searchParams.get("q"),
+        includeArchived: url.searchParams.get("includeArchived") === "true",
+        limit: url.searchParams.get("limit") || 100,
+      }));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/calendar-events") {

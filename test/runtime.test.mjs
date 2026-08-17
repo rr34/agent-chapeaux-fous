@@ -52,6 +52,7 @@ function fakeTransport(runTurn) {
 test("the first model turn contains the exact request, context, and callable tools, and executes tools in that turn", async () => {
   const requests = [];
   let contextBuildInput;
+  let toolExecutionContext;
   const attachment = {
     filename: "contacts.csv", mimeType: "text/csv", byteSize: 18,
     sha256: "attachment-sha", text: "name\nAlice\n",
@@ -85,7 +86,10 @@ test("the first model turn contains the exact request, context, and callable too
       properties: { value: { type: "string" } },
       required: ["value"],
     },
-    async execute({ value }) { return { value }; },
+    async execute({ value }, context) {
+      toolExecutionContext = context;
+      return { value };
+    },
   });
   const events = [];
   const runtime = new SlayerRuntime({
@@ -145,6 +149,7 @@ test("the first model turn contains the exact request, context, and callable too
   assert.deepEqual(contextEvent.payload.relevantProfileTypes, ["address"]);
   assert.deepEqual(contextEvent.payload.relevantProfileQuestions, [{ factType: "address" }]);
   assert.equal(contextEvent.payload.attachment.filename, "contacts.csv");
+  assert.equal(toolExecutionContext.attachment, attachment);
 });
 
 test("the runtime resumes the active native conversation without reinjecting transcript history", async () => {

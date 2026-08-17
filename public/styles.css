@@ -198,7 +198,13 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .organizer-heading h2 { margin: 0; font-size: clamp(1.5rem, 5vw, 2.1rem); letter-spacing: -.035em; }
 .organizer-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 15px; }
 .calendar-toolbar, .todo-toolbar, .contact-toolbar, .log-toolbar { margin-bottom: 1rem; padding: .65rem .8rem; }
+.calendar-toolbar { flex-wrap: wrap; }
 .calendar-navigation { display: flex; align-items: center; gap: .45rem; }
+.calendar-search-controls { display: flex; align-items: end; gap: .65rem; flex: 1 1 25rem; }
+.calendar-search { display: grid; grid-template-columns: auto minmax(10rem, 1fr); align-items: center; gap: .55rem; flex: 1; color: var(--muted); font-size: .8rem; }
+.calendar-search input { padding: .6rem; }
+.calendar-search-archived { display: flex; align-items: center; gap: .4rem; padding-bottom: .62rem; color: var(--muted); font-size: .76rem; white-space: nowrap; }
+.calendar-search-archived input { width: auto; }
 .calendar-toolbar small { color: var(--muted); }
 .calendar-schedule-mode { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding: .8rem; border-color: rgba(112, 167, 255, .6); background: rgba(112, 167, 255, .09); }
 .calendar-schedule-mode[hidden] { display: none; }
@@ -208,6 +214,18 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 #calendar-view.scheduling .calendar-day { cursor: crosshair; }
 #calendar-view.scheduling .calendar-day:hover { background: rgba(112, 167, 255, .14); box-shadow: inset 0 0 0 2px #70a7ff; }
 .calendar-layout { display: grid; grid-template-columns: 1fr; gap: 1rem; align-items: start; }
+.calendar-layout[hidden], .calendar-search-results[hidden] { display: none; }
+.calendar-search-results { padding: 1rem; }
+.calendar-search-results-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: .8rem; }
+.calendar-search-results-heading h3 { margin: 0; }
+.calendar-search-results-heading small { max-width: 28rem; color: var(--muted); text-align: right; }
+.calendar-search-result-list { display: grid; gap: .55rem; }
+.calendar-search-result { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; align-items: stretch; margin: 0; }
+.calendar-search-result-open { display: block; min-width: 0; padding: .75rem; color: var(--text); background: #101316; border: 1px solid var(--line); text-align: left; }
+.calendar-search-result-open:hover { background: var(--panel-raised); }
+.calendar-search-result-open strong, .calendar-search-result-open span { display: block; }
+.calendar-search-result-open span { overflow: hidden; margin-top: .22rem; color: var(--muted); font-size: .74rem; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-search-result-open .calendar-search-result-description { color: #c2c9ce; }
 .month-panel { overflow: hidden; }
 .weekday-row, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .calendar-grid > .empty { grid-column: 1 / -1; margin: 1rem; }
@@ -477,7 +495,13 @@ dialog h2, dialog p { margin-bottom: 0; }
   .trace-panel { inset: 0; width: 100%; border-radius: 0; }
   .button-row { align-items: stretch; flex-direction: column; }
   .calendar-toolbar { align-items: flex-start; }
-  .calendar-toolbar small { max-width: 42%; text-align: right; }
+  .calendar-toolbar > small { width: 100%; max-width: none; text-align: right; }
+  .calendar-search-controls { align-items: stretch; flex-basis: 100%; flex-direction: column; gap: .45rem; }
+  .calendar-search { grid-template-columns: 1fr; }
+  .calendar-search-archived { padding-bottom: 0; }
+  .calendar-search-results-heading { align-items: flex-start; flex-direction: column; }
+  .calendar-search-results-heading small { text-align: left; }
+  .calendar-search-result { grid-template-columns: 1fr; }
   .calendar-schedule-mode { align-items: stretch; flex-direction: column; }
   .calendar-day { min-height: 76px; padding: 4px; }
   .day-event, .day-todo { height: 6px; padding: 0; font-size: 0; border-radius: 999px; }

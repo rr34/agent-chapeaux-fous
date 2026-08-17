@@ -108,8 +108,10 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "starts_at_utc"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "startsAtUtc"), false);
   assert.equal(Object.hasOwn(definitions.contact_import, "entries"), true);
+  assert.equal(Object.hasOwn(definitions.contact_file_import, "csv_mapping"), true);
   assert.equal(Object.hasOwn(definitions.contact_duplicate_list, "limit"), true);
   assert.equal(Object.hasOwn(definitions.contact_merge, "merge_contacts"), true);
+  assert.equal(Object.hasOwn(definitions.contact_merge_batch, "merges"), true);
   const request = ledger.createRequest({ text: "Inspect native semantic results" });
   const toolContext = {
     requestId: request.requestId,

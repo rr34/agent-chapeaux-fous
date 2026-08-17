@@ -1,3 +1,4 @@
+import { parseContactAttachment } from "../contact-file-import.mjs";
 import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
 
 const nullableString = { type: ["string", "null"] };
@@ -194,10 +195,179 @@ function contactResult(schemaSemantics, context, result, {
   });
 }
 
+function importNormalizedContacts({
+  selectedSource, inputs, store, ledger, context, actorName = "contact_import", includeItems = true,
+}) {
+  const database = store.requireReady();
+  const now = new Date().toISOString();
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const items = [];
+    const conflicts = [];
+    let importedCount = 0;
+    let unchangedCount = 0;
+    let conflictCount = 0;
+    for (const input of inputs) {
+      const matches = database.prepare(`
+        SELECT contact_id FROM contacts WHERE source = ? AND external_id = ?
+        ORDER BY contact_id
+      `).all(selectedSource, input.external_id);
+      if (matches.length > 0) {
+        const existing = contactFromDatabase(database, matches[0].contact_id);
+        const unchanged = matches.length === 1 && sameImportedContact(existing, input);
+        const reason = matches.length > 1
+          ? "More than one stored contact has this source and external ID"
+          : "The source and external ID already identify a different stored contact";
+        if (unchanged) unchangedCount += 1;
+        else {
+          conflictCount += 1;
+          if (conflicts.length < 100) conflicts.push({
+            external_id: input.external_id,
+            stored_contact_id: existing.contact_id,
+            reason,
+          });
+        }
+        if (includeItems) {
+          items.push({
+            status: unchanged ? "unchanged" : "conflict",
+            contact: existing,
+            ...(unchanged ? {} : { reason }),
+          });
+        }
+        continue;
+      }
+      const inserted = database.prepare(`
+        INSERT INTO contacts (
+          contact_kind, display_name, given_name, family_name, organization_name,
+          status, birth_date, notes, source, external_id, updated_at_utc
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING contact_id
+      `).get(
+        input.contact_kind, input.display_name, input.given_name, input.family_name,
+        input.organization_name, input.status, input.birth_date, input.notes,
+        selectedSource, input.external_id, now,
+      );
+      const contactId = Number(inserted.contact_id);
+      const insertMethod = database.prepare(`
+        INSERT INTO contact_methods (
+          contact_id, method_kind, label, value, normalized_value, is_primary, can_receive
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const method of input.methods) {
+        insertMethod.run(
+          contactId, method.method_kind, method.label, method.value,
+          method.normalized_value, method.is_primary, method.can_receive,
+        );
+      }
+      const assignTag = database.prepare(`
+        INSERT OR IGNORE INTO record_tags (tag_id, record_type, record_id)
+        VALUES (?, 'contact', ?)
+      `);
+      for (const tag of input.tags) {
+        const storedTag = ensureTag(database, tag);
+        assignTag.run(storedTag.tag_id, String(contactId));
+      }
+      importedCount += 1;
+      if (includeItems) items.push({ status: "imported", contact: contactFromDatabase(database, contactId) });
+    }
+    const result = {
+      source: selectedSource,
+      total: inputs.length,
+      imported_count: importedCount,
+      unchanged_count: unchangedCount,
+      conflict_count: conflictCount,
+      ...(includeItems ? { items } : {
+        conflicts,
+        conflicts_truncated: conflictCount > conflicts.length,
+      }),
+    };
+    ledger.append({
+      type: "contacts.imported", status: "complete", actorType: "tool",
+      actorName, channel: context.channel, turnId: context.requestId, operationId: context.callId,
+      name: "Contact import processed",
+      content: `${importedCount} imported, ${unchangedCount} unchanged, ${conflictCount} conflicting from ${selectedSource}`,
+      payload: {
+        source: selectedSource, total: inputs.length,
+        importedCount, unchangedCount, conflictCount,
+      },
+      subjectType: "contact_import", subjectId: selectedSource,
+    });
+    database.exec("COMMIT");
+    return result;
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function organizerMergeInput({
+  keep_contact_id: keepContactId,
+  keep_expected_version: keepVersion,
+  merge_contacts: mergeContacts,
+}) {
+  const versions = { [String(keepContactId)]: keepVersion };
+  const mergeContactIds = [];
+  for (const candidate of mergeContacts) {
+    if (Object.hasOwn(versions, String(candidate.contact_id))) {
+      throw new Error("Contact merge candidates must be unique and cannot include the retained contact");
+    }
+    versions[String(candidate.contact_id)] = candidate.expected_version;
+    mergeContactIds.push(candidate.contact_id);
+  }
+  return { keepContactId, mergeContactIds, versions };
+}
+
+function contactToolActivity(context, actorName) {
+  return {
+    actorType: "tool",
+    actorName,
+    source: "model_tool",
+    channel: context.channel ?? "agent",
+    turnId: context.requestId ?? null,
+    operationId: context.callId ?? null,
+  };
+}
+
+const mergeContactCandidateSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    contact_id: { type: "integer", minimum: 1 },
+    expected_version: { type: "string", minLength: 1, maxLength: 100 },
+  },
+  required: ["contact_id", "expected_version"],
+};
+
+const mergeOperationProperties = {
+  keep_contact_id: { type: "integer", minimum: 1 },
+  keep_expected_version: { type: "string", minLength: 1, maxLength: 100 },
+  merge_contacts: {
+    type: "array", minItems: 1, maxItems: 20,
+    items: mergeContactCandidateSchema,
+  },
+};
+
+function compactDuplicateCandidate(contact) {
+  const notes = contact.notes ?? null;
+  return {
+    expected_version: contact.updated_at_utc ?? contact.created_at_utc,
+    notes_truncated: Boolean(notes && notes.length > 1000),
+    contact: {
+      ...selectedFields(contact, [
+        "contact_id", "contact_kind", "display_name", "given_name", "family_name",
+        "organization_name", "is_self", "status", "birth_date", "source", "external_id",
+      ]),
+      notes: notes?.slice(0, 1000) ?? null,
+      contact_methods: contact.contact_methods,
+      tags: contact.tags,
+    },
+  };
+}
+
 export function registerContactTools(registry, store, organizer, ledger, schemaSemantics = null) {
   registry.register({
     name: "contact_import",
-    description: "Import a bounded batch of 1 through 200 contacts from an attached CSV, vCard/VCF, or other external source. Supply a stable source name and one stable external_id per source record (use a vCard UID when present, or a deterministic ID if the source has none). Contacts may include multiple methods and overlapping tags. The source and external_id pair is idempotent: exact replays are unchanged, conflicting replays are reported without overwriting, and all new contacts, methods, tags, and tag assignments are written in one transaction.",
+    description: "Import a bounded batch of 1 through 200 already-normalized contacts supplied as structured data without a file. Use contact_file_import for an attached CSV or vCard/VCF so the application processes the complete file directly. Supply a stable source name and one stable external_id per source record. Contacts may include multiple methods and overlapping tags. The source and external_id pair is idempotent: exact replays are unchanged, conflicting replays are reported without overwriting, and all new contacts, methods, tags, and tag assignments are written in one transaction.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -256,102 +426,129 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
         seenExternalIds.add(contact.external_id);
         return contact;
       });
-      const database = store.requireReady();
-      const now = new Date().toISOString();
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        const items = [];
-        for (const input of inputs) {
-          const matches = database.prepare(`
-            SELECT contact_id FROM contacts WHERE source = ? AND external_id = ?
-            ORDER BY contact_id
-          `).all(selectedSource, input.external_id);
-          if (matches.length > 0) {
-            const existing = contactFromDatabase(database, matches[0].contact_id);
-            const unchanged = matches.length === 1 && sameImportedContact(existing, input);
-            items.push({
-              status: unchanged ? "unchanged" : "conflict",
-              contact: existing,
-              ...(unchanged ? {} : {
-                reason: matches.length > 1
-                  ? "More than one stored contact has this source and external ID"
-                  : "The source and external ID already identify a different stored contact",
-              }),
-            });
-            continue;
-          }
-          const inserted = database.prepare(`
-            INSERT INTO contacts (
-              contact_kind, display_name, given_name, family_name, organization_name,
-              status, birth_date, notes, source, external_id, updated_at_utc
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING contact_id
-          `).get(
-            input.contact_kind, input.display_name, input.given_name, input.family_name,
-            input.organization_name, input.status, input.birth_date, input.notes,
-            selectedSource, input.external_id, now,
-          );
-          const contactId = Number(inserted.contact_id);
-          const insertMethod = database.prepare(`
-            INSERT INTO contact_methods (
-              contact_id, method_kind, label, value, normalized_value, is_primary, can_receive
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-          `);
-          for (const method of input.methods) {
-            insertMethod.run(
-              contactId, method.method_kind, method.label, method.value,
-              method.normalized_value, method.is_primary, method.can_receive,
-            );
-          }
-          const assignTag = database.prepare(`
-            INSERT OR IGNORE INTO record_tags (tag_id, record_type, record_id)
-            VALUES (?, 'contact', ?)
-          `);
-          for (const tag of input.tags) {
-            const storedTag = ensureTag(database, tag);
-            assignTag.run(storedTag.tag_id, String(contactId));
-          }
-          items.push({ status: "imported", contact: contactFromDatabase(database, contactId) });
+      const result = importNormalizedContacts({ selectedSource, inputs, store, ledger, context });
+      return contactResult(schemaSemantics, context, result);
+    },
+  });
+
+  registry.register({
+    name: "contact_file_import",
+    description: "Import an entire attached UTF-8 CSV or vCard/VCF directly in one application transaction, up to 10,000 contacts. The verified full stored attachment is parsed by this function; the model must not copy rows into arguments. For CSV, map exact header names from the attachment preview. Use row_number IDs with the same prefix and source as a prior partial row-based import, or row_hash for stable replay across reordered files. For vCard, pass csv_mapping as null; UID is used when present. Exact replays are unchanged and differing stored source IDs are reported as conflicts without overwriting.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        source: { type: "string", minLength: 1, maxLength: 200 },
+        format: { type: "string", enum: ["auto", "csv", "vcard"] },
+        default_tags: {
+          type: "array", maxItems: 50,
+          items: { type: "string", minLength: 1, maxLength: 200 },
+        },
+        csv_mapping: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            external_id_column: { ...nullableString, maxLength: 500 },
+            external_id_strategy: { type: "string", enum: ["row_number", "row_hash"] },
+            external_id_prefix: { type: "string", maxLength: 200 },
+            display_name_column: { ...nullableString, maxLength: 500 },
+            given_name_column: { ...nullableString, maxLength: 500 },
+            family_name_column: { ...nullableString, maxLength: 500 },
+            organization_name_column: { ...nullableString, maxLength: 500 },
+            birth_date_column: { ...nullableString, maxLength: 500 },
+            notes_columns: {
+              type: "array", maxItems: 20,
+              items: { type: "string", minLength: 1, maxLength: 500 },
+            },
+            tag_columns: {
+              type: "array", maxItems: 20,
+              items: { type: "string", minLength: 1, maxLength: 500 },
+            },
+            tag_separator: { ...nullableString, maxLength: 10 },
+            methods: {
+              type: "array", maxItems: 100,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  column: { type: "string", minLength: 1, maxLength: 500 },
+                  method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"] },
+                  label: { ...nullableString, maxLength: 100 },
+                  is_primary: { type: "boolean" },
+                  can_receive: { type: "boolean" },
+                },
+                required: ["column", "method_kind", "label", "is_primary", "can_receive"],
+              },
+            },
+            default_contact_kind: { type: "string", enum: ["person", "organization", "service"] },
+            default_status: { type: "string", enum: ["active", "inactive", "blocked", "deceased"] },
+          },
+          required: [
+            "external_id_column", "external_id_strategy", "external_id_prefix",
+            "display_name_column", "given_name_column", "family_name_column",
+            "organization_name_column", "birth_date_column", "notes_columns",
+            "tag_columns", "tag_separator", "methods", "default_contact_kind",
+            "default_status",
+          ],
+        },
+      },
+      required: ["source", "format", "default_tags", "csv_mapping"],
+    },
+    async execute({ source, format, default_tags: defaultTags, csv_mapping: csvMapping }, context) {
+      if (!context.attachment?.text) throw new Error("contact_file_import requires a CSV or vCard attached to this request");
+      const selectedSource = requiredText(source, "Import source", 200);
+      const parsed = parseContactAttachment(context.attachment, { format, csvMapping, defaultTags });
+      const seenExternalIds = new Set();
+      const inputs = parsed.entries.map((entry, index) => {
+        let contact;
+        try {
+          contact = normalizedContact(entry);
+        } catch (error) {
+          throw new Error(`Contact file record ${index + 1}: ${error.message}`);
         }
-        const importedCount = items.filter(({ status }) => status === "imported").length;
-        const unchangedCount = items.filter(({ status }) => status === "unchanged").length;
-        const conflictCount = items.filter(({ status }) => status === "conflict").length;
-        const result = {
-          source: selectedSource, total: items.length,
-          imported_count: importedCount, unchanged_count: unchangedCount,
-          conflict_count: conflictCount, items,
-        };
-        ledger.append({
-          type: "contacts.imported", status: "complete", actorType: "tool",
-          actorName: "contact_import", turnId: context.requestId, operationId: context.callId,
-          name: "Contact import processed",
-          content: `${importedCount} imported, ${unchangedCount} unchanged, ${conflictCount} conflicting from ${selectedSource}`,
-          payload: { source: selectedSource, total: items.length, importedCount, unchangedCount, conflictCount },
-          subjectType: "contact_import", subjectId: selectedSource,
-        });
-        const semanticResult = contactResult(schemaSemantics, context, result);
-        database.exec("COMMIT");
-        return semanticResult;
-      } catch (error) {
-        database.exec("ROLLBACK");
-        throw error;
-      }
+        if (seenExternalIds.has(contact.external_id)) {
+          throw new Error(`Duplicate external contact ID in contact file: ${contact.external_id}`);
+        }
+        seenExternalIds.add(contact.external_id);
+        return contact;
+      });
+      const imported = importNormalizedContacts({
+        selectedSource,
+        inputs,
+        store,
+        ledger,
+        context,
+        actorName: "contact_file_import",
+        includeItems: false,
+      });
+      return contactResult(schemaSemantics, context, {
+        ...imported,
+        format: parsed.format,
+        filename: context.attachment.filename,
+        sha256: context.attachment.sha256,
+        blank_rows_skipped: parsed.blankRows,
+        ...(parsed.headers ? { csv_headers: parsed.headers } : {}),
+      }, {
+        name: "contact_file_import",
+        purpose: "Return a bounded summary of a whole-file contact import performed directly by the application.",
+      });
     },
   });
 
   registry.register({
     name: "contact_duplicate_list",
-    description: "List paginated groups of active contacts that may be duplicates because they share an exact normalized display name, email address, or phone number. This is a read-only review operation. Each candidate includes its complete stored contact data and expected_version for a later contact_merge call. Same-name evidence alone can be ambiguous, so inspect all available details before merging. Continue with next_offset while has_more is true.",
+    description: "List paginated groups of active contacts that may be duplicates because they share an exact normalized display name, email address, or phone number. This is a read-only review operation. Use compact detail and pages of about 50 groups for bulk work; use full only when complete notes and timestamps are necessary. Each candidate includes expected_version for contact_merge or contact_merge_batch. Same-name evidence alone can be ambiguous. Continue with next_offset while has_more is true.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         limit: { type: "integer", minimum: 1, maximum: 200 },
         offset: { type: "integer", minimum: 0, maximum: 10000 },
+        detail: { type: "string", enum: ["compact", "full"] },
       },
-      required: ["limit", "offset"],
+      required: ["limit", "offset", "detail"],
     },
-    async execute({ limit, offset }, context) {
+    async execute({ limit, offset, detail }, context) {
       const database = store.requireReady();
       const review = organizer.listContactDuplicates({ limit, offset });
       const result = {
@@ -366,7 +563,7 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
           evidence: group.evidence,
           candidates: group.contactIds.map((contactId) => {
             const contact = contactFromDatabase(database, contactId);
-            return {
+            return detail === "compact" ? compactDuplicateCandidate(contact) : {
               expected_version: contact.updated_at_utc ?? contact.created_at_utc,
               contact,
             };
@@ -387,45 +584,15 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
       type: "object",
       additionalProperties: false,
       properties: {
-        keep_contact_id: { type: "integer", minimum: 1 },
-        keep_expected_version: { type: "string", minLength: 1, maxLength: 100 },
-        merge_contacts: {
-          type: "array", minItems: 1, maxItems: 20,
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              contact_id: { type: "integer", minimum: 1 },
-              expected_version: { type: "string", minLength: 1, maxLength: 100 },
-            },
-            required: ["contact_id", "expected_version"],
-          },
-        },
+        ...mergeOperationProperties,
       },
       required: ["keep_contact_id", "keep_expected_version", "merge_contacts"],
     },
-    async execute({ keep_contact_id: keepContactId, keep_expected_version: keepVersion, merge_contacts: mergeContacts }, context) {
-      const versions = { [String(keepContactId)]: keepVersion };
-      const mergeContactIds = [];
-      for (const candidate of mergeContacts) {
-        if (Object.hasOwn(versions, String(candidate.contact_id))) {
-          throw new Error("Contact merge candidates must be unique and cannot include the retained contact");
-        }
-        versions[String(candidate.contact_id)] = candidate.expected_version;
-        mergeContactIds.push(candidate.contact_id);
-      }
-      const merged = organizer.mergeContacts({
-        keepContactId,
-        mergeContactIds,
-        versions,
-      }, {
-        actorType: "tool",
-        actorName: "contact_merge",
-        source: "model_tool",
-        channel: context.channel ?? "agent",
-        turnId: context.requestId ?? null,
-        operationId: context.callId ?? null,
-      });
+    async execute(argumentsObject, context) {
+      const merged = organizer.mergeContacts(
+        organizerMergeInput(argumentsObject),
+        contactToolActivity(context, "contact_merge"),
+      );
       const result = {
         kept_contact: contactFromDatabase(store.requireReady(), merged.contact.id),
         merged_contact_ids: merged.mergedContactIds,
@@ -433,6 +600,45 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
       return contactResult(schemaSemantics, context, result, {
         name: "contact_merge",
         purpose: "Return the retained contact after an atomic reviewed merge and identify the source contacts retained as inactive history.",
+      });
+    },
+  });
+
+  registry.register({
+    name: "contact_merge_batch",
+    description: "Atomically apply 1 through 100 independently reviewed contact merge groups in one tool call. Build each group from current contact_duplicate_list candidates and exact expected_version values. The entire batch is validated before changes; a stale version, missing contact, repeated contact across groups, or invalid merge rolls back every group. Each successful group combines unique methods, tags, notes, and missing identity fields while retaining source records as inactive history.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        merges: {
+          type: "array", minItems: 1, maxItems: 100,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: mergeOperationProperties,
+            required: ["keep_contact_id", "keep_expected_version", "merge_contacts"],
+          },
+        },
+      },
+      required: ["merges"],
+    },
+    async execute({ merges }, context) {
+      const batch = organizer.mergeContactBatch(
+        merges.map(organizerMergeInput),
+        contactToolActivity(context, "contact_merge_batch"),
+      );
+      const result = {
+        merged_group_count: batch.mergedGroupCount,
+        merged_contact_count: batch.mergedContactCount,
+        groups: batch.results.map((item) => ({
+          kept_contact_id: item.contact.id,
+          merged_contact_ids: item.mergedContactIds,
+        })),
+      };
+      return contactResult(schemaSemantics, context, result, {
+        name: "contact_merge_batch",
+        purpose: "Return a bounded receipt for an atomic batch of reviewed contact merges.",
       });
     },
   });

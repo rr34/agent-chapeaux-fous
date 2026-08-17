@@ -129,6 +129,111 @@ test("contact_import accepts more than 100 rows in one bounded transaction", asy
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM record_tags").get().count, 125);
 });
 
+test("contact_file_import completes a partial import and replays a 1,200-row CSV in one call", async (context) => {
+  const { store, registry, request } = harness(context);
+  const rowCount = 1200;
+  const rowContact = (index) => ({
+    external_id: `row-${index}`,
+    contact_kind: "person",
+    display_name: `Person ${index} Test`,
+    given_name: `Person ${index}`,
+    family_name: "Test",
+    organization_name: null,
+    status: "active",
+    birth_date: null,
+    notes: `Imported, row ${index}`,
+    methods: [
+      {
+        method_kind: "email", label: "Work", value: `person${index}@example.test`,
+        is_primary: true, can_receive: true,
+      },
+      {
+        method_kind: "phone", label: "Mobile", value: `+1 555 ${String(index).padStart(7, "0")}`,
+        is_primary: false, can_receive: true,
+      },
+    ],
+    tags: ["Bulk", "Friends"],
+  });
+  const csv = [
+    "First Name,Last Name,Email,Phone,Notes,Tags",
+    ...Array.from({ length: rowCount }, (_, index) => {
+      const number = index + 1;
+      return `Person ${number},Test,person${number}@example.test,+1 555 ${String(number).padStart(7, "0")},\"Imported, row ${number}\",Friends`;
+    }),
+  ].join("\r\n");
+  const toolContext = {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "partial-contact-import",
+    channel: "web",
+  };
+  const partial = await registry.execute("contact_import", {
+    source: "large-address-book",
+    entries: Array.from({ length: 20 }, (_, index) => rowContact(index + 1)),
+  }, toolContext);
+  assert.equal(partial.imported_count, 20);
+
+  const fileArguments = {
+    source: "large-address-book",
+    format: "csv",
+    default_tags: ["Bulk"],
+    csv_mapping: {
+      external_id_column: null,
+      external_id_strategy: "row_number",
+      external_id_prefix: "row-",
+      display_name_column: null,
+      given_name_column: "First Name",
+      family_name_column: "Last Name",
+      organization_name_column: null,
+      birth_date_column: null,
+      notes_columns: ["Notes"],
+      tag_columns: ["Tags"],
+      tag_separator: ";",
+      methods: [
+        {
+          column: "Email", method_kind: "email", label: "Work",
+          is_primary: true, can_receive: true,
+        },
+        {
+          column: "Phone", method_kind: "phone", label: "Mobile",
+          is_primary: false, can_receive: true,
+        },
+      ],
+      default_contact_kind: "person",
+      default_status: "active",
+    },
+  };
+  const attachment = {
+    fileId: 91,
+    filename: "large-contacts.csv",
+    mimeType: "text/csv",
+    byteSize: Buffer.byteLength(csv),
+    sha256: "large-csv-sha",
+    text: csv,
+  };
+  const imported = await registry.execute("contact_file_import", fileArguments, {
+    ...toolContext, callId: "whole-file-import", attachment,
+  });
+  assert.deepEqual(
+    [imported.total, imported.imported_count, imported.unchanged_count, imported.conflict_count],
+    [1200, 1180, 20, 0],
+  );
+  assert.equal(Object.hasOwn(imported, "items"), false);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM contacts").get().count, 1200);
+
+  const replay = await registry.execute("contact_file_import", fileArguments, {
+    ...toolContext, callId: "whole-file-replay", attachment,
+  });
+  assert.deepEqual(
+    [replay.imported_count, replay.unchanged_count, replay.conflict_count],
+    [0, 1200, 0],
+  );
+  assert.equal(
+    store.requireReady().prepare("SELECT COUNT(*) AS count FROM contacts").get().count,
+    1200,
+  );
+});
+
 test("contact_import validates the whole batch before writing", async (context) => {
   const { store, registry, request } = harness(context);
   await assert.rejects(
@@ -168,7 +273,9 @@ test("contact duplicate tools review and safely merge current candidates", async
     channel: "web",
   };
 
-  const review = await registry.execute("contact_duplicate_list", { limit: 10, offset: 0 }, toolContext);
+  const review = await registry.execute("contact_duplicate_list", {
+    limit: 10, offset: 0, detail: "full",
+  }, toolContext);
   assert.equal(review.total_duplicate_groups, 1);
   assert.deepEqual(review.groups[0].evidence, ["same email"]);
   const candidates = new Map(review.groups[0].candidates.map((candidate) => [
@@ -216,4 +323,85 @@ test("contact duplicate tools review and safely merge current candidates", async
     turn_id: request.requestId,
     operation_id: "contact-merge",
   });
+});
+
+test("compact duplicate review and atomic batches resolve 240 groups in five tool calls", async (context) => {
+  const { store, registry, request } = harness(context);
+  const database = store.requireReady();
+  const insertContact = database.prepare(`
+    INSERT INTO contacts (display_name, notes, updated_at_utc)
+    VALUES (?, ?, ?) RETURNING contact_id
+  `);
+  const insertMethod = database.prepare(`
+    INSERT INTO contact_methods (
+      contact_id, method_kind, label, value, normalized_value, is_primary, can_receive
+    ) VALUES (?, 'email', 'Imported', ?, ?, 1, 1)
+  `);
+  const version = "2026-08-17T12:00:00.000Z";
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    for (let group = 1; group <= 240; group += 1) {
+      const email = `duplicate-${group}@example.test`;
+      for (let copy = 1; copy <= 2; copy += 1) {
+        const inserted = insertContact.get(
+          `Duplicate ${group}`,
+          group === 1 && copy === 1 ? "x".repeat(1500) : `Copy ${copy}`,
+          version,
+        );
+        insertMethod.run(inserted.contact_id, email, email);
+      }
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+  const toolContext = {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "bulk-review-1",
+    channel: "web",
+  };
+  const mergeArguments = (groups) => groups.map((group) => ({
+    keep_contact_id: group.candidates[0].contact.contact_id,
+    keep_expected_version: group.candidates[0].expected_version,
+    merge_contacts: group.candidates.slice(1).map((candidate) => ({
+      contact_id: candidate.contact.contact_id,
+      expected_version: candidate.expected_version,
+    })),
+  }));
+
+  const firstReview = await registry.execute("contact_duplicate_list", {
+    limit: 200, offset: 0, detail: "compact",
+  }, toolContext);
+  assert.equal(firstReview.total_duplicate_groups, 240);
+  assert.equal(firstReview.groups.length, 200);
+  assert.equal(firstReview.groups[0].candidates[0].contact.notes.length, 1000);
+  assert.equal(firstReview.groups[0].candidates[0].notes_truncated, true);
+  const firstOperations = mergeArguments(firstReview.groups);
+  const firstBatch = await registry.execute("contact_merge_batch", {
+    merges: firstOperations.slice(0, 100),
+  }, { ...toolContext, callId: "bulk-merge-1" });
+  const secondBatch = await registry.execute("contact_merge_batch", {
+    merges: firstOperations.slice(100),
+  }, { ...toolContext, callId: "bulk-merge-2" });
+  assert.deepEqual(
+    [firstBatch.merged_group_count, secondBatch.merged_group_count],
+    [100, 100],
+  );
+
+  const secondReview = await registry.execute("contact_duplicate_list", {
+    limit: 200, offset: 0, detail: "compact",
+  }, { ...toolContext, callId: "bulk-review-2" });
+  assert.equal(secondReview.total_duplicate_groups, 40);
+  const finalBatch = await registry.execute("contact_merge_batch", {
+    merges: mergeArguments(secondReview.groups),
+  }, { ...toolContext, callId: "bulk-merge-3" });
+  assert.equal(finalBatch.merged_group_count, 40);
+  assert.equal(finalBatch.merged_contact_count, 40);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts WHERE status = 'active'").get().count, 240);
+  assert.equal(database.prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'contacts.merged' AND actor_type = 'tool' AND actor_name = 'contact_merge_batch'
+  `).get().count, 240);
 });

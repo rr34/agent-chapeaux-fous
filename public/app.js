@@ -36,6 +36,12 @@ const elements = {
   calendarMonthLabel: document.querySelector("#calendar-month-label"),
   calendarTimeZone: document.querySelector("#calendar-time-zone"),
   calendarGrid: document.querySelector("#calendar-grid"),
+  calendarSearch: document.querySelector("#calendar-search"),
+  calendarSearchIncludeArchived: document.querySelector("#calendar-search-include-archived"),
+  calendarSearchResults: document.querySelector("#calendar-search-results"),
+  calendarSearchCount: document.querySelector("#calendar-search-count"),
+  calendarSearchResultList: document.querySelector("#calendar-search-result-list"),
+  calendarLayout: document.querySelector("#calendar-layout"),
   calendarScheduleMode: document.querySelector("#calendar-schedule-mode"),
   calendarScheduleTask: document.querySelector("#calendar-schedule-task"),
   calendarScheduleHint: document.querySelector("#calendar-schedule-hint"),
@@ -169,6 +175,8 @@ let activeView = "agent";
 let calendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedCalendarDate = new Date();
 let calendarEvents = [];
+let calendarSearchTimer = null;
+let calendarSearchSequence = 0;
 let activeTodos = [];
 let calendarSchedulingTodo = null;
 let calendarSchedulingBusy = false;
@@ -817,9 +825,107 @@ async function refreshCalendar() {
       updateCalendarSchedulingMode();
     }
     renderCalendar();
+    if (elements.calendarSearch.value.trim()) void searchCalendarEvents();
   } catch (error) {
     elements.calendarGrid.replaceChildren(node("p", "empty", error.message || "Calendar unavailable."));
   }
+}
+
+function setCalendarSearchMode(enabled) {
+  elements.calendarSearchResults.hidden = !enabled;
+  elements.calendarLayout.hidden = enabled;
+  if (enabled) elements.calendarMonthLabel.textContent = "Search calendar";
+}
+
+function formatCalendarSearchWhen(calendarEvent) {
+  const timeZone = calendarEvent.timeZone || null;
+  const start = formatDisplayDate(calendarEvent.startsAtUtc, {
+    includeTime: !calendarEvent.isAllDay,
+    timeZone,
+  });
+  if (!calendarEvent.endsAtUtc) return start;
+  if (calendarEvent.isAllDay) {
+    const inclusiveEnd = new Date(new Date(calendarEvent.endsAtUtc).getTime() - 1);
+    const end = formatDisplayDate(inclusiveEnd, { includeTime: false, timeZone });
+    return end === start ? start : `${start} – ${end}`;
+  }
+  const endDate = formatDisplayDate(calendarEvent.endsAtUtc, { includeTime: false, timeZone });
+  const startDate = formatDisplayDate(calendarEvent.startsAtUtc, { includeTime: false, timeZone });
+  return endDate === startDate
+    ? `${start}–${formatDisplayTime(calendarEvent.endsAtUtc, { timeZone })}`
+    : `${start} – ${formatDisplayDate(calendarEvent.endsAtUtc, { timeZone })}`;
+}
+
+function renderCalendarSearchResults(events, { error = null } = {}) {
+  elements.calendarSearchResultList.replaceChildren();
+  if (error) {
+    elements.calendarSearchCount.textContent = "Search unavailable";
+    elements.calendarSearchResultList.append(node("p", "empty", error));
+    return;
+  }
+  elements.calendarSearchCount.textContent = `${events.length} ${events.length === 1 ? "event" : "events"}`;
+  if (events.length === 0) {
+    elements.calendarSearchResultList.append(node("p", "empty", "No stored calendar events match that search."));
+    return;
+  }
+  for (const calendarEvent of events) {
+    const item = node("article", "calendar-search-result");
+    const open = node("button", "calendar-search-result-open");
+    open.type = "button";
+    open.append(
+      node("strong", "", calendarEvent.title),
+      node("span", "calendar-search-result-when", formatCalendarSearchWhen(calendarEvent)),
+    );
+    const details = [
+      calendarEvent.location,
+      calendarEvent.recurrenceRule ? describeTodoRecurrence(calendarEvent.recurrenceRule) : null,
+      calendarEvent.status === "archived" ? "Archived" : null,
+    ].filter(Boolean);
+    if (details.length) open.append(node("span", "calendar-search-result-meta", details.join(" · ")));
+    if (calendarEvent.description) open.append(node("span", "calendar-search-result-description", calendarEvent.description));
+    open.addEventListener("click", () => openEventEditor(calendarEvent));
+    const copy = node("button", "secondary compact", "Copy details");
+    copy.type = "button";
+    copy.setAttribute("aria-label", `Copy calendar event details: ${calendarEvent.title}`);
+    copy.addEventListener("click", (event) => void copyText(calendarEventCopyText(calendarEvent), event.currentTarget));
+    item.append(open, copy);
+    elements.calendarSearchResultList.append(item);
+  }
+}
+
+async function searchCalendarEvents() {
+  const query = elements.calendarSearch.value.trim();
+  const sequence = ++calendarSearchSequence;
+  if (!query) {
+    setCalendarSearchMode(false);
+    renderCalendar();
+    return;
+  }
+  setCalendarSearchMode(true);
+  elements.calendarSearchCount.textContent = "Searching…";
+  elements.calendarSearchResultList.replaceChildren();
+  try {
+    const parameters = new URLSearchParams({
+      q: query,
+      includeArchived: String(elements.calendarSearchIncludeArchived.checked),
+      limit: "200",
+    });
+    const body = await api(`/api/calendar-events/search?${parameters}`);
+    if (sequence !== calendarSearchSequence) return;
+    renderCalendarSearchResults(body.events);
+  } catch (error) {
+    if (sequence !== calendarSearchSequence) return;
+    renderCalendarSearchResults([], { error: error.message || "Calendar search unavailable." });
+  }
+}
+
+function queueCalendarSearch() {
+  clearTimeout(calendarSearchTimer);
+  if (!elements.calendarSearch.value.trim()) {
+    void searchCalendarEvents();
+    return;
+  }
+  calendarSearchTimer = setTimeout(() => void searchCalendarEvents(), 200);
 }
 
 function renderCalendar() {
@@ -882,6 +988,9 @@ function updateCalendarSchedulingMode() {
 }
 
 function beginCalendarScheduling(todo) {
+  elements.calendarSearch.value = "";
+  calendarSearchSequence += 1;
+  setCalendarSearchMode(false);
   calendarSchedulingTodo = todo;
   calendarSchedulingBusy = false;
   if (todo.scheduledAtUtc) {
@@ -2288,6 +2397,10 @@ elements.today.addEventListener("click", () => {
 });
 elements.cancelCalendarSchedule.addEventListener("click", () => cancelCalendarScheduling());
 elements.newEvent.addEventListener("click", () => openEventEditor());
+elements.calendarSearch.addEventListener("input", queueCalendarSearch);
+elements.calendarSearchIncludeArchived.addEventListener("change", () => {
+  if (elements.calendarSearch.value.trim()) void searchCalendarEvents();
+});
 elements.eventAllDay.addEventListener("change", () => {
   setEventInputTypes(elements.eventAllDay.checked);
   updateEventRecurrenceEditor();

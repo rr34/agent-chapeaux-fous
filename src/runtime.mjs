@@ -115,7 +115,7 @@ export class SlayerRuntime {
           }
           try {
             const toolResult = await this.registry.execute(name, args, {
-              requestId, requestEventId, callId, channel,
+              requestId, requestEventId, callId, channel, attachment,
             });
             this.ledger.append({
               type: "tool.result", phase: "end", status: "complete", actorType: "tool",

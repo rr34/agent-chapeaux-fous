@@ -1,7 +1,7 @@
 import { readTextAttachment, safeMediaPath } from "./request-attachments.mjs";
 
 export class RequestQueue {
-  constructor({ ledger, runtime, transcriber, mediaRoot, maxTextAttachmentBytes = 256 * 1024 }) {
+  constructor({ ledger, runtime, transcriber, mediaRoot, maxTextAttachmentBytes = 10 * 1024 * 1024 }) {
     this.ledger = ledger;
     this.runtime = runtime;
     this.transcriber = transcriber;

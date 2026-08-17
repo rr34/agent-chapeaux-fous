@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import rrulePackage from "rrule";
+import { searchCalendarEventRows } from "./calendar-search.mjs";
 import { findContactDuplicateGroups } from "./contact-duplicates.mjs";
 import { redactText, safeJson } from "./redaction.mjs";
 import { archiveEmptyTodoGroup, renameTodoGroup } from "./todo-group-operations.mjs";
@@ -667,7 +668,7 @@ export class OrganizerStore {
     if (!new Set(["active", "all"]).has(scope)) {
       throw new OrganizerInputError("scope must be active or all.");
     }
-    const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 5000 });
+    const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 10_000 });
     const rows = this.database.prepare(`
       SELECT * FROM contacts
       ${scope === "active" ? "WHERE status = 'active'" : ""}
@@ -709,11 +710,11 @@ export class OrganizerStore {
     ));
   }
 
-  listContactDuplicates({ limit = 100, offset = 0, contactLimit = 5000 } = {}) {
+  listContactDuplicates({ limit = 100, offset = 0, contactLimit = 10_000 } = {}) {
     const boundedLimit = integer(limit, "limit", { fallback: 100, minimum: 1, maximum: 200 });
     const boundedOffset = integer(offset, "offset", { fallback: 0, minimum: 0, maximum: 10_000 });
     const boundedContactLimit = integer(contactLimit, "contactLimit", {
-      fallback: 5000, minimum: 1, maximum: 5000,
+      fallback: 10_000, minimum: 1, maximum: 10_000,
     });
     const activeContactCount = Number(this.database.prepare(
       "SELECT COUNT(*) AS count FROM contacts WHERE status = 'active'",
@@ -851,7 +852,7 @@ export class OrganizerStore {
     }
   }
 
-  mergeContacts(input, activity = {}) {
+  #contactMergePlan(input) {
     const keepId = identifier(input?.keepContactId, "kept contact id");
     if (!Array.isArray(input?.mergeContactIds) || input.mergeContactIds.length === 0 || input.mergeContactIds.length > 20) {
       throw new OrganizerInputError("mergeContactIds must contain 1 through 20 contact ids.");
@@ -869,6 +870,10 @@ export class OrganizerStore {
       }
     }
 
+    return { keepId, mergeIds, records };
+  }
+
+  #applyContactMerge({ keepId, mergeIds, records }, activity) {
     const kept = records[0];
     const firstValue = (field) => records.map((contact) => contact[field]).find((value) => value != null && value !== "") ?? null;
     const combinedMethods = [];
@@ -901,54 +906,81 @@ export class OrganizerStore {
       : new Date(new Date(latestVersion).getTime() + 1).toISOString();
     const mergedOn = now.slice(0, 10);
 
+    const deactivate = this.database.prepare(`
+      UPDATE contacts
+      SET status = 'inactive', notes = ?, updated_at_utc = ?
+      WHERE contact_id = ?
+    `);
+    for (const contact of records.slice(1)) {
+      const mergeNote = `Merged into ${kept.displayName} (#${keepId}) on ${mergedOn}.`;
+      deactivate.run(contact.notes ? `${mergeNote}\n\n${contact.notes}` : mergeNote, now, contact.id);
+    }
+    this.database.prepare(`
+      UPDATE contacts
+      SET contact_kind = ?, display_name = ?, given_name = ?, family_name = ?,
+          organization_name = ?, is_self = ?, status = 'active', birth_date = ?,
+          notes = ?, updated_at_utc = ?
+      WHERE contact_id = ?
+    `).run(
+      kept.kind,
+      kept.displayName,
+      firstValue("givenName"),
+      firstValue("familyName"),
+      firstValue("organizationName"),
+      records.some(({ isSelf }) => isSelf) ? 1 : 0,
+      firstValue("birthDate"),
+      notes.join("\n\n") || null,
+      now,
+      keepId,
+    );
+    this.#replaceContactMethods(keepId, contactMethods(combinedMethods));
+    this.#replaceContactTags(keepId, tagValues);
+    const result = this.#contact(keepId);
+    this.#activity({
+      eventType: "contacts.merged",
+      status: "complete",
+      name: "Contacts merged",
+      subjectType: "contact",
+      subjectId: keepId,
+      contentText: `${records.slice(1).map(({ displayName }) => displayName).join(", ")} → ${result.displayName}`,
+      payload: { keptContact: result, mergedContactIds: mergeIds },
+      ...activity,
+    });
+    return { contact: result, mergedContactIds: mergeIds };
+  }
+
+  mergeContactBatch(inputs, activity = {}) {
+    if (!Array.isArray(inputs) || inputs.length === 0 || inputs.length > 100) {
+      throw new OrganizerInputError("Contact merge batch must contain 1 through 100 merge groups.");
+    }
     this.database.exec("BEGIN IMMEDIATE");
     try {
-      const deactivate = this.database.prepare(`
-        UPDATE contacts
-        SET status = 'inactive', notes = ?, updated_at_utc = ?
-        WHERE contact_id = ?
-      `);
-      for (const contact of records.slice(1)) {
-        const mergeNote = `Merged into ${kept.displayName} (#${keepId}) on ${mergedOn}.`;
-        deactivate.run(contact.notes ? `${mergeNote}\n\n${contact.notes}` : mergeNote, now, contact.id);
+      const plans = inputs.map((input) => this.#contactMergePlan(input));
+      const seenContactIds = new Set();
+      for (const plan of plans) {
+        for (const contactId of [plan.keepId, ...plan.mergeIds]) {
+          if (seenContactIds.has(contactId)) {
+            throw new OrganizerInputError("A contact cannot appear in more than one merge group.");
+          }
+          seenContactIds.add(contactId);
+        }
       }
-      this.database.prepare(`
-        UPDATE contacts
-        SET contact_kind = ?, display_name = ?, given_name = ?, family_name = ?,
-            organization_name = ?, is_self = ?, status = 'active', birth_date = ?,
-            notes = ?, updated_at_utc = ?
-        WHERE contact_id = ?
-      `).run(
-        kept.kind,
-        kept.displayName,
-        firstValue("givenName"),
-        firstValue("familyName"),
-        firstValue("organizationName"),
-        records.some(({ isSelf }) => isSelf) ? 1 : 0,
-        firstValue("birthDate"),
-        notes.join("\n\n") || null,
-        now,
-        keepId,
-      );
-      this.#replaceContactMethods(keepId, contactMethods(combinedMethods));
-      this.#replaceContactTags(keepId, tagValues);
-      const result = this.#contact(keepId);
-      this.#activity({
-        eventType: "contacts.merged",
-        status: "complete",
-        name: "Contacts merged",
-        subjectType: "contact",
-        subjectId: keepId,
-        contentText: `${records.slice(1).map(({ displayName }) => displayName).join(", ")} → ${result.displayName}`,
-        payload: { keptContact: result, mergedContactIds: mergeIds },
-        ...activity,
-      });
+      const results = plans.map((plan) => this.#applyContactMerge(plan, activity));
       this.database.exec("COMMIT");
-      return { contact: result, mergedContactIds: mergeIds };
+      return {
+        results,
+        mergedGroupCount: results.length,
+        mergedContactCount: results.reduce((count, result) => count + result.mergedContactIds.length, 0),
+      };
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  mergeContacts(input, activity = {}) {
+    const batch = this.mergeContactBatch([input], activity);
+    return batch.results[0];
   }
 
   listCalendar({ from, to }) {
@@ -1045,6 +1077,15 @@ export class OrganizerStore {
     return [...ordinary, ...recurring, ...birthdays]
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc) || String(left.id).localeCompare(String(right.id)))
       .slice(0, 2000);
+  }
+
+  searchCalendar({ query, includeArchived = false, limit = 100 } = {}) {
+    const result = searchCalendarEventRows(this.database, { query, includeArchived, limit });
+    return {
+      query: result.query,
+      includeArchived: result.includeArchived,
+      events: result.rows.map(publicCalendarEvent),
+    };
   }
 
   listTodos({ scope = "active", limit = 500 } = {}) {
