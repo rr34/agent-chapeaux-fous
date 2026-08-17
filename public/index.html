@@ -96,15 +96,15 @@
       <header class="organizer-heading">
         <div>
           <p class="eyebrow">Authoritative agent calendar</p>
-          <h2 id="calendar-month-label">Calendar</h2>
+          <h2 id="calendar-range-label">Calendar</h2>
         </div>
         <button id="new-event" type="button">New event</button>
       </header>
       <div class="calendar-toolbar organizer-panel">
         <div class="calendar-navigation">
-          <button id="previous-month" class="secondary compact" type="button" aria-label="Previous month">‹</button>
+          <button id="previous-weeks" class="secondary compact" type="button" aria-label="Previous two weeks">‹</button>
           <button id="today" class="secondary compact" type="button">Today</button>
-          <button id="next-month" class="secondary compact" type="button" aria-label="Next month">›</button>
+          <button id="next-weeks" class="secondary compact" type="button" aria-label="Next two weeks">›</button>
         </div>
         <div class="calendar-search-controls">
           <label class="calendar-search" for="calendar-search">
@@ -137,17 +137,17 @@
         <div id="calendar-search-result-list" class="calendar-search-result-list"></div>
       </section>
       <div id="calendar-layout" class="calendar-layout">
-        <aside class="agenda-panel organizer-panel">
-          <p class="eyebrow">Selected day</p>
-          <h3 id="agenda-date">Today</h3>
-          <div id="agenda-list" class="agenda-list"></div>
-        </aside>
-        <section class="month-panel organizer-panel" aria-label="Month calendar">
+        <section class="calendar-range-panel organizer-panel" aria-label="Two-week calendar">
           <div class="weekday-row" aria-hidden="true">
             <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
           </div>
           <div id="calendar-grid" class="calendar-grid"></div>
         </section>
+        <aside class="agenda-panel organizer-panel">
+          <p class="eyebrow">Selected day</p>
+          <h3 id="agenda-date">Today</h3>
+          <div id="agenda-list" class="agenda-list"></div>
+        </aside>
       </div>
     </section>
 

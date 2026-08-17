@@ -174,7 +174,13 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(document, /id="content-description"/);
   assert.match(document, /id="content-transcript"/);
   assert.match(document, /<span>Mon<\/span><span>Tue<\/span><span>Wed<\/span><span>Thu<\/span><span>Fri<\/span><span>Sat<\/span><span>Sun<\/span>/);
-  assert.ok(document.indexOf('class="agenda-panel') < document.indexOf('class="month-panel'));
+  assert.match(document, /aria-label="Previous two weeks"/);
+  assert.match(document, /aria-label="Next two weeks"/);
+  assert.ok(document.indexOf('class="calendar-range-panel') < document.indexOf('class="agenda-panel'));
+  assert.match(application, /function twoWeekCalendarRange/);
+  assert.match(application, /const gridEnd = addDays\(gridStart, 14\)/);
+  assert.match(application, /calendarRangeStart = addDays\(calendarRangeStart, -14\)/);
+  assert.match(application, /calendarRangeStart = addDays\(calendarRangeStart, 14\)/);
   assert.match(application, /refreshCalendar/);
   assert.match(application, /refreshTodos/);
   assert.match(application, /refreshContent/);

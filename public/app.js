@@ -45,7 +45,7 @@ const elements = {
   contentView: document.querySelector("#content-view"),
   contactsView: document.querySelector("#contacts-view"),
   logsView: document.querySelector("#logs-view"),
-  calendarMonthLabel: document.querySelector("#calendar-month-label"),
+  calendarRangeLabel: document.querySelector("#calendar-range-label"),
   calendarTimeZone: document.querySelector("#calendar-time-zone"),
   calendarGrid: document.querySelector("#calendar-grid"),
   calendarSearch: document.querySelector("#calendar-search"),
@@ -60,9 +60,9 @@ const elements = {
   cancelCalendarSchedule: document.querySelector("#cancel-calendar-schedule"),
   agendaDate: document.querySelector("#agenda-date"),
   agendaList: document.querySelector("#agenda-list"),
-  previousMonth: document.querySelector("#previous-month"),
+  previousWeeks: document.querySelector("#previous-weeks"),
   today: document.querySelector("#today"),
-  nextMonth: document.querySelector("#next-month"),
+  nextWeeks: document.querySelector("#next-weeks"),
   newEvent: document.querySelector("#new-event"),
   eventDialog: document.querySelector("#event-dialog"),
   eventForm: document.querySelector("#event-form"),
@@ -218,7 +218,7 @@ let recordingStartedAt = null;
 let recordingTimer = null;
 let pendingRunLimits = null;
 let activeView = "agent";
-let calendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let calendarRangeStart = startOfWeek(new Date());
 let selectedCalendarDate = new Date();
 let calendarEvents = [];
 let calendarSearchTimer = null;
@@ -829,12 +829,15 @@ function startOfDay(value) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function monthGridRange(cursor) {
-  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  const last = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
-  const gridStart = addDays(first, -((first.getDay() + 6) % 7));
-  const gridEnd = addDays(last, 7 - ((last.getDay() + 6) % 7));
-  return { first, gridStart, gridEnd };
+function startOfWeek(value) {
+  const date = startOfDay(value);
+  return addDays(date, -((date.getDay() + 6) % 7));
+}
+
+function twoWeekCalendarRange(value) {
+  const gridStart = startOfWeek(value);
+  const gridEnd = addDays(gridStart, 14);
+  return { gridStart, gridEnd };
 }
 
 function occursOnDay(calendarEvent, day) {
@@ -917,7 +920,7 @@ function switchView(view) {
 }
 
 async function refreshCalendar() {
-  const { gridStart, gridEnd } = monthGridRange(calendarCursor);
+  const { gridStart, gridEnd } = twoWeekCalendarRange(calendarRangeStart);
   try {
     const [calendarBody, todoBody, groupBody] = await Promise.all([
       api(`/api/calendar-events?from=${encodeURIComponent(gridStart.toISOString())}&to=${encodeURIComponent(gridEnd.toISOString())}`),
@@ -941,7 +944,7 @@ async function refreshCalendar() {
 function setCalendarSearchMode(enabled) {
   elements.calendarSearchResults.hidden = !enabled;
   elements.calendarLayout.hidden = enabled;
-  if (enabled) elements.calendarMonthLabel.textContent = "Search calendar";
+  if (enabled) elements.calendarRangeLabel.textContent = "Search calendar";
 }
 
 function formatCalendarSearchWhen(calendarEvent) {
@@ -1036,8 +1039,9 @@ function queueCalendarSearch() {
 }
 
 function renderCalendar() {
-  const { first, gridStart, gridEnd } = monthGridRange(calendarCursor);
-  elements.calendarMonthLabel.textContent = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(first);
+  const { gridStart, gridEnd } = twoWeekCalendarRange(calendarRangeStart);
+  const finalDay = addDays(gridEnd, -1);
+  elements.calendarRangeLabel.textContent = `${formatDisplayDate(gridStart, { includeTime: false })} – ${formatDisplayDate(finalDay, { includeTime: false })}`;
   elements.calendarTimeZone.textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
   elements.calendarGrid.replaceChildren();
   const todayKey = localDateKey(new Date());
@@ -1049,7 +1053,6 @@ function renderCalendar() {
     const due = todosDueOnDay(date);
     const button = node("button", "calendar-day");
     button.type = "button";
-    button.classList.toggle("outside", date.getMonth() !== calendarCursor.getMonth());
     button.classList.toggle("today", localDateKey(date) === todayKey);
     button.classList.toggle("selected", localDateKey(date) === selectedKey);
     button.setAttribute("aria-label", formatDisplayDate(date, { includeTime: false }));
@@ -1102,10 +1105,10 @@ function beginCalendarScheduling(todo) {
   calendarSchedulingBusy = false;
   if (todo.scheduledAtUtc) {
     selectedCalendarDate = new Date(todo.scheduledAtUtc);
-    calendarCursor = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), 1);
+    calendarRangeStart = startOfWeek(selectedCalendarDate);
   } else {
     selectedCalendarDate = new Date();
-    calendarCursor = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), 1);
+    calendarRangeStart = startOfWeek(selectedCalendarDate);
   }
   updateCalendarSchedulingMode();
   switchView("calendar");
@@ -3091,19 +3094,19 @@ elements.agentViewButton.addEventListener("click", () => switchView("agent"));
 elements.viewSelector.addEventListener("change", () => {
   if (elements.viewSelector.value) switchView(elements.viewSelector.value);
 });
-elements.previousMonth.addEventListener("click", () => {
-  calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() - 1, 1);
-  selectedCalendarDate = new Date(calendarCursor);
+elements.previousWeeks.addEventListener("click", () => {
+  calendarRangeStart = addDays(calendarRangeStart, -14);
+  selectedCalendarDate = new Date(calendarRangeStart);
   void refreshCalendar();
 });
-elements.nextMonth.addEventListener("click", () => {
-  calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() + 1, 1);
-  selectedCalendarDate = new Date(calendarCursor);
+elements.nextWeeks.addEventListener("click", () => {
+  calendarRangeStart = addDays(calendarRangeStart, 14);
+  selectedCalendarDate = new Date(calendarRangeStart);
   void refreshCalendar();
 });
 elements.today.addEventListener("click", () => {
   selectedCalendarDate = new Date();
-  calendarCursor = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), 1);
+  calendarRangeStart = startOfWeek(selectedCalendarDate);
   void refreshCalendar();
 });
 elements.cancelCalendarSchedule.addEventListener("click", () => cancelCalendarScheduling());
