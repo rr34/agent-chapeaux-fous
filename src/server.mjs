@@ -13,6 +13,7 @@ import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { receiveTextAttachment } from "./request-attachments.mjs";
+import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
 import { SchemaSemantics } from "./schema-semantics.mjs";
@@ -541,6 +542,7 @@ const server = http.createServer(async (request, response) => {
       const text = typeof body.text === "string" ? body.text.trim() : "";
       if (!text) throw Object.assign(new Error("Request text is required"), { statusCode: 400 });
       const primaryFileId = body.primaryFileId == null ? null : Number(body.primaryFileId);
+      const runLimits = normalizeRunLimits(body.runLimits);
       if (primaryFileId !== null) {
         if (!Number.isSafeInteger(primaryFileId) || primaryFileId <= 0) {
           throw Object.assign(new Error("Request attachment ID is invalid"), { statusCode: 400 });
@@ -550,7 +552,7 @@ const server = http.createServer(async (request, response) => {
           throw Object.assign(new Error("Request attachment was not found"), { statusCode: 404 });
         }
       }
-      const created = ledger.createRequest({ text, channel: "web", primaryFileId });
+      const created = ledger.createRequest({ text, channel: "web", primaryFileId, runLimits });
       queue.notify();
       sendJson(response, 202, created);
       return;

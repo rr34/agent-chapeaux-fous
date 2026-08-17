@@ -279,3 +279,55 @@ test("tool-budget exhaustion is returned to the model so it can finish gracefull
   assert.equal(responses[4].ok, false);
   assert.match(responses[4].error, /Return a final answer now/);
 });
+
+test("a request can override the normal tool budget and pass a model-turn deadline", async () => {
+  const toolResponses = [];
+  let receivedLimits;
+  const modelTransport = fakeTransport(async (payload) => {
+    receivedLimits = { maxToolCalls: payload.maxToolCalls, runTimeoutMs: payload.runTimeoutMs };
+    for (let index = 0; index < 6; index += 1) {
+      toolResponses.push(await payload.onToolCall({
+        callId: `call-${index}`,
+        tool: "ping",
+        arguments: {},
+      }));
+    }
+    return completedTurn({ text: "All calls completed." });
+  });
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "ping",
+    description: "Return pong.",
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { return { pong: true }; },
+  });
+  const events = [];
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: {
+      async build() {
+        return {
+          text: "context", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: { append(event) { events.push(event); } },
+    config: { ...runtimeConfig(), maxToolCalls: 2 },
+  });
+  runtime.systemPrompt = "prompt";
+  assert.equal(await runtime.run({
+    requestId: "request-custom-limits",
+    requestEventId: "event-custom-limits",
+    text: "Keep going.",
+    runLimits: { maxToolCalls: null, timeoutMs: 90_000 },
+  }), "All calls completed.");
+  assert.deepEqual(receivedLimits, { maxToolCalls: null, runTimeoutMs: 90_000 });
+  assert.equal(toolResponses.every(({ ok }) => ok), true);
+  assert.deepEqual(
+    events.find(({ type }) => type === "context.sent").payload.runLimits,
+    { maxToolCalls: null, timeoutMs: 90_000 },
+  );
+});

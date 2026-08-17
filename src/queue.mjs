@@ -79,6 +79,7 @@ export class RequestQueue {
         text,
         channel: request.channel,
         attachment,
+        runLimits: request.payload?.runLimits ?? null,
       });
       this.ledger.finish(request, response);
     } catch (error) {

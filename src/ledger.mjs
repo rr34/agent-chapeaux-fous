@@ -145,7 +145,7 @@ export class Ledger {
     return eventId;
   }
 
-  createRequest({ text = null, channel = "web", primaryFileId = null }) {
+  createRequest({ text = null, channel = "web", primaryFileId = null, runLimits = null }) {
     const requestId = randomUUID();
     const eventId = this.append({
       type: "request.received",
@@ -157,6 +157,7 @@ export class Ledger {
       turnId: requestId,
       name: "User request",
       content: text,
+      payload: runLimits === null ? {} : { runLimits },
       primaryFileId,
     });
     return { requestId, eventId };

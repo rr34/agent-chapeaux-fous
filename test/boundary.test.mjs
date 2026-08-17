@@ -276,10 +276,26 @@ test("the request composer accepts one bounded CSV, vCard, or text attachment", 
   assert.match(document, /id="request-file"[^>]+accept="\.csv,\.vcf,\.txt,text\/csv,text\/vcard,text\/x-vcard,text\/plain"/);
   assert.match(application, /\/api\/request-files\?filename=/);
   assert.match(application, /lowerName\.endsWith\("\.vcf"\) \? "text\/vcard"/);
-  assert.match(application, /JSON\.stringify\(\{ text, primaryFileId \}\)/);
+  assert.match(application, /JSON\.stringify\(\{ text, primaryFileId, runLimits: pendingRunLimits \}\)/);
   assert.match(server, /receiveTextAttachment/);
   assert.match(server, /url\.pathname === "\/api\/request-files"/);
-  assert.match(server, /ledger\.createRequest\(\{ text, channel: "web", primaryFileId \}\)/);
+  assert.match(server, /ledger\.createRequest\(\{ text, channel: "web", primaryFileId, runLimits \}\)/);
+});
+
+test("the request composer can apply one-shot tool and time limits", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  assert.match(document, /id="run-limits-button"/);
+  assert.match(document, /id="run-limits-dialog"/);
+  assert.match(document, /id="run-tool-call-limit"/);
+  assert.match(document, /id="run-tool-calls-unlimited"/);
+  assert.match(document, /id="run-time-limit-minutes"/);
+  assert.match(document, /id="run-time-unlimited"/);
+  assert.match(application, /function applyRunLimits/);
+  assert.match(application, /runLimits: pendingRunLimits/);
+  assert.match(application, /pendingRunLimits = null/);
+  assert.match(server, /normalizeRunLimits\(body\.runLimits\)/);
 });
 
 test("the request feed can start a new native model conversation without clearing application history", () => {

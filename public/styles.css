@@ -157,6 +157,9 @@ textarea:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .attachment-button { display: inline-flex; align-items: center; min-height: 42px; padding: .65rem 1rem; color: var(--text); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-weight: 400; }
 .attachment-button:hover { border-color: #56616a; background: #252b31; }
 .request-file-label { overflow: hidden; max-width: 24rem; color: var(--muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.request-run-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .45rem; }
+.run-limits-summary { padding: .3rem .5rem; color: var(--good); background: rgba(83, 200, 137, .1); border-radius: 999px; font-size: .7rem; white-space: nowrap; }
+#run-limits-button.ready { color: var(--good); border-color: rgba(83, 200, 137, .55); }
 
 button {
   min-height: 42px;
@@ -392,6 +395,11 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .integration-identity span { margin-top: .2rem; color: var(--muted); font-size: .78rem; }
 .integration-card.ready .integration-identity span { color: var(--good); }
 .editor-dialog { width: min(620px, calc(100% - 1.5rem)); max-height: calc(100dvh - 1.5rem); overflow: auto; }
+.run-limits-dialog { width: min(520px, calc(100% - 1.5rem)); }
+.run-limits-intro { color: var(--muted); font-size: .82rem; line-height: 1.45; }
+.run-limit-fieldset { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .75rem; margin: 0; padding: .8rem; border: 1px solid var(--line); border-radius: 11px; }
+.run-limit-fieldset legend { padding: 0 .3rem; color: var(--text); font-size: .82rem; }
+.run-limit-fieldset > label:first-of-type { display: grid; gap: .4rem; color: var(--muted); font-size: .78rem; }
 .contact-dialog { width: min(860px, calc(100% - 1.5rem)); }
 .editor-dialog form { display: grid; gap: .85rem; }
 .editor-dialog label { display: grid; gap: .4rem; color: var(--muted); font-size: .78rem; font-weight: 400; }
@@ -529,7 +537,10 @@ dialog h2, dialog p { margin-bottom: 0; }
   .composer-actions { align-items: stretch; flex-direction: column; }
   .request-attachment-control { width: 100%; }
   .request-file-label { max-width: calc(100vw - 10rem); }
-  .composer-actions > #send { align-self: flex-end; }
+  .request-run-controls { justify-content: stretch; }
+  .request-run-controls #send { margin-left: auto; }
+  .run-limits-summary { order: 3; width: 100%; text-align: right; }
+  .run-limit-fieldset { grid-template-columns: 1fr; }
   .runtime-group { align-items: flex-end; flex-direction: column-reverse; }
   .usage { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   main { padding: .7rem; }

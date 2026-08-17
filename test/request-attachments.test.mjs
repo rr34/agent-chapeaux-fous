@@ -298,8 +298,10 @@ test("the request queue supplies a stored document to the same runtime request",
     content: "Import these contacts.",
     channel: "web",
     primaryFileId: 9,
+    payload: { runLimits: { maxToolCalls: 256, timeoutMs: 3_600_000 } },
   });
   assert.equal(runtimeRequest.text, "Import these contacts.");
   assert.equal(runtimeRequest.attachment.text, csv);
+  assert.deepEqual(runtimeRequest.runLimits, { maxToolCalls: 256, timeoutMs: 3_600_000 });
   assert.equal(events.some(({ type }) => type === "attachment.read"), true);
 });

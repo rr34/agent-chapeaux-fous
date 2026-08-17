@@ -58,7 +58,11 @@
             <span id="request-file-label" class="request-file-label" hidden></span>
             <button id="remove-request-file" class="secondary compact" type="button" hidden>Remove</button>
           </div>
-          <button id="send" type="submit">Send</button>
+          <div class="request-run-controls">
+            <span id="run-limits-summary" class="run-limits-summary" hidden></span>
+            <button id="run-limits-button" class="secondary" type="button">Run limits</button>
+            <button id="send" type="submit">Send</button>
+          </div>
         </div>
       </form>
       <p id="composer-status" class="status" role="status"></p>
@@ -557,6 +561,30 @@
       <input id="token" type="password" autocomplete="current-password" required>
       <p class="muted">Stored only in this browser.</p>
       <button type="submit">Connect</button>
+    </form>
+  </dialog>
+
+  <dialog id="run-limits-dialog" class="run-limits-dialog">
+    <form id="run-limits-form">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Next request only</p><h2>Run limits</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <p class="run-limits-intro">Override the normal limits for the next submitted request. These settings reset after it queues successfully.</p>
+      <fieldset class="run-limit-fieldset">
+        <legend>Tool calls</legend>
+        <label>Maximum tool calls<input id="run-tool-call-limit" type="number" min="1" max="10000" step="1" value="256" required></label>
+        <label class="checkbox-row"><input id="run-tool-calls-unlimited" type="checkbox"><span>Unlimited tool calls</span></label>
+      </fieldset>
+      <fieldset class="run-limit-fieldset">
+        <legend>Run time</legend>
+        <label>Maximum minutes<input id="run-time-limit-minutes" type="number" min="1" max="1440" step="1" value="60" required></label>
+        <label class="checkbox-row"><input id="run-time-unlimited" type="checkbox"><span>No run deadline</span></label>
+      </fieldset>
+      <footer class="editor-actions">
+        <button id="run-limits-defaults" class="secondary" type="button">Use defaults</button>
+        <button type="submit">Apply to next request</button>
+      </footer>
     </form>
   </dialog>
 

@@ -5,6 +5,15 @@ const elements = {
   requestFile: document.querySelector("#request-file"),
   requestFileLabel: document.querySelector("#request-file-label"),
   removeRequestFile: document.querySelector("#remove-request-file"),
+  runLimitsButton: document.querySelector("#run-limits-button"),
+  runLimitsSummary: document.querySelector("#run-limits-summary"),
+  runLimitsDialog: document.querySelector("#run-limits-dialog"),
+  runLimitsForm: document.querySelector("#run-limits-form"),
+  runToolCallLimit: document.querySelector("#run-tool-call-limit"),
+  runToolCallsUnlimited: document.querySelector("#run-tool-calls-unlimited"),
+  runTimeLimitMinutes: document.querySelector("#run-time-limit-minutes"),
+  runTimeUnlimited: document.querySelector("#run-time-unlimited"),
+  runLimitsDefaults: document.querySelector("#run-limits-defaults"),
   record: document.querySelector("#record"),
   recordLabel: document.querySelector("#record-label"),
   recordTimer: document.querySelector("#record-timer"),
@@ -204,6 +213,7 @@ let recordingStream = null;
 let recordingChunks = [];
 let recordingStartedAt = null;
 let recordingTimer = null;
+let pendingRunLimits = null;
 let activeView = "agent";
 let calendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedCalendarDate = new Date();
@@ -267,6 +277,52 @@ function updateRequestFileSelection() {
   elements.requestFileLabel.hidden = !file;
   elements.removeRequestFile.hidden = !file;
   elements.requestFileLabel.textContent = file ? `${file.name} · ${formatFileSize(file.size)}` : "";
+}
+
+function runLimitsText(runLimits) {
+  if (runLimits === null) return "";
+  const calls = runLimits.maxToolCalls === null ? "unlimited calls" : `${runLimits.maxToolCalls} calls`;
+  const time = runLimits.timeoutMs === null ? "no deadline" : `${Math.round(runLimits.timeoutMs / 60_000)} min`;
+  return `${calls} · ${time}`;
+}
+
+function updateRunLimitsSummary() {
+  elements.runLimitsSummary.hidden = pendingRunLimits === null;
+  elements.runLimitsSummary.textContent = runLimitsText(pendingRunLimits);
+  elements.runLimitsButton.classList.toggle("ready", pendingRunLimits !== null);
+}
+
+function updateRunLimitFields() {
+  elements.runToolCallLimit.disabled = elements.runToolCallsUnlimited.checked;
+  elements.runTimeLimitMinutes.disabled = elements.runTimeUnlimited.checked;
+}
+
+function openRunLimitsDialog() {
+  elements.runToolCallsUnlimited.checked = pendingRunLimits?.maxToolCalls === null && pendingRunLimits !== null;
+  elements.runTimeUnlimited.checked = pendingRunLimits?.timeoutMs === null && pendingRunLimits !== null;
+  elements.runToolCallLimit.value = pendingRunLimits?.maxToolCalls ?? 256;
+  elements.runTimeLimitMinutes.value = pendingRunLimits?.timeoutMs == null
+    ? 60
+    : Math.max(1, Math.round(pendingRunLimits.timeoutMs / 60_000));
+  updateRunLimitFields();
+  elements.runLimitsDialog.showModal();
+}
+
+function applyRunLimits(event) {
+  event.preventDefault();
+  if (!elements.runLimitsForm.reportValidity()) return;
+  pendingRunLimits = {
+    maxToolCalls: elements.runToolCallsUnlimited.checked ? null : Number(elements.runToolCallLimit.value),
+    timeoutMs: elements.runTimeUnlimited.checked ? null : Number(elements.runTimeLimitMinutes.value) * 60_000,
+  };
+  updateRunLimitsSummary();
+  elements.runLimitsDialog.close();
+}
+
+function clearRunLimits() {
+  pendingRunLimits = null;
+  updateRunLimitsSummary();
+  elements.runLimitsDialog.close();
 }
 
 async function copyText(text, button = null) {
@@ -2800,11 +2856,13 @@ elements.form.addEventListener("submit", async (event) => {
     await api("/api/requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, primaryFileId }),
+      body: JSON.stringify({ text, primaryFileId, runLimits: pendingRunLimits }),
     });
     elements.text.value = "";
     elements.requestFile.value = "";
     updateRequestFileSelection();
+    pendingRunLimits = null;
+    updateRunLimitsSummary();
     elements.status.textContent = "Queued.";
     await loadRequests({ force: true });
   } catch (error) {
@@ -2824,6 +2882,11 @@ elements.removeRequestFile.addEventListener("click", () => {
   elements.requestFile.value = "";
   updateRequestFileSelection();
 });
+elements.runLimitsButton.addEventListener("click", openRunLimitsDialog);
+elements.runLimitsForm.addEventListener("submit", applyRunLimits);
+elements.runLimitsDefaults.addEventListener("click", clearRunLimits);
+elements.runToolCallsUnlimited.addEventListener("change", updateRunLimitFields);
+elements.runTimeUnlimited.addEventListener("change", updateRunLimitFields);
 
 elements.record.addEventListener("click", async () => {
   if (recorder?.state === "recording") {

@@ -27,7 +27,7 @@ export class SlayerRuntime {
     return this.systemPrompt;
   }
 
-  async run({ requestId, requestEventId, text, channel = "web", attachment = null }) {
+  async run({ requestId, requestEventId, text, channel = "web", attachment = null, runLimits = null }) {
     const tools = this.registry.toolDefinitions();
     const toolFingerprint = callableToolsFingerprint(tools);
     const conversation = typeof this.ledger.activeModelConversation === "function"
@@ -40,6 +40,8 @@ export class SlayerRuntime {
       conversationStartEventSeq: conversation.markerEventSeq,
     });
     const baseInstructions = await this.loadSystemPrompt();
+    const maxToolCalls = runLimits === null ? this.config.maxToolCalls : runLimits.maxToolCalls;
+    const runTimeoutMs = runLimits?.timeoutMs ?? null;
     const turnRequest = {
       model: this.config.model,
       effort: this.config.reasoningEffort,
@@ -48,7 +50,8 @@ export class SlayerRuntime {
       developerInstructions: context.text,
       input: text,
       tools,
-      maxToolCalls: this.config.maxToolCalls,
+      maxToolCalls,
+      runTimeoutMs,
     };
     const providerRequest = this.modelTransport.describeRequest(turnRequest);
 
@@ -64,6 +67,7 @@ export class SlayerRuntime {
         contextBudget: context.contextBudget,
         attachment: context.attachment,
         nativeConversation: context.nativeConversation,
+        runLimits: { maxToolCalls, timeoutMs: runTimeoutMs },
       },
     });
     this.ledger.append({
@@ -104,8 +108,8 @@ export class SlayerRuntime {
             actorName: this.config.model, channel, turnId: requestId, operationId: callId,
             name, payload: { callId, name, arguments: args },
           });
-          if (toolCallCount > this.config.maxToolCalls) {
-            const message = `Tool-call budget exhausted after ${this.config.maxToolCalls} calls. Return a final answer now without calling another tool; state clearly which requested actions remain incomplete.`;
+          if (maxToolCalls !== null && toolCallCount > maxToolCalls) {
+            const message = `Tool-call budget exhausted after ${maxToolCalls} calls. Return a final answer now without calling another tool; state clearly which requested actions remain incomplete.`;
             this.ledger.append({
               type: "tool.result", phase: "error", status: "error", actorType: "tool",
               actorName: name, channel, turnId: requestId, operationId: callId, name,

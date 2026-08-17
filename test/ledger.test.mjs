@@ -49,6 +49,24 @@ test("active request progress follows the latest unfinished ledger operation", (
   }
 });
 
+test("one-shot run limits persist on the queued request event", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const created = ledger.createRequest({
+      text: "Import the watch jobs",
+      runLimits: { maxToolCalls: null, timeoutMs: 3_600_000 },
+    });
+    const queued = ledger.nextQueuedRequest();
+    assert.equal(queued.turnId, created.requestId);
+    assert.deepEqual(queued.payload.runLimits, { maxToolCalls: null, timeoutMs: 3_600_000 });
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("request IDs resolve from an unambiguous visible prefix", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.filename);

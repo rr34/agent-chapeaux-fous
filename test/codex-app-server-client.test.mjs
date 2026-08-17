@@ -23,13 +23,14 @@ function quota(usedPercent) {
 }
 
 class FakeCodexProcess extends EventEmitter {
-  constructor() {
+  constructor({ stallTurn = false } = {}) {
     super();
     this.stdout = new PassThrough();
     this.stderr = new PassThrough();
     this.messages = [];
     this.rateReads = 0;
     this.turnCount = 0;
+    this.stallTurn = stallTurn;
     let buffered = "";
     this.stdin = new Writable({
       write: (chunk, _encoding, callback) => {
@@ -69,11 +70,14 @@ class FakeCodexProcess extends EventEmitter {
       const turnId = `turn-${this.turnCount}`;
       const serverCallId = `server-call-${this.turnCount}`;
       this.send({ id: message.id, result: { turn: { id: turnId, status: "inProgress", items: [] } } });
+      if (this.stallTurn) return;
       queueMicrotask(() => this.send({
         method: "item/tool/call",
         id: serverCallId,
         params: { threadId: message.params.threadId, turnId, callId: `call-${this.turnCount}`, tool: "echo", namespace: null, arguments: { value: "hello" } },
       }));
+    } else if (message.method === "turn/interrupt") {
+      this.send({ id: message.id, result: {} });
     } else if (String(message.id).startsWith("server-call-") && message.result) {
       const turnNumber = Number(String(message.id).slice("server-call-".length));
       const turnId = `turn-${turnNumber}`;
@@ -100,6 +104,17 @@ test("rate-limit summaries expose remaining quota and per-request deltas", () =>
   assert.equal(delta.tokenUsage.totalTokens, 321);
 });
 
+test("request descriptions expose one-shot execution limits", () => {
+  const client = new CodexAppServerClient({ command: "/fake/codex", codexHome: "/fake", cwd: "/fake/workspace" });
+  const description = client.describeRequest({
+    model: "test-model", effort: "high", conversationId: null,
+    baseInstructions: "SYSTEM", developerInstructions: "CONTEXT", input: "Import jobs.",
+    tools: [], maxToolCalls: null, runTimeoutMs: 3_600_000,
+  });
+  assert.equal(description.executionBoundary.maxToolCalls, null);
+  assert.equal(description.executionBoundary.runTimeoutMs, 3_600_000);
+});
+
 test("the client performs a complete dynamic-tool turn and records subscription usage", async () => {
   let fake;
   let spawnArguments;
@@ -122,6 +137,8 @@ test("the client performs a complete dynamic-tool turn and records subscription 
     developerInstructions: "CONTEXT",
     input: "Call echo.",
     tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" }, strict: true }],
+    maxToolCalls: null,
+    runTimeoutMs: 60_000,
     async onToolCall(call) {
       calls.push(call);
       return { ok: true, result: call.arguments };
@@ -142,6 +159,33 @@ test("the client performs a complete dynamic-tool turn and records subscription 
   assert.ok(spawnArguments.includes("tools.update_plan.enabled=false"));
   assert.deepEqual(client.health().configAudit.mcpServers, []);
   assert.equal(client.health().workDirectory, "/fake/workspace");
+  await client.close();
+});
+
+test("a per-request run deadline interrupts a stalled model turn", async () => {
+  let fake;
+  const client = new CodexAppServerClient({
+    command: "/fake/codex",
+    codexHome: "/fake",
+    cwd: "/fake/workspace",
+    disabledFeatures: disabledCodexFeatures,
+    spawnImplementation() {
+      fake = new FakeCodexProcess({ stallTurn: true });
+      return fake;
+    },
+  });
+  await assert.rejects(client.runTurn({
+    model: "test-model",
+    effort: "medium",
+    baseInstructions: "SYSTEM",
+    developerInstructions: "CONTEXT",
+    input: "Work until interrupted.",
+    tools: [],
+    maxToolCalls: null,
+    runTimeoutMs: 10,
+    async onToolCall() { throw new Error("must not call tools"); },
+  }), /exceeded its 10ms run deadline/);
+  assert.equal(fake.messages.some(({ method }) => method === "turn/interrupt"), true);
   await client.close();
 });
 

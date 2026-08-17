@@ -295,7 +295,7 @@ export class CodexAppServerClient extends EventEmitter {
       return;
     }
     turn.toolCallCount += 1;
-    if (turn.toolCallCount > turn.maxToolCalls + 1) {
+    if (turn.maxToolCalls !== null && turn.toolCallCount > turn.maxToolCalls + 1) {
       this.#write({
         id: message.id,
         result: {
@@ -472,6 +472,8 @@ export class CodexAppServerClient extends EventEmitter {
     developerInstructions,
     input,
     tools,
+    maxToolCalls,
+    runTimeoutMs,
   }) {
     return {
       transport: this.id,
@@ -490,6 +492,8 @@ export class CodexAppServerClient extends EventEmitter {
         sandbox: "read-only",
         networkAccess: false,
         builtInAgentFeatures: "disabled; an unexpected built-in item fails the turn",
+        maxToolCalls,
+        runTimeoutMs,
       },
     };
   }
@@ -503,6 +507,7 @@ export class CodexAppServerClient extends EventEmitter {
     input,
     tools,
     maxToolCalls = 128,
+    runTimeoutMs = null,
     onToolCall,
     onEvent,
   }) {
@@ -574,12 +579,28 @@ export class CodexAppServerClient extends EventEmitter {
       approvalPolicy: "never",
     };
     let turn;
+    let deadlineTimer = null;
     try {
       const turnResult = await this.request("turn/start", turnStart);
       state.turnId = turnResult?.turn?.id;
       if (!state.turnId) throw new Error("Codex App Server did not return a turn id");
-      turn = await completion.promise;
+      if (runTimeoutMs === null) {
+        turn = await completion.promise;
+      } else {
+        const deadline = deferred();
+        void deadline.promise.catch(() => {});
+        deadlineTimer = setTimeout(() => {
+          const error = new Error(`Codex model turn exceeded its ${runTimeoutMs}ms run deadline`);
+          error.code = "RUN_DEADLINE_EXCEEDED";
+          state.interruptRequested = true;
+          void this.request("turn/interrupt", { threadId: state.threadId, turnId: state.turnId }).catch(() => {});
+          deadline.reject(error);
+        }, runTimeoutMs);
+        deadlineTimer.unref?.();
+        turn = await Promise.race([completion.promise, deadline.promise]);
+      }
     } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
       if (this.activeTurn === state) this.activeTurn = null;
       await this.request("thread/unsubscribe", { threadId }).catch(() => {});
     }
