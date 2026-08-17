@@ -15,6 +15,7 @@ const elements = {
   integrationList: document.querySelector("#integration-list"),
   usage: document.querySelector("#usage"),
   refresh: document.querySelector("#refresh"),
+  newConversation: document.querySelector("#new-conversation"),
   list: document.querySelector("#request-list"),
   empty: document.querySelector("#empty"),
   template: document.querySelector("#request-template"),
@@ -72,6 +73,7 @@ const elements = {
   todoScope: document.querySelector("#todo-scope"),
   todoGroupFilter: document.querySelector("#todo-group-filter"),
   todoCount: document.querySelector("#todo-count"),
+  moveOverdueTodos: document.querySelector("#move-overdue-todos"),
   todoList: document.querySelector("#todo-list"),
   newTodo: document.querySelector("#new-todo"),
   newTodoGroup: document.querySelector("#new-todo-group"),
@@ -164,6 +166,8 @@ let displayedTodos = [];
 let todoGroups = [];
 let loadedTodoRecurrenceTimeZone = null;
 let todoRecurrenceDirty = false;
+let movingOverdueTodos = false;
+let moveOverdueFeedbackTimer = null;
 let contacts = [];
 let logTrackers = [];
 let logEntries = [];
@@ -533,6 +537,7 @@ function requestNode(request, index) {
     requestNodes.set(request.requestId, node);
   }
   node.dataset.status = request.status;
+  node.querySelector(".conversation-start").hidden = !request.conversationStarted;
   const requestNumber = node.querySelector(".request-number");
   requestNumber.textContent = `Request ${request.requestId.slice(0, 8)}`;
   requestNumber.title = `Copy request ID ${request.requestId}`;
@@ -1045,6 +1050,15 @@ function renderTodos() {
     ? displayedTodos.filter(({ groupId }) => String(groupId) === elements.todoGroupFilter.value)
     : displayedTodos;
   elements.todoCount.textContent = `${visibleTodos.length} ${visibleTodos.length === 1 ? "task" : "tasks"}`;
+  const overdueCount = displayedTodos.filter((todo) => (
+    ["todo", "ai_suggested"].includes(todo.status)
+      && todo.scheduledAtUtc
+      && new Date(todo.scheduledAtUtc) < startOfDay(new Date())
+  )).length;
+  elements.moveOverdueTodos.disabled = movingOverdueTodos;
+  elements.moveOverdueTodos.title = overdueCount === 0
+    ? "Move every active task scheduled before today onto today"
+    : `Move ${overdueCount} overdue scheduled ${overdueCount === 1 ? "task" : "tasks"} onto today`;
   const groupedTodos = new Map();
   const visibleGroups = elements.todoGroupFilter.value
     ? todoGroups.filter(({ id }) => String(id) === elements.todoGroupFilter.value)
@@ -1184,6 +1198,37 @@ function renderTodos() {
     }
     section.append(heading, cards);
     elements.todoList.append(section);
+  }
+}
+
+async function moveOverdueTodosToToday() {
+  if (movingOverdueTodos) return;
+  movingOverdueTodos = true;
+  clearTimeout(moveOverdueFeedbackTimer);
+  elements.moveOverdueTodos.textContent = "Moving…";
+  renderTodos();
+  try {
+    const result = await api("/api/todos/move-overdue-to-today", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        localDate: localDateKey(new Date()),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    });
+    await refreshTodos();
+    elements.moveOverdueTodos.textContent = result.movedCount === 0
+      ? "Nothing overdue"
+      : `Moved ${result.movedCount} to today`;
+    moveOverdueFeedbackTimer = setTimeout(() => {
+      elements.moveOverdueTodos.textContent = "Move overdue to today";
+    }, 2500);
+  } catch (error) {
+    elements.moveOverdueTodos.textContent = "Move overdue to today";
+    window.alert(error.message || "Could not move overdue tasks to today.");
+  } finally {
+    movingOverdueTodos = false;
+    renderTodos();
   }
 }
 
@@ -2058,6 +2103,18 @@ elements.record.addEventListener("click", async () => {
 });
 
 elements.refresh.addEventListener("click", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
+elements.newConversation.addEventListener("click", async () => {
+  if (!window.confirm("Start a new conversation? Slayer will stop carrying the current conversation context into the next request.")) return;
+  elements.newConversation.disabled = true;
+  try {
+    await api("/api/conversation/reset", { method: "POST" });
+    elements.status.textContent = "New conversation ready.";
+  } catch (error) {
+    elements.status.textContent = error.message;
+  } finally {
+    elements.newConversation.disabled = false;
+  }
+});
 elements.integrationsButton.addEventListener("click", () => elements.integrationsDialog.showModal());
 elements.integrationList.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-name]");
@@ -2133,6 +2190,7 @@ elements.todoNewGroup.addEventListener("click", async () => {
 });
 elements.todoScope.addEventListener("change", () => void refreshTodos());
 elements.todoGroupFilter.addEventListener("change", renderTodos);
+elements.moveOverdueTodos.addEventListener("click", () => void moveOverdueTodosToToday());
 elements.todoForm.addEventListener("submit", saveTodo);
 elements.todoAllDay.addEventListener("change", () => {
   setTodoScheduledInputType(elements.todoAllDay.checked);

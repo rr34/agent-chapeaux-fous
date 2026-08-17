@@ -38,6 +38,7 @@ function fakeTransport(runTurn) {
       return {
         transport: this.id,
         model: payload.model,
+        conversationId: payload.conversationId,
         baseInstructions: payload.baseInstructions,
         developerInstructions: payload.developerInstructions,
         input: [{ type: "text", text: payload.input }],
@@ -59,6 +60,7 @@ test("the first model turn contains the exact request, context, and callable too
       requests.push({
         model: payload.model,
         effort: payload.effort,
+        conversationId: payload.conversationId,
         baseInstructions: payload.baseInstructions,
         developerInstructions: payload.developerInstructions,
         input: payload.input,
@@ -125,7 +127,12 @@ test("the first model turn contains the exact request, context, and callable too
   assert.deepEqual(contextBuildInput, {
     requestId: "request-1",
     requestText: "Use the echo tool.",
-    options: { attachment },
+    options: {
+      attachment,
+      nativeConversation: true,
+      continuingConversation: false,
+      conversationStartEventSeq: 0,
+    },
   });
   assert.deepEqual(
     events.filter((event) => ["context.sent", "tools.sent", "model.request", "model.response", "model.usage", "tool.call", "tool.result"].includes(event.type)).map((event) => event.type),
@@ -138,6 +145,53 @@ test("the first model turn contains the exact request, context, and callable too
   assert.deepEqual(contextEvent.payload.relevantProfileTypes, ["address"]);
   assert.deepEqual(contextEvent.payload.relevantProfileQuestions, [{ factType: "address" }]);
   assert.equal(contextEvent.payload.attachment.filename, "contacts.csv");
+});
+
+test("the runtime resumes the active native conversation without reinjecting transcript history", async () => {
+  let modelRequest;
+  let contextOptions;
+  const modelTransport = fakeTransport(async (payload) => {
+    modelRequest = payload;
+    return completedTurn({ threadId: "thread-saved" });
+  });
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry: new ToolRegistry(),
+    contextBuilder: {
+      async build(_requestId, _requestText, options) {
+        contextOptions = options;
+        return {
+          text: "CURRENT CONTEXT ONLY",
+          profileFacts: [],
+          activeProfileFactCount: 0,
+          relevantProfileTypes: [],
+          relevantProfileQuestions: [],
+          history: [],
+          nativeConversation: { continuing: true },
+          contextBudget: { truncated: false },
+          attachment: null,
+        };
+      },
+    },
+    ledger: {
+      activeModelConversation() {
+        return { conversationId: "thread-saved", markerEventSeq: 42, reason: "continue" };
+      },
+      append() {},
+    },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+
+  await runtime.run({ requestId: "r2", requestEventId: "e2", text: "Continue." });
+
+  assert.equal(modelRequest.conversationId, "thread-saved");
+  assert.deepEqual(contextOptions, {
+    attachment: null,
+    nativeConversation: true,
+    continuingConversation: true,
+    conversationStartEventSeq: 42,
+  });
 });
 
 test("a failed tool result is returned to the model transport instead of becoming a fabricated success", async () => {

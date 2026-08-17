@@ -197,6 +197,50 @@ test("native todo tools preserve an explicit all-day schedule", async (context) 
   assert.equal(updated.task.is_all_day, 0);
 });
 
+test("todo_move_overdue_to_today shifts all overdue active tasks in one tool call", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+
+  const first = await registry.execute("todo_add", {
+    text: "First overdue task",
+    group: "Inbox",
+    scheduled_at_utc: "2026-08-15T13:00:00.000Z",
+    due_at_utc: "2026-08-16T14:00:00.000Z",
+  }, { requestId: "move-overdue", callId: "add-first" });
+  const second = await registry.execute("todo_add", {
+    text: "Second overdue task",
+    group: "Development",
+    scheduled_at_utc: "2026-08-16T04:00:00.000Z",
+    is_all_day: true,
+    due_at_utc: null,
+  }, { requestId: "move-overdue", callId: "add-second" });
+
+  const result = await registry.execute("todo_move_overdue_to_today", {
+    local_date: "2026-08-17",
+    time_zone: "America/New_York",
+  }, { requestId: "move-overdue", callId: "move-all" });
+
+  assert.equal(result.moved_count, 2);
+  assert.deepEqual(
+    result.tasks.map(({ personal_task_id }) => personal_task_id),
+    [first.task.personal_task_id, second.task.personal_task_id],
+  );
+  assert.deepEqual(
+    result.tasks.map(({ scheduled_at_utc }) => scheduled_at_utc),
+    ["2026-08-17T13:00:00.000Z", "2026-08-17T04:00:00.000Z"],
+  );
+  assert.equal(result.tasks[0].due_at_utc, "2026-08-18T14:00:00.000Z");
+  assert.equal(store.requireReady().prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'personal_todos.moved_to_today'
+      AND actor_name = 'todo_move_overdue_to_today'
+  `).get().count, 1);
+});
+
 test("todo_add uses Inbox when a requested group is missing, then supports a confirmed create and move", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

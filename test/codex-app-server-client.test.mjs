@@ -29,6 +29,7 @@ class FakeCodexProcess extends EventEmitter {
     this.stderr = new PassThrough();
     this.messages = [];
     this.rateReads = 0;
+    this.turnCount = 0;
     let buffered = "";
     this.stdin = new Writable({
       write: (chunk, _encoding, callback) => {
@@ -61,18 +62,25 @@ class FakeCodexProcess extends EventEmitter {
       this.send({ id: message.id, result: quota(this.rateReads >= 4 ? 12 : 10) });
     } else if (message.method === "thread/start") {
       this.send({ id: message.id, result: { thread: { id: "thread-1" } } });
+    } else if (message.method === "thread/resume") {
+      this.send({ id: message.id, result: { thread: { id: message.params.threadId } } });
     } else if (message.method === "turn/start") {
-      this.send({ id: message.id, result: { turn: { id: "turn-1", status: "inProgress", items: [] } } });
+      this.turnCount += 1;
+      const turnId = `turn-${this.turnCount}`;
+      const serverCallId = `server-call-${this.turnCount}`;
+      this.send({ id: message.id, result: { turn: { id: turnId, status: "inProgress", items: [] } } });
       queueMicrotask(() => this.send({
         method: "item/tool/call",
-        id: "server-call-1",
-        params: { threadId: "thread-1", turnId: "turn-1", callId: "call-1", tool: "echo", namespace: null, arguments: { value: "hello" } },
+        id: serverCallId,
+        params: { threadId: message.params.threadId, turnId, callId: `call-${this.turnCount}`, tool: "echo", namespace: null, arguments: { value: "hello" } },
       }));
-    } else if (message.id === "server-call-1" && message.result) {
-      this.send({ method: "item/completed", params: { threadId: "thread-1", turnId: "turn-1", item: { id: "item-tool", type: "dynamicToolCall", tool: "echo", arguments: { value: "hello" }, status: "completed", success: true } } });
-      this.send({ method: "thread/tokenUsage/updated", params: { threadId: "thread-1", turnId: "turn-1", tokenUsage: { last: { inputTokens: 100, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 }, total: { inputTokens: 100, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 }, modelContextWindow: 1000 } } });
-      this.send({ method: "item/completed", params: { threadId: "thread-1", turnId: "turn-1", item: { id: "item-message", type: "agentMessage", phase: "final_answer", text: "hello returned" } } });
-      this.send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed", items: [] } } });
+    } else if (String(message.id).startsWith("server-call-") && message.result) {
+      const turnNumber = Number(String(message.id).slice("server-call-".length));
+      const turnId = `turn-${turnNumber}`;
+      this.send({ method: "item/completed", params: { threadId: "thread-1", turnId, item: { id: `item-tool-${turnNumber}`, type: "dynamicToolCall", tool: "echo", arguments: { value: "hello" }, status: "completed", success: true } } });
+      this.send({ method: "thread/tokenUsage/updated", params: { threadId: "thread-1", turnId, tokenUsage: { last: { inputTokens: 100, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 }, total: { inputTokens: 100, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 }, modelContextWindow: 1000 } } });
+      this.send({ method: "item/completed", params: { threadId: "thread-1", turnId, item: { id: `item-message-${turnNumber}`, type: "agentMessage", phase: "final_answer", text: "hello returned" } } });
+      this.send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: turnId, status: "completed", items: [] } } });
     } else if (message.method === "thread/unsubscribe") {
       this.send({ id: message.id, result: {} });
     }
@@ -125,7 +133,8 @@ test("the client performs a complete dynamic-tool turn and records subscription 
   assert.equal(result.usage.windows[0].usedPercentDelta, 2);
   assert.equal(result.usage.tokenUsage.totalTokens, 120);
   const threadStart = fake.messages.find((message) => message.method === "thread/start");
-  assert.equal(threadStart.params.ephemeral, true);
+  assert.equal(threadStart.params.ephemeral, false);
+  assert.equal(threadStart.params.personality, "friendly");
   assert.equal(threadStart.params.sandbox, "read-only");
   assert.deepEqual(threadStart.params.dynamicTools, [{ type: "function", name: "echo", description: "Echo", inputSchema: { type: "object" } }]);
   assert.ok(spawnArguments.includes("shell_tool"));
@@ -133,5 +142,38 @@ test("the client performs a complete dynamic-tool turn and records subscription 
   assert.ok(spawnArguments.includes("tools.update_plan.enabled=false"));
   assert.deepEqual(client.health().configAudit.mcpServers, []);
   assert.equal(client.health().workDirectory, "/fake/workspace");
+  await client.close();
+});
+
+test("the client resumes a persistent thread with refreshed instructions", async () => {
+  let fake;
+  const client = new CodexAppServerClient({
+    command: "/fake/codex",
+    codexHome: "/fake",
+    cwd: "/fake/workspace",
+    disabledFeatures: disabledCodexFeatures,
+    spawnImplementation() {
+      fake = new FakeCodexProcess();
+      return fake;
+    },
+  });
+  const result = await client.runTurn({
+    model: "test-model",
+    effort: "medium",
+    conversationId: "thread-1",
+    baseInstructions: "SYSTEM 2",
+    developerInstructions: "CURRENT CONTEXT 2",
+    input: "Continue with echo.",
+    tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" }, strict: true }],
+    async onToolCall(call) { return { ok: true, result: call.arguments }; },
+  });
+
+  const resume = fake.messages.find((message) => message.method === "thread/resume");
+  assert.equal(resume.params.threadId, "thread-1");
+  assert.equal(resume.params.personality, "friendly");
+  assert.equal(resume.params.baseInstructions, "SYSTEM 2");
+  assert.equal(resume.params.developerInstructions, "CURRENT CONTEXT 2");
+  assert.equal(Object.hasOwn(resume.params, "dynamicTools"), false);
+  assert.equal(result.threadId, "thread-1");
   await client.close();
 });

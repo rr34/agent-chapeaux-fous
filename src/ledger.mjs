@@ -245,8 +245,72 @@ export class Ledger {
       error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
       usage: usage?.payload || null,
       eventCount: events.length,
+      ...(events.some((event) => event.type === "conversation.started")
+        ? { conversationStarted: true }
+        : {}),
       ...(!terminal ? { progress: requestProgress(events, request.occurredAtMs) } : {}),
     };
+  }
+
+  unfinishedRequestCount() {
+    const row = this.store.requireReady().prepare(`
+      SELECT COUNT(*) AS count
+      FROM activity_events AS received
+      WHERE received.event_type IN (${placeholders(receivedEventTypes)})
+        AND NOT EXISTS (
+          SELECT 1 FROM activity_events AS terminal
+          WHERE terminal.turn_id = received.turn_id
+            AND terminal.event_type IN (${placeholders(terminalEventTypes)})
+        )
+    `).get(...receivedEventTypes, ...terminalEventTypes);
+    return Number(row?.count ?? 0);
+  }
+
+  activeModelConversation(toolFingerprint) {
+    const marker = this.store.requireReady().prepare(`
+      SELECT * FROM activity_events
+      WHERE event_type IN ('conversation.started', 'conversation.reset')
+      ORDER BY event_seq DESC
+      LIMIT 1
+    `).get();
+    const event = publicEvent(marker);
+    if (!event || event.type === "conversation.reset") {
+      return { conversationId: null, markerEventSeq: event?.eventSeq ?? 0, reason: "new" };
+    }
+    const conversationId = typeof event.payload?.conversationId === "string"
+      ? event.payload.conversationId
+      : null;
+    const recordedFingerprint = typeof event.payload?.toolFingerprint === "string"
+      ? event.payload.toolFingerprint
+      : null;
+    if (!conversationId || !recordedFingerprint || recordedFingerprint !== toolFingerprint) {
+      return { conversationId: null, markerEventSeq: event.eventSeq, reason: "tools_changed" };
+    }
+    return { conversationId, markerEventSeq: event.eventSeq, reason: "continue" };
+  }
+
+  markConversationStarted({ conversationId, toolFingerprint, requestId, channel = "web" }) {
+    if (typeof conversationId !== "string" || !conversationId.trim()) {
+      throw new Error("A model conversation ID is required");
+    }
+    if (typeof toolFingerprint !== "string" || !toolFingerprint.trim()) {
+      throw new Error("A callable-tool fingerprint is required");
+    }
+    return this.append({
+      type: "conversation.started", status: "complete", actorType: "service",
+      actorName: "Conversation manager", channel, turnId: requestId,
+      name: "New model conversation", content: "Started a new model conversation",
+      payload: { conversationId, toolFingerprint },
+      subjectType: "model_conversation", subjectId: conversationId,
+    });
+  }
+
+  resetModelConversation({ channel = "web" } = {}) {
+    return this.append({
+      type: "conversation.reset", status: "complete", actorType: "user",
+      actorName: "User", channel, name: "New conversation requested",
+      content: "Start the next request in a new model conversation",
+    });
   }
 
   recentRequests(limit = 100) {
@@ -335,7 +399,7 @@ export class Ledger {
     };
   }
 
-  recentConversation({ beforeRequestId = null, limit = 4 } = {}) {
+  recentConversation({ beforeRequestId = null, afterEventSeq = 0, limit = 4 } = {}) {
     const database = this.store.requireReady();
     const before = beforeRequestId
       ? database.prepare(`
@@ -347,11 +411,13 @@ export class Ledger {
     const rows = database.prepare(`
       SELECT * FROM activity_events
       WHERE event_type IN (${placeholders([...receivedEventTypes, ...responseEventTypes])})
+        AND event_seq > ?
         AND (? IS NULL OR event_seq < ?)
       ORDER BY event_seq DESC LIMIT ?
     `).all(
       ...receivedEventTypes,
       ...responseEventTypes,
+      Math.max(0, Number(afterEventSeq) || 0),
       before ?? null,
       before ?? null,
       Math.min(20, Math.max(2, limit * 2)),

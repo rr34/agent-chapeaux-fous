@@ -467,6 +467,7 @@ export class CodexAppServerClient extends EventEmitter {
   describeRequest({
     model,
     effort,
+    conversationId,
     baseInstructions,
     developerInstructions,
     input,
@@ -476,12 +477,16 @@ export class CodexAppServerClient extends EventEmitter {
       transport: this.id,
       model,
       reasoningEffort: effort,
+      conversation: {
+        mode: conversationId ? "resume" : "start",
+        conversationId: conversationId ?? null,
+      },
       baseInstructions,
       developerInstructions,
       input: [{ type: "text", text: input }],
       dynamicTools: this.dynamicTools(tools),
       executionBoundary: {
-        ephemeralThread: true,
+        persistentThread: true,
         sandbox: "read-only",
         networkAccess: false,
         builtInAgentFeatures: "disabled; an unexpected built-in item fails the turn",
@@ -492,6 +497,7 @@ export class CodexAppServerClient extends EventEmitter {
   async runTurn({
     model,
     effort,
+    conversationId = null,
     baseInstructions,
     developerInstructions,
     input,
@@ -508,17 +514,14 @@ export class CodexAppServerClient extends EventEmitter {
     }
     if (this.activeTurn) throw new Error("Codex App Server already has an active Agent Slayer turn");
     const before = await this.refreshRateLimits();
-    const threadStart = {
+    const threadConfiguration = {
       model,
       cwd: this.cwd,
       approvalPolicy: "never",
       sandbox: "read-only",
-      personality: "none",
-      ephemeral: true,
-      serviceName: "agent_slayer",
+      personality: "friendly",
       baseInstructions,
       developerInstructions,
-      dynamicTools: this.dynamicTools(tools),
       config: {
         web_search: "disabled",
         include_apps_instructions: false,
@@ -527,9 +530,21 @@ export class CodexAppServerClient extends EventEmitter {
         apps: { _default: { enabled: false } },
       },
     };
-    const threadResult = await this.request("thread/start", threadStart);
+    const threadMethod = conversationId ? "thread/resume" : "thread/start";
+    const threadRequest = conversationId
+      ? { threadId: conversationId, ...threadConfiguration }
+      : {
+          ...threadConfiguration,
+          ephemeral: false,
+          serviceName: "agent_slayer",
+          dynamicTools: this.dynamicTools(tools),
+        };
+    const threadResult = await this.request(threadMethod, threadRequest);
     const threadId = threadResult?.thread?.id;
     if (!threadId) throw new Error("Codex App Server did not return a thread id");
+    if (conversationId && threadId !== conversationId) {
+      throw new Error(`Codex resumed unexpected thread ${threadId} instead of ${conversationId}`);
+    }
     if ((threadResult.instructionSources ?? []).length) {
       throw new Error(`Codex loaded unexpected instruction files: ${threadResult.instructionSources.join(", ")}`);
     }
@@ -566,7 +581,7 @@ export class CodexAppServerClient extends EventEmitter {
       turn = await completion.promise;
     } finally {
       if (this.activeTurn === state) this.activeTurn = null;
-      void this.request("thread/unsubscribe", { threadId }).catch(() => {});
+      await this.request("thread/unsubscribe", { threadId }).catch(() => {});
     }
     if (state.unexpectedItems.length) {
       const types = [...new Set(state.unexpectedItems.map((item) => item.type))].join(", ");
@@ -590,7 +605,7 @@ export class CodexAppServerClient extends EventEmitter {
       tokenUsage: state.tokenUsage,
       usage: usageDelta(before, after, state.tokenUsage?.last ?? state.tokenUsage?.total ?? null),
       events: state.events,
-      protocol: { threadStart, turnStart },
+      protocol: { threadMethod, threadRequest, turnStart },
     };
   }
 

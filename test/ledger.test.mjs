@@ -74,6 +74,43 @@ test("request IDs resolve from an unambiguous visible prefix", () => {
   }
 });
 
+test("model conversation markers persist resumable state without changing the database schema", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    assert.deepEqual(ledger.activeModelConversation("tools-a"), {
+      conversationId: null,
+      markerEventSeq: 0,
+      reason: "new",
+    });
+    const request = ledger.createRequest({ text: "Start here" });
+    ledger.markConversationStarted({
+      conversationId: "thread-1",
+      toolFingerprint: "tools-a",
+      requestId: request.requestId,
+    });
+    ledger.finish(ledger.trace(request.requestId)[0], "Started");
+
+    assert.equal(ledger.activeModelConversation("tools-a").conversationId, "thread-1");
+    assert.equal(ledger.activeModelConversation("tools-b").reason, "tools_changed");
+    assert.equal(ledger.recentRequests()[0].conversationStarted, true);
+    assert.equal(ledger.unfinishedRequestCount(), 0);
+
+    const queued = ledger.createRequest({ text: "Still queued" });
+    assert.equal(ledger.unfinishedRequestCount(), 1);
+    ledger.fail(ledger.trace(queued.requestId)[0], new Error("stop"));
+    assert.equal(ledger.unfinishedRequestCount(), 0);
+
+    ledger.resetModelConversation();
+    assert.equal(ledger.activeModelConversation("tools-a").conversationId, null);
+    assert.equal(ledger.activeModelConversation("tools-a").reason, "new");
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("completed requests report elapsed time from receipt through the terminal event", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.filename);

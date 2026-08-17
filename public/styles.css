@@ -251,6 +251,8 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .contact-search { display: grid; grid-template-columns: auto minmax(10rem, 1fr); align-items: center; gap: .55rem; flex: 1 1 22rem; }
 .contact-search input { padding: .6rem; }
 .toolbar-count { margin-left: auto; color: var(--muted); font-size: .8rem; }
+.todo-toolbar-summary { display: flex; align-items: center; gap: .65rem; margin-left: auto; }
+.todo-toolbar-summary .toolbar-count { margin-left: 0; }
 .todo-list { display: grid; gap: .65rem; }
 .todo-group-section { margin: 0; }
 .todo-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: .35rem .15rem .55rem; }
@@ -384,6 +386,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .request-list { display: grid; gap: .75rem; }
 .request-card { padding: .9rem; background: #101316; border: 1px solid #282f35; border-radius: 12px; }
 .request-meta { display: flex; flex-wrap: wrap; gap: .4rem .7rem; margin-bottom: .65rem; color: var(--muted); font-size: .75rem; }
+.conversation-start { padding: .12rem .42rem; color: #ffd8ca; background: rgba(240, 90, 40, .13); border: 1px solid rgba(240, 90, 40, .35); border-radius: 999px; font-weight: 800; }
 .request-number {
   min-height: 0;
   padding: 0;
@@ -474,6 +477,8 @@ dialog h2, dialog p { margin-bottom: 0; }
   .contact-method-input { grid-column: 1 / -1; }
   .contact-method-remove { justify-self: end; }
   .toolbar-count { width: 100%; margin-left: 0; }
+  .todo-toolbar-summary { width: 100%; margin-left: 0; justify-content: space-between; }
+  .todo-toolbar-summary .toolbar-count { width: auto; }
   .todo-card { grid-template-columns: auto minmax(0, 1fr); }
   .todo-actions { grid-column: 2; }
 }

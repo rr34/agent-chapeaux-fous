@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import rrulePackage from "rrule";
 import { redactText, safeJson } from "./redaction.mjs";
 import { archiveEmptyTodoGroup, renameTodoGroup } from "./todo-group-operations.mjs";
+import { moveOverdueTodosToToday } from "./todo-schedule-operations.mjs";
 
 const { rrulestr } = rrulePackage;
 const dayMilliseconds = 86_400_000;
@@ -1039,6 +1040,34 @@ export class OrganizerStore {
         task.personal_task_id
       LIMIT ?
     `).all(boundedLimit).map(publicTodo);
+  }
+
+  moveOverdueTodosToToday(input) {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const result = moveOverdueTodosToToday(this.database, input ?? {});
+      const movedTodoIds = result.moves.map(({ id }) => id);
+      if (movedTodoIds.length > 0) {
+        this.#activity({
+          eventType: "personal_todos.moved_to_today",
+          status: "complete",
+          name: "Overdue tasks moved to today",
+          subjectType: "personal_task_batch",
+          subjectId: result.localDate,
+          contentText: `Moved ${movedTodoIds.length} overdue ${movedTodoIds.length === 1 ? "task" : "tasks"} to ${result.localDate}`,
+          payload: {
+            localDate: result.localDate,
+            timeZone: result.timeZone,
+            movedTodoIds,
+          },
+        });
+      }
+      this.database.exec("COMMIT");
+      return { movedCount: movedTodoIds.length, movedTodoIds };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   listTodoGroups({ includeArchived = false } = {}) {

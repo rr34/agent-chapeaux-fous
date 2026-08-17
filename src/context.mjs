@@ -31,9 +31,20 @@ export class ContextBuilder {
     this.maximumAttachmentCharacters = maximumAttachmentCharacters;
   }
 
-  async build(requestId, requestText = "", { attachment = null } = {}) {
+  async build(requestId, requestText = "", {
+    attachment = null,
+    nativeConversation = false,
+    continuingConversation = false,
+    conversationStartEventSeq = 0,
+  } = {}) {
     const activeProfileFacts = this.profileFacts.list({ status: "active", limit: null }).facts;
-    const history = this.ledger.recentConversation({ beforeRequestId: requestId, limit: this.historyLimit });
+    const history = nativeConversation && !continuingConversation
+      ? []
+      : this.ledger.recentConversation({
+          beforeRequestId: requestId,
+          afterEventSeq: conversationStartEventSeq,
+          limit: this.historyLimit,
+        });
     const previousAssistantText = [...history].reverse()
       .find(({ role }) => role === "assistant")?.content ?? "";
     const relevantProfileQuestions = this.profileFactQuestions
@@ -43,7 +54,13 @@ export class ContextBuilder {
           previousAssistantText,
         })
       : [];
-    const relevantProfileTypes = [...new Set(relevantProfileQuestions.map(({ factType }) => factType))];
+    const alwaysRelevantActiveTypes = activeProfileFacts.some(({ factType }) => factType === "time_zone")
+      ? ["time_zone"]
+      : [];
+    const relevantProfileTypes = [...new Set([
+      ...relevantProfileQuestions.map(({ factType }) => factType),
+      ...alwaysRelevantActiveTypes,
+    ])];
     const relevantProfileFacts = relevantProfileTypes.length
       ? activeProfileFacts.filter(({ factType }) => relevantProfileTypes.includes(factType))
       : [];
@@ -66,7 +83,7 @@ export class ContextBuilder {
         "",
       );
     }
-    sections.push("# Recent complete exchanges", historyText);
+    if (!nativeConversation) sections.push("# Recent complete exchanges", historyText);
     const result = bounded(sections.join("\n"), this.maximumCharacters);
     let attachmentBudget = null;
     let text = result.text;
@@ -102,7 +119,12 @@ export class ContextBuilder {
       activeProfileFactCount: activeProfileFacts.length,
       relevantProfileTypes,
       relevantProfileQuestions,
-      history,
+      history: nativeConversation ? [] : history,
+      nativeConversation: nativeConversation ? {
+        continuing: continuingConversation,
+        conversationStartEventSeq,
+        routingHistoryEntries: history.length,
+      } : null,
       contextBudget: {
         ...result,
         attachment: attachmentBudget,

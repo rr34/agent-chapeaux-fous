@@ -68,10 +68,12 @@ executable's absolute path before running the login script.
 `SLAYER_CODEX_REQUIRED_VERSION` makes health fail visibly when the executable
 does not match the App Server version tested by this release.
 
-Each request gets a fresh ephemeral Codex thread. Agent Slayer replaces the
-base instructions, supplies its bounded context and dynamic tools, executes
-tool calls itself, and owns the durable SQLite ledger. App Server's unrelated
-agent capabilities are disabled at startup. Every turn is also read-only,
+Requests continue on one persistent Codex thread until the user starts a new
+conversation. Agent Slayer resumes that thread with current replacement base
+instructions and bounded context, executes tool calls itself, and owns the
+durable SQLite ledger. A changed callable-tool schema automatically starts a
+new thread so the model never receives stale tool definitions. App Server's
+unrelated agent capabilities are disabled at startup. Every turn is also read-only,
 network-disabled, and rooted in the empty
 `~/.local/state/agent-slayer/codex-workspace` directory outside every source
 repository. If

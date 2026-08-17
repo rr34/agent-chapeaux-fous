@@ -40,8 +40,9 @@ The immediate system priorities are:
   the selected model-authentication path. Agent Slayer rejects API-key model
   authentication and separately metered **14. OpenAI Platform API account**
   usage.
-- Each **50. Agent request** gets a fresh ephemeral Codex thread. The thread
-  persists only long enough to complete that request and its tool loop.
+- **50. Agent requests** continue on one persistent Codex thread until the user
+  starts a new conversation. A callable-tool schema change also starts a new
+  thread so restored dynamic tools always match the application registry.
 - Agent Slayer supplies replacement base instructions, bounded context, and
   dynamically discovered tool schemas. Codex shell, filesystem, browser, app,
   plugin, MCP, skill, and subagent facilities are disabled. An unexpected
@@ -151,7 +152,7 @@ unauthorized, and failed integrations appear in health instead.
 
 The model may make multiple tool calls inside the same request, up to
 `SLAYER_MAX_TOOL_CALLS`. Every call is dispatched by name through Agent Slayer's
-registry. Its result or error is returned to the same ephemeral thread before
+registry. Its result or error is returned to the same active thread before
 the final response is accepted.
 
 ## Model boundary
@@ -166,7 +167,7 @@ Codex configuration and fails health if MCP servers, plugins, or subagents leak
 into that isolated home. The configured Codex version is pinned and checked as
 an application compatibility boundary.
 
-The Codex thread is ephemeral, read-only, noninteractive, and network-disabled.
+The Codex thread is persistent, read-only, noninteractive, and network-disabled.
 Agent Slayer—not Codex—owns the MCP clients and application functions. Adding a
 different model transport means implementing the existing transport contract;
 it does not turn the application into a plugin system.
@@ -256,17 +257,16 @@ file contents; it does not claim remote provider revocation.
 There is one chronological application history. Recent memory and old memory
 are different queries over it, not separate stores.
 
-For each request the context builder includes a small recent tail before the
-first model call. The model can explicitly invoke `history_recent`,
-`history_search`, or `history_range` when more history is needed. A range lookup
-can apply the topic inferred from the current request during the same database
-operation. Each new request uses a new Codex thread, so Codex's own transcript
-is neither durable memory nor cross-request context.
+The active Codex thread carries its native message and tool history across
+requests. Starting a new conversation resets that model-visible history without
+deleting the application ledger or domain data. The model can explicitly invoke
+`history_recent`, `history_search`, or `history_range` when older application
+history is needed. A range lookup can apply the topic inferred from the current
+request during the same database operation.
 
 This preserves the distinction between:
 
-- **21. Agent short-term memory service**: bounded recent complete exchanges
-  selected for the current request.
+- **21. Agent short-term memory service**: the active resumable Codex thread.
 - **22. Agent long-term memory**: explicit search over older requests and
   responses in the same ledger.
 

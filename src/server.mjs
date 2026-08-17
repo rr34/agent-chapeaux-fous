@@ -284,6 +284,20 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { requests: ledger.recentRequests(url.searchParams.get("limit")) });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/conversation/reset") {
+      const unfinished = ledger.unfinishedRequestCount();
+      if (unfinished > 0) {
+        sendJson(response, 409, {
+          error: `Wait for ${unfinished} active ${unfinished === 1 ? "request" : "requests"} before starting a new conversation`,
+        });
+        return;
+      }
+      sendJson(response, 200, {
+        reset: true,
+        eventId: ledger.resetModelConversation({ channel: "web" }),
+      });
+      return;
+    }
     const traceMatch = /^\/api\/requests\/([0-9a-f][0-9a-f-]{7,35})\/trace$/.exec(url.pathname);
     if (request.method === "GET" && traceMatch) {
       const resolved = ledger.resolveRequestId(traceMatch[1]);
@@ -384,6 +398,10 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/api/todos") {
       sendJson(response, 201, { todo: organizer.createTodo(await readJson(request)) });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/todos/move-overdue-to-today") {
+      sendJson(response, 200, organizer.moveOverdueTodosToToday(await readJson(request)));
       return;
     }
     const todoMatch = /^\/api\/todos\/(\d+)$/.exec(url.pathname);

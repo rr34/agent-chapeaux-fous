@@ -65,6 +65,7 @@
           <p class="eyebrow">Chronological</p>
           <h2 id="requests-heading">Requests</h2>
         </div>
+        <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
       </div>
       <div id="request-list" class="request-list"></div>
       <p id="empty" class="empty">No Agent Slayer requests yet.</p>
@@ -128,7 +129,10 @@
         <label for="todo-group-filter">Group</label>
         <select id="todo-group-filter"><option value="">All groups</option></select>
         <button id="new-todo-group" class="secondary compact" type="button">New group</button>
-        <span id="todo-count" class="toolbar-count"></span>
+        <div class="todo-toolbar-summary">
+          <span id="todo-count" class="toolbar-count"></span>
+          <button id="move-overdue-todos" class="secondary compact" type="button">Move overdue to today</button>
+        </div>
       </div>
       <section id="todo-list" class="todo-list" aria-live="polite"></section>
     </section>
@@ -425,6 +429,7 @@
   <template id="request-template">
     <article class="request-card">
       <div class="request-meta">
+        <span class="conversation-start" hidden>New conversation</span>
         <button class="request-number" type="button"></button>
         <span class="request-channel"></span>
         <span class="request-status"></span>

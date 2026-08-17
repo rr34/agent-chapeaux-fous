@@ -211,6 +211,65 @@ test("grouped and recurring todos use the existing task tables", () => {
   }
 });
 
+test("overdue active todos move onto the requested local day as one batch", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const group = organizer.createTodoGroup({ name: "Catch up" });
+    const timed = organizer.createTodo({
+      text: "Overdue timed task",
+      groupId: group.id,
+      scheduledAtUtc: "2026-08-15T13:30:00.000Z",
+      dueAtUtc: "2026-08-16T15:00:00.000Z",
+    });
+    const allDay = organizer.createTodo({
+      text: "Overdue all-day task",
+      groupId: group.id,
+      scheduledAtUtc: "2026-08-16T04:00:00.000Z",
+      isAllDay: true,
+    });
+    const today = organizer.createTodo({
+      text: "Already today",
+      groupId: group.id,
+      scheduledAtUtc: "2026-08-17T04:00:00.000Z",
+      isAllDay: true,
+    });
+    const completed = organizer.createTodo({
+      text: "Completed in the past",
+      groupId: group.id,
+      scheduledAtUtc: "2026-08-14T14:00:00.000Z",
+      status: "complete",
+    });
+
+    const result = organizer.moveOverdueTodosToToday({
+      localDate: "2026-08-17",
+      timeZone: "America/New_York",
+    });
+
+    assert.deepEqual(result, { movedCount: 2, movedTodoIds: [timed.id, allDay.id] });
+    assert.equal(organizer.getTodo(timed.id).scheduledAtUtc, "2026-08-17T13:30:00.000Z");
+    assert.equal(organizer.getTodo(timed.id).dueAtUtc, "2026-08-18T15:00:00.000Z");
+    assert.equal(organizer.getTodo(allDay.id).scheduledAtUtc, "2026-08-17T04:00:00.000Z");
+    assert.equal(organizer.getTodo(today.id).scheduledAtUtc, "2026-08-17T04:00:00.000Z");
+    assert.equal(organizer.getTodo(completed.id).scheduledAtUtc, "2026-08-14T14:00:00.000Z");
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events
+      WHERE event_type = 'personal_todos.moved_to_today'
+    `).get().count, 1);
+    assert.deepEqual(organizer.moveOverdueTodosToToday({
+      localDate: "2026-08-17",
+      timeZone: "America/New_York",
+    }), { movedCount: 0, movedTodoIds: [] });
+    assert.throws(
+      () => organizer.moveOverdueTodosToToday({ localDate: "2026-02-30", timeZone: "UTC" }),
+      /valid calendar date/,
+    );
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("personal log entries and grouped trackers are available to the web organizer", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

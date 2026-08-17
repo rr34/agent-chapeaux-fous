@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 
 function argumentsObject(value) {
@@ -5,6 +6,10 @@ function argumentsObject(value) {
   if (typeof value === "string") return JSON.parse(value || "{}");
   if (typeof value === "object" && !Array.isArray(value)) return value;
   throw new Error("Tool arguments must be a JSON object");
+}
+
+function callableToolsFingerprint(tools) {
+  return createHash("sha256").update(JSON.stringify(tools)).digest("hex");
 }
 
 export class SlayerRuntime {
@@ -23,12 +28,22 @@ export class SlayerRuntime {
   }
 
   async run({ requestId, requestEventId, text, channel = "web", attachment = null }) {
-    const context = await this.contextBuilder.build(requestId, text, { attachment });
     const tools = this.registry.toolDefinitions();
+    const toolFingerprint = callableToolsFingerprint(tools);
+    const conversation = typeof this.ledger.activeModelConversation === "function"
+      ? this.ledger.activeModelConversation(toolFingerprint)
+      : { conversationId: null, markerEventSeq: 0, reason: "new" };
+    const context = await this.contextBuilder.build(requestId, text, {
+      attachment,
+      nativeConversation: true,
+      continuingConversation: Boolean(conversation.conversationId),
+      conversationStartEventSeq: conversation.markerEventSeq,
+    });
     const baseInstructions = await this.loadSystemPrompt();
     const turnRequest = {
       model: this.config.model,
       effort: this.config.reasoningEffort,
+      conversationId: conversation.conversationId,
       baseInstructions,
       developerInstructions: context.text,
       input: text,
@@ -48,6 +63,7 @@ export class SlayerRuntime {
         history: context.history,
         contextBudget: context.contextBudget,
         attachment: context.attachment,
+        nativeConversation: context.nativeConversation,
       },
     });
     this.ledger.append({
@@ -126,6 +142,15 @@ export class SlayerRuntime {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    }
+
+    if (!conversation.conversationId && typeof this.ledger.markConversationStarted === "function") {
+      this.ledger.markConversationStarted({
+        conversationId: result.conversationId ?? result.threadId,
+        toolFingerprint,
+        requestId,
+        channel,
+      });
     }
 
     this.ledger.append({

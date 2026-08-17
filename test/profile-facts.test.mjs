@@ -121,6 +121,41 @@ test("profile context includes only active rows of relevant types and reports ex
   assert.match(built.text, /\[context truncated\]$/);
 });
 
+test("an active time zone is always supplied to native model conversations", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const profileFacts = new ProfileFacts({ store, ledger });
+  const prior = ledger.createRequest({ text: "Earlier request" });
+  profileFacts.set({
+    factType: "time_zone",
+    text: "My time zone is America/New_York.",
+    replacesFactId: null,
+  }, {
+    requestId: prior.requestId,
+    requestEventId: prior.eventId,
+    callId: "time-zone",
+  });
+  ledger.finish(ledger.trace(prior.requestId)[0], "Earlier response");
+  const current = ledger.createRequest({ text: "Put school on my calendar" });
+  const built = await new ContextBuilder({
+    ledger,
+    profileFacts,
+    profileFactQuestions: await standardCatalog(),
+  }).build(current.requestId, "Put school on my calendar", {
+    nativeConversation: true,
+    continuingConversation: false,
+  });
+
+  assert.deepEqual(built.relevantProfileTypes, ["time_zone"]);
+  assert.match(built.text, /time_zone: My time zone is America\/New_York\./);
+  assert.doesNotMatch(built.text, /# Recent complete exchanges/);
+  assert.deepEqual(built.history, []);
+  assert.equal(built.nativeConversation.continuing, false);
+});
+
 test("repeatable types keep related people's facts independent", (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

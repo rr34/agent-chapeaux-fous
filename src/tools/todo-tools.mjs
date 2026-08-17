@@ -1,5 +1,6 @@
 import { archiveEmptyTodoGroup, renameTodoGroup } from "../todo-group-operations.mjs";
 import { generateNextRoutineTask } from "../organizer-store.mjs";
+import { moveOverdueTodosToToday } from "../todo-schedule-operations.mjs";
 import {
   buildTodoRecurrenceRule, todoRecurrenceSchema, validateTimeZone,
 } from "../todo-recurrence.mjs";
@@ -517,6 +518,64 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         });
         database.exec("COMMIT");
         return result;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  });
+
+  registry.register({
+    name: "todo_move_overdue_to_today",
+    description: "Move every active native to-do scheduled before the specified local day onto that day in one batch. Use this when the user asks to move, roll, or stack overdue scheduled tasks onto today. The scheduled local time is preserved, and any due date moves by the same number of calendar days. Completed, ignored, archived, unscheduled, and already-current tasks are unchanged.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        local_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+        time_zone: { type: "string", minLength: 1, maxLength: 100 },
+      },
+      required: ["local_date", "time_zone"],
+    },
+    async execute({ local_date: localDate, time_zone: timeZone }, context) {
+      const database = store.requireReady();
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        const operation = moveOverdueTodosToToday(database, { localDate, timeZone });
+        const movedTodoIds = operation.moves.map(({ id }) => id);
+        const rows = movedTodoIds.length === 0 ? [] : database.prepare(`
+          SELECT task.*, todo_group.name AS group_name,
+                 routine.recurrence_rule AS routine_recurrence_rule,
+                 routine.time_zone AS routine_time_zone
+          FROM personal_tasks AS task
+          JOIN todo_groups AS todo_group USING (todo_group_id)
+          LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+          WHERE task.personal_task_id IN (${movedTodoIds.map(() => "?").join(", ")})
+          ORDER BY task.personal_task_id
+        `).all(...movedTodoIds).map(databaseTask);
+        const result = {
+          moved_count: rows.length,
+          local_date: operation.localDate,
+          time_zone: operation.timeZone,
+          tasks: rows,
+        };
+        if (rows.length > 0) {
+          ledger.append({
+            type: "personal_todos.moved_to_today",
+            status: "complete", actorType: "tool", actorName: "todo_move_overdue_to_today",
+            turnId: context.requestId, operationId: context.callId,
+            name: "Overdue tasks moved to today",
+            content: `Moved ${rows.length} overdue ${rows.length === 1 ? "task" : "tasks"} to ${operation.localDate}`,
+            payload: result,
+            subjectType: "personal_task_batch", subjectId: operation.localDate,
+          });
+        }
+        const semanticResult = todoResult(schemaSemantics, context, result, {
+          name: "todo_move_overdue_to_today",
+          purpose: "Return all active personal tasks moved from past scheduled days onto the requested local day.",
+        });
+        database.exec("COMMIT");
+        return semanticResult;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;

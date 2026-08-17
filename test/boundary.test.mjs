@@ -190,6 +190,18 @@ test("the request composer accepts one bounded CSV or text attachment", () => {
   assert.match(server, /ledger\.createRequest\(\{ text, channel: "web", primaryFileId \}\)/);
 });
 
+test("the request feed can start a new native model conversation without clearing application history", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  assert.match(document, /id="new-conversation"/);
+  assert.match(document, /class="conversation-start"[^>]+hidden>New conversation/);
+  assert.match(application, /api\("\/api\/conversation\/reset", \{ method: "POST" \}\)/);
+  assert.match(application, /request\.conversationStarted/);
+  assert.match(server, /ledger\.resetModelConversation/);
+  assert.match(server, /ledger\.unfinishedRequestCount/);
+});
+
 test("clicking a displayed request ID copies the complete request ID", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
