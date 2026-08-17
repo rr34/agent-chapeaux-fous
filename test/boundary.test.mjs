@@ -70,6 +70,8 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /native JMAP tools as the live authority/);
   assert.match(instructions, /Call email_send only when\s+the user explicitly asks to send/);
   assert.match(instructions, /open-ended\s+collection/);
+  assert.match(instructions, /Use web_page_read/);
+  assert.match(instructions, /page reading, not web search/);
   assert.match(instructions, /Relevant profile types/);
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
 });
@@ -219,6 +221,11 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(application, /beginCalendarScheduling/);
   assert.match(application, /scheduleTodoOnDate/);
   assert.match(application, /todo\.scheduledAtUtc \? "Reschedule" : "Schedule"/);
+  assert.match(application, /todo\.scheduledAtUtc && !todo\.recurrenceRule/);
+  assert.match(application, /node\("button", "secondary compact", "Clear date"\)/);
+  assert.match(application, /async function clearTodoScheduledDate/);
+  assert.match(application, /scheduledAtUtc: null/);
+  assert.match(application, /isAllDay: false/);
   assert.match(document, /id="todo-all-day"/);
   assert.match(application, /isAllDay: true/);
   assert.match(application, /scheduled for that whole day/);

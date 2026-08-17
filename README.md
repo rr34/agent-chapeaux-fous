@@ -122,6 +122,11 @@ schema-semantic compiler's operation-specific projection. The tracked semantic
 form is therefore the single human-authored source for explaining stored fields
 to the model; UI transport objects remain an independent browser concern.
 
+- `web_page_read` fetches one explicit HTTP(S) URL and returns bounded extracted
+  text, metadata, and links so the model can follow pagination or directly
+  related pages. It is not a search tool. Each redirect is checked, private and
+  local network targets are rejected, DNS is pinned for the request, and binary
+  responses are not returned to the model.
 - `todo_group_list`, `todo_group_create`, `todo_group_rename`,
   `todo_group_archive`, `todo_list`, `todo_add`, `todo_recurrence_set`, and
   `todo_update` provide the native personal to-do path without

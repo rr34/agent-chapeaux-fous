@@ -29,6 +29,8 @@ import { loadProfileFactQuestions } from "./profile-fact-questions.mjs";
 import { ToolRegistry } from "./tools/registry.mjs";
 import { registerProfileFactTools } from "./tools/profile-fact-tools.mjs";
 import { registerTodoTools } from "./tools/todo-tools.mjs";
+import { registerWebPageTools } from "./tools/web-page-tools.mjs";
+import { WebPageClient } from "./web-page-client.mjs";
 
 const config = loadConfig();
 const identity = runtimeIdentity(config.repositoryRoot);
@@ -39,6 +41,11 @@ const profileFacts = new ProfileFacts({ store, ledger });
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
 const registry = new ToolRegistry();
+const webPageClient = new WebPageClient({
+  timeoutMs: config.webPageTimeoutMs,
+  maximumBytes: config.webPageMaximumBytes,
+});
+registerWebPageTools(registry, webPageClient);
 const modelTransport = await createModelTransport(config);
 await modelTransport.start().catch((error) => {
   console.error(`[agent-slayer] ${modelTransport.displayName} transport startup failed:`, error);

@@ -1631,13 +1631,18 @@ function renderTodos() {
       body.append(metadata);
       const actions = node("div", "todo-actions");
       const schedule = node("button", "secondary compact", todo.scheduledAtUtc ? "Reschedule" : "Schedule");
+      const clearDate = todo.scheduledAtUtc && !todo.recurrenceRule
+        ? node("button", "secondary compact", "Clear date")
+        : null;
       const top = node("button", "secondary compact", "⇈");
       const up = node("button", "secondary compact", "↑");
       const down = node("button", "secondary compact", "↓");
       const bottom = node("button", "secondary compact", "⇊");
       const edit = node("button", "secondary compact", "Edit");
       schedule.type = top.type = up.type = down.type = bottom.type = edit.type = "button";
+      if (clearDate) clearDate.type = "button";
       schedule.title = todo.scheduledAtUtc ? "Choose a new day on the calendar" : "Choose a day on the calendar";
+      if (clearDate) clearDate.title = "Remove this task's scheduled date";
       top.title = "Move task to top of group";
       up.title = "Move task up";
       down.title = "Move task down";
@@ -1647,12 +1652,16 @@ function renderTodos() {
       down.setAttribute("aria-label", `Move ${todo.text} down`);
       bottom.setAttribute("aria-label", `Move ${todo.text} to bottom of group`);
       schedule.addEventListener("click", () => beginCalendarScheduling(todo));
+      clearDate?.addEventListener("click", () => void clearTodoScheduledDate(todo, clearDate));
       top.addEventListener("click", () => void moveTodo(todo, "top", visibleTodos));
       up.addEventListener("click", () => void moveTodo(todo, "up", visibleTodos));
       down.addEventListener("click", () => void moveTodo(todo, "down", visibleTodos));
       bottom.addEventListener("click", () => void moveTodo(todo, "bottom", visibleTodos));
       edit.addEventListener("click", () => openTodoEditor(todo));
-      if (["todo", "ai_suggested"].includes(todo.status)) actions.append(schedule);
+      if (["todo", "ai_suggested"].includes(todo.status)) {
+        actions.append(schedule);
+        if (clearDate) actions.append(clearDate);
+      }
       if (group.usesSequence) {
         const assignSequence = node("button", "secondary compact", "Assign next #");
         assignSequence.type = "button";
@@ -1666,6 +1675,27 @@ function renderTodos() {
     }
     section.append(heading, cards);
     elements.todoList.append(section);
+  }
+}
+
+async function clearTodoScheduledDate(todo, button) {
+  button.disabled = true;
+  button.textContent = "Clearing…";
+  try {
+    await api(`/api/todos/${todo.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        version: todo.version,
+        scheduledAtUtc: null,
+        isAllDay: false,
+      }),
+    });
+    await refreshTodos();
+  } catch (error) {
+    window.alert(error.message || "Could not clear the scheduled date.");
+    button.disabled = false;
+    button.textContent = "Clear date";
   }
 }
 

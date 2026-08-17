@@ -92,6 +92,8 @@ export function loadConfig(environment = process.env) {
       environment.SLAYER_MAX_ATTACHMENT_CONTEXT_CHARACTERS,
       64 * 1024,
     ),
+    webPageTimeoutMs: positiveInteger(environment.SLAYER_WEB_PAGE_TIMEOUT_MS, 15_000),
+    webPageMaximumBytes: positiveInteger(environment.SLAYER_WEB_PAGE_MAX_BYTES, 2 * 1024 * 1024),
     pythonExecutable: resolveFromRoot(environment.SLAYER_PYTHON, "voice/.venv/bin/python"),
     whisperWorkerPath: path.join(repositoryRoot, "voice/whisper_worker.py"),
     whisperTimeoutMs: positiveInteger(environment.SLAYER_WHISPER_TIMEOUT_MS, 10 * 60 * 1000),

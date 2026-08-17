@@ -675,6 +675,32 @@ test("recurrence can be added, edited, and removed through todo updates", () => 
   }
 });
 
+test("one-time todos can clear only their scheduled date", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const group = organizer.createTodoGroup({ name: "Unscheduled" });
+    const created = organizer.createTodo({
+      text: "Pick up supplies",
+      groupId: group.id,
+      scheduledAtUtc: "2026-08-18T04:00:00.000Z",
+      dueAtUtc: "2026-08-20T16:00:00.000Z",
+      isAllDay: true,
+    });
+    const updated = organizer.updateTodo(created.id, {
+      version: created.version,
+      scheduledAtUtc: null,
+      isAllDay: false,
+    });
+    assert.equal(updated.scheduledAtUtc, null);
+    assert.equal(updated.isAllDay, false);
+    assert.equal(updated.dueAtUtc, created.dueAtUtc);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("group reordering atomically normalizes every task position", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

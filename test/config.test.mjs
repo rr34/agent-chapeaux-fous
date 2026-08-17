@@ -89,3 +89,16 @@ test("text request attachments have a separate bounded upload limit", () => {
   assert.equal(configured.maxTextAttachmentBytes, 8192);
   assert.equal(configured.maxAttachmentContextCharacters, 4096);
 });
+
+test("explicit page reads have bounded network limits", () => {
+  const defaults = loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
+  assert.equal(defaults.webPageTimeoutMs, 15_000);
+  assert.equal(defaults.webPageMaximumBytes, 2 * 1024 * 1024);
+  const configured = loadConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_WEB_PAGE_TIMEOUT_MS: "9000",
+    SLAYER_WEB_PAGE_MAX_BYTES: "524288",
+  });
+  assert.equal(configured.webPageTimeoutMs, 9000);
+  assert.equal(configured.webPageMaximumBytes, 524288);
+});
