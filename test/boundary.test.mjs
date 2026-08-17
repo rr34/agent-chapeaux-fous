@@ -185,7 +185,12 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(application, /todo\?\.groupId \?\? groupId \?\?/);
   assert.match(application, /for \(const \[groupId, group\] of groupedTodos\)/);
   assert.match(document, /id="todo-new-group"/);
+  assert.match(document, /id="todo-contact-filter"/);
+  assert.match(document, /id="todo-contact"/);
   assert.match(application, /populateTodoGroupEditor\(group\.id\)/);
+  assert.match(application, /function populateTodoContactEditor/);
+  assert.match(application, /relatedContactId: elements\.todoContact\.value/);
+  assert.match(application, /todo\.relatedContactName/);
   assert.match(application, /actions\.append\(top, up, down, bottom, edit\)/);
   assert.match(application, /\/api\/todo-groups\/\$\{todo\.groupId\}\/reorder/);
   assert.match(application, /Archive group/);

@@ -492,6 +492,8 @@ function publicTodo(row) {
     routineId: row.todo_routine_id,
     sequence: row.sequence,
     relatedContactId: row.related_contact_id,
+    relatedContactName: row.related_contact_name ?? null,
+    relatedContactStatus: row.related_contact_status ?? null,
     text: row.text,
     status: row.status,
     sortPosition: row.sort_position,
@@ -626,14 +628,14 @@ export function generateNextRoutineTask(database, personalTaskId, { now = new Da
   `).get(routine.todo_group_id).next_position);
   const result = database.prepare(`
     INSERT INTO personal_tasks (
-      todo_group_id, todo_routine_id, text, status, sort_position,
+      todo_group_id, todo_routine_id, related_contact_id, text, status, sort_position,
       scheduled_at_utc, is_all_day, due_at_utc, source
-    ) VALUES (?, ?, ?, 'todo', ?, ?, ?, ?, 'routine')
+    ) VALUES (?, ?, ?, ?, 'todo', ?, ?, ?, ?, 'routine')
     ON CONFLICT (todo_routine_id, scheduled_at_utc) WHERE
       todo_routine_id IS NOT NULL AND scheduled_at_utc IS NOT NULL
     DO NOTHING
   `).run(
-    routine.todo_group_id, routine.todo_routine_id, routine.text, sortPosition,
+    routine.todo_group_id, routine.todo_routine_id, todo.related_contact_id, routine.text, sortPosition,
     scheduled.toISOString(), routine.is_all_day, dueAtUtc,
   );
   return result.changes === 1 ? Number(result.lastInsertRowid) : null;
@@ -1492,10 +1494,13 @@ export class OrganizerStore {
       SELECT task.*, todo_group.name AS group_name,
              todo_group.archived_at_utc AS group_archived_at_utc,
              routine.recurrence_rule AS routine_recurrence_rule,
-             routine.time_zone AS routine_time_zone
+             routine.time_zone AS routine_time_zone,
+             related_contact.display_name AS related_contact_name,
+             related_contact.status AS related_contact_status
       FROM personal_tasks AS task
       JOIN todo_groups AS todo_group USING (todo_group_id)
       LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+      LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
       ${where}
       ORDER BY
         todo_group.sort_position,
@@ -2318,6 +2323,9 @@ export class OrganizerStore {
     if (!groupId || !this.database.prepare(
       "SELECT 1 FROM todo_groups WHERE todo_group_id = ? AND archived_at_utc IS NULL",
     ).get(groupId)) throw new OrganizerInputError("To-do group not found.", 404);
+    if (todo.relatedContactId !== null && !this.database.prepare(
+      "SELECT 1 FROM contacts WHERE contact_id = ?",
+    ).get(todo.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
     if (todo.recurrenceRule && !todo.scheduledAtUtc) {
       throw new OrganizerInputError("A routine requires a scheduled date and time.");
     }
@@ -2400,10 +2408,13 @@ export class OrganizerStore {
       `SELECT task.*, todo_group.name AS group_name,
               todo_group.archived_at_utc AS group_archived_at_utc,
               routine.recurrence_rule AS routine_recurrence_rule,
-              routine.time_zone AS routine_time_zone
+              routine.time_zone AS routine_time_zone,
+              related_contact.display_name AS related_contact_name,
+              related_contact.status AS related_contact_status
        FROM personal_tasks AS task
        JOIN todo_groups AS todo_group USING (todo_group_id)
        LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+       LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
        WHERE task.personal_task_id = ?`,
     ).get(identifier(id, "todo id")));
   }
@@ -2526,6 +2537,9 @@ export class OrganizerStore {
     if (!this.database.prepare(
       "SELECT 1 FROM todo_groups WHERE todo_group_id = ? AND archived_at_utc IS NULL",
     ).get(after.groupId)) throw new OrganizerInputError("To-do group not found.", 404);
+    if (after.relatedContactId !== null && !this.database.prepare(
+      "SELECT 1 FROM contacts WHERE contact_id = ?",
+    ).get(after.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
     if (after.scheduledAtUtc && after.dueAtUtc && after.dueAtUtc < after.scheduledAtUtc) {
       throw new OrganizerInputError("dueAtUtc cannot be earlier than scheduledAtUtc.");
     }

@@ -153,6 +153,8 @@
         </select>
         <label for="todo-group-filter">Group</label>
         <select id="todo-group-filter"><option value="">All groups</option></select>
+        <label for="todo-contact-filter">Contact</label>
+        <select id="todo-contact-filter"><option value="">All contacts</option><option value="none">No contact</option></select>
         <button id="new-todo-group" class="secondary compact" type="button">New group</button>
         <div class="todo-toolbar-summary">
           <span id="todo-count" class="toolbar-count"></span>
@@ -360,6 +362,7 @@
           <button id="todo-new-group" class="secondary compact" type="button">New group</button>
         </div>
         <label>Sequence<input id="todo-sequence" type="number" min="1" step="1"></label>
+        <label>Related contact<select id="todo-contact"><option value="">No contact</option></select></label>
         <label>Scheduled<input id="todo-scheduled" type="datetime-local" lang="en-GB" step="60"></label>
         <label class="checkbox-row"><input id="todo-all-day" type="checkbox"><span>All day</span></label>
         <label>Due<input id="todo-due" type="datetime-local" lang="en-GB" step="60"></label>

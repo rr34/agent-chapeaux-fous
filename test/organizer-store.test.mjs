@@ -786,6 +786,48 @@ test("archiving a group fails on active tasks and preserves terminal task histor
   }
 });
 
+test("to-dos expose related contacts and carry them into recurring occurrences", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const contact = organizer.createContact({ displayName: "Acme Watch Company" });
+    const task = organizer.createTodo({
+      text: "Check the open watch job",
+      relatedContactId: contact.id,
+      scheduledAtUtc: "2099-08-17T14:00:00.000Z",
+      recurrenceRule: "FREQ=DAILY;COUNT=2",
+      recurrenceTimeZone: "America/New_York",
+    });
+    assert.equal(task.relatedContactId, contact.id);
+    assert.equal(task.relatedContactName, "Acme Watch Company");
+    assert.equal(task.relatedContactStatus, "active");
+    assert.equal(organizer.listTodos()[0].relatedContactName, "Acme Watch Company");
+
+    const completed = organizer.updateTodo(task.id, { version: task.version, status: "complete" });
+    assert.equal(completed.status, "complete");
+    const next = organizer.listTodos().find(({ routineId }) => routineId === task.routineId);
+    assert.ok(next);
+    assert.equal(next.relatedContactId, contact.id);
+    assert.equal(next.relatedContactName, "Acme Watch Company");
+
+    const detached = organizer.updateTodo(next.id, {
+      version: next.version,
+      relatedContactId: null,
+    });
+    assert.equal(detached.relatedContactId, null);
+    assert.equal(detached.relatedContactName, null);
+    assert.throws(
+      () => organizer.createTodo({ text: "Unknown customer", relatedContactId: 999_999 }),
+      (error) => error instanceof OrganizerInputError
+        && error.statusCode === 404
+        && /Related contact/.test(error.message),
+    );
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("grouped content supports sequence-aware CRUD, filtering, and safe group lifecycle", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

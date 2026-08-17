@@ -90,6 +90,7 @@ const elements = {
   eventInviteSubmit: document.querySelector("#event-invite-submit"),
   todoScope: document.querySelector("#todo-scope"),
   todoGroupFilter: document.querySelector("#todo-group-filter"),
+  todoContactFilter: document.querySelector("#todo-contact-filter"),
   todoCount: document.querySelector("#todo-count"),
   moveOverdueTodos: document.querySelector("#move-overdue-todos"),
   todoList: document.querySelector("#todo-list"),
@@ -104,6 +105,7 @@ const elements = {
   todoGroup: document.querySelector("#todo-group"),
   todoNewGroup: document.querySelector("#todo-new-group"),
   todoSequence: document.querySelector("#todo-sequence"),
+  todoContact: document.querySelector("#todo-contact"),
   todoScheduled: document.querySelector("#todo-scheduled"),
   todoAllDay: document.querySelector("#todo-all-day"),
   todoDue: document.querySelector("#todo-due"),
@@ -217,6 +219,7 @@ let eventInviteSelectedContactIds = new Set();
 let eventInviteCreated = false;
 let displayedTodos = [];
 let todoGroups = [];
+let todoContacts = [];
 let contentItems = [];
 let contentGroups = [];
 let contentSearchTimer = null;
@@ -1341,12 +1344,14 @@ async function saveEvent(event) {
 
 async function refreshTodos() {
   try {
-    const [body, groupBody] = await Promise.all([
+    const [body, groupBody, contactBody] = await Promise.all([
       api(`/api/todos?scope=${encodeURIComponent(elements.todoScope.value)}&limit=1000`),
       api("/api/todo-groups"),
+      api("/api/contacts?scope=all&limit=10000"),
     ]);
     displayedTodos = body.todos;
     todoGroups = groupBody.groups;
+    todoContacts = contactBody.contacts;
     const selectedGroup = elements.todoGroupFilter.value;
     elements.todoGroupFilter.replaceChildren(node("option", "", "All groups"));
     elements.todoGroupFilter.firstElementChild.value = "";
@@ -1356,6 +1361,23 @@ async function refreshTodos() {
       elements.todoGroupFilter.append(option);
     }
     elements.todoGroupFilter.value = todoGroups.some(({ id }) => String(id) === selectedGroup) ? selectedGroup : "";
+    const selectedContact = elements.todoContactFilter.value;
+    elements.todoContactFilter.replaceChildren(
+      node("option", "", "All contacts"),
+      node("option", "", "No contact"),
+    );
+    elements.todoContactFilter.children[0].value = "";
+    elements.todoContactFilter.children[1].value = "none";
+    for (const contact of todoContacts) {
+      const label = `${contact.displayName}${contact.status === "active" ? "" : ` (${contact.status})`}`;
+      const option = node("option", "", label);
+      option.value = String(contact.id);
+      elements.todoContactFilter.append(option);
+    }
+    elements.todoContactFilter.value = selectedContact === "none"
+      || todoContacts.some(({ id }) => String(id) === selectedContact)
+      ? selectedContact
+      : "";
     renderTodos();
   } catch (error) {
     elements.todoList.replaceChildren(node("p", "empty", error.message || "To-Do List unavailable."));
@@ -1368,9 +1390,15 @@ function formatTodoDateTime(value) {
 
 function renderTodos() {
   elements.todoList.replaceChildren();
-  const visibleTodos = elements.todoGroupFilter.value
-    ? displayedTodos.filter(({ groupId }) => String(groupId) === elements.todoGroupFilter.value)
-    : displayedTodos;
+  const visibleTodos = displayedTodos.filter((todo) => {
+    const matchesGroup = !elements.todoGroupFilter.value
+      || String(todo.groupId) === elements.todoGroupFilter.value;
+    const matchesContact = !elements.todoContactFilter.value
+      || (elements.todoContactFilter.value === "none"
+        ? todo.relatedContactId == null
+        : String(todo.relatedContactId) === elements.todoContactFilter.value);
+    return matchesGroup && matchesContact;
+  });
   elements.todoCount.textContent = `${visibleTodos.length} ${visibleTodos.length === 1 ? "task" : "tasks"}`;
   const overdueCount = displayedTodos.filter((todo) => (
     ["todo", "ai_suggested"].includes(todo.status)
@@ -1477,6 +1505,24 @@ function renderTodos() {
       const metadata = node("div", "todo-meta");
       if (todo.sequence != null) metadata.append(node("span", "todo-pill", `#${todo.sequence}`));
       metadata.append(node("span", "todo-pill", todo.status.replaceAll("_", " ")));
+      if (todo.relatedContactId != null) {
+        const relatedContact = todoContacts.find(({ id }) => id === todo.relatedContactId);
+        const contactName = todo.relatedContactName
+          ?? relatedContact?.displayName
+          ?? `Contact #${todo.relatedContactId}`;
+        const contactStatus = todo.relatedContactStatus && todo.relatedContactStatus !== "active"
+          ? ` (${todo.relatedContactStatus})`
+          : "";
+        if (relatedContact) {
+          const contactLink = node("button", "todo-pill todo-contact-pill", `${contactName}${contactStatus}`);
+          contactLink.type = "button";
+          contactLink.title = `Open ${contactName}`;
+          contactLink.addEventListener("click", () => openContactEditor(relatedContact));
+          metadata.append(contactLink);
+        } else {
+          metadata.append(node("span", "todo-pill todo-contact-pill", `${contactName}${contactStatus}`));
+        }
+      }
       if (todo.scheduledAtUtc) {
         metadata.append(node(
           "span",
@@ -1608,6 +1654,7 @@ function openTodoEditor(todo = null, groupId = null) {
   elements.todoId.value = todo?.id ?? "";
   elements.todoVersion.value = todo?.version ?? "";
   populateTodoGroupEditor(todo?.groupId ?? groupId ?? (elements.todoGroupFilter.value || todoGroups[0]?.id || ""));
+  populateTodoContactEditor(todo);
   elements.todoText.value = todo?.text ?? "";
   elements.todoSequence.value = todo?.sequence ?? "";
   elements.todoAllDay.checked = Boolean(todo?.isAllDay);
@@ -1632,6 +1679,24 @@ function populateTodoGroupEditor(selectedGroupId) {
   elements.todoGroup.value = String(selectedGroupId ?? "");
 }
 
+function populateTodoContactEditor(todo = null) {
+  elements.todoContact.replaceChildren(node("option", "", "No contact"));
+  elements.todoContact.firstElementChild.value = "";
+  for (const contact of todoContacts) {
+    const label = `${contact.displayName}${contact.status === "active" ? "" : ` (${contact.status})`}`;
+    const option = node("option", "", label);
+    option.value = String(contact.id);
+    elements.todoContact.append(option);
+  }
+  if (todo?.relatedContactId != null
+      && !todoContacts.some(({ id }) => id === todo.relatedContactId)) {
+    const option = node("option", "", todo.relatedContactName ?? `Contact #${todo.relatedContactId}`);
+    option.value = String(todo.relatedContactId);
+    elements.todoContact.append(option);
+  }
+  elements.todoContact.value = todo?.relatedContactId == null ? "" : String(todo.relatedContactId);
+}
+
 async function saveTodo(event) {
   event.preventDefault();
   elements.todoFormError.textContent = "";
@@ -1642,6 +1707,7 @@ async function saveTodo(event) {
       text: elements.todoText.value,
       groupId: Number(elements.todoGroup.value),
       sequence: elements.todoSequence.value ? Number(elements.todoSequence.value) : null,
+      relatedContactId: elements.todoContact.value ? Number(elements.todoContact.value) : null,
       scheduledAtUtc: inputToIso(elements.todoScheduled.value, elements.todoAllDay.checked),
       isAllDay: elements.todoAllDay.checked && Boolean(elements.todoScheduled.value),
       dueAtUtc: inputToIso(elements.todoDue.value),
@@ -2506,6 +2572,7 @@ async function saveContact(event) {
     elements.contactDialog.close();
     await refreshContacts();
     if (activeView === "calendar") await refreshCalendar();
+    if (activeView === "todos") await refreshTodos();
   } catch (error) {
     elements.contactFormError.textContent = error.message || "Could not save the contact.";
   } finally {
@@ -2915,6 +2982,7 @@ elements.todoNewGroup.addEventListener("click", async () => {
 });
 elements.todoScope.addEventListener("change", () => void refreshTodos());
 elements.todoGroupFilter.addEventListener("change", renderTodos);
+elements.todoContactFilter.addEventListener("change", renderTodos);
 elements.moveOverdueTodos.addEventListener("click", () => void moveOverdueTodosToToday());
 elements.todoForm.addEventListener("submit", saveTodo);
 elements.todoAllDay.addEventListener("change", () => {

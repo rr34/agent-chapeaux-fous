@@ -272,6 +272,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .agenda-item.todo { border-left: 3px solid #70a7ff; }
 .agenda-empty { color: var(--muted); font-size: .83rem; line-height: 1.45; }
 .todo-toolbar, .contact-toolbar, .log-toolbar { justify-content: flex-start; }
+.todo-toolbar { flex-wrap: wrap; }
 .todo-toolbar label, .contact-toolbar label, .log-toolbar label { color: var(--muted); font-size: .8rem; font-weight: 400; }
 .todo-toolbar select, .contact-toolbar select, .log-toolbar select, .editor-dialog select { width: auto; padding: .6rem; color: var(--text); background: #0e1113; border: 1px solid var(--line); border-radius: 10px; }
 .contact-search { display: grid; grid-template-columns: auto minmax(10rem, 1fr); align-items: center; gap: .55rem; flex: 1 1 22rem; }
@@ -304,6 +305,8 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 .todo-meta { display: flex; flex-wrap: wrap; gap: 6px; color: var(--muted); font-size: .71rem; }
 .todo-pill { padding: 3px 7px; background: #252b31; border-radius: 999px; }
+.todo-contact-pill { min-height: 0; color: #b8d2ff; background: rgba(112, 167, 255, .14); border: 0; font-size: inherit; font-weight: 400; }
+.todo-contact-pill:hover { color: white; background: rgba(112, 167, 255, .28); }
 .todo-pill.overdue { color: var(--bad); }
 .todo-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 3px; }
 
@@ -395,6 +398,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .editor-dialog textarea { min-height: 6rem; }
 .editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
 .todo-group-editor, .content-group-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .5rem; }
+#todo-contact { width: 100%; }
 .content-dialog { width: min(760px, calc(100% - 1.5rem)); }
 .contact-method-editor { margin: 0; padding: .8rem; background: #101316; border: 1px solid var(--line); border-radius: 11px; }
 .contact-method-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
