@@ -451,6 +451,52 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { todo: organizer.updateTodo(todoMatch[1], await readJson(request)) });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/content-items") {
+      sendJson(response, 200, {
+        content: organizer.listContent({
+          groupId: url.searchParams.get("groupId"),
+          status: url.searchParams.get("status"),
+          query: url.searchParams.get("q"),
+          limit: url.searchParams.get("limit") || 1000,
+        }),
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/content-groups") {
+      sendJson(response, 200, { groups: organizer.listContentGroups() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/content-groups") {
+      sendJson(response, 201, { group: organizer.createContentGroup(await readJson(request)) });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/content-groups/reorder") {
+      sendJson(response, 200, { groups: organizer.reorderContentGroups(await readJson(request)) });
+      return;
+    }
+    const contentGroupMatch = /^\/api\/content-groups\/(\d+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && contentGroupMatch) {
+      sendJson(response, 200, organizer.renameContentGroup(contentGroupMatch[1], await readJson(request)));
+      return;
+    }
+    const contentGroupArchiveMatch = /^\/api\/content-groups\/(\d+)\/archive$/.exec(url.pathname);
+    if (request.method === "POST" && contentGroupArchiveMatch) {
+      sendJson(response, 200, organizer.archiveContentGroup(contentGroupArchiveMatch[1]));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/content-items") {
+      sendJson(response, 201, { content: organizer.createContent(await readJson(request)) });
+      return;
+    }
+    const contentMatch = /^\/api\/content-items\/(\d+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && contentMatch) {
+      sendJson(response, 200, { content: organizer.updateContent(contentMatch[1], await readJson(request)) });
+      return;
+    }
+    if (request.method === "DELETE" && contentMatch) {
+      sendJson(response, 200, organizer.deleteContent(contentMatch[1], await readJson(request)));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/log-trackers") {
       sendJson(response, 200, {
         trackers: organizer.listLogTrackers({

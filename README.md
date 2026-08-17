@@ -164,6 +164,9 @@ to the model; UI transport objects remain an independent browser concern.
   of initials avatars for atomic bulk tag addition and permanent deletion. Tags
   can be renamed across all assigned contacts from either the UI or the
   `contact_tag_rename` agent tool; an existing destination tag is merged safely.
+  `contact_lookup_batch` resolves up to 500 names at once and
+  `contact_tag_add_batch` applies one tag to as many as 10,000 contacts in one
+  atomic, replay-safe call rather than consuming one model tool call per row.
   `contact_merge` performs one version-checked merge, while
   `contact_merge_batch` atomically applies up to 100 AI-reviewed merge groups in
   one call. Both combine contact details while retaining source records as

@@ -27,10 +27,11 @@ const elements = {
   tokenDialog: document.querySelector("#token-dialog"),
   tokenForm: document.querySelector("#token-form"),
   token: document.querySelector("#token"),
-  navButtons: [...document.querySelectorAll(".nav-button")],
+  viewSelector: document.querySelector("#view-selector"),
   agentView: document.querySelector("#agent-view"),
   calendarView: document.querySelector("#calendar-view"),
   todosView: document.querySelector("#todos-view"),
+  contentView: document.querySelector("#content-view"),
   contactsView: document.querySelector("#contacts-view"),
   logsView: document.querySelector("#logs-view"),
   calendarMonthLabel: document.querySelector("#calendar-month-label"),
@@ -118,6 +119,30 @@ const elements = {
   todoRepeatUntil: document.querySelector("#todo-repeat-until"),
   todoRepeatSummary: document.querySelector("#todo-repeat-summary"),
   todoFormError: document.querySelector("#todo-form-error"),
+  contentSearch: document.querySelector("#content-search"),
+  contentStatusFilter: document.querySelector("#content-status-filter"),
+  contentGroupFilter: document.querySelector("#content-group-filter"),
+  contentCount: document.querySelector("#content-count"),
+  contentList: document.querySelector("#content-list"),
+  newContent: document.querySelector("#new-content"),
+  newContentGroup: document.querySelector("#new-content-group"),
+  contentDialog: document.querySelector("#content-dialog"),
+  contentForm: document.querySelector("#content-form"),
+  contentDialogTitle: document.querySelector("#content-dialog-title"),
+  contentId: document.querySelector("#content-id"),
+  contentVersion: document.querySelector("#content-version"),
+  contentTitle: document.querySelector("#content-title"),
+  contentGroup: document.querySelector("#content-group"),
+  contentNewGroup: document.querySelector("#content-new-group"),
+  contentSequence: document.querySelector("#content-sequence"),
+  contentType: document.querySelector("#content-type"),
+  contentStatus: document.querySelector("#content-status"),
+  contentHost: document.querySelector("#content-host"),
+  contentPublished: document.querySelector("#content-published"),
+  contentUrl: document.querySelector("#content-url"),
+  contentDescription: document.querySelector("#content-description"),
+  contentTranscript: document.querySelector("#content-transcript"),
+  contentFormError: document.querySelector("#content-form-error"),
   contactSearch: document.querySelector("#contact-search"),
   contactTagFilter: document.querySelector("#contact-tag-filter"),
   contactRenameTag: document.querySelector("#contact-rename-tag"),
@@ -193,6 +218,9 @@ let eventInviteSelectedContactIds = new Set();
 let eventInviteCreated = false;
 let displayedTodos = [];
 let todoGroups = [];
+let contentItems = [];
+let contentGroups = [];
+let contentSearchTimer = null;
 let loadedTodoRecurrenceTimeZone = null;
 let todoRecurrenceDirty = false;
 let movingOverdueTodos = false;
@@ -808,11 +836,13 @@ function switchView(view) {
   elements.agentView.hidden = view !== "agent";
   elements.calendarView.hidden = view !== "calendar";
   elements.todosView.hidden = view !== "todos";
+  elements.contentView.hidden = view !== "content";
   elements.contactsView.hidden = view !== "contacts";
   elements.logsView.hidden = view !== "logs";
-  for (const button of elements.navButtons) button.classList.toggle("active", button.dataset.view === view);
+  elements.viewSelector.value = view;
   if (view === "calendar") void refreshCalendar();
   if (view === "todos") void refreshTodos();
+  if (view === "content") void refreshContent();
   if (view === "contacts") void refreshContacts();
   if (view === "logs") void refreshLogs();
 }
@@ -1685,6 +1715,302 @@ async function renameTodoGroup(groupId, currentName) {
   }
 }
 
+function contentTypeLabel(value) {
+  return {
+    mobileUGC_tutorial: "Mobile UGC tutorial",
+    mobileUGC_ad: "Mobile UGC ad",
+    webUGC_tutorial: "Web UGC tutorial",
+    webUGC_ad: "Web UGC ad",
+    video_ad: "Video ad",
+    podcast: "Podcast",
+    image: "Image",
+    unknown: "Unknown",
+  }[value] || value;
+}
+
+function safeContentUrl(value) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshContent() {
+  const parameters = new URLSearchParams({ limit: "5000" });
+  if (elements.contentGroupFilter.value) parameters.set("groupId", elements.contentGroupFilter.value);
+  if (elements.contentStatusFilter.value) parameters.set("status", elements.contentStatusFilter.value);
+  if (elements.contentSearch.value.trim()) parameters.set("q", elements.contentSearch.value.trim());
+  try {
+    const [body, groupBody] = await Promise.all([
+      api(`/api/content-items?${parameters}`),
+      api("/api/content-groups"),
+    ]);
+    contentItems = body.content;
+    contentGroups = groupBody.groups;
+    const selectedGroup = elements.contentGroupFilter.value;
+    elements.contentGroupFilter.replaceChildren(node("option", "", "All groups"));
+    elements.contentGroupFilter.firstElementChild.value = "";
+    for (const group of contentGroups) {
+      const option = node("option", "", group.name);
+      option.value = String(group.id);
+      elements.contentGroupFilter.append(option);
+    }
+    elements.contentGroupFilter.value = contentGroups.some(({ id }) => String(id) === selectedGroup)
+      ? selectedGroup
+      : "";
+    renderContent();
+  } catch (error) {
+    elements.contentList.replaceChildren(node("p", "empty", error.message || "Content unavailable."));
+  }
+}
+
+function renderContent() {
+  elements.contentList.replaceChildren();
+  elements.contentCount.textContent = `${contentItems.length} ${contentItems.length === 1 ? "item" : "items"}`;
+  const visibleGroups = elements.contentGroupFilter.value
+    ? contentGroups.filter(({ id }) => String(id) === elements.contentGroupFilter.value)
+    : contentGroups;
+  if (visibleGroups.length === 0) {
+    elements.contentList.append(node("p", "empty", "No content groups in this view."));
+    return;
+  }
+  for (const [groupIndex, group] of visibleGroups.entries()) {
+    const items = contentItems.filter(({ groupId }) => groupId === group.id);
+    const section = node("section", "content-group-section");
+    const heading = node("header", "content-group-heading");
+    const title = node("div", "content-group-heading-title");
+    title.append(node("h3", "", group.name));
+    if (group.id !== 1) {
+      const rename = node("button", "secondary compact", "Rename");
+      const archive = node("button", "secondary compact", "Archive group");
+      rename.type = archive.type = "button";
+      rename.addEventListener("click", () => void renameContentGroup(group.id, group.name));
+      archive.addEventListener("click", () => void archiveContentGroup(group.id, group.name));
+      title.append(rename, archive);
+    }
+    const top = node("button", "secondary compact", "⇈");
+    const up = node("button", "secondary compact", "↑");
+    const down = node("button", "secondary compact", "↓");
+    const bottom = node("button", "secondary compact", "⇊");
+    top.type = up.type = down.type = bottom.type = "button";
+    top.title = "Move group to top";
+    up.title = "Move group up";
+    down.title = "Move group down";
+    bottom.title = "Move group to bottom";
+    top.disabled = groupIndex === 0;
+    up.disabled = groupIndex === 0;
+    down.disabled = groupIndex === visibleGroups.length - 1;
+    bottom.disabled = groupIndex === visibleGroups.length - 1;
+    top.addEventListener("click", () => void moveContentGroup(group.id, "top"));
+    up.addEventListener("click", () => void moveContentGroup(group.id, "up"));
+    down.addEventListener("click", () => void moveContentGroup(group.id, "down"));
+    bottom.addEventListener("click", () => void moveContentGroup(group.id, "bottom"));
+    title.append(top, up, down, bottom);
+    const actions = node("div", "content-group-heading-actions");
+    actions.append(node("span", "", `${items.length} ${items.length === 1 ? "item" : "items"}`));
+    const add = node("button", "secondary compact", "Add content");
+    add.type = "button";
+    add.addEventListener("click", () => openContentEditor(null, group.id));
+    actions.append(add);
+    heading.append(title, actions);
+    const cards = node("div", "content-card-grid");
+    for (const item of items) {
+      const card = node("article", "content-card organizer-panel");
+      const cardHeading = node("div", "content-card-heading");
+      const identity = node("div", "content-card-identity");
+      const contentUrl = safeContentUrl(item.contentUrl);
+      if (contentUrl) {
+        const link = node("a", "content-title-link", item.title);
+        link.href = contentUrl;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        identity.append(link);
+      } else {
+        identity.append(node("h4", "", item.title));
+      }
+      const metadata = node("div", "content-meta");
+      if (item.sequence != null) metadata.append(node("span", "todo-pill", `#${item.sequence}`));
+      metadata.append(
+        node("span", "todo-pill", contentTypeLabel(item.contentType)),
+        node("span", "todo-pill", item.contentStatus),
+        node("span", "todo-pill", item.contentHost),
+        node("span", "todo-pill", formatDisplayDate(item.publishedAtUtc)),
+      );
+      identity.append(metadata);
+      const cardActions = node("div", "content-card-actions");
+      const edit = node("button", "secondary compact", "Edit");
+      const remove = node("button", "danger compact", "Delete");
+      edit.type = remove.type = "button";
+      edit.addEventListener("click", () => openContentEditor(item));
+      remove.addEventListener("click", () => void deleteContent(item));
+      cardActions.append(edit, remove);
+      cardHeading.append(identity, cardActions);
+      card.append(cardHeading);
+      if (item.description) card.append(node("p", "content-description", item.description));
+      if (item.transcript) {
+        const details = node("details", "content-transcript");
+        details.append(node("summary", "", "Transcript"), node("p", "", item.transcript));
+        card.append(details);
+      }
+      cards.append(card);
+    }
+    if (items.length === 0) cards.append(node("p", "empty", "No content in this group for the current filters."));
+    section.append(heading, cards);
+    elements.contentList.append(section);
+  }
+}
+
+async function moveContentGroup(groupId, movement) {
+  const currentIndex = contentGroups.findIndex(({ id }) => id === groupId);
+  const targetIndex = movement === "top"
+    ? 0
+    : movement === "bottom"
+      ? contentGroups.length - 1
+      : currentIndex + (movement === "up" ? -1 : 1);
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= contentGroups.length || targetIndex === currentIndex) return;
+  const orderedGroupIds = contentGroups.map(({ id }) => id);
+  orderedGroupIds.splice(currentIndex, 1);
+  orderedGroupIds.splice(targetIndex, 0, groupId);
+  try {
+    await api("/api/content-groups/reorder", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderedGroupIds }),
+    });
+    await refreshContent();
+  } catch (error) {
+    window.alert(error.message || "Could not reorder the content group.");
+  }
+}
+
+function populateContentGroupEditor(selectedGroupId) {
+  elements.contentGroup.replaceChildren();
+  for (const group of contentGroups) {
+    const option = node("option", "", group.name);
+    option.value = String(group.id);
+    elements.contentGroup.append(option);
+  }
+  elements.contentGroup.value = String(selectedGroupId ?? "");
+}
+
+function openContentEditor(item = null, groupId = null) {
+  elements.contentForm.reset();
+  elements.contentFormError.textContent = "";
+  elements.contentDialogTitle.textContent = item ? "Edit content" : "New content";
+  elements.contentId.value = item?.id ?? "";
+  elements.contentVersion.value = item?.version ?? "";
+  elements.contentTitle.value = item?.title ?? "";
+  populateContentGroupEditor(
+    item?.groupId ?? groupId ?? (elements.contentGroupFilter.value || contentGroups[0]?.id || ""),
+  );
+  elements.contentSequence.value = item?.sequence ?? "";
+  elements.contentType.value = item?.contentType ?? "mobileUGC_tutorial";
+  elements.contentStatus.value = item?.contentStatus ?? "active";
+  elements.contentHost.value = item?.contentHost ?? "youtube";
+  elements.contentPublished.value = localDateTimeInput(item?.publishedAtUtc ?? new Date().toISOString());
+  elements.contentUrl.value = item?.contentUrl ?? "";
+  elements.contentDescription.value = item?.description ?? "";
+  elements.contentTranscript.value = item?.transcript ?? "";
+  elements.contentDialog.showModal();
+  elements.contentTitle.focus();
+}
+
+async function saveContent(event) {
+  event.preventDefault();
+  elements.contentFormError.textContent = "";
+  const submit = elements.contentForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  try {
+    const payload = {
+      groupId: Number(elements.contentGroup.value),
+      sequence: elements.contentSequence.value ? Number(elements.contentSequence.value) : null,
+      contentType: elements.contentType.value,
+      title: elements.contentTitle.value,
+      transcript: elements.contentTranscript.value || null,
+      description: elements.contentDescription.value || null,
+      publishedAtUtc: inputToIso(elements.contentPublished.value),
+      contentHost: elements.contentHost.value,
+      contentStatus: elements.contentStatus.value,
+      contentUrl: elements.contentUrl.value || null,
+    };
+    const id = elements.contentId.value;
+    if (id) payload.version = elements.contentVersion.value;
+    await api(id ? `/api/content-items/${id}` : "/api/content-items", {
+      method: id ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    elements.contentDialog.close();
+    await refreshContent();
+  } catch (error) {
+    elements.contentFormError.textContent = error.message || "Could not save the content.";
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+async function deleteContent(item) {
+  if (!window.confirm(`Permanently delete “${item.title}”? This cannot be undone.`)) return;
+  try {
+    await api(`/api/content-items/${item.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: item.version }),
+    });
+    await refreshContent();
+  } catch (error) {
+    window.alert(error.message || "Could not delete the content.");
+  }
+}
+
+async function createContentGroup({ selectFilter = true } = {}) {
+  const name = window.prompt("Name the new content group:")?.trim();
+  if (!name) return null;
+  try {
+    const body = await api("/api/content-groups", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+    });
+    await refreshContent();
+    if (selectFilter) {
+      elements.contentGroupFilter.value = String(body.group.id);
+      await refreshContent();
+    }
+    return body.group;
+  } catch (error) {
+    window.alert(error.message || "Could not create the content group.");
+    return null;
+  }
+}
+
+async function renameContentGroup(groupId, currentName) {
+  const name = window.prompt("New name for this content group:", currentName)?.trim();
+  if (!name || name === currentName) return;
+  try {
+    await api(`/api/content-groups/${groupId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+    });
+    await refreshContent();
+  } catch (error) {
+    window.alert(error.message || "Could not rename the content group.");
+  }
+}
+
+async function archiveContentGroup(groupId, groupName) {
+  if (!window.confirm(`Archive the empty ${groupName} content group?`)) return;
+  try {
+    await api(`/api/content-groups/${groupId}/archive`, { method: "POST" });
+    await refreshContent();
+  } catch (error) {
+    window.alert(error.message || "Could not archive the content group.");
+  }
+}
+
+function queueContentSearch() {
+  clearTimeout(contentSearchTimer);
+  contentSearchTimer = setTimeout(() => void refreshContent(), 200);
+}
+
 function formatContactBirthday(value) {
   if (!value) return null;
   const partial = /^--(\d{2})-(\d{2})$/.exec(value);
@@ -2519,7 +2845,7 @@ elements.tokenForm.addEventListener("submit", () => {
   localStorage.setItem("agent-slayer-token", accessToken);
   setTimeout(() => Promise.allSettled([loadHealth(), loadRequests({ force: true })]), 0);
 });
-for (const button of elements.navButtons) button.addEventListener("click", () => switchView(button.dataset.view));
+elements.viewSelector.addEventListener("change", () => switchView(elements.viewSelector.value));
 elements.previousMonth.addEventListener("click", () => {
   calendarCursor = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() - 1, 1);
   selectedCalendarDate = new Date(calendarCursor);
@@ -2588,6 +2914,19 @@ for (const control of [
   if (control.matches('input[type="number"]')) control.addEventListener("input", recurrenceChanged);
 }
 elements.todoScheduled.addEventListener("change", updateTodoRecurrenceEditor);
+elements.newContent.addEventListener("click", async () => {
+  if (contentGroups.length === 0) await refreshContent();
+  openContentEditor();
+});
+elements.newContentGroup.addEventListener("click", () => void createContentGroup());
+elements.contentNewGroup.addEventListener("click", async () => {
+  const group = await createContentGroup({ selectFilter: false });
+  if (group) populateContentGroupEditor(group.id);
+});
+elements.contentSearch.addEventListener("input", queueContentSearch);
+elements.contentStatusFilter.addEventListener("change", () => void refreshContent());
+elements.contentGroupFilter.addEventListener("change", () => void refreshContent());
+elements.contentForm.addEventListener("submit", saveContent);
 elements.newContact.addEventListener("click", () => openContactEditor());
 elements.contactSearch.addEventListener("input", renderContacts);
 elements.contactTagFilter.addEventListener("change", renderContacts);

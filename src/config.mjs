@@ -82,7 +82,7 @@ export function loadConfig(environment = process.env) {
     codexRequestTimeoutMs: positiveInteger(environment.SLAYER_CODEX_TIMEOUT_MS, 10 * 60 * 1000),
     model: environment.SLAYER_MODEL?.trim() || "gpt-5.6-terra",
     reasoningEffort: environment.SLAYER_REASONING_EFFORT?.trim() || "high",
-    maxToolCalls: positiveInteger(environment.SLAYER_MAX_TOOL_CALLS, 24),
+    maxToolCalls: positiveInteger(environment.SLAYER_MAX_TOOL_CALLS, 128),
     maxUploadBytes: positiveInteger(environment.SLAYER_MAX_AUDIO_BYTES, 50 * 1024 * 1024),
     maxTextAttachmentBytes: positiveInteger(
       environment.SLAYER_MAX_TEXT_ATTACHMENT_BYTES,

@@ -140,6 +140,74 @@ test("contact_tag_rename atomically renames or combines tags for the agent", asy
   `).get().count, 1);
 });
 
+test("batch contact lookup and tagging handle 1000 contacts in bounded tool calls", async (context) => {
+  const { store, registry, request } = harness(context);
+  const database = store.requireReady();
+  const insert = database.prepare(`
+    INSERT INTO contacts (display_name, updated_at_utc)
+    VALUES (?, '2026-08-17T12:00:00.000Z') RETURNING contact_id
+  `);
+  const ids = [];
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    for (let index = 1; index <= 1000; index += 1) {
+      ids.push(Number(insert.get(`Batch Person ${index}`).contact_id));
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+  const toolContext = {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "batch-contact-lookup",
+    channel: "web",
+  };
+  const lookup = await registry.execute("contact_lookup_batch", {
+    names: ["BATCH-PERSON-1", "Batch Person 1000", "Missing Person"],
+    include_inactive: true,
+    max_matches_per_name: 20,
+  }, toolContext);
+  assert.deepEqual(lookup.results.map(({ match_count: count }) => count), [1, 1, 0]);
+  assert.deepEqual(
+    lookup.results.slice(0, 2).map(({ matches }) => matches[0].contact_id),
+    [ids[0], ids[999]],
+  );
+
+  await assert.rejects(
+    registry.execute("contact_tag_add_batch", {
+      tag: "Big Batch",
+      contact_ids: [ids[0], 999_999],
+    }, { ...toolContext, callId: "batch-contact-tag-invalid" }),
+    /Contact 999999 was not found/,
+  );
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM record_tags").get().count, 0);
+
+  const tagged = await registry.execute("contact_tag_add_batch", {
+    tag: "Big Batch",
+    contact_ids: ids,
+  }, { ...toolContext, callId: "batch-contact-tag" });
+  assert.deepEqual(
+    [tagged.selected_contact_count, tagged.tagged_contact_count, tagged.already_tagged_contact_count],
+    [1000, 1000, 0],
+  );
+  const replay = await registry.execute("contact_tag_add_batch", {
+    tag: "Big Batch",
+    contact_ids: ids,
+  }, { ...toolContext, callId: "batch-contact-tag-replay" });
+  assert.deepEqual(
+    [replay.selected_contact_count, replay.tagged_contact_count, replay.already_tagged_contact_count],
+    [1000, 0, 1000],
+  );
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM record_tags").get().count, 1000);
+  assert.equal(database.prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'contacts.tag_added_batch'
+      AND actor_type = 'tool' AND actor_name = 'contact_tag_add_batch'
+  `).get().count, 2);
+});
+
 test("contact_import accepts more than 100 rows in one bounded transaction", async (context) => {
   const { store, registry, request } = harness(context);
   const entries = Array.from({ length: 125 }, (_, index) => contact({

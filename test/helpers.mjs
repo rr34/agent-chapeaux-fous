@@ -110,6 +110,37 @@ export function temporaryDatabase() {
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       PRIMARY KEY (tag_id, record_type, record_id)
     ) STRICT, WITHOUT ROWID;
+    CREATE TABLE content_groups (
+      content_group_id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      sort_position INTEGER NOT NULL DEFAULT 0,
+      archived_at_utc TEXT,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT
+    ) STRICT;
+    CREATE TABLE content_items (
+      content_id INTEGER PRIMARY KEY,
+      content_group_id INTEGER NOT NULL REFERENCES content_groups(content_group_id),
+      sequence INTEGER,
+      content_type TEXT NOT NULL DEFAULT 'mobileUGC_tutorial',
+      title TEXT NOT NULL,
+      transcript TEXT,
+      description TEXT,
+      published_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      content_host TEXT NOT NULL DEFAULT 'youtube',
+      content_status TEXT NOT NULL DEFAULT 'active',
+      content_url TEXT,
+      relationship_to_user TEXT NOT NULL DEFAULT 'mine',
+      creator_contact_id INTEGER REFERENCES contacts(contact_id),
+      personal_notes TEXT,
+      external_id TEXT,
+      primary_file_id INTEGER REFERENCES files(file_id),
+      consumed_at_utc TEXT,
+      source_event_id TEXT REFERENCES activity_events(event_id),
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT,
+      UNIQUE (content_group_id, sequence)
+    ) STRICT;
     CREATE TABLE calendar_events (
       calendar_event_id INTEGER PRIMARY KEY,
       ical_uid TEXT,
@@ -230,6 +261,7 @@ export function temporaryDatabase() {
     CREATE INDEX profile_facts_status_type
       ON profile_facts(fact_status, fact_type, profile_fact_id);
     INSERT INTO todo_groups (name, sort_position) VALUES ('Inbox', 20), ('Development', 10);
+    INSERT INTO content_groups (name, sort_position) VALUES ('General', 10);
   `);
   database.close();
   return {

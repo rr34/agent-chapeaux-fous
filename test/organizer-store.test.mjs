@@ -783,3 +783,86 @@ test("archiving a group fails on active tasks and preserves terminal task histor
     temporary.cleanup();
   }
 });
+
+test("grouped content supports sequence-aware CRUD, filtering, and safe group lifecycle", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    assert.deepEqual(organizer.listContentGroups().map(({ name }) => name), ["General"]);
+    const campaigns = organizer.createContentGroup({ name: "Campaigns" });
+    const research = organizer.createContentGroup({ name: "Research" });
+    organizer.reorderContentGroups({ orderedGroupIds: [research.id, campaigns.id, 1] });
+    assert.deepEqual(
+      organizer.listContentGroups().map(({ name }) => name),
+      ["Research", "Campaigns", "General"],
+    );
+
+    const first = organizer.createContent({
+      groupId: research.id,
+      sequence: 1,
+      contentType: "podcast",
+      title: "Launch interview",
+      transcript: "An unabridged conversation about the launch.",
+      description: "Long-form founder interview.",
+      publishedAtUtc: "2026-08-17T15:00:00.000Z",
+      contentHost: "spotify",
+      contentStatus: "active",
+      contentUrl: "https://example.test/launch-interview",
+    });
+    const second = organizer.createContent({
+      groupId: research.id,
+      sequence: 2,
+      contentType: "image",
+      title: "Launch graphic",
+      description: "Square social asset.",
+      publishedAtUtc: "2026-08-18T15:00:00.000Z",
+      contentHost: "none",
+      contentStatus: "queued",
+    });
+    assert.deepEqual(organizer.listContent({ groupId: research.id }).map(({ sequence }) => sequence), [1, 2]);
+    assert.deepEqual(organizer.listContent({ status: "active" }).map(({ id }) => id), [first.id]);
+    assert.deepEqual(organizer.listContent({ query: "unabridged" }).map(({ id }) => id), [first.id]);
+    assert.throws(
+      () => organizer.createContent({
+        groupId: research.id,
+        title: "Unsafe link",
+        contentUrl: "javascript:alert(1)",
+      }),
+      (error) => error instanceof OrganizerInputError && /http or https/.test(error.message),
+    );
+    assert.throws(
+      () => organizer.createContent({ groupId: research.id, sequence: 2, title: "Duplicate sequence" }),
+      (error) => error instanceof OrganizerInputError && error.statusCode === 409,
+    );
+
+    const updated = organizer.updateContent(first.id, {
+      version: first.version,
+      groupId: 1,
+      sequence: 1,
+      title: "Published launch interview",
+      contentStatus: "obsolete",
+    });
+    assert.equal(updated.groupName, "General");
+    assert.equal(updated.title, "Published launch interview");
+    assert.throws(
+      () => organizer.archiveContentGroup(research.id),
+      (error) => error instanceof OrganizerInputError && error.statusCode === 409,
+    );
+
+    organizer.deleteContent(second.id, { version: second.version });
+    const archived = organizer.archiveContentGroup(research.id);
+    assert.ok(archived.group.archivedAtUtc);
+    assert.equal(organizer.listContentGroups().some(({ id }) => id === research.id), false);
+    assert.equal(organizer.getContent(first.id).transcript, "An unabridged conversation about the launch.");
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events
+      WHERE event_type IN (
+        'content_group.created', 'content_group.reordered', 'content.created',
+        'content.updated', 'content.deleted', 'content_group.archived'
+      )
+    `).get().count, 8);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});

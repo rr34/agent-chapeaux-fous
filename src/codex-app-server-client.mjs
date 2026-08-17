@@ -502,7 +502,7 @@ export class CodexAppServerClient extends EventEmitter {
     developerInstructions,
     input,
     tools,
-    maxToolCalls = 24,
+    maxToolCalls = 128,
     onToolCall,
     onEvent,
   }) {

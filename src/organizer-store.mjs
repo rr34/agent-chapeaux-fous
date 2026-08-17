@@ -3,7 +3,8 @@ import { DatabaseSync } from "node:sqlite";
 import rrulePackage from "rrule";
 import { searchCalendarEventRows } from "./calendar-search.mjs";
 import {
-  clearDuplicateGroup, findContactDuplicateGroups, findExactContactDuplicateGroups, selectDuplicateKeeper,
+  clearDuplicateGroup, findContactDuplicateGroups, findExactContactDuplicateGroups,
+  normalizedContactName, selectDuplicateKeeper,
 } from "./contact-duplicates.mjs";
 import { redactText, safeJson } from "./redaction.mjs";
 import { archiveEmptyTodoGroup, renameTodoGroup } from "./todo-group-operations.mjs";
@@ -16,6 +17,12 @@ const defaultCalendarTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 const calendarStatuses = new Set(["active", "archived"]);
 const visibleCalendarStorageStatuses = ["tentative", "confirmed"];
 const todoStatuses = new Set(["todo", "complete", "ignore", "archive", "ai_suggested"]);
+const contentTypes = new Set([
+  "mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad",
+  "video_ad", "podcast", "image", "unknown",
+]);
+const contentHosts = new Set(["youtube", "vimeo", "spotify", "mytlomdotcom", "none"]);
+const contentStatuses = new Set(["active", "obsolete", "unused", "queued"]);
 const contactKinds = new Set(["person", "organization", "service"]);
 const contactStatuses = new Set(["active", "inactive", "blocked", "deceased"]);
 const contactMethodKinds = new Set(["email", "phone", "postal_address", "handle", "url", "other"]);
@@ -39,6 +46,21 @@ function optionalText(value, label, maximum = 10_000) {
   if (value == null || value === "") return null;
   if (typeof value !== "string") throw new OrganizerInputError(`${label} must be text.`);
   return value.trim().slice(0, maximum) || null;
+}
+
+function httpUrl(value, label = "url") {
+  const result = optionalText(value, label, 2048);
+  if (result === null) return null;
+  let parsed;
+  try {
+    parsed = new URL(result);
+  } catch {
+    throw new OrganizerInputError(`${label} must be a valid URL.`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new OrganizerInputError(`${label} must use http or https.`);
+  }
+  return result;
 }
 
 function enumValue(value, allowed, label, fallback) {
@@ -174,6 +196,19 @@ function reviewedContactSelections(value) {
       throw new OrganizerInputError(`contacts[${index}].expectedVersion is required.`);
     }
     return { id, expectedVersion: selection.expectedVersion };
+  });
+}
+
+function contactIdentifiers(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 10_000) {
+    throw new OrganizerInputError("contactIds must contain 1 through 10000 contact ids.");
+  }
+  const seen = new Set();
+  return value.map((item, index) => {
+    const id = identifier(item, `contactIds[${index}]`);
+    if (seen.has(id)) throw new OrganizerInputError("contactIds cannot contain duplicates.");
+    seen.add(id);
+    return id;
   });
 }
 
@@ -486,6 +521,40 @@ function publicTodoGroup(row) {
   };
 }
 
+function publicContentGroup(row) {
+  if (!row) return null;
+  return {
+    id: row.content_group_id,
+    name: row.name,
+    sortPosition: row.sort_position,
+    archivedAtUtc: row.archived_at_utc,
+    createdAtUtc: row.created_at_utc,
+    updatedAtUtc: row.updated_at_utc,
+  };
+}
+
+function publicContent(row) {
+  if (!row) return null;
+  return {
+    id: row.content_id,
+    groupId: row.content_group_id,
+    groupName: row.group_name,
+    groupArchivedAtUtc: row.group_archived_at_utc ?? null,
+    sequence: row.sequence,
+    contentType: row.content_type,
+    title: row.title,
+    transcript: row.transcript,
+    description: row.description,
+    publishedAtUtc: row.published_at_utc,
+    contentHost: row.content_host,
+    contentStatus: row.content_status,
+    contentUrl: row.content_url,
+    createdAtUtc: row.created_at_utc,
+    updatedAtUtc: row.updated_at_utc,
+    version: row.updated_at_utc ?? row.created_at_utc,
+  };
+}
+
 function publicLogTracker(row) {
   if (!row) return null;
   return {
@@ -757,6 +826,45 @@ export class OrganizerStore {
     };
   }
 
+  lookupContactsByNames({ names, includeInactive = true, maxMatchesPerName = 20 } = {}) {
+    if (!Array.isArray(names) || names.length < 1 || names.length > 500) {
+      throw new OrganizerInputError("names must contain 1 through 500 contact names.");
+    }
+    const selectedNames = names.map((name, index) => {
+      const query = requiredText(name, `names[${index}]`, 500);
+      const normalizedName = normalizedContactName(query);
+      if (normalizedName.length < 2) {
+        throw new OrganizerInputError(`names[${index}] must contain at least two letters or numbers.`);
+      }
+      return { query, normalizedName };
+    });
+    const boundedMatches = integer(maxMatchesPerName, "maxMatchesPerName", {
+      fallback: 20, minimum: 1, maximum: 100,
+    });
+    const scope = includeInactive ? "all" : "active";
+    const contacts = this.listContacts({ scope, limit: 10_000 });
+    const byName = new Map();
+    for (const contact of contacts) {
+      const name = normalizedContactName(contact.displayName);
+      const matches = byName.get(name) ?? [];
+      matches.push(contact);
+      byName.set(name, matches);
+    }
+    return {
+      scannedContactCount: contacts.length,
+      results: selectedNames.map(({ query, normalizedName }) => {
+        const matches = byName.get(normalizedName) ?? [];
+        return {
+          query,
+          normalizedName,
+          matchCount: matches.length,
+          matchesTruncated: matches.length > boundedMatches,
+          matches: matches.slice(0, boundedMatches),
+        };
+      }),
+    };
+  }
+
   getContact(idValue) {
     return this.#contact(identifier(idValue, "contact id"));
   }
@@ -942,6 +1050,67 @@ export class OrganizerStore {
       });
       this.database.exec("COMMIT");
       return { action, affectedCount: records.length, ...(tag ? { tag: tag.label } : {}) };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  addTagToContacts(input, activity = {}) {
+    const contactIds = contactIdentifiers(input?.contactIds);
+    const tag = contactTags([input?.tag])?.[0];
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const find = this.database.prepare(`
+        SELECT contact_id, created_at_utc, updated_at_utc
+        FROM contacts WHERE contact_id = ?
+      `);
+      const contacts = contactIds.map((contactId) => {
+        const contact = find.get(contactId);
+        if (!contact) throw new OrganizerInputError(`Contact ${contactId} was not found.`, 404);
+        return contact;
+      });
+      const storedTag = this.#ensureContactTag(tag);
+      const assign = this.database.prepare(`
+        INSERT OR IGNORE INTO record_tags (tag_id, record_type, record_id)
+        VALUES (?, 'contact', ?)
+      `);
+      const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
+      const candidateVersion = new Date().toISOString();
+      let taggedContactCount = 0;
+      for (const contact of contacts) {
+        const result = assign.run(storedTag.tag_id, String(contact.contact_id));
+        if (result.changes !== 1) continue;
+        taggedContactCount += 1;
+        const version = contact.updated_at_utc ?? contact.created_at_utc;
+        const nextVersion = candidateVersion > version
+          ? candidateVersion
+          : new Date(new Date(version).getTime() + 1).toISOString();
+        update.run(nextVersion, contact.contact_id);
+      }
+      this.#activity({
+        eventType: "contacts.tag_added_batch",
+        status: "complete",
+        name: "Tag added to contact batch",
+        subjectType: "contact_batch",
+        subjectId: contacts.length,
+        contentText: `${tag.label} → ${contacts.length} contacts`,
+        payload: {
+          tag: tag.label,
+          selectedContactCount: contacts.length,
+          taggedContactCount,
+          alreadyTaggedContactCount: contacts.length - taggedContactCount,
+          contactIds,
+        },
+        ...activity,
+      });
+      this.database.exec("COMMIT");
+      return {
+        tag: tag.label,
+        selectedContactCount: contacts.length,
+        taggedContactCount,
+        alreadyTaggedContactCount: contacts.length - taggedContactCount,
+      };
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
@@ -1485,6 +1654,331 @@ export class OrganizerStore {
       });
       this.database.exec("COMMIT");
       return this.listTodoGroups();
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listContentGroups({ includeArchived = false } = {}) {
+    return this.database.prepare(`
+      SELECT * FROM content_groups
+      ${includeArchived ? "" : "WHERE archived_at_utc IS NULL"}
+      ORDER BY sort_position, content_group_id
+    `).all().map(publicContentGroup);
+  }
+
+  createContentGroup(input) {
+    const name = requiredText(input?.name, "name", 200);
+    const now = new Date().toISOString();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const result = this.database.prepare(`
+        INSERT INTO content_groups (name, sort_position, created_at_utc)
+        SELECT ?, COALESCE(MAX(sort_position), 0) + 10, ? FROM content_groups
+      `).run(name, now);
+      const group = publicContentGroup(this.database.prepare(
+        "SELECT * FROM content_groups WHERE content_group_id = ?",
+      ).get(Number(result.lastInsertRowid)));
+      this.#activity({
+        eventType: "content_group.created", status: "complete", name: "Content group created",
+        subjectType: "content_group", subjectId: group.id, contentText: group.name, payload: { group },
+      });
+      this.database.exec("COMMIT");
+      return group;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("content_groups.name")) {
+        throw new OrganizerInputError("A content group with that name already exists.", 409);
+      }
+      throw error;
+    }
+  }
+
+  renameContentGroup(idValue, input) {
+    const id = identifier(idValue, "content group id");
+    const name = requiredText(input?.name, "name", 200);
+    const now = new Date().toISOString();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const before = this.database.prepare(
+        "SELECT * FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
+      ).get(id);
+      if (!before) throw new OrganizerInputError("Content group not found.", 404);
+      if (id === 1) throw new OrganizerInputError("General is the permanent catchall and cannot be renamed.", 409);
+      this.database.prepare(
+        "UPDATE content_groups SET name = ?, updated_at_utc = ? WHERE content_group_id = ?",
+      ).run(name, now, id);
+      const group = publicContentGroup(this.database.prepare(
+        "SELECT * FROM content_groups WHERE content_group_id = ?",
+      ).get(id));
+      const result = { group: { ...group, previousName: before.name } };
+      this.#activity({
+        eventType: "content_group.renamed", status: "complete", name: "Content group renamed",
+        subjectType: "content_group", subjectId: id, contentText: `${before.name} → ${group.name}`, payload: result,
+      });
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("content_groups.name")) {
+        throw new OrganizerInputError("A content group with that name already exists.", 409);
+      }
+      throw error;
+    }
+  }
+
+  archiveContentGroup(idValue) {
+    const id = identifier(idValue, "content group id");
+    const now = new Date().toISOString();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const group = this.database.prepare(
+        "SELECT * FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
+      ).get(id);
+      if (!group) throw new OrganizerInputError("Content group not found.", 404);
+      if (id === 1) throw new OrganizerInputError("General is the permanent catchall and cannot be archived.", 409);
+      const count = Number(this.database.prepare(
+        "SELECT COUNT(*) AS count FROM content_items WHERE content_group_id = ?",
+      ).get(id).count);
+      if (count > 0) throw new OrganizerInputError("Move or delete every content item before archiving this group.", 409);
+      this.database.prepare(`
+        UPDATE content_groups SET archived_at_utc = ?, updated_at_utc = ? WHERE content_group_id = ?
+      `).run(now, now, id);
+      const archived = publicContentGroup(this.database.prepare(
+        "SELECT * FROM content_groups WHERE content_group_id = ?",
+      ).get(id));
+      this.#activity({
+        eventType: "content_group.archived", status: "complete", name: "Content group archived",
+        subjectType: "content_group", subjectId: id, contentText: archived.name, payload: { group: archived },
+      });
+      this.database.exec("COMMIT");
+      return { group: archived };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  reorderContentGroups(input) {
+    if (!Array.isArray(input?.orderedGroupIds) || input.orderedGroupIds.length === 0) {
+      throw new OrganizerInputError("orderedGroupIds must contain at least one content group id.");
+    }
+    const orderedGroupIds = input.orderedGroupIds.map((value) => identifier(value, "content group id"));
+    if (new Set(orderedGroupIds).size !== orderedGroupIds.length) {
+      throw new OrganizerInputError("orderedGroupIds cannot contain duplicates.");
+    }
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.database.prepare(`
+        SELECT content_group_id FROM content_groups
+        WHERE archived_at_utc IS NULL ORDER BY sort_position, content_group_id
+      `).all();
+      const activeIds = new Set(rows.map(({ content_group_id: id }) => Number(id)));
+      if (orderedGroupIds.some((id) => !activeIds.has(id))) {
+        throw new OrganizerInputError("Every reordered content group must be active.", 409);
+      }
+      const requested = new Set(orderedGroupIds);
+      let requestedIndex = 0;
+      const completeOrder = rows.map(({ content_group_id: idValue }) => {
+        const id = Number(idValue);
+        return requested.has(id) ? orderedGroupIds[requestedIndex++] : id;
+      });
+      const now = new Date().toISOString();
+      const update = this.database.prepare(`
+        UPDATE content_groups SET sort_position = ?, updated_at_utc = ?
+        WHERE content_group_id = ? AND archived_at_utc IS NULL
+      `);
+      completeOrder.forEach((id, index) => update.run((index + 1) * 10, now, id));
+      this.#activity({
+        eventType: "content_group.reordered", status: "complete", name: "Content groups reordered",
+        subjectType: "content_group_order", subjectId: "active",
+        contentText: `Reordered ${completeOrder.length} content groups`, payload: { orderedGroupIds: completeOrder },
+      });
+      this.database.exec("COMMIT");
+      return this.listContentGroups();
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listContent({ groupId = null, status = null, query = null, limit = 1000 } = {}) {
+    const conditions = ["content_group.archived_at_utc IS NULL"];
+    const values = [];
+    if (groupId != null && groupId !== "") {
+      conditions.push("content.content_group_id = ?");
+      values.push(identifier(groupId, "content group id"));
+    }
+    if (status != null && status !== "") {
+      conditions.push("content.content_status = ?");
+      values.push(enumValue(status, contentStatuses, "status", "active"));
+    }
+    const search = optionalText(query, "query", 500);
+    if (search) {
+      conditions.push("(content.title LIKE ? OR content.description LIKE ? OR content.transcript LIKE ?)");
+      values.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    const boundedLimit = integer(limit, "limit", { fallback: 1000, minimum: 1, maximum: 5000 });
+    return this.database.prepare(`
+      SELECT content.*, content_group.name AS group_name,
+             content_group.archived_at_utc AS group_archived_at_utc
+      FROM content_items AS content
+      JOIN content_groups AS content_group USING (content_group_id)
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY content_group.sort_position, content_group.content_group_id,
+               content.sequence IS NULL, content.sequence, content.content_id
+      LIMIT ?
+    `).all(...values, boundedLimit).map(publicContent);
+  }
+
+  getContent(idValue) {
+    const id = identifier(idValue, "content id");
+    return publicContent(this.database.prepare(`
+      SELECT content.*, content_group.name AS group_name,
+             content_group.archived_at_utc AS group_archived_at_utc
+      FROM content_items AS content
+      JOIN content_groups AS content_group USING (content_group_id)
+      WHERE content.content_id = ?
+    `).get(id));
+  }
+
+  createContent(input) {
+    const item = {
+      groupId: identifier(input?.groupId, "content group id"),
+      sequence: optionalPositiveInteger(input?.sequence, "sequence"),
+      contentType: enumValue(input?.contentType, contentTypes, "contentType", "mobileUGC_tutorial"),
+      title: requiredText(input?.title, "title", 10_000),
+      transcript: optionalText(input?.transcript, "transcript", 1_000_000),
+      description: optionalText(input?.description, "description", 1_000_000),
+      publishedAtUtc: isoDateTime(input?.publishedAtUtc ?? new Date().toISOString(), "publishedAtUtc", { required: true }),
+      contentHost: enumValue(input?.contentHost, contentHosts, "contentHost", "youtube"),
+      contentStatus: enumValue(input?.contentStatus, contentStatuses, "contentStatus", "active"),
+      contentUrl: httpUrl(input?.contentUrl, "contentUrl"),
+    };
+    const now = new Date().toISOString();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const group = this.database.prepare(
+        "SELECT 1 FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
+      ).get(item.groupId);
+      if (!group) throw new OrganizerInputError("Content group not found.", 404);
+      const result = this.database.prepare(`
+        INSERT INTO content_items (
+          content_group_id, sequence, content_type, title, transcript, description,
+          published_at_utc, content_host, content_status, content_url, created_at_utc
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        item.groupId, item.sequence, item.contentType, item.title, item.transcript,
+        item.description, item.publishedAtUtc, item.contentHost, item.contentStatus,
+        item.contentUrl, now,
+      );
+      const id = Number(result.lastInsertRowid);
+      const created = this.getContent(id);
+      const eventId = this.#activity({
+        eventType: "content.created", status: "complete", name: "Content created",
+        subjectType: "content_item", subjectId: id, contentText: created.title, payload: { content: created },
+      });
+      this.database.prepare("UPDATE content_items SET source_event_id = ? WHERE content_id = ?")
+        .run(eventId, id);
+      this.database.exec("COMMIT");
+      return this.getContent(id);
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("content_items.content_group_id, content_items.sequence")) {
+        throw new OrganizerInputError("That sequence is already used in this content group.", 409);
+      }
+      throw error;
+    }
+  }
+
+  updateContent(idValue, input) {
+    const id = identifier(idValue, "content id");
+    if (typeof input?.version !== "string" || !input.version) {
+      throw new OrganizerInputError("version is required when updating content.");
+    }
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const before = this.getContent(id);
+      if (!before) throw new OrganizerInputError("Content not found.", 404);
+      const after = {
+        ...before,
+        groupId: input.groupId === undefined ? before.groupId : identifier(input.groupId, "content group id"),
+        sequence: input.sequence === undefined ? before.sequence : optionalPositiveInteger(input.sequence, "sequence"),
+        contentType: input.contentType === undefined ? before.contentType : enumValue(input.contentType, contentTypes, "contentType", before.contentType),
+        title: input.title === undefined ? before.title : requiredText(input.title, "title", 10_000),
+        transcript: input.transcript === undefined ? before.transcript : optionalText(input.transcript, "transcript", 1_000_000),
+        description: input.description === undefined ? before.description : optionalText(input.description, "description", 1_000_000),
+        publishedAtUtc: input.publishedAtUtc === undefined ? before.publishedAtUtc : isoDateTime(input.publishedAtUtc, "publishedAtUtc", { required: true }),
+        contentHost: input.contentHost === undefined ? before.contentHost : enumValue(input.contentHost, contentHosts, "contentHost", before.contentHost),
+        contentStatus: input.contentStatus === undefined ? before.contentStatus : enumValue(input.contentStatus, contentStatuses, "contentStatus", before.contentStatus),
+        contentUrl: input.contentUrl === undefined ? before.contentUrl : httpUrl(input.contentUrl, "contentUrl"),
+      };
+      if (!this.database.prepare(
+        "SELECT 1 FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
+      ).get(after.groupId)) throw new OrganizerInputError("Content group not found.", 404);
+      const changes = changedFields(before, after, [
+        "groupId", "sequence", "contentType", "title", "transcript", "description",
+        "publishedAtUtc", "contentHost", "contentStatus", "contentUrl",
+      ]);
+      if (Object.keys(changes).length === 0) {
+        this.database.exec("COMMIT");
+        return before;
+      }
+      const now = new Date().toISOString();
+      const result = this.database.prepare(`
+        UPDATE content_items
+        SET content_group_id = ?, sequence = ?, content_type = ?, title = ?,
+            transcript = ?, description = ?, published_at_utc = ?, content_host = ?,
+            content_status = ?, content_url = ?, updated_at_utc = ?
+        WHERE content_id = ? AND COALESCE(updated_at_utc, created_at_utc) = ?
+      `).run(
+        after.groupId, after.sequence, after.contentType, after.title, after.transcript,
+        after.description, after.publishedAtUtc, after.contentHost, after.contentStatus,
+        after.contentUrl, now, id, input.version,
+      );
+      if (result.changes !== 1) {
+        throw new OrganizerInputError("This content changed while you were saving it. Refresh and try again.", 409);
+      }
+      const updated = this.getContent(id);
+      this.#activity({
+        eventType: "content.updated", status: "complete", name: "Content updated",
+        subjectType: "content_item", subjectId: id, contentText: updated.title, payload: { changes },
+      });
+      this.database.exec("COMMIT");
+      return updated;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("content_items.content_group_id, content_items.sequence")) {
+        throw new OrganizerInputError("That sequence is already used in this content group.", 409);
+      }
+      throw error;
+    }
+  }
+
+  deleteContent(idValue, input) {
+    const id = identifier(idValue, "content id");
+    if (typeof input?.version !== "string" || !input.version) {
+      throw new OrganizerInputError("version is required when deleting content.");
+    }
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const before = this.getContent(id);
+      if (!before) throw new OrganizerInputError("Content not found.", 404);
+      const result = this.database.prepare(`
+        DELETE FROM content_items
+        WHERE content_id = ? AND COALESCE(updated_at_utc, created_at_utc) = ?
+      `).run(id, input.version);
+      if (result.changes !== 1) {
+        throw new OrganizerInputError("This content changed before it could be deleted. Refresh and try again.", 409);
+      }
+      this.#activity({
+        eventType: "content.deleted", status: "complete", name: "Content deleted",
+        subjectType: "content_item", subjectId: id, contentText: before.title,
+        payload: { contentId: id, groupId: before.groupId, sequence: before.sequence },
+      });
+      this.database.exec("COMMIT");
+      return { deleted: before };
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;

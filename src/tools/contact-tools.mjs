@@ -536,6 +536,85 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
   });
 
   registry.register({
+    name: "contact_lookup_batch",
+    description: "Look up 1 through 500 contact display names in one call using exact normalized-name matching across up to 10,000 stored contacts. Use this instead of repeated database reads when resolving a large user-supplied list. Each result reports all bounded matches with current IDs, versions, methods, tags, source, and status so a later bulk action can be precise.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        names: {
+          type: "array", minItems: 1, maxItems: 500,
+          items: { type: "string", minLength: 1, maxLength: 500 },
+        },
+        include_inactive: { type: "boolean" },
+        max_matches_per_name: { type: "integer", minimum: 1, maximum: 100 },
+      },
+      required: ["names", "include_inactive", "max_matches_per_name"],
+    },
+    async execute({ names, include_inactive: includeInactive, max_matches_per_name: maxMatchesPerName }, context) {
+      const lookup = organizer.lookupContactsByNames({ names, includeInactive, maxMatchesPerName });
+      const result = {
+        scanned_contact_count: lookup.scannedContactCount,
+        query_count: lookup.results.length,
+        results: lookup.results.map((item) => ({
+          query: item.query,
+          normalized_name: item.normalizedName,
+          match_count: item.matchCount,
+          matches_truncated: item.matchesTruncated,
+          matches: item.matches.map((contact) => ({
+            contact_id: contact.id,
+            expected_version: contact.version,
+            display_name: contact.displayName,
+            contact_kind: contact.kind,
+            status: contact.status,
+            source: contact.source,
+            external_id: contact.externalId,
+            birth_date: contact.birthDate,
+            methods: contact.methods,
+            tags: contact.tags,
+          })),
+        })),
+      };
+      return contactResult(schemaSemantics, context, result, {
+        name: "contact_lookup_batch",
+        purpose: "Resolve many exact normalized contact names in one bounded read for subsequent bulk operations.",
+      });
+    },
+  });
+
+  registry.register({
+    name: "contact_tag_add_batch",
+    description: "Atomically add one tag to 1 through 10,000 existing contacts by ID in a single tool call. The operation validates every contact before writing, preserves all existing tags, is safe to replay, and reports newly tagged versus already-tagged counts. Use this after one contact_lookup_batch call; never insert record_tags one row at a time.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        tag: { type: "string", minLength: 1, maxLength: 100 },
+        contact_ids: {
+          type: "array", minItems: 1, maxItems: 10000, uniqueItems: true,
+          items: { type: "integer", minimum: 1 },
+        },
+      },
+      required: ["tag", "contact_ids"],
+    },
+    async execute({ tag, contact_ids: contactIds }, context) {
+      const tagged = organizer.addTagToContacts(
+        { tag, contactIds },
+        contactToolActivity(context, "contact_tag_add_batch"),
+      );
+      return contactResult(schemaSemantics, context, {
+        tag: tagged.tag,
+        selected_contact_count: tagged.selectedContactCount,
+        tagged_contact_count: tagged.taggedContactCount,
+        already_tagged_contact_count: tagged.alreadyTaggedContactCount,
+      }, {
+        name: "contact_tag_add_batch",
+        purpose: "Return a bounded receipt for one atomic, replay-safe tag assignment across many contacts.",
+      });
+    },
+  });
+
+  registry.register({
     name: "contact_tag_rename",
     description: "Rename one tag across every contact currently assigned to it. Tag matching uses the same normalized form as contact imports. If the destination tag already exists, assignments are merged without duplicates. This operation is atomic and returns the number of affected contacts.",
     parameters: {

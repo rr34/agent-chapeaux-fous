@@ -5,6 +5,152 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0015: grouped-content
+-- Organize the content catalog like the personal to-do list: every item belongs
+-- to one named group and may carry a stable positive sequence within that group.
+-- Preserve the action-content fields and Agent Slayer provenance already stored
+-- on content_items. Rebuild video_jobs alongside the parent table so its content
+-- references survive the SQLite table replacement.
+
+PRAGMA defer_foreign_keys = ON;
+
+ALTER TABLE video_jobs RENAME TO migration_0015_video_jobs;
+ALTER TABLE content_items RENAME TO migration_0015_content_items;
+
+CREATE TABLE content_groups (
+    content_group_id INTEGER PRIMARY KEY,
+    name             TEXT NOT NULL COLLATE NOCASE UNIQUE
+                     CHECK (length(trim(name)) BETWEEN 1 AND 200),
+    sort_position    INTEGER NOT NULL DEFAULT 0,
+    archived_at_utc  TEXT,
+    created_at_utc   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at_utc   TEXT
+) STRICT;
+
+INSERT INTO content_groups (content_group_id, name, sort_position)
+VALUES (1, 'General', 10);
+
+CREATE TABLE content_items (
+    content_id           INTEGER PRIMARY KEY,
+    content_group_id     INTEGER NOT NULL
+                         REFERENCES content_groups(content_group_id) ON DELETE RESTRICT,
+    sequence             INTEGER CHECK (sequence IS NULL OR sequence > 0),
+    content_type         TEXT NOT NULL DEFAULT 'mobileUGC_tutorial'
+                         CHECK (content_type IN (
+                             'mobileUGC_tutorial', 'mobileUGC_ad',
+                             'webUGC_tutorial', 'webUGC_ad', 'video_ad',
+                             'podcast', 'image', 'unknown'
+                         )),
+    title                TEXT NOT NULL,
+    transcript           TEXT,
+    description          TEXT,
+    published_at_utc     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    content_host         TEXT NOT NULL DEFAULT 'youtube'
+                         CHECK (content_host IN (
+                             'youtube', 'vimeo', 'spotify', 'mytlomdotcom', 'none'
+                         )),
+    content_status       TEXT NOT NULL DEFAULT 'active'
+                         CHECK (content_status IN ('active', 'obsolete', 'unused', 'queued')),
+    content_url          TEXT,
+    relationship_to_user TEXT NOT NULL DEFAULT 'mine'
+                         CHECK (relationship_to_user IN ('mine', 'reference')),
+    creator_contact_id   INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,
+    personal_notes       TEXT,
+    external_id          TEXT,
+    primary_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,
+    consumed_at_utc      TEXT,
+    source_event_id      TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    created_at_utc       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at_utc       TEXT,
+    UNIQUE (content_group_id, sequence)
+) STRICT;
+
+INSERT INTO content_items (
+    content_id, content_group_id, sequence, content_type, title, transcript,
+    description, published_at_utc, content_host, content_status, content_url,
+    relationship_to_user, creator_contact_id, personal_notes, external_id, primary_file_id,
+    consumed_at_utc, source_event_id, created_at_utc, updated_at_utc
+)
+SELECT
+    content_id, 1, content_id,
+    CASE content_kind
+        WHEN 'podcast' THEN 'podcast'
+        WHEN 'image' THEN 'image'
+        ELSE 'unknown'
+    END,
+    title, transcript, description,
+    COALESCE(published_at_utc, created_at_utc, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    CASE lower(trim(COALESCE(host, '')))
+        WHEN 'youtube' THEN 'youtube'
+        WHEN 'vimeo' THEN 'vimeo'
+        WHEN 'spotify' THEN 'spotify'
+        WHEN 'mytlomdotcom' THEN 'mytlomdotcom'
+        WHEN 'none' THEN 'none'
+        ELSE 'none'
+    END,
+    CASE status
+        WHEN 'queued' THEN 'queued'
+        WHEN 'obsolete' THEN 'obsolete'
+        WHEN 'archived' THEN 'unused'
+        WHEN 'idea' THEN 'queued'
+        WHEN 'draft' THEN 'queued'
+        ELSE 'active'
+    END,
+    source_url, relationship_to_user, creator_contact_id, personal_notes,
+    external_id, primary_file_id,
+    consumed_at_utc, source_event_id, created_at_utc, updated_at_utc
+FROM migration_0015_content_items;
+
+CREATE TABLE video_jobs (
+    video_job_id        INTEGER PRIMARY KEY,
+    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    source_turn_id      TEXT,
+    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,
+    renderer            TEXT NOT NULL DEFAULT 'remotion'
+                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),
+    template            TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'queued'
+                        CHECK (status IN (
+                            'queued', 'preparing', 'rendering',
+                            'complete', 'error', 'cancelled'
+                        )),
+    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),
+    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,
+    error_text          TEXT,
+    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    started_at_utc      TEXT,
+    completed_at_utc    TEXT,
+    updated_at_utc      TEXT,
+    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL
+) STRICT;
+
+INSERT INTO video_jobs (
+    video_job_id, request_event_id, source_turn_id, content_id, renderer,
+    template, status, input_json, output_file_id, error_text, created_at_utc,
+    started_at_utc, completed_at_utc, updated_at_utc, personal_task_id
+)
+SELECT
+    video_job_id, request_event_id, source_turn_id, content_id, renderer,
+    template, status, input_json, output_file_id, error_text, created_at_utc,
+    started_at_utc, completed_at_utc, updated_at_utc, personal_task_id
+FROM migration_0015_video_jobs;
+
+DROP TABLE migration_0015_video_jobs;
+DROP TABLE migration_0015_content_items;
+
+CREATE INDEX content_groups_order
+    ON content_groups(archived_at_utc, sort_position, content_group_id);
+
+CREATE INDEX content_items_group_order
+    ON content_items(content_group_id, sequence, content_id);
+
+CREATE INDEX content_items_creator
+    ON content_items(creator_contact_id, published_at_utc DESC);
+
+CREATE INDEX content_items_type_status
+    ON content_items(content_type, content_status);
+-- end migration 0015
+
 -- migration 0014: remove-contact-relationships
 -- Contacts use notes and reusable tags for overlapping classifications. Abort
 -- instead of deleting anything if a relationship record appears before this

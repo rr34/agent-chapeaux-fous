@@ -27,11 +27,15 @@
 
   <main>
     <nav class="app-nav" aria-label="Agent Slayer sections">
-      <button class="nav-button active" type="button" data-view="agent">Agent</button>
-      <button class="nav-button" type="button" data-view="calendar">Calendar</button>
-      <button class="nav-button" type="button" data-view="todos">To-Do List</button>
-      <button class="nav-button" type="button" data-view="contacts">Contacts</button>
-      <button class="nav-button" type="button" data-view="logs">Logs</button>
+      <label for="view-selector">Screen</label>
+      <select id="view-selector">
+        <option data-view="agent" value="agent">Agent</option>
+        <option data-view="calendar" value="calendar">Calendar</option>
+        <option data-view="todos" value="todos">To-Do List</option>
+        <option data-view="content" value="content">Content</option>
+        <option data-view="contacts" value="contacts">Contacts</option>
+        <option data-view="logs" value="logs">Logs</option>
+      </select>
     </nav>
 
     <div id="agent-view" class="app-view">
@@ -155,6 +159,32 @@
         </div>
       </div>
       <section id="todo-list" class="todo-list" aria-live="polite"></section>
+    </section>
+
+    <section id="content-view" class="app-view" hidden>
+      <header class="organizer-heading">
+        <div>
+          <p class="eyebrow">Grouped action content</p>
+          <h2>Content</h2>
+        </div>
+        <button id="new-content" type="button">New content</button>
+      </header>
+      <div class="content-toolbar organizer-panel">
+        <label class="content-search">Search<input id="content-search" type="search" placeholder="Title, description, transcript…"></label>
+        <label for="content-status-filter">Status</label>
+        <select id="content-status-filter">
+          <option value="active">Active</option>
+          <option value="queued">Queued</option>
+          <option value="obsolete">Obsolete</option>
+          <option value="unused">Unused</option>
+          <option value="">Everything</option>
+        </select>
+        <label for="content-group-filter">Group</label>
+        <select id="content-group-filter"><option value="">All groups</option></select>
+        <button id="new-content-group" class="secondary compact" type="button">New group</button>
+        <span id="content-count" class="toolbar-count"></span>
+      </div>
+      <section id="content-list" class="content-list" aria-live="polite"></section>
     </section>
 
     <section id="contacts-view" class="app-view" hidden>
@@ -381,6 +411,57 @@
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save todo</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="content-dialog" class="editor-dialog content-dialog">
+    <form id="content-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Action content</p><h2 id="content-dialog-title">New content</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <input id="content-id" type="hidden">
+      <input id="content-version" type="hidden">
+      <label>Title<input id="content-title" required maxlength="10000"></label>
+      <div class="editor-grid">
+        <div class="content-group-editor">
+          <label>Group<select id="content-group" required></select></label>
+          <button id="content-new-group" class="secondary compact" type="button">New group</button>
+        </div>
+        <label>Sequence<input id="content-sequence" type="number" min="1" step="1"></label>
+        <label>Type<select id="content-type">
+          <option value="mobileUGC_tutorial">Mobile UGC tutorial</option>
+          <option value="mobileUGC_ad">Mobile UGC ad</option>
+          <option value="webUGC_tutorial">Web UGC tutorial</option>
+          <option value="webUGC_ad">Web UGC ad</option>
+          <option value="video_ad">Video ad</option>
+          <option value="podcast">Podcast</option>
+          <option value="image">Image</option>
+          <option value="unknown">Unknown</option>
+        </select></label>
+        <label>Status<select id="content-status">
+          <option value="active">Active</option>
+          <option value="queued">Queued</option>
+          <option value="obsolete">Obsolete</option>
+          <option value="unused">Unused</option>
+        </select></label>
+        <label>Host<select id="content-host">
+          <option value="youtube">YouTube</option>
+          <option value="vimeo">Vimeo</option>
+          <option value="spotify">Spotify</option>
+          <option value="mytlomdotcom">mytlom.com</option>
+          <option value="none">None</option>
+        </select></label>
+        <label>Published<input id="content-published" type="datetime-local" lang="en-GB" step="60" required></label>
+      </div>
+      <label>URL<input id="content-url" type="url" maxlength="2048" placeholder="https://…"></label>
+      <label>Description<textarea id="content-description" rows="5"></textarea></label>
+      <label>Transcript<textarea id="content-transcript" rows="10"></textarea></label>
+      <p id="content-form-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Save content</button>
       </footer>
     </form>
   </dialog>

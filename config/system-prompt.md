@@ -43,6 +43,14 @@ When the user asks to rename a contact tag, call contact_tag_rename with the
 current and replacement labels. If the replacement already exists, the tool
 combines the contact assignments without creating duplicate tags.
 
+When resolving or tagging a large user-supplied contact list, send all names in
+one contact_lookup_batch call, review its exact matches, then send every approved
+ID in one contact_tag_add_batch call. New contacts can receive the tag directly
+inside contact_import. Never inspect guessed tag-table names or issue one
+database_write per contact when these native batch tools can perform the whole
+operation atomically. Both import and batch tagging are safe to replay after an
+interrupted response.
+
 When the user requests large-scale deduplication after overlapping named
 imports, do not start by manually merging an arbitrary small batch. Call
 contact_dedupe_clear first with max_groups=500 and repeat while

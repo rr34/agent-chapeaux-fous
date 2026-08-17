@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 14,
-    "schemaFingerprint": "5a4ec8eb44843d76097f1c71f3747ff78e7c0e07011211853be04c73153ae962",
-    "extractedAt": "2026-08-16T20:05:51.159Z"
+    "schemaVersion": 15,
+    "schemaFingerprint": "19942417e3dc0e26b5e1bc397b071220517ecb88bc0c9ecf7ef6fafcd872f79b",
+    "extractedAt": "2026-08-17T15:48:22.739Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -5191,11 +5191,225 @@
       },
       "relationships": {}
     },
+    "content_groups": {
+      "mechanics": {
+        "present": true,
+        "kind": "table",
+        "definition": "CREATE TABLE content_groups (\n    content_group_id INTEGER PRIMARY KEY,\n    name             TEXT NOT NULL COLLATE NOCASE UNIQUE\n                     CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    sort_position    INTEGER NOT NULL DEFAULT 0,\n    archived_at_utc  TEXT,\n    created_at_utc   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc   TEXT\n) STRICT",
+        "indexes": [
+          {
+            "name": "content_groups_order",
+            "columns": [
+              "archived_at_utc",
+              "sort_position",
+              "content_group_id"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          },
+          {
+            "name": "sqlite_autoindex_content_groups_1",
+            "columns": [
+              "name"
+            ],
+            "unique": true,
+            "partial": false,
+            "origin": "u"
+          }
+        ]
+      },
+      "semantics": {
+        "purpose": "Defines the named groups that organize the user's content catalog.",
+        "rowMeaning": "One row represents one content group.",
+        "sourceOfTruth": true,
+        "derivedFrom": [],
+        "synonyms": [
+          "content categories",
+          "content collections"
+        ],
+        "keywords": [
+          "content group",
+          "grouped content"
+        ],
+        "routingWeight": 0.7,
+        "importantRules": [
+          "Every content item belongs to exactly one content group.",
+          "sort_position controls group presentation order without changing stable group identifiers."
+        ],
+        "sensitivity": "Group names may reveal private content plans and interests."
+      },
+      "fields": {
+        "content_group_id": {
+          "mechanics": {
+            "present": true,
+            "name": "content_group_id",
+            "ordinal": 0,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 1,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable local identifier for this content group.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "name": {
+          "mechanics": {
+            "present": true,
+            "name": "name",
+            "ordinal": 1,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Complete human-facing name of the content group.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "sort_position": {
+          "mechanics": {
+            "present": true,
+            "name": "sort_position",
+            "ordinal": 2,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": "0",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Mutable presentation order used to place the group and all of its content in the catalog.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "archived_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "archived_at_utc",
+            "ordinal": 3,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC time when this group was removed from active content organization, or null while active.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "created_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "created_at_utc",
+            "ordinal": 4,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC time when this content group was created.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "updated_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "updated_at_utc",
+            "ordinal": 5,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC time of the most recent content-group change, when one has occurred.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        }
+      },
+      "relationships": {}
+    },
     "content_items": {
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE content_items (\n    -- Nate's own content and reference material from others share one catalog.\n    content_id          INTEGER PRIMARY KEY,\n    -- mine/reference distinguishes authored or planned work from books, creators, and other source material.\n    relationship_to_user TEXT NOT NULL DEFAULT 'mine'\n                        CHECK (relationship_to_user IN ('mine', 'reference')),\n    content_kind        TEXT NOT NULL DEFAULT 'other'\n                        CHECK (content_kind IN (\n                            'video', 'book', 'article', 'post', 'podcast',\n                            'image', 'document', 'course', 'website', 'other'\n                        )),\n    creator_contact_id  INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    title               TEXT NOT NULL,\n    description         TEXT,\n    -- transcript is source speech/text; personal_notes records Nate's reaction or intended use.\n    transcript          TEXT,\n    personal_notes      TEXT,\n    status              TEXT NOT NULL DEFAULT 'reference'\n                        CHECK (status IN (\n                            'idea', 'draft', 'queued', 'published',\n                            'reference', 'consumed', 'obsolete', 'archived'\n                        )),\n    host                TEXT,\n    source_url          TEXT,\n    external_id         TEXT,\n    -- Large content remains a file; this row stores its catalog metadata and primary file reference.\n    primary_file_id     INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    published_at_utc    TEXT,\n    consumed_at_utc     TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n) STRICT",
+        "definition": "CREATE TABLE content_items (\n    content_id           INTEGER PRIMARY KEY,\n    content_group_id     INTEGER NOT NULL\n                         REFERENCES content_groups(content_group_id) ON DELETE RESTRICT,\n    sequence             INTEGER CHECK (sequence IS NULL OR sequence > 0),\n    content_type         TEXT NOT NULL DEFAULT 'mobileUGC_tutorial'\n                         CHECK (content_type IN (\n                             'mobileUGC_tutorial', 'mobileUGC_ad',\n                             'webUGC_tutorial', 'webUGC_ad', 'video_ad',\n                             'podcast', 'image', 'unknown'\n                         )),\n    title                TEXT NOT NULL,\n    transcript           TEXT,\n    description          TEXT,\n    published_at_utc     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    content_host         TEXT NOT NULL DEFAULT 'youtube'\n                         CHECK (content_host IN (\n                             'youtube', 'vimeo', 'spotify', 'mytlomdotcom', 'none'\n                         )),\n    content_status       TEXT NOT NULL DEFAULT 'active'\n                         CHECK (content_status IN ('active', 'obsolete', 'unused', 'queued')),\n    content_url          TEXT,\n    relationship_to_user TEXT NOT NULL DEFAULT 'mine'\n                         CHECK (relationship_to_user IN ('mine', 'reference')),\n    creator_contact_id   INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    personal_notes       TEXT,\n    external_id          TEXT,\n    primary_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    consumed_at_utc      TEXT,\n    source_event_id      TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc       TEXT,\n    UNIQUE (content_group_id, sequence)\n) STRICT",
         "indexes": [
           {
             "name": "content_items_creator",
@@ -5208,15 +5422,35 @@
             "origin": "c"
           },
           {
-            "name": "content_items_kind_status",
+            "name": "content_items_group_order",
             "columns": [
-              "relationship_to_user",
-              "content_kind",
-              "status"
+              "content_group_id",
+              "sequence",
+              "content_id"
             ],
             "unique": false,
             "partial": false,
             "origin": "c"
+          },
+          {
+            "name": "content_items_type_status",
+            "columns": [
+              "content_type",
+              "content_status"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          },
+          {
+            "name": "sqlite_autoindex_content_items_1",
+            "columns": [
+              "content_group_id",
+              "sequence"
+            ],
+            "unique": true,
+            "partial": false,
+            "origin": "u"
           }
         ]
       },
@@ -5243,6 +5477,8 @@
         ],
         "routingWeight": 0.7,
         "importantRules": [
+          "Every content item belongs to exactly one content group.",
+          "sequence is an optional stable positive number unique within a content group.",
           "relationship_to_user distinguishes the user's authored or planned work from reference material.",
           "transcript preserves source speech or text; personal_notes preserves the user's reaction or intended use."
         ],
@@ -5276,11 +5512,334 @@
             "sensitivity": null
           }
         },
+        "content_group_id": {
+          "mechanics": {
+            "present": true,
+            "name": "content_group_id",
+            "ordinal": 1,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Content group that owns and organizes this item.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "sequence": {
+          "mechanics": {
+            "present": true,
+            "name": "sequence",
+            "ordinal": 2,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable positive number identifying this content item within its group when numbered organization is used.",
+            "units": "sequence number",
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Unique within content_group_id when present; unlike content_group.sort_position, it identifies an item rather than presentation placement."
+            ],
+            "sensitivity": null
+          }
+        },
+        "content_type": {
+          "mechanics": {
+            "present": true,
+            "name": "content_type",
+            "ordinal": 3,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'mobileUGC_tutorial'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": [
+              "mobileUGC_tutorial",
+              "mobileUGC_ad",
+              "webUGC_tutorial",
+              "webUGC_ad",
+              "video_ad",
+              "podcast",
+              "image",
+              "unknown"
+            ]
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Action-content format and production surface for this item.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {
+              "mobileUGC_tutorial": "Mobile-app user-generated-style tutorial.",
+              "mobileUGC_ad": "Mobile-app user-generated-style advertisement.",
+              "webUGC_tutorial": "Web-app user-generated-style tutorial.",
+              "webUGC_ad": "Web-app user-generated-style advertisement.",
+              "video_ad": "Video advertisement outside the mobile or web UGC-specific formats.",
+              "podcast": "Podcast or spoken-audio content.",
+              "image": "Still image or graphic content.",
+              "unknown": "Content whose production format has not been identified."
+            },
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "title": {
+          "mechanics": {
+            "present": true,
+            "name": "title",
+            "ordinal": 4,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Human-readable title of the work or source item.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [
+              "content title",
+              "article title",
+              "video title",
+              "book title"
+            ],
+            "routingWeight": 0.8,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "transcript": {
+          "mechanics": {
+            "present": true,
+            "name": "transcript",
+            "ordinal": 5,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Source speech or text transcribed or extracted from the content itself.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [
+              "content transcript",
+              "spoken words"
+            ],
+            "routingWeight": 0.8,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "description": {
+          "mechanics": {
+            "present": true,
+            "name": "description",
+            "ordinal": 6,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Summary or description of what the content is about.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [
+              "summary",
+              "what is it about"
+            ],
+            "routingWeight": 0.7,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "published_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "published_at_utc",
+            "ordinal": 7,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC publication time reported for the content when known.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "content_host": {
+          "mechanics": {
+            "present": true,
+            "name": "content_host",
+            "ordinal": 8,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'youtube'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": [
+              "youtube",
+              "vimeo",
+              "spotify",
+              "mytlomdotcom",
+              "none"
+            ]
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Platform or service that hosts the published content.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {
+              "youtube": "Hosted on YouTube.",
+              "vimeo": "Hosted on Vimeo.",
+              "spotify": "Hosted on Spotify.",
+              "mytlomdotcom": "Hosted on mytlom.com.",
+              "none": "The content has no external host."
+            },
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "content_status": {
+          "mechanics": {
+            "present": true,
+            "name": "content_status",
+            "ordinal": 9,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'active'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": [
+              "active",
+              "obsolete",
+              "unused",
+              "queued"
+            ]
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Current action-content lifecycle state.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {
+              "active": "Content is current and available for use.",
+              "obsolete": "Content has been superseded and should not guide current work.",
+              "unused": "Content is retained but not currently used.",
+              "queued": "Content is awaiting production or publication."
+            },
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "content_url": {
+          "mechanics": {
+            "present": true,
+            "name": "content_url",
+            "ordinal": 10,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Canonical public or hosted URL for the content when one exists.",
+            "units": null,
+            "format": "URL",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
         "relationship_to_user": {
           "mechanics": {
             "present": true,
             "name": "relationship_to_user",
-            "ordinal": 1,
+            "ordinal": 11,
             "type": "TEXT",
             "nullable": false,
             "default": "'mine'",
@@ -5309,11 +5868,231 @@
             "sensitivity": null
           }
         },
-        "content_kind": {
+        "creator_contact_id": {
           "mechanics": {
             "present": true,
+            "name": "creator_contact_id",
+            "ordinal": 12,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Known person, organization, or service that created the content.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "personal_notes": {
+          "mechanics": {
+            "present": true,
+            "name": "personal_notes",
+            "ordinal": 13,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "the user's own reaction, interpretation, plan, or intended use for the content.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [
+              "my thoughts",
+              "my notes",
+              "reaction"
+            ],
+            "routingWeight": 0.7,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "external_id": {
+          "mechanics": {
+            "present": true,
+            "name": "external_id",
+            "ordinal": 14,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Identifier assigned to the item by its host or source system.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "primary_file_id": {
+          "mechanics": {
+            "present": true,
+            "name": "primary_file_id",
+            "ordinal": 15,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Main locally stored file representing this content item when one exists.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "consumed_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "consumed_at_utc",
+            "ordinal": 16,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC time when the user finished or recorded consuming the reference material.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "source_event_id": {
+          "mechanics": {
+            "present": true,
+            "name": "source_event_id",
+            "ordinal": 17,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Ledger event that caused this content item to be created when known.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "created_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "created_at_utc",
+            "ordinal": 18,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp when this catalog record was inserted.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "updated_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "updated_at_utc",
+            "ordinal": 19,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp of the latest recorded change to this catalog record.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "content_kind": {
+          "mechanics": {
+            "present": false,
             "name": "content_kind",
-            "ordinal": 2,
+            "ordinal": 4,
             "type": "TEXT",
             "nullable": false,
             "default": "'other'",
@@ -5358,161 +6137,11 @@
             "sensitivity": null
           }
         },
-        "creator_contact_id": {
-          "mechanics": {
-            "present": true,
-            "name": "creator_contact_id",
-            "ordinal": 3,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Known person, organization, or service that created the content.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "title": {
-          "mechanics": {
-            "present": true,
-            "name": "title",
-            "ordinal": 4,
-            "type": "TEXT",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Human-readable title of the work or source item.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "content title",
-              "article title",
-              "video title",
-              "book title"
-            ],
-            "routingWeight": 0.8,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "description": {
-          "mechanics": {
-            "present": true,
-            "name": "description",
-            "ordinal": 5,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Summary or description of what the content is about.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "summary",
-              "what is it about"
-            ],
-            "routingWeight": 0.7,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "transcript": {
-          "mechanics": {
-            "present": true,
-            "name": "transcript",
-            "ordinal": 6,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Source speech or text transcribed or extracted from the content itself.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "content transcript",
-              "spoken words"
-            ],
-            "routingWeight": 0.8,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "personal_notes": {
-          "mechanics": {
-            "present": true,
-            "name": "personal_notes",
-            "ordinal": 7,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "the user's own reaction, interpretation, plan, or intended use for the content.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "my thoughts",
-              "my notes",
-              "reaction"
-            ],
-            "routingWeight": 0.7,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
         "status": {
           "mechanics": {
-            "present": true,
+            "present": false,
             "name": "status",
-            "ordinal": 8,
+            "ordinal": 10,
             "type": "TEXT",
             "nullable": false,
             "default": "'reference'",
@@ -5555,9 +6184,9 @@
         },
         "host": {
           "mechanics": {
-            "present": true,
+            "present": false,
             "name": "host",
-            "ordinal": 9,
+            "ordinal": 12,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -5582,9 +6211,9 @@
         },
         "source_url": {
           "mechanics": {
-            "present": true,
+            "present": false,
             "name": "source_url",
-            "ordinal": 10,
+            "ordinal": 13,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -5606,195 +6235,6 @@
               "where found"
             ],
             "routingWeight": 0.6,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "external_id": {
-          "mechanics": {
-            "present": true,
-            "name": "external_id",
-            "ordinal": 11,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Identifier assigned to the item by its host or source system.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "primary_file_id": {
-          "mechanics": {
-            "present": true,
-            "name": "primary_file_id",
-            "ordinal": 12,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Main locally stored file representing this content item when one exists.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "published_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "published_at_utc",
-            "ordinal": 13,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC publication time reported for the content when known.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "consumed_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "consumed_at_utc",
-            "ordinal": 14,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC time when the user finished or recorded consuming the reference material.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source_event_id": {
-          "mechanics": {
-            "present": true,
-            "name": "source_event_id",
-            "ordinal": 15,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Ledger event that caused this content item to be created when known.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "created_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "created_at_utc",
-            "ordinal": 16,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC timestamp when this catalog record was inserted.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "updated_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "updated_at_utc",
-            "ordinal": 17,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC timestamp of the latest recorded change to this catalog record.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
             "examples": [],
             "importantRules": [],
             "sensitivity": null
@@ -5829,6 +6269,28 @@
         }
       },
       "relationships": {
+        "fk:content_group_id->content_groups.content_group_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:content_group_id->content_groups.content_group_id",
+            "columns": [
+              "content_group_id"
+            ],
+            "targetObject": "content_groups",
+            "targetColumns": [
+              "content_group_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "RESTRICT"
+          },
+          "semantics": {
+            "meaning": "Connects this content item to the content group identified by content_group_id.",
+            "cardinality": "Each content item references exactly one content group; one group may contain many content items.",
+            "importantRules": [
+              "A group cannot be deleted while content items still belong to it."
+            ]
+          }
+        },
         "fk:creator_contact_id->contacts.contact_id": {
           "mechanics": {
             "present": true,
@@ -14982,7 +15444,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE \"video_jobs\" (\n    video_job_id        INTEGER PRIMARY KEY,\n    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    source_turn_id      TEXT,\n    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,\n    renderer            TEXT NOT NULL DEFAULT 'remotion'\n                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),\n    template            TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'queued'\n                        CHECK (status IN (\n                            'queued', 'preparing', 'rendering',\n                            'complete', 'error', 'cancelled'\n                        )),\n    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),\n    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    started_at_utc      TEXT,\n    completed_at_utc    TEXT,\n    updated_at_utc      TEXT,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL\n) STRICT",
+        "definition": "CREATE TABLE video_jobs (\n    video_job_id        INTEGER PRIMARY KEY,\n    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    source_turn_id      TEXT,\n    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,\n    renderer            TEXT NOT NULL DEFAULT 'remotion'\n                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),\n    template            TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'queued'\n                        CHECK (status IN (\n                            'queued', 'preparing', 'rendering',\n                            'complete', 'error', 'cancelled'\n                        )),\n    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),\n    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    started_at_utc      TEXT,\n    completed_at_utc    TEXT,\n    updated_at_utc      TEXT,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL\n) STRICT",
         "indexes": []
       },
       "semantics": {

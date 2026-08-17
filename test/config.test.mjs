@@ -78,6 +78,7 @@ test("native JMAP email configuration is independent of MCP", () => {
 
 test("text request attachments have a separate bounded upload limit", () => {
   const defaults = loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
+  assert.equal(defaults.maxToolCalls, 128);
   assert.equal(defaults.maxTextAttachmentBytes, 10 * 1024 * 1024);
   assert.equal(defaults.maxAttachmentContextCharacters, 64 * 1024);
   const configured = loadConfig({

@@ -136,7 +136,7 @@ test("calendar controls use simple visibility states and 24-hour datetime locale
   const status = /<select id="event-status">([\s\S]*?)<\/select>/.exec(document)?.[1] ?? "";
   assert.match(status, /<option value="active">Active<\/option><option value="archived">Archived<\/option>/);
   assert.doesNotMatch(status, />Confirmed<|>Tentative<|>Completed<|>Cancelled</);
-  assert.equal((document.match(/type="datetime-local" lang="en-GB"/g) ?? []).length, 5);
+  assert.equal((document.match(/type="datetime-local" lang="en-GB"/g) ?? []).length, 6);
   assert.match(application, /if \(calendarEvent\.isAllDay\) return "";/);
 });
 
@@ -151,17 +151,27 @@ test("the web client provides a provider-neutral OAuth integrations manager", ()
   assert.match(application, /oauth\/disconnect/);
 });
 
-test("the standalone client restores calendar, grouped to-do, and personal log surfaces", () => {
+test("the standalone client restores calendar, grouped to-do, grouped content, and personal log surfaces", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /data-view="calendar"/);
   assert.match(document, /data-view="todos"/);
+  assert.match(document, /id="view-selector"/);
+  assert.match(document, /data-view="content"/);
   assert.match(document, /data-view="logs"/);
+  assert.match(document, /id="content-view"/);
+  assert.match(document, /id="content-dialog"/);
+  assert.match(document, /id="content-title"/);
+  assert.match(document, /id="content-description"/);
+  assert.match(document, /id="content-transcript"/);
   assert.match(document, /<span>Mon<\/span><span>Tue<\/span><span>Wed<\/span><span>Thu<\/span><span>Fri<\/span><span>Sat<\/span><span>Sun<\/span>/);
   assert.ok(document.indexOf('class="agenda-panel') < document.indexOf('class="month-panel'));
   assert.match(application, /refreshCalendar/);
   assert.match(application, /refreshTodos/);
+  assert.match(application, /refreshContent/);
+  assert.match(application, /renderContent/);
+  assert.match(application, /safeContentUrl/);
   assert.match(application, /refreshLogs/);
   assert.match(application, /todo-group-heading/);
   assert.match(application, /const headingTitle = node\("div", "todo-group-heading-title"\)/);
@@ -189,6 +199,10 @@ test("the standalone client restores calendar, grouped to-do, and personal log s
   assert.match(server, /todoGroupReorderMatch/);
   assert.match(server, /todoGroupArchiveMatch/);
   assert.match(server, /\/api\/todos/);
+  assert.match(server, /\/api\/content-items/);
+  assert.match(server, /\/api\/content-groups/);
+  assert.match(server, /reorderContentGroups/);
+  assert.match(server, /archiveContentGroup/);
   assert.match(server, /\/api\/log-trackers/);
   assert.match(server, /\/api\/log-entries/);
 });

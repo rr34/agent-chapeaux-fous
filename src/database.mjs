@@ -19,8 +19,11 @@ export const requiredDatabaseShape = {
   ],
   tags: ["tag_id", "slug", "label", "is_active"],
   record_tags: ["tag_id", "record_type", "record_id"],
-  tags: ["tag_id", "slug", "label", "is_active"],
-  record_tags: ["tag_id", "record_type", "record_id"],
+  content_groups: ["content_group_id", "name", "sort_position", "archived_at_utc"],
+  content_items: [
+    "content_id", "content_group_id", "sequence", "content_type", "title",
+    "transcript", "description", "published_at_utc", "content_host", "content_status", "content_url",
+  ],
   calendar_events: [
     "calendar_event_id", "title", "description", "location_text", "starts_at_utc",
     "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule",
