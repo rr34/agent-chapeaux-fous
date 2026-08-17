@@ -303,7 +303,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .todo-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .75rem; padding: .85rem; }
 .todo-check { display: grid; place-items: center; width: 27px; height: 27px; min-height: 27px; padding: 0; color: var(--good); background: var(--panel-raised); border: 1px solid var(--line); border-radius: 8px; }
 .todo-leading-controls { display: grid; justify-items: center; gap: 5px; min-width: 2.1rem; }
-.todo-sequence-display { max-width: 5rem; overflow: hidden; color: #b8d2ff; font-size: .76rem; font-weight: 700; text-overflow: ellipsis; }
+.todo-sequence-display, .content-sequence-display { max-width: 7rem; overflow: hidden; color: #b8d2ff; font-size: 1.18rem; font-weight: 750; line-height: 1.1; text-overflow: ellipsis; }
 .todo-card.completed { opacity: .64; }
 .todo-card.completed h3 { text-decoration: line-through; }
 .todo-body { min-width: 0; }
@@ -329,6 +329,8 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .content-group-heading-actions span { color: var(--muted); font-size: .75rem; }
 .content-card-grid { display: grid; gap: .65rem; }
 .content-card { margin: 0; padding: .9rem; }
+.content-card.has-sequence { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .8rem; }
+.content-card-body { min-width: 0; }
 .content-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }
 .content-card-identity { min-width: 0; }
 .content-card h4 { margin: 0; font-size: 1rem; }
@@ -410,7 +412,7 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .editor-dialog label { display: grid; gap: .4rem; color: var(--muted); font-size: .78rem; font-weight: 400; }
 .editor-dialog textarea { min-height: 6rem; }
 .editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
-.todo-group-editor, .content-group-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .5rem; }
+.todo-group-editor, .todo-scheduled-editor, .content-group-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .5rem; }
 #todo-contact { width: 100%; }
 .content-dialog { width: min(760px, calc(100% - 1.5rem)); }
 .contact-method-editor { margin: 0; padding: .8rem; background: #101316; border: 1px solid var(--line); border-radius: 11px; }

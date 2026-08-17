@@ -55,6 +55,10 @@ test("sequenced groups backfill tasks and assign the next number through native 
     `).all().map(({ sequence }) => sequence),
     [1, 2, 3],
   );
+  const listed = await registry.execute("todo_list", {
+    group: "Development", status: null, limit: 20,
+  });
+  assert.deepEqual(listed.tasks.map(({ sequence }) => sequence), [3, 2, 1]);
 
   await registry.execute("todo_group_sequence_set", {
     name: "Development", uses_sequence: false,

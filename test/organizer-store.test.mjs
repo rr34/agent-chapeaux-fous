@@ -746,6 +746,12 @@ test("to-do group sequence mode assigns stable next numbers only while enabled",
       [7, 8, 9],
     );
     assert.equal(organizer.createTodo({ text: "Next watch job", groupId: group.id }).sequence, 10);
+    assert.deepEqual(
+      organizer.listTodos({ scope: "all" })
+        .filter(({ groupId }) => groupId === group.id)
+        .map(({ sequence }) => sequence),
+      [10, 9, 8, 7],
+    );
 
     const reassigned = organizer.assignNextTodoSequence(first.id, {
       version: organizer.getTodo(first.id).version,
@@ -936,7 +942,7 @@ test("grouped content supports sequence-aware CRUD, filtering, and safe group li
       contentHost: "none",
       contentStatus: "queued",
     });
-    assert.deepEqual(organizer.listContent({ groupId: research.id }).map(({ sequence }) => sequence), [1, 2]);
+    assert.deepEqual(organizer.listContent({ groupId: research.id }).map(({ sequence }) => sequence), [2, 1]);
     assert.deepEqual(organizer.listContent({ status: "active" }).map(({ id }) => id), [first.id]);
     assert.deepEqual(organizer.listContent({ query: "unabridged" }).map(({ id }) => id), [first.id]);
     assert.throws(

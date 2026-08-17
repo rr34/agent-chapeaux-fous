@@ -118,6 +118,7 @@ const elements = {
   todoSequenceHint: document.querySelector("#todo-sequence-hint"),
   todoContact: document.querySelector("#todo-contact"),
   todoScheduled: document.querySelector("#todo-scheduled"),
+  todoClearScheduled: document.querySelector("#todo-clear-scheduled"),
   todoAllDay: document.querySelector("#todo-all-day"),
   todoDue: document.querySelector("#todo-due"),
   todoStatus: document.querySelector("#todo-status"),
@@ -1147,7 +1148,7 @@ async function scheduleTodoOnDate(date) {
     });
     selectedCalendarDate = new Date(date);
     cancelCalendarScheduling({ render: false });
-    await refreshCalendar();
+    switchView("todos");
   } catch (error) {
     calendarSchedulingBusy = false;
     updateCalendarSchedulingMode();
@@ -1631,18 +1632,13 @@ function renderTodos() {
       body.append(metadata);
       const actions = node("div", "todo-actions");
       const schedule = node("button", "secondary compact", todo.scheduledAtUtc ? "Reschedule" : "Schedule");
-      const clearDate = todo.scheduledAtUtc && !todo.recurrenceRule
-        ? node("button", "secondary compact", "Clear date")
-        : null;
       const top = node("button", "secondary compact", "⇈");
       const up = node("button", "secondary compact", "↑");
       const down = node("button", "secondary compact", "↓");
       const bottom = node("button", "secondary compact", "⇊");
       const edit = node("button", "secondary compact", "Edit");
       schedule.type = top.type = up.type = down.type = bottom.type = edit.type = "button";
-      if (clearDate) clearDate.type = "button";
       schedule.title = todo.scheduledAtUtc ? "Choose a new day on the calendar" : "Choose a day on the calendar";
-      if (clearDate) clearDate.title = "Remove this task's scheduled date";
       top.title = "Move task to top of group";
       up.title = "Move task up";
       down.title = "Move task down";
@@ -1652,16 +1648,12 @@ function renderTodos() {
       down.setAttribute("aria-label", `Move ${todo.text} down`);
       bottom.setAttribute("aria-label", `Move ${todo.text} to bottom of group`);
       schedule.addEventListener("click", () => beginCalendarScheduling(todo));
-      clearDate?.addEventListener("click", () => void clearTodoScheduledDate(todo, clearDate));
       top.addEventListener("click", () => void moveTodo(todo, "top", visibleTodos));
       up.addEventListener("click", () => void moveTodo(todo, "up", visibleTodos));
       down.addEventListener("click", () => void moveTodo(todo, "down", visibleTodos));
       bottom.addEventListener("click", () => void moveTodo(todo, "bottom", visibleTodos));
       edit.addEventListener("click", () => openTodoEditor(todo));
-      if (["todo", "ai_suggested"].includes(todo.status)) {
-        actions.append(schedule);
-        if (clearDate) actions.append(clearDate);
-      }
+      if (["todo", "ai_suggested"].includes(todo.status)) actions.append(schedule);
       if (group.usesSequence) {
         const assignSequence = node("button", "secondary compact", "Assign next #");
         assignSequence.type = "button";
@@ -1675,27 +1667,6 @@ function renderTodos() {
     }
     section.append(heading, cards);
     elements.todoList.append(section);
-  }
-}
-
-async function clearTodoScheduledDate(todo, button) {
-  button.disabled = true;
-  button.textContent = "Clearing…";
-  try {
-    await api(`/api/todos/${todo.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        version: todo.version,
-        scheduledAtUtc: null,
-        isAllDay: false,
-      }),
-    });
-    await refreshTodos();
-  } catch (error) {
-    window.alert(error.message || "Could not clear the scheduled date.");
-    button.disabled = false;
-    button.textContent = "Clear date";
   }
 }
 
@@ -1810,8 +1781,24 @@ function openTodoEditor(todo = null, groupId = null) {
   elements.todoDue.value = localDateTimeInput(todo?.dueAtUtc);
   elements.todoStatus.value = todo?.status ?? "todo";
   loadTodoRecurrenceEditor(todo?.recurrenceRule ?? null, todo?.recurrenceTimeZone ?? null);
+  updateTodoClearScheduledVisibility();
   elements.todoDialog.showModal();
   elements.todoText.focus();
+}
+
+function updateTodoClearScheduledVisibility() {
+  elements.todoClearScheduled.hidden = !elements.todoId.value
+    || !elements.todoScheduled.value
+    || elements.todoRepeatEnabled.checked;
+}
+
+function clearTodoScheduledInEditor() {
+  elements.todoScheduled.value = "";
+  elements.todoAllDay.checked = false;
+  setTodoScheduledInputType(false);
+  updateTodoRecurrenceEditor();
+  updateTodoClearScheduledVisibility();
+  elements.todoScheduled.focus();
 }
 
 function populateTodoGroupEditor(selectedGroupId) {
@@ -2066,7 +2053,11 @@ function renderContent() {
     heading.append(title, actions);
     const cards = node("div", "content-card-grid");
     for (const item of items) {
-      const card = node("article", "content-card organizer-panel");
+      const card = node(
+        "article",
+        `content-card organizer-panel${item.sequence == null ? "" : " has-sequence"}`,
+      );
+      const cardBody = node("div", "content-card-body");
       const cardHeading = node("div", "content-card-heading");
       const identity = node("div", "content-card-identity");
       const contentUrl = safeContentUrl(item.contentUrl);
@@ -2080,7 +2071,6 @@ function renderContent() {
         identity.append(node("h4", "", item.title));
       }
       const metadata = node("div", "content-meta");
-      if (item.sequence != null) metadata.append(node("span", "todo-pill", `#${item.sequence}`));
       metadata.append(
         node("span", "todo-pill", contentTypeLabel(item.contentType)),
         node("span", "todo-pill", item.contentStatus),
@@ -2094,13 +2084,19 @@ function renderContent() {
       edit.addEventListener("click", () => openContentEditor(item));
       cardActions.append(edit);
       cardHeading.append(identity, cardActions);
-      card.append(cardHeading);
-      if (item.description) card.append(node("p", "content-description", item.description));
+      cardBody.append(cardHeading);
+      if (item.description) cardBody.append(node("p", "content-description", item.description));
       if (item.transcript) {
         const details = node("details", "content-transcript");
         details.append(node("summary", "", "Transcript"), node("p", "", item.transcript));
-        card.append(details);
+        cardBody.append(details);
       }
+      if (item.sequence != null) {
+        const sequence = node("span", "content-sequence-display", `#${item.sequence}`);
+        sequence.title = "Sequence";
+        card.append(sequence);
+      }
+      card.append(cardBody);
       cards.append(card);
     }
     if (items.length === 0) cards.append(node("p", "empty", "No content in this group for the current filters."));
@@ -3177,6 +3173,7 @@ elements.todoContactFilter.addEventListener("change", renderTodos);
 elements.todoGroup.addEventListener("change", updateTodoSequenceHint);
 elements.moveOverdueTodos.addEventListener("click", () => void moveOverdueTodosToToday());
 elements.todoForm.addEventListener("submit", saveTodo);
+elements.todoClearScheduled.addEventListener("click", clearTodoScheduledInEditor);
 elements.todoAllDay.addEventListener("change", () => {
   setTodoScheduledInputType(elements.todoAllDay.checked);
   updateTodoRecurrenceEditor();
@@ -3189,11 +3186,15 @@ for (const control of [
   const recurrenceChanged = () => {
     todoRecurrenceDirty = true;
     updateTodoRecurrenceEditor();
+    updateTodoClearScheduledVisibility();
   };
   control.addEventListener("change", recurrenceChanged);
   if (control.matches('input[type="number"]')) control.addEventListener("input", recurrenceChanged);
 }
-elements.todoScheduled.addEventListener("change", updateTodoRecurrenceEditor);
+elements.todoScheduled.addEventListener("change", () => {
+  updateTodoRecurrenceEditor();
+  updateTodoClearScheduledVisibility();
+});
 elements.newContent.addEventListener("click", async () => {
   if (contentGroups.length === 0) await refreshContent();
   openContentEditor();

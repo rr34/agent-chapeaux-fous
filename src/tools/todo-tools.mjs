@@ -184,7 +184,9 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         JOIN todo_groups AS todo_group USING (todo_group_id)
         LEFT JOIN todo_routines AS routine USING (todo_routine_id)
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
-        ORDER BY todo_group.name COLLATE NOCASE, task.sort_position, task.personal_task_id
+        ORDER BY todo_group.name COLLATE NOCASE,
+                 task.sequence IS NULL, task.sequence DESC,
+                 task.sort_position, task.personal_task_id
         LIMIT ?
       `).all(...values, Math.min(200, Math.max(1, Number(limit) || 50))).map(databaseTask);
       return todoResult(schemaSemantics, context, { count: rows.length, tasks: rows }, {

@@ -381,7 +381,10 @@
           <span id="todo-sequence-hint" class="field-hint">Optional for this group.</span>
         </label>
         <label>Related contact<select id="todo-contact"><option value="">No contact</option></select></label>
-        <label>Scheduled<input id="todo-scheduled" type="datetime-local" lang="en-GB" step="60"></label>
+        <div class="todo-scheduled-editor">
+          <label>Scheduled<input id="todo-scheduled" type="datetime-local" lang="en-GB" step="60"></label>
+          <button id="todo-clear-scheduled" class="secondary compact" type="button" hidden>Clear date</button>
+        </div>
         <label class="checkbox-row"><input id="todo-all-day" type="checkbox"><span>All day</span></label>
         <label>Due<input id="todo-due" type="datetime-local" lang="en-GB" step="60"></label>
         <label>Status<select id="todo-status">

@@ -1508,6 +1508,8 @@ export class OrganizerStore {
       ORDER BY
         todo_group.sort_position,
         todo_group.todo_group_id,
+        task.sequence IS NULL,
+        task.sequence DESC,
         task.sort_position,
         task.personal_task_id
       LIMIT ?
@@ -1860,7 +1862,7 @@ export class OrganizerStore {
       JOIN content_groups AS content_group USING (content_group_id)
       WHERE ${conditions.join(" AND ")}
       ORDER BY content_group.sort_position, content_group.content_group_id,
-               content.sequence IS NULL, content.sequence, content.content_id
+               content.sequence IS NULL, content.sequence DESC, content.content_id DESC
       LIMIT ?
     `).all(...values, boundedLimit).map(publicContent);
   }
