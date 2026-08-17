@@ -41,7 +41,12 @@ function fakeTransport(runTurn) {
         conversationId: payload.conversationId,
         baseInstructions: payload.baseInstructions,
         developerInstructions: payload.developerInstructions,
-        input: [{ type: "text", text: payload.input }],
+        input: [
+          { type: "text", text: payload.input },
+          ...(payload.requestAttachmentInput
+            ? [{ type: "text", text: payload.requestAttachmentInput }]
+            : []),
+        ],
         tools: structuredClone(payload.tools),
       };
     },
@@ -65,6 +70,7 @@ test("the first model turn contains the exact request, context, and callable too
         baseInstructions: payload.baseInstructions,
         developerInstructions: payload.developerInstructions,
         input: payload.input,
+        requestAttachmentInput: payload.requestAttachmentInput,
         tools: structuredClone(payload.tools),
       });
       const toolResponse = await payload.onToolCall({
@@ -100,6 +106,8 @@ test("the first model turn contains the exact request, context, and callable too
         contextBuildInput = { requestId, requestText, options };
         return {
           text: `VISIBLE CONTEXT\n${options.attachment.text}`,
+          developerInstructions: "VISIBLE CONTEXT",
+          requestAttachmentInput: `# Attached request file\n${options.attachment.text}`,
           profileFacts: [],
           activeProfileFactCount: 0,
           relevantProfileTypes: ["address"],
@@ -125,7 +133,8 @@ test("the first model turn contains the exact request, context, and callable too
   assert.equal(result, "The tool returned hello.");
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0].tools, registry.toolDefinitions());
-  assert.equal(requests[0].developerInstructions, "VISIBLE CONTEXT\nname\nAlice\n");
+  assert.equal(requests[0].developerInstructions, "VISIBLE CONTEXT");
+  assert.match(requests[0].requestAttachmentInput, /name\nAlice/);
   assert.equal(requests[0].input, "Use the echo tool.");
   assert.equal(requests[0].baseInstructions, "SYSTEM PROMPT");
   assert.deepEqual(contextBuildInput, {
@@ -144,6 +153,7 @@ test("the first model turn contains the exact request, context, and callable too
   );
   const recordedRequest = events.find((event) => event.type === "model.request");
   assert.equal(recordedRequest.payload.input[0].text, "Use the echo tool.");
+  assert.match(recordedRequest.payload.input[1].text, /name\nAlice/);
   assert.deepEqual(recordedRequest.payload.tools, registry.toolDefinitions());
   const contextEvent = events.find((event) => event.type === "context.sent");
   assert.deepEqual(contextEvent.payload.relevantProfileTypes, ["address"]);
@@ -197,6 +207,8 @@ test("the runtime resumes the active native conversation without reinjecting tra
     continuingConversation: true,
     conversationStartEventSeq: 42,
   });
+  assert.equal(modelRequest.developerInstructions, "CURRENT CONTEXT ONLY");
+  assert.equal(modelRequest.requestAttachmentInput, null);
 });
 
 test("a failed tool result is returned to the model transport instead of becoming a fabricated success", async () => {

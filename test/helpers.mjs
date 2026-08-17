@@ -64,6 +64,7 @@ export function temporaryDatabase() {
       todo_group_id INTEGER PRIMARY KEY,
       name TEXT NOT NULL COLLATE NOCASE UNIQUE,
       sort_position INTEGER NOT NULL DEFAULT 0,
+      uses_sequence INTEGER NOT NULL DEFAULT 0 CHECK (uses_sequence IN (0, 1)),
       archived_at_utc TEXT,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT
@@ -198,6 +199,40 @@ export function temporaryDatabase() {
     CREATE UNIQUE INDEX personal_tasks_group_sequence
       ON personal_tasks(todo_group_id, sequence)
       WHERE sequence IS NOT NULL;
+    CREATE TRIGGER personal_tasks_assign_sequence_after_insert
+    AFTER INSERT ON personal_tasks
+    WHEN NEW.sequence IS NULL
+     AND EXISTS (
+       SELECT 1 FROM todo_groups
+       WHERE todo_group_id = NEW.todo_group_id AND uses_sequence = 1
+     )
+    BEGIN
+      UPDATE personal_tasks
+      SET sequence = (
+        SELECT COALESCE(MAX(sequence), 0) + 1
+        FROM personal_tasks
+        WHERE todo_group_id = NEW.todo_group_id
+          AND personal_task_id <> NEW.personal_task_id
+      )
+      WHERE personal_task_id = NEW.personal_task_id;
+    END;
+    CREATE TRIGGER personal_tasks_assign_sequence_after_update
+    AFTER UPDATE OF todo_group_id, sequence ON personal_tasks
+    WHEN NEW.sequence IS NULL
+     AND EXISTS (
+       SELECT 1 FROM todo_groups
+       WHERE todo_group_id = NEW.todo_group_id AND uses_sequence = 1
+     )
+    BEGIN
+      UPDATE personal_tasks
+      SET sequence = (
+        SELECT COALESCE(MAX(sequence), 0) + 1
+        FROM personal_tasks
+        WHERE todo_group_id = NEW.todo_group_id
+          AND personal_task_id <> NEW.personal_task_id
+      )
+      WHERE personal_task_id = NEW.personal_task_id;
+    END;
     CREATE UNIQUE INDEX personal_tasks_routine_occurrence
       ON personal_tasks(todo_routine_id, scheduled_at_utc)
       WHERE todo_routine_id IS NOT NULL AND scheduled_at_utc IS NOT NULL;

@@ -5,6 +5,52 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0016: governed-todo-sequences
+-- Let a to-do group opt into stable sequence numbers. Tasks inserted without a
+-- number into a governed group receive the next positive number atomically;
+-- ordinary groups continue to allow unnumbered tasks.
+
+ALTER TABLE todo_groups
+ADD COLUMN uses_sequence INTEGER NOT NULL DEFAULT 0
+                         CHECK (uses_sequence IN (0, 1));
+
+CREATE TRIGGER personal_tasks_assign_sequence_after_insert
+AFTER INSERT ON personal_tasks
+WHEN NEW.sequence IS NULL
+ AND EXISTS (
+     SELECT 1 FROM todo_groups
+     WHERE todo_group_id = NEW.todo_group_id AND uses_sequence = 1
+ )
+BEGIN
+    UPDATE personal_tasks
+    SET sequence = (
+        SELECT COALESCE(MAX(sequence), 0) + 1
+        FROM personal_tasks
+        WHERE todo_group_id = NEW.todo_group_id
+          AND personal_task_id <> NEW.personal_task_id
+    )
+    WHERE personal_task_id = NEW.personal_task_id;
+END;
+
+CREATE TRIGGER personal_tasks_assign_sequence_after_update
+AFTER UPDATE OF todo_group_id, sequence ON personal_tasks
+WHEN NEW.sequence IS NULL
+ AND EXISTS (
+     SELECT 1 FROM todo_groups
+     WHERE todo_group_id = NEW.todo_group_id AND uses_sequence = 1
+ )
+BEGIN
+    UPDATE personal_tasks
+    SET sequence = (
+        SELECT COALESCE(MAX(sequence), 0) + 1
+        FROM personal_tasks
+        WHERE todo_group_id = NEW.todo_group_id
+          AND personal_task_id <> NEW.personal_task_id
+    )
+    WHERE personal_task_id = NEW.personal_task_id;
+END;
+-- end migration 0016
+
 -- migration 0015: grouped-content
 -- Organize the content catalog like the personal to-do list: every item belongs
 -- to one named group and may carry a stable positive sequence within that group.

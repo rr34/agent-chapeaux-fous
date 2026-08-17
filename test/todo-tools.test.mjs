@@ -17,9 +17,52 @@ test("todo_group_list exposes every active group including empty catchalls", asy
 
   const result = await registry.execute("todo_group_list", {});
   assert.deepEqual(result.groups, [
-    { todo_group_id: 2, name: "Development", archived_at_utc: null, open_task_count: 0 },
-    { todo_group_id: 1, name: "Inbox", archived_at_utc: null, open_task_count: 0 },
+    { todo_group_id: 2, name: "Development", uses_sequence: 0, archived_at_utc: null, open_task_count: 0 },
+    { todo_group_id: 1, name: "Inbox", uses_sequence: 0, archived_at_utc: null, open_task_count: 0 },
   ]);
+});
+
+test("sequenced groups backfill tasks and assign the next number through native tools", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+
+  const first = await registry.execute("todo_add", {
+    text: "First unnumbered", group: "Development", scheduled_at_utc: null, due_at_utc: null,
+  });
+  const second = await registry.execute("todo_add", {
+    text: "Second unnumbered", group: "Development", scheduled_at_utc: null, due_at_utc: null,
+  });
+  assert.equal(first.task.sequence, null);
+  assert.equal(second.task.sequence, null);
+
+  const enabled = await registry.execute("todo_group_sequence_set", {
+    name: "Development", uses_sequence: true,
+  }, { requestId: "sequence-mode", callId: "enable" });
+  assert.equal(enabled.group.uses_sequence, 1);
+  assert.equal(enabled.assigned_task_count, 2);
+
+  const third = await registry.execute("todo_add", {
+    text: "Automatically numbered", group: "Development", scheduled_at_utc: null, due_at_utc: null,
+  });
+  assert.equal(third.task.sequence, 3);
+  assert.deepEqual(
+    store.requireReady().prepare(`
+      SELECT sequence FROM personal_tasks WHERE todo_group_id = 2 ORDER BY sort_position
+    `).all().map(({ sequence }) => sequence),
+    [1, 2, 3],
+  );
+
+  await registry.execute("todo_group_sequence_set", {
+    name: "Development", uses_sequence: false,
+  }, { requestId: "sequence-mode", callId: "disable" });
+  const unnumbered = await registry.execute("todo_add", {
+    text: "Unnumbered again", group: "Development", scheduled_at_utc: null, due_at_utc: null,
+  });
+  assert.equal(unnumbered.task.sequence, null);
 });
 
 test("todo_group_archive rejects active groups and preserves terminal-only groups", async (context) => {

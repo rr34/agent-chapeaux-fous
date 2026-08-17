@@ -432,6 +432,13 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, organizer.archiveTodoGroup(todoGroupArchiveMatch[1]));
       return;
     }
+    const todoGroupSequenceMatch = /^\/api\/todo-groups\/(\d+)\/sequence$/.exec(url.pathname);
+    if (request.method === "POST" && todoGroupSequenceMatch) {
+      sendJson(response, 200, organizer.setTodoGroupSequenceMode(
+        todoGroupSequenceMatch[1], await readJson(request),
+      ));
+      return;
+    }
     const todoGroupReorderMatch = /^\/api\/todo-groups\/(\d+)\/reorder$/.exec(url.pathname);
     if (request.method === "POST" && todoGroupReorderMatch) {
       sendJson(response, 200, {

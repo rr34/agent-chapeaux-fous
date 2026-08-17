@@ -365,7 +365,10 @@
           <label>Group<select id="todo-group" required></select></label>
           <button id="todo-new-group" class="secondary compact" type="button">New group</button>
         </div>
-        <label>Sequence<input id="todo-sequence" type="number" min="1" step="1"></label>
+        <label>Sequence
+          <input id="todo-sequence" type="number" min="1" step="1">
+          <span id="todo-sequence-hint" class="field-hint">Optional for this group.</span>
+        </label>
         <label>Related contact<select id="todo-contact"><option value="">No contact</option></select></label>
         <label>Scheduled<input id="todo-scheduled" type="datetime-local" lang="en-GB" step="60"></label>
         <label class="checkbox-row"><input id="todo-all-day" type="checkbox"><span>All day</span></label>

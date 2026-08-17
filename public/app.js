@@ -114,6 +114,7 @@ const elements = {
   todoGroup: document.querySelector("#todo-group"),
   todoNewGroup: document.querySelector("#todo-new-group"),
   todoSequence: document.querySelector("#todo-sequence"),
+  todoSequenceHint: document.querySelector("#todo-sequence-hint"),
   todoContact: document.querySelector("#todo-contact"),
   todoScheduled: document.querySelector("#todo-scheduled"),
   todoAllDay: document.querySelector("#todo-all-day"),
@@ -1470,11 +1471,17 @@ function renderTodos() {
     ? todoGroups.filter(({ id }) => String(id) === elements.todoGroupFilter.value)
     : todoGroups;
   for (const group of visibleGroups) {
-    groupedTodos.set(group.id, { name: group.name, archivedAtUtc: group.archivedAtUtc, todos: [] });
+    groupedTodos.set(group.id, {
+      name: group.name,
+      archivedAtUtc: group.archivedAtUtc,
+      usesSequence: group.usesSequence,
+      todos: [],
+    });
   }
   for (const todo of visibleTodos) {
     const group = groupedTodos.get(todo.groupId) ?? {
-      name: todo.groupName, archivedAtUtc: todo.groupArchivedAtUtc, todos: [],
+      name: todo.groupName, archivedAtUtc: todo.groupArchivedAtUtc,
+      usesSequence: false, todos: [],
     };
     group.todos.push(todo);
     groupedTodos.set(todo.groupId, group);
@@ -1489,6 +1496,9 @@ function renderTodos() {
     const heading = node("header", "todo-group-heading");
     const headingTitle = node("div", "todo-group-heading-title");
     headingTitle.append(node("h3", "", group.name));
+    if (group.usesSequence) {
+      headingTitle.append(node("span", "todo-group-sequence-marker", "Auto sequence"));
+    }
     const headingActions = node("div", "todo-group-heading-actions");
     const top = node("button", "secondary compact", "⇈");
     const up = node("button", "secondary compact", "↑");
@@ -1516,6 +1526,18 @@ function renderTodos() {
       archive.addEventListener("click", () => void archiveTodoGroup(groupId, group.name));
       headingTitle.append(rename, archive);
     }
+    if (!group.archivedAtUtc) {
+      const sequenceMode = node(
+        "button",
+        "secondary compact",
+        group.usesSequence ? "Stop auto sequence" : "Enable sequence",
+      );
+      sequenceMode.type = "button";
+      sequenceMode.addEventListener("click", () => void changeTodoGroupSequenceMode(
+        groupId, group.name, !group.usesSequence,
+      ));
+      headingTitle.append(sequenceMode);
+    }
     headingTitle.append(top, up, down, bottom);
     headingActions.append(node("span", "", `${group.todos.length} ${group.todos.length === 1 ? "task" : "tasks"}`));
     if (group.archivedAtUtc) {
@@ -1531,6 +1553,7 @@ function renderTodos() {
     const cards = node("div", "todo-group-cards");
     for (const todo of group.todos) {
       const card = node("article", `todo-card ${todo.status === "complete" ? "completed" : ""}`);
+      const controls = node("div", "todo-leading-controls");
       const check = node("button", "todo-check", todo.status === "complete" ? "✓" : "");
       check.type = "button";
       check.setAttribute("aria-label", todo.status === "complete" ? `Reopen ${todo.text}` : `Complete ${todo.text}`);
@@ -1549,6 +1572,12 @@ function renderTodos() {
           check.disabled = false;
         }
       });
+      controls.append(check);
+      if (todo.sequence != null) {
+        const sequence = node("span", "todo-sequence-display", `#${todo.sequence}`);
+        sequence.title = "Sequence";
+        controls.append(sequence);
+      }
       const body = node("div", "todo-body");
       const title = node("h3");
       const text = node("button", "todo-text", todo.text);
@@ -1559,7 +1588,6 @@ function renderTodos() {
       title.append(text);
       body.append(title);
       const metadata = node("div", "todo-meta");
-      if (todo.sequence != null) metadata.append(node("span", "todo-pill", `#${todo.sequence}`));
       metadata.append(node("span", "todo-pill", todo.status.replaceAll("_", " ")));
       if (todo.relatedContactId != null) {
         const relatedContact = todoContacts.find(({ id }) => id === todo.relatedContactId);
@@ -1617,7 +1645,7 @@ function renderTodos() {
       edit.addEventListener("click", () => openTodoEditor(todo));
       if (["todo", "ai_suggested"].includes(todo.status)) actions.append(schedule);
       actions.append(top, up, down, bottom, edit);
-      card.append(check, body, actions);
+      card.append(controls, body, actions);
       cards.append(card);
     }
     section.append(heading, cards);
@@ -1733,6 +1761,14 @@ function populateTodoGroupEditor(selectedGroupId) {
     elements.todoGroup.append(option);
   }
   elements.todoGroup.value = String(selectedGroupId ?? "");
+  updateTodoSequenceHint();
+}
+
+function updateTodoSequenceHint() {
+  const selected = todoGroups.find(({ id }) => String(id) === elements.todoGroup.value);
+  elements.todoSequenceHint.textContent = selected?.usesSequence
+    ? "Assigned the next unique number when left blank."
+    : "Optional for this group.";
 }
 
 function populateTodoContactEditor(todo = null) {
@@ -1840,6 +1876,29 @@ async function renameTodoGroup(groupId, currentName) {
     if (activeView === "calendar") await refreshCalendar();
   } catch (error) {
     window.alert(error.message || "Could not rename the group.");
+  }
+}
+
+async function changeTodoGroupSequenceMode(groupId, groupName, usesSequence) {
+  const message = usesSequence
+    ? `Enable automatic sequence numbers for ${groupName}? Existing unnumbered tasks will be numbered in their current order.`
+    : `Stop assigning automatic sequence numbers in ${groupName}? Existing numbers will be preserved.`;
+  if (!window.confirm(message)) return;
+  try {
+    const result = await api(`/api/todo-groups/${groupId}/sequence`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usesSequence }),
+    });
+    const assigned = result.assignedTaskCount
+      ? ` Numbered ${result.assignedTaskCount} existing ${result.assignedTaskCount === 1 ? "task" : "tasks"}.`
+      : "";
+    elements.status.textContent = usesSequence
+      ? `${groupName} now assigns sequence numbers automatically.${assigned}`
+      : `${groupName} no longer assigns sequence numbers automatically. Existing numbers were preserved.`;
+    await refreshTodos();
+  } catch (error) {
+    window.alert(error.message || "Could not change the group's sequence setting.");
   }
 }
 
@@ -3046,6 +3105,7 @@ elements.todoNewGroup.addEventListener("click", async () => {
 elements.todoScope.addEventListener("change", () => void refreshTodos());
 elements.todoGroupFilter.addEventListener("change", renderTodos);
 elements.todoContactFilter.addEventListener("change", renderTodos);
+elements.todoGroup.addEventListener("change", updateTodoSequenceHint);
 elements.moveOverdueTodos.addEventListener("click", () => void moveOverdueTodosToToday());
 elements.todoForm.addEventListener("submit", saveTodo);
 elements.todoAllDay.addEventListener("change", () => {

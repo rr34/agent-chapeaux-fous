@@ -697,6 +697,36 @@ test("group reordering atomically normalizes every task position", () => {
   }
 });
 
+test("to-do group sequence mode assigns stable next numbers only while enabled", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const group = organizer.createTodoGroup({ name: "Watch Jobs" });
+    const numbered = organizer.createTodo({ text: "Existing numbered task", groupId: group.id, sequence: 7 });
+    const first = organizer.createTodo({ text: "First unnumbered task", groupId: group.id });
+    const second = organizer.createTodo({ text: "Second unnumbered task", groupId: group.id });
+
+    const enabled = organizer.setTodoGroupSequenceMode(group.id, { usesSequence: true });
+    assert.equal(enabled.changed, true);
+    assert.equal(enabled.assignedTaskCount, 2);
+    assert.equal(organizer.listTodoGroups().find(({ id }) => id === group.id).usesSequence, true);
+    assert.deepEqual(
+      [numbered.id, first.id, second.id].map((id) => organizer.getTodo(id).sequence),
+      [7, 8, 9],
+    );
+    assert.equal(organizer.createTodo({ text: "Next watch job", groupId: group.id }).sequence, 10);
+
+    const disabled = organizer.setTodoGroupSequenceMode(group.id, { usesSequence: false });
+    assert.equal(disabled.changed, true);
+    assert.equal(disabled.assignedTaskCount, 0);
+    assert.equal(organizer.createTodo({ text: "Optional number", groupId: group.id }).sequence, null);
+    assert.equal(organizer.getTodo(numbered.id).sequence, 7);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("to-do group reordering atomically moves whole groups", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

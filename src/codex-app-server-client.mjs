@@ -471,6 +471,7 @@ export class CodexAppServerClient extends EventEmitter {
     baseInstructions,
     developerInstructions,
     input,
+    requestAttachmentInput,
     tools,
     maxToolCalls,
     runTimeoutMs,
@@ -485,7 +486,10 @@ export class CodexAppServerClient extends EventEmitter {
       },
       baseInstructions,
       developerInstructions,
-      input: [{ type: "text", text: input }],
+      input: [
+        { type: "text", text: input },
+        ...(requestAttachmentInput ? [{ type: "text", text: requestAttachmentInput }] : []),
+      ],
       dynamicTools: this.dynamicTools(tools),
       executionBoundary: {
         persistentThread: true,
@@ -505,6 +509,7 @@ export class CodexAppServerClient extends EventEmitter {
     baseInstructions,
     developerInstructions,
     input,
+    requestAttachmentInput = null,
     tools,
     maxToolCalls = 128,
     runTimeoutMs = null,
@@ -573,7 +578,10 @@ export class CodexAppServerClient extends EventEmitter {
     this.activeTurn = state;
     const turnStart = {
       threadId,
-      input: [{ type: "text", text: input }],
+      input: [
+        { type: "text", text: input },
+        ...(requestAttachmentInput ? [{ type: "text", text: requestAttachmentInput }] : []),
+      ],
       ...(effort && !["none", "off"].includes(effort) ? { effort } : {}),
       sandboxPolicy: { type: "readOnly", networkAccess: false },
       approvalPolicy: "never",

@@ -136,6 +136,7 @@ test("the client performs a complete dynamic-tool turn and records subscription 
     baseInstructions: "SYSTEM",
     developerInstructions: "CONTEXT",
     input: "Call echo.",
+    requestAttachmentInput: "# Attached request file\nname,email\nAlice,a@example.test\n",
     tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" }, strict: true }],
     maxToolCalls: null,
     runTimeoutMs: 60_000,
@@ -153,6 +154,9 @@ test("the client performs a complete dynamic-tool turn and records subscription 
   assert.equal(threadStart.params.ephemeral, false);
   assert.equal(threadStart.params.personality, "friendly");
   assert.equal(threadStart.params.sandbox, "read-only");
+  const turnStart = fake.messages.find((message) => message.method === "turn/start");
+  assert.equal(turnStart.params.input[0].text, "Call echo.");
+  assert.match(turnStart.params.input[1].text, /Alice,a@example\.test/);
   assert.deepEqual(threadStart.params.dynamicTools, [{ type: "function", name: "echo", description: "Echo", inputSchema: { type: "object" } }]);
   assert.ok(spawnArguments.includes("shell_tool"));
   assert.ok(spawnArguments.includes("unified_exec"));
@@ -208,6 +212,7 @@ test("the client resumes a persistent thread with refreshed instructions", async
     baseInstructions: "SYSTEM 2",
     developerInstructions: "CURRENT CONTEXT 2",
     input: "Continue with echo.",
+    requestAttachmentInput: "# Attached request file\nTitle,URL\nExample,https://example.test\n",
     tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" }, strict: true }],
     async onToolCall(call) { return { ok: true, result: call.arguments }; },
   });
@@ -218,6 +223,9 @@ test("the client resumes a persistent thread with refreshed instructions", async
   assert.equal(resume.params.baseInstructions, "SYSTEM 2");
   assert.equal(resume.params.developerInstructions, "CURRENT CONTEXT 2");
   assert.equal(Object.hasOwn(resume.params, "dynamicTools"), false);
+  const turnStart = fake.messages.find((message) => message.method === "turn/start");
+  assert.equal(turnStart.params.input[0].text, "Continue with echo.");
+  assert.match(turnStart.params.input[1].text, /Title,URL/);
   assert.equal(result.threadId, "thread-1");
   await client.close();
 });

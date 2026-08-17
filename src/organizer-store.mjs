@@ -7,7 +7,9 @@ import {
   normalizedContactName, selectDuplicateKeeper,
 } from "./contact-duplicates.mjs";
 import { redactText, safeJson } from "./redaction.mjs";
-import { archiveEmptyTodoGroup, renameTodoGroup } from "./todo-group-operations.mjs";
+import {
+  archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupSequenceMode,
+} from "./todo-group-operations.mjs";
 import { moveOverdueTodosToToday } from "./todo-schedule-operations.mjs";
 
 const { rrulestr } = rrulePackage;
@@ -517,6 +519,7 @@ function publicTodoGroup(row) {
     id: row.todo_group_id,
     name: row.name,
     sortPosition: row.sort_position,
+    usesSequence: Boolean(row.uses_sequence),
     archivedAtUtc: row.archived_at_utc,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
@@ -1602,6 +1605,31 @@ export class OrganizerStore {
         subjectType: "todo_group",
         subjectId: id,
         contentText: result.group.name,
+        payload: result,
+      });
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  setTodoGroupSequenceMode(idValue, input) {
+    const id = identifier(idValue, "to-do group id");
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const result = setTodoGroupSequenceMode(this.database, {
+        groupId: id,
+        usesSequence: input?.usesSequence,
+      });
+      this.#activity({
+        eventType: "personal_todo_group.sequence_mode_set",
+        status: "complete",
+        name: "Personal to-do group sequence mode set",
+        subjectType: "todo_group",
+        subjectId: id,
+        contentText: `${result.group.name}: ${result.group.usesSequence ? "automatic sequence on" : "automatic sequence off"}`,
         payload: result,
       });
       this.database.exec("COMMIT");

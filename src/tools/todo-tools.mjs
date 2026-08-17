@@ -1,4 +1,6 @@
-import { archiveEmptyTodoGroup, renameTodoGroup } from "../todo-group-operations.mjs";
+import {
+  archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupSequenceMode,
+} from "../todo-group-operations.mjs";
 import { generateNextRoutineTask } from "../organizer-store.mjs";
 import { moveOverdueTodosToToday } from "../todo-schedule-operations.mjs";
 import {
@@ -49,9 +51,13 @@ function ensureGroup(database, name) {
   return { row, created: false, reactivated: true };
 }
 
-const todoGroupFields = ["todo_group_id", "name", "archived_at_utc", "created_at_utc", "updated_at_utc"];
+const todoGroupFields = [
+  "todo_group_id", "name", "sort_position", "uses_sequence",
+  "archived_at_utc", "created_at_utc", "updated_at_utc",
+];
 const personalTaskFields = [
-  "personal_task_id", "todo_group_id", "todo_routine_id", "text", "status", "sort_position",
+  "personal_task_id", "todo_group_id", "todo_routine_id", "sequence", "related_contact_id",
+  "text", "status", "sort_position",
   "scheduled_at_utc", "is_all_day", "due_at_utc", "completed_at_utc", "created_at_utc", "updated_at_utc",
 ];
 const todoRoutineFields = ["todo_routine_id", "recurrence_rule", "time_zone"];
@@ -62,7 +68,7 @@ const todoGroupProjection = {
 };
 const activeTodoGroupProjection = {
   schemaObjects: ["todo_groups"],
-  fields: { todo_groups: ["todo_group_id", "name", "archived_at_utc"] },
+  fields: { todo_groups: ["todo_group_id", "name", "uses_sequence", "archived_at_utc"] },
 };
 const todoTaskProjection = {
   schemaObjects: ["personal_tasks", "todo_groups", "todo_routines"],
@@ -118,7 +124,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     },
     async execute(_argumentsObject, context) {
       const rows = store.requireReady().prepare(`
-        SELECT todo_group.todo_group_id, todo_group.name, todo_group.archived_at_utc,
+        SELECT todo_group.todo_group_id, todo_group.name, todo_group.uses_sequence,
+               todo_group.archived_at_utc,
                COUNT(task.personal_task_id) AS open_task_count
         FROM todo_groups AS todo_group
         LEFT JOIN personal_tasks AS task
@@ -241,16 +248,17 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           );
           routineId = Number(routine.lastInsertRowid);
         }
-        const row = database.prepare(`
+        const inserted = database.prepare(`
           INSERT INTO personal_tasks (
             todo_group_id, todo_routine_id, text, status, sort_position, scheduled_at_utc,
             is_all_day, due_at_utc, source, source_event_id
           ) VALUES (?, ?, ?, 'todo', ?, ?, ?, ?, 'agent-slayer', ?)
-          RETURNING *
-        `).get(
+        `).run(
           selectedGroup.todo_group_id, routineId, taskText, sortPosition,
           scheduledAtUtc || null, isAllDay ? 1 : 0, dueAtUtc || null, sourceEventId,
         );
+        const row = database.prepare("SELECT * FROM personal_tasks WHERE personal_task_id = ?")
+          .get(Number(inserted.lastInsertRowid));
         const task = databaseTask({
           ...row,
           group_name: selectedGroup.name,
@@ -372,6 +380,56 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         const semanticResult = todoResult(schemaSemantics, context, result, {
           name: "todo_group_rename",
           purpose: "Return the renamed to-do group using its stored database fields.",
+          groupOnly: true,
+        });
+        database.exec("COMMIT");
+        return semanticResult;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  });
+
+  registry.register({
+    name: "todo_group_sequence_set",
+    description: "Turn automatic sequence assignment on or off for one active native to-do group. Enabling it assigns stable unique numbers to existing unnumbered tasks in their current order; future tasks added without a number receive max(sequence) + 1. Disabling it preserves existing numbers but stops automatic assignment.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 200 },
+        uses_sequence: { type: "boolean" },
+      },
+      required: ["name", "uses_sequence"],
+    },
+    async execute({ name, uses_sequence: usesSequence }, context) {
+      const database = store.requireReady();
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        const operationResult = setTodoGroupSequenceMode(database, {
+          groupName: name,
+          usesSequence,
+        });
+        const groupRow = database.prepare("SELECT * FROM todo_groups WHERE todo_group_id = ?")
+          .get(operationResult.group.id);
+        const result = {
+          changed: operationResult.changed,
+          assigned_task_count: operationResult.assignedTaskCount,
+          group: databaseGroup(groupRow),
+        };
+        ledger.append({
+          type: "personal_todo_group.sequence_mode_set",
+          status: "complete", actorType: "tool", actorName: "todo_group_sequence_set",
+          turnId: context.requestId, operationId: context.callId,
+          name: "Personal to-do group sequence mode set",
+          content: `${groupRow.name}: ${usesSequence ? "automatic sequence on" : "automatic sequence off"}`,
+          payload: result,
+          subjectType: "todo_group", subjectId: String(groupRow.todo_group_id),
+        });
+        const semanticResult = todoResult(schemaSemantics, context, result, {
+          name: "todo_group_sequence_set",
+          purpose: "Return the to-do group's automatic sequence setting and the number of existing tasks assigned a sequence.",
           groupOnly: true,
         });
         database.exec("COMMIT");

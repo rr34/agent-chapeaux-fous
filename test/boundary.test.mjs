@@ -50,6 +50,8 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /log_import in bounded\s+batches/);
   assert.match(instructions, /contact_file_import/);
   assert.match(instructions, /full verified file in one\s+call/);
+  assert.match(instructions, /inspect its metadata, visible structure,\s+headers, and relevant records/);
+  assert.match(instructions, /never ask the user to\s+identify information plainly visible in the attachment/);
   assert.match(instructions, /contact_import in bounded batches\s+only/);
   assert.match(instructions, /contact_duplicate_list/);
   assert.match(instructions, /contact_dedupe_clear/);
@@ -177,6 +179,9 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(application, /safeContentUrl/);
   assert.match(application, /refreshLogs/);
   assert.match(application, /todo-group-heading/);
+  assert.match(application, /todo-group-sequence-marker/);
+  assert.match(application, /todo-sequence-display/);
+  assert.match(application, /\/api\/todo-groups\/\$\{groupId\}\/sequence/);
   assert.match(application, /const headingTitle = node\("div", "todo-group-heading-title"\)/);
   assert.match(application, /headingTitle\.append\(rename, archive\)/);
   assert.match(application, /headingTitle\.append\(top, up, down, bottom\)/);
