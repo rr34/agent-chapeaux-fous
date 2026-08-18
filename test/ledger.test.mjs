@@ -106,12 +106,17 @@ test("model conversation markers persist resumable state without changing the da
     ledger.markConversationStarted({
       conversationId: "thread-1",
       toolFingerprint: "tools-a",
+      capabilities: ["email", "profile"],
       requestId: request.requestId,
     });
     ledger.finish(ledger.trace(request.requestId)[0], "Started");
 
     assert.equal(ledger.activeModelConversation("tools-a").conversationId, "thread-1");
     assert.equal(ledger.activeModelConversation("tools-b").reason, "tools_changed");
+    assert.deepEqual(ledger.currentModelConversation().capabilities, ["email", "profile"]);
+    assert.equal(ledger.recentConversation({
+      afterEventSeq: ledger.currentModelConversation().markerEventSeq,
+    })[0].content, "Start here");
     assert.equal(ledger.recentRequests()[0].conversationStarted, true);
     assert.equal(ledger.unfinishedRequestCount(), 0);
 
@@ -123,6 +128,7 @@ test("model conversation markers persist resumable state without changing the da
     ledger.resetModelConversation();
     assert.equal(ledger.activeModelConversation("tools-a").conversationId, null);
     assert.equal(ledger.activeModelConversation("tools-a").reason, "new");
+    assert.equal(ledger.currentModelConversation().reset, true);
   } finally {
     store.close();
     temporary.cleanup();

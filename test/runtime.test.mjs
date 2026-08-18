@@ -211,6 +211,123 @@ test("the runtime resumes the active native conversation without reinjecting tra
   assert.equal(modelRequest.requestAttachmentInput, null);
 });
 
+test("the request compiler limits callable tools and runtime rejects out-of-scope calls", async () => {
+  let modelRequest;
+  let rejectedCall;
+  const modelTransport = fakeTransport(async (payload) => {
+    modelRequest = payload;
+    rejectedCall = await payload.onToolCall({ callId: "wrong-tool", tool: "beta", arguments: {} });
+    return completedTurn({ text: "Only the selected tool was callable." });
+  });
+  const registry = new ToolRegistry();
+  for (const name of ["alpha", "beta"]) {
+    registry.register({
+      name,
+      description: name,
+      parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+      async execute() { return { name }; },
+    });
+  }
+  const events = [];
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    requestCompiler: {
+      async compile({ tools }) {
+        return {
+          tools: tools.filter(({ name }) => name === "alpha"),
+          capabilities: ["test"],
+          instructionCapabilities: ["test"],
+          reasons: ["test:request"],
+          fallbackAll: false,
+          followsPriorTurn: false,
+          availableToolCount: tools.length,
+          instructions: "USE ALPHA",
+        };
+      },
+    },
+    contextBuilder: {
+      async build() {
+        return {
+          text: "BOUNDED CONTEXT", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: { append(event) { events.push(event); } },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "CORE";
+
+  assert.equal(
+    await runtime.run({ requestId: "scoped", requestEventId: "scoped-event", text: "Use alpha." }),
+    "Only the selected tool was callable.",
+  );
+  assert.deepEqual(modelRequest.tools.map(({ name }) => name), ["alpha"]);
+  assert.equal(modelRequest.developerInstructions, "USE ALPHA\n\nBOUNDED CONTEXT");
+  assert.equal(rejectedCall.ok, false);
+  assert.match(rejectedCall.error, /not callable for this request/);
+  const toolsEvent = events.find(({ type }) => type === "tools.sent");
+  assert.equal(toolsEvent.payload.count, 1);
+  assert.equal(toolsEvent.payload.availableCount, 2);
+  assert.equal(toolsEvent.payload.delivery, "sent");
+  assert.ok(toolsEvent.payload.schemaBytes > 0);
+});
+
+test("a capability change starts a fresh thread with bounded prior conversation context", async () => {
+  let contextOptions;
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "alpha", description: "alpha",
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { return {}; },
+  });
+  const runtime = new SlayerRuntime({
+    modelTransport: fakeTransport(async () => completedTurn()),
+    registry,
+    requestCompiler: {
+      async compile({ tools }) {
+        return {
+          tools, capabilities: ["alpha"], instructionCapabilities: [], reasons: ["alpha:request"],
+          fallbackAll: false, followsPriorTurn: false, availableToolCount: tools.length, instructions: "",
+        };
+      },
+    },
+    contextBuilder: {
+      async build(_requestId, _requestText, options) {
+        contextOptions = options;
+        return {
+          text: "PRIOR EXCHANGE", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [{ role: "assistant", content: "prior" }],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: {
+      currentModelConversation() {
+        return { conversationId: "old-thread", markerEventSeq: 40, capabilities: ["email"] };
+      },
+      recentConversation() { return [{ role: "assistant", content: "prior" }]; },
+      activeModelConversation() {
+        return { conversationId: null, markerEventSeq: 40, reason: "tools_changed" };
+      },
+      markConversationStarted() {},
+      append() {},
+    },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "CORE";
+
+  await runtime.run({ requestId: "changed", requestEventId: "event", text: "Switch domains." });
+  assert.deepEqual(contextOptions, {
+    attachment: null,
+    nativeConversation: false,
+    continuingConversation: false,
+    conversationStartEventSeq: 40,
+  });
+});
+
 test("a failed tool result is returned to the model transport instead of becoming a fabricated success", async () => {
   let toolResponse;
   const modelTransport = fakeTransport(async (payload) => {

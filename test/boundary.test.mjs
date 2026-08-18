@@ -35,24 +35,31 @@ test("the standalone tree contains no previous runtime-host references", () => {
   assert.deepEqual(matches, []);
 });
 
-test("base instructions are integration-neutral and route durable profile changes", () => {
-  const instructions = fs.readFileSync(path.join(root, "config", "system-prompt.md"), "utf8");
-  assert.doesNotMatch(instructions, /TLOM/i);
+test("base instructions stay universal while capability fragments retain domain behavior", () => {
+  const baseInstructions = fs.readFileSync(path.join(root, "config", "system-prompt.md"), "utf8");
+  const capabilityRoot = path.join(root, "config", "instructions");
+  const instructions = fs.readdirSync(capabilityRoot)
+    .sort()
+    .map((filename) => fs.readFileSync(path.join(capabilityRoot, filename), "utf8"))
+    .join("\n");
+  assert.doesNotMatch(baseInstructions, /TLOM/i);
+  assert.doesNotMatch(baseInstructions, /personal to-dos|native JMAP|contact_dedupe_clear/);
+  assert.ok(baseInstructions.length < 2500, `universal prompt grew to ${baseInstructions.length} characters`);
+  assert.match(baseInstructions, /inspect its metadata, visible structure,\s+headers, and relevant records/);
+  assert.match(baseInstructions, /never ask the user to\s+identify information plainly visible in the attachment/);
   assert.match(instructions, /personal to-dos/);
-  assert.match(instructions, /call history_range/);
-  assert.match(instructions, /date and topic are filtered in\s+one lookup/);
+  assert.match(instructions, /call\s+`history_range`/);
+  assert.match(instructions, /date and\s+topic are filtered in one lookup/);
   assert.match(instructions, /stored SQLite field names/);
   assert.match(instructions, /schema-semantic compiler projection/);
   assert.match(instructions, /previous Monday-through-Monday interval/);
   assert.match(instructions, /never ask the user to\s+write RRULE syntax/);
   assert.match(instructions, /personal-log tools/);
   assert.match(instructions, /complete natural-language log\s+content/);
-  assert.match(instructions, /log_import in bounded\s+batches/);
+  assert.match(instructions, /use `log_import` in bounded batches/);
   assert.match(instructions, /contact_file_import/);
   assert.match(instructions, /full verified file in one\s+call/);
-  assert.match(instructions, /inspect its metadata, visible structure,\s+headers, and relevant records/);
-  assert.match(instructions, /never ask the user to\s+identify information plainly visible in the attachment/);
-  assert.match(instructions, /contact_import in bounded batches\s+only/);
+  assert.match(instructions, /Use `contact_import` in bounded batches\s+only/);
   assert.match(instructions, /contact_duplicate_list/);
   assert.match(instructions, /contact_dedupe_clear/);
   assert.match(instructions, /max_groups=500/);
@@ -66,11 +73,11 @@ test("base instructions are integration-neutral and route durable profile change
   assert.match(instructions, /calendar_event_search/);
   assert.match(instructions, /calendar_event_recurrence_set/);
   assert.match(instructions, /email_cleanup_receipt_list/);
-  assert.match(instructions, /do not replace that receipt with unrelated\s+mail already present in Trash/);
+  assert.match(instructions, /do\s+not replace that receipt with unrelated mail already present in Trash/);
   assert.match(instructions, /native JMAP tools as the live authority/);
-  assert.match(instructions, /Call email_send only when\s+the user explicitly asks to send/);
+  assert.match(instructions, /Call `email_send` only when the user explicitly\s+asks to send/);
   assert.match(instructions, /open-ended\s+collection/);
-  assert.match(instructions, /Use web_page_read/);
+  assert.match(instructions, /Use `web_page_read`/);
   assert.match(instructions, /page reading, not web search/);
   assert.match(instructions, /Relevant profile types/);
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
@@ -299,6 +306,20 @@ test("the request composer keeps Shift+Enter for newlines and submits other Ente
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   assert.match(application, /event\.key !== "Enter" \|\| event\.shiftKey \|\| event\.isComposing/);
   assert.doesNotMatch(application, /event\.key !== "Enter" \|\| event\.ctrlKey/);
+});
+
+test("new typed and voice requests speak by default with a one-shot silent option", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(document, /id="respond-silently" type="checkbox"/);
+  assert.doesNotMatch(document, /id="respond-silently"[^>]+checked/);
+  assert.match(document, /<span>Respond silently<\/span>/);
+  assert.match(application, /prepareSpeechOutput\(respondSilently\)/);
+  assert.match(application, /expectSpokenResponse\(created\.requestId, respondSilently\)/);
+  assert.match(application, /expectSpokenResponse\(created\.requestId, recordingRespondSilently\)/);
+  assert.match(application, /pendingSpokenRequestIds\.has\(request\.requestId\)/);
+  assert.match(application, /speakResponse\(request\.response\)/);
+  assert.match(application, /elements\.respondSilently\.checked = false/);
 });
 
 test("the request composer accepts one bounded CSV, vCard, or text attachment", () => {

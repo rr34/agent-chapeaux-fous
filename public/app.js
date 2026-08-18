@@ -2,6 +2,7 @@ const elements = {
   form: document.querySelector("#request-form"),
   text: document.querySelector("#request-text"),
   send: document.querySelector("#send"),
+  respondSilently: document.querySelector("#respond-silently"),
   requestFile: document.querySelector("#request-file"),
   requestFileLabel: document.querySelector("#request-file-label"),
   removeRequestFile: document.querySelector("#remove-request-file"),
@@ -217,6 +218,7 @@ let recordingStream = null;
 let recordingChunks = [];
 let recordingStartedAt = null;
 let recordingTimer = null;
+let recordingRespondSilently = false;
 let pendingRunLimits = null;
 let activeView = "agent";
 let calendarRangeStart = startOfWeek(new Date());
@@ -247,6 +249,70 @@ const selectedContactIds = new Set();
 let logTrackers = [];
 let logEntries = [];
 const requestNodes = new Map();
+const speechQueueStorageKey = "agent-slayer-pending-spoken-responses";
+const activeUtterances = new Set();
+const pendingSpokenRequestIds = loadPendingSpokenRequestIds();
+
+function loadPendingSpokenRequestIds() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(speechQueueStorageKey) || "[]");
+    if (!Array.isArray(stored)) return new Set();
+    return new Set(stored.filter((requestId) => typeof requestId === "string").slice(-100));
+  } catch {
+    return new Set();
+  }
+}
+
+function savePendingSpokenRequestIds() {
+  try {
+    localStorage.setItem(speechQueueStorageKey, JSON.stringify([...pendingSpokenRequestIds]));
+  } catch {
+    // Speech still works for the current page when storage is unavailable.
+  }
+}
+
+function prepareSpeechOutput(respondSilently) {
+  if (respondSilently || !("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) return;
+  // Access speech synthesis during the submit/tap gesture so mobile browsers
+  // allow the completed response to speak after the asynchronous model run.
+  try { window.speechSynthesis.getVoices(); } catch { /* Request submission must still work. */ }
+}
+
+function expectSpokenResponse(requestId, respondSilently) {
+  if (respondSilently || typeof requestId !== "string") return;
+  pendingSpokenRequestIds.add(requestId);
+  savePendingSpokenRequestIds();
+}
+
+function speakResponse(text) {
+  if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) return;
+  try {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = document.documentElement.lang || "en";
+    activeUtterances.add(utterance);
+    const release = () => activeUtterances.delete(utterance);
+    utterance.addEventListener("end", release, { once: true });
+    utterance.addEventListener("error", release, { once: true });
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    // The written response remains visible if this browser cannot speak it.
+  }
+}
+
+function speakCompletedResponses(requests) {
+  if (recorder?.state === "recording") return;
+  for (const request of requests) {
+    if (!pendingSpokenRequestIds.has(request.requestId)) continue;
+    if (request.response) {
+      pendingSpokenRequestIds.delete(request.requestId);
+      savePendingSpokenRequestIds();
+      speakResponse(request.response);
+    } else if (request.error) {
+      pendingSpokenRequestIds.delete(request.requestId);
+      savePendingSpokenRequestIds();
+    }
+  }
+}
 
 function authHeaders(extra = {}) {
   return { ...extra, ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) };
@@ -716,13 +782,14 @@ async function loadRequests({ force = false } = {}) {
     if (!seen.has(id)) { node.remove(); requestNodes.delete(id); }
   }
   elements.empty.hidden = body.requests.length > 0;
+  speakCompletedResponses(body.requests);
 }
 
 function traceLabel(event, index) {
   const labels = {
     "request.received": "USER REQUEST",
     "context.sent": "CONTEXT SENT",
-    "tools.sent": "TOOLS SENT",
+    "tools.sent": "TOOLS AVAILABLE",
     "model.request": "MODEL REQUEST",
     "model.response": "MODEL RESPONSE",
     "model.usage": "MODEL USAGE",
@@ -2957,7 +3024,10 @@ elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = elements.text.value.trim();
   if (!text) return;
+  const respondSilently = elements.respondSilently.checked;
+  prepareSpeechOutput(respondSilently);
   elements.send.disabled = true;
+  elements.respondSilently.disabled = true;
   elements.status.textContent = "Submitting…";
   try {
     const file = elements.requestFile.files?.[0] ?? null;
@@ -2976,12 +3046,14 @@ elements.form.addEventListener("submit", async (event) => {
       primaryFileId = uploaded.fileId;
       elements.status.textContent = "Submitting request…";
     }
-    await api("/api/requests", {
+    const created = await api("/api/requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, primaryFileId, runLimits: pendingRunLimits }),
     });
+    expectSpokenResponse(created.requestId, respondSilently);
     elements.text.value = "";
+    elements.respondSilently.checked = false;
     elements.requestFile.value = "";
     updateRequestFileSelection();
     pendingRunLimits = null;
@@ -2992,6 +3064,7 @@ elements.form.addEventListener("submit", async (event) => {
     elements.status.textContent = error.message;
   } finally {
     elements.send.disabled = false;
+    elements.respondSilently.disabled = false;
   }
 });
 
@@ -3013,9 +3086,12 @@ elements.runTimeUnlimited.addEventListener("change", updateRunLimitFields);
 
 elements.record.addEventListener("click", async () => {
   if (recorder?.state === "recording") {
+    recordingRespondSilently = elements.respondSilently.checked;
+    prepareSpeechOutput(recordingRespondSilently);
     clearInterval(recordingTimer);
     recorder.stop();
     elements.record.disabled = true;
+    elements.respondSilently.disabled = true;
     elements.record.classList.remove("recording");
     elements.record.setAttribute("aria-label", "Saving recording");
     elements.recordLabel.textContent = "Saving recording…";
@@ -3033,7 +3109,9 @@ elements.record.addEventListener("click", async () => {
       const blob = new Blob(recordingChunks, { type: recorder.mimeType || "audio/webm" });
       elements.status.textContent = "Uploading voice request…";
       try {
-        await api("/api/voice", { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
+        const created = await api("/api/voice", { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
+        expectSpokenResponse(created.requestId, recordingRespondSilently);
+        elements.respondSilently.checked = false;
         elements.status.textContent = "Voice request queued.";
         await loadRequests({ force: true });
       } catch (error) {
@@ -3042,7 +3120,9 @@ elements.record.addEventListener("click", async () => {
         recorder = null;
         recordingStream = null;
         recordingStartedAt = null;
+        recordingRespondSilently = false;
         elements.record.disabled = false;
+        elements.respondSilently.disabled = false;
         elements.record.classList.remove("recording");
         elements.record.setAttribute("aria-label", "Start recording");
         elements.recordLabel.textContent = "Tap to record";

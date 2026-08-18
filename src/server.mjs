@@ -12,6 +12,7 @@ import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
+import { RequestCompiler } from "./request-compiler.mjs";
 import { receiveTextAttachment } from "./request-attachments.mjs";
 import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
@@ -79,7 +80,8 @@ const contextBuilder = new ContextBuilder({
   profileFactQuestions,
   maximumAttachmentCharacters: config.maxAttachmentContextCharacters,
 });
-const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, ledger, config });
+const requestCompiler = new RequestCompiler({ instructionRoot: config.capabilityInstructionsPath });
+const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, requestCompiler, ledger, config });
 const transcriber = new WhisperTranscriber({
   pythonExecutable: config.pythonExecutable,
   workerPath: config.whisperWorkerPath,

@@ -12,11 +12,20 @@ function callableToolsFingerprint(tools) {
   return createHash("sha256").update(JSON.stringify(tools)).digest("hex");
 }
 
+function serializedBytes(value) {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function joinedInstructions(...sections) {
+  return sections.map((section) => String(section ?? "").trim()).filter(Boolean).join("\n\n");
+}
+
 export class SlayerRuntime {
-  constructor({ modelTransport, registry, contextBuilder, ledger, config }) {
+  constructor({ modelTransport, registry, contextBuilder, requestCompiler = null, ledger, config }) {
     this.modelTransport = modelTransport;
     this.registry = registry;
     this.contextBuilder = contextBuilder;
+    this.requestCompiler = requestCompiler;
     this.ledger = ledger;
     this.config = config;
     this.systemPrompt = null;
@@ -28,18 +37,54 @@ export class SlayerRuntime {
   }
 
   async run({ requestId, requestEventId, text, channel = "web", attachment = null, runLimits = null }) {
-    const tools = this.registry.toolDefinitions();
+    const availableTools = this.registry.toolDefinitions();
+    const priorConversation = typeof this.ledger.currentModelConversation === "function"
+      ? this.ledger.currentModelConversation()
+      : { markerEventSeq: 0, capabilities: [] };
+    const recentConversation = this.requestCompiler
+      && priorConversation.conversationId
+      && typeof this.ledger.recentConversation === "function"
+      ? this.ledger.recentConversation({
+          beforeRequestId: requestId,
+          afterEventSeq: priorConversation.markerEventSeq,
+          limit: 2,
+        })
+      : [];
+    const compilation = this.requestCompiler
+      ? await this.requestCompiler.compile({
+          tools: availableTools,
+          text,
+          attachment,
+          recentConversation,
+          previousCapabilities: priorConversation.capabilities,
+        })
+      : {
+          tools: availableTools,
+          capabilities: ["all"],
+          reasons: ["compiler:disabled"],
+          fallbackAll: true,
+          followsPriorTurn: false,
+          availableToolCount: availableTools.length,
+          instructions: "",
+          instructionCapabilities: [],
+        };
+    const tools = compilation.tools;
+    const callableToolNames = new Set(tools.map(({ name }) => name));
     const toolFingerprint = callableToolsFingerprint(tools);
     const conversation = typeof this.ledger.activeModelConversation === "function"
       ? this.ledger.activeModelConversation(toolFingerprint)
       : { conversationId: null, markerEventSeq: 0, reason: "new" };
     const context = await this.contextBuilder.build(requestId, text, {
       attachment,
-      nativeConversation: true,
+      nativeConversation: conversation.reason !== "tools_changed",
       continuingConversation: Boolean(conversation.conversationId),
       conversationStartEventSeq: conversation.markerEventSeq,
     });
     const baseInstructions = await this.loadSystemPrompt();
+    const developerInstructions = joinedInstructions(
+      compilation.instructions,
+      context.developerInstructions ?? context.text,
+    );
     const maxToolCalls = runLimits === null ? this.config.maxToolCalls : runLimits.maxToolCalls;
     const runTimeoutMs = runLimits?.timeoutMs ?? null;
     const turnRequest = {
@@ -47,7 +92,7 @@ export class SlayerRuntime {
       effort: this.config.reasoningEffort,
       conversationId: conversation.conversationId,
       baseInstructions,
-      developerInstructions: context.developerInstructions ?? context.text,
+      developerInstructions,
       input: text,
       requestAttachmentInput: context.requestAttachmentInput ?? null,
       tools,
@@ -55,10 +100,14 @@ export class SlayerRuntime {
       runTimeoutMs,
     };
     const providerRequest = this.modelTransport.describeRequest(turnRequest);
+    const providerCallableTools = providerRequest.callableTools
+      ?? providerRequest.dynamicTools
+      ?? providerRequest.tools
+      ?? tools;
 
     this.ledger.append({
       type: "context.sent", status: "complete", actorType: "system", actorName: "Context builder",
-      channel, turnId: requestId, name: "Context sent", content: context.text,
+      channel, turnId: requestId, name: "Compiled context sent", content: developerInstructions,
       payload: {
         profileFacts: context.profileFacts,
         activeProfileFactCount: context.activeProfileFactCount,
@@ -69,12 +118,39 @@ export class SlayerRuntime {
         attachment: context.attachment,
         nativeConversation: context.nativeConversation,
         runLimits: { maxToolCalls, timeoutMs: runTimeoutMs },
+        capabilitySelection: {
+          capabilities: compilation.capabilities,
+          instructionCapabilities: compilation.instructionCapabilities,
+          dependentTools: compilation.dependentTools ?? [],
+          reasons: compilation.reasons,
+          fallbackAll: compilation.fallbackAll,
+          followsPriorTurn: compilation.followsPriorTurn,
+          availableToolCount: compilation.availableToolCount,
+          callableToolCount: tools.length,
+          baseInstructionCharacters: baseInstructions.length,
+          capabilityInstructionCharacters: compilation.instructions.length,
+          boundedContextCharacters: (context.developerInstructions ?? context.text ?? "").length,
+          totalDeveloperInstructionCharacters: developerInstructions.length,
+        },
       },
     });
+    const toolDelivery = conversation.conversationId ? "retained" : "sent";
     this.ledger.append({
       type: "tools.sent", status: "complete", actorType: "system", actorName: "Tool registry",
-      channel, turnId: requestId, name: `${tools.length} callable tools sent`,
-      payload: { count: tools.length, tools },
+      channel, turnId: requestId,
+      name: toolDelivery === "retained"
+        ? `${tools.length} callable tools available on resumed conversation`
+        : `${tools.length} callable tools sent with new conversation`,
+      payload: {
+        count: tools.length,
+        availableCount: availableTools.length,
+        schemaBytes: serializedBytes(providerCallableTools),
+        delivery: toolDelivery,
+        capabilities: compilation.capabilities,
+        dependentTools: compilation.dependentTools ?? [],
+        selectionReasons: compilation.reasons,
+        tools,
+      },
     });
     const operationId = `${this.modelTransport.id}:${requestId}`;
     this.ledger.append({
@@ -118,6 +194,15 @@ export class SlayerRuntime {
             });
             return { ok: false, error: message };
           }
+          if (!callableToolNames.has(name)) {
+            const message = `${name} is not callable for this request`;
+            this.ledger.append({
+              type: "tool.result", phase: "error", status: "error", actorType: "tool",
+              actorName: name, channel, turnId: requestId, operationId: callId, name,
+              payload: { callId, name }, error: message,
+            });
+            return { ok: false, error: message };
+          }
           try {
             const toolResult = await this.registry.execute(name, args, {
               requestId, requestEventId, callId, channel, attachment,
@@ -153,6 +238,7 @@ export class SlayerRuntime {
       this.ledger.markConversationStarted({
         conversationId: result.conversationId ?? result.threadId,
         toolFingerprint,
+        capabilities: compilation.capabilities,
         requestId,
         channel,
       });

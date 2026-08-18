@@ -1,0 +1,176 @@
+import assert from "node:assert/strict";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+import {
+  capabilityForTool,
+  RequestCompiler,
+  selectRequestCapabilities,
+} from "../src/request-compiler.mjs";
+import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
+import { registerContactTools } from "../src/tools/contact-tools.mjs";
+import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
+import { registerJmapEmailTools } from "../src/tools/jmap-email-tools.mjs";
+import { registerLogTools } from "../src/tools/log-tools.mjs";
+import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
+import { ToolRegistry } from "../src/tools/registry.mjs";
+import { registerTodoTools } from "../src/tools/todo-tools.mjs";
+import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function tool(name, source = "local") {
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+    strict: true,
+    source,
+  };
+}
+
+const tools = [
+  tool("calendar_event_list"),
+  tool("contact_file_import"),
+  tool("contact_lookup_batch"),
+  tool("todo_list"),
+  tool("log_add"),
+  tool("profile_fact_list"),
+  tool("profile_fact_set"),
+  tool("database_read"),
+  tool("database_write"),
+  tool("history_range"),
+  tool("email_search"),
+  tool("email_send"),
+  tool("web_page_read"),
+  tool("remote_tlom_query_data", "mcp:tlom"),
+  tool("remote_weather_forecast", "mcp:weather"),
+  tool("remote_nutrition_lookup", "mcp:nutrition"),
+];
+
+function names(selection) {
+  return selection.tools.map(({ name }) => name);
+}
+
+test("known tool families have stable hard-coded capability ownership", () => {
+  assert.equal(capabilityForTool(tool("calendar_event_list")), "calendar");
+  assert.equal(capabilityForTool(tool("contact_merge_batch")), "contacts");
+  assert.equal(capabilityForTool(tool("todo_add")), "todos");
+  assert.equal(capabilityForTool(tool("tracker_update")), "logs");
+  assert.equal(capabilityForTool(tool("email_send")), "email");
+  assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
+});
+
+test("every currently registered local tool belongs to an explicit capability", () => {
+  const registry = new ToolRegistry();
+  registerWebPageTools(registry, {});
+  registerCalendarTools(registry, {}, {}, {}, null);
+  registerContactTools(registry, {}, {}, {}, null);
+  registerTodoTools(registry, {}, {}, null);
+  registerLogTools(registry, {}, {}, null);
+  registerProfileFactTools(registry, {}, null);
+  registerDatabaseTools(registry, {}, {}, null);
+  registerJmapEmailTools(registry, { health() { return { ready: true }; } });
+  assert.deepEqual(
+    registry.toolDefinitions().filter((definition) => capabilityForTool(definition) === "unclassified"),
+    [],
+  );
+});
+
+test("an email request receives email and durable-profile tools, not unrelated domains", () => {
+  const selection = selectRequestCapabilities({ tools, text: "Show me unread email in my inbox." });
+  assert.deepEqual(names(selection), ["contact_lookup_batch", "profile_fact_list", "profile_fact_set", "email_search", "email_send"]);
+  assert.deepEqual(selection.dependentTools, ["contact_lookup_batch"]);
+  assert.deepEqual(selection.capabilities, ["email", "profile"]);
+  assert.equal(selection.fallbackAll, false);
+});
+
+test("an explicit URL receives the page reader without unrelated application tools", () => {
+  const selection = selectRequestCapabilities({ tools, text: "Read https://example.com/report for me." });
+  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "web_page_read"]);
+  assert.deepEqual(selection.capabilities, ["profile", "web"]);
+});
+
+test("attachment structure routes known imports and conservatively falls back when unknown", () => {
+  const contacts = selectRequestCapabilities({
+    tools,
+    text: "Import this file.",
+    attachment: { filename: "people.csv", mimeType: "text/csv", text: "display_name,email\nAlice,a@example.test" },
+  });
+  assert.deepEqual(names(contacts), ["contact_file_import", "contact_lookup_batch", "profile_fact_list", "profile_fact_set"]);
+
+  const unknown = selectRequestCapabilities({
+    tools,
+    text: "Import this file.",
+    attachment: { filename: "data.csv", mimeType: "text/csv", text: "alpha,beta\n1,2" },
+  });
+  assert.equal(unknown.fallbackAll, true);
+  assert.equal(unknown.tools.length, tools.length);
+});
+
+test("short approvals retain prior capabilities and can add an explicit new domain", () => {
+  const prior = [
+    { role: "user", content: "Import these content items into the database." },
+    { role: "assistant", content: "I can create the content group and import all rows. Shall I proceed?" },
+  ];
+  const approved = selectRequestCapabilities({
+    tools,
+    text: "Okay, go ahead.",
+    recentConversation: prior,
+    previousCapabilities: ["database", "profile"],
+  });
+  assert.deepEqual(names(approved), ["profile_fact_list", "profile_fact_set", "database_read", "database_write"]);
+  assert.equal(approved.followsPriorTurn, true);
+
+  const emailed = selectRequestCapabilities({
+    tools,
+    text: "Okay, go ahead and email it.",
+    recentConversation: prior,
+    previousCapabilities: ["database", "profile"],
+  });
+  assert.deepEqual(emailed.capabilities, ["database", "email", "profile"]);
+
+  const explanation = selectRequestCapabilities({
+    tools,
+    text: "Explain why that happened.",
+    recentConversation: prior,
+    previousCapabilities: ["database", "profile"],
+  });
+  assert.deepEqual(explanation.capabilities, ["database", "profile"]);
+  assert.equal(explanation.followsPriorTurn, true);
+});
+
+test("ambiguous actionable requests retain every available tool", () => {
+  const selection = selectRequestCapabilities({ tools, text: "Take care of it." });
+  assert.equal(selection.fallbackAll, true);
+  assert.equal(selection.tools.length, tools.length);
+});
+
+test("a new unclassified local tool fails open until it is assigned a capability", () => {
+  const extended = [...tools, tool("brand_new_local_operation")];
+  const selection = selectRequestCapabilities({ tools: extended, text: "Show my calendar." });
+  assert.equal(selection.fallbackAll, true);
+  assert.equal(selection.tools.length, extended.length);
+  assert.ok(selection.reasons.includes("fallback:unclassified-tools"));
+});
+
+test("provider names and concepts select only that integration", () => {
+  const tlom = selectRequestCapabilities({ tools, text: "Query TLOM for my properties." });
+  assert.equal(names(tlom).includes("remote_tlom_query_data"), true);
+  assert.equal(names(tlom).includes("remote_weather_forecast"), false);
+
+  const weather = selectRequestCapabilities({ tools, text: "What is tomorrow's weather forecast?" });
+  assert.equal(names(weather).includes("remote_weather_forecast"), true);
+  assert.equal(names(weather).includes("remote_tlom_query_data"), false);
+});
+
+test("the compiler loads instructions only for selected callable capabilities", async () => {
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+  });
+  const compiled = await compiler.compile({ tools, text: "Search my inbox for the receipt email." });
+  assert.match(compiled.instructions, /## email/);
+  assert.match(compiled.instructions, /## profile/);
+  assert.doesNotMatch(compiled.instructions, /## calendar/);
+  assert.doesNotMatch(compiled.instructions, /todo_group_list/);
+});

@@ -113,6 +113,21 @@ test("request descriptions expose one-shot execution limits", () => {
   });
   assert.equal(description.executionBoundary.maxToolCalls, null);
   assert.equal(description.executionBoundary.runTimeoutMs, 3_600_000);
+  assert.deepEqual(description.callableTools, []);
+  assert.equal(description.toolDelivery, "sent in thread/start");
+});
+
+test("request descriptions distinguish retained callable schemas from protocol delivery", () => {
+  const client = new CodexAppServerClient({ command: "/fake/codex", codexHome: "/fake", cwd: "/fake/workspace" });
+  const description = client.describeRequest({
+    model: "test-model", effort: "high", conversationId: "thread-1",
+    baseInstructions: "SYSTEM", developerInstructions: "CONTEXT", input: "Continue.",
+    tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" } }],
+    maxToolCalls: 4, runTimeoutMs: null,
+  });
+  assert.equal(description.toolDelivery, "retained on the resumed conversation");
+  assert.deepEqual(description.callableTools.map(({ name }) => name), ["echo"]);
+  assert.equal(Object.hasOwn(description, "dynamicTools"), false);
 });
 
 test("the client performs a complete dynamic-tool turn and records subscription usage", async () => {

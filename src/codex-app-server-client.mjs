@@ -490,7 +490,10 @@ export class CodexAppServerClient extends EventEmitter {
         { type: "text", text: input },
         ...(requestAttachmentInput ? [{ type: "text", text: requestAttachmentInput }] : []),
       ],
-      dynamicTools: this.dynamicTools(tools),
+      callableTools: this.dynamicTools(tools),
+      toolDelivery: conversationId
+        ? "retained on the resumed conversation"
+        : "sent in thread/start",
       executionBoundary: {
         persistentThread: true,
         sandbox: "read-only",

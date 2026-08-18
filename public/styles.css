@@ -161,6 +161,8 @@ textarea:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .attachment-button:hover { border-color: #56616a; background: #252b31; }
 .request-file-label { overflow: hidden; max-width: 24rem; color: var(--muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
 .request-run-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .45rem; }
+.respond-silently-control { gap: .4rem; padding: .45rem .3rem; color: var(--muted); font-size: .78rem; white-space: nowrap; cursor: pointer; }
+#respond-silently { width: 1rem; height: 1rem; margin: 0; padding: 0; accent-color: var(--accent); }
 .run-limits-summary { padding: .3rem .5rem; color: var(--good); background: rgba(83, 200, 137, .1); border-radius: 999px; font-size: .7rem; white-space: nowrap; }
 #run-limits-button.ready { color: var(--good); border-color: rgba(83, 200, 137, .55); }
 
@@ -547,6 +549,7 @@ dialog h2, dialog p { margin-bottom: 0; }
   .request-attachment-control { width: 100%; }
   .request-file-label { max-width: calc(100vw - 10rem); }
   .request-run-controls { justify-content: stretch; }
+  .respond-silently-control { margin-right: auto; }
   .request-run-controls #send { margin-left: auto; }
   .run-limits-summary { order: 3; width: 100%; text-align: right; }
   .run-limit-fieldset { grid-template-columns: 1fr; }

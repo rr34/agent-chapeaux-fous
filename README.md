@@ -10,7 +10,8 @@ The complete request path is:
 
 ```text
 web or voice input
-  -> bounded context from SQLite
+  -> deterministic capability selection
+  -> bounded context from SQLite plus selected capability guidance
   -> one model turn containing the exact callable-tool schemas
   -> local or MCP tool execution
   -> tool result returned to that same model exchange
@@ -70,11 +71,13 @@ executable's absolute path before running the login script.
 `SLAYER_CODEX_REQUIRED_VERSION` makes health fail visibly when the executable
 does not match the App Server version tested by this release.
 
-Requests continue on one persistent Codex thread until the user starts a new
-conversation. Agent Slayer resumes that thread with current replacement base
-instructions and bounded context, executes tool calls itself, and owns the
-durable SQLite ledger. A changed callable-tool schema automatically starts a
-new thread so the model never receives stale tool definitions. App Server's
+Requests continue on one persistent Codex thread while the compiled callable
+capabilities stay the same, or until the user starts a new conversation. Agent
+Slayer resumes that thread with current replacement base instructions and
+bounded context, executes tool calls itself, and owns the durable SQLite ledger.
+A changed callable-tool schema automatically starts a new thread so the model
+never receives stale tool definitions; bounded recent exchanges are injected
+when that capability change starts the replacement thread. App Server's
 unrelated agent capabilities are disabled at startup. Every turn is also read-only,
 network-disabled, and rooted in the empty
 `~/.local/state/agent-slayer/codex-workspace` directory outside every source
@@ -103,6 +106,26 @@ register its configuration in `createModelTransport`, and select it with
 `SLAYER_MODEL_TRANSPORT`. No context, SQLite, tool, queue, ledger, HTTP, or web
 client code should change. This is an explicit application boundary, not a
 plugin system.
+
+## Request and context compilation
+
+Agent Slayer owns a deterministic request compiler in application code. It
+pairs each local domain's exact tool schemas with versioned capability guidance
+from `config/instructions/`; `config/system-prompt.md` contains only universal
+behavior. Routing considers the exact request, verified attachment metadata and
+preview, recent exchange text for short confirmations, and the capability set
+of the active model conversation. Recognized requests receive only the relevant
+bundles. An unclear request or unknown attachment conservatively receives every
+currently available tool and every applicable instruction fragment, preserving
+the broad fallback behavior. A newly registered local tool that has not yet been
+assigned to a hard-coded capability also forces that full fallback, so additions
+cannot silently disappear from model access.
+
+The selected tool list is enforcement, not a hint: a model call outside that
+request's callable set is rejected before the application function can run.
+The trace records the selection reasons, selected versus available counts,
+serialized schema bytes, instruction character counts, and whether schemas were
+sent with a new thread or retained on a resumed thread.
 
 ## Subscription usage
 
@@ -245,8 +268,9 @@ no user's profile values.
 
 Remote MCP tools are discovered by Agent Slayer from
 `config/mcp-servers.json` at process startup. Their exact discovered schemas are
-placed beside the local tools in the first model request, then translated by
-the active model transport. Codex's own MCP, app, plugin, shell, and filesystem
+eligible for deterministic request selection beside the local tools. Every
+selected schema is placed in the first model request for its conversation, then
+translated by the active model transport. Codex's own MCP, app, plugin, shell, and filesystem
 facilities are not the application tool path. Missing or failed integrations
 are visible in `/health`; they are never silently represented as available.
 

@@ -267,7 +267,7 @@ export class Ledger {
     return Number(row?.count ?? 0);
   }
 
-  activeModelConversation(toolFingerprint) {
+  currentModelConversation() {
     const marker = this.store.requireReady().prepare(`
       SELECT * FROM activity_events
       WHERE event_type IN ('conversation.started', 'conversation.reset')
@@ -276,7 +276,13 @@ export class Ledger {
     `).get();
     const event = publicEvent(marker);
     if (!event || event.type === "conversation.reset") {
-      return { conversationId: null, markerEventSeq: event?.eventSeq ?? 0, reason: "new" };
+      return {
+        conversationId: null,
+        markerEventSeq: event?.eventSeq ?? 0,
+        toolFingerprint: null,
+        capabilities: [],
+        reset: Boolean(event),
+      };
     }
     const conversationId = typeof event.payload?.conversationId === "string"
       ? event.payload.conversationId
@@ -284,24 +290,51 @@ export class Ledger {
     const recordedFingerprint = typeof event.payload?.toolFingerprint === "string"
       ? event.payload.toolFingerprint
       : null;
-    if (!conversationId || !recordedFingerprint || recordedFingerprint !== toolFingerprint) {
-      return { conversationId: null, markerEventSeq: event.eventSeq, reason: "tools_changed" };
-    }
-    return { conversationId, markerEventSeq: event.eventSeq, reason: "continue" };
+    const conversationStartEventSeq = Number.isSafeInteger(event.payload?.conversationStartEventSeq)
+      ? event.payload.conversationStartEventSeq
+      : event.eventSeq;
+    return {
+      conversationId,
+      markerEventSeq: conversationStartEventSeq,
+      toolFingerprint: recordedFingerprint,
+      capabilities: Array.isArray(event.payload?.capabilities)
+        ? event.payload.capabilities.filter((value) => typeof value === "string")
+        : [],
+      reset: false,
+    };
   }
 
-  markConversationStarted({ conversationId, toolFingerprint, requestId, channel = "web" }) {
+  activeModelConversation(toolFingerprint) {
+    const state = this.currentModelConversation();
+    if (state.reset || (!state.conversationId && !state.toolFingerprint)) {
+      return { conversationId: null, markerEventSeq: state.markerEventSeq, reason: "new" };
+    }
+    const conversationId = state.conversationId;
+    const recordedFingerprint = state.toolFingerprint;
+    if (!conversationId || !recordedFingerprint || recordedFingerprint !== toolFingerprint) {
+      return { conversationId: null, markerEventSeq: state.markerEventSeq, reason: "tools_changed" };
+    }
+    return { conversationId, markerEventSeq: state.markerEventSeq, reason: "continue" };
+  }
+
+  markConversationStarted({ conversationId, toolFingerprint, capabilities = [], requestId, channel = "web" }) {
     if (typeof conversationId !== "string" || !conversationId.trim()) {
       throw new Error("A model conversation ID is required");
     }
     if (typeof toolFingerprint !== "string" || !toolFingerprint.trim()) {
       throw new Error("A callable-tool fingerprint is required");
     }
+    const requestStart = this.store.requireReady().prepare(`
+      SELECT MIN(event_seq) AS event_seq
+      FROM activity_events
+      WHERE turn_id = ? AND event_type IN (${placeholders(receivedEventTypes)})
+    `).get(requestId, ...receivedEventTypes);
+    const conversationStartEventSeq = Math.max(0, Number(requestStart?.event_seq ?? 1) - 1);
     return this.append({
       type: "conversation.started", status: "complete", actorType: "service",
       actorName: "Conversation manager", channel, turnId: requestId,
       name: "New model conversation", content: "Started a new model conversation",
-      payload: { conversationId, toolFingerprint },
+      payload: { conversationId, toolFingerprint, capabilities, conversationStartEventSeq },
       subjectType: "model_conversation", subjectId: conversationId,
     });
   }
