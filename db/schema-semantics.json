@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 16,
-    "schemaFingerprint": "07c7a6f52b57b3504e8f5054a73ab44db49585e177b34815706f51fe431e1b21",
-    "extractedAt": "2026-08-17T18:12:02.727Z"
+    "schemaVersion": 17,
+    "schemaFingerprint": "ccd2837dd5c6a0257ba67de7fc311891ed011b5838eaf9a91f3a82cded8a28dc",
+    "extractedAt": "2026-08-18T09:50:22.404Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
