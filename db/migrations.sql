@@ -5,6 +5,46 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0017: recognize-existing-sequenced-todo-groups
+-- Migration 0016 introduced an opt-in flag with a default of zero. Preserve
+-- the established behavior of groups that already contained numbered tasks by
+-- enabling automatic numbering for those groups.
+
+UPDATE todo_groups AS todo_group
+SET uses_sequence = 1,
+    updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE uses_sequence = 0
+  AND EXISTS (
+      SELECT 1
+      FROM personal_tasks AS task
+      WHERE task.todo_group_id = todo_group.todo_group_id
+        AND task.sequence IS NOT NULL
+  );
+
+WITH unnumbered AS (
+    SELECT task.personal_task_id,
+           COALESCE((
+               SELECT MAX(numbered.sequence)
+               FROM personal_tasks AS numbered
+               WHERE numbered.todo_group_id = task.todo_group_id
+           ), 0) + ROW_NUMBER() OVER (
+               PARTITION BY task.todo_group_id
+               ORDER BY task.sort_position, task.personal_task_id
+           ) AS next_sequence
+    FROM personal_tasks AS task
+    JOIN todo_groups AS todo_group USING (todo_group_id)
+    WHERE todo_group.uses_sequence = 1
+      AND task.sequence IS NULL
+)
+UPDATE personal_tasks
+SET sequence = (
+    SELECT unnumbered.next_sequence
+    FROM unnumbered
+    WHERE unnumbered.personal_task_id = personal_tasks.personal_task_id
+)
+WHERE personal_task_id IN (SELECT personal_task_id FROM unnumbered);
+-- end migration 0017
+
 -- migration 0016: governed-todo-sequences
 -- Let a to-do group opt into stable sequence numbers. Tasks inserted without a
 -- number into a governed group receive the next positive number atomically;

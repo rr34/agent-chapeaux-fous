@@ -166,6 +166,54 @@ test("native todo tools add and complete a Development task", async (context) =>
   assert.ok(updated.task.completed_at_utc);
 });
 
+test("todo_add associates a newly resolved contact with the task", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const database = store.requireReady();
+  const contact = database.prepare(`
+    INSERT INTO contacts (display_name, given_name, source, external_id)
+    VALUES ('Kristen', 'Kristen', 'agent-slayer-manual', 'kristen-test')
+    RETURNING contact_id
+  `).get();
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+
+  const created = await registry.execute("todo_add", {
+    text: "Kristen — Seiko watch battery and band",
+    group: "Development",
+    related_contact_id: Number(contact.contact_id),
+    scheduled_at_utc: null,
+    due_at_utc: null,
+  }, { requestId: "contact-task", callId: "add" });
+
+  assert.equal(created.task.related_contact_id, Number(contact.contact_id));
+  assert.equal(database.prepare(`
+    SELECT related_contact_id FROM personal_tasks WHERE personal_task_id = ?
+  `).get(created.task.personal_task_id).related_contact_id, Number(contact.contact_id));
+  const cleared = await registry.execute("todo_update", {
+    personal_task_id: created.task.personal_task_id,
+    text: null,
+    group: null,
+    related_contact_id: null,
+    status: null,
+    scheduled_at_utc: null,
+    due_at_utc: null,
+  });
+  assert.equal(cleared.task.related_contact_id, null);
+  await assert.rejects(
+    registry.execute("todo_add", {
+      text: "Unknown contact task",
+      group: "Development",
+      related_contact_id: 999_999,
+      scheduled_at_utc: null,
+      due_at_utc: null,
+    }),
+    /Related contact 999999 does not exist/,
+  );
+});
+
 test("native todo tools accept structured recurrence and generate the next task", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

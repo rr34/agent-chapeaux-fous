@@ -198,13 +198,14 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal to-do item, optionally with an all-day schedule or structured recurrence. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
+    description: "Add one native personal to-do item, optionally associated with the exact contact it concerns and optionally with an all-day schedule or structured recurrence. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         text: { type: "string", minLength: 1, maxLength: 10000 },
         group: optionalText,
+        related_contact_id: { type: ["integer", "null"], minimum: 1 },
         scheduled_at_utc: optionalText,
         is_all_day: { type: "boolean" },
         due_at_utc: optionalText,
@@ -213,7 +214,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       required: ["text", "group", "scheduled_at_utc", "due_at_utc"],
     },
     async execute({
-      text, group: groupName, scheduled_at_utc: scheduledAtUtc,
+      text, group: groupName, related_contact_id: relatedContactId = null,
+      scheduled_at_utc: scheduledAtUtc,
       is_all_day: isAllDay = false, due_at_utc: dueAtUtc, recurrence = null,
     }, context) {
       const database = store.requireReady();
@@ -221,6 +223,11 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       if (!taskText) throw new Error("To-do text cannot be empty");
       if (recurrence && !scheduledAtUtc) throw new Error("A recurring to-do requires scheduled_at_utc");
       if (isAllDay && !scheduledAtUtc) throw new Error("An all-day to-do requires scheduled_at_utc");
+      if (relatedContactId !== null && !database.prepare(`
+        SELECT 1 FROM contacts WHERE contact_id = ?
+      `).get(relatedContactId)) {
+        throw new Error(`Related contact ${relatedContactId} does not exist`);
+      }
       const recurrenceRule = recurrence ? buildTodoRecurrenceRule(recurrence) : null;
       const recurrenceTimeZone = recurrence ? validateTimeZone(recurrence.time_zone) : null;
       database.exec("BEGIN IMMEDIATE");
@@ -252,11 +259,11 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         }
         const inserted = database.prepare(`
           INSERT INTO personal_tasks (
-            todo_group_id, todo_routine_id, text, status, sort_position, scheduled_at_utc,
-            is_all_day, due_at_utc, source, source_event_id
-          ) VALUES (?, ?, ?, 'todo', ?, ?, ?, ?, 'agent-slayer', ?)
+            todo_group_id, todo_routine_id, related_contact_id, text, status, sort_position,
+            scheduled_at_utc, is_all_day, due_at_utc, source, source_event_id
+          ) VALUES (?, ?, ?, ?, 'todo', ?, ?, ?, ?, 'agent-slayer', ?)
         `).run(
-          selectedGroup.todo_group_id, routineId, taskText, sortPosition,
+          selectedGroup.todo_group_id, routineId, relatedContactId, taskText, sortPosition,
           scheduledAtUtc || null, isAllDay ? 1 : 0, dueAtUtc || null, sourceEventId,
         );
         const row = database.prepare("SELECT * FROM personal_tasks WHERE personal_task_id = ?")
@@ -645,7 +652,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_update",
-    description: "Update one native personal to-do item by ID, including moving it to another group, changing its all-day scheduling flag, or completing it.",
+    description: "Update one native personal to-do item by ID, including associating or clearing the exact contact it concerns, moving it to another group, changing its all-day scheduling flag, or completing it.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -653,6 +660,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         personal_task_id: { type: "integer", minimum: 1 },
         text: optionalText,
         group: optionalText,
+        related_contact_id: { type: ["integer", "null"], minimum: 1 },
         status: { type: ["string", "null"], enum: [...todoStatuses, null] },
         scheduled_at_utc: optionalText,
         is_all_day: { type: ["boolean", "null"] },
@@ -661,7 +669,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       required: ["personal_task_id", "text", "group", "status", "scheduled_at_utc", "due_at_utc"],
     },
     async execute({
-      personal_task_id: taskId, text, group: groupName, status,
+      personal_task_id: taskId, text, group: groupName, related_contact_id: relatedContactId,
+      status,
       scheduled_at_utc: scheduledAtUtc, is_all_day: isAllDay, due_at_utc: dueAtUtc,
     }, context) {
       const database = store.requireReady();
@@ -670,6 +679,14 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       const values = {};
       if (text !== null) values.text = text.trim();
       if (groupName !== null) values.todo_group_id = requireGroup(database, groupName).todo_group_id;
+      if (relatedContactId !== undefined) {
+        if (relatedContactId !== null && !database.prepare(`
+          SELECT 1 FROM contacts WHERE contact_id = ?
+        `).get(relatedContactId)) {
+          throw new Error(`Related contact ${relatedContactId} does not exist`);
+        }
+        values.related_contact_id = relatedContactId;
+      }
       if (status !== null) {
         values.status = status;
         values.completed_at_utc = status === "complete" ? new Date().toISOString() : null;
