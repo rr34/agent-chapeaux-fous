@@ -124,7 +124,7 @@ test("each displayed calendar event has a phone-friendly copy-details action", (
   assert.match(application, /function calendarEventCopyText/);
   assert.match(application, /node\("button", "secondary compact agenda-event-copy", "Copy details"\)/);
   assert.match(application, /copyText\(calendarEventCopyText\(calendarEvent\), event\.currentTarget\)/);
-  assert.match(application, /`Time zone: \$\{timeZone\}`/);
+  assert.doesNotMatch(application, /`Time zone: \$\{timeZone\}`/);
   assert.match(application, /`Repeats: \$\{describeTodoRecurrence\(calendarEvent\.recurrenceRule\)\}`/);
 });
 

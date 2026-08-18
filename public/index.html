@@ -11,23 +11,22 @@
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <p class="eyebrow">Direct model + tools</p>
-      <h1>Agent Slayer</h1>
-    </div>
-    <div class="runtime-group">
-      <div class="usage-controls">
-        <button id="integrations-button" class="integration" type="button">Integrations</button>
-        <button id="usage" class="usage" type="button" title="Click to copy usage diagnostics">Model usage…</button>
-        <button id="refresh" class="top-refresh" type="button">Refresh</button>
-      </div>
-      <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+    <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">Agent</button>
+    <div class="topbar-actions">
+      <button id="refresh" class="top-refresh" type="button">Refresh</button>
+      <details class="runtime-details">
+        <summary>Info</summary>
+        <div class="runtime-details-panel">
+          <button id="integrations-button" class="integration" type="button">Integrations</button>
+          <button id="usage" class="usage" type="button" title="Click to copy usage diagnostics">Model usage…</button>
+          <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+        </div>
+      </details>
     </div>
   </header>
 
   <main>
     <nav class="app-nav" aria-label="Agent Slayer sections">
-      <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">Agent</button>
       <label for="view-selector">Screen</label>
       <select id="view-selector">
         <option value="">Choose screen…</option>
@@ -48,6 +47,7 @@
         </button>
         <p id="record-label" class="record-label" aria-live="polite">Tap to record</p>
         <p id="record-timer" class="record-timer">00:00</p>
+        <button id="cancel-recording" class="secondary compact cancel-recording" type="button" hidden>Cancel recording</button>
       </div>
       <form id="request-form">
         <textarea id="request-text" rows="4" placeholder="Tell Slayer what to do…" required></textarea>

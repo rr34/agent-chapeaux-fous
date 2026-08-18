@@ -16,6 +16,7 @@ const elements = {
   runTimeUnlimited: document.querySelector("#run-time-unlimited"),
   runLimitsDefaults: document.querySelector("#run-limits-defaults"),
   record: document.querySelector("#record"),
+  cancelRecording: document.querySelector("#cancel-recording"),
   recordLabel: document.querySelector("#record-label"),
   recordTimer: document.querySelector("#record-timer"),
   status: document.querySelector("#composer-status"),
@@ -219,6 +220,7 @@ let recordingChunks = [];
 let recordingStartedAt = null;
 let recordingTimer = null;
 let recordingRespondSilently = false;
+let recordingCancelled = false;
 let pendingRunLimits = null;
 let activeView = "agent";
 let calendarRangeStart = startOfWeek(new Date());
@@ -966,7 +968,6 @@ function calendarEventCopyText(calendarEvent) {
     when = `${dateTime(start)}–${dateTime(end)}`;
   }
   const lines = [calendarEvent.title, `When: ${when}`];
-  if (!calendarEvent.isAllDay) lines.push(`Time zone: ${timeZone}`);
   if (calendarEvent.recurrenceRule) lines.push(`Repeats: ${describeTodoRecurrence(calendarEvent.recurrenceRule)}`);
   if (calendarEvent.location) lines.push(`Where: ${calendarEvent.location}`);
   if (calendarEvent.description) lines.push("", calendarEvent.description);
@@ -3101,6 +3102,7 @@ elements.record.addEventListener("click", async () => {
     clearInterval(recordingTimer);
     recorder.stop();
     elements.record.disabled = true;
+    elements.cancelRecording.hidden = true;
     elements.respondSilently.disabled = true;
     elements.record.classList.remove("recording");
     elements.record.setAttribute("aria-label", "Saving recording");
@@ -3112,10 +3114,29 @@ elements.record.addEventListener("click", async () => {
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
     recordingChunks = [];
+    recordingCancelled = false;
     recorder = new MediaRecorder(recordingStream);
     recorder.addEventListener("dataavailable", (event) => { if (event.data.size) recordingChunks.push(event.data); });
     recorder.addEventListener("stop", async () => {
       recordingStream?.getTracks().forEach((track) => track.stop());
+      if (recordingCancelled) {
+        recordingChunks = [];
+        recorder = null;
+        recordingStream = null;
+        recordingStartedAt = null;
+        recordingRespondSilently = false;
+        recordingCancelled = false;
+        elements.record.disabled = false;
+        elements.cancelRecording.disabled = false;
+        elements.cancelRecording.hidden = true;
+        elements.respondSilently.disabled = false;
+        elements.record.classList.remove("recording");
+        elements.record.setAttribute("aria-label", "Start recording");
+        elements.recordLabel.textContent = "Tap to record";
+        elements.recordTimer.textContent = "00:00";
+        elements.status.textContent = "Recording cancelled.";
+        return;
+      }
       const blob = new Blob(recordingChunks, { type: recorder.mimeType || "audio/webm" });
       elements.status.textContent = "Uploading voice request…";
       try {
@@ -3130,7 +3151,10 @@ elements.record.addEventListener("click", async () => {
         recordingStream = null;
         recordingStartedAt = null;
         recordingRespondSilently = false;
+        recordingCancelled = false;
         elements.record.disabled = false;
+        elements.cancelRecording.disabled = false;
+        elements.cancelRecording.hidden = true;
         elements.respondSilently.disabled = false;
         elements.record.classList.remove("recording");
         elements.record.setAttribute("aria-label", "Start recording");
@@ -3141,6 +3165,7 @@ elements.record.addEventListener("click", async () => {
     recorder.start(1000);
     recordingStartedAt = Date.now();
     elements.record.classList.add("recording");
+    elements.cancelRecording.hidden = false;
     elements.record.setAttribute("aria-label", "Stop and queue recording");
     elements.recordLabel.textContent = "Tap to queue";
     elements.recordTimer.textContent = "00:00";
@@ -3152,11 +3177,25 @@ elements.record.addEventListener("click", async () => {
     recordingStream?.getTracks().forEach((track) => track.stop());
     recordingStream = null;
     recorder = null;
+    recordingCancelled = false;
     elements.record.classList.remove("recording");
+    elements.cancelRecording.hidden = true;
     elements.recordLabel.textContent = "Tap to record";
     elements.recordTimer.textContent = "00:00";
     elements.status.textContent = error.message;
   }
+});
+
+elements.cancelRecording.addEventListener("click", () => {
+  if (recorder?.state !== "recording") return;
+  recordingCancelled = true;
+  clearInterval(recordingTimer);
+  elements.record.disabled = true;
+  elements.cancelRecording.disabled = true;
+  elements.record.classList.remove("recording");
+  elements.record.setAttribute("aria-label", "Cancelling recording");
+  elements.recordLabel.textContent = "Cancelling…";
+  recorder.stop();
 });
 
 elements.refresh.addEventListener("click", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));

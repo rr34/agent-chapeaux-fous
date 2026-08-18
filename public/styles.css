@@ -131,6 +131,7 @@ section { margin-bottom: 1rem; }
 }
 .record-label { margin-bottom: 2px; font-weight: 400; }
 .record-timer { margin-bottom: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cancel-recording { margin: -.4rem auto 1rem; }
 #request-form { padding-top: .85rem; border-top: 1px solid var(--line); }
 
 textarea, input {
@@ -184,9 +185,9 @@ button.danger { color: white; background: #9f342f; }
 button.danger:hover { background: #bd4039; }
 button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 
-.runtime-group, .usage-controls { display: flex; align-items: center; gap: .45rem; }
-.runtime-group { flex-wrap: wrap; justify-content: flex-end; }
-.runtime, .usage, .integration, .top-refresh {
+.topbar-actions { display: flex; align-items: center; gap: .45rem; }
+.runtime-details { position: relative; }
+.runtime-details > summary, .runtime, .usage, .integration, .top-refresh {
   min-height: 34px;
   padding: .35rem .65rem;
   color: var(--muted);
@@ -194,6 +195,33 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
   background: var(--panel-raised);
   border: 1px solid var(--line);
 }
+.runtime-details > summary {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  border-radius: 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.runtime-details > summary::-webkit-details-marker { display: none; }
+.runtime-details > summary::after { content: "▾"; font-size: .7rem; transition: transform 120ms ease; }
+.runtime-details[open] > summary::after { transform: rotate(180deg); }
+.runtime-details > summary:hover, .runtime-details[open] > summary { color: var(--text); border-color: #56616a; background: #252b31; }
+.runtime-details-panel {
+  position: absolute;
+  top: calc(100% + .55rem);
+  right: 0;
+  display: grid;
+  gap: .45rem;
+  width: min(20rem, calc(100vw - 1.4rem));
+  padding: .65rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, .45);
+}
+.runtime-details-panel button { width: 100%; text-align: left; }
 .usage { font-family: inherit; }
 .integration { font-family: inherit; }
 .top-refresh { font-family: inherit; }
@@ -539,26 +567,12 @@ dialog h2, dialog p { margin-bottom: 0; }
   .app-nav label { display: none; }
   .app-nav select { min-width: 0; flex: 1; }
   .topbar {
-    align-items: stretch;
-    flex-direction: column;
-    gap: .7rem;
     padding:
       calc(.8rem + env(safe-area-inset-top, 0px))
       max(.7rem, env(safe-area-inset-right, 0px))
       .8rem
       max(.7rem, env(safe-area-inset-left, 0px));
   }
-  .runtime-group { display: grid; grid-template-columns: minmax(0, 1fr) auto; width: 100%; }
-  .usage-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; }
-  .usage-controls > button, .runtime {
-    min-width: 0;
-    overflow: hidden;
-    padding-right: .45rem;
-    padding-left: .45rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .runtime { max-width: 34vw; }
   .composer-actions { align-items: stretch; flex-direction: column; }
   .request-attachment-control { width: 100%; }
   .request-file-label { max-width: calc(100vw - 10rem); }
