@@ -99,6 +99,56 @@ function databaseTask(row) {
   };
 }
 
+function taskWithContext(database, taskId) {
+  return database.prepare(`
+    SELECT task.*, todo_group.name AS group_name,
+           routine.recurrence_rule AS routine_recurrence_rule,
+           routine.time_zone AS routine_time_zone
+    FROM personal_tasks AS task
+    JOIN todo_groups AS todo_group USING (todo_group_id)
+    LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+    WHERE task.personal_task_id = ?
+  `).get(taskId);
+}
+
+function setTodoPosition(database, taskId, position) {
+  const selected = database.prepare(`
+    SELECT todo_group_id FROM personal_tasks WHERE personal_task_id = ?
+  `).get(taskId);
+  if (!selected) throw new Error(`To-do ${taskId} does not exist`);
+  const rows = database.prepare(`
+    SELECT personal_task_id
+    FROM personal_tasks
+    WHERE todo_group_id = ?
+    ORDER BY sort_position, personal_task_id
+  `).all(selected.todo_group_id);
+  if (position > rows.length) {
+    throw new Error(`position must be between 1 and ${rows.length} for this to-do group`);
+  }
+  const orderedTaskIds = rows.map(({ personal_task_id: id }) => Number(id));
+  const previousPosition = orderedTaskIds.indexOf(taskId) + 1;
+  if (previousPosition !== position) {
+    orderedTaskIds.splice(previousPosition - 1, 1);
+    orderedTaskIds.splice(position - 1, 0, taskId);
+    const updatedAtUtc = new Date().toISOString();
+    const update = database.prepare(`
+      UPDATE personal_tasks
+      SET sort_position = ?, updated_at_utc = ?
+      WHERE personal_task_id = ? AND todo_group_id = ?
+    `);
+    orderedTaskIds.forEach((id, index) => {
+      update.run((index + 1) * 10, updatedAtUtc, id, selected.todo_group_id);
+    });
+  }
+  return {
+    changed: previousPosition !== position,
+    previousPosition,
+    position,
+    taskCount: orderedTaskIds.length,
+    orderedTaskIds,
+  };
+}
+
 function todoResult(schemaSemantics, context, result, {
   name, purpose, groupOnly = false, projection = null,
 }) {
@@ -198,7 +248,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal to-do item, optionally associated with the exact contact it concerns and optionally with an all-day schedule or structured recurrence. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
+    description: "Add one native personal to-do item, optionally at an exact 1-based position in its group's manual sort order, associated with the exact contact it concerns, or with an all-day schedule or structured recurrence. Position 1 puts the new task at the top. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -210,6 +260,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         is_all_day: { type: "boolean" },
         due_at_utc: optionalText,
         recurrence: todoRecurrenceSchema,
+        position: { type: ["integer", "null"], minimum: 1, maximum: 1_000_000_000 },
       },
       required: ["text", "group", "scheduled_at_utc", "due_at_utc"],
     },
@@ -217,6 +268,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       text, group: groupName, related_contact_id: relatedContactId = null,
       scheduled_at_utc: scheduledAtUtc,
       is_all_day: isAllDay = false, due_at_utc: dueAtUtc, recurrence = null,
+      position = null,
     }, context) {
       const database = store.requireReady();
       const taskText = text.trim();
@@ -266,8 +318,10 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           selectedGroup.todo_group_id, routineId, relatedContactId, taskText, sortPosition,
           scheduledAtUtc || null, isAllDay ? 1 : 0, dueAtUtc || null, sourceEventId,
         );
+        const taskId = Number(inserted.lastInsertRowid);
+        if (position !== null) setTodoPosition(database, taskId, position);
         const row = database.prepare("SELECT * FROM personal_tasks WHERE personal_task_id = ?")
-          .get(Number(inserted.lastInsertRowid));
+          .get(taskId);
         const task = databaseTask({
           ...row,
           group_name: selectedGroup.name,
@@ -298,6 +352,55 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         });
         database.exec("COMMIT");
         return result;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  });
+
+  registry.register({
+    name: "todo_position_set",
+    description: "Move one native personal to-do to an exact 1-based position in its group's manual sort order. Position 1 is the top. The group is atomically normalized to positions 10, 20, 30, and so on, matching the UI reorder controls. This does not change stable sequence numbers, which remain the primary display order in groups that use sequence numbering.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        personal_task_id: { type: "integer", minimum: 1 },
+        position: { type: "integer", minimum: 1, maximum: 1_000_000_000 },
+      },
+      required: ["personal_task_id", "position"],
+    },
+    async execute({ personal_task_id: taskId, position }, context) {
+      const database = store.requireReady();
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        const operation = setTodoPosition(database, taskId, position);
+        const task = databaseTask(taskWithContext(database, taskId));
+        const result = {
+          changed: operation.changed,
+          previous_position: operation.previousPosition,
+          position: operation.position,
+          task_count: operation.taskCount,
+          task,
+        };
+        if (operation.changed) {
+          ledger.append({
+            type: "personal_todo.reordered", status: "complete",
+            actorType: "tool", actorName: "todo_position_set",
+            turnId: context.requestId, operationId: context.callId,
+            name: "Personal to-do repositioned",
+            content: `${task.text} moved from #${operation.previousPosition} to #${operation.position}`,
+            payload: { ...result, ordered_task_ids: operation.orderedTaskIds },
+            subjectType: "personal_task", subjectId: String(task.personal_task_id),
+          });
+        }
+        const semanticResult = todoResult(schemaSemantics, context, result, {
+          name: "todo_position_set",
+          purpose: "Return the repositioned personal task and its exact old and new positions in the group.",
+        });
+        database.exec("COMMIT");
+        return semanticResult;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;

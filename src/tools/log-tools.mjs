@@ -107,14 +107,74 @@ function joinedTracker(database, trackerId) {
   `).get(trackerId);
 }
 
+const trackerAliasFamilies = new Map([
+  ["poop", "bowel_elimination"],
+  ["poops", "bowel_elimination"],
+  ["pooping", "bowel_elimination"],
+  ["bowel movement", "bowel_elimination"],
+  ["bowel movements", "bowel_elimination"],
+  ["bm", "bowel_elimination"],
+  ["bms", "bowel_elimination"],
+  ["defecation", "bowel_elimination"],
+  ["stool", "bowel_elimination"],
+]);
+
+function normalizedTrackerPhrase(value) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function trackerAliasFamily(value) {
+  return trackerAliasFamilies.get(normalizedTrackerPhrase(value)) ?? null;
+}
+
+function aliasTracker(database, name) {
+  const family = trackerAliasFamily(name);
+  if (!family) return null;
+  const rows = database.prepare(`
+    SELECT tracker.*, log_group.name AS group_name,
+           log_group.archived_at_utc AS group_archived_at_utc,
+           COUNT(entry.log_entry_id) AS entry_count
+    FROM trackers AS tracker
+    JOIN log_groups AS log_group USING (log_group_id)
+    LEFT JOIN log_entries AS entry USING (tracker_id)
+    GROUP BY tracker.tracker_id
+  `).all().filter((row) => trackerAliasFamily(row.name) === family);
+  rows.sort((left, right) => {
+    const leftActive = left.archived_at_utc === null && left.group_archived_at_utc === null ? 1 : 0;
+    const rightActive = right.archived_at_utc === null && right.group_archived_at_utc === null ? 1 : 0;
+    if (leftActive !== rightActive) return rightActive - leftActive;
+    const entryDifference = Number(right.entry_count) - Number(left.entry_count);
+    if (entryDifference) return entryDifference;
+    const ageDifference = Number(left.tracker_id) - Number(right.tracker_id);
+    if (ageDifference) return ageDifference;
+    const leftExact = normalizedTrackerPhrase(left.name) === normalizedTrackerPhrase(name) ? 1 : 0;
+    const rightExact = normalizedTrackerPhrase(right.name) === normalizedTrackerPhrase(name) ? 1 : 0;
+    if (leftExact !== rightExact) return rightExact - leftExact;
+    return 0;
+  });
+  return rows[0] ?? null;
+}
+
 function findTracker(database, name) {
-  return database.prepare(`
+  const alias = aliasTracker(database, name);
+  if (alias) {
+    return {
+      row: alias,
+      matchType: normalizedTrackerPhrase(alias.name) === normalizedTrackerPhrase(name) ? "exact" : "alias",
+    };
+  }
+  const exact = database.prepare(`
     SELECT tracker.*, log_group.name AS group_name,
            log_group.archived_at_utc AS group_archived_at_utc
     FROM trackers AS tracker
     JOIN log_groups AS log_group USING (log_group_id)
     WHERE tracker.name = ? COLLATE NOCASE
   `).get(name);
+  return exact ? { row: exact, matchType: "exact" } : { row: null, matchType: "none" };
 }
 
 function ensureGroup(database, name, now) {
@@ -188,12 +248,27 @@ function normalizedExternalId(value) {
   return requiredText(value, "External log ID", 1000);
 }
 
-function resolveTracker(database, input, now) {
-  let tracker = findTracker(database, input.trackerName);
+function resolveTracker(database, input, now, { createIfMissing = false } = {}) {
+  const found = findTracker(database, input.trackerName);
+  let tracker = found.row;
   let trackerCreated = false;
   let trackerReactivated = false;
   let groupResolution;
   if (!tracker) {
+    if (!createIfMissing) {
+      return {
+        tracker: null,
+        trackerCreated: false,
+        trackerReactivated: false,
+        trackerMatchType: "none",
+        groupResolution: {
+          requestedGroup: input.requestedGroupWasNull ? null : input.requestedGroup,
+          actualGroup: null,
+          groupCreated: false,
+          groupReactivated: false,
+        },
+      };
+    }
     const selectedGroup = ensureGroup(database, input.requestedGroup, now);
     const row = database.prepare(`
       INSERT INTO trackers (log_group_id, name, default_unit, updated_at_utc)
@@ -246,7 +321,13 @@ function resolveTracker(database, input, now) {
       groupReactivated,
     };
   }
-  return { tracker, trackerCreated, trackerReactivated, groupResolution };
+  return {
+    tracker,
+    trackerCreated,
+    trackerReactivated,
+    trackerMatchType: trackerCreated ? "created" : found.matchType,
+    groupResolution,
+  };
 }
 
 function insertEntry(database, input, tracker, {
@@ -306,7 +387,7 @@ function sameImportedEntry(row, input) {
 export function registerLogTools(registry, store, ledger, schemaSemantics = null) {
   registry.register({
     name: "log_add",
-    description: "Record one entry in the user's authoritative personal log. The content must remain a complete human-readable entry; number and unit are optional queryable projections, not replacements for that text. Reuse a tracker by case-insensitive name. On first use, create the tracker and its requested group atomically; use General when group is null. A supplied group never silently moves an existing tracker.",
+    description: "Record one entry in the user's authoritative personal log. The content must remain a complete human-readable entry; number and unit are optional queryable projections, not replacements for that text. Reuse the most plausible existing tracker for exact or synonymous wording. If none matches and create_if_missing is false, no tracker or log entry is written and the result proposes a tracker for user confirmation. Set create_if_missing true only after explicit user creation intent or confirmation. On confirmed first use, create the tracker and requested group atomically; use General when group is null. A supplied group never silently moves an existing tracker.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -317,8 +398,9 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         number_value: { type: ["number", "null"] },
         unit: { ...nullableString, maxLength: 100 },
         occurred_at_utc: nullableString,
+        create_if_missing: { type: "boolean" },
       },
-      required: ["tracker", "group", "content_text", "number_value", "unit", "occurred_at_utc"],
+      required: ["tracker", "group", "content_text", "number_value", "unit", "occurred_at_utc", "create_if_missing"],
     },
     async execute(argumentsObject, context) {
       const input = normalizedLogInput(argumentsObject);
@@ -326,7 +408,33 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       const now = new Date().toISOString();
       database.exec("BEGIN IMMEDIATE");
       try {
-        const trackerResult = resolveTracker(database, input, now);
+        const trackerResult = resolveTracker(database, input, now, {
+          createIfMissing: argumentsObject.create_if_missing,
+        });
+        if (!trackerResult.tracker) {
+          const result = {
+            created: false,
+            tracker_missing: true,
+            confirmation_required: true,
+            proposed_tracker: {
+              name: input.trackerName,
+              group: input.requestedGroup,
+              default_unit: input.suppliedUnit,
+            },
+            proposed_entry: {
+              occurred_at_utc: input.occurredAtUtc,
+              content_text: input.content,
+              number_value: input.number,
+              unit: input.suppliedUnit,
+            },
+          };
+          const semanticResult = logResult(schemaSemantics, context, result, {
+            name: "log_add",
+            purpose: "Report that no existing tracker matched and return the unrecorded proposed tracker and entry for confirmation.",
+          });
+          database.exec("COMMIT");
+          return semanticResult;
+        }
         const entry = insertEntry(database, input, trackerResult.tracker, {
           requestEventId: context.requestEventId || null,
           now,
@@ -335,6 +443,11 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
           created: true,
           tracker_created: trackerResult.trackerCreated,
           tracker_reactivated: trackerResult.trackerReactivated,
+          tracker_resolution: {
+            requested_name: input.trackerName,
+            actual_name: trackerResult.tracker.name,
+            match_type: trackerResult.trackerMatchType,
+          },
           group_resolution: {
             requested_group: trackerResult.groupResolution.requestedGroup,
             actual_group: trackerResult.groupResolution.actualGroup,
@@ -436,7 +549,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
             });
             continue;
           }
-          const trackerResult = resolveTracker(database, input.log, now);
+          const trackerResult = resolveTracker(database, input.log, now, { createIfMissing: true });
           const entry = insertEntry(database, input.log, trackerResult.tracker, {
             source: selectedSource,
             externalId: input.externalId,

@@ -79,6 +79,7 @@ export class SlayerRuntime {
       nativeConversation: conversation.reason !== "tools_changed",
       continuingConversation: Boolean(conversation.conversationId),
       conversationStartEventSeq: conversation.markerEventSeq,
+      capabilities: compilation.capabilities,
     });
     const baseInstructions = await this.loadSystemPrompt();
     const developerInstructions = joinedInstructions(
@@ -110,6 +111,7 @@ export class SlayerRuntime {
       channel, turnId: requestId, name: "Compiled context sent", content: developerInstructions,
       payload: {
         profileFacts: context.profileFacts,
+        activeTrackers: context.activeTrackers ?? [],
         activeProfileFactCount: context.activeProfileFactCount,
         relevantProfileTypes: context.relevantProfileTypes,
         relevantProfileQuestions: context.relevantProfileQuestions,

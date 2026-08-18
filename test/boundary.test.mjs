@@ -308,7 +308,7 @@ test("the request composer keeps Shift+Enter for newlines and submits other Ente
   assert.doesNotMatch(application, /event\.key !== "Enter" \|\| event\.ctrlKey/);
 });
 
-test("new typed and voice requests speak by default with a one-shot silent option", () => {
+test("new typed and voice requests speak by default with a persistent silent preference", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(document, /id="respond-silently" type="checkbox"/);
@@ -319,7 +319,10 @@ test("new typed and voice requests speak by default with a one-shot silent optio
   assert.match(application, /expectSpokenResponse\(created\.requestId, recordingRespondSilently\)/);
   assert.match(application, /pendingSpokenRequestIds\.has\(request\.requestId\)/);
   assert.match(application, /speakResponse\(request\.response\)/);
-  assert.match(application, /elements\.respondSilently\.checked = false/);
+  assert.match(application, /responseSilenceStorageKey = "agent-slayer-respond-silently"/);
+  assert.match(application, /elements\.respondSilently\.checked = loadResponseSilencePreference\(\)/);
+  assert.match(application, /elements\.respondSilently\.addEventListener\("change", saveResponseSilencePreference\)/);
+  assert.doesNotMatch(application, /elements\.respondSilently\.checked = false/);
 });
 
 test("the request composer accepts one bounded CSV, vCard, or text attachment", () => {

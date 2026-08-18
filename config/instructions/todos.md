@@ -10,6 +10,12 @@ write RRULE syntax. When a to-do is assigned to a calendar day without an exact
 time, set `is_all_day=true` and represent that date as local midnight; use a
 timed schedule only when the user supplies or requests a time.
 
+When the user specifies a position while creating a to-do, pass that 1-based
+`position` directly to `todo_add`; position 1 is the top. Use
+`todo_position_set` to move an existing task to an exact 1-based position in its
+group. Manual position changes preserve stable sequence numbers; those numbers
+remain the primary display order in groups with automatic sequencing enabled.
+
 When `todo_add` reports `group_resolution.used_inbox_fallback=true`, state that
 the to-do was added to Inbox and ask whether to create the requested group and
 move the task there. Do not create the group until the user confirms. Use

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ContextBuilder } from "../src/context.mjs";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
 import { registerLogTools } from "../src/tools/log-tools.mjs";
@@ -29,6 +30,7 @@ test("log_add exposes one complete content field and no boolean or mandatory val
     "number_value",
     "unit",
     "occurred_at_utc",
+    "create_if_missing",
   ]);
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "note"), false);
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "boolean"), false);
@@ -45,6 +47,7 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
     number_value: 72.1,
     unit: "kg",
     occurred_at_utc: "2026-08-15T20:30:00-04:00",
+    create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-first" });
 
   assert.equal(first.tracker_created, true);
@@ -65,6 +68,7 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
     number_value: 71.8,
     unit: null,
     occurred_at_utc: "2026-08-16T08:00:00Z",
+    create_if_missing: false,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-second" });
 
   assert.equal(second.tracker_created, false);
@@ -113,6 +117,7 @@ test("log_add records text-only events without a boolean or value kind", async (
     number_value: 4,
     unit: null,
     occurred_at_utc: null,
+    create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-event" });
 
   assert.equal(result.entry.content_text, "Normal bowel movement, Bristol type 4");
@@ -127,6 +132,7 @@ test("log_add records text-only events without a boolean or value kind", async (
     number_value: null,
     unit: null,
     occurred_at_utc: null,
+    create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-medication" });
   assert.equal(medication.entry.number_value, null);
 });
@@ -140,6 +146,7 @@ test("tracker_update moves, renames, clears units, and archives a tracker", asyn
     number_value: 72.1,
     unit: "kg",
     occurred_at_utc: null,
+    create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-create" });
 
   const updated = await registry.execute("tracker_update", {
@@ -178,11 +185,108 @@ test("a unit without a number is rejected before creating log records", async (c
       number_value: null,
       unit: "points",
       occurred_at_utc: null,
+      create_if_missing: true,
     }, { requestId: request.requestId, requestEventId: request.eventId, callId: "bad-log" }),
     /unit requires a numeric value/,
   );
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM trackers").get().count, 0);
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 0);
+});
+
+test("log_add reuses an established tracker through a synonymous name", async (context) => {
+  const { store, request, registry } = loggingHarness(context, "Log a poop");
+  const poop = await registry.execute("log_add", {
+    tracker: "Poop",
+    group: "Health",
+    content_text: "Poop.",
+    number_value: null,
+    unit: null,
+    occurred_at_utc: "2026-08-17T12:00:00Z",
+    create_if_missing: true,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-first" });
+  await registry.execute("log_add", {
+    tracker: "Poop",
+    group: "Health",
+    content_text: "Another poop.",
+    number_value: null,
+    unit: null,
+    occurred_at_utc: "2026-08-18T12:00:00Z",
+    create_if_missing: false,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-second" });
+
+  const alias = await registry.execute("log_add", {
+    tracker: "Bowel Movements",
+    group: "Health",
+    content_text: "Poop.",
+    number_value: null,
+    unit: null,
+    occurred_at_utc: "2026-08-19T12:00:00Z",
+    create_if_missing: false,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-alias" });
+
+  assert.equal(alias.tracker_created, false);
+  assert.equal(alias.tracker_resolution.match_type, "alias");
+  assert.equal(alias.tracker_resolution.actual_name, "Poop");
+  assert.equal(alias.entry.tracker_id, poop.entry.tracker_id);
+  assert.equal(
+    store.requireReady().prepare("SELECT COUNT(*) AS count FROM trackers").get().count,
+    1,
+  );
+});
+
+test("log_add proposes a missing tracker without writing until creation is confirmed", async (context) => {
+  const { store, request, registry } = loggingHarness(context, "Log my mood");
+  const proposed = await registry.execute("log_add", {
+    tracker: "Mood",
+    group: "Health",
+    content_text: "Calm.",
+    number_value: null,
+    unit: null,
+    occurred_at_utc: "2026-08-18T12:00:00Z",
+    create_if_missing: false,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "mood-propose" });
+
+  assert.equal(proposed.created, false);
+  assert.equal(proposed.tracker_missing, true);
+  assert.equal(proposed.confirmation_required, true);
+  assert.equal(proposed.proposed_tracker.name, "Mood");
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM trackers").get().count, 0);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 0);
+
+  const created = await registry.execute("log_add", {
+    tracker: "Mood",
+    group: "Health",
+    content_text: "Calm.",
+    number_value: null,
+    unit: null,
+    occurred_at_utc: "2026-08-18T12:00:00Z",
+    create_if_missing: true,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "mood-confirm" });
+  assert.equal(created.created, true);
+  assert.equal(created.tracker_created, true);
+});
+
+test("log context includes authoritative active tracker names", async (context) => {
+  const { store, ledger, request, registry } = loggingHarness(context, "Log a poop");
+  await registry.execute("log_add", {
+    tracker: "Poop",
+    group: "Health",
+    content_text: "Poop.",
+    number_value: null,
+    unit: null,
+    occurred_at_utc: "2026-08-18T12:00:00Z",
+    create_if_missing: true,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-context" });
+  const next = ledger.createRequest({ text: "Log a bowel movement" });
+  const built = await new ContextBuilder({
+    ledger,
+    store,
+    profileFacts: { list() { return { facts: [] }; } },
+  }).build(next.requestId, "Log a bowel movement", { capabilities: ["logs"] });
+
+  assert.match(built.text, /# Active personal-log trackers/);
+  assert.match(built.text, /name: Poop \| group: Health \| entries: 1/);
+  assert.deepEqual(built.activeTrackers.map(({ name }) => name), ["Poop"]);
 });
 
 test("log_import is source-agnostic, idempotent, and reports conflicting replays", async (context) => {

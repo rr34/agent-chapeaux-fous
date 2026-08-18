@@ -250,8 +250,18 @@ let logTrackers = [];
 let logEntries = [];
 const requestNodes = new Map();
 const speechQueueStorageKey = "agent-slayer-pending-spoken-responses";
+const responseSilenceStorageKey = "agent-slayer-respond-silently";
 const activeUtterances = new Set();
 const pendingSpokenRequestIds = loadPendingSpokenRequestIds();
+elements.respondSilently.checked = loadResponseSilencePreference();
+
+function loadResponseSilencePreference() {
+  try { return localStorage.getItem(responseSilenceStorageKey) === "true"; } catch { return false; }
+}
+
+function saveResponseSilencePreference() {
+  try { localStorage.setItem(responseSilenceStorageKey, String(elements.respondSilently.checked)); } catch { /* Keep the in-page setting. */ }
+}
 
 function loadPendingSpokenRequestIds() {
   try {
@@ -3053,7 +3063,6 @@ elements.form.addEventListener("submit", async (event) => {
     });
     expectSpokenResponse(created.requestId, respondSilently);
     elements.text.value = "";
-    elements.respondSilently.checked = false;
     elements.requestFile.value = "";
     updateRequestFileSelection();
     pendingRunLimits = null;
@@ -3074,6 +3083,7 @@ elements.text.addEventListener("keydown", (event) => {
   if (!elements.send.disabled) elements.form.requestSubmit();
 });
 elements.requestFile.addEventListener("change", updateRequestFileSelection);
+elements.respondSilently.addEventListener("change", saveResponseSilencePreference);
 elements.removeRequestFile.addEventListener("click", () => {
   elements.requestFile.value = "";
   updateRequestFileSelection();
@@ -3111,7 +3121,6 @@ elements.record.addEventListener("click", async () => {
       try {
         const created = await api("/api/voice", { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
         expectSpokenResponse(created.requestId, recordingRespondSilently);
-        elements.respondSilently.checked = false;
         elements.status.textContent = "Voice request queued.";
         await loadRequests({ force: true });
       } catch (error) {

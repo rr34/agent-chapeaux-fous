@@ -77,6 +77,7 @@ if (jmap.health().ready) registerJmapEmailTools(registry, jmap);
 const contextBuilder = new ContextBuilder({
   ledger,
   profileFacts,
+  store,
   profileFactQuestions,
   maximumAttachmentCharacters: config.maxAttachmentContextCharacters,
 });

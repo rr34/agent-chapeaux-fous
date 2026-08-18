@@ -145,6 +145,7 @@ test("the first model turn contains the exact request, context, and callable too
       nativeConversation: true,
       continuingConversation: false,
       conversationStartEventSeq: 0,
+      capabilities: ["all"],
     },
   });
   assert.deepEqual(
@@ -206,6 +207,7 @@ test("the runtime resumes the active native conversation without reinjecting tra
     nativeConversation: true,
     continuingConversation: true,
     conversationStartEventSeq: 42,
+    capabilities: ["all"],
   });
   assert.equal(modelRequest.developerInstructions, "CURRENT CONTEXT ONLY");
   assert.equal(modelRequest.requestAttachmentInput, null);
@@ -325,6 +327,7 @@ test("a capability change starts a fresh thread with bounded prior conversation 
     nativeConversation: false,
     continuingConversation: false,
     conversationStartEventSeq: 40,
+    capabilities: ["alpha"],
   });
 });
 

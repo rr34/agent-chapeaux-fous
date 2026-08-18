@@ -134,7 +134,7 @@ test("native database-backed tools return stored field names with semantic proje
 
   const logged = await registry.execute("log_add", {
     tracker: "Weight", group: "Health", content_text: "72.1 kg", number_value: 72.1,
-    unit: "kg", occurred_at_utc: "2026-08-16T12:00:00Z",
+    unit: "kg", occurred_at_utc: "2026-08-16T12:00:00Z", create_if_missing: true,
   }, toolContext);
   assert.equal(logged.entry.content_text, "72.1 kg");
   assert.equal(Object.hasOwn(logged.entry, "content"), false);

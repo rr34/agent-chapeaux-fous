@@ -539,12 +539,26 @@ dialog h2, dialog p { margin-bottom: 0; }
   .app-nav label { display: none; }
   .app-nav select { min-width: 0; flex: 1; }
   .topbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: .7rem;
     padding:
       calc(.8rem + env(safe-area-inset-top, 0px))
-      max(1rem, env(safe-area-inset-right, 0px))
+      max(.7rem, env(safe-area-inset-right, 0px))
       .8rem
-      max(1rem, env(safe-area-inset-left, 0px));
+      max(.7rem, env(safe-area-inset-left, 0px));
   }
+  .runtime-group { display: grid; grid-template-columns: minmax(0, 1fr) auto; width: 100%; }
+  .usage-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; }
+  .usage-controls > button, .runtime {
+    min-width: 0;
+    overflow: hidden;
+    padding-right: .45rem;
+    padding-left: .45rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .runtime { max-width: 34vw; }
   .composer-actions { align-items: stretch; flex-direction: column; }
   .request-attachment-control { width: 100%; }
   .request-file-label { max-width: calc(100vw - 10rem); }
@@ -553,8 +567,6 @@ dialog h2, dialog p { margin-bottom: 0; }
   .request-run-controls #send { margin-left: auto; }
   .run-limits-summary { order: 3; width: 100%; text-align: right; }
   .run-limit-fieldset { grid-template-columns: 1fr; }
-  .runtime-group { align-items: flex-end; flex-direction: column-reverse; }
-  .usage { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   main { padding: .7rem; }
   .composer, .requests { border-radius: 13px; }
   .section-heading { align-items: flex-start; }

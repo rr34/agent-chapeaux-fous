@@ -151,13 +151,14 @@ to the model; UI transport objects remain an independent browser concern.
   local network targets are rejected, DNS is pinned for the request, and binary
   responses are not returned to the model.
 - `todo_group_list`, `todo_group_create`, `todo_group_rename`,
-  `todo_group_archive`, `todo_list`, `todo_add`, `todo_recurrence_set`, and
-  `todo_update` provide the native personal to-do path without
-  requiring the model to invent SQL. The agent inspects existing groups before
+  `todo_group_archive`, `todo_list`, `todo_add`, `todo_recurrence_set`,
+  `todo_position_set`, and `todo_update` provide the native personal to-do path
+  without requiring the model to invent SQL. The agent inspects existing groups before
   assigning an otherwise ungrouped task; Inbox is the catchall when no group is
   a clear match. Group archival fails while active tasks remain and preserves
   the group on terminal task history. Recurrence is supplied as structured,
-  human concepts and stored internally as RRULE.
+  human concepts and stored internally as RRULE. New and existing tasks can be
+  placed at an exact 1-based manual sort position, including position 1.
 - `calendar_event_search`, `calendar_event_list`, `calendar_event_add`, `calendar_event_update`, and
   `calendar_event_recurrence_set` provide the native model-facing calendar
   path. Event records retain exact `calendar_events` column names and compiler

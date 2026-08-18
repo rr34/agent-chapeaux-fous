@@ -22,6 +22,71 @@ test("todo_group_list exposes every active group including empty catchalls", asy
   ]);
 });
 
+test("native todo tools place new and existing tasks at exact 1-based positions", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, ledger);
+  const definitions = Object.fromEntries(
+    registry.toolDefinitions().map((definition) => [definition.name, definition.inputSchema]),
+  );
+  assert.equal(Object.hasOwn(definitions.todo_add.properties, "position"), true);
+  assert.deepEqual(definitions.todo_position_set.required, ["personal_task_id", "position"]);
+
+  const first = await registry.execute("todo_add", {
+    text: "First task", group: "Development", scheduled_at_utc: null, due_at_utc: null,
+  });
+  const second = await registry.execute("todo_add", {
+    text: "Second task", group: "Development", scheduled_at_utc: null, due_at_utc: null,
+  });
+  const top = await registry.execute("todo_add", {
+    text: "New top task", group: "Development", scheduled_at_utc: null, due_at_utc: null,
+    position: 1,
+  });
+  assert.equal(top.task.sort_position, 10);
+
+  const moved = await registry.execute("todo_position_set", {
+    personal_task_id: second.task.personal_task_id,
+    position: 2,
+  }, { requestId: "reorder-task", callId: "move-second" });
+  assert.equal(moved.changed, true);
+  assert.equal(moved.previous_position, 3);
+  assert.equal(moved.position, 2);
+  assert.equal(moved.task_count, 3);
+  assert.equal(moved.task.sort_position, 20);
+
+  const rows = store.requireReady().prepare(`
+    SELECT personal_task_id, sort_position
+    FROM personal_tasks WHERE todo_group_id = 2
+    ORDER BY sort_position, personal_task_id
+  `).all().map((row) => ({ ...row }));
+  assert.deepEqual(rows, [
+    { personal_task_id: top.task.personal_task_id, sort_position: 10 },
+    { personal_task_id: second.task.personal_task_id, sort_position: 20 },
+    { personal_task_id: first.task.personal_task_id, sort_position: 30 },
+  ]);
+  assert.equal(store.requireReady().prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'personal_todo.reordered' AND actor_name = 'todo_position_set'
+  `).get().count, 1);
+
+  await assert.rejects(
+    registry.execute("todo_position_set", {
+      personal_task_id: first.task.personal_task_id,
+      position: 4,
+    }),
+    /position must be between 1 and 3/,
+  );
+  const unchanged = await registry.execute("todo_position_set", {
+    personal_task_id: top.task.personal_task_id,
+    position: 1,
+  });
+  assert.equal(unchanged.changed, false);
+});
+
 test("sequenced groups backfill tasks and assign the next number through native tools", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
