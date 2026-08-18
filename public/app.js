@@ -729,6 +729,64 @@ function selectionTouchesRequests() {
   return elements.list.contains(range.commonAncestorContainer) || range.intersectsNode(elements.list);
 }
 
+async function makeInteractionVideo(requestId, button) {
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "Queueing video…";
+  try {
+    const created = await api(`/api/requests/${requestId}/video`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runLimits: pendingRunLimits }),
+    });
+    if (!created.existing) {
+      pendingRunLimits = null;
+      updateRunLimitsSummary();
+    }
+    await loadRequests({ force: true });
+  } catch (error) {
+    button.textContent = error.message || "Could not queue video";
+    setTimeout(() => { button.textContent = original; button.disabled = false; }, 2500);
+  }
+}
+
+async function downloadInteractionVideo(fileId, button) {
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "Downloading…";
+  try {
+    const response = await fetch(`/api/videos/${fileId}/download`, {
+      cache: "no-store",
+      headers: authHeaders(),
+    });
+    if (response.status === 401) {
+      elements.tokenDialog.showModal();
+      throw new Error("Access token required");
+    }
+    if (!response.ok) {
+      let message = `HTTP ${response.status}`;
+      try { message = (await response.json()).error || message; } catch { /* The status is enough. */ }
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const matched = /filename="([^"]+)"/i.exec(disposition);
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = matched?.[1] || `slayer-video-${fileId}.mp4`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 30_000);
+  } catch (error) {
+    button.textContent = error.message || "Download failed";
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+  } finally {
+    button.textContent = original;
+    button.disabled = false;
+  }
+}
+
 function requestNode(request, index) {
   let node = requestNodes.get(request.requestId);
   if (!node) {
@@ -741,6 +799,13 @@ function requestNode(request, index) {
       copyText(node.querySelector(".agent-response p").textContent, event.currentTarget);
     });
     node.querySelector(".show-trace").addEventListener("click", () => showTrace(request.requestId));
+    node.querySelector(".make-video").addEventListener("click", (event) => {
+      void makeInteractionVideo(request.requestId, event.currentTarget);
+    });
+    node.querySelector(".download-video").addEventListener("click", (event) => {
+      const fileId = Number(event.currentTarget.dataset.fileId);
+      if (Number.isSafeInteger(fileId) && fileId > 0) void downloadInteractionVideo(fileId, event.currentTarget);
+    });
     requestNodes.set(request.requestId, node);
   }
   node.dataset.status = request.status;
@@ -776,6 +841,31 @@ function requestNode(request, index) {
   } else {
     delete progress.dataset.progress;
   }
+  const makeVideo = node.querySelector(".make-video");
+  const downloadVideo = node.querySelector(".download-video");
+  const videoStatus = node.querySelector(".video-status");
+  const video = request.video;
+  makeVideo.hidden = !request.videoEligible || video?.status === "complete";
+  makeVideo.disabled = Boolean(video && ["queued", "processing"].includes(video.status));
+  makeVideo.textContent = video?.status === "error"
+    ? "Retry video"
+    : video?.status === "queued"
+      ? "Video queued"
+      : video?.status === "processing"
+        ? "Making video…"
+        : "Make a video of this interaction";
+  downloadVideo.hidden = video?.status !== "complete" || !video.fileId;
+  if (video?.fileId) downloadVideo.dataset.fileId = String(video.fileId);
+  else delete downloadVideo.dataset.fileId;
+  videoStatus.hidden = !video || video.status === "complete";
+  videoStatus.classList.toggle("error", video?.status === "error");
+  videoStatus.textContent = video?.status === "error"
+    ? (video.error || "Video creation failed. The exact error is in the video request trace.")
+    : video?.status === "queued"
+      ? `Video request ${video.requestId.slice(0, 8)} is queued in FIFO order.`
+      : video?.status === "processing"
+        ? `Video request ${video.requestId.slice(0, 8)} is running and blocks the queue until the MP4 is ready.`
+        : "";
   node.style.order = index;
   return node;
 }

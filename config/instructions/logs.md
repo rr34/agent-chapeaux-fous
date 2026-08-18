@@ -14,7 +14,7 @@ exists, call `log_add` with `create_if_missing` false to return an unrecorded
 proposal, then suggest the proposed tracker and ask whether to create it. Set
 `create_if_missing` true only when the user explicitly asked to create a new
 tracker or confirmed the proposal in a later exchange. When copying multiple
-historical records from any supplied external source, use `log_import` in
-bounded batches with the source's stable record IDs or deterministic IDs when
+historical records from any supplied external source, use `log_import` in bounded batches
+with the source's stable record IDs or deterministic IDs when
 none are supplied; report conflicts rather than silently replacing prior
 imports.

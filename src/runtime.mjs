@@ -36,7 +36,10 @@ export class SlayerRuntime {
     return this.systemPrompt;
   }
 
-  async run({ requestId, requestEventId, text, channel = "web", attachment = null, runLimits = null }) {
+  async run({
+    requestId, requestEventId, text, channel = "web", attachment = null, runLimits = null,
+    model = null, effort = null, supplementalInstructions = "", videoSource = null,
+  }) {
     const availableTools = this.registry.toolDefinitions();
     const priorConversation = typeof this.ledger.currentModelConversation === "function"
       ? this.ledger.currentModelConversation()
@@ -85,12 +88,15 @@ export class SlayerRuntime {
     const developerInstructions = joinedInstructions(
       compilation.instructions,
       context.developerInstructions ?? context.text,
+      supplementalInstructions,
     );
     const maxToolCalls = runLimits === null ? this.config.maxToolCalls : runLimits.maxToolCalls;
     const runTimeoutMs = runLimits?.timeoutMs ?? null;
+    const selectedModel = model || this.config.model;
+    const selectedEffort = effort || this.config.reasoningEffort;
     const turnRequest = {
-      model: this.config.model,
-      effort: this.config.reasoningEffort,
+      model: selectedModel,
+      effort: selectedEffort,
       conversationId: conversation.conversationId,
       baseInstructions,
       developerInstructions,
@@ -177,14 +183,14 @@ export class SlayerRuntime {
             const message = `Invalid JSON tool arguments: ${error.message}`;
             this.ledger.append({
               type: "tool.call", phase: "error", status: "error", actorType: "model",
-              actorName: this.config.model, channel, turnId: requestId, operationId: callId,
+              actorName: selectedModel, channel, turnId: requestId, operationId: callId,
               name, payload: { callId, name, rawArguments: call.arguments }, error: message,
             });
             return { ok: false, error: message };
           }
           this.ledger.append({
             type: "tool.call", phase: "start", status: "processing", actorType: "model",
-            actorName: this.config.model, channel, turnId: requestId, operationId: callId,
+            actorName: selectedModel, channel, turnId: requestId, operationId: callId,
             name, payload: { callId, name, arguments: args },
           });
           if (maxToolCalls !== null && toolCallCount > maxToolCalls) {
@@ -207,7 +213,7 @@ export class SlayerRuntime {
           }
           try {
             const toolResult = await this.registry.execute(name, args, {
-              requestId, requestEventId, callId, channel, attachment,
+              requestId, requestEventId, callId, channel, attachment, videoSource,
             });
             this.ledger.append({
               type: "tool.result", phase: "end", status: "complete", actorType: "tool",
@@ -248,7 +254,7 @@ export class SlayerRuntime {
 
     this.ledger.append({
       type: "model.response", phase: "end", status: "complete", actorType: "model",
-      actorName: this.config.model, channel, turnId: requestId, operationId,
+      actorName: selectedModel, channel, turnId: requestId, operationId,
       name: "Model response",
       payload: {
         transport: this.modelTransport.id,

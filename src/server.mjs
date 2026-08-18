@@ -13,7 +13,7 @@ import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { RequestCompiler } from "./request-compiler.mjs";
-import { receiveTextAttachment } from "./request-attachments.mjs";
+import { receiveTextAttachment, safeMediaPath } from "./request-attachments.mjs";
 import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
@@ -31,6 +31,8 @@ import { ToolRegistry } from "./tools/registry.mjs";
 import { registerProfileFactTools } from "./tools/profile-fact-tools.mjs";
 import { registerTodoTools } from "./tools/todo-tools.mjs";
 import { registerWebPageTools } from "./tools/web-page-tools.mjs";
+import { registerVideoTools } from "./tools/video-tools.mjs";
+import { VideoService } from "./video-service.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
 
 const config = loadConfig();
@@ -42,6 +44,12 @@ const profileFacts = new ProfileFacts({ store, ledger });
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
 const registry = new ToolRegistry();
+const videoService = new VideoService({
+  ledger,
+  mediaRoot: config.mediaRoot,
+  outputRoot: config.videoOutputRoot,
+  browserExecutable: config.remotionBrowserExecutable,
+});
 const webPageClient = new WebPageClient({
   timeoutMs: config.webPageTimeoutMs,
   maximumBytes: config.webPageMaximumBytes,
@@ -70,6 +78,7 @@ if (store.status.ready) {
   registerLogTools(registry, store, ledger, schemaSemantics);
   registerProfileFactTools(registry, profileFacts, schemaSemantics);
   registerDatabaseTools(registry, store, ledger, schemaSemantics);
+  registerVideoTools(registry, videoService);
 }
 await mcp.initialize(registry);
 await jmap.initialize();
@@ -328,6 +337,30 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { requestId: resolved.requestId, events: ledger.trace(resolved.requestId) });
       return;
     }
+    const videoDownloadMatch = /^\/api\/videos\/(\d+)\/download$/.exec(url.pathname);
+    if (request.method === "GET" && videoDownloadMatch) {
+      const file = ledger.file(Number(videoDownloadMatch[1]));
+      if (!file || file.media_kind !== "video") {
+        sendJson(response, 404, { error: "Video was not found" });
+        return;
+      }
+      const filename = safeMediaPath(config.mediaRoot, file.storage_path);
+      const stat = await fsp.stat(filename).catch(() => null);
+      if (!stat?.isFile()) {
+        sendJson(response, 404, { error: "The stored video file is missing" });
+        return;
+      }
+      const downloadName = String(file.original_filename || `slayer-video-${file.file_id}.mp4`)
+        .replace(/[^A-Za-z0-9._-]+/g, "-");
+      response.writeHead(200, {
+        "Content-Type": "video/mp4",
+        "Content-Length": stat.size,
+        "Content-Disposition": `attachment; filename="${downloadName}"`,
+        "Cache-Control": "private, no-store",
+      });
+      fs.createReadStream(filename).pipe(response);
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/contacts") {
       sendJson(response, 200, {
         contacts: organizer.listContacts({
@@ -579,6 +612,44 @@ const server = http.createServer(async (request, response) => {
       const created = ledger.createRequest({ text, channel: "web", primaryFileId, runLimits });
       queue.notify();
       sendJson(response, 202, created);
+      return;
+    }
+    const interactionVideoMatch = /^\/api\/requests\/([0-9a-f][0-9a-f-]{7,35})\/video$/.exec(url.pathname);
+    if (request.method === "POST" && interactionVideoMatch) {
+      const resolved = ledger.resolveRequestId(interactionVideoMatch[1]);
+      if (resolved.status === "missing") {
+        sendJson(response, 404, { error: `No request matches ${interactionVideoMatch[1]}` });
+        return;
+      }
+      if (resolved.status === "ambiguous") {
+        sendJson(response, 409, { error: `More than one request matches ${interactionVideoMatch[1]}` });
+        return;
+      }
+      if (resolved.status === "invalid") {
+        sendJson(response, 400, { error: "Request ID must be an 8-36 character hexadecimal UUID or prefix" });
+        return;
+      }
+      ledger.interactionVideoSource(resolved.requestId);
+      const existing = ledger.videoForSourceRequest(resolved.requestId);
+      if (existing && existing.status !== "error") {
+        sendJson(response, 200, { existing: true, ...existing });
+        return;
+      }
+      const body = await readJson(request);
+      const runLimits = normalizeRunLimits(body.runLimits) ?? { maxToolCalls: 256, timeoutMs: 60 * 60 * 1000 };
+      const created = ledger.createRequest({
+        text: `Create the finished vertical MP4 for source interaction ${resolved.requestId}. Normalize its Whisper transcript for captions, select one coherent audio section, accurately show the real agent activity and response, render it, and return the download link.`,
+        channel: "web",
+        runLimits,
+        metadata: {
+          requestKind: "interaction_video",
+          sourceRequestId: resolved.requestId,
+          model: config.videoModel,
+          effort: config.videoReasoningEffort,
+        },
+      });
+      queue.notify();
+      sendJson(response, 202, { ...created, sourceRequestId: resolved.requestId });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/voice") {

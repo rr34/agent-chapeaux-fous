@@ -73,6 +73,51 @@ export class RequestQueue {
           primaryFileId: request.primaryFileId,
         });
       }
+      let videoSource = null;
+      let supplementalInstructions = "";
+      if (request.payload?.requestKind === "interaction_video") {
+        videoSource = this.ledger.interactionVideoSource(request.payload.sourceRequestId);
+        const operationId = `video-source-transcription:${request.turnId}`;
+        this.ledger.append({
+          type: "video.source.transcription.start", phase: "start", status: "processing", actorType: "service",
+          actorName: "faster-whisper", channel: request.channel, turnId: request.turnId,
+          operationId, name: "Video source word timing", primaryFileId: videoSource.audioFile.file_id,
+          subjectType: "source_request", subjectId: videoSource.requestId,
+        });
+        const audioPath = safeMediaPath(this.mediaRoot, videoSource.audioFile.storage_path);
+        const transcription = await this.transcriber.transcribe(audioPath, { wordTimestamps: true });
+        if (!transcription.text?.trim() || !transcription.words?.length) {
+          throw new Error("Video source transcription returned no timed words");
+        }
+        videoSource = { ...videoSource, audioPath, transcription };
+        this.ledger.append({
+          type: "video.source.transcription.complete", phase: "end", status: "complete", actorType: "service",
+          actorName: "faster-whisper", channel: request.channel, turnId: request.turnId,
+          operationId, name: "Video source word timing", content: transcription.text,
+          payload: transcription, primaryFileId: videoSource.audioFile.file_id,
+          subjectType: "source_request", subjectId: videoSource.requestId,
+        });
+        const activity = videoSource.events
+          .filter((event) => ["transcription.complete", "context.sent", "model.request", "tool.call", "tool.result", "model.response", "assistant.response", "request.error"].includes(event.type))
+          .map((event) => ({
+            atMs: Math.max(0, event.occurredAtMs - videoSource.submittedAtMs),
+            type: event.type,
+            name: event.name,
+            status: event.status,
+            error: event.error,
+          }));
+        supplementalInstructions = [
+          "# Exact source interaction for this video",
+          `Source request ID: ${videoSource.requestId}`,
+          `Raw Whisper transcript: ${videoSource.rawTranscript}`,
+          `Fresh timed transcript: ${transcription.text}`,
+          `Actual assistant response or error: ${videoSource.response}`,
+          `Source ended with error: ${videoSource.error || "no"}`,
+          `Recording duration: ${transcription.durationMs} ms`,
+          `Word timings (absolute source milliseconds):\n${JSON.stringify(transcription.words)}`,
+          `Exact activity sequence:\n${JSON.stringify(activity)}`,
+        ].join("\n\n");
+      }
       const response = await this.runtime.run({
         requestId: request.turnId,
         requestEventId: request.eventId,
@@ -80,7 +125,19 @@ export class RequestQueue {
         channel: request.channel,
         attachment,
         runLimits: request.payload?.runLimits ?? null,
+        model: request.payload?.model ?? null,
+        effort: request.payload?.effort ?? null,
+        supplementalInstructions,
+        videoSource,
       });
+      if (request.payload?.requestKind === "interaction_video") {
+        const videoEvents = this.ledger.trace(request.turnId);
+        const rendered = videoEvents.some((event) => event.type === "video.render.completed");
+        if (!rendered) {
+          const renderError = [...videoEvents].reverse().find((event) => event.type === "video.render.error");
+          throw new Error(renderError?.error || "The video request finished without producing an MP4");
+        }
+      }
       this.ledger.finish(request, response);
     } catch (error) {
       this.ledger.fail(request, error);

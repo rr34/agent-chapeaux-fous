@@ -45,7 +45,7 @@ export class WhisperTranscriber {
     this.pending.clear();
   }
 
-  transcribe(inputPath) {
+  transcribe(inputPath, { wordTimestamps = false } = {}) {
     this.ensureProcess();
     const id = randomUUID();
     return new Promise((resolve, reject) => {
@@ -54,7 +54,7 @@ export class WhisperTranscriber {
         reject(new Error(`Whisper transcription exceeded ${this.timeoutMs} ms`));
       }, this.timeoutMs);
       this.pending.set(id, { resolve, reject, timeout });
-      this.process.stdin.write(`${JSON.stringify({ id, inputPath })}\n`, (error) => {
+      this.process.stdin.write(`${JSON.stringify({ id, inputPath, wordTimestamps })}\n`, (error) => {
         if (!error) return;
         clearTimeout(timeout);
         this.pending.delete(id);

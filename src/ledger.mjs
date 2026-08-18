@@ -100,9 +100,11 @@ export function requestProgress(events, startedAtMs) {
   const last = events.at(-1);
   const tool = activeOperation(events, "tool.call", ["tool.result"]);
   const transcription = activeOperation(events, "transcription.start", ["transcription.complete", "request.error"]);
+  const videoTranscription = activeOperation(events, "video.source.transcription.start", ["video.source.transcription.complete", "request.error"]);
   const model = activeOperation(events, "model.request", ["model.response", "request.error"]);
   let label = "Queued";
   if (tool) label = `Running ${tool.name || tool.actorName || "tool"}`;
+  else if (videoTranscription) label = "Timing video captions";
   else if (transcription) label = "Transcribing";
   else if (model) label = "Waiting for model";
   else if (last?.type === "tools.sent" || last?.type === "context.sent") label = "Building model request";
@@ -145,7 +147,7 @@ export class Ledger {
     return eventId;
   }
 
-  createRequest({ text = null, channel = "web", primaryFileId = null, runLimits = null }) {
+  createRequest({ text = null, channel = "web", primaryFileId = null, runLimits = null, metadata = {} }) {
     const requestId = randomUUID();
     const eventId = this.append({
       type: "request.received",
@@ -157,7 +159,7 @@ export class Ledger {
       turnId: requestId,
       name: "User request",
       content: text,
-      payload: runLimits === null ? {} : { runLimits },
+      payload: { ...metadata, ...(runLimits === null ? {} : { runLimits }) },
       primaryFileId,
     });
     return { requestId, eventId };
@@ -228,13 +230,21 @@ export class Ledger {
     return { status: "resolved", requestId: rows[0].turn_id };
   }
 
-  #requestDetails(request) {
+  #requestDetails(request, { includeVideo = true } = {}) {
     const events = this.trace(request.turnId);
     const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
     const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
     const usage = [...events].reverse().find((event) => event.type === "model.usage");
     const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
+    const requestKind = request.payload?.requestKind ?? null;
+    const sourceFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
+    const videoEligible = requestKind !== "interaction_video"
+      && Boolean(terminal)
+      && sourceFile?.media_kind === "audio";
+    const video = includeVideo && requestKind !== "interaction_video"
+      ? this.videoForSourceRequest(request.turnId)
+      : null;
     return {
       requestId: request.turnId,
       channel: requestChannel(request),
@@ -246,6 +256,9 @@ export class Ledger {
       error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
       usage: usage?.payload || null,
       eventCount: events.length,
+      ...(requestKind ? { requestKind } : {}),
+      ...(videoEligible ? { videoEligible: true } : {}),
+      ...(video ? { video } : {}),
       ...(events.some((event) => event.type === "conversation.started")
         ? { conversationStarted: true }
         : {}),
@@ -355,6 +368,59 @@ export class Ledger {
       ORDER BY event_seq DESC LIMIT ?
     `).all(...receivedEventTypes, bounded).map(publicEvent);
     return received.map((request) => this.#requestDetails(request));
+  }
+
+  interactionVideoSource(requestId) {
+    const requestRow = this.store.requireReady().prepare(`
+      SELECT * FROM activity_events
+      WHERE turn_id = ? AND event_type IN (${placeholders(receivedEventTypes)})
+      ORDER BY event_seq LIMIT 1
+    `).get(requestId, ...receivedEventTypes);
+    const request = publicEvent(requestRow);
+    if (!request) throw Object.assign(new Error("Source interaction was not found"), { statusCode: 404 });
+    const events = this.trace(requestId);
+    const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
+    if (!terminal) throw Object.assign(new Error("Wait for the source interaction to finish before making its video"), { statusCode: 409 });
+    const audioFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
+    if (!audioFile || audioFile.media_kind !== "audio") {
+      throw Object.assign(new Error("A video requires a voice interaction with saved source audio"), { statusCode: 409 });
+    }
+    const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
+    const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
+    return {
+      requestId,
+      requestEventId: request.eventId,
+      submittedAtMs: request.occurredAtMs,
+      rawTranscript: transcript?.content || request.content || "",
+      response: response?.content || terminal.content || terminal.error || "",
+      error: terminal.status === "error" ? (terminal.error || terminal.content || null) : null,
+      audioFile,
+      events,
+    };
+  }
+
+  videoForSourceRequest(sourceRequestId) {
+    const rows = this.store.requireReady().prepare(`
+      SELECT * FROM activity_events
+      WHERE event_type = 'request.received'
+      ORDER BY event_seq DESC
+      LIMIT 1000
+    `).all().map(publicEvent);
+    const videoRequest = rows.find((event) => (
+      event.payload?.requestKind === "interaction_video"
+      && event.payload?.sourceRequestId === sourceRequestId
+    ));
+    if (!videoRequest) return null;
+    const details = this.#requestDetails(videoRequest, { includeVideo: false });
+    const rendered = [...this.trace(videoRequest.turnId)].reverse().find((event) => event.type === "video.render.completed");
+    const fileId = rendered?.primaryFileId ?? rendered?.payload?.fileId ?? null;
+    return {
+      requestId: videoRequest.turnId,
+      status: details.status === "complete" && !fileId ? "error" : details.status,
+      fileId,
+      downloadUrl: fileId == null ? null : `/api/videos/${fileId}/download`,
+      error: details.error || (details.status === "complete" && !fileId ? "Video request completed without producing an MP4" : null),
+    };
   }
 
   conversationRange({
@@ -563,14 +629,19 @@ export class Ledger {
     });
   }
 
-  registerFile({ storagePath, originalFilename, mimeType, sha256, byteSize, mediaKind = "audio" }) {
+  registerFile({
+    storagePath, originalFilename, mimeType, sha256, byteSize, mediaKind = "audio",
+    durationMs = null, width = null, height = null,
+  }) {
     const database = this.store.requireReady();
     const existing = database.prepare("SELECT * FROM files WHERE sha256 = ? AND byte_size = ? ORDER BY file_id LIMIT 1").get(sha256, byteSize);
     if (existing) return { fileId: Number(existing.file_id), duplicate: true, storagePath: existing.storage_path };
     const result = database.prepare(`
-      INSERT INTO files (storage_path, original_filename, media_kind, mime_type, sha256, byte_size)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(storagePath, originalFilename, mediaKind, mimeType, sha256, byteSize);
+      INSERT INTO files (
+        storage_path, original_filename, media_kind, mime_type, sha256, byte_size,
+        duration_ms, width, height
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(storagePath, originalFilename, mediaKind, mimeType, sha256, byteSize, durationMs, width, height);
     return { fileId: Number(result.lastInsertRowid), duplicate: false, storagePath };
   }
 

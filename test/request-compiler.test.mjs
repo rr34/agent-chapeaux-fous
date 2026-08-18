@@ -59,6 +59,17 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("tracker_update")), "logs");
   assert.equal(capabilityForTool(tool("email_send")), "email");
   assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
+  assert.equal(capabilityForTool(tool("video_render_interaction")), "video");
+});
+
+test("an explicit interaction-video request selects the contained renderer", () => {
+  const selection = selectRequestCapabilities({
+    tools: [...tools, tool("video_render_interaction")],
+    text: "Create the finished vertical video for this interaction.",
+  });
+  assert.equal(names(selection).includes("video_render_interaction"), true);
+  assert.equal(selection.capabilities.includes("video"), true);
+  assert.equal(selection.fallbackAll, false);
 });
 
 test("every currently registered local tool belongs to an explicit capability", () => {

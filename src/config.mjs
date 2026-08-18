@@ -98,5 +98,9 @@ export function loadConfig(environment = process.env) {
     pythonExecutable: resolveFromRoot(environment.SLAYER_PYTHON, "voice/.venv/bin/python"),
     whisperWorkerPath: path.join(repositoryRoot, "voice/whisper_worker.py"),
     whisperTimeoutMs: positiveInteger(environment.SLAYER_WHISPER_TIMEOUT_MS, 10 * 60 * 1000),
+    videoOutputRoot: resolveFromRoot(environment.SLAYER_VIDEO_OUTPUT_ROOT, "media/videos"),
+    videoModel: environment.SLAYER_VIDEO_MODEL?.trim() || "gpt-5.6-sol",
+    videoReasoningEffort: environment.SLAYER_VIDEO_REASONING_EFFORT?.trim() || "high",
+    remotionBrowserExecutable: environment.REMOTION_BROWSER_EXECUTABLE?.trim() || null,
   };
 }

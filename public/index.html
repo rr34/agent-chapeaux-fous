@@ -635,7 +635,12 @@
             <span class="progress-detail"></span>
           </div>
         </div>
-        <button class="show-trace secondary compact" type="button">Show exact trace</button>
+        <div class="request-actions">
+          <button class="make-video secondary compact" type="button" hidden>Make a video of this interaction</button>
+          <button class="download-video compact" type="button" hidden>Download video</button>
+          <button class="show-trace secondary compact" type="button">Show exact trace</button>
+        </div>
+        <p class="video-status" hidden></p>
       </div>
     </article>
   </template>

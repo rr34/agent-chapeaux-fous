@@ -463,3 +463,37 @@ test("a request can override the normal tool budget and pass a model-turn deadli
     { maxToolCalls: null, timeoutMs: 90_000 },
   );
 });
+
+test("a video request can select a one-turn model and reasoning override", async () => {
+  let received;
+  const events = [];
+  const runtime = new SlayerRuntime({
+    modelTransport: fakeTransport(async (payload) => {
+      received = { model: payload.model, effort: payload.effort, instructions: payload.developerInstructions };
+      return completedTurn({ text: "Rendered." });
+    }),
+    registry: new ToolRegistry(),
+    contextBuilder: {
+      async build() {
+        return { text: "bounded", profileFacts: [], history: [], contextBudget: { truncated: false } };
+      },
+    },
+    ledger: { append(event) { events.push(event); } },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+  await runtime.run({
+    requestId: "video-request",
+    requestEventId: "video-event",
+    text: "Make the video.",
+    model: "gpt-5.6-sol",
+    effort: "high",
+    supplementalInstructions: "EXACT SOURCE",
+  });
+  assert.deepEqual(received, {
+    model: "gpt-5.6-sol",
+    effort: "high",
+    instructions: "bounded\n\nEXACT SOURCE",
+  });
+  assert.equal(events.find(({ type }) => type === "model.response").actorName, "gpt-5.6-sol");
+});

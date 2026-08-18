@@ -11,6 +11,7 @@ const localCapabilityMatchers = [
   ["database", (tool) => ["database_schema", "database_read", "database_write"].includes(tool.name)],
   ["history", (tool) => tool.name.startsWith("history_")],
   ["email", (tool) => tool.name.startsWith("email_")],
+  ["video", (tool) => tool.name.startsWith("video_")],
 ];
 
 const instructionFiles = new Map([
@@ -23,6 +24,7 @@ const instructionFiles = new Map([
   ["database", "database.md"],
   ["history", "history.md"],
   ["email", "email.md"],
+  ["video", "video.md"],
 ]);
 
 const capabilityPatterns = new Map([
@@ -35,6 +37,7 @@ const capabilityPatterns = new Map([
   ["database", /\b(?:database|sqlite|schema|table|stored row|content item|content group|video job|correspondence)\b/iu],
   ["history", /\b(?:what did we|what have we|talked about|discussed|previous conversation|prior conversation|conversation history|earlier today|last time|yesterday we|recent exchange)\b/iu],
   ["email", /\b(?:e-?mail|inbox|mailbox|sender|subject line|email thread|draft|compose|send (?:it|this|that|an?|the|a message)|message .{0,40}(?:to|on)|reply to|forward (?:it|this|that|the)|spam|trash folder|invite .{0,40}(?:to|for))\b/iu],
+  ["video", /\b(?:make|create|render|generate|produce).{0,40}\bvideo\b|\bvideo.{0,40}(?:interaction|request|response|render)\b/iu],
 ]);
 
 const followupPattern = /^(?:\s)*(?:yes|yeah|yep|okay|ok|sure|correct|right|sounds good|go ahead|do it|proceed|continue|make it so|that one|those|please do)(?:\b|[.!,:])/iu;

@@ -29,10 +29,21 @@ def main():
                 beam_size=5,
                 vad_filter=True,
                 condition_on_previous_text=True,
+                word_timestamps=bool(request.get("wordTimestamps", False)),
             )
             collected = list(segments)
             text = " ".join(segment.text.strip() for segment in collected if segment.text.strip()).strip()
             duration_ms = round(max((segment.end for segment in collected), default=0) * 1000)
+            words = []
+            if request.get("wordTimestamps", False):
+                for segment in collected:
+                    for word in segment.words or []:
+                        words.append({
+                            "word": word.word.strip(),
+                            "startMs": round(word.start * 1000),
+                            "endMs": round(word.end * 1000),
+                            "probability": word.probability,
+                        })
             emit({
                 "id": request_id,
                 "ok": True,
@@ -41,6 +52,7 @@ def main():
                 "languageProbability": info.language_probability,
                 "durationMs": duration_ms,
                 "model": model_name,
+                "words": words,
             })
         except Exception as error:  # The Node service records this failure in the ledger.
             emit({

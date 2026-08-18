@@ -525,6 +525,12 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .agent-response { margin: 0 0 .7rem; padding: .8rem; background: #1a1f23; border-left: 3px solid var(--accent); border-radius: 4px 9px 9px 4px; }
 .agent-response p { margin-bottom: .7rem; line-height: 1.5; white-space: pre-wrap; user-select: text; }
 .request-error { white-space: pre-wrap; }
+.request-actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+.make-video { margin-right: auto; }
+.download-video { margin-right: auto; background: var(--good); color: #07130d; }
+.download-video:hover { background: #6cdaa0; }
+.video-status { margin: .65rem 0 0; color: var(--muted); font-size: .78rem; white-space: pre-wrap; }
+.video-status.error { color: var(--bad); }
 .request-progress {
   align-items: center;
   gap: 11px;
