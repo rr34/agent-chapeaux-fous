@@ -75,6 +75,22 @@ test("structured database reads return an exact schema-semantic projection", asy
   assert.match(logFields.content_text.meaning, /Complete self-contained natural-language content/);
   assert.match(logFields.number_value.meaning, /Optional numeric projection/);
   assert.match(logFields.external_id.meaning, /make imports idempotent/);
+
+  await assert.rejects(
+    registry.execute("database_read", {
+      objectName: "contacts",
+      columns: ["display_name"],
+      where: { status: "active" },
+      orderBy: "display_name",
+      orderDirection: "asc",
+      limit: 10_000,
+    }, {
+      requestId: request.requestId,
+      requestEventId: request.eventId,
+      callId: "invalid-database-limit",
+    }),
+    /limit must be an integer from 1 to 200/,
+  );
 });
 
 test("native database-backed tools return stored field names with semantic projections", async (context) => {
@@ -111,6 +127,7 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.contact_file_import, "csv_mapping"), true);
   assert.equal(Object.hasOwn(definitions.contact_tag_rename, "current_tag"), true);
   assert.equal(Object.hasOwn(definitions.contact_tag_rename, "new_tag"), true);
+  assert.equal(Object.hasOwn(definitions.contact_search, "queries"), true);
   assert.equal(Object.hasOwn(definitions.contact_lookup_batch, "names"), true);
   assert.equal(Object.hasOwn(definitions.contact_tag_add_batch, "contact_ids"), true);
   assert.equal(Object.hasOwn(definitions.contact_duplicate_list, "limit"), true);

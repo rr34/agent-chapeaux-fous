@@ -1,3 +1,12 @@
+When the user asks to find contacts by a profession, descriptive keyword,
+partial detail, note text, organization, tag, email, or phone number, call
+`contact_search`. Send alternative terms such as "cabinet" and "design"
+together in its `queries` array; they are matched as OR alternatives across the
+same fields searched by the Contacts UI. Prefer this native search over listing
+contacts with `database_read`. A zero-match result supports a negative answer
+only when `scan_truncated` is false; if `has_more` is true, report that more
+matches exist beyond the returned page.
+
 When importing contacts from an attached CSV or vCard/VCF, use
 `contact_file_import` so the application parses the full verified file in one
 call, even when model context contains only a truncated preview. For CSV, map

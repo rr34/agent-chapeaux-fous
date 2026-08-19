@@ -32,6 +32,7 @@ function tool(name, source = "local") {
 const tools = [
   tool("calendar_event_list"),
   tool("contact_file_import"),
+  tool("contact_search"),
   tool("contact_lookup_batch"),
   tool("todo_list"),
   tool("log_add"),
@@ -114,6 +115,19 @@ test("an email request receives email and durable-profile tools, not unrelated d
   assert.equal(selection.fallbackAll, false);
 });
 
+test("a plural contacts request selects focused contact tools without falling back", () => {
+  const selection = selectRequestCapabilities({
+    tools,
+    text: "Can you find cabinet or design people in my contacts?",
+  });
+  assert.deepEqual(names(selection), [
+    "contact_file_import", "contact_search", "contact_lookup_batch",
+    "profile_fact_list", "profile_fact_set",
+  ]);
+  assert.deepEqual(selection.capabilities, ["contacts", "profile"]);
+  assert.equal(selection.fallbackAll, false);
+});
+
 test("an explicit URL receives the page reader without unrelated application tools", () => {
   const selection = selectRequestCapabilities({ tools, text: "Read https://example.com/report for me." });
   assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "web_page_read"]);
@@ -126,7 +140,10 @@ test("attachment structure routes known imports and conservatively falls back wh
     text: "Import this file.",
     attachment: { filename: "people.csv", mimeType: "text/csv", text: "display_name,email\nAlice,a@example.test" },
   });
-  assert.deepEqual(names(contacts), ["contact_file_import", "contact_lookup_batch", "profile_fact_list", "profile_fact_set"]);
+  assert.deepEqual(names(contacts), [
+    "contact_file_import", "contact_search", "contact_lookup_batch",
+    "profile_fact_list", "profile_fact_set",
+  ]);
 
   const unknown = selectRequestCapabilities({
     tools,

@@ -442,6 +442,13 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .editor-dialog label { display: grid; gap: .4rem; color: var(--muted); font-size: .78rem; font-weight: 400; }
 .editor-dialog textarea { min-height: 6rem; }
 .editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.event-date-time-field { display: grid; gap: .4rem; min-width: 0; color: var(--muted); font-size: .78rem; }
+.event-date-time-inputs { display: grid; grid-template-columns: minmax(8rem, 1fr) 5.8rem; gap: .45rem; }
+.event-date-time-inputs input { min-width: 0; }
+.event-time-input { font-variant-numeric: tabular-nums; }
+.event-time-input[hidden] { display: none; }
+.event-date-time-inputs:has(.event-time-input[hidden]) { grid-template-columns: 1fr; }
+.event-duration { min-height: 1.2em; margin: -.35rem 0 0; color: var(--muted); font-size: .78rem; }
 .todo-group-editor, .todo-scheduled-editor, .content-group-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .5rem; }
 #todo-contact { width: 100%; }
 .content-dialog { width: min(760px, calc(100% - 1.5rem)); }

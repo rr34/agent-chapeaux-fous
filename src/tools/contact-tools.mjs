@@ -536,6 +536,56 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
   });
 
   registry.register({
+    name: "contact_search",
+    description: "Search contacts with the same case-insensitive substring behavior as the Contacts UI. Use this for descriptive keywords or partial details rather than exact known display names. The supplied queries are OR alternatives searched across display, given, and family names, organization, notes, tags, contact-method labels, email addresses, phone numbers, and other method values. Results include the matching contacts and completeness metadata; do not claim no contacts match when scan_truncated is true.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        queries: {
+          type: "array", minItems: 1, maxItems: 20, uniqueItems: true,
+          items: { type: "string", minLength: 1, maxLength: 200 },
+        },
+        include_inactive: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      required: ["queries", "include_inactive", "limit"],
+    },
+    async execute({ queries, include_inactive: includeInactive, limit }, context) {
+      const search = organizer.searchContacts({ queries, includeInactive, limit });
+      return contactResult(schemaSemantics, context, {
+        queries: search.queries,
+        scanned_contact_count: search.scannedContactCount,
+        scan_truncated: search.scanTruncated,
+        total_contact_count: search.totalContactCount,
+        total_match_count: search.totalMatchCount,
+        returned_match_count: search.matches.length,
+        has_more: search.hasMore,
+        matches: search.matches.map(({ contact, matchedQueries }) => ({
+          matched_queries: matchedQueries,
+          contact_id: contact.id,
+          expected_version: contact.version,
+          display_name: contact.displayName,
+          given_name: contact.givenName,
+          family_name: contact.familyName,
+          organization_name: contact.organizationName,
+          contact_kind: contact.kind,
+          status: contact.status,
+          birth_date: contact.birthDate,
+          notes: contact.notes,
+          source: contact.source,
+          external_id: contact.externalId,
+          methods: contact.methods,
+          tags: contact.tags,
+        })),
+      }, {
+        name: "contact_search",
+        purpose: "Return contacts matching UI-equivalent substring searches across identity, notes, tags, and contact methods.",
+      });
+    },
+  });
+
+  registry.register({
     name: "contact_lookup_batch",
     description: "Look up 1 through 500 contact display names in one call using exact normalized-name matching across up to 10,000 stored contacts. Use this instead of repeated database reads when resolving a large user-supplied list. Each result reports all bounded matches with current IDs, versions, methods, tags, source, and status so a later bulk action can be precise.",
     parameters: {

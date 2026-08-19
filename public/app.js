@@ -1,3 +1,11 @@
+import {
+  combineLocalDateTime,
+  durationMinutes,
+  formatDurationMinutes,
+  shiftLocalDateTime,
+  splitLocalDateTime,
+} from "./event-date-time.js";
+
 const elements = {
   form: document.querySelector("#request-form"),
   text: document.querySelector("#request-text"),
@@ -74,7 +82,10 @@ const elements = {
   eventTitle: document.querySelector("#event-title"),
   eventAllDay: document.querySelector("#event-all-day"),
   eventStart: document.querySelector("#event-start"),
+  eventStartTime: document.querySelector("#event-start-time"),
   eventEnd: document.querySelector("#event-end"),
+  eventEndTime: document.querySelector("#event-end-time"),
+  eventDuration: document.querySelector("#event-duration"),
   eventLocation: document.querySelector("#event-location"),
   eventDescription: document.querySelector("#event-description"),
   eventStatus: document.querySelector("#event-status"),
@@ -231,6 +242,7 @@ let calendarSearchSequence = 0;
 let activeTodos = [];
 let calendarSchedulingTodo = null;
 let calendarSchedulingBusy = false;
+let eventEndIsAutomatic = false;
 let eventInviteEventId = null;
 let eventInviteContacts = [];
 let eventInviteSelectedContactIds = new Set();
@@ -1378,20 +1390,75 @@ function renderAgenda() {
   }
 }
 
-function setEventInputTypes(allDay) {
-  const oldStart = elements.eventStart.value;
-  const oldEnd = elements.eventEnd.value;
-  elements.eventStart.type = allDay ? "date" : "datetime-local";
-  elements.eventEnd.type = allDay ? "date" : "datetime-local";
-  elements.eventStart.step = allDay ? "1" : "60";
-  elements.eventEnd.step = allDay ? "1" : "60";
-  if (allDay) {
-    elements.eventStart.value = oldStart.slice(0, 10);
-    elements.eventEnd.value = oldEnd.slice(0, 10);
-  } else {
-    elements.eventStart.value = oldStart ? `${oldStart.slice(0, 10)}T09:00` : "";
-    elements.eventEnd.value = oldEnd ? `${oldEnd.slice(0, 10)}T10:00` : "";
+function eventDateTimeValue(prefix) {
+  const dateInput = prefix === "start" ? elements.eventStart : elements.eventEnd;
+  if (elements.eventAllDay.checked) return dateInput.value;
+  const timeInput = prefix === "start" ? elements.eventStartTime : elements.eventEndTime;
+  return combineLocalDateTime(dateInput.value, timeInput.value);
+}
+
+function setEventDateTime(prefix, value) {
+  const dateInput = prefix === "start" ? elements.eventStart : elements.eventEnd;
+  const timeInput = prefix === "start" ? elements.eventStartTime : elements.eventEndTime;
+  const parts = splitLocalDateTime(value);
+  dateInput.value = parts.date;
+  timeInput.value = parts.time;
+}
+
+function updateEventDuration() {
+  elements.eventEnd.setCustomValidity("");
+  elements.eventEndTime.setCustomValidity("");
+  if (elements.eventAllDay.checked) {
+    elements.eventDuration.textContent = "Duration: All-day event";
+    return;
   }
+  const start = eventDateTimeValue("start");
+  const end = eventDateTimeValue("end");
+  const hasEndPart = Boolean(elements.eventEnd.value || elements.eventEndTime.value);
+  if (!start) {
+    elements.eventDuration.textContent = "Enter a start date and 24-hour time (HH:MM).";
+    return;
+  }
+  if (!end) {
+    if (hasEndPart) {
+      const message = "Enter both an end date and a 24-hour time (HH:MM).";
+      (elements.eventEnd.value ? elements.eventEndTime : elements.eventEnd).setCustomValidity(message);
+      elements.eventDuration.textContent = message;
+    } else {
+      elements.eventDuration.textContent = "Duration: No end time";
+    }
+    return;
+  }
+  const minutes = durationMinutes(start, end);
+  if (minutes <= 0) {
+    const message = "End must be after start.";
+    elements.eventEnd.setCustomValidity(message);
+    elements.eventDuration.textContent = message;
+    return;
+  }
+  elements.eventDuration.textContent = `Duration: ${formatDurationMinutes(minutes)}`;
+}
+
+function setEventInputTypes(allDay) {
+  for (const input of [elements.eventStartTime, elements.eventEndTime]) {
+    input.hidden = allDay;
+    input.disabled = allDay;
+  }
+  if (!allDay) {
+    if (!elements.eventStartTime.value) elements.eventStartTime.value = "09:00";
+    if (!elements.eventEndTime.value) elements.eventEndTime.value = "10:00";
+  }
+  updateEventDuration();
+}
+
+function defaultEventEndFromStart() {
+  const start = combineLocalDateTime(elements.eventStart.value, elements.eventStartTime.value);
+  if (!start || (!eventEndIsAutomatic && eventDateTimeValue("end"))) return;
+  const suggestedEnd = shiftLocalDateTime(elements.eventStart.value, elements.eventStartTime.value, 60);
+  if (!suggestedEnd) return;
+  elements.eventEnd.value = suggestedEnd.date;
+  elements.eventEndTime.value = suggestedEnd.time;
+  eventEndIsAutomatic = true;
 }
 
 function setTodoScheduledInputType(allDay) {
@@ -1412,19 +1479,24 @@ function openEventEditor(calendarEvent = null) {
   elements.eventAllDay.checked = Boolean(calendarEvent?.isAllDay);
   setEventInputTypes(Boolean(calendarEvent?.isAllDay));
   if (calendarEvent) {
-    elements.eventStart.value = calendarEvent.isAllDay ? localDateKey(calendarEvent.startsAtUtc) : localDateTimeInput(calendarEvent.startsAtUtc);
-    elements.eventEnd.value = calendarEvent.endsAtUtc
-      ? (calendarEvent.isAllDay ? localDateKey(calendarEvent.endsAtUtc) : localDateTimeInput(calendarEvent.endsAtUtc))
-      : "";
+    setEventDateTime("start", calendarEvent.startsAtUtc);
+    setEventDateTime("end", calendarEvent.endsAtUtc);
+    if (calendarEvent.isAllDay) {
+      elements.eventStartTime.value = "";
+      elements.eventEndTime.value = "";
+    }
+    eventEndIsAutomatic = !calendarEvent.endsAtUtc;
     elements.eventLocation.value = calendarEvent.location ?? "";
     elements.eventDescription.value = calendarEvent.description ?? "";
     elements.eventStatus.value = calendarEvent.status;
   } else {
     const start = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), selectedCalendarDate.getDate(), 9);
-    elements.eventStart.value = localDateTimeInput(start);
-    elements.eventEnd.value = localDateTimeInput(new Date(start.getTime() + 3_600_000));
+    setEventDateTime("start", start);
+    setEventDateTime("end", new Date(start.getTime() + 3_600_000));
+    eventEndIsAutomatic = true;
     elements.eventStatus.value = "active";
   }
+  updateEventDuration();
   loadEventRecurrenceEditor(calendarEvent?.recurrenceRule ?? null);
   updateEventInviteDraftAvailability();
   elements.eventDialog.showModal();
@@ -1554,8 +1626,8 @@ async function saveEvent(event) {
       title: elements.eventTitle.value,
       description: elements.eventDescription.value,
       location: elements.eventLocation.value,
-      startsAtUtc: inputToIso(elements.eventStart.value, allDay),
-      endsAtUtc: inputToIso(elements.eventEnd.value, allDay),
+      startsAtUtc: inputToIso(eventDateTimeValue("start"), allDay),
+      endsAtUtc: inputToIso(eventDateTimeValue("end"), allDay),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       isAllDay: allDay,
       status: elements.eventStatus.value,
@@ -3375,7 +3447,19 @@ for (const control of [
   control.addEventListener("change", updateEventRecurrenceEditor);
   if (control.matches('input[type="number"]')) control.addEventListener("input", updateEventRecurrenceEditor);
 }
-elements.eventStart.addEventListener("change", updateEventRecurrenceEditor);
+for (const input of [elements.eventStart, elements.eventStartTime]) {
+  input.addEventListener("input", () => {
+    defaultEventEndFromStart();
+    updateEventDuration();
+    updateEventRecurrenceEditor();
+  });
+}
+for (const input of [elements.eventEnd, elements.eventEndTime]) {
+  input.addEventListener("input", () => {
+    eventEndIsAutomatic = false;
+    updateEventDuration();
+  });
+}
 elements.newTodo.addEventListener("click", async () => {
   if (todoGroups.length === 0) await refreshTodos();
   openTodoEditor();

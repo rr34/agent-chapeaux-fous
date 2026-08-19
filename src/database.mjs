@@ -193,7 +193,10 @@ export class SlayerDatabase {
       this.validateColumns([orderBy], object.columns);
       ordering = ` ORDER BY ${identifier(orderBy, "column")} ${orderDirection === "desc" ? "DESC" : "ASC"}`;
     }
-    const boundedLimit = Math.min(200, Math.max(1, Number(limit) || 50));
+    const boundedLimit = Number(limit);
+    if (!Number.isInteger(boundedLimit) || boundedLimit < 1 || boundedLimit > 200) {
+      throw new Error("limit must be an integer from 1 to 200");
+    }
     const sql = `SELECT ${selected.map((column) => identifier(column, "column")).join(", ")} FROM ${identifier(objectName, "object")}${condition.sql}${ordering} LIMIT ?`;
     const rows = this.requireReady().prepare(sql).all(...condition.values, boundedLimit).map(serializable);
     return { objectName, sql, count: rows.length, limit: boundedLimit, rows };

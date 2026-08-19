@@ -140,6 +140,77 @@ test("contact_tag_rename atomically renames or combines tags for the agent", asy
   `).get().count, 1);
 });
 
+test("contact_search exposes the Contacts UI substring search to the agent", async (context) => {
+  const { organizer, registry, request } = harness(context);
+  organizer.createContact({
+    displayName: "Melanny Ortiz",
+    notes: "Cabinet specialist recommended for the kitchen.",
+    methods: [{ kind: "email", label: "Work", value: "melanny@example.test" }],
+  });
+  organizer.createContact({
+    displayName: "Dina Woods",
+    organizationName: "North Design Studio",
+    tags: ["Renovation"],
+  });
+  organizer.createContact({
+    displayName: "Inactive Designer",
+    status: "inactive",
+    notes: "Design consultant",
+  });
+
+  const definition = registry.toolDefinitions().find(({ name }) => name === "contact_search");
+  assert.deepEqual(definition.inputSchema.required, ["queries", "include_inactive", "limit"]);
+  assert.match(definition.description, /same case-insensitive substring behavior as the Contacts UI/);
+
+  const result = await registry.execute("contact_search", {
+    queries: ["cabinet", "DESIGN"],
+    include_inactive: false,
+    limit: 20,
+  }, {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "contact-search",
+    channel: "web",
+  });
+  assert.equal(result.scan_truncated, false);
+  assert.equal(result.total_contact_count, 2);
+  assert.equal(result.total_match_count, 2);
+  assert.equal(result.returned_match_count, 2);
+  assert.equal(result.has_more, false);
+  assert.deepEqual(result.matches.map(({ display_name: name }) => name), ["Dina Woods", "Melanny Ortiz"]);
+  assert.deepEqual(result.matches.map(({ matched_queries: queries }) => queries), [["DESIGN"], ["cabinet"]]);
+  assert.equal(
+    result.matches.find(({ display_name: name }) => name === "Melanny Ortiz").notes,
+    "Cabinet specialist recommended for the kitchen.",
+  );
+
+  const methodMatch = await registry.execute("contact_search", {
+    queries: ["melanny@example.test"],
+    include_inactive: false,
+    limit: 1,
+  }, {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "contact-method-search",
+    channel: "web",
+  });
+  assert.deepEqual(methodMatch.matches.map(({ display_name: name }) => name), ["Melanny Ortiz"]);
+
+  const bounded = await registry.execute("contact_search", {
+    queries: ["design"],
+    include_inactive: true,
+    limit: 1,
+  }, {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "bounded-contact-search",
+    channel: "web",
+  });
+  assert.equal(bounded.total_match_count, 2);
+  assert.equal(bounded.returned_match_count, 1);
+  assert.equal(bounded.has_more, true);
+});
+
 test("batch contact lookup and tagging handle 1000 contacts in bounded tool calls", async (context) => {
   const { store, registry, request } = harness(context);
   const database = store.requireReady();

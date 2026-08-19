@@ -288,9 +288,22 @@
       <label>Title<input id="event-title" required maxlength="500"></label>
       <label class="checkbox-row"><input id="event-all-day" type="checkbox"><span>All day</span></label>
       <div class="editor-grid">
-        <label>Starts<input id="event-start" type="datetime-local" lang="en-GB" step="60" required></label>
-        <label>Ends<input id="event-end" type="datetime-local" lang="en-GB" step="60"></label>
+        <div class="event-date-time-field" role="group" aria-labelledby="event-start-label">
+          <span id="event-start-label">Starts</span>
+          <div class="event-date-time-inputs">
+            <input id="event-start" type="date" required aria-label="Start date">
+            <input id="event-start-time" class="event-time-input" type="text" inputmode="numeric" autocomplete="off" placeholder="HH:MM" pattern="(?:[01]\d|2[0-3]):[0-5]\d" maxlength="5" required aria-label="Start time in 24-hour HH:MM format">
+          </div>
+        </div>
+        <div class="event-date-time-field" role="group" aria-labelledby="event-end-label">
+          <span id="event-end-label">Ends</span>
+          <div class="event-date-time-inputs">
+            <input id="event-end" type="date" aria-label="End date">
+            <input id="event-end-time" class="event-time-input" type="text" inputmode="numeric" autocomplete="off" placeholder="HH:MM" pattern="(?:[01]\d|2[0-3]):[0-5]\d" maxlength="5" aria-label="End time in 24-hour HH:MM format">
+          </div>
+        </div>
       </div>
+      <p id="event-duration" class="event-duration" role="status" aria-live="polite"></p>
       <label>Location<input id="event-location" maxlength="1000"></label>
       <label>Description<textarea id="event-description" rows="4"></textarea></label>
       <label>Status<select id="event-status">

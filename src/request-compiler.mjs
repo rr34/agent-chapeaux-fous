@@ -30,7 +30,7 @@ const instructionFiles = new Map([
 const capabilityPatterns = new Map([
   ["web", /https?:\/\/|\b(?:web ?page|website|url|link)\b/iu],
   ["calendar", /\b(?:calendar|schedule|agenda|appointment|meeting|event|birthday|invite)\b/iu],
-  ["contacts", /\b(?:contact|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b/iu],
+  ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b/iu],
   ["todos", /\b(?:to[ -]?do|todo|task|remind(?:er)?|chore|overdue)\b/iu],
   ["logs", /\b(?:personal log|log entry|food log|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
   ["profile", /\b(?:remember that|remember my|keep on file|profile fact|forget (?:that|my)|my preference|i prefer|i am allergic|my address|my phone|my vehicle|my car|my time ?zone|my\b.{0,80}\b(?:is|are|changed))\b/iu],

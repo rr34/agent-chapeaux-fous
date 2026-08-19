@@ -809,6 +809,52 @@ export class OrganizerStore {
     ));
   }
 
+  searchContacts({ queries, includeInactive = false, limit = 50 } = {}) {
+    if (!Array.isArray(queries) || queries.length < 1 || queries.length > 20) {
+      throw new OrganizerInputError("queries must contain 1 through 20 search terms.");
+    }
+    if (typeof includeInactive !== "boolean") {
+      throw new OrganizerInputError("includeInactive must be a boolean.");
+    }
+    const selectedQueries = [];
+    const seenQueries = new Set();
+    for (const [index, value] of queries.entries()) {
+      const query = requiredText(value, `queries[${index}]`, 200);
+      const normalized = query.toLocaleLowerCase();
+      if (seenQueries.has(normalized)) continue;
+      seenQueries.add(normalized);
+      selectedQueries.push({ query, normalized });
+    }
+    const boundedLimit = integer(limit, "limit", { fallback: 50, minimum: 1, maximum: 200 });
+    const scope = includeInactive ? "all" : "active";
+    const totalContactCount = Number(this.database.prepare(`
+      SELECT COUNT(*) AS count FROM contacts
+      ${includeInactive ? "" : "WHERE status = 'active'"}
+    `).get().count);
+    const contacts = this.listContacts({ scope, limit: 10_000 });
+    const matches = [];
+    for (const contact of contacts) {
+      const searchableValues = [
+        contact.displayName, contact.givenName, contact.familyName,
+        contact.organizationName, contact.notes, ...contact.tags,
+        ...contact.methods.flatMap((method) => [method.label, method.value]),
+      ].filter((value) => value != null).map((value) => String(value).toLocaleLowerCase());
+      const matchedQueries = selectedQueries
+        .filter(({ normalized }) => searchableValues.some((value) => value.includes(normalized)))
+        .map(({ query }) => query);
+      if (matchedQueries.length > 0) matches.push({ contact, matchedQueries });
+    }
+    return {
+      queries: selectedQueries.map(({ query }) => query),
+      scannedContactCount: contacts.length,
+      scanTruncated: totalContactCount > contacts.length,
+      totalContactCount,
+      totalMatchCount: matches.length,
+      hasMore: matches.length > boundedLimit,
+      matches: matches.slice(0, boundedLimit),
+    };
+  }
+
   listContactDuplicates({ limit = 100, offset = 0, contactLimit = 10_000 } = {}) {
     const boundedLimit = integer(limit, "limit", { fallback: 100, minimum: 1, maximum: 500 });
     const boundedOffset = integer(offset, "offset", { fallback: 0, minimum: 0, maximum: 10_000 });

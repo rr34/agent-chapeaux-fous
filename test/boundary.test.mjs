@@ -141,16 +141,21 @@ test("the calendar UI searches stored event details and can include archived rec
   assert.match(server, /url\.pathname === "\/api\/calendar-events\/search"/);
 });
 
-test("calendar controls use simple visibility states and 24-hour datetime locales", () => {
+test("calendar controls use simple visibility states and explicit 24-hour event times", () => {
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   const status = /<select id="event-status">([\s\S]*?)<\/select>/.exec(document)?.[1] ?? "";
   assert.match(status, /<option value="active">Active<\/option><option value="archived">Archived<\/option>/);
   assert.doesNotMatch(status, />Confirmed<|>Tentative<|>Completed<|>Cancelled</);
-  assert.equal((document.match(/type="datetime-local" lang="en-GB"/g) ?? []).length, 6);
+  assert.equal((document.match(/type="datetime-local" lang="en-GB"/g) ?? []).length, 4);
+  assert.match(document, /id="event-start-time"[^>]+placeholder="HH:MM"[^>]+pattern="\(\?:\[01\]\\d\|2\[0-3\]\):\[0-5\]\\d"/);
+  assert.match(document, /id="event-end-time"[^>]+placeholder="HH:MM"[^>]+pattern="\(\?:\[01\]\\d\|2\[0-3\]\):\[0-5\]\\d"/);
+  assert.match(document, /id="event-duration"[^>]+aria-live="polite"/);
   assert.match(application, /if \(calendarEvent\.isAllDay\) return "";/);
-  assert.match(application, /elements\.eventStart\.step = allDay \? "1" : "60";/);
-  assert.match(application, /elements\.eventEnd\.step = allDay \? "1" : "60";/);
+  assert.match(application, /shiftLocalDateTime\(elements\.eventStart\.value, elements\.eventStartTime\.value, 60\)/);
+  assert.match(application, /`Duration: \$\{formatDurationMinutes\(minutes\)\}`/);
+  assert.match(server, /\["\/event-date-time\.js", \["event-date-time\.js", "text\/javascript; charset=utf-8"\]\]/);
   assert.match(application, /elements\.todoScheduled\.step = allDay \? "1" : "60";/);
 });
 
