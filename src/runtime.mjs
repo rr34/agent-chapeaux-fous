@@ -39,6 +39,7 @@ export class SlayerRuntime {
   async run({
     requestId, requestEventId, text, channel = "web", attachment = null, runLimits = null,
     model = null, effort = null, supplementalInstructions = "", videoSource = null,
+    capabilityOverride = null,
   }) {
     const availableTools = this.registry.toolDefinitions();
     const priorConversation = typeof this.ledger.currentModelConversation === "function"
@@ -60,6 +61,7 @@ export class SlayerRuntime {
           attachment,
           recentConversation,
           previousCapabilities: priorConversation.capabilities,
+          capabilityOverride,
         })
       : {
           tools: availableTools,

@@ -72,6 +72,24 @@ test("an explicit interaction-video request selects the contained renderer", () 
   assert.equal(selection.fallbackAll, false);
 });
 
+test("an application capability override ignores unrelated prior-conversation routing", async () => {
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+  });
+  const compiled = await compiler.compile({
+    tools: [...tools, tool("video_render_interaction")],
+    text: "Create the MP4 for this interaction and return the download link.",
+    recentConversation: [{ role: "user", content: "Add this to my calendar." }],
+    previousCapabilities: ["calendar", "profile"],
+    capabilityOverride: ["video"],
+  });
+  assert.deepEqual(names(compiled), ["video_render_interaction"]);
+  assert.deepEqual(compiled.capabilities, ["video"]);
+  assert.deepEqual(compiled.reasons, ["video:application-override"]);
+  assert.match(compiled.instructions, /## video/);
+  assert.doesNotMatch(compiled.instructions, /## calendar/);
+});
+
 test("every currently registered local tool belongs to an explicit capability", () => {
   const registry = new ToolRegistry();
   registerWebPageTools(registry, {});

@@ -638,7 +638,7 @@ const server = http.createServer(async (request, response) => {
       const body = await readJson(request);
       const runLimits = normalizeRunLimits(body.runLimits) ?? { maxToolCalls: 256, timeoutMs: 60 * 60 * 1000 };
       const created = ledger.createRequest({
-        text: `Create the finished vertical MP4 for source interaction ${resolved.requestId}. Normalize its Whisper transcript for captions, select one coherent audio section, accurately show the real agent activity and response, render it, and return the download link.`,
+        text: `Create the finished vertical interaction video MP4 for source interaction ${resolved.requestId}. Normalize its Whisper transcript for captions, select one coherent audio section, accurately show the real agent activity and response, render it, and return the download link.`,
         channel: "web",
         runLimits,
         metadata: {

@@ -77,7 +77,7 @@ export function loadConfig(environment = process.env) {
     publicRoot: path.join(repositoryRoot, "public"),
     modelTransport: environment.SLAYER_MODEL_TRANSPORT?.trim() || "codex-app-server",
     codexCommand: environment.SLAYER_CODEX_COMMAND?.trim() || "codex",
-    codexRequiredVersion: environment.SLAYER_CODEX_REQUIRED_VERSION?.trim() || "0.148.0-alpha.9",
+    codexRequiredVersion: environment.SLAYER_CODEX_REQUIRED_VERSION?.trim() || "0.148.0",
     codexHome: resolveFromRoot(environment.SLAYER_CODEX_HOME, "data/codex-home"),
     codexWorkDirectory,
     codexRequestTimeoutMs: positiveInteger(environment.SLAYER_CODEX_TIMEOUT_MS, 10 * 60 * 1000),

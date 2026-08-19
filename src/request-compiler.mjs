@@ -183,6 +183,24 @@ export function selectRequestCapabilities({ tools, text, attachment = null, rece
   };
 }
 
+function overrideSelection(tools, capabilities) {
+  const selected = [...new Set(capabilities)].filter((capability) => typeof capability === "string" && capability);
+  const selectedSet = new Set(selected);
+  const selectedTools = tools.filter((tool) => selectedSet.has(capabilityForTool(tool)));
+  if (selectedTools.length === 0) {
+    throw new Error(`Capability override has no callable tools: ${selected.join(", ")}`);
+  }
+  return {
+    tools: selectedTools,
+    capabilities: selected.sort(),
+    reasons: selected.map((capability) => `${capability}:application-override`),
+    dependentTools: [],
+    fallbackAll: false,
+    followsPriorTurn: false,
+    availableToolCount: tools.length,
+  };
+}
+
 export class RequestCompiler {
   constructor({ instructionRoot, readFile = fs.readFile } = {}) {
     this.instructionRoot = instructionRoot;
@@ -201,7 +219,9 @@ export class RequestCompiler {
   }
 
   async compile(input) {
-    const selection = selectRequestCapabilities(input);
+    const selection = Array.isArray(input.capabilityOverride)
+      ? overrideSelection(input.tools, input.capabilityOverride)
+      : selectRequestCapabilities(input);
     const fragments = (await Promise.all(selection.capabilities.map(async (capability) => ({
       capability,
       text: await this.#instruction(capability),

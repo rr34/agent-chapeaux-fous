@@ -129,6 +129,7 @@ export class RequestQueue {
         effort: request.payload?.effort ?? null,
         supplementalInstructions,
         videoSource,
+        capabilityOverride: request.payload?.requestKind === "interaction_video" ? ["video"] : null,
       });
       if (request.payload?.requestKind === "interaction_video") {
         const videoEvents = this.ledger.trace(request.turnId);
