@@ -242,9 +242,21 @@ export class Ledger {
     const videoEligible = requestKind !== "interaction_video"
       && Boolean(terminal)
       && sourceFile?.media_kind === "audio";
-    const video = includeVideo && requestKind !== "interaction_video"
-      ? this.videoForSourceRequest(request.turnId)
+    const ownRenderedVideo = requestKind === "interaction_video"
+      ? [...events].reverse().find((event) => event.type === "video.render.completed")
       : null;
+    const ownVideoFileId = ownRenderedVideo?.primaryFileId ?? ownRenderedVideo?.payload?.fileId ?? null;
+    const video = requestKind === "interaction_video" && ownVideoFileId != null
+      ? {
+          requestId: request.turnId,
+          status: "complete",
+          fileId: ownVideoFileId,
+          downloadUrl: `/api/videos/${ownVideoFileId}/download`,
+          error: null,
+        }
+      : includeVideo && requestKind !== "interaction_video"
+        ? this.videoForSourceRequest(request.turnId)
+        : null;
     return {
       requestId: request.turnId,
       channel: requestChannel(request),

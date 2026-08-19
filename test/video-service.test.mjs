@@ -84,4 +84,14 @@ test("an interaction video uses saved audio, records render events, and register
     ["video.render.started", "video.render.completed"],
   );
   assert.equal(ledger.recentRequests().find(({ requestId }) => requestId === sourceRequest.requestId).video.fileId, result.fileId);
+  assert.deepEqual(
+    ledger.recentRequests().find(({ requestId }) => requestId === videoRequest.requestId).video,
+    {
+      requestId: videoRequest.requestId,
+      status: "complete",
+      fileId: result.fileId,
+      downloadUrl: `/api/videos/${result.fileId}/download`,
+      error: null,
+    },
+  );
 });
