@@ -9,6 +9,7 @@ test("the default Codex workspace cannot inherit repository instructions", () =>
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     XDG_STATE_HOME: "/tmp/agent-slayer-state-test",
   });
+  assert.equal(config.codexRequiredVersion, "0.149.0");
   assert.equal(config.codexWorkDirectory, "/tmp/agent-slayer-state-test/agent-slayer/codex-workspace");
   assert.equal(config.codexWorkDirectory.startsWith(`${repositoryRoot}${path.sep}`), false);
 });
