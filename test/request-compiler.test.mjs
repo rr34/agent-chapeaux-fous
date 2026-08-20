@@ -247,6 +247,46 @@ test("provider names and concepts select only that integration", () => {
   assert.equal(names(weather).includes("remote_tlom_query_data"), false);
 });
 
+test("an active integration scope remains additive for an ordinary project-task request", () => {
+  const selection = selectRequestCapabilities({
+    tools,
+    text: "There are a bunch of Door Install or Repair tasks on the doors. Consolidate the identical ones.",
+    recentConversation: [
+      { role: "user", content: "Make the full remodel the active project." },
+      { role: "assistant", content: "The full remodel is now active." },
+    ],
+    previousCapabilities: ["integration:tlom", "profile"],
+  });
+
+  assert.deepEqual(selection.capabilities, ["integration:tlom", "profile", "todos"]);
+  assert.equal(names(selection).includes("remote_tlom_query_data"), true);
+  assert.equal(names(selection).includes("todo_list"), true);
+  assert.ok(selection.reasons.includes("integration:tlom:active-scope"));
+  assert.equal(selection.followsPriorTurn, false);
+});
+
+test("compiled requests expose an organized deferred catalog and one capability-request tool", async () => {
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+  });
+  const compiled = await compiler.compile({ tools, text: "Show my tasks." });
+
+  assert.equal(names(compiled).includes("todo_list"), true);
+  assert.equal(names(compiled).includes("request_capabilities"), true);
+  assert.ok(compiled.deferredCapabilities.includes("integration:tlom"));
+  assert.match(compiled.instructions, /# Additional available capabilities/);
+  assert.match(compiled.instructions, /integration:tlom/);
+  const requestTool = compiled.tools.find(({ name }) => name === "request_capabilities");
+  assert.deepEqual(
+    requestTool.inputSchema.properties.capabilities.items.enum,
+    compiled.deferredCapabilities,
+  );
+
+  const greeting = await compiler.compile({ tools, text: "Hello!" });
+  assert.equal(names(greeting).includes("request_capabilities"), false);
+  assert.deepEqual(greeting.deferredCapabilities, []);
+});
+
 test("the compiler loads instructions only for selected callable capabilities", async () => {
   const compiler = new RequestCompiler({
     instructionRoot: path.join(repositoryRoot, "config", "instructions"),

@@ -4,15 +4,20 @@ This repository is a normal application, not an agent framework or plugin.
 
 ## Core invariant
 
-The first model request for every user request must visibly contain:
+The first model interaction for every user request must visibly contain:
 
 1. the user's exact request;
 2. the bounded context sent to the model; and
-3. the exact schemas of every tool that is actually callable for that request.
+3. the exact schemas of every tool immediately callable in that interaction; and
+4. an organized catalog of connected capability families whose detailed schemas
+   were deferred.
 
-A model tool call must execute the named application function, and its result
-must be returned to the same model exchange before a final answer is accepted.
-Never claim that an unavailable tool is available.
+The model may request a cataloged capability. Before any newly loaded function
+can be called, its exact schema must be visible in a continuation of the same
+user request. A model tool call must execute the named application function, and
+its result must be returned to the same model exchange before a final answer is
+accepted. Never claim that an unavailable or merely cataloged tool is already
+callable.
 
 ## Change safety
 

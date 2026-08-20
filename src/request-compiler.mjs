@@ -12,6 +12,7 @@ const localCapabilityMatchers = [
   ["history", (tool) => tool.name.startsWith("history_")],
   ["email", (tool) => tool.name.startsWith("email_")],
   ["video", (tool) => tool.name.startsWith("video_")],
+  ["orchestration", (tool) => tool.name === "request_capabilities"],
 ];
 
 const instructionFiles = new Map([
@@ -48,6 +49,19 @@ const compactFollowupPattern = /^\s*(?:why|how so|and then|anything else|more)\s
 const toolFreePattern = /\b(?:explain|define|brainstorm|rewrite|proofread|translate|tell me a joke|write a story|what do you think|help me think|your opinion|how does .+ work|compare the ideas)\b/iu;
 const greetingPattern = /^\s*(?:hello|hi|hey|good (?:morning|afternoon|evening)|thanks|thank you)[.!\s]*$/iu;
 const personalActionPattern = /\b(?:my|mine|current|latest|today|now|look up|find|show|list|add|create|update|change|delete|remove|send|save|record|import|apply|go ahead|do it|proceed)\b/iu;
+
+const capabilitySummaries = new Map([
+  ["web", "Read specific web pages supplied by URL."],
+  ["calendar", "Read and manage calendar events and schedules."],
+  ["contacts", "Search, import, tag, and merge contacts."],
+  ["todos", "Read and manage native personal to-do items and groups."],
+  ["logs", "Read and record personal logs and trackers."],
+  ["profile", "Read and maintain durable profile facts."],
+  ["database", "Read and write supported native SQLite-backed application data."],
+  ["history", "Search prior Agent Slayer conversations."],
+  ["email", "Read, draft, send, organize, and clean up email."],
+  ["video", "Render an interaction video from the current request trace."],
+]);
 
 export function capabilityForTool(tool) {
   if (typeof tool.source === "string" && tool.source.startsWith("mcp:")) {
@@ -156,6 +170,17 @@ export function selectRequestCapabilities({ tools, text, attachment = null, rece
     }
   }
 
+  const explicitlySelectedIntegration = [...selected].some((capability) => capability.startsWith("integration:"));
+  const clearlyToolFreeCurrentRequest = greetingPattern.test(currentText)
+    || (toolFreePattern.test(currentText) && !personalActionPattern.test(currentText));
+  if (recentConversation.length > 0 && !explicitlySelectedIntegration && !clearlyToolFreeCurrentRequest) {
+    for (const capability of previousCapabilities) {
+      if (!capability.startsWith("integration:") || !grouped.has(capability)) continue;
+      selected.add(capability);
+      reasons.push(`${capability}:active-scope`);
+    }
+  }
+
   const attachmentRoute = attachmentCapabilities(attachment);
   for (const capability of attachmentRoute.capabilities) {
     if (grouped.has(capability)) selected.add(capability);
@@ -170,8 +195,7 @@ export function selectRequestCapabilities({ tools, text, attachment = null, rece
   }
 
   const meaningfulSelections = [...selected].filter((capability) => capability !== "profile");
-  const clearlyToolFree = greetingPattern.test(currentText)
-    || (toolFreePattern.test(currentText) && !personalActionPattern.test(currentText));
+  const clearlyToolFree = clearlyToolFreeCurrentRequest;
   const fallbackAll = grouped.has("unclassified")
     || attachmentRoute.uncertain
     || (meaningfulSelections.length === 0 && !clearlyToolFree);
@@ -205,10 +229,49 @@ export function selectRequestCapabilities({ tools, text, attachment = null, rece
   };
 }
 
+function capabilitySummary(capability, tools) {
+  if (capability.startsWith("integration:")) {
+    const provider = capability.slice("integration:".length);
+    const examples = tools.slice(0, 3).map(({ name }) => name).join(", ");
+    return `${provider} connected integration${examples ? `; representative operations: ${examples}` : ""}.`;
+  }
+  return capabilitySummaries.get(capability) ?? `${capability} application capability.`;
+}
+
+export function capabilityRequestDefinition(capabilities) {
+  const allowed = [...new Set(capabilities)].sort();
+  if (allowed.length === 0) return null;
+  return {
+    name: "request_capabilities",
+    description: "Request exact schemas for one or more additional capability families when the current callable tools are insufficient. Call this alone, before any dependent action and before saying a needed tool or integration is unavailable. After a successful request, Agent Slayer continues the same user request with those tools loaded; do not treat this call itself as completing the user's task.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        capabilities: {
+          type: "array",
+          minItems: 1,
+          maxItems: Math.min(8, allowed.length),
+          uniqueItems: true,
+          items: { type: "string", enum: allowed },
+        },
+      },
+      required: ["capabilities"],
+    },
+    strict: true,
+    source: "local",
+    upstreamName: null,
+  };
+}
+
 function overrideSelection(tools, capabilities) {
   const selected = [...new Set(capabilities)].filter((capability) => typeof capability === "string" && capability);
   const selectedSet = new Set(selected);
-  const selectedTools = tools.filter((tool) => selectedSet.has(capabilityForTool(tool)));
+  const dependentToolNames = new Set();
+  if (selectedSet.has("email")) dependentToolNames.add("contact_lookup_batch");
+  const selectedTools = tools.filter((tool) => (
+    selectedSet.has(capabilityForTool(tool)) || dependentToolNames.has(tool.name)
+  ));
   if (selectedTools.length === 0) {
     throw new Error(`Capability override has no callable tools: ${selected.join(", ")}`);
   }
@@ -216,7 +279,7 @@ function overrideSelection(tools, capabilities) {
     tools: selectedTools,
     capabilities: selected.sort(),
     reasons: selected.map((capability) => `${capability}:application-override`),
-    dependentTools: [],
+    dependentTools: [...dependentToolNames].filter((name) => selectedTools.some((tool) => tool.name === name)),
     fallbackAll: false,
     followsPriorTurn: false,
     availableToolCount: tools.length,
@@ -241,19 +304,50 @@ export class RequestCompiler {
   }
 
   async compile(input) {
-    const selection = Array.isArray(input.capabilityOverride)
+    const expanding = Array.isArray(input.capabilityOverride);
+    const selection = expanding
       ? overrideSelection(input.tools, input.capabilityOverride)
       : selectRequestCapabilities(input);
+    const grouped = new Map();
+    for (const tool of input.tools) {
+      const capability = capabilityForTool(tool);
+      const entries = grouped.get(capability) ?? [];
+      entries.push(tool);
+      grouped.set(capability, entries);
+    }
+    const deferredCapabilities = expanding
+      || selection.fallbackAll
+      || selection.reasons.includes("core:tool-free-request")
+      ? []
+      : [...grouped.keys()]
+        .filter((capability) => capability !== "unclassified" && !selection.capabilities.includes(capability))
+        .sort();
+    const requestCapabilities = capabilityRequestDefinition(deferredCapabilities);
     const fragments = (await Promise.all(selection.capabilities.map(async (capability) => ({
       capability,
       text: await this.#instruction(capability),
     })))).filter(({ text }) => text);
+    const guidance = fragments.length
+      ? ["# Active capability guidance", ...fragments.map(({ capability, text }) => `\n## ${capability}\n${text}`)].join("\n")
+      : "";
+    const catalog = deferredCapabilities.length
+      ? [
+          "# Additional available capabilities",
+          "These capability families are connected but their exact tool schemas are deferred. If one may be needed, call `request_capabilities` before claiming it is unavailable.",
+          ...deferredCapabilities.map((capability) => `- ${capability}: ${capabilitySummary(capability, grouped.get(capability) ?? [])}`),
+        ].join("\n")
+      : "";
     return {
       ...selection,
-      instructions: fragments.length
-        ? ["# Active capability guidance", ...fragments.map(({ capability, text }) => `\n## ${capability}\n${text}`)].join("\n")
-        : "",
+      tools: requestCapabilities ? [...selection.tools, requestCapabilities] : selection.tools,
+      instructions: [guidance, catalog].filter(Boolean).join("\n\n"),
       instructionCapabilities: fragments.map(({ capability }) => capability),
+      deferredCapabilities,
+      capabilityCatalog: deferredCapabilities.map((capability) => ({
+        capability,
+        toolCount: grouped.get(capability)?.length ?? 0,
+        summary: capabilitySummary(capability, grouped.get(capability) ?? []),
+      })),
     };
   }
 }

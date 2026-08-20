@@ -277,8 +277,143 @@ test("the request compiler limits callable tools and runtime rejects out-of-scop
   assert.ok(toolsEvent.payload.schemaBytes > 0);
 });
 
+test("the runtime expands deferred capabilities and continues the same user request", async () => {
+  const modelRequests = [];
+  let betaExecutions = 0;
+  const modelTransport = fakeTransport(async (payload) => {
+    modelRequests.push(payload);
+    if (modelRequests.length === 1) {
+      const expansion = await payload.onToolCall({
+        callId: "expand-beta",
+        tool: "request_capabilities",
+        arguments: { capabilities: ["beta"] },
+      });
+      assert.equal(expansion.ok, true);
+      return completedTurn({
+        text: "Capability expansion requested.",
+        threadId: "thread-1",
+        turnId: "codex-turn-1",
+      });
+    }
+    const executed = await payload.onToolCall({
+      callId: "run-beta",
+      tool: "beta_action",
+      arguments: {},
+    });
+    assert.equal(executed.ok, true);
+    return completedTurn({
+      text: "The deferred beta action completed.",
+      threadId: "thread-2",
+      turnId: "codex-turn-2",
+    });
+  });
+  const registry = new ToolRegistry();
+  for (const name of ["alpha_action", "beta_action"]) {
+    registry.register({
+      name,
+      description: name,
+      parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+      async execute() {
+        if (name === "beta_action") betaExecutions += 1;
+        return { name };
+      },
+    });
+  }
+  const requestCapabilities = {
+    name: "request_capabilities",
+    description: "Load beta.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        capabilities: { type: "array", items: { type: "string", enum: ["beta"] } },
+      },
+      required: ["capabilities"],
+    },
+    strict: true,
+    source: "local",
+    upstreamName: null,
+  };
+  const events = [];
+  const contextOptions = [];
+  let conversationMarker;
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    requestCompiler: {
+      async compile({ tools, capabilityOverride }) {
+        if (capabilityOverride) {
+          return {
+            tools,
+            capabilities: ["alpha", "beta"],
+            instructionCapabilities: [],
+            reasons: ["beta:application-override"],
+            fallbackAll: false,
+            followsPriorTurn: false,
+            availableToolCount: tools.length,
+            deferredCapabilities: [],
+            capabilityCatalog: [],
+            instructions: "BETA IS NOW CALLABLE",
+          };
+        }
+        return {
+          tools: [tools.find(({ name }) => name === "alpha_action"), requestCapabilities],
+          capabilities: ["alpha"],
+          instructionCapabilities: [],
+          reasons: ["alpha:request"],
+          fallbackAll: false,
+          followsPriorTurn: false,
+          availableToolCount: tools.length,
+          deferredCapabilities: ["beta"],
+          capabilityCatalog: [{ capability: "beta", toolCount: 1, summary: "Beta actions." }],
+          instructions: "BETA CAN BE REQUESTED",
+        };
+      },
+    },
+    contextBuilder: {
+      async build(_requestId, _text, options) {
+        contextOptions.push(options);
+        return {
+          text: "context", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: {
+      append(event) { events.push(event); },
+      markConversationStarted(marker) { conversationMarker = marker; },
+    },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+
+  const answer = await runtime.run({
+    requestId: "expand-request",
+    requestEventId: "expand-event",
+    text: "Use the beta capability.",
+  });
+
+  assert.equal(answer, "The deferred beta action completed.");
+  assert.equal(modelRequests.length, 2);
+  assert.equal(modelRequests[0].conversationId, null);
+  assert.equal(modelRequests[1].conversationId, null);
+  assert.equal(modelRequests[0].input, "Use the beta capability.");
+  assert.deepEqual(modelRequests[0].tools.map(({ name }) => name), ["alpha_action", "request_capabilities"]);
+  assert.deepEqual(modelRequests[1].tools.map(({ name }) => name), ["alpha_action", "beta_action"]);
+  assert.match(modelRequests[1].input, /Original user request:\nUse the beta capability\./);
+  assert.equal(contextOptions[1].nativeConversation, false);
+  assert.equal(modelRequests[1].maxToolCalls, 3);
+  assert.equal(betaExecutions, 1);
+  assert.equal(events.some(({ type }) => type === "tools.expansion.requested"), true);
+  assert.equal(conversationMarker.conversationId, "thread-2");
+  assert.deepEqual(conversationMarker.capabilities, ["alpha", "beta"]);
+});
+
 test("a capability change starts a fresh thread with bounded prior conversation context", async () => {
   let contextOptions;
+  let modelConversationId;
+  let startedMarker;
   const registry = new ToolRegistry();
   registry.register({
     name: "alpha", description: "alpha",
@@ -286,7 +421,10 @@ test("a capability change starts a fresh thread with bounded prior conversation 
     async execute() { return {}; },
   });
   const runtime = new SlayerRuntime({
-    modelTransport: fakeTransport(async () => completedTurn()),
+    modelTransport: fakeTransport(async (payload) => {
+      modelConversationId = payload.conversationId;
+      return completedTurn({ threadId: "old-thread" });
+    }),
     registry,
     requestCompiler: {
       async compile({ tools }) {
@@ -314,7 +452,7 @@ test("a capability change starts a fresh thread with bounded prior conversation 
       activeModelConversation() {
         return { conversationId: null, markerEventSeq: 40, reason: "tools_changed" };
       },
-      markConversationStarted() {},
+      markConversationStarted(marker) { startedMarker = marker; },
       append() {},
     },
     config: runtimeConfig(),
@@ -322,6 +460,7 @@ test("a capability change starts a fresh thread with bounded prior conversation 
   runtime.systemPrompt = "CORE";
 
   await runtime.run({ requestId: "changed", requestEventId: "event", text: "Switch domains." });
+  assert.equal(modelConversationId, null);
   assert.deepEqual(contextOptions, {
     attachment: null,
     nativeConversation: false,
@@ -329,6 +468,8 @@ test("a capability change starts a fresh thread with bounded prior conversation 
     conversationStartEventSeq: 40,
     capabilities: ["alpha"],
   });
+  assert.equal(startedMarker.conversationId, "old-thread");
+  assert.deepEqual(startedMarker.capabilities, ["alpha"]);
 });
 
 test("a failed tool result is returned to the model transport instead of becoming a fabricated success", async () => {

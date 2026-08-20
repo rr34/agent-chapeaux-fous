@@ -13,11 +13,14 @@ connect old discussions to this repository.
 
 The central invariant is:
 
-> The first model request for every **50. Agent request** visibly contains the
-> user's exact request, the bounded context, and the exact schemas of every tool
-> actually callable for that request. A requested tool executes the named
-> application function, and its result returns to the same model exchange before
-> a final answer is accepted.
+> The first model interaction for every **50. Agent request** visibly contains
+> the user's exact request, the bounded context, the exact schemas of every tool
+> immediately callable in that interaction, and an organized catalog of
+> connected capability families whose detailed schemas were deferred. The model
+> may request cataloged capabilities; their exact schemas become visible before
+> they become callable in a continuation of the same user request. A requested
+> tool executes the named application function, and its result returns to the
+> same model exchange before a final answer is accepted.
 
 The immediate system priorities are:
 
@@ -41,7 +44,7 @@ The immediate system priorities are:
   authentication and separately metered **14. OpenAI Platform API account**
   usage.
 - **50. Agent requests** continue on one persistent Codex thread until the user
-  starts a new conversation. A callable-tool schema change also starts a new
+  starts a new conversation. A callable-tool schema change starts a replacement
   thread so restored dynamic tools always match the application registry.
 - Agent Slayer supplies replacement base instructions, bounded context, and
   dynamically discovered tool schemas. Codex shell, filesystem, browser, app,
@@ -117,8 +120,9 @@ typed text or stored voice recording
   -> strict FIFO queue
   -> local transcription when audio was supplied
   -> bounded profile and recent history context
-  -> exact local and connected-MCP tool schemas
-  -> one fresh Codex App Server thread
+  -> exact immediate tool schemas plus an organized deferred-capability catalog
+  -> persistent Codex App Server thread while callable schemas stay unchanged
+  -> optional model-requested capability expansion in a replacement thread
   -> model tool call, if requested
   -> exact Agent Slayer function or remote MCP call
   -> tool result returned to the same model exchange
@@ -126,12 +130,14 @@ typed text or stored voice recording
   -> terminal ledger event
 ```
 
-The first model request contains three visibly separate inputs:
+The first model interaction contains four visibly separate inputs:
 
 1. The exact user text, whether typed or transcribed.
 2. Bounded context assembled from relevant active `profile_facts` and recent
    complete exchanges in **35. Agent database**.
-3. The exact schemas returned by the live tool registry for that request.
+3. The exact schemas returned by the live tool registry for immediate use.
+4. A concise catalog of connected capability families whose detailed schemas
+   were deferred and can be requested by the model.
 
 The repository owns the validated standard-question catalog in
 `config/profile-fact-questions.json`; **35. Agent database** alone owns the
@@ -151,9 +157,12 @@ only after a successful MCP connection and live `tools/list`. Disabled, missing,
 unauthorized, and failed integrations appear in health instead.
 
 The model may make multiple tool calls inside the same request, up to
-`SLAYER_MAX_TOOL_CALLS`. Every call is dispatched by name through Agent Slayer's
-registry. Its result or error is returned to the same active thread before
-the final response is accepted.
+`SLAYER_MAX_TOOL_CALLS`. If it calls `request_capabilities`, Agent Slayer records
+the requested families, completes that model turn, starts a replacement thread
+with the expanded exact schemas and bounded history, and continues the original
+user request automatically. Every domain call is dispatched by name through Agent
+Slayer's registry. Its result or error is returned to the same active thread
+before the final response is accepted.
 
 ## Model boundary
 

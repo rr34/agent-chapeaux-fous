@@ -10,9 +10,10 @@ The complete request path is:
 
 ```text
 web or voice input
-  -> deterministic capability selection
+  -> high-recall capability selection using request text and active integration scope
   -> bounded context from SQLite plus selected capability guidance
-  -> one model turn containing the exact callable-tool schemas
+  -> model turn containing exact immediate schemas plus an organized deferred catalog
+  -> optional model-requested capability expansion in a replacement model thread
   -> local or MCP tool execution
   -> tool result returned to that same model exchange
   -> final response
@@ -75,9 +76,10 @@ Requests continue on one persistent Codex thread while the compiled callable
 capabilities stay the same, or until the user starts a new conversation. Agent
 Slayer resumes that thread with current replacement base instructions and
 bounded context, executes tool calls itself, and owns the durable SQLite ledger.
-A changed callable-tool schema automatically starts a new thread so the model
-never receives stale tool definitions; bounded recent exchanges are injected
-when that capability change starts the replacement thread. App Server's
+A changed callable-tool schema automatically starts a replacement thread so the
+model never receives stale tool definitions; bounded recent exchanges are
+injected and the original request is repeated when an on-demand capability
+expansion starts that replacement thread. App Server's
 unrelated agent capabilities are disabled at startup. Every turn is also read-only,
 network-disabled, and rooted in the empty
 `~/.local/state/agent-slayer/codex-workspace` directory outside every source
@@ -109,20 +111,27 @@ plugin system.
 
 ## Request and context compilation
 
-Agent Slayer owns a deterministic request compiler in application code. It
+Agent Slayer owns a request compiler in application code. It
 pairs each local domain's exact tool schemas with versioned capability guidance
 from `config/instructions/`; `config/system-prompt.md` contains only universal
 behavior. Routing considers the exact request, verified attachment metadata and
 preview, recent exchange text for short confirmations, and the capability set
-of the active model conversation. Recognized requests receive only the relevant
-bundles. An unclear request or unknown attachment conservatively receives every
-currently available tool and every applicable instruction fragment, preserving
-the broad fallback behavior. A newly registered local tool that has not yet been
-assigned to a hard-coded capability also forces that full fallback, so additions
-cannot silently disappear from model access.
+of the active model conversation. An active connected-integration capability is
+retained additively for ordinary actionable follow-ups unless the user explicitly
+selects another integration. Recognized requests receive the likely bundles plus
+one `request_capabilities` function and a concise catalog of the connected
+families whose exact schemas were deferred. If the model requests one of those
+families, Agent Slayer starts a replacement thread with the expanded exact
+schemas and continues the original request automatically. An unclear request or
+unknown attachment conservatively receives every currently available tool and every
+applicable instruction fragment. A newly registered local tool that has not yet
+been assigned to a hard-coded capability also forces that full fallback, so
+additions cannot silently disappear from model access.
 
-The selected tool list is enforcement, not a hint: a model call outside that
-request's callable set is rejected before the application function can run.
+The selected tool list is enforcement, not a hint: a model call outside the
+current interaction's callable set is rejected before the application function
+can run. Cataloged capabilities are not callable until the model explicitly
+requests them and receives their exact schemas on the continuation turn.
 The trace records the selection reasons, selected versus available counts,
 serialized schema bytes, instruction character counts, and whether schemas were
 sent with a new thread or retained on a resumed thread.
@@ -270,8 +279,10 @@ no user's profile values.
 Remote MCP tools are discovered by Agent Slayer from
 `config/mcp-servers.json` at process startup. Their exact discovered schemas are
 eligible for deterministic request selection beside the local tools. Every
-selected schema is placed in the first model request for its conversation, then
-translated by the active model transport. Codex's own MCP, app, plugin, shell, and filesystem
+immediately callable schema is placed in the current model interaction; deferred
+integration families appear first in the capability catalog and receive exact
+schemas if the model requests them. The active model transport performs the
+protocol translation. Codex's own MCP, app, plugin, shell, and filesystem
 facilities are not the application tool path. Missing or failed integrations
 are visible in `/health`; they are never silently represented as available.
 
