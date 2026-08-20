@@ -63,6 +63,9 @@ export function registerDatabaseTools(registry, store, ledger, schemaSemantics =
       },
     },
     async execute(argumentsObject, context) {
+      if (argumentsObject.objectName === "interaction_guides") {
+        throw new Error("Use interaction_guide_list for metadata or interaction_guide_get for one explicitly requested guide; generic database reads do not load guide rows");
+      }
       const schemaProjection = projection(schemaSemantics, {
         name: "bounded_database_read",
         purpose: "Read bounded rows through Agent Slayer's structured database interface.",

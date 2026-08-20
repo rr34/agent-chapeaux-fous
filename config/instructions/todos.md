@@ -10,6 +10,12 @@ write RRULE syntax. When a to-do is assigned to a calendar day without an exact
 time, set `is_all_day=true` and represent that date as local midnight; use a
 timed schedule only when the user supplies or requests a time.
 
+A repeating to-do may link to one active interaction guide by exact ID. The
+to-do owns its schedule and recurrence; the guide supplies only the structured
+interaction offered by each task occurrence. Use `todo_interaction_guide_set`
+to link or unlink an existing repeating task without reconstructing or changing
+its recurrence. A one-time to-do cannot carry this link.
+
 When the user specifies a position while creating a to-do, pass that 1-based
 `position` directly to `todo_add`; position 1 is the top. Use
 `todo_position_set` to move an existing task to an exact 1-based position in its

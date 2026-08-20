@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 14, 'Agent Slayer test database');
+    VALUES (1, 18, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -164,6 +164,17 @@ export function temporaryDatabase() {
       excluded_starts_at_utc TEXT NOT NULL,
       PRIMARY KEY (calendar_event_id, excluded_starts_at_utc)
     ) STRICT, WITHOUT ROWID;
+    CREATE TABLE interaction_guides (
+      interaction_guide_id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK (length(trim(name)) BETWEEN 1 AND 200),
+      guide_text TEXT NOT NULL CHECK (length(trim(guide_text)) BETWEEN 1 AND 50000),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+      version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT
+    ) STRICT;
+    CREATE INDEX interaction_guides_status_name
+      ON interaction_guides(status, name, interaction_guide_id);
     CREATE TABLE todo_routines (
       todo_routine_id INTEGER PRIMARY KEY,
       todo_group_id INTEGER NOT NULL REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
@@ -175,7 +186,8 @@ export function temporaryDatabase() {
       disabled_at_utc TEXT,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT,
-      is_all_day INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1))
+      is_all_day INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1)),
+      interaction_guide_id INTEGER REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL
     ) STRICT;
     CREATE TABLE personal_tasks (
       personal_task_id INTEGER PRIMARY KEY,

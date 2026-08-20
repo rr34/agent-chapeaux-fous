@@ -8,6 +8,7 @@ import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
 import { JmapClient } from "./jmap-client.mjs";
+import { InteractionGuides } from "./interaction-guides.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
@@ -24,6 +25,7 @@ import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
 import { registerCalendarTools } from "./tools/calendar-tools.mjs";
 import { registerContactTools } from "./tools/contact-tools.mjs";
 import { registerLogTools } from "./tools/log-tools.mjs";
+import { registerInteractionGuideTools } from "./tools/interaction-guide-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
 import { ProfileFacts } from "./profile-facts.mjs";
 import { loadProfileFactQuestions } from "./profile-fact-questions.mjs";
@@ -41,6 +43,7 @@ const store = new SlayerDatabase(config.databasePath);
 const ledger = new Ledger(store);
 const organizer = store.status.ready ? new OrganizerStore(config.databasePath) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
+const interactionGuides = new InteractionGuides({ store, ledger });
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
 const registry = new ToolRegistry();
@@ -76,6 +79,7 @@ if (store.status.ready) {
   registerContactTools(registry, store, organizer, ledger, schemaSemantics);
   registerTodoTools(registry, store, ledger, schemaSemantics);
   registerLogTools(registry, store, ledger, schemaSemantics);
+  registerInteractionGuideTools(registry, interactionGuides, schemaSemantics);
   registerProfileFactTools(registry, profileFacts, schemaSemantics);
   registerDatabaseTools(registry, store, ledger, schemaSemantics);
   registerVideoTools(registry, videoService);
@@ -455,6 +459,15 @@ const server = http.createServer(async (request, response) => {
           scope: url.searchParams.get("scope") || "active",
           limit: url.searchParams.get("limit") || 500,
         }),
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/interaction-guides") {
+      sendJson(response, 200, {
+        guides: interactionGuides.list({
+          status: url.searchParams.get("status") || "active",
+          limit: Number(url.searchParams.get("limit") || 500),
+        }).guides,
       });
       return;
     }

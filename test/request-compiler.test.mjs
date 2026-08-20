@@ -12,6 +12,7 @@ import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerJmapEmailTools } from "../src/tools/jmap-email-tools.mjs";
 import { registerLogTools } from "../src/tools/log-tools.mjs";
+import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
@@ -36,6 +37,7 @@ const tools = [
   tool("contact_lookup_batch"),
   tool("todo_list"),
   tool("log_add"),
+  tool("interaction_guide_get"),
   tool("profile_fact_list"),
   tool("profile_fact_set"),
   tool("database_read"),
@@ -58,6 +60,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("contact_merge_batch")), "contacts");
   assert.equal(capabilityForTool(tool("todo_add")), "todos");
   assert.equal(capabilityForTool(tool("tracker_update")), "logs");
+  assert.equal(capabilityForTool(tool("interaction_guide_update")), "interaction-guides");
   assert.equal(capabilityForTool(tool("database_read")), "database");
   assert.equal(capabilityForTool(tool("database_write")), "database-write");
   assert.equal(capabilityForTool(tool("email_send")), "email");
@@ -100,6 +103,7 @@ test("every currently registered local tool belongs to an explicit capability", 
   registerContactTools(registry, {}, {}, {}, null);
   registerTodoTools(registry, {}, {}, null);
   registerLogTools(registry, {}, {}, null);
+  registerInteractionGuideTools(registry, {}, null);
   registerProfileFactTools(registry, {}, null);
   registerDatabaseTools(registry, {}, {}, null);
   registerJmapEmailTools(registry, { health() { return { ready: true }; } });
@@ -107,6 +111,44 @@ test("every currently registered local tool belongs to an explicit capability", 
     registry.toolDefinitions().filter((definition) => capabilityForTool(definition) === "unclassified"),
     [],
   );
+});
+
+test("starting a linked guide selects guide and to-do capabilities", async () => {
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+  });
+  const compiled = await compiler.compile({
+    tools,
+    text: 'Start interaction guide 7 ("Morning Check-in") associated with to-do 418.',
+  });
+  assert.equal(compiled.capabilities.includes("interaction-guides"), true);
+  assert.equal(compiled.capabilities.includes("todos"), true);
+  assert.equal(names(compiled).includes("interaction_guide_get"), true);
+  assert.match(compiled.instructions, /## interaction-guides/);
+
+  const scheduled = await compiler.compile({
+    tools,
+    text: "Schedule my Morning Check-in interaction guide every weekday at 8.",
+  });
+  assert.equal(scheduled.capabilities.includes("interaction-guides"), true);
+  assert.equal(scheduled.capabilities.includes("todos"), true);
+  assert.ok(scheduled.reasons.includes("todos:interaction-guide-schedule"));
+});
+
+test("a terse answer to a guide question retains the guided interaction capabilities", () => {
+  const extendedTools = [...tools, tool("todo_interaction_guide_set")];
+  const selection = selectRequestCapabilities({
+    tools: extendedTools,
+    text: "7 hours",
+    recentConversation: [
+      { role: "user", content: 'Start the "Morning Check-in" interaction guide.' },
+      { role: "assistant", content: "How long did you sleep?" },
+    ],
+    previousCapabilities: ["database", "interaction-guides", "profile", "todos"],
+  });
+  assert.equal(selection.followsPriorTurn, true);
+  assert.deepEqual(selection.capabilities, ["database", "interaction-guides", "profile", "todos"]);
+  assert.ok(selection.reasons.includes("interaction-guides:question-answer-continuation"));
 });
 
 test("an email request receives email and durable-profile tools, not unrelated domains", () => {

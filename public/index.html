@@ -447,6 +447,10 @@
             <label id="todo-repeat-count-label" hidden>Occurrences<input id="todo-repeat-count" type="number" min="1" max="9999" step="1" value="10"></label>
             <label id="todo-repeat-until-label" hidden>Last date<input id="todo-repeat-until" type="date"></label>
           </div>
+          <label>Interaction guide
+            <select id="todo-interaction-guide"><option value="">No guide</option></select>
+            <span class="field-hint">Starting the task opens this guide; the task still owns the repeat schedule.</span>
+          </label>
           <p id="todo-repeat-summary" class="recurrence-summary"></p>
           <p class="recurrence-hint">The scheduled date and time is the first occurrence.</p>
         </div>

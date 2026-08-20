@@ -5,6 +5,32 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0018: interaction-guides
+-- Store user-owned plans for structured interactions independently from
+-- recurring to-do definitions. A repeating to-do may point to one guide, but
+-- recurrence remains entirely owned by todo_routines.
+
+CREATE TABLE interaction_guides (
+    interaction_guide_id INTEGER PRIMARY KEY,
+    name                 TEXT NOT NULL COLLATE NOCASE UNIQUE
+                         CHECK (length(trim(name)) BETWEEN 1 AND 200),
+    guide_text           TEXT NOT NULL
+                         CHECK (length(trim(guide_text)) BETWEEN 1 AND 50000),
+    status               TEXT NOT NULL DEFAULT 'active'
+                         CHECK (status IN ('active', 'archived')),
+    version              INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+    created_at_utc       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at_utc       TEXT
+) STRICT;
+
+CREATE INDEX interaction_guides_status_name
+    ON interaction_guides(status, name, interaction_guide_id);
+
+ALTER TABLE todo_routines
+ADD COLUMN interaction_guide_id INTEGER
+          REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL;
+-- end migration 0018
+
 -- migration 0017: recognize-existing-sequenced-todo-groups
 -- Migration 0016 introduced an opt-in flag with a default of zero. Preserve
 -- the established behavior of groups that already contained numbered tasks by

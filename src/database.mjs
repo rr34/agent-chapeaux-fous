@@ -46,6 +46,15 @@ export const requiredDatabaseShape = {
     "archived_by_event_id",
     "created_at_utc", "updated_at_utc", "archived_at_utc",
   ],
+  interaction_guides: [
+    "interaction_guide_id", "name", "guide_text", "status", "version",
+    "created_at_utc", "updated_at_utc",
+  ],
+  todo_routines: [
+    "todo_routine_id", "todo_group_id", "text", "first_scheduled_at_utc",
+    "first_due_at_utc", "time_zone", "recurrence_rule", "disabled_at_utc",
+    "created_at_utc", "updated_at_utc", "is_all_day", "interaction_guide_id",
+  ],
 };
 
 const protectedWriteTables = new Set([
@@ -55,6 +64,7 @@ const protectedWriteTables = new Set([
   "agent_turn_attempts",
   "database_meta",
   "files",
+  "interaction_guides",
   "profile_facts",
 ]);
 

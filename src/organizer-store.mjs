@@ -505,6 +505,9 @@ function publicTodo(row) {
     completedAtUtc: row.completed_at_utc,
     recurrenceRule: row.routine_recurrence_rule,
     recurrenceTimeZone: row.routine_time_zone,
+    interactionGuideId: row.interaction_guide_id ?? null,
+    interactionGuideName: row.interaction_guide_name ?? null,
+    interactionGuideStatus: row.interaction_guide_status ?? null,
     source: row.source,
     externalId: row.external_id,
     createdAtUtc: row.created_at_utc,
@@ -1544,11 +1547,16 @@ export class OrganizerStore {
              todo_group.archived_at_utc AS group_archived_at_utc,
              routine.recurrence_rule AS routine_recurrence_rule,
              routine.time_zone AS routine_time_zone,
+             routine.interaction_guide_id,
+             interaction_guide.name AS interaction_guide_name,
+             interaction_guide.status AS interaction_guide_status,
              related_contact.display_name AS related_contact_name,
              related_contact.status AS related_contact_status
       FROM personal_tasks AS task
       JOIN todo_groups AS todo_group USING (todo_group_id)
       LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+      LEFT JOIN interaction_guides AS interaction_guide
+        ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
       LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
       ${where}
       ORDER BY
@@ -2425,6 +2433,9 @@ export class OrganizerStore {
       dueAtUtc: isoDateTime(input?.dueAtUtc, "dueAtUtc"),
       recurrenceRule: optionalText(input?.recurrenceRule, "recurrenceRule", 2000),
       recurrenceTimeZone: timeZone(input?.recurrenceTimeZone) ?? defaultCalendarTimeZone,
+      interactionGuideId: input?.interactionGuideId == null
+        ? null
+        : identifier(input.interactionGuideId, "interaction guide id"),
     };
     const groupId = todo.groupId ?? this.database.prepare(
       "SELECT todo_group_id FROM todo_groups WHERE name = 'Inbox' COLLATE NOCASE",
@@ -2437,6 +2448,15 @@ export class OrganizerStore {
     ).get(todo.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
     if (todo.recurrenceRule && !todo.scheduledAtUtc) {
       throw new OrganizerInputError("A routine requires a scheduled date and time.");
+    }
+    if (todo.interactionGuideId !== null && !todo.recurrenceRule) {
+      throw new OrganizerInputError("An interaction guide can be linked only to a repeating to-do.");
+    }
+    if (todo.interactionGuideId !== null && !this.database.prepare(`
+      SELECT 1 FROM interaction_guides
+      WHERE interaction_guide_id = ? AND status = 'active'
+    `).get(todo.interactionGuideId)) {
+      throw new OrganizerInputError("Active interaction guide not found.", 404);
     }
     if (todo.isAllDay && !todo.scheduledAtUtc) {
       throw new OrganizerInputError("An all-day to-do requires a scheduled date.");
@@ -2464,11 +2484,12 @@ export class OrganizerStore {
         const routine = this.database.prepare(`
           INSERT INTO todo_routines (
             todo_group_id, text, first_scheduled_at_utc, first_due_at_utc,
-            time_zone, is_all_day, recurrence_rule
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            time_zone, is_all_day, recurrence_rule, interaction_guide_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           groupId, todo.text, todo.scheduledAtUtc, todo.dueAtUtc,
           todo.recurrenceTimeZone, todo.isAllDay ? 1 : 0, todo.recurrenceRule,
+          todo.interactionGuideId,
         );
         routineId = Number(routine.lastInsertRowid);
       }
@@ -2518,11 +2539,16 @@ export class OrganizerStore {
               todo_group.archived_at_utc AS group_archived_at_utc,
               routine.recurrence_rule AS routine_recurrence_rule,
               routine.time_zone AS routine_time_zone,
+              routine.interaction_guide_id,
+              interaction_guide.name AS interaction_guide_name,
+              interaction_guide.status AS interaction_guide_status,
               related_contact.display_name AS related_contact_name,
               related_contact.status AS related_contact_status
        FROM personal_tasks AS task
        JOIN todo_groups AS todo_group USING (todo_group_id)
        LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+       LEFT JOIN interaction_guides AS interaction_guide
+         ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
        LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
        WHERE task.personal_task_id = ?`,
     ).get(identifier(id, "todo id")));
@@ -2668,6 +2694,14 @@ export class OrganizerStore {
     const requestedRecurrenceTimeZone = input.recurrenceTimeZone === undefined
       ? before.recurrenceTimeZone
       : timeZone(input.recurrenceTimeZone);
+    const requestedInteractionGuideId = input.interactionGuideId === undefined
+      ? before.interactionGuideId
+      : (input.interactionGuideId == null
+        ? null
+        : identifier(input.interactionGuideId, "interaction guide id"));
+    if (!requestedRecurrenceRule && input.interactionGuideId != null) {
+      throw new OrganizerInputError("An interaction guide can be linked only to a repeating to-do.");
+    }
     const after = {
       ...before,
       groupId: input.groupId === undefined ? before.groupId : identifier(input.groupId, "group id"),
@@ -2693,6 +2727,7 @@ export class OrganizerStore {
       recurrenceTimeZone: requestedRecurrenceRule
         ? (requestedRecurrenceTimeZone ?? defaultCalendarTimeZone)
         : null,
+      interactionGuideId: requestedRecurrenceRule ? requestedInteractionGuideId : null,
     };
     if (!this.database.prepare(
       "SELECT 1 FROM todo_groups WHERE todo_group_id = ? AND archived_at_utc IS NULL",
@@ -2708,6 +2743,15 @@ export class OrganizerStore {
     }
     if (after.recurrenceRule && !after.scheduledAtUtc) {
       throw new OrganizerInputError("A routine requires a scheduled date and time.");
+    }
+    if (after.interactionGuideId !== null && !after.recurrenceRule) {
+      throw new OrganizerInputError("An interaction guide can be linked only to a repeating to-do.");
+    }
+    if (after.interactionGuideId !== null && !this.database.prepare(`
+      SELECT 1 FROM interaction_guides
+      WHERE interaction_guide_id = ? AND status = 'active'
+    `).get(after.interactionGuideId)) {
+      throw new OrganizerInputError("Active interaction guide not found.", 404);
     }
     if (after.recurrenceRule) {
       try {
@@ -2725,6 +2769,7 @@ export class OrganizerStore {
     const changes = changedFields(before, after, [
       "groupId", "sequence", "relatedContactId", "text", "status", "sortPosition",
       "scheduledAtUtc", "isAllDay", "dueAtUtc", "completedAtUtc", "recurrenceRule", "recurrenceTimeZone",
+      "interactionGuideId",
     ]);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
@@ -2750,22 +2795,24 @@ export class OrganizerStore {
         this.database.prepare(`
           UPDATE todo_routines
           SET todo_group_id = ?, text = ?, first_scheduled_at_utc = ?, first_due_at_utc = ?,
-              time_zone = ?, is_all_day = ?, recurrence_rule = ?, disabled_at_utc = NULL, updated_at_utc = ?
+              time_zone = ?, is_all_day = ?, recurrence_rule = ?, interaction_guide_id = ?,
+              disabled_at_utc = NULL, updated_at_utc = ?
           WHERE todo_routine_id = ?
         `).run(
           after.groupId, after.text, after.scheduledAtUtc, after.dueAtUtc,
           after.recurrenceTimeZone, after.isAllDay ? 1 : 0,
-          after.recurrenceRule, updatedAt, before.routineId,
+          after.recurrenceRule, after.interactionGuideId, updatedAt, before.routineId,
         );
       } else if (after.recurrenceRule) {
         const routine = this.database.prepare(`
           INSERT INTO todo_routines (
             todo_group_id, text, first_scheduled_at_utc, first_due_at_utc,
-            time_zone, is_all_day, recurrence_rule
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            time_zone, is_all_day, recurrence_rule, interaction_guide_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           after.groupId, after.text, after.scheduledAtUtc, after.dueAtUtc,
           after.recurrenceTimeZone, after.isAllDay ? 1 : 0, after.recurrenceRule,
+          after.interactionGuideId,
         );
         this.database.prepare(`
           UPDATE personal_tasks SET todo_routine_id = ? WHERE personal_task_id = ?

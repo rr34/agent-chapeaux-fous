@@ -60,7 +60,10 @@ const personalTaskFields = [
   "text", "status", "sort_position",
   "scheduled_at_utc", "is_all_day", "due_at_utc", "completed_at_utc", "created_at_utc", "updated_at_utc",
 ];
-const todoRoutineFields = ["todo_routine_id", "recurrence_rule", "time_zone"];
+const todoRoutineFields = [
+  "todo_routine_id", "recurrence_rule", "time_zone", "interaction_guide_id",
+];
+const interactionGuideFields = ["interaction_guide_id", "name", "status", "version"];
 
 const todoGroupProjection = {
   schemaObjects: ["todo_groups"],
@@ -71,11 +74,12 @@ const activeTodoGroupProjection = {
   fields: { todo_groups: ["todo_group_id", "name", "uses_sequence", "archived_at_utc"] },
 };
 const todoTaskProjection = {
-  schemaObjects: ["personal_tasks", "todo_groups", "todo_routines"],
+  schemaObjects: ["personal_tasks", "todo_groups", "todo_routines", "interaction_guides"],
   fields: {
     personal_tasks: personalTaskFields,
     todo_groups: ["todo_group_id", "name"],
     todo_routines: todoRoutineFields,
+    interaction_guides: interactionGuideFields,
   },
 };
 
@@ -95,6 +99,13 @@ function databaseTask(row) {
       todo_routine_id: row.todo_routine_id,
       recurrence_rule: row.routine_recurrence_rule ?? null,
       time_zone: row.routine_time_zone ?? null,
+      interaction_guide_id: row.interaction_guide_id ?? null,
+    },
+    interaction_guides: row.interaction_guide_id == null ? null : {
+      interaction_guide_id: row.interaction_guide_id,
+      name: row.interaction_guide_name ?? null,
+      status: row.interaction_guide_status ?? null,
+      version: row.interaction_guide_version == null ? null : Number(row.interaction_guide_version),
     },
   };
 }
@@ -103,10 +114,16 @@ function taskWithContext(database, taskId) {
   return database.prepare(`
     SELECT task.*, todo_group.name AS group_name,
            routine.recurrence_rule AS routine_recurrence_rule,
-           routine.time_zone AS routine_time_zone
+           routine.time_zone AS routine_time_zone,
+           routine.interaction_guide_id,
+           interaction_guide.name AS interaction_guide_name,
+           interaction_guide.status AS interaction_guide_status,
+           interaction_guide.version AS interaction_guide_version
     FROM personal_tasks AS task
     JOIN todo_groups AS todo_group USING (todo_group_id)
     LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+    LEFT JOIN interaction_guides AS interaction_guide
+      ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
     WHERE task.personal_task_id = ?
   `).get(taskId);
 }
@@ -229,10 +246,16 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       const rows = database.prepare(`
         SELECT task.*, todo_group.name AS group_name,
                routine.recurrence_rule AS routine_recurrence_rule,
-               routine.time_zone AS routine_time_zone
+               routine.time_zone AS routine_time_zone,
+               routine.interaction_guide_id,
+               interaction_guide.name AS interaction_guide_name,
+               interaction_guide.status AS interaction_guide_status,
+               interaction_guide.version AS interaction_guide_version
         FROM personal_tasks AS task
         JOIN todo_groups AS todo_group USING (todo_group_id)
         LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+        LEFT JOIN interaction_guides AS interaction_guide
+          ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
         ORDER BY todo_group.name COLLATE NOCASE,
                  task.sequence IS NULL, task.sequence DESC,
@@ -248,7 +271,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal to-do item, optionally at an exact 1-based position in its group's manual sort order, associated with the exact contact it concerns, or with an all-day schedule or structured recurrence. Position 1 puts the new task at the top. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
+    description: "Add one native personal to-do item, optionally at an exact 1-based position in its group's manual sort order, associated with the exact contact it concerns, or with an all-day schedule or structured recurrence. A recurring to-do may link to one active interaction guide by exact ID; the to-do owns recurrence and the guide supplies only the interaction plan. Position 1 puts the new task at the top. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -256,6 +279,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         text: { type: "string", minLength: 1, maxLength: 10000 },
         group: optionalText,
         related_contact_id: { type: ["integer", "null"], minimum: 1 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
         scheduled_at_utc: optionalText,
         is_all_day: { type: "boolean" },
         due_at_utc: optionalText,
@@ -266,6 +290,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     },
     async execute({
       text, group: groupName, related_contact_id: relatedContactId = null,
+      interaction_guide_id: interactionGuideId = null,
       scheduled_at_utc: scheduledAtUtc,
       is_all_day: isAllDay = false, due_at_utc: dueAtUtc, recurrence = null,
       position = null,
@@ -274,11 +299,20 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       const taskText = text.trim();
       if (!taskText) throw new Error("To-do text cannot be empty");
       if (recurrence && !scheduledAtUtc) throw new Error("A recurring to-do requires scheduled_at_utc");
+      if (interactionGuideId !== null && !recurrence) {
+        throw new Error("interaction_guide_id can be linked only to a recurring to-do");
+      }
       if (isAllDay && !scheduledAtUtc) throw new Error("An all-day to-do requires scheduled_at_utc");
       if (relatedContactId !== null && !database.prepare(`
         SELECT 1 FROM contacts WHERE contact_id = ?
       `).get(relatedContactId)) {
         throw new Error(`Related contact ${relatedContactId} does not exist`);
+      }
+      if (interactionGuideId !== null && !database.prepare(`
+        SELECT 1 FROM interaction_guides
+        WHERE interaction_guide_id = ? AND status = 'active'
+      `).get(interactionGuideId)) {
+        throw new Error(`Active interaction guide ${interactionGuideId} does not exist`);
       }
       const recurrenceRule = recurrence ? buildTodoRecurrenceRule(recurrence) : null;
       const recurrenceTimeZone = recurrence ? validateTimeZone(recurrence.time_zone) : null;
@@ -301,11 +335,11 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           const routine = database.prepare(`
             INSERT INTO todo_routines (
               todo_group_id, text, first_scheduled_at_utc, first_due_at_utc,
-              time_zone, is_all_day, recurrence_rule
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+              time_zone, is_all_day, recurrence_rule, interaction_guide_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             selectedGroup.todo_group_id, taskText, scheduledAtUtc, dueAtUtc || null,
-            recurrenceTimeZone, isAllDay ? 1 : 0, recurrenceRule,
+            recurrenceTimeZone, isAllDay ? 1 : 0, recurrenceRule, interactionGuideId,
           );
           routineId = Number(routine.lastInsertRowid);
         }
@@ -327,6 +361,14 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           group_name: selectedGroup.name,
           routine_recurrence_rule: recurrenceRule,
           routine_time_zone: recurrenceTimeZone,
+          interaction_guide_id: interactionGuideId,
+          interaction_guide_name: interactionGuideId === null ? null : database.prepare(`
+            SELECT name FROM interaction_guides WHERE interaction_guide_id = ?
+          `).get(interactionGuideId).name,
+          interaction_guide_status: interactionGuideId === null ? null : "active",
+          interaction_guide_version: interactionGuideId === null ? null : database.prepare(`
+            SELECT version FROM interaction_guides WHERE interaction_guide_id = ?
+          `).get(interactionGuideId).version,
         });
         const groupResolution = {
           requested_group: requestedGroup,
@@ -598,8 +640,82 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   });
 
   registry.register({
+    name: "todo_interaction_guide_set",
+    description: "Link or unlink one exact active interaction guide on an existing repeating native to-do without changing its recurrence. The to-do remains the owner of the schedule and recurrence. Set interaction_guide_id to null to remove the link.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        personal_task_id: { type: "integer", minimum: 1 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+      },
+      required: ["personal_task_id", "interaction_guide_id"],
+    },
+    async execute({ personal_task_id: taskId, interaction_guide_id: interactionGuideId }, context) {
+      const database = store.requireReady();
+      const before = taskWithContext(database, taskId);
+      if (!before) throw new Error(`To-do ${taskId} does not exist`);
+      if (before.todo_routine_id == null || !before.routine_recurrence_rule) {
+        throw new Error("An interaction guide can be linked only to a repeating to-do");
+      }
+      if (interactionGuideId !== null && !database.prepare(`
+        SELECT 1 FROM interaction_guides
+        WHERE interaction_guide_id = ? AND status = 'active'
+      `).get(interactionGuideId)) {
+        throw new Error(`Active interaction guide ${interactionGuideId} does not exist`);
+      }
+      if ((before.interaction_guide_id ?? null) === interactionGuideId) {
+        return todoResult(schemaSemantics, context, {
+          updated: false,
+          unchanged: true,
+          task: databaseTask(before),
+        }, {
+          name: "todo_interaction_guide_set",
+          purpose: "Return the unchanged repeating personal task and its interaction-guide link.",
+        });
+      }
+      const updatedAt = new Date().toISOString();
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        database.prepare(`
+          UPDATE todo_routines SET interaction_guide_id = ?, updated_at_utc = ?
+          WHERE todo_routine_id = ?
+        `).run(interactionGuideId, updatedAt, before.todo_routine_id);
+        database.prepare(`
+          UPDATE personal_tasks SET updated_at_utc = ? WHERE personal_task_id = ?
+        `).run(updatedAt, taskId);
+        const task = databaseTask(taskWithContext(database, taskId));
+        ledger.append({
+          type: "personal_todo.interaction_guide_set", status: "complete",
+          actorType: "tool", actorName: "todo_interaction_guide_set",
+          turnId: context.requestId, operationId: context.callId,
+          name: interactionGuideId === null
+            ? "Interaction guide unlinked from repeating to-do"
+            : "Interaction guide linked to repeating to-do",
+          content: task.text,
+          payload: { before: databaseTask(before), task },
+          subjectType: "personal_task", subjectId: String(taskId),
+        });
+        const result = todoResult(schemaSemantics, context, {
+          updated: true,
+          unchanged: false,
+          task,
+        }, {
+          name: "todo_interaction_guide_set",
+          purpose: "Return the repeating personal task after linking or unlinking its interaction guide.",
+        });
+        database.exec("COMMIT");
+        return result;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  });
+
+  registry.register({
     name: "todo_recurrence_set",
-    description: "Add, change, or remove recurrence for an existing native to-do. Use structured recurrence fields; never compose RRULE syntax. The task must already have scheduled_at_utc before recurrence can be enabled. Set enabled=false and recurrence=null to make the current task one-time and disable future occurrences.",
+    description: "Add, change, or remove recurrence for an existing native to-do and optionally link or unlink one active interaction guide by exact ID. Use structured recurrence fields; never compose RRULE syntax. The task must already have scheduled_at_utc before recurrence can be enabled. Set enabled=false and recurrence=null to make the current task one-time and disable future occurrences.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -607,23 +723,47 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         personal_task_id: { type: "integer", minimum: 1 },
         enabled: { type: "boolean" },
         recurrence: todoRecurrenceSchema,
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
       },
       required: ["personal_task_id", "enabled", "recurrence"],
     },
-    async execute({ personal_task_id: taskId, enabled, recurrence }, context) {
+    async execute({
+      personal_task_id: taskId, enabled, recurrence,
+      interaction_guide_id: requestedInteractionGuideId,
+    }, context) {
       const database = store.requireReady();
       const before = database.prepare(`
         SELECT task.*, todo_group.name AS group_name,
                routine.recurrence_rule AS routine_recurrence_rule,
-               routine.time_zone AS routine_time_zone
+               routine.time_zone AS routine_time_zone,
+               routine.interaction_guide_id,
+               interaction_guide.name AS interaction_guide_name,
+               interaction_guide.status AS interaction_guide_status,
+               interaction_guide.version AS interaction_guide_version
         FROM personal_tasks AS task
         JOIN todo_groups AS todo_group USING (todo_group_id)
         LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+        LEFT JOIN interaction_guides AS interaction_guide
+          ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
         WHERE task.personal_task_id = ?
       `).get(taskId);
       if (!before) throw new Error(`To-do ${taskId} does not exist`);
       if (enabled && !recurrence) throw new Error("recurrence is required when enabled is true");
       if (enabled && !before.scheduled_at_utc) throw new Error("Schedule the to-do before enabling recurrence");
+      if (!enabled && requestedInteractionGuideId != null) {
+        throw new Error("An interaction guide can be linked only while recurrence is enabled");
+      }
+      const interactionGuideId = enabled
+        ? (requestedInteractionGuideId === undefined
+          ? (before.interaction_guide_id ?? null)
+          : requestedInteractionGuideId)
+        : null;
+      if (interactionGuideId !== null && !database.prepare(`
+        SELECT 1 FROM interaction_guides
+        WHERE interaction_guide_id = ? AND status = 'active'
+      `).get(interactionGuideId)) {
+        throw new Error(`Active interaction guide ${interactionGuideId} does not exist`);
+      }
       const recurrenceRule = enabled ? buildTodoRecurrenceRule(recurrence) : null;
       const recurrenceTimeZone = enabled ? validateTimeZone(recurrence.time_zone) : null;
       const updatedAt = new Date().toISOString();
@@ -635,21 +775,22 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           database.prepare(`
             UPDATE todo_routines
             SET todo_group_id = ?, text = ?, first_scheduled_at_utc = ?, first_due_at_utc = ?,
-                time_zone = ?, is_all_day = ?, recurrence_rule = ?, disabled_at_utc = NULL, updated_at_utc = ?
+                time_zone = ?, is_all_day = ?, recurrence_rule = ?, interaction_guide_id = ?,
+                disabled_at_utc = NULL, updated_at_utc = ?
             WHERE todo_routine_id = ?
           `).run(
             before.todo_group_id, before.text, before.scheduled_at_utc, before.due_at_utc,
-            recurrenceTimeZone, before.is_all_day, recurrenceRule, updatedAt, routineId,
+            recurrenceTimeZone, before.is_all_day, recurrenceRule, interactionGuideId, updatedAt, routineId,
           );
         } else if (enabled) {
           const routine = database.prepare(`
             INSERT INTO todo_routines (
               todo_group_id, text, first_scheduled_at_utc, first_due_at_utc,
-              time_zone, is_all_day, recurrence_rule
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+              time_zone, is_all_day, recurrence_rule, interaction_guide_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             before.todo_group_id, before.text, before.scheduled_at_utc, before.due_at_utc,
-            recurrenceTimeZone, before.is_all_day, recurrenceRule,
+            recurrenceTimeZone, before.is_all_day, recurrenceRule, interactionGuideId,
           );
           routineId = Number(routine.lastInsertRowid);
         } else if (routineId) {
@@ -666,10 +807,16 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         const row = database.prepare(`
           SELECT task.*, todo_group.name AS group_name,
                  routine.recurrence_rule AS routine_recurrence_rule,
-                 routine.time_zone AS routine_time_zone
+                 routine.time_zone AS routine_time_zone,
+                 routine.interaction_guide_id,
+                 interaction_guide.name AS interaction_guide_name,
+                 interaction_guide.status AS interaction_guide_status,
+                 interaction_guide.version AS interaction_guide_version
           FROM personal_tasks AS task
           JOIN todo_groups AS todo_group USING (todo_group_id)
           LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+          LEFT JOIN interaction_guides AS interaction_guide
+            ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
           WHERE task.personal_task_id = ?
         `).get(taskId);
         const task = databaseTask(row);
@@ -716,10 +863,16 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         const rows = movedTodoIds.length === 0 ? [] : database.prepare(`
           SELECT task.*, todo_group.name AS group_name,
                  routine.recurrence_rule AS routine_recurrence_rule,
-                 routine.time_zone AS routine_time_zone
+                 routine.time_zone AS routine_time_zone,
+                 routine.interaction_guide_id,
+                 interaction_guide.name AS interaction_guide_name,
+                 interaction_guide.status AS interaction_guide_status,
+                 interaction_guide.version AS interaction_guide_version
           FROM personal_tasks AS task
           JOIN todo_groups AS todo_group USING (todo_group_id)
           LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+          LEFT JOIN interaction_guides AS interaction_guide
+            ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
           WHERE task.personal_task_id IN (${movedTodoIds.map(() => "?").join(", ")})
           ORDER BY task.personal_task_id
         `).all(...movedTodoIds).map(databaseTask);
@@ -827,10 +980,16 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           const generated = database.prepare(`
             SELECT task.*, todo_group.name AS group_name,
                    routine.recurrence_rule AS routine_recurrence_rule,
-                   routine.time_zone AS routine_time_zone
+                   routine.time_zone AS routine_time_zone,
+                   routine.interaction_guide_id,
+                   interaction_guide.name AS interaction_guide_name,
+                   interaction_guide.status AS interaction_guide_status,
+                   interaction_guide.version AS interaction_guide_version
             FROM personal_tasks AS task
             JOIN todo_groups AS todo_group USING (todo_group_id)
             LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+            LEFT JOIN interaction_guides AS interaction_guide
+              ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
             WHERE task.personal_task_id = ?
           `).get(generatedTaskId);
           const generatedEventId = ledger.append({
@@ -849,10 +1008,16 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         const row = database.prepare(`
           SELECT task.*, todo_group.name AS group_name,
                  routine.recurrence_rule AS routine_recurrence_rule,
-                 routine.time_zone AS routine_time_zone
+                 routine.time_zone AS routine_time_zone,
+                 routine.interaction_guide_id,
+                 interaction_guide.name AS interaction_guide_name,
+                 interaction_guide.status AS interaction_guide_status,
+                 interaction_guide.version AS interaction_guide_version
           FROM personal_tasks AS task
           JOIN todo_groups AS todo_group USING (todo_group_id)
           LEFT JOIN todo_routines AS routine USING (todo_routine_id)
+          LEFT JOIN interaction_guides AS interaction_guide
+            ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
           WHERE task.personal_task_id = ?
         `).get(taskId);
         const task = databaseTask(row);

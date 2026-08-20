@@ -146,6 +146,7 @@ const elements = {
   todoRepeatCount: document.querySelector("#todo-repeat-count"),
   todoRepeatUntilLabel: document.querySelector("#todo-repeat-until-label"),
   todoRepeatUntil: document.querySelector("#todo-repeat-until"),
+  todoInteractionGuide: document.querySelector("#todo-interaction-guide"),
   todoRepeatSummary: document.querySelector("#todo-repeat-summary"),
   todoFormError: document.querySelector("#todo-form-error"),
   contentSearch: document.querySelector("#content-search"),
@@ -251,6 +252,7 @@ let eventInviteCreated = false;
 let displayedTodos = [];
 let todoGroups = [];
 let todoContacts = [];
+let todoGuides = [];
 let contentItems = [];
 let contentGroups = [];
 let contentSearchTimer = null;
@@ -555,6 +557,7 @@ function describeTodoRecurrence(rule) {
 function updateTodoRecurrenceEditor() {
   const enabled = elements.todoRepeatEnabled.checked;
   elements.todoRepeatFields.hidden = !enabled;
+  elements.todoInteractionGuide.disabled = !enabled;
   if (!enabled) return;
   const weekly = elements.todoRepeatFrequency.value === "WEEKLY";
   elements.todoRepeatWeekdays.hidden = !weekly;
@@ -1104,14 +1107,16 @@ function switchView(view) {
 async function refreshCalendar() {
   const { gridStart, gridEnd } = twoWeekCalendarRange(calendarRangeStart);
   try {
-    const [calendarBody, todoBody, groupBody] = await Promise.all([
+    const [calendarBody, todoBody, groupBody, guideBody] = await Promise.all([
       api(`/api/calendar-events?from=${encodeURIComponent(gridStart.toISOString())}&to=${encodeURIComponent(gridEnd.toISOString())}`),
       api("/api/todos?scope=active&limit=1000"),
       api("/api/todo-groups"),
+      api("/api/interaction-guides?status=active&limit=500"),
     ]);
     calendarEvents = calendarBody.events;
     activeTodos = todoBody.todos;
     todoGroups = groupBody.groups;
+    todoGuides = guideBody.guides;
     if (calendarSchedulingTodo) {
       calendarSchedulingTodo = activeTodos.find(({ id }) => id === calendarSchedulingTodo.id) ?? null;
       updateCalendarSchedulingMode();
@@ -1383,11 +1388,20 @@ function renderAgenda() {
     elements.agendaList.append(item);
   }
   for (const { todo, timing } of todoEntries) {
+    const item = node("div", "agenda-event");
     const button = node("button", "agenda-item todo");
     button.type = "button";
     button.append(node("strong", "", todo.text), node("span", "", `${timing} · ${todo.status.replaceAll("_", " ")}`));
     button.addEventListener("click", () => openTodoEditor(todo));
-    elements.agendaList.append(button);
+    item.append(button);
+    if (todo.interactionGuideId != null && todo.interactionGuideStatus === "active"
+        && ["todo", "ai_suggested"].includes(todo.status)) {
+      const startGuide = node("button", "secondary compact agenda-event-copy", "Start guide");
+      startGuide.type = "button";
+      startGuide.addEventListener("click", () => void startTodoInteractionGuide(todo, startGuide));
+      item.append(startGuide);
+    }
+    elements.agendaList.append(item);
   }
 }
 
@@ -1676,14 +1690,16 @@ async function deleteEditedEvent() {
 
 async function refreshTodos() {
   try {
-    const [body, groupBody, contactBody] = await Promise.all([
+    const [body, groupBody, contactBody, guideBody] = await Promise.all([
       api(`/api/todos?scope=${encodeURIComponent(elements.todoScope.value)}&limit=1000`),
       api("/api/todo-groups"),
       api("/api/contacts?scope=all&limit=10000"),
+      api("/api/interaction-guides?status=active&limit=500"),
     ]);
     displayedTodos = body.todos;
     todoGroups = groupBody.groups;
     todoContacts = contactBody.contacts;
+    todoGuides = guideBody.guides;
     const selectedGroup = elements.todoGroupFilter.value;
     elements.todoGroupFilter.replaceChildren(node("option", "", "All groups"));
     elements.todoGroupFilter.firstElementChild.value = "";
@@ -1894,6 +1910,13 @@ function renderTodos() {
         metadata.append(node("span", `todo-pill ${todo.status !== "complete" && due < new Date() ? "overdue" : ""}`, `due ${formatTodoDateTime(due)}`));
       }
       if (todo.recurrenceRule) metadata.append(node("span", "todo-pill", describeTodoRecurrence(todo.recurrenceRule)));
+      if (todo.interactionGuideId != null) {
+        metadata.append(node(
+          "span",
+          "todo-pill",
+          `guide: ${todo.interactionGuideName ?? `#${todo.interactionGuideId}`}`,
+        ));
+      }
       body.append(metadata);
       const actions = node("div", "todo-actions");
       const schedule = node("button", "secondary compact", todo.scheduledAtUtc ? "Reschedule" : "Schedule");
@@ -1918,6 +1941,13 @@ function renderTodos() {
       down.addEventListener("click", () => void moveTodo(todo, "down", visibleTodos));
       bottom.addEventListener("click", () => void moveTodo(todo, "bottom", visibleTodos));
       edit.addEventListener("click", () => openTodoEditor(todo));
+      if (todo.interactionGuideId != null && todo.interactionGuideStatus === "active"
+          && ["todo", "ai_suggested"].includes(todo.status)) {
+        const startGuide = node("button", "secondary compact", "Start guide");
+        startGuide.type = "button";
+        startGuide.addEventListener("click", () => void startTodoInteractionGuide(todo, startGuide));
+        actions.append(startGuide);
+      }
       if (["todo", "ai_suggested"].includes(todo.status)) actions.append(schedule);
       if (group.usesSequence) {
         const assignSequence = node("button", "secondary compact", "Assign next #");
@@ -2036,6 +2066,7 @@ function openTodoEditor(todo = null, groupId = null) {
   elements.todoVersion.value = todo?.version ?? "";
   populateTodoGroupEditor(todo?.groupId ?? groupId ?? (elements.todoGroupFilter.value || todoGroups[0]?.id || ""));
   populateTodoContactEditor(todo);
+  populateTodoGuideEditor(todo);
   elements.todoText.value = todo?.text ?? "";
   elements.todoSequence.value = todo?.sequence ?? "";
   elements.todoAllDay.checked = Boolean(todo?.isAllDay);
@@ -2102,6 +2133,50 @@ function populateTodoContactEditor(todo = null) {
   elements.todoContact.value = todo?.relatedContactId == null ? "" : String(todo.relatedContactId);
 }
 
+function populateTodoGuideEditor(todo = null) {
+  elements.todoInteractionGuide.replaceChildren(node("option", "", "No guide"));
+  elements.todoInteractionGuide.firstElementChild.value = "";
+  for (const guide of todoGuides) {
+    const option = node("option", "", guide.name);
+    option.value = String(guide.id);
+    elements.todoInteractionGuide.append(option);
+  }
+  if (todo?.interactionGuideId != null
+      && !todoGuides.some(({ id }) => id === todo.interactionGuideId)) {
+    const option = node(
+      "option", "",
+      `${todo.interactionGuideName ?? `Guide #${todo.interactionGuideId}`} (${todo.interactionGuideStatus ?? "unavailable"})`,
+    );
+    option.value = String(todo.interactionGuideId);
+    elements.todoInteractionGuide.append(option);
+  }
+  elements.todoInteractionGuide.value = todo?.interactionGuideId == null
+    ? ""
+    : String(todo.interactionGuideId);
+}
+
+async function startTodoInteractionGuide(todo, button) {
+  button.disabled = true;
+  const respondSilently = elements.respondSilently.checked;
+  prepareSpeechOutput(respondSilently);
+  try {
+    const created = await api("/api/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `Start interaction guide ${todo.interactionGuideId} ("${todo.interactionGuideName}") associated with to-do ${todo.id}.`,
+      }),
+    });
+    expectSpokenResponse(created.requestId, respondSilently);
+    elements.status.textContent = `${todo.interactionGuideName} queued.`;
+    switchView("agent");
+    await loadRequests({ force: true });
+  } catch (error) {
+    window.alert(error.message || "Could not start the interaction guide.");
+    button.disabled = false;
+  }
+}
+
 async function saveTodo(event) {
   event.preventDefault();
   elements.todoFormError.textContent = "";
@@ -2117,6 +2192,9 @@ async function saveTodo(event) {
       isAllDay: elements.todoAllDay.checked && Boolean(elements.todoScheduled.value),
       dueAtUtc: inputToIso(elements.todoDue.value),
       status: elements.todoStatus.value,
+      interactionGuideId: elements.todoRepeatEnabled.checked && elements.todoInteractionGuide.value
+        ? Number(elements.todoInteractionGuide.value)
+        : null,
     };
     if (todoRecurrenceDirty) {
       payload.recurrenceRule = buildTodoRecurrenceRule();

@@ -4,6 +4,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
+import { InteractionGuides } from "../src/interaction-guides.mjs";
 import { ProfileFacts } from "../src/profile-facts.mjs";
 import { SchemaSemantics } from "../src/schema-semantics.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
@@ -11,6 +12,7 @@ import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
 import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerLogTools } from "../src/tools/log-tools.mjs";
+import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { OrganizerStore } from "../src/organizer-store.mjs";
@@ -135,6 +137,18 @@ test("structured database reads return an exact schema-semantic projection", asy
     }),
     /limit must be an integer from 1 to 200/,
   );
+  await assert.rejects(
+    registry.execute("database_read", {
+      objectName: "interaction_guides",
+      columns: ["name", "guide_text"],
+      where: {},
+      orderBy: "name",
+      orderDirection: "asc",
+      limit: 20,
+      offset: 0,
+    }),
+    /generic database reads do not load guide rows/,
+  );
 });
 
 test("native database-backed tools return stored field names with semantic projections", async (context) => {
@@ -155,6 +169,11 @@ test("native database-backed tools return stored field names with semantic proje
   registerContactTools(registry, store, organizer, ledger, schemaSemantics);
   registerTodoTools(registry, store, ledger, schemaSemantics);
   registerLogTools(registry, store, ledger, schemaSemantics);
+  registerInteractionGuideTools(
+    registry,
+    new InteractionGuides({ store, ledger }),
+    schemaSemantics,
+  );
   registerProfileFactTools(registry, profileFacts, schemaSemantics);
   const definitions = Object.fromEntries(
     registry.toolDefinitions().map((definition) => [definition.name, definition.inputSchema.properties]),
@@ -165,6 +184,7 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.log_add, "content"), false);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "fact_type"), true);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "factType"), false);
+  assert.equal(Object.hasOwn(definitions.interaction_guide_update, "guide_text"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "starts_at_utc"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "startsAtUtc"), false);
   assert.equal(Object.hasOwn(definitions.contact_import, "entries"), true);
@@ -212,5 +232,15 @@ test("native database-backed tools return stored field names with semantic proje
   assert.match(
     fact.schemaProjection.schemaProjection.schemaObjects.profile_facts.fields.fact_text.meaning,
     /Self-contained natural-language statement/,
+  );
+
+  const guide = await registry.execute("interaction_guide_create", {
+    name: "Morning Check-in",
+    guide_text: "Ask what matters today.",
+  }, toolContext);
+  assert.equal(guide.guide.name, "Morning Check-in");
+  assert.match(
+    guide.schemaProjection.schemaProjection.schemaObjects.interaction_guides.fields.guide_text.meaning,
+    /Complete user-owned plan/,
   );
 });

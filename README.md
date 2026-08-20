@@ -173,7 +173,7 @@ to the model; UI transport objects remain an independent browser concern.
   responses are not returned to the model.
 - `todo_group_list`, `todo_group_create`, `todo_group_rename`,
   `todo_group_archive`, `todo_list`, `todo_add`, `todo_recurrence_set`,
-  `todo_position_set`, and `todo_update` provide the native personal to-do path
+  `todo_interaction_guide_set`, `todo_position_set`, and `todo_update` provide the native personal to-do path
   without requiring the model to invent SQL. The agent inspects existing groups before
   assigning an otherwise ungrouped task; Inbox is the catchall when no group is
   a clear match. Group archival fails while active tasks remain and preserves
@@ -227,6 +227,12 @@ to the model; UI transport objects remain an independent browser concern.
   distinct imports; ambiguous groups remain queued for AI judgment.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
+- `interaction_guide_list`, `interaction_guide_get`,
+  `interaction_guide_create`, `interaction_guide_update`, and
+  `interaction_guide_archive` manage durable user-owned plans for structured,
+  potentially multi-turn interactions. Guide text is loaded only when an exact
+  guide is requested. A recurring to-do may link to a guide while continuing to
+  own its schedule and recurrence.
 - `database_schema` and paginated `database_read` are a small read-only core
   capability available on every model request, including access to the native
   activity ledger. `database_write` is a separately routed capability, so broad
