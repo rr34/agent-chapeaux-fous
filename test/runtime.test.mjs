@@ -410,6 +410,105 @@ test("the runtime expands deferred capabilities and continues the same user requ
   assert.deepEqual(conversationMarker.capabilities, ["alpha", "beta"]);
 });
 
+test("late capability expansion preserves earlier same-request tool receipts without repeating work", async () => {
+  const modelRequests = [];
+  let alphaExecutions = 0;
+  let betaExecutions = 0;
+  const modelTransport = fakeTransport(async (payload) => {
+    modelRequests.push(payload);
+    if (modelRequests.length === 1) {
+      const alpha = await payload.onToolCall({
+        callId: "read-alpha",
+        tool: "alpha_read",
+        arguments: { id: 3 },
+      });
+      assert.deepEqual(alpha, { ok: true, result: { id: 3, scope: "project-3" } });
+      const expansion = await payload.onToolCall({
+        callId: "expand-beta-late",
+        tool: "request_capabilities",
+        arguments: { capabilities: ["beta"] },
+      });
+      assert.equal(expansion.ok, true);
+      return completedTurn({ text: "Continuing.", threadId: "first-thread" });
+    }
+    assert.match(payload.developerInstructions, /Earlier tool receipts from this same user request/);
+    assert.match(payload.developerInstructions, /"tool":"alpha_read"/);
+    assert.match(payload.developerInstructions, /"scope":"project-3"/);
+    const beta = await payload.onToolCall({
+      callId: "write-beta",
+      tool: "beta_write",
+      arguments: { project: 3 },
+    });
+    assert.equal(beta.ok, true);
+    return completedTurn({ text: "Finished from the earlier read.", threadId: "second-thread" });
+  });
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "alpha_read", description: "read alpha",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { id: { type: "integer" } }, required: ["id"],
+    },
+    async execute({ id }) { alphaExecutions += 1; return { id, scope: `project-${id}` }; },
+  });
+  registry.register({
+    name: "beta_write", description: "write beta",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { project: { type: "integer" } }, required: ["project"],
+    },
+    async execute({ project }) { betaExecutions += 1; return { project, written: true }; },
+  });
+  const expansionTool = {
+    name: "request_capabilities", description: "Load beta.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { capabilities: { type: "array", items: { type: "string", enum: ["beta"] } } },
+      required: ["capabilities"],
+    },
+    strict: true, source: "local", upstreamName: null,
+  };
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    requestCompiler: {
+      async compile({ tools, capabilityOverride }) {
+        return capabilityOverride ? {
+          tools, capabilities: ["alpha", "beta"], instructionCapabilities: [],
+          reasons: ["expanded"], fallbackAll: false, followsPriorTurn: false,
+          availableToolCount: tools.length, deferredCapabilities: [], capabilityCatalog: [], instructions: "",
+        } : {
+          tools: [tools.find(({ name }) => name === "alpha_read"), expansionTool],
+          capabilities: ["alpha"], instructionCapabilities: [], reasons: ["initial"],
+          fallbackAll: false, followsPriorTurn: false, availableToolCount: tools.length,
+          deferredCapabilities: ["beta"], capabilityCatalog: [], instructions: "",
+        };
+      },
+    },
+    contextBuilder: {
+      async build() {
+        return {
+          text: "bounded", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: { append() {}, markConversationStarted() {} },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+
+  const answer = await runtime.run({
+    requestId: "late-expand", requestEventId: "late-expand-event",
+    text: "Read alpha, then use what you learn to write beta.",
+  });
+  assert.equal(answer, "Finished from the earlier read.");
+  assert.equal(modelRequests.length, 2);
+  assert.equal(alphaExecutions, 1);
+  assert.equal(betaExecutions, 1);
+});
+
 test("a capability change starts a fresh thread with bounded prior conversation context", async () => {
   let contextOptions;
   let modelConversationId;

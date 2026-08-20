@@ -14,6 +14,23 @@ function bounded(value, maximum) {
   return { text: result, originalCharacters: text.length, sentCharacters: result.length, truncated: true };
 }
 
+function boundedRecentHistory(history, maximum = 10_000) {
+  if (!history.length) return "No prior Agent Slayer exchanges are available.";
+  const selected = [];
+  let characters = 0;
+  for (const entry of [...history].reverse()) {
+    const block = `${entry.role.toUpperCase()}: ${entry.content}`;
+    const additional = block.length + (selected.length ? 2 : 0);
+    if (selected.length && characters + additional > maximum) break;
+    selected.unshift(block);
+    characters += additional;
+  }
+  const omitted = selected.length < history.length
+    ? `[${history.length - selected.length} older exchange entries omitted]\n\n`
+    : "";
+  return `${omitted}${selected.join("\n\n")}`;
+}
+
 function activeTrackerRows(store, limit = 200) {
   if (!store?.status?.ready) return [];
   return store.requireReady().prepare(`
@@ -55,8 +72,8 @@ export class ContextBuilder {
     profileFacts,
     store = null,
     profileFactQuestions = null,
-    historyLimit = 4,
-    maximumCharacters = 8000,
+    historyLimit = 12,
+    maximumCharacters = 16000,
     maximumAttachmentCharacters = 64 * 1024,
   }) {
     this.ledger = ledger;
@@ -106,9 +123,7 @@ export class ContextBuilder {
     const activeTrackers = capabilities.includes("logs")
       ? activeTrackerRows(this.store)
       : [];
-    const historyText = history.length
-      ? history.map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`).join("\n\n")
-      : "No prior Agent Slayer exchanges are available.";
+    const historyText = boundedRecentHistory(history);
     const sections = [
       "# Current time",
       `Current UTC time: ${new Date().toISOString()}`,

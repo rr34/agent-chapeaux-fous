@@ -18,6 +18,50 @@ import { temporaryDatabase } from "./helpers.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+test("structured database reads expose bounded offset pagination", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  ledger.append({ type: "test.page", name: "first pagination marker" });
+  ledger.append({ type: "test.page", name: "second pagination marker" });
+
+  const registry = new ToolRegistry();
+  registerDatabaseTools(registry, store, ledger, null);
+  const definition = registry.toolDefinitions().find(({ name }) => name === "database_read");
+  assert.deepEqual(definition.inputSchema.properties.offset, {
+    type: "integer", minimum: 0, maximum: 1000000,
+  });
+
+  const first = await registry.execute("database_read", {
+    objectName: "activity_events",
+    columns: ["event_seq", "name"],
+    where: { event_type: "test.page" },
+    orderBy: "event_seq",
+    orderDirection: "asc",
+    limit: 1,
+    offset: 0,
+  });
+  assert.equal(first.count, 1);
+  assert.equal(first.hasMore, true);
+  assert.equal(first.nextOffset, 1);
+
+  const second = await registry.execute("database_read", {
+    objectName: "activity_events",
+    columns: ["event_seq", "name"],
+    where: { event_type: "test.page" },
+    orderBy: "event_seq",
+    orderDirection: "asc",
+    limit: 1,
+    offset: first.nextOffset,
+  });
+  assert.equal(second.rows[0].name, "second pagination marker");
+  assert.notEqual(second.rows[0].event_seq, first.rows[0].event_seq);
+  assert.equal(second.hasMore, false);
+  assert.equal(second.nextOffset, null);
+});
+
 test("structured database reads return an exact schema-semantic projection", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

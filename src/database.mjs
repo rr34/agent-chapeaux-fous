@@ -183,7 +183,7 @@ export class SlayerDatabase {
     return { sql: ` WHERE ${clauses.join(" AND ")}`, values };
   }
 
-  read({ objectName, columns = null, where = {}, orderBy = null, orderDirection = "asc", limit = 50 }) {
+  read({ objectName, columns = null, where = {}, orderBy = null, orderDirection = "asc", limit = 50, offset = 0 }) {
     const object = this.objectInfo(objectName);
     const selected = Array.isArray(columns) && columns.length ? columns : object.columns.map((column) => column.name);
     this.validateColumns(selected, object.columns);
@@ -197,9 +197,24 @@ export class SlayerDatabase {
     if (!Number.isInteger(boundedLimit) || boundedLimit < 1 || boundedLimit > 200) {
       throw new Error("limit must be an integer from 1 to 200");
     }
-    const sql = `SELECT ${selected.map((column) => identifier(column, "column")).join(", ")} FROM ${identifier(objectName, "object")}${condition.sql}${ordering} LIMIT ?`;
-    const rows = this.requireReady().prepare(sql).all(...condition.values, boundedLimit).map(serializable);
-    return { objectName, sql, count: rows.length, limit: boundedLimit, rows };
+    const boundedOffset = Number(offset);
+    if (!Number.isSafeInteger(boundedOffset) || boundedOffset < 0 || boundedOffset > 1_000_000) {
+      throw new Error("offset must be an integer from 0 to 1000000");
+    }
+    const sql = `SELECT ${selected.map((column) => identifier(column, "column")).join(", ")} FROM ${identifier(objectName, "object")}${condition.sql}${ordering} LIMIT ? OFFSET ?`;
+    const fetched = this.requireReady().prepare(sql).all(...condition.values, boundedLimit + 1, boundedOffset).map(serializable);
+    const hasMore = fetched.length > boundedLimit;
+    const rows = fetched.slice(0, boundedLimit);
+    return {
+      objectName,
+      sql,
+      count: rows.length,
+      limit: boundedLimit,
+      offset: boundedOffset,
+      hasMore,
+      nextOffset: hasMore ? boundedOffset + rows.length : null,
+      rows,
+    };
   }
 
   write({ action, table, values = {}, where = {} }) {

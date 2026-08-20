@@ -885,7 +885,7 @@ function requestNode(request, index) {
 
 async function loadRequests({ force = false } = {}) {
   if (!force && selectionTouchesRequests()) return;
-  const limit = Number(elements.requestLimit.value) || 10;
+  const limit = Number(elements.requestLimit.value) || 25;
   const body = await api(`/api/requests?limit=${limit}`);
   const seen = new Set();
   body.requests.forEach((request, index) => {

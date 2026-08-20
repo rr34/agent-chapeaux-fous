@@ -46,7 +46,7 @@ export function registerDatabaseTools(registry, store, ledger, schemaSemantics =
 
   registry.register({
     name: "database_read",
-    description: "Read bounded rows from one existing SQLite table or view. Equality filters only; no raw SQL is accepted.",
+    description: "Read bounded rows from one existing SQLite table or view. Equality filters only; no raw SQL is accepted. When hasMore is true, repeat the same read with nextOffset to continue.",
     strict: false,
     parameters: {
       type: "object",
@@ -59,6 +59,7 @@ export function registerDatabaseTools(registry, store, ledger, schemaSemantics =
         orderBy: { type: ["string", "null"] },
         orderDirection: { type: "string", enum: ["asc", "desc"] },
         limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0, maximum: 1000000 },
       },
     },
     async execute(argumentsObject, context) {

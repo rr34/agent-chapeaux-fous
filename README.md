@@ -11,7 +11,7 @@ The complete request path is:
 ```text
 web or voice input
   -> high-recall capability selection using request text and active integration scope
-  -> bounded context from SQLite plus selected capability guidance
+  -> bounded recent context from SQLite plus selected capability guidance
   -> model turn containing exact immediate schemas plus an organized deferred catalog
   -> optional model-requested capability expansion in a replacement model thread
   -> local or MCP tool execution
@@ -77,9 +77,11 @@ capabilities stay the same, or until the user starts a new conversation. Agent
 Slayer resumes that thread with current replacement base instructions and
 bounded context, executes tool calls itself, and owns the durable SQLite ledger.
 A changed callable-tool schema automatically starts a replacement thread so the
-model never receives stale tool definitions; bounded recent exchanges are
-injected and the original request is repeated when an on-demand capability
-expansion starts that replacement thread. App Server's
+model never receives stale tool definitions; up to twelve recent exchanges are
+injected. When an
+on-demand capability expansion starts a replacement thread, the original
+request and bounded receipts for tools already used in that request are also
+injected. App Server's
 unrelated agent capabilities are disabled at startup. Every turn is also read-only,
 network-disabled, and rooted in the empty
 `~/.local/state/agent-slayer/codex-workspace` directory outside every source
@@ -122,9 +124,11 @@ selects another integration. Recognized requests receive the likely bundles plus
 one `request_capabilities` function and a concise catalog of the connected
 families whose exact schemas were deferred. If the model requests one of those
 families, Agent Slayer starts a replacement thread with the expanded exact
-schemas and continues the original request automatically. An unclear request or
-unknown attachment conservatively receives every currently available tool and every
-applicable instruction fragment. A newly registered local tool that has not yet
+schemas, preserves earlier same-request tool receipts, and continues the
+original request automatically. Read-only schema and database-ledger access is
+always present; mutation access remains separately routed. An unclear request or
+unknown attachment receives that small core plus the organized deferred catalog,
+letting the model choose a family without paying to send every schema. A newly registered local tool that has not yet
 been assigned to a hard-coded capability also forces that full fallback, so
 additions cannot silently disappear from model access.
 
@@ -215,10 +219,12 @@ to the model; UI transport objects remain an independent browser concern.
   distinct imports; ambiguous groups remain queued for AI judgment.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
-- `database_schema`, `database_read`, and `database_write` expose bounded,
-  structured access to the existing SQLite database. Ledger and schema tables
-  are protected from model writes. Each operation returns the exact projection
-  compiled from the tracked schema-semantic form.
+- `database_schema` and paginated `database_read` are a small read-only core
+  capability available on every model request, including access to the native
+  activity ledger. `database_write` is a separately routed capability, so broad
+  database mutation authority is not sent merely to permit inspection. Ledger
+  and schema tables remain protected from model writes. Each operation returns
+  the exact projection compiled from the tracked schema-semantic form.
 - `history_recent`, `history_search`, and `history_range` read the
   application-owned exchange history. Date-range retrieval returns paired
   requests and responses, supports relative local periods through explicit UTC

@@ -20,6 +20,34 @@ function joinedInstructions(...sections) {
   return sections.map((section) => String(section ?? "").trim()).filter(Boolean).join("\n\n");
 }
 
+function sameRequestReceiptInstructions(receipts, maximumCharacters = 24_000) {
+  if (!receipts.length) return "";
+  const header = [
+    "# Earlier tool receipts from this same user request",
+    "These calls already happened before capability expansion. Treat successful receipts as completed actions, continue from their exact results, and do not repeat them unless the user explicitly asked for repetition.",
+  ].join("\n");
+  const blocks = [];
+  let characters = header.length;
+  for (const receipt of receipts) {
+    const exact = JSON.stringify(receipt);
+    const remaining = maximumCharacters - characters - 2;
+    if (remaining <= 0) break;
+    const block = exact.length <= remaining
+      ? exact
+      : JSON.stringify({
+          tool: receipt.tool,
+          arguments: receipt.arguments,
+          ok: receipt.ok,
+          resultOmittedBecauseReceiptBudgetWasExceeded: true,
+        });
+    if (block.length > remaining) break;
+    blocks.push(block);
+    characters += block.length + 2;
+  }
+  const omitted = receipts.length - blocks.length;
+  return [header, ...blocks, ...(omitted ? [`[${omitted} additional receipt(s) omitted]`] : [])].join("\n\n");
+}
+
 export class SlayerRuntime {
   constructor({ modelTransport, registry, contextBuilder, requestCompiler = null, ledger, config }) {
     this.modelTransport = modelTransport;
@@ -51,7 +79,7 @@ export class SlayerRuntime {
       ? this.ledger.recentConversation({
           beforeRequestId: requestId,
           afterEventSeq: priorConversation.markerEventSeq,
-          limit: 2,
+          limit: 10,
         })
       : [];
     let compilation = this.requestCompiler
@@ -88,6 +116,7 @@ export class SlayerRuntime {
     let totalToolCallCount = 0;
     let attempt = 0;
     let result;
+    const sameRequestReceipts = [];
     let finalAttemptStartedNewConversation = !conversationId;
     while (true) {
       attempt += 1;
@@ -110,6 +139,7 @@ export class SlayerRuntime {
         compilation.instructions,
         context.developerInstructions ?? context.text,
         supplementalInstructions,
+        attempt > 1 ? sameRequestReceiptInstructions(sameRequestReceipts) : "",
         continuingAfterExpansion,
       );
       const remainingToolCalls = maxToolCalls === null
@@ -199,7 +229,6 @@ export class SlayerRuntime {
       });
 
       const requestedCapabilities = new Set();
-      let domainToolHandled = false;
       let expansionRequested = false;
       try {
         result = await this.modelTransport.runTurn({
@@ -253,15 +282,6 @@ export class SlayerRuntime {
               return { ok: false, error: message };
             }
             if (name === "request_capabilities") {
-              if (domainToolHandled) {
-                const message = "request_capabilities must be called before any domain tool in its model turn";
-                this.ledger.append({
-                  type: "tool.result", phase: "error", status: "error", actorType: "tool",
-                  actorName: name, channel, turnId: requestId, operationId: callId, name,
-                  payload: { callId, name }, error: message,
-                });
-                return { ok: false, error: message };
-              }
               const allowed = new Set(compilation.deferredCapabilities ?? []);
               const requested = Array.isArray(args.capabilities)
                 ? [...new Set(args.capabilities.filter((capability) => allowed.has(capability)))]
@@ -294,11 +314,11 @@ export class SlayerRuntime {
               });
               return { ok: true, result: toolResult };
             }
-            domainToolHandled = true;
             try {
               const toolResult = await this.registry.execute(name, args, {
                 requestId, requestEventId, callId, channel, attachment, videoSource,
               });
+              sameRequestReceipts.push({ tool: name, arguments: args, ok: true, result: toolResult });
               this.ledger.append({
                 type: "tool.result", phase: "end", status: "complete", actorType: "tool",
                 actorName: name, channel, turnId: requestId, operationId: callId, name,
@@ -307,6 +327,7 @@ export class SlayerRuntime {
               return { ok: true, result: toolResult };
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
+              sameRequestReceipts.push({ tool: name, arguments: args, ok: false, error: message });
               this.ledger.append({
                 type: "tool.result", phase: "error", status: "error", actorType: "tool",
                 actorName: name, channel, turnId: requestId, operationId: callId, name,

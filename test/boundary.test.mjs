@@ -376,12 +376,13 @@ test("the request feed can start a new native model conversation without clearin
   assert.match(server, /ledger\.unfinishedRequestCount/);
 });
 
-test("the request feed loads ten entries by default and offers larger limits", () => {
+test("the request feed loads at least twenty-five entries by default and offers larger limits", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  assert.match(document, /<option value="10" selected>10 requests<\/option>/);
+  assert.doesNotMatch(document, /<option value="10">10 requests<\/option>/);
+  assert.match(document, /<option value="25" selected>25 requests<\/option>/);
   assert.match(document, /<option value="100">100 requests<\/option>/);
-  assert.match(application, /const limit = Number\(elements\.requestLimit\.value\) \|\| 10/);
+  assert.match(application, /const limit = Number\(elements\.requestLimit\.value\) \|\| 25/);
   assert.match(application, /api\(`\/api\/requests\?limit=\$\{limit\}`\)/);
   assert.match(application, /elements\.requestLimit\.addEventListener\("change"/);
 });

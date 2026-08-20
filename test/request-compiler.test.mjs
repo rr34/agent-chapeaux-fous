@@ -58,6 +58,8 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("contact_merge_batch")), "contacts");
   assert.equal(capabilityForTool(tool("todo_add")), "todos");
   assert.equal(capabilityForTool(tool("tracker_update")), "logs");
+  assert.equal(capabilityForTool(tool("database_read")), "database");
+  assert.equal(capabilityForTool(tool("database_write")), "database-write");
   assert.equal(capabilityForTool(tool("email_send")), "email");
   assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
   assert.equal(capabilityForTool(tool("video_render_interaction")), "video");
@@ -109,9 +111,9 @@ test("every currently registered local tool belongs to an explicit capability", 
 
 test("an email request receives email and durable-profile tools, not unrelated domains", () => {
   const selection = selectRequestCapabilities({ tools, text: "Show me unread email in my inbox." });
-  assert.deepEqual(names(selection), ["contact_lookup_batch", "profile_fact_list", "profile_fact_set", "email_search", "email_send"]);
+  assert.deepEqual(names(selection), ["contact_lookup_batch", "profile_fact_list", "profile_fact_set", "database_read", "email_search", "email_send"]);
   assert.deepEqual(selection.dependentTools, ["contact_lookup_batch"]);
-  assert.deepEqual(selection.capabilities, ["email", "profile"]);
+  assert.deepEqual(selection.capabilities, ["database", "email", "profile"]);
   assert.equal(selection.fallbackAll, false);
 });
 
@@ -122,9 +124,9 @@ test("a plural contacts request selects focused contact tools without falling ba
   });
   assert.deepEqual(names(selection), [
     "contact_file_import", "contact_search", "contact_lookup_batch",
-    "profile_fact_list", "profile_fact_set",
+    "profile_fact_list", "profile_fact_set", "database_read",
   ]);
-  assert.deepEqual(selection.capabilities, ["contacts", "profile"]);
+  assert.deepEqual(selection.capabilities, ["contacts", "database", "profile"]);
   assert.equal(selection.fallbackAll, false);
 });
 
@@ -147,6 +149,21 @@ test("common plural request words select their focused tool families", () => {
   }
 });
 
+test("native database reads are always callable while database writes require explicit mutation intent", () => {
+  const ordinary = selectRequestCapabilities({ tools, text: "What's going on?" });
+  assert.equal(names(ordinary).includes("database_read"), true);
+  assert.equal(names(ordinary).includes("database_write"), false);
+
+  const audit = selectRequestCapabilities({ tools, text: "Read your DB audit trail and tool receipts." });
+  assert.equal(audit.capabilities.includes("database"), true);
+  assert.equal(names(audit).includes("database_read"), true);
+  assert.equal(names(audit).includes("database_write"), false);
+
+  const mutation = selectRequestCapabilities({ tools, text: "Update the database rows for those content items." });
+  assert.equal(mutation.capabilities.includes("database-write"), true);
+  assert.equal(names(mutation).includes("database_write"), true);
+});
+
 test("an explicit plural email request does not inherit an unrelated prior topic from incidental pronouns", () => {
   const selection = selectRequestCapabilities({
     tools,
@@ -158,7 +175,7 @@ test("an explicit plural email request does not inherit an unrelated prior topic
     previousCapabilities: ["logs", "profile"],
   });
 
-  assert.deepEqual(selection.capabilities, ["email", "profile"]);
+  assert.deepEqual(selection.capabilities, ["database", "email", "profile"]);
   assert.equal(names(selection).includes("email_search"), true);
   assert.equal(names(selection).includes("log_add"), false);
   assert.equal(selection.followsPriorTurn, false);
@@ -167,8 +184,8 @@ test("an explicit plural email request does not inherit an unrelated prior topic
 
 test("an explicit URL receives the page reader without unrelated application tools", () => {
   const selection = selectRequestCapabilities({ tools, text: "Read https://example.com/report for me." });
-  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "web_page_read"]);
-  assert.deepEqual(selection.capabilities, ["profile", "web"]);
+  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read", "web_page_read"]);
+  assert.deepEqual(selection.capabilities, ["database", "profile", "web"]);
 });
 
 test("attachment structure routes known imports and conservatively falls back when unknown", () => {
@@ -179,7 +196,7 @@ test("attachment structure routes known imports and conservatively falls back wh
   });
   assert.deepEqual(names(contacts), [
     "contact_file_import", "contact_search", "contact_lookup_batch",
-    "profile_fact_list", "profile_fact_set",
+    "profile_fact_list", "profile_fact_set", "database_read",
   ]);
 
   const unknown = selectRequestCapabilities({
@@ -187,8 +204,9 @@ test("attachment structure routes known imports and conservatively falls back wh
     text: "Import this file.",
     attachment: { filename: "data.csv", mimeType: "text/csv", text: "alpha,beta\n1,2" },
   });
-  assert.equal(unknown.fallbackAll, true);
-  assert.equal(unknown.tools.length, tools.length);
+  assert.equal(unknown.fallbackAll, false);
+  assert.deepEqual(names(unknown), ["profile_fact_list", "profile_fact_set", "database_read"]);
+  assert.ok(unknown.reasons.includes("catalog:uncertain-attachment"));
 });
 
 test("short approvals retain prior capabilities and can add an explicit new domain", () => {
@@ -200,7 +218,7 @@ test("short approvals retain prior capabilities and can add an explicit new doma
     tools,
     text: "Okay, go ahead.",
     recentConversation: prior,
-    previousCapabilities: ["database", "profile"],
+    previousCapabilities: ["database", "database-write", "profile"],
   });
   assert.deepEqual(names(approved), ["profile_fact_list", "profile_fact_set", "database_read", "database_write"]);
   assert.equal(approved.followsPriorTurn, true);
@@ -209,24 +227,32 @@ test("short approvals retain prior capabilities and can add an explicit new doma
     tools,
     text: "Okay, go ahead and email it.",
     recentConversation: prior,
-    previousCapabilities: ["database", "profile"],
+    previousCapabilities: ["database", "database-write", "profile"],
   });
-  assert.deepEqual(emailed.capabilities, ["database", "email", "profile"]);
+  assert.deepEqual(emailed.capabilities, ["database", "database-write", "email", "profile"]);
 
   const explanation = selectRequestCapabilities({
     tools,
     text: "Explain why that happened.",
     recentConversation: prior,
-    previousCapabilities: ["database", "profile"],
+    previousCapabilities: ["database", "database-write", "profile"],
   });
-  assert.deepEqual(explanation.capabilities, ["database", "profile"]);
+  assert.deepEqual(explanation.capabilities, ["database", "database-write", "profile"]);
   assert.equal(explanation.followsPriorTurn, true);
 });
 
-test("ambiguous actionable requests retain every available tool", () => {
+test("ambiguous actionable requests keep a small core and expose the deferred catalog", async () => {
   const selection = selectRequestCapabilities({ tools, text: "Take care of it." });
-  assert.equal(selection.fallbackAll, true);
-  assert.equal(selection.tools.length, tools.length);
+  assert.equal(selection.fallbackAll, false);
+  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read"]);
+  assert.ok(selection.reasons.includes("catalog:ambiguous-request"));
+
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+  });
+  const compiled = await compiler.compile({ tools, text: "Take care of it." });
+  assert.equal(names(compiled).includes("request_capabilities"), true);
+  assert.ok(compiled.deferredCapabilities.includes("integration:tlom"));
 });
 
 test("a new unclassified local tool fails open until it is assigned a capability", () => {
@@ -237,7 +263,7 @@ test("a new unclassified local tool fails open until it is assigned a capability
   assert.ok(selection.reasons.includes("fallback:unclassified-tools"));
 });
 
-test("provider names and concepts select only that integration", () => {
+test("provider names select only that integration", () => {
   const tlom = selectRequestCapabilities({ tools, text: "Query TLOM for my properties." });
   assert.equal(names(tlom).includes("remote_tlom_query_data"), true);
   assert.equal(names(tlom).includes("remote_weather_forecast"), false);
@@ -258,7 +284,7 @@ test("an active integration scope remains additive for an ordinary project-task 
     previousCapabilities: ["integration:tlom", "profile"],
   });
 
-  assert.deepEqual(selection.capabilities, ["integration:tlom", "profile", "todos"]);
+  assert.deepEqual(selection.capabilities, ["database", "integration:tlom", "profile", "todos"]);
   assert.equal(names(selection).includes("remote_tlom_query_data"), true);
   assert.equal(names(selection).includes("todo_list"), true);
   assert.ok(selection.reasons.includes("integration:tlom:active-scope"));

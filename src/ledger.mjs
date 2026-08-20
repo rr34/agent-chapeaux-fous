@@ -532,7 +532,7 @@ export class Ledger {
       Math.max(0, Number(afterEventSeq) || 0),
       before ?? null,
       before ?? null,
-      Math.min(20, Math.max(2, limit * 2)),
+      Math.min(40, Math.max(2, limit * 2)),
     ).map(publicEvent).reverse();
     return rows.map((event) => ({
       role: receivedEventTypes.includes(event.type) ? "user" : "assistant",

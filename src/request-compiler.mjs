@@ -8,7 +8,8 @@ const localCapabilityMatchers = [
   ["todos", (tool) => tool.name.startsWith("todo_")],
   ["logs", (tool) => tool.name.startsWith("log_") || tool.name.startsWith("tracker_")],
   ["profile", (tool) => tool.name.startsWith("profile_fact_")],
-  ["database", (tool) => ["database_schema", "database_read", "database_write"].includes(tool.name)],
+  ["database-write", (tool) => tool.name === "database_write"],
+  ["database", (tool) => ["database_schema", "database_read"].includes(tool.name)],
   ["history", (tool) => tool.name.startsWith("history_")],
   ["email", (tool) => tool.name.startsWith("email_")],
   ["video", (tool) => tool.name.startsWith("video_")],
@@ -23,6 +24,7 @@ const instructionFiles = new Map([
   ["logs", "logs.md"],
   ["profile", "profile.md"],
   ["database", "database.md"],
+  ["database-write", "database-write.md"],
   ["history", "history.md"],
   ["email", "email.md"],
   ["video", "video.md"],
@@ -35,7 +37,8 @@ const capabilityPatterns = new Map([
   ["todos", /\b(?:to[ -]?do|todo|task|remind(?:er)?|chore|overdue)\b/iu],
   ["logs", /\b(?:personal log|log entry|food log|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
   ["profile", /\b(?:remember that|remember my|keep on file|profile fact|forget (?:that|my)|my preference|i prefer|i am allergic|my address|my phone|my vehicle|my car|my time ?zone|my\b.{0,80}\b(?:is|are|changed))\b/iu],
-  ["database", /\b(?:database|sqlite|schema|table|stored row|content item|content group|video job|correspondence)\b/iu],
+  ["database", /\b(?:database|db|sqlite|schema|table|ledger|audit trail|tool receipts?|activity events?|stored row|content item|content group|video job|correspondence)\b/iu],
+  ["database-write", /(?:\b(?:write|insert|update|delete|remove|import|save|create|change)\b.{0,60}\b(?:database|db|sqlite|table|rows?|content items?|content groups?|video jobs?)\b)|(?:\b(?:database|db|sqlite|table|rows?|content items?|content groups?|video jobs?)\b.{0,60}\b(?:write|insert|update|delete|remove|import|save|create|change)\b)/iu],
   ["history", /\b(?:what did we|what have we|talked about|discussed|previous conversation|prior conversation|conversation history|earlier today|last time|yesterday we|recent exchange)\b/iu],
   ["email", /\b(?:e-?mail|inbox|mailbox|sender|subject line|email thread|draft|compose|send (?:it|this|that|an?|the|a message)|message .{0,40}(?:to|on)|reply to|forward (?:it|this|that|the)|spam|trash folder|invite .{0,40}(?:to|for))\b/iu],
   ["video", /\b(?:make|create|render|generate|produce).{0,40}\bvideo\b|\bvideo.{0,40}(?:interaction|request|response|render)\b/iu],
@@ -57,7 +60,8 @@ const capabilitySummaries = new Map([
   ["todos", "Read and manage native personal to-do items and groups."],
   ["logs", "Read and record personal logs and trackers."],
   ["profile", "Read and maintain durable profile facts."],
-  ["database", "Read and write supported native SQLite-backed application data."],
+  ["database", "Inspect schema and read supported native SQLite-backed application data, including the durable activity ledger."],
+  ["database-write", "Write supported native SQLite-backed application data; read-only database access is already callable."],
   ["history", "Search prior Agent Slayer conversations."],
   ["email", "Read, draft, send, organize, and clean up email."],
   ["video", "Render an interaction video from the current request trace."],
@@ -95,7 +99,7 @@ function referencesPriorTurn(text) {
 }
 
 function recentRoutingText(entries) {
-  return entries.slice(-4).map(({ role, content }) => `${role}: ${content}`).join("\n");
+  return entries.slice(-12).map(({ role, content }) => `${role}: ${content}`).join("\n");
 }
 
 function attachmentCapabilities(attachment) {
@@ -114,7 +118,7 @@ function attachmentCapabilities(attachment) {
       return { capabilities: ["logs"], uncertain: false };
     }
     if (/\b(?:content_type|content_status|content_url|published_at|relationship_to_user)\b/u.test(preview)) {
-      return { capabilities: ["database"], uncertain: false };
+      return { capabilities: ["database", "database-write"], uncertain: false };
     }
     return { capabilities: [], uncertain: true };
   }
@@ -123,13 +127,12 @@ function attachmentCapabilities(attachment) {
 
 function integrationAliases(provider) {
   const normalized = provider.replaceAll(/[_-]+/g, " ");
-  if (provider === "weather") return /\b(?:weather|forecast|temperature|rain|snow|wind|(?:high|low).{0,20}(?:today|tomorrow)|(?:today|tomorrow).{0,20}(?:high|low))\b/iu;
-  if (provider === "nutrition") return /\b(?:nutrition|calorie|macro|protein|carbs?|fat intake|food data)\b/iu;
-  if (provider === "tlom") return /\b(?:tlom|landlord'?s operating manual|property|properties|building)\b/iu;
   return new RegExp(`\\b${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "iu");
 }
 
-export function selectRequestCapabilities({ tools, text, attachment = null, recentConversation = [], previousCapabilities = [] }) {
+export function selectRequestCapabilities({
+  tools, text, attachment = null, recentConversation = [], previousCapabilities = [],
+}) {
   const grouped = new Map();
   for (const tool of tools) {
     const capability = capabilityForTool(tool);
@@ -151,7 +154,10 @@ export function selectRequestCapabilities({ tools, text, attachment = null, rece
   const routingText = followsPriorTurn
     ? enrichedRoutingText(`${recentRoutingText(recentConversation)}\nuser: ${currentText}`)
     : enrichedRoutingText(currentText);
-  const selected = new Set(grouped.has("profile") ? ["profile"] : []);
+  const selected = new Set([
+    ...(grouped.has("profile") ? ["profile"] : []),
+    ...(grouped.has("database") ? ["database"] : []),
+  ]);
   const reasons = [];
 
   for (const [capability, pattern] of capabilityPatterns) {
@@ -194,21 +200,18 @@ export function selectRequestCapabilities({ tools, text, attachment = null, rece
     if (previousCapabilities.length) reasons.push("prior-capabilities:continuation");
   }
 
-  const meaningfulSelections = [...selected].filter((capability) => capability !== "profile");
+  const meaningfulSelections = [...selected]
+    .filter((capability) => !["profile", "database"].includes(capability));
   const clearlyToolFree = clearlyToolFreeCurrentRequest;
-  const fallbackAll = grouped.has("unclassified")
-    || attachmentRoute.uncertain
-    || (meaningfulSelections.length === 0 && !clearlyToolFree);
+  const fallbackAll = grouped.has("unclassified");
 
   if (fallbackAll) {
     for (const capability of grouped.keys()) selected.add(capability);
-    reasons.push(
-      grouped.has("unclassified")
-        ? "fallback:unclassified-tools"
-        : attachmentRoute.uncertain
-          ? "fallback:uncertain-attachment"
-          : "fallback:ambiguous-request",
-    );
+    reasons.push("fallback:unclassified-tools");
+  } else if (attachmentRoute.uncertain) {
+    reasons.push("catalog:uncertain-attachment");
+  } else if (meaningfulSelections.length === 0 && !clearlyToolFree) {
+    reasons.push("catalog:ambiguous-request");
   } else if (meaningfulSelections.length === 0) {
     reasons.push("core:tool-free-request");
   }
@@ -243,7 +246,7 @@ export function capabilityRequestDefinition(capabilities) {
   if (allowed.length === 0) return null;
   return {
     name: "request_capabilities",
-    description: "Request exact schemas for one or more additional capability families when the current callable tools are insufficient. Call this alone, before any dependent action and before saying a needed tool or integration is unavailable. After a successful request, Agent Slayer continues the same user request with those tools loaded; do not treat this call itself as completing the user's task.",
+    description: "Request exact schemas for one or more additional capability families when the current callable tools are insufficient. Prefer calling this before dependent actions, but it may be called after a read or other domain tool when that result reveals another capability is needed. After a successful request, Agent Slayer continues the same user request with those tools and prior same-request receipts loaded; do not ask the user to retry or treat this call itself as completing the task.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
