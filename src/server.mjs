@@ -14,6 +14,7 @@ import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { RequestCompiler } from "./request-compiler.mjs";
+import { createNativeSearchCoordinator } from "./search/native-search.mjs";
 import { receiveTextAttachment, safeMediaPath } from "./request-attachments.mjs";
 import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
@@ -31,6 +32,7 @@ import { ProfileFacts } from "./profile-facts.mjs";
 import { loadProfileFactQuestions } from "./profile-fact-questions.mjs";
 import { ToolRegistry } from "./tools/registry.mjs";
 import { registerProfileFactTools } from "./tools/profile-fact-tools.mjs";
+import { registerSearchTools } from "./tools/search-tools.mjs";
 import { registerTodoTools } from "./tools/todo-tools.mjs";
 import { registerWebPageTools } from "./tools/web-page-tools.mjs";
 import { registerVideoTools } from "./tools/video-tools.mjs";
@@ -47,6 +49,9 @@ const interactionGuides = new InteractionGuides({ store, ledger });
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
 const registry = new ToolRegistry();
+const searchCoordinator = store.status.ready
+  ? createNativeSearchCoordinator({ store, organizer, ledger })
+  : null;
 const videoService = new VideoService({
   ledger,
   mediaRoot: config.mediaRoot,
@@ -75,13 +80,14 @@ const jmap = new JmapClient({
   timeoutMs: config.jmapTimeoutMs,
 });
 if (store.status.ready) {
-  registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);
-  registerContactTools(registry, store, organizer, ledger, schemaSemantics);
+  registerCalendarTools(registry, store, organizer, ledger, schemaSemantics, searchCoordinator);
+  registerContactTools(registry, store, organizer, ledger, schemaSemantics, searchCoordinator);
   registerTodoTools(registry, store, ledger, schemaSemantics);
   registerLogTools(registry, store, ledger, schemaSemantics);
   registerInteractionGuideTools(registry, interactionGuides, schemaSemantics);
   registerProfileFactTools(registry, profileFacts, schemaSemantics);
-  registerDatabaseTools(registry, store, ledger, schemaSemantics);
+  registerDatabaseTools(registry, store, ledger, schemaSemantics, searchCoordinator);
+  registerSearchTools(registry, searchCoordinator);
   registerVideoTools(registry, videoService);
 }
 await mcp.initialize(registry);

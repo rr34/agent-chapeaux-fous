@@ -166,6 +166,13 @@ schema-semantic compiler's operation-specific projection. The tracked semantic
 form is therefore the single human-authored source for explaining stored fields
 to the model; UI transport objects remain an independent browser concern.
 
+Native discovery also has one in-process search coordinator. Calendar,
+contacts, and conversation history keep their own matching and completeness
+rules behind provider adapters, while the coordinator handles bounded
+cross-domain fan-out, compact normalized hits, source-diverse interleaving, and
+literal partial-failure reporting. This is separate from the pre-model
+capability selector, which controls which exact tool schemas are callable.
+
 - `web_page_read` fetches one explicit HTTP(S) URL and returns bounded extracted
   text, metadata, and links so the model can follow pagination or directly
   related pages. It is not a search tool. Each redirect is checked, private and
@@ -249,6 +256,13 @@ to the model; UI transport objects remain an independent browser concern.
   requests and responses, supports relative local periods through explicit UTC
   boundaries, and can apply a topical term filter across both sides of each
   exchange in the same lookup.
+- `global_search` performs read-only discovery across selected calendar,
+  contacts, and history providers. It returns compact references and reports
+  each provider's actual matching mode, capabilities, completeness, warnings,
+  and errors. History can use an existing synchronized FTS5 index for phrase or
+  token-proximity matching with bounded contextual snippets; when that index is
+  unavailable, the result explicitly reports its substring fallback. Existing
+  domain search tools retain their schemas and native result shapes.
 - `email_account_list`, `email_mailbox_list`, `email_identity_list`,
   `email_search`, `email_get`, `email_thread_get`, `email_changes`,
   `email_update`, `email_bulk_update`, `email_cleanup_preview`,

@@ -364,7 +364,9 @@ function compactDuplicateCandidate(contact) {
   };
 }
 
-export function registerContactTools(registry, store, organizer, ledger, schemaSemantics = null) {
+export function registerContactTools(
+  registry, store, organizer, ledger, schemaSemantics = null, searchCoordinator = null,
+) {
   registry.register({
     name: "contact_import",
     description: "Import a bounded batch of 1 through 200 already-normalized contacts supplied as structured data without a file. Use contact_file_import for an attached CSV or vCard/VCF so the application processes the complete file directly. Supply a stable source name and one stable external_id per source record. Contacts may include multiple methods and overlapping tags. The source and external_id pair is idempotent: exact replays are unchanged, conflicting replays are reported without overwriting, and all new contacts, methods, tags, and tag assignments are written in one transaction.",
@@ -552,7 +554,11 @@ export function registerContactTools(registry, store, organizer, ledger, schemaS
       required: ["queries", "include_inactive", "limit"],
     },
     async execute({ queries, include_inactive: includeInactive, limit }, context) {
-      const search = organizer.searchContacts({ queries, includeInactive, limit });
+      const search = searchCoordinator
+        ? (await searchCoordinator.searchScope("contacts", {
+            query: queries[0], queries, limit, options: { includeInactive },
+          })).native
+        : organizer.searchContacts({ queries, includeInactive, limit });
       return contactResult(schemaSemantics, context, {
         queries: search.queries,
         scanned_contact_count: search.scannedContactCount,

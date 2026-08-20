@@ -121,7 +121,9 @@ function writeEvent(database, ledger, context, {
   return sourceEventId;
 }
 
-export function registerCalendarTools(registry, store, organizer, ledger, schemaSemantics = null) {
+export function registerCalendarTools(
+  registry, store, organizer, ledger, schemaSemantics = null, searchCoordinator = null,
+) {
   registry.register({
     name: "calendar_event_search",
     description: "Search stored native calendar event series by title, description, and location. Every whitespace-separated query term must match at least one of those fields. Results are stored event records, not expanded recurrence occurrences or derived contact birthdays, and archived events are excluded unless explicitly requested.",
@@ -137,7 +139,11 @@ export function registerCalendarTools(registry, store, organizer, ledger, schema
     },
     async execute({ query, include_archived: includeArchived, limit }, context) {
       const database = store.requireReady();
-      const search = searchCalendarEventRows(database, { query, includeArchived, limit });
+      const search = searchCoordinator
+        ? (await searchCoordinator.searchScope("calendar", {
+            query, limit, options: { includeArchived },
+          })).native
+        : searchCalendarEventRows(database, { query, includeArchived, limit });
       const events = search.rows.map((row) => selectedFields(row, calendarEventFields));
       return calendarResult(schemaSemantics, context, {
         query: search.query,

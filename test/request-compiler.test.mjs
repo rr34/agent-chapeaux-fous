@@ -14,6 +14,7 @@ import { registerJmapEmailTools } from "../src/tools/jmap-email-tools.mjs";
 import { registerLogTools } from "../src/tools/log-tools.mjs";
 import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
+import { registerSearchTools } from "../src/tools/search-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
@@ -46,6 +47,7 @@ const tools = [
   tool("email_search"),
   tool("email_send"),
   tool("web_page_read"),
+  tool("global_search"),
   tool("remote_tlom_query_data", "mcp:tlom"),
   tool("remote_weather_forecast", "mcp:weather"),
   tool("remote_nutrition_lookup", "mcp:nutrition"),
@@ -66,6 +68,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("email_send")), "email");
   assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
   assert.equal(capabilityForTool(tool("video_render_interaction")), "video");
+  assert.equal(capabilityForTool(tool("global_search")), "search");
 });
 
 test("an explicit interaction-video request selects the contained renderer", () => {
@@ -107,10 +110,24 @@ test("every currently registered local tool belongs to an explicit capability", 
   registerProfileFactTools(registry, {}, null);
   registerDatabaseTools(registry, {}, {}, null);
   registerJmapEmailTools(registry, { health() { return { ready: true }; } });
+  registerSearchTools(registry, {
+    listProviders() { return [{ id: "history" }]; },
+    search() { return {}; },
+  });
   assert.deepEqual(
     registry.toolDefinitions().filter((definition) => capabilityForTool(definition) === "unclassified"),
     [],
   );
+});
+
+test("a broad cross-domain discovery request selects global search", () => {
+  const selection = selectRequestCapabilities({
+    tools,
+    text: "Find everything across all my data related to Alice.",
+  });
+  assert.equal(selection.capabilities.includes("search"), true);
+  assert.equal(names(selection).includes("global_search"), true);
+  assert.equal(selection.fallbackAll, false);
 });
 
 test("starting a linked guide selects guide and to-do capabilities", async () => {

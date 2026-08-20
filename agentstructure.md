@@ -221,6 +221,11 @@ view models are separate from this model-facing contract.
   requests with responses and paginate within inclusive-start, exclusive-end
   UTC boundaries. An optional topical query intersects that time window with
   terms found across either side of each exchange.
+- `global_search` for bounded read-only discovery across the calendar,
+  contacts, and history providers. The in-process coordinator normalizes compact
+  hits and partial-result metadata without replacing native domain semantics.
+  Synchronized history FTS5 indexes may add phrase, proximity, and contextual
+  snippet support; capability selection remains a separate pre-model boundary.
 
 These are JavaScript functions registered directly with the runtime. There is
 no runtime plugin loading mechanism.

@@ -16,6 +16,7 @@ const localCapabilityMatchers = [
   ["history", (tool) => tool.name.startsWith("history_")],
   ["email", (tool) => tool.name.startsWith("email_")],
   ["video", (tool) => tool.name.startsWith("video_")],
+  ["search", (tool) => tool.name === "global_search"],
   ["orchestration", (tool) => tool.name === "request_capabilities"],
 ];
 
@@ -32,6 +33,7 @@ const instructionFiles = new Map([
   ["history", "history.md"],
   ["email", "email.md"],
   ["video", "video.md"],
+  ["search", "search.md"],
 ]);
 
 const capabilityPatterns = new Map([
@@ -47,6 +49,7 @@ const capabilityPatterns = new Map([
   ["history", /\b(?:what did we|what have we|talked about|discussed|previous conversation|prior conversation|conversation history|earlier today|last time|yesterday we|recent exchange)\b/iu],
   ["email", /\b(?:e-?mail|inbox|mailbox|sender|subject line|email thread|draft|compose|send (?:it|this|that|an?|the|a message)|message .{0,40}(?:to|on)|reply to|forward (?:it|this|that|the)|spam|trash folder|invite .{0,40}(?:to|for))\b/iu],
   ["video", /\b(?:make|create|render|generate|produce).{0,40}\bvideo\b|\bvideo.{0,40}(?:interaction|request|response|render)\b/iu],
+  ["search", /\b(?:global|unified|cross[ -]?domain|everywhere)\s+search\b|\b(?:find|search|look for)\b.{0,80}\b(?:everything|anything|across (?:all|my)|everywhere|all (?:my|available) (?:data|records?|information))\b/iu],
 ]);
 
 const followupPattern = /^(?:\s)*(?:yes|yeah|yep|okay|ok|sure|correct|right|sounds good|go ahead|do it|proceed|continue|make it so|that one|those|please do)(?:\b|[.!,:])/iu;
@@ -71,6 +74,7 @@ const capabilitySummaries = new Map([
   ["history", "Search prior Agent Slayer conversations."],
   ["email", "Read, draft, send, organize, and clean up email."],
   ["video", "Render an interaction video from the current request trace."],
+  ["search", "Search across calendar, contacts, and conversation history with compact normalized results."],
 ]);
 
 export function capabilityForTool(tool) {

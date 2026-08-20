@@ -19,7 +19,9 @@ function projection(schemaSemantics, operation, context) {
   return schemaSemantics?.compile(operation, context) ?? null;
 }
 
-export function registerDatabaseTools(registry, store, ledger, schemaSemantics = null) {
+export function registerDatabaseTools(
+  registry, store, ledger, schemaSemantics = null, searchCoordinator = null,
+) {
   registry.register({
     name: "database_schema",
     description: "Inspect the existing Slayer SQLite tables, views, columns, foreign keys, and CREATE statements. This never changes schema.",
@@ -176,7 +178,9 @@ export function registerDatabaseTools(registry, store, ledger, schemaSemantics =
       required: ["query", "limit"],
     },
     async execute({ query, limit }) {
-      const entries = ledger.searchHistory(query, limit);
+      const entries = searchCoordinator
+        ? (await searchCoordinator.searchScope("history", { query, limit })).native.entries
+        : ledger.searchHistory(query, limit);
       return { count: entries.length, entries };
     },
   });
