@@ -165,6 +165,7 @@ test("the client performs a complete dynamic-tool turn and records subscription 
   assert.equal(calls.length, 1);
   assert.equal(result.usage.windows[0].usedPercentDelta, 2);
   assert.equal(result.usage.tokenUsage.totalTokens, 120);
+  assert.equal(result.usage.contextWindowTokens, 1000);
   const threadStart = fake.messages.find((message) => message.method === "thread/start");
   assert.equal(threadStart.params.ephemeral, false);
   assert.equal(threadStart.params.personality, "friendly");

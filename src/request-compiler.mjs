@@ -9,7 +9,9 @@ const localCapabilityMatchers = [
   ["logs", (tool) => tool.name.startsWith("log_") || tool.name.startsWith("tracker_")],
   ["profile", (tool) => tool.name.startsWith("profile_fact_")],
   ["database-write", (tool) => tool.name === "database_write"],
-  ["database", (tool) => ["database_schema", "database_read"].includes(tool.name)],
+  ["database", (tool) => [
+    "database_schema", "database_read", "tool_receipt_list", "tool_receipt_read",
+  ].includes(tool.name)],
   ["history", (tool) => tool.name.startsWith("history_")],
   ["email", (tool) => tool.name.startsWith("email_")],
   ["video", (tool) => tool.name.startsWith("video_")],

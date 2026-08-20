@@ -110,6 +110,42 @@ export function registerDatabaseTools(registry, store, ledger, schemaSemantics =
   });
 
   registry.register({
+    name: "tool_receipt_list",
+    description: "List durable historical tool-result receipts without loading their full payloads. Use requestId to inspect one request, or null for the newest global receipts. Continue with nextBeforeEventSeq when hasMore is true.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        requestId: { type: ["string", "null"] },
+        beforeEventSeq: { type: ["integer", "null"], minimum: 1 },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+      },
+      required: ["requestId", "beforeEventSeq", "limit"],
+    },
+    async execute(argumentsObject) {
+      return ledger.toolReceiptList(argumentsObject);
+    },
+  });
+
+  registry.register({
+    name: "tool_receipt_read",
+    description: "Read one exact durable tool call/result receipt as bounded JSON text. Start at offset 0 and continue with nextOffset while hasMore is true. Use this instead of repeating a completed action whose large result was paged or whose native model thread was replaced.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        receiptEventSeq: { type: "integer", minimum: 1 },
+        offset: { type: "integer", minimum: 0, maximum: 10000000 },
+        maxCharacters: { type: "integer", minimum: 1, maximum: 32768 },
+      },
+      required: ["receiptEventSeq", "offset", "maxCharacters"],
+    },
+    async execute(argumentsObject) {
+      return ledger.toolReceiptRead(argumentsObject);
+    },
+  });
+
+  registry.register({
     name: "history_recent",
     description: "Return recent user requests and Slayer responses from the application-owned global history.",
     parameters: {

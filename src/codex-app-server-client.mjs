@@ -635,7 +635,10 @@ export class CodexAppServerClient extends EventEmitter {
       status: turn.status,
       messages: state.messages,
       tokenUsage: state.tokenUsage,
-      usage: usageDelta(before, after, state.tokenUsage?.last ?? state.tokenUsage?.total ?? null),
+      usage: {
+        ...usageDelta(before, after, state.tokenUsage?.last ?? state.tokenUsage?.total ?? null),
+        contextWindowTokens: state.tokenUsage?.modelContextWindow ?? null,
+      },
       events: state.events,
       protocol: { threadMethod, threadRequest, turnStart },
     };

@@ -91,6 +91,14 @@ interrupts and rejects the turn instead of accepting its answer.
 Startup also reads the effective Codex configuration and fails health if any
 MCP server, plugin, or subagent configuration leaked into the isolated home.
 
+Agent Slayer also records the provider's latest input-token count and context
+window. When a retained native thread reaches `SLAYER_CONTEXT_ROLLOVER_PERCENT`
+(65% by default), the next request starts a replacement thread. Its bounded
+conversation checkpoint preserves the earliest objective, recent user and
+assistant exchanges, and a compact index of durable tool receipts while
+excluding raw tool payloads. This is pressure-triggered rather than based on a
+fixed message count; ordinary conversations remain native and uncompressed.
+
 The default model is `gpt-5.6-terra`; change `SLAYER_MODEL` explicitly if
 desired. Dynamic tools are an experimental Codex App Server feature, so deploy
 the configured Codex CLI version and treat version changes as application
@@ -225,6 +233,11 @@ to the model; UI transport objects remain an independent browser concern.
   database mutation authority is not sent merely to permit inspection. Ledger
   and schema tables remain protected from model writes. Each operation returns
   the exact projection compiled from the tracked schema-semantic form.
+- `tool_receipt_list` and `tool_receipt_read` expose bounded, paginated access
+  to exact historical call/result receipts. Tool results larger than
+  `SLAYER_MAX_INLINE_TOOL_RESULT_CHARACTERS` remain whole in SQLite while the
+  live model exchange receives a first chunk and receipt cursor. The model can
+  retrieve additional chunks without repeating the original read or write.
 - `history_recent`, `history_search`, and `history_range` read the
   application-owned exchange history. Date-range retrieval returns paired
   requests and responses, supports relative local periods through explicit UTC

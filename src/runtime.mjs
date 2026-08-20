@@ -48,6 +48,26 @@ function sameRequestReceiptInstructions(receipts, maximumCharacters = 24_000) {
   return [header, ...blocks, ...(omitted ? [`[${omitted} additional receipt(s) omitted]`] : [])].join("\n\n");
 }
 
+function inlineToolResult(toolResult, { tool, receiptEventSeq, maximumCharacters }) {
+  const serialized = JSON.stringify(toolResult ?? null);
+  if (serialized.length <= maximumCharacters || !Number.isSafeInteger(receiptEventSeq)) {
+    return { deliveredResult: toolResult, fullResultCharacters: serialized.length, paged: false };
+  }
+  return {
+    deliveredResult: {
+      full_result_stored_in_receipt: true,
+      receipt_event_seq: receiptEventSeq,
+      tool,
+      full_result_characters: serialized.length,
+      leading_result_json: serialized.slice(0, maximumCharacters),
+      leading_result_characters: maximumCharacters,
+      continuation: "Call tool_receipt_read with this receipt_event_seq starting at offset 0 to page the exact call arguments, result, and status. Do not repeat the original tool action.",
+    },
+    fullResultCharacters: serialized.length,
+    paged: true,
+  };
+}
+
 export class SlayerRuntime {
   constructor({ modelTransport, registry, contextBuilder, requestCompiler = null, ledger, config }) {
     this.modelTransport = modelTransport;
@@ -104,9 +124,21 @@ export class SlayerRuntime {
           capabilityCatalog: [],
         };
     const initialToolFingerprint = callableToolsFingerprint(compilation.tools);
-    const conversation = typeof this.ledger.activeModelConversation === "function"
+    let conversation = typeof this.ledger.activeModelConversation === "function"
       ? this.ledger.activeModelConversation(initialToolFingerprint)
       : { conversationId: null, markerEventSeq: 0, reason: "new" };
+    const priorContextUsage = priorConversation.conversationId
+      && typeof this.ledger.latestModelContextUsage === "function"
+      ? this.ledger.latestModelContextUsage({ afterEventSeq: priorConversation.markerEventSeq })
+      : null;
+    const contextRolloverPercent = this.config.contextRolloverPercent ?? 65;
+    if (
+      conversation.conversationId
+      && priorContextUsage?.usedPercent != null
+      && priorContextUsage.usedPercent >= contextRolloverPercent
+    ) {
+      conversation = { ...conversation, conversationId: null, reason: "context_rollover" };
+    }
     const baseInstructions = await this.loadSystemPrompt();
     const maxToolCalls = runLimits === null ? this.config.maxToolCalls : runLimits.maxToolCalls;
     const runTimeoutMs = runLimits?.timeoutMs ?? null;
@@ -117,20 +149,47 @@ export class SlayerRuntime {
     let attempt = 0;
     let result;
     const sameRequestReceipts = [];
+    let conversationCheckpoint = null;
     let finalAttemptStartedNewConversation = !conversationId;
     while (true) {
       attempt += 1;
       finalAttemptStartedNewConversation = !conversationId;
       const tools = compilation.tools;
       const callableToolNames = new Set(tools.map(({ name }) => name));
+      if (
+        !conversationId
+        && priorConversation.conversationId
+        && conversationCheckpoint === null
+        && typeof this.ledger.conversationCheckpoint === "function"
+      ) {
+        conversationCheckpoint = this.ledger.conversationCheckpoint({
+          afterEventSeq: priorConversation.markerEventSeq,
+          beforeRequestId: requestId,
+          maximumCharacters: this.config.conversationCheckpointCharacters ?? 48 * 1024,
+        });
+        this.ledger.append({
+          type: "conversation.checkpoint", status: "complete", actorType: "service",
+          actorName: "Conversation manager", channel, turnId: requestId,
+          name: "Bounded conversation checkpoint", content: conversationCheckpoint.text,
+          payload: {
+            reason: conversation.reason,
+            priorConversationId: priorConversation.conversationId,
+            ...Object.fromEntries(
+              Object.entries(conversationCheckpoint).filter(([key]) => key !== "text"),
+            ),
+          },
+          subjectType: "model_conversation", subjectId: priorConversation.conversationId,
+        });
+      }
       const context = await this.contextBuilder.build(requestId, text, {
         attachment,
         nativeConversation: conversationId
           ? true
-          : attempt === 1 && conversation.reason !== "tools_changed",
+          : attempt === 1 && conversation.reason === "new" && !conversationCheckpoint,
         continuingConversation: Boolean(conversationId),
         conversationStartEventSeq: conversation.markerEventSeq,
         capabilities: compilation.capabilities,
+        conversationCheckpoint: conversationId ? null : conversationCheckpoint,
       });
       const continuingAfterExpansion = attempt > 1
         ? "Capability expansion is complete. Continue and finish the original user request using the newly callable tools. Do not ask the user to repeat it, and do not repeat actions already confirmed by earlier tool results."
@@ -176,12 +235,19 @@ export class SlayerRuntime {
           activeProfileFactCount: context.activeProfileFactCount,
           relevantProfileTypes: context.relevantProfileTypes,
           relevantProfileQuestions: context.relevantProfileQuestions,
+          conversationCheckpoint: context.conversationCheckpoint ?? null,
           history: context.history,
           contextBudget: context.contextBudget,
           attachment: context.attachment,
           nativeConversation: context.nativeConversation,
           runLimits: { maxToolCalls, timeoutMs: runTimeoutMs },
           remainingToolCalls,
+          conversationTransition: {
+            reason: conversationId ? "continue" : conversation.reason,
+            rolloverThresholdPercent: contextRolloverPercent,
+            priorContextUsage,
+            checkpointInjected: Boolean(context.conversationCheckpoint),
+          },
           capabilitySelection: {
             capabilities: compilation.capabilities,
             deferredCapabilities: compilation.deferredCapabilities ?? [],
@@ -318,13 +384,41 @@ export class SlayerRuntime {
               const toolResult = await this.registry.execute(name, args, {
                 requestId, requestEventId, callId, channel, attachment, videoSource,
               });
-              sameRequestReceipts.push({ tool: name, arguments: args, ok: true, result: toolResult });
-              this.ledger.append({
+              const resultEventId = this.ledger.append({
                 type: "tool.result", phase: "end", status: "complete", actorType: "tool",
                 actorName: name, channel, turnId: requestId, operationId: callId, name,
                 payload: { callId, name, result: toolResult },
               });
-              return { ok: true, result: toolResult };
+              const receiptEventSeq = typeof this.ledger.eventSequence === "function"
+                ? this.ledger.eventSequence(resultEventId)
+                : null;
+              const inline = inlineToolResult(toolResult, {
+                tool: name,
+                receiptEventSeq,
+                maximumCharacters: name === "tool_receipt_read"
+                  ? Number.MAX_SAFE_INTEGER
+                  : this.config.maxInlineToolResultCharacters ?? 32 * 1024,
+              });
+              sameRequestReceipts.push({
+                tool: name,
+                arguments: args,
+                ok: true,
+                result: inline.deliveredResult,
+                receiptEventSeq,
+              });
+              if (inline.paged) {
+                this.ledger.append({
+                  type: "tool.result.paged", status: "complete", actorType: "service",
+                  actorName: "Tool result pager", channel, turnId: requestId,
+                  operationId: callId, name,
+                  payload: {
+                    receiptEventSeq,
+                    fullResultCharacters: inline.fullResultCharacters,
+                    inlineCharacters: this.config.maxInlineToolResultCharacters ?? 32 * 1024,
+                  },
+                });
+              }
+              return { ok: true, result: inline.deliveredResult };
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               sameRequestReceipts.push({ tool: name, arguments: args, ok: false, error: message });

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { SlayerDatabase } from "../src/database.mjs";
+import { Ledger } from "../src/ledger.mjs";
 import { SlayerRuntime } from "../src/runtime.mjs";
+import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
+import { temporaryDatabase } from "./helpers.mjs";
 
 function completedTurn(overrides = {}) {
   return {
@@ -146,6 +150,7 @@ test("the first model turn contains the exact request, context, and callable too
       continuingConversation: false,
       conversationStartEventSeq: 0,
       capabilities: ["all"],
+      conversationCheckpoint: null,
     },
   });
   assert.deepEqual(
@@ -208,6 +213,7 @@ test("the runtime resumes the active native conversation without reinjecting tra
     continuingConversation: true,
     conversationStartEventSeq: 42,
     capabilities: ["all"],
+    conversationCheckpoint: null,
   });
   assert.equal(modelRequest.developerInstructions, "CURRENT CONTEXT ONLY");
   assert.equal(modelRequest.requestAttachmentInput, null);
@@ -566,9 +572,138 @@ test("a capability change starts a fresh thread with bounded prior conversation 
     continuingConversation: false,
     conversationStartEventSeq: 40,
     capabilities: ["alpha"],
+    conversationCheckpoint: null,
   });
   assert.equal(startedMarker.conversationId, "old-thread");
   assert.deepEqual(startedMarker.capabilities, ["alpha"]);
+});
+
+test("a native thread above the context watermark rolls into a checkpointed replacement", async () => {
+  let modelConversationId;
+  let contextOptions;
+  const events = [];
+  const checkpoint = {
+    text: "# Conversation checkpoint\nOriginal objective survives.",
+    afterEventSeq: 10,
+    beforeEventSeq: 50,
+    exchangeEntryCount: 20,
+    includedExchangeEntryCount: 20,
+    omittedExchangeEntryCount: 0,
+    receiptCount: 3,
+    includedReceiptCount: 3,
+    olderReceiptsOmitted: false,
+    sentCharacters: 54,
+  };
+  const runtime = new SlayerRuntime({
+    modelTransport: fakeTransport(async (payload) => {
+      modelConversationId = payload.conversationId;
+      return completedTurn({ threadId: "replacement-thread" });
+    }),
+    registry: new ToolRegistry(),
+    contextBuilder: {
+      async build(_requestId, _text, options) {
+        contextOptions = options;
+        return {
+          text: checkpoint.text,
+          developerInstructions: checkpoint.text,
+          profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          conversationCheckpoint: checkpoint,
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: {
+      currentModelConversation() {
+        return { conversationId: "large-thread", markerEventSeq: 10, capabilities: [] };
+      },
+      activeModelConversation() {
+        return { conversationId: "large-thread", markerEventSeq: 10, reason: "continue" };
+      },
+      latestModelContextUsage() {
+        return { inputTokens: 180000, contextWindowTokens: 258400, usedPercent: 69.66 };
+      },
+      conversationCheckpoint() { return checkpoint; },
+      recentConversation() { return []; },
+      append(event) { events.push(event); },
+      markConversationStarted() {},
+    },
+    config: { ...runtimeConfig(), contextRolloverPercent: 65 },
+  });
+  runtime.systemPrompt = "prompt";
+
+  await runtime.run({ requestId: "rollover", requestEventId: "rollover-event", text: "Continue safely." });
+  assert.equal(modelConversationId, null);
+  assert.equal(contextOptions.nativeConversation, false);
+  assert.equal(contextOptions.conversationCheckpoint, checkpoint);
+  const transition = events.find(({ type }) => type === "context.sent").payload.conversationTransition;
+  assert.equal(transition.reason, "context_rollover");
+  assert.equal(transition.checkpointInjected, true);
+  assert.ok(transition.priorContextUsage.usedPercent > 65);
+});
+
+test("oversized live tool results spill to an exact paginated receipt without repeating the action", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const registry = new ToolRegistry();
+  let executions = 0;
+  registry.register({
+    name: "large_read",
+    description: "Return a deliberately large read result.",
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() {
+      executions += 1;
+      return { label: "preserved", data: "x".repeat(5000) };
+    },
+  });
+  registerDatabaseTools(registry, store, ledger, null);
+  let pagedResult;
+  let receiptPage;
+  const runtime = new SlayerRuntime({
+    modelTransport: fakeTransport(async (payload) => {
+      pagedResult = await payload.onToolCall({ callId: "large-call", tool: "large_read", arguments: {} });
+      receiptPage = await payload.onToolCall({
+        callId: "receipt-call",
+        tool: "tool_receipt_read",
+        arguments: {
+          receiptEventSeq: pagedResult.result.receipt_event_seq,
+          offset: 0,
+          maxCharacters: 8000,
+        },
+      });
+      return completedTurn({ text: "Recovered the exact result without rerunning it." });
+    }),
+    registry,
+    contextBuilder: {
+      async build() {
+        return {
+          text: "bounded", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger,
+    config: { ...runtimeConfig(), maxInlineToolResultCharacters: 200 },
+  });
+  runtime.systemPrompt = "prompt";
+  const request = ledger.createRequest({ text: "Read the large result." });
+
+  await runtime.run({
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    text: "Read the large result.",
+  });
+  assert.equal(executions, 1);
+  assert.equal(pagedResult.ok, true);
+  assert.equal(pagedResult.result.full_result_stored_in_receipt, true);
+  assert.equal(receiptPage.ok, true);
+  assert.match(receiptPage.result.chunk, /preserved/);
+  assert.match(receiptPage.result.chunk, /xxxxx/);
+  assert.equal(ledger.trace(request.requestId).some(({ type }) => type === "tool.result.paged"), true);
 });
 
 test("a failed tool result is returned to the model transport instead of becoming a fabricated success", async () => {

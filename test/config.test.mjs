@@ -79,6 +79,9 @@ test("native JMAP email configuration is independent of MCP", () => {
 test("text request attachments have a separate bounded upload limit", () => {
   const defaults = loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
   assert.equal(defaults.maxToolCalls, 128);
+  assert.equal(defaults.contextRolloverPercent, 65);
+  assert.equal(defaults.conversationCheckpointCharacters, 48 * 1024);
+  assert.equal(defaults.maxInlineToolResultCharacters, 32 * 1024);
   assert.equal(defaults.maxTextAttachmentBytes, 10 * 1024 * 1024);
   assert.equal(defaults.maxAttachmentContextCharacters, 64 * 1024);
   const configured = loadConfig({
@@ -88,6 +91,18 @@ test("text request attachments have a separate bounded upload limit", () => {
   });
   assert.equal(configured.maxTextAttachmentBytes, 8192);
   assert.equal(configured.maxAttachmentContextCharacters, 4096);
+});
+
+test("context rollover and inline result limits are configurable", () => {
+  const configured = loadConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_CONTEXT_ROLLOVER_PERCENT: "72.5",
+    SLAYER_CONVERSATION_CHECKPOINT_CHARACTERS: "24000",
+    SLAYER_MAX_INLINE_TOOL_RESULT_CHARACTERS: "12000",
+  });
+  assert.equal(configured.contextRolloverPercent, 72.5);
+  assert.equal(configured.conversationCheckpointCharacters, 24000);
+  assert.equal(configured.maxInlineToolResultCharacters, 12000);
 });
 
 test("explicit page reads have bounded network limits", () => {

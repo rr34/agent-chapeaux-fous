@@ -135,6 +135,66 @@ test("model conversation markers persist resumable state without changing the da
   }
 });
 
+test("context usage, intent checkpoints, and exact tool receipts remain recoverable from the ledger", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const first = ledger.createRequest({ text: "Keep the original objective intact." });
+    ledger.append({
+      type: "tool.call", phase: "start", status: "processing", turnId: first.requestId,
+      operationId: "large-read", name: "example_read",
+      payload: { callId: "large-read", arguments: { query: "important records" } },
+    });
+    const receiptId = ledger.append({
+      type: "tool.result", phase: "end", status: "complete", turnId: first.requestId,
+      operationId: "large-read", name: "example_read",
+      payload: { callId: "large-read", result: { rows: ["alpha", "beta"], importantDetail: "preserved" } },
+    });
+    ledger.finish(ledger.trace(first.requestId)[0], "The objective is still active.");
+    ledger.append({
+      type: "model.usage", status: "complete", turnId: first.requestId,
+      operationId: "model-usage-1",
+      payload: {
+        tokenUsage: { inputTokens: 170000, cachedInputTokens: 160000 },
+        contextWindowTokens: 258400,
+      },
+    });
+    const next = ledger.createRequest({ text: "Continue." });
+
+    const usage = ledger.latestModelContextUsage();
+    assert.equal(usage.inputTokens, 170000);
+    assert.equal(usage.contextWindowTokens, 258400);
+    assert.ok(usage.usedPercent > 65);
+
+    const checkpoint = ledger.conversationCheckpoint({
+      beforeRequestId: next.requestId,
+      maximumCharacters: 8000,
+    });
+    assert.match(checkpoint.text, /Keep the original objective intact/);
+    assert.match(checkpoint.text, /The objective is still active/);
+    assert.match(checkpoint.text, /receipt_event_seq=/);
+    assert.doesNotMatch(checkpoint.text, /importantDetail/);
+
+    const receiptEventSeq = ledger.eventSequence(receiptId);
+    const listed = ledger.toolReceiptList({ requestId: first.requestId, limit: 10 });
+    assert.equal(listed.receipts[0].receiptEventSeq, receiptEventSeq);
+    const chunks = [];
+    let offset = 0;
+    do {
+      const page = ledger.toolReceiptRead({ receiptEventSeq, offset, maxCharacters: 40 });
+      chunks.push(page.chunk);
+      offset = page.nextOffset;
+    } while (offset !== null);
+    const envelope = JSON.parse(chunks.join(""));
+    assert.deepEqual(envelope.call.arguments, { query: "important records" });
+    assert.equal(envelope.outcome.result.importantDetail, "preserved");
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("completed requests report elapsed time from receipt through the terminal event", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.filename);

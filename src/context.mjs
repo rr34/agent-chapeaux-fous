@@ -91,6 +91,7 @@ export class ContextBuilder {
     continuingConversation = false,
     conversationStartEventSeq = 0,
     capabilities = [],
+    conversationCheckpoint = null,
   } = {}) {
     const activeProfileFacts = this.profileFacts.list({ status: "active", limit: null }).facts;
     const history = nativeConversation && !continuingConversation
@@ -147,11 +148,15 @@ export class ContextBuilder {
         "",
       );
     }
-    if (!nativeConversation) sections.push("# Recent complete exchanges", historyText);
+    if (!nativeConversation && !conversationCheckpoint) {
+      sections.push("# Recent complete exchanges", historyText);
+    }
     const result = bounded(sections.join("\n"), this.maximumCharacters);
     let attachmentBudget = null;
     let attachmentText = null;
-    let text = result.text;
+    let text = conversationCheckpoint?.text
+      ? `${result.text}\n\n${conversationCheckpoint.text}`
+      : result.text;
     if (attachment) {
       const attachmentContents = String(attachment.text ?? "");
       const attachmentResult = bounded(attachmentContents, this.maximumAttachmentCharacters);
@@ -172,7 +177,7 @@ export class ContextBuilder {
         "</request_attachment>",
       ].join("\n");
       attachmentBudget = attachmentResult;
-      text = `${result.text}\n\n${attachmentText}`;
+      text = `${text}\n\n${attachmentText}`;
     }
     return {
       text,
@@ -181,6 +186,18 @@ export class ContextBuilder {
       activeProfileFactCount: activeProfileFacts.length,
       relevantProfileTypes,
       relevantProfileQuestions,
+      conversationCheckpoint: conversationCheckpoint ? {
+        afterEventSeq: conversationCheckpoint.afterEventSeq,
+        beforeEventSeq: conversationCheckpoint.beforeEventSeq,
+        exchangeEntryCount: conversationCheckpoint.exchangeEntryCount,
+        includedExchangeEntryCount: conversationCheckpoint.includedExchangeEntryCount,
+        omittedExchangeEntryCount: conversationCheckpoint.omittedExchangeEntryCount,
+        receiptCount: conversationCheckpoint.receiptCount,
+        includedReceiptCount: conversationCheckpoint.includedReceiptCount,
+        olderReceiptsOmitted: conversationCheckpoint.olderReceiptsOmitted,
+        carriedCheckpointCharacters: conversationCheckpoint.carriedCheckpointCharacters ?? 0,
+        sentCharacters: conversationCheckpoint.sentCharacters,
+      } : null,
       history: nativeConversation ? [] : history,
       nativeConversation: nativeConversation ? {
         continuing: continuingConversation,
@@ -189,6 +206,11 @@ export class ContextBuilder {
       } : null,
       contextBudget: {
         ...result,
+        checkpoint: conversationCheckpoint ? {
+          sentCharacters: conversationCheckpoint.sentCharacters,
+          exchangeEntryCount: conversationCheckpoint.exchangeEntryCount,
+          receiptCount: conversationCheckpoint.receiptCount,
+        } : null,
         attachment: attachmentBudget,
         totalSentCharacters: text.length,
       },
@@ -198,7 +220,9 @@ export class ContextBuilder {
         byteSize: attachment.byteSize,
         sha256: attachment.sha256,
       } : null,
-      developerInstructions: result.text,
+      developerInstructions: conversationCheckpoint?.text
+        ? `${result.text}\n\n${conversationCheckpoint.text}`
+        : result.text,
       requestAttachmentInput: attachmentText,
     };
   }

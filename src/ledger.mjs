@@ -57,6 +57,47 @@ function escapedLike(value) {
   return `%${value.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
 }
 
+function receiptEnvelope(resultEvent, callPayload = {}) {
+  return {
+    receiptEventSeq: resultEvent.eventSeq,
+    requestId: resultEvent.turnId,
+    occurredAtUtc: resultEvent.occurredAtUtc,
+    tool: resultEvent.name,
+    call: {
+      callId: callPayload.callId ?? resultEvent.operationId,
+      arguments: callPayload.arguments ?? {},
+    },
+    outcome: {
+      ok: resultEvent.status === "complete",
+      status: resultEvent.status,
+      result: resultEvent.payload?.result ?? null,
+      error: resultEvent.error ?? null,
+    },
+  };
+}
+
+function edgeBoundedBlocks(blocks, maximumCharacters) {
+  if (!blocks.length) return { blocks: [], omitted: 0 };
+  const selectedIndexes = new Set();
+  let used = 0;
+  const tryAdd = (index) => {
+    if (selectedIndexes.has(index)) return true;
+    const additional = blocks[index].length + (selectedIndexes.size ? 2 : 0);
+    if (selectedIndexes.size && used + additional > maximumCharacters) return false;
+    selectedIndexes.add(index);
+    used += additional;
+    return true;
+  };
+  for (let index = 0; index < Math.min(4, blocks.length); index += 1) {
+    if (!tryAdd(index)) break;
+  }
+  for (let index = blocks.length - 1; index >= 4; index -= 1) {
+    if (!tryAdd(index)) break;
+  }
+  const selected = [...selectedIndexes].sort((left, right) => left - right).map((index) => blocks[index]);
+  return { blocks: selected, omitted: blocks.length - selected.length };
+}
+
 function historyTopic(query) {
   if (query == null) return { query: null, terms: [] };
   if (typeof query !== "string" || !query.trim()) {
@@ -145,6 +186,13 @@ export class Ledger {
       primaryFileId, subjectType, subjectId, error,
     );
     return eventId;
+  }
+
+  eventSequence(eventId) {
+    const row = this.store.requireReady().prepare(`
+      SELECT event_seq FROM activity_events WHERE event_id = ?
+    `).get(eventId);
+    return row ? Number(row.event_seq) : null;
   }
 
   createRequest({ text = null, channel = "web", primaryFileId = null, runLimits = null, metadata = {} }) {
@@ -372,6 +420,157 @@ export class Ledger {
     });
   }
 
+  latestModelContextUsage({ afterEventSeq = 0 } = {}) {
+    const row = this.store.requireReady().prepare(`
+      SELECT usage.*, response.payload_json AS response_payload_json
+      FROM activity_events AS usage
+      LEFT JOIN activity_events AS response
+        ON response.operation_id = usage.operation_id
+       AND response.event_type = 'model.response'
+      WHERE usage.event_type = 'model.usage'
+        AND usage.event_seq > ?
+      ORDER BY usage.event_seq DESC
+      LIMIT 1
+    `).get(Math.max(0, Number(afterEventSeq) || 0));
+    const event = publicEvent(row);
+    if (!event) return null;
+    const tokenUsage = event.payload?.tokenUsage ?? {};
+    const inputTokens = Number(tokenUsage.inputTokens);
+    let contextWindowTokens = Number(event.payload?.contextWindowTokens);
+    if (!Number.isFinite(contextWindowTokens) || contextWindowTokens <= 0) {
+      const matches = [...String(row.response_payload_json ?? "").matchAll(/"modelContextWindow":(\d+)/gu)];
+      contextWindowTokens = Number(matches.at(-1)?.[1]);
+    }
+    if (!Number.isFinite(inputTokens) || inputTokens < 0) return null;
+    return {
+      eventSeq: event.eventSeq,
+      requestId: event.turnId,
+      occurredAtUtc: event.occurredAtUtc,
+      inputTokens,
+      cachedInputTokens: Number(tokenUsage.cachedInputTokens ?? 0),
+      contextWindowTokens: Number.isFinite(contextWindowTokens) && contextWindowTokens > 0
+        ? contextWindowTokens
+        : null,
+      usedPercent: Number.isFinite(contextWindowTokens) && contextWindowTokens > 0
+        ? (inputTokens / contextWindowTokens) * 100
+        : null,
+    };
+  }
+
+  conversationCheckpoint({ afterEventSeq = 0, beforeRequestId = null, maximumCharacters = 48 * 1024 } = {}) {
+    const database = this.store.requireReady();
+    const maximum = Number(maximumCharacters);
+    if (!Number.isSafeInteger(maximum) || maximum < 4_000 || maximum > 256 * 1024) {
+      throw new Error("Conversation checkpoint maximumCharacters must be an integer from 4000 to 262144");
+    }
+    const before = beforeRequestId
+      ? database.prepare(`
+          SELECT event_seq FROM activity_events
+          WHERE turn_id = ? AND event_type IN (${placeholders(receivedEventTypes)})
+          ORDER BY event_seq LIMIT 1
+        `).get(beforeRequestId, ...receivedEventTypes)?.event_seq
+      : null;
+    const conversation = database.prepare(`
+      SELECT * FROM activity_events
+      WHERE event_type IN (${placeholders([...receivedEventTypes, ...responseEventTypes])})
+        AND event_seq > ?
+        AND (? IS NULL OR event_seq < ?)
+      ORDER BY event_seq
+    `).all(
+      ...receivedEventTypes,
+      ...responseEventTypes,
+      Math.max(0, Number(afterEventSeq) || 0),
+      before ?? null,
+      before ?? null,
+    ).map(publicEvent).filter((event) => event.content);
+    const carriedCheckpoint = database.prepare(`
+      SELECT content_text
+      FROM activity_events
+      WHERE event_type = 'conversation.checkpoint'
+        AND event_seq > ?
+        AND (? IS NULL OR event_seq < ?)
+      ORDER BY event_seq DESC
+      LIMIT 1
+    `).get(
+      Math.max(0, Number(afterEventSeq) || 0),
+      before ?? null,
+      before ?? null,
+    )?.content_text ?? null;
+    const receiptCount = Number(database.prepare(`
+      SELECT COUNT(*) AS count
+      FROM activity_events
+      WHERE event_type = 'tool.result'
+        AND event_seq > ?
+        AND (? IS NULL OR event_seq < ?)
+    `).get(
+      Math.max(0, Number(afterEventSeq) || 0),
+      before ?? null,
+      before ?? null,
+    )?.count ?? 0);
+    const receipts = database.prepare(`
+      SELECT event_seq, occurred_at_utc, turn_id, name, status, error_text,
+             length(payload_json) AS payload_characters
+      FROM activity_events
+      WHERE event_type = 'tool.result'
+        AND event_seq > ?
+        AND (? IS NULL OR event_seq < ?)
+      ORDER BY event_seq DESC
+      LIMIT 100
+    `).all(
+      Math.max(0, Number(afterEventSeq) || 0),
+      before ?? null,
+      before ?? null,
+    );
+    const receiptLines = receipts.slice(0, 100).map((receipt) => (
+      `- receipt_event_seq=${receipt.event_seq} | request_id=${receipt.turn_id ?? "none"} | tool=${receipt.name ?? "unknown"} | status=${receipt.status ?? "unknown"} | stored_characters=${receipt.payload_characters ?? 0}`
+    ));
+    const header = [
+      "# Conversation checkpoint",
+      "This checkpoint preserves user/assistant intent across a native model-thread replacement. Raw tool payloads are intentionally omitted; exact tool calls and results remain in the durable receipt ledger and can be paged with the receipt tools.",
+    ].join("\n");
+    const carriedBudget = Math.min(12 * 1024, Math.floor(maximum * 0.25));
+    const carriedText = carriedCheckpoint
+      ? `# Carried checkpoint from the preceding model thread\n${String(carriedCheckpoint).slice(0, carriedBudget)}`
+      : "";
+    const receiptBudget = Math.min(12 * 1024, Math.floor(maximum * 0.25));
+    const boundedReceipts = edgeBoundedBlocks(receiptLines, receiptBudget);
+    const receiptText = receiptLines.length
+      ? [
+          "# Durable tool receipt index",
+          ...(boundedReceipts.omitted ? [`[${boundedReceipts.omitted} older receipt entries omitted from this checkpoint]`] : []),
+          ...boundedReceipts.blocks,
+        ].join("\n")
+      : "# Durable tool receipt index\nNo tool receipts were recorded in this conversation range.";
+    const conversationBudget = Math.max(
+      1_000,
+      maximum - header.length - carriedText.length - receiptText.length - 10,
+    );
+    const conversationBlocks = conversation.map((event) => {
+      const role = receivedEventTypes.includes(event.type) ? "USER" : "ASSISTANT";
+      return `${role} [request_id=${event.turnId ?? "none"} at=${event.occurredAtUtc}]: ${event.content}`;
+    });
+    const boundedConversation = edgeBoundedBlocks(conversationBlocks, conversationBudget);
+    const conversationText = [
+      "# User and assistant exchange history",
+      ...(boundedConversation.omitted ? [`[${boundedConversation.omitted} middle exchange entries omitted]`] : []),
+      ...boundedConversation.blocks,
+    ].join("\n\n");
+    const text = [header, carriedText, conversationText, receiptText].filter(Boolean).join("\n\n").slice(0, maximum);
+    return {
+      text,
+      afterEventSeq: Math.max(0, Number(afterEventSeq) || 0),
+      beforeEventSeq: before ?? null,
+      exchangeEntryCount: conversationBlocks.length,
+      includedExchangeEntryCount: boundedConversation.blocks.length,
+      omittedExchangeEntryCount: boundedConversation.omitted,
+      receiptCount,
+      includedReceiptCount: boundedReceipts.blocks.length,
+      olderReceiptsOmitted: receiptCount > receipts.length || boundedReceipts.omitted > 0,
+      carriedCheckpointCharacters: carriedText.length,
+      sentCharacters: text.length,
+    };
+  }
+
   recentRequests(limit = 100) {
     const bounded = Math.min(200, Math.max(1, Number(limit) || 100));
     const received = this.store.requireReady().prepare(`
@@ -551,6 +750,107 @@ export class Ledger {
         AND content_text LIKE ? ESCAPE '\\'
       ORDER BY event_seq DESC LIMIT ?
     `).all(...receivedEventTypes, ...responseEventTypes, escaped, bounded).map(publicEvent);
+  }
+
+  toolReceiptList({ requestId = null, beforeEventSeq = null, limit = 20 } = {}) {
+    const bounded = Number(limit);
+    if (!Number.isSafeInteger(bounded) || bounded < 1 || bounded > 100) {
+      throw new Error("Tool receipt limit must be an integer from 1 to 100");
+    }
+    const before = beforeEventSeq == null ? null : Number(beforeEventSeq);
+    if (before !== null && (!Number.isSafeInteger(before) || before < 1)) {
+      throw new Error("Tool receipt beforeEventSeq must be a positive integer or null");
+    }
+    if (requestId !== null && (typeof requestId !== "string" || !requestId.trim())) {
+      throw new Error("Tool receipt requestId must be a non-empty string or null");
+    }
+    const rows = this.store.requireReady().prepare(`
+      SELECT result.*, call.payload_json AS call_payload_json
+      FROM activity_events AS result
+      LEFT JOIN activity_events AS call
+        ON call.operation_id = result.operation_id
+       AND call.event_type = 'tool.call'
+       AND call.name = result.name
+      WHERE result.event_type = 'tool.result'
+        AND (? IS NULL OR result.turn_id = ?)
+        AND (? IS NULL OR result.event_seq < ?)
+      ORDER BY result.event_seq DESC
+      LIMIT ?
+    `).all(requestId, requestId, before, before, bounded + 1);
+    const hasMore = rows.length > bounded;
+    const receipts = rows.slice(0, bounded).map((row) => {
+      const event = publicEvent(row);
+      let callPayload = {};
+      try { callPayload = JSON.parse(row.call_payload_json || "{}"); } catch {}
+      const resultText = JSON.stringify(event.payload?.result ?? null);
+      const argumentsText = JSON.stringify(callPayload.arguments ?? {});
+      return {
+        receiptEventSeq: event.eventSeq,
+        requestId: event.turnId,
+        occurredAtUtc: event.occurredAtUtc,
+        tool: event.name,
+        status: event.status,
+        ok: event.status === "complete",
+        resultCharacters: resultText.length,
+        argumentCharacters: argumentsText.length,
+        error: event.error,
+      };
+    });
+    return {
+      count: receipts.length,
+      hasMore,
+      nextBeforeEventSeq: hasMore ? receipts.at(-1)?.receiptEventSeq ?? null : null,
+      receipts,
+    };
+  }
+
+  toolReceiptRead({ receiptEventSeq, offset = 0, maxCharacters = 16 * 1024 }) {
+    const eventSeq = Number(receiptEventSeq);
+    const boundedOffset = Number(offset);
+    const boundedMaximum = Number(maxCharacters);
+    if (!Number.isSafeInteger(eventSeq) || eventSeq < 1) {
+      throw new Error("receiptEventSeq must be a positive integer");
+    }
+    if (!Number.isSafeInteger(boundedOffset) || boundedOffset < 0 || boundedOffset > 10_000_000) {
+      throw new Error("offset must be an integer from 0 to 10000000");
+    }
+    if (!Number.isSafeInteger(boundedMaximum) || boundedMaximum < 1 || boundedMaximum > 32 * 1024) {
+      throw new Error("maxCharacters must be an integer from 1 to 32768");
+    }
+    const row = this.store.requireReady().prepare(`
+      SELECT result.*, call.payload_json AS call_payload_json
+      FROM activity_events AS result
+      LEFT JOIN activity_events AS call
+        ON call.operation_id = result.operation_id
+       AND call.event_type = 'tool.call'
+       AND call.name = result.name
+      WHERE result.event_type = 'tool.result'
+        AND result.event_seq = ?
+      LIMIT 1
+    `).get(eventSeq);
+    if (!row) throw new Error(`Tool receipt event ${eventSeq} was not found`);
+    const event = publicEvent(row);
+    let callPayload = {};
+    try { callPayload = JSON.parse(row.call_payload_json || "{}"); } catch {}
+    const serialized = JSON.stringify(receiptEnvelope(event, callPayload));
+    if (boundedOffset > serialized.length) {
+      throw new Error(`offset exceeds the receipt length of ${serialized.length} characters`);
+    }
+    const chunk = serialized.slice(boundedOffset, boundedOffset + boundedMaximum);
+    const nextOffset = boundedOffset + chunk.length < serialized.length
+      ? boundedOffset + chunk.length
+      : null;
+    return {
+      receiptEventSeq: eventSeq,
+      tool: event.name,
+      requestId: event.turnId,
+      totalCharacters: serialized.length,
+      offset: boundedOffset,
+      count: chunk.length,
+      hasMore: nextOffset !== null,
+      nextOffset,
+      chunk,
+    };
   }
 
   recentEmailCleanupReceipts(limit = 5) {

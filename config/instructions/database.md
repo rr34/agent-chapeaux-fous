@@ -5,3 +5,7 @@ read-only and is always available. Continue a multi-page `database_read` with
 the returned `nextOffset` while `hasMore` is true, keeping the other arguments
 the same. Prefer a supplied native domain tool for domain-specific reads when it
 provides a clearer or more compact result.
+Use `tool_receipt_list` and `tool_receipt_read` to recover exact prior call
+arguments and results after context rollover or automatic large-result paging.
+Receipt retrieval is read-only; never repeat a completed write merely to see
+its result again.

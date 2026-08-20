@@ -17,6 +17,11 @@ function positiveInteger(value, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function percentage(value, fallback) {
+  const parsed = Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(parsed) && parsed > 0 && parsed < 100 ? parsed : fallback;
+}
+
 function resolveFromRoot(value, fallback) {
   return path.resolve(repositoryRoot, value?.trim() || fallback);
 }
@@ -84,6 +89,15 @@ export function loadConfig(environment = process.env) {
     model: environment.SLAYER_MODEL?.trim() || "gpt-5.6-terra",
     reasoningEffort: environment.SLAYER_REASONING_EFFORT?.trim() || "high",
     maxToolCalls: positiveInteger(environment.SLAYER_MAX_TOOL_CALLS, 128),
+    contextRolloverPercent: percentage(environment.SLAYER_CONTEXT_ROLLOVER_PERCENT, 65),
+    conversationCheckpointCharacters: positiveInteger(
+      environment.SLAYER_CONVERSATION_CHECKPOINT_CHARACTERS,
+      48 * 1024,
+    ),
+    maxInlineToolResultCharacters: positiveInteger(
+      environment.SLAYER_MAX_INLINE_TOOL_RESULT_CHARACTERS,
+      32 * 1024,
+    ),
     maxUploadBytes: positiveInteger(environment.SLAYER_MAX_AUDIO_BYTES, 50 * 1024 * 1024),
     maxTextAttachmentBytes: positiveInteger(
       environment.SLAYER_MAX_TEXT_ATTACHMENT_BYTES,
