@@ -41,7 +41,9 @@ const capabilityPatterns = new Map([
 ]);
 
 const followupPattern = /^(?:\s)*(?:yes|yeah|yep|okay|ok|sure|correct|right|sounds good|go ahead|do it|proceed|continue|make it so|that one|those|please do)(?:\b|[.!,:])/iu;
-const continuationReferencePattern = /\b(?:that|this|it|those|them|the same|again|what happened|tell me more|why did|why was|why is|how about|what about)\b/iu;
+const leadingContinuationReferencePattern = /^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:that|this|it|those|them|the same|again|what happened|tell me more|why did|why was|why is|how about|what about)\b/iu;
+const actionContinuationReferencePattern = /\b(?:do|use|send|email|reply to|forward|delete|remove|update|change|apply|open|read|show|list|find|move|archive|trash|restore)\s+(?:that|this|it|those|them)\b/iu;
+const questionContinuationReferencePattern = /\b(?:what|why|how)\b.{0,40}\b(?:that|this|it|those|them)\b/iu;
 const compactFollowupPattern = /^\s*(?:why|how so|and then|anything else|more)\s*[?.!]*\s*$/iu;
 const toolFreePattern = /\b(?:explain|define|brainstorm|rewrite|proofread|translate|tell me a joke|write a story|what do you think|help me think|your opinion|how does .+ work|compare the ideas)\b/iu;
 const greetingPattern = /^\s*(?:hello|hi|hey|good (?:morning|afternoon|evening)|thanks|thank you)[.!\s]*$/iu;
@@ -56,6 +58,26 @@ export function capabilityForTool(tool) {
 
 function normalizedText(value) {
   return String(value ?? "").normalize("NFKC");
+}
+
+function singularRoutingWord(word) {
+  if (word.length < 4 || /(?:ss|us|is)$/iu.test(word)) return word;
+  if (/ies$/iu.test(word)) return `${word.slice(0, -3)}y`;
+  if (/(?:ches|shes|xes|zes|sses)$/iu.test(word)) return word.slice(0, -2);
+  if (/s$/iu.test(word)) return word.slice(0, -1);
+  return word;
+}
+
+function enrichedRoutingText(value) {
+  const text = normalizedText(value);
+  const singularized = text.replace(/[\p{L}\p{N}]+/gu, singularRoutingWord);
+  return singularized === text ? text : `${text}\n${singularized}`;
+}
+
+function referencesPriorTurn(text) {
+  return leadingContinuationReferencePattern.test(text)
+    || actionContinuationReferencePattern.test(text)
+    || questionContinuationReferencePattern.test(text);
 }
 
 function recentRoutingText(entries) {
@@ -109,12 +131,12 @@ export function selectRequestCapabilities({ tools, text, attachment = null, rece
     || (
       !attachment
       && !/https?:\/\//iu.test(currentText)
-      && continuationReferencePattern.test(currentText)
+      && referencesPriorTurn(currentText)
     )
   );
   const routingText = followsPriorTurn
-    ? `${recentRoutingText(recentConversation)}\nuser: ${currentText}`
-    : currentText;
+    ? enrichedRoutingText(`${recentRoutingText(recentConversation)}\nuser: ${currentText}`)
+    : enrichedRoutingText(currentText);
   const selected = new Set(grouped.has("profile") ? ["profile"] : []);
   const reasons = [];
 

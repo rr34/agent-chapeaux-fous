@@ -408,11 +408,16 @@ The implemented recorded-request path is:
    worker and records the resulting text.
 6. The text continues through the same **51. Slayer runtime** used by typed
    requests.
+7. Unless the user selected Respond silently for that request, **10. Agent
+   Slayer web client** retains the queued request ID and uses the browser's
+   native speech synthesis to speak its completed final response.
 
 Typed requests skip file storage and transcription but enter the same FIFO.
-The current browser retains its access token locally. It does not yet implement
-the earlier IndexedDB upload outbox, automatic speech playback, or live
-interruption semantics.
+The current browser retains its access token, persistent Respond silently
+preference, and pending spoken-response IDs locally. It automatically speaks
+completed responses by default through browser-native speech synthesis. It does
+not yet implement the earlier IndexedDB upload outbox or live interruption
+semantics.
 
 ## Access and deployment boundary
 
@@ -459,8 +464,10 @@ so old notes and future discussions stay understandable.
   transcription**, and **8. Direct audio input to the OpenAI model** are not the
   selected request path.
 - **14. OpenAI Platform API account** is excluded for model transport.
-- **17. Agent speech-generation service** and **18. Phone audio player** are not
-  implemented.
+- **17. Agent speech-generation service** is not implemented; speech generation
+  currently uses the web browser's native speech engine.
+- **18. Phone audio player** is implemented as automatic browser speech playback
+  for requests submitted by that browser. Live interruption is not implemented.
 - **24. TimeV3 MCP server** is not configured in this repository.
 - **25–33** and **36** retain the former video, publishing, and telephone design;
   none is implemented here.
@@ -538,11 +545,14 @@ original microphone recording for upload.
 web client** to **48. Voice-ingestion service**. TLS or private-network
 publication is supplied by deployment infrastructure.
 
-**17. Agent speech-generation service** — A future component that would turn a
-final Agent Slayer response into spoken audio.
+**17. Agent speech-generation service** — A possible future server-side speech
+component. The current product instead turns final responses into speech in the
+web client through browser-native speech synthesis.
 
-**18. Phone audio player** — A future client component that would play generated
-speech and support stopping or interrupting playback.
+**18. Phone audio player** — The current web client automatically speaks each
+completed response submitted by that browser unless Respond silently was
+selected. The preference and pending response IDs survive reloads in browser
+storage. Stopping or interrupting playback is not yet implemented.
 
 **19. Agent activity ledger** — The append-only chronological record of
 observable request, context, model, tool, response, error, usage, and media

@@ -101,6 +101,7 @@ const elements = {
   eventRepeatUntil: document.querySelector("#event-repeat-until"),
   eventRepeatSummary: document.querySelector("#event-repeat-summary"),
   eventFormError: document.querySelector("#event-form-error"),
+  eventDelete: document.querySelector("#event-delete"),
   eventInviteDraft: document.querySelector("#event-invite-draft"),
   eventInviteDialog: document.querySelector("#event-invite-dialog"),
   eventInviteForm: document.querySelector("#event-invite-form"),
@@ -1498,6 +1499,7 @@ function openEventEditor(calendarEvent = null) {
   }
   updateEventDuration();
   loadEventRecurrenceEditor(calendarEvent?.recurrenceRule ?? null);
+  elements.eventDelete.hidden = !calendarEvent;
   updateEventInviteDraftAvailability();
   elements.eventDialog.showModal();
   elements.eventTitle.focus();
@@ -1646,6 +1648,29 @@ async function saveEvent(event) {
     elements.eventFormError.textContent = error.message || "Could not save the event.";
   } finally {
     submit.disabled = false;
+  }
+}
+
+async function deleteEditedEvent() {
+  const id = Number(elements.eventId.value);
+  if (!Number.isSafeInteger(id) || id <= 0) return;
+  const title = elements.eventTitle.value.trim() || "this event";
+  const recurrenceNotice = elements.eventRepeatEnabled.checked ? " and all its occurrences" : "";
+  if (!window.confirm(`Permanently delete “${title}”${recurrenceNotice}? This cannot be undone.`)) return;
+  elements.eventFormError.textContent = "";
+  elements.eventDelete.disabled = true;
+  try {
+    await api(`/api/calendar-events/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: elements.eventVersion.value }),
+    });
+    elements.eventDialog.close();
+    await refreshCalendar();
+  } catch (error) {
+    elements.eventFormError.textContent = error.message || "Could not delete the event.";
+  } finally {
+    elements.eventDelete.disabled = false;
   }
 }
 
@@ -3436,6 +3461,7 @@ elements.eventAllDay.addEventListener("change", () => {
   updateEventRecurrenceEditor();
 });
 elements.eventForm.addEventListener("submit", saveEvent);
+elements.eventDelete.addEventListener("click", () => void deleteEditedEvent());
 elements.eventInviteDraft.addEventListener("click", () => void openEventInviteDraft());
 elements.eventInviteSearch.addEventListener("input", renderEventInviteContacts);
 elements.eventInviteForm.addEventListener("submit", createEventInviteDraft);

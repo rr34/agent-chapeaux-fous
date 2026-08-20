@@ -2378,6 +2378,39 @@ export class OrganizerStore {
     }
   }
 
+  deleteCalendar(idValue, input) {
+    const id = identifier(idValue, "calendar event id");
+    if (typeof input?.version !== "string" || !input.version) {
+      throw new OrganizerInputError("version is required when deleting a calendar event.");
+    }
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const before = this.getCalendar(id);
+      if (!before) throw new OrganizerInputError("Calendar event not found.", 404);
+      const result = this.database.prepare(`
+        DELETE FROM calendar_events
+        WHERE calendar_event_id = ? AND COALESCE(updated_at_utc, created_at_utc) = ?
+      `).run(id, input.version);
+      if (result.changes !== 1) {
+        throw new OrganizerInputError("This calendar event changed before it could be deleted. Refresh and try again.", 409);
+      }
+      this.#activity({
+        eventType: "calendar.event.deleted",
+        status: "complete",
+        name: "Calendar event deleted",
+        subjectType: "calendar_event",
+        subjectId: id,
+        contentText: before.title,
+        payload: { calendarEventId: id },
+      });
+      this.database.exec("COMMIT");
+      return { deleted: before };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   createTodo(input) {
     const todo = {
       groupId: input?.groupId == null ? null : identifier(input.groupId, "group id"),

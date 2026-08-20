@@ -488,11 +488,11 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .recurrence-ending { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .75rem; }
 .recurrence-summary { margin: 0; color: var(--text); font-size: .82rem; font-weight: 400; }
 .recurrence-hint { margin: -.35rem 0 0; color: var(--muted); font-size: .75rem; }
-.editor-actions { justify-content: flex-end; }
+.editor-actions { justify-content: flex-end; flex-wrap: wrap; }
 .editor-actions .editor-delete { margin-right: auto; }
+.editor-leading-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin-right: auto; }
 .form-error { min-height: 1.2em; margin: 0; color: var(--bad); font-size: .8rem; }
 .form-success { min-height: 1.2em; margin: 0; color: var(--good); font-size: .8rem; }
-.event-invite-action { margin-right: auto; }
 .event-invite-intro { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.45; }
 .event-invite-recipients { min-width: 0; margin: 0; padding: .8rem; border: 1px solid var(--line); border-radius: 11px; }
 .event-invite-recipients legend { padding: 0 .3rem; color: var(--muted); font-size: .75rem; }

@@ -336,6 +336,12 @@ voice/.venv/bin/pip install -r voice/requirements.txt
 
 The original recording is stored before transcription begins.
 
+Responses to new typed and recorded requests are spoken by default through the
+web browser's native speech synthesis. **Respond silently** suppresses speech
+for that request and persists as a browser-local preference. Speech generation
+therefore occurs on the client device; Agent Slayer does not currently run a
+server-side TTS engine.
+
 ## Deployment
 
 `systemd/agent-slayer.service.example` is a reference only. Update its paths,

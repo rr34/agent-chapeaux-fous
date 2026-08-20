@@ -428,6 +428,10 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    if (request.method === "DELETE" && calendarMatch) {
+      sendJson(response, 200, organizer.deleteCalendar(calendarMatch[1], await readJson(request)));
+      return;
+    }
     const calendarInviteDraftMatch = /^\/api\/calendar-events\/(\d+)\/invite-draft$/.exec(url.pathname);
     if (request.method === "POST" && calendarInviteDraftMatch) {
       if (!jmap.health().ready) {

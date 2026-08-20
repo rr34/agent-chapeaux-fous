@@ -3,7 +3,7 @@ import test from "node:test";
 import { OrganizerInputError, OrganizerStore } from "../src/organizer-store.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
-test("calendar events use the existing tables with optimistic concurrency", () => {
+test("calendar events use the existing tables with optimistic concurrency and safe deletion", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);
   try {
@@ -34,6 +34,16 @@ test("calendar events use the existing tables with optimistic concurrency", () =
       () => organizer.updateCalendar(created.id, { version: created.version, title: "Stale" }),
       (error) => error instanceof OrganizerInputError && error.statusCode === 409,
     );
+    assert.throws(
+      () => organizer.deleteCalendar(created.id, { version: created.version }),
+      (error) => error instanceof OrganizerInputError && error.statusCode === 409,
+    );
+    const deleted = organizer.deleteCalendar(created.id, { version: updated.version });
+    assert.equal(deleted.deleted.title, "Dental cleaning");
+    assert.equal(organizer.getCalendar(created.id), null);
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'calendar.event.deleted'
+    `).get().count, 1);
   } finally {
     organizer.close();
     temporary.cleanup();

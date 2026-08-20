@@ -128,6 +128,43 @@ test("a plural contacts request selects focused contact tools without falling ba
   assert.equal(selection.fallbackAll, false);
 });
 
+test("common plural request words select their focused tool families", () => {
+  const examples = [
+    ["Read these webpages.", "web", "web_page_read"],
+    ["Show my appointments.", "calendar", "calendar_event_list"],
+    ["List my tasks.", "todos", "todo_list"],
+    ["Show my trackers.", "logs", "log_add"],
+    ["Inspect the database tables.", "database", "database_read"],
+    ["Search previous conversations.", "history", "history_range"],
+    ["Find my AbeBooks emails.", "email", "email_search"],
+  ];
+
+  for (const [text, capability, toolName] of examples) {
+    const selection = selectRequestCapabilities({ tools, text });
+    assert.equal(selection.capabilities.includes(capability), true, text);
+    assert.equal(names(selection).includes(toolName), true, text);
+    assert.equal(selection.fallbackAll, false, text);
+  }
+});
+
+test("an explicit plural email request does not inherit an unrelated prior topic from incidental pronouns", () => {
+  const selection = selectRequestCapabilities({
+    tools,
+    text: "can you check for abebooks emails and tell me what days my books are supposed to arrive? there is one order with two books on it coming from two different places",
+    recentConversation: [
+      { role: "user", content: "Log my weight for today." },
+      { role: "assistant", content: "I recorded today's weight." },
+    ],
+    previousCapabilities: ["logs", "profile"],
+  });
+
+  assert.deepEqual(selection.capabilities, ["email", "profile"]);
+  assert.equal(names(selection).includes("email_search"), true);
+  assert.equal(names(selection).includes("log_add"), false);
+  assert.equal(selection.followsPriorTurn, false);
+  assert.equal(selection.fallbackAll, false);
+});
+
 test("an explicit URL receives the page reader without unrelated application tools", () => {
   const selection = selectRequestCapabilities({ tools, text: "Read https://example.com/report for me." });
   assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "web_page_read"]);
