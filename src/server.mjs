@@ -16,7 +16,7 @@ import { loadHatCatalog } from "./hat-catalog.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { capabilityForTool, RequestCompiler } from "./request-compiler.mjs";
 import { createNativeSearchCoordinator } from "./search/native-search.mjs";
-import { receiveTextAttachment, safeMediaPath } from "./request-attachments.mjs";
+import { receiveRequestAttachment, safeMediaPath } from "./request-attachments.mjs";
 import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
@@ -118,6 +118,7 @@ const queue = new RequestQueue({
   transcriber,
   mediaRoot: config.mediaRoot,
   maxTextAttachmentBytes: config.maxTextAttachmentBytes,
+  maxRequestAttachmentBytes: config.maxRequestAttachmentBytes,
 });
 
 const staticFiles = new Map([
@@ -323,6 +324,17 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/requests") {
       sendJson(response, 200, { requests: ledger.recentRequests(url.searchParams.get("limit")) });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/ai-usage") {
+      sendJson(response, 200, {
+        entries: ledger.modelUsage({ limit: url.searchParams.get("limit") || 1000 }),
+        defaultPricing: config.aiPricing,
+        current: {
+          transport: modelTransport.id,
+          model: config.model,
+        },
+      });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/conversation/reset") {
@@ -618,10 +630,10 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/request-files") {
-      const file = await receiveTextAttachment(request, {
+      const file = await receiveRequestAttachment(request, {
         filename: url.searchParams.get("filename"),
         mediaRoot: config.mediaRoot,
-        maximumBytes: config.maxTextAttachmentBytes,
+        maximumBytes: config.maxRequestAttachmentBytes,
         ledger,
       });
       sendJson(response, 201, file);
@@ -638,7 +650,7 @@ const server = http.createServer(async (request, response) => {
           throw Object.assign(new Error("Request attachment ID is invalid"), { statusCode: 400 });
         }
         const file = ledger.file(primaryFileId);
-        if (!file || file.media_kind !== "document") {
+        if (!file || !["document", "image"].includes(file.media_kind)) {
           throw Object.assign(new Error("Request attachment was not found"), { statusCode: 404 });
         }
       }

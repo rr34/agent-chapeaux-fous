@@ -24,7 +24,7 @@
         <summary>Info</summary>
         <div class="runtime-details-panel">
           <button id="integrations-button" class="integration" type="button">Integrations</button>
-          <button id="usage" class="usage" type="button" title="Click to copy usage diagnostics">Model usage…</button>
+          <button id="usage" class="usage" type="button" title="Open AI token and cost usage">AI usage</button>
           <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
         </div>
       </details>
@@ -42,6 +42,7 @@
         <option data-view="content" value="content">Content</option>
         <option data-view="contacts" value="contacts">Contacts</option>
         <option data-view="logs" value="logs">Logs</option>
+        <option data-view="ai-usage" value="ai-usage">AI Usage</option>
       </select>
     </nav>
 
@@ -61,9 +62,10 @@
         <button id="composer-hats-link" class="text-button composer-hats-link" type="button">Which hat should I use?</button>
         <div class="composer-actions">
           <div class="request-attachment-control">
-            <label class="attachment-button" for="request-file">Attach CSV/vCard/text</label>
-            <input id="request-file" class="sr-only" type="file" accept=".csv,.vcf,.txt,text/csv,text/vcard,text/x-vcard,text/plain">
+            <label class="attachment-button" for="request-file">Attach image or file</label>
+            <input id="request-file" class="sr-only" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.csv,.vcf,.txt,image/jpeg,image/png,image/webp,image/gif,text/csv,text/vcard,text/x-vcard,text/plain">
             <span id="request-file-label" class="request-file-label" hidden></span>
+            <img id="request-image-preview" class="request-image-preview" alt="Selected request image preview" hidden>
             <button id="remove-request-file" class="secondary compact" type="button" hidden>Remove</button>
           </div>
           <div class="request-run-controls">
@@ -276,6 +278,58 @@
         <span id="log-count" class="toolbar-count"></span>
       </div>
       <section id="log-list" class="log-list" aria-live="polite"></section>
+    </section>
+
+    <section id="ai-usage-view" class="app-view ai-usage-view" hidden>
+      <header class="organizer-heading">
+        <div>
+          <p class="eyebrow">Metered model backend</p>
+          <h2>AI Usage</h2>
+        </div>
+        <button id="refresh-ai-usage" class="secondary" type="button">Refresh usage</button>
+      </header>
+      <div class="ai-usage-summary-grid">
+        <article class="organizer-panel ai-usage-summary-card">
+          <span>This month</span><strong id="ai-usage-month-cost">$0.00</strong>
+          <small id="ai-usage-month-tokens">0 tokens</small>
+        </article>
+        <article class="organizer-panel ai-usage-summary-card">
+          <span>Recorded total</span><strong id="ai-usage-total-cost">$0.00</strong>
+          <small id="ai-usage-total-tokens">0 tokens</small>
+        </article>
+        <article class="organizer-panel ai-usage-summary-card">
+          <span>Current backend</span><strong id="ai-usage-current-model">Unknown</strong>
+          <small id="ai-usage-entry-count">0 recorded calls</small>
+        </article>
+      </div>
+      <form id="ai-pricing-form" class="organizer-panel ai-pricing-form">
+        <div>
+          <p class="eyebrow">Cost calculator</p>
+          <h3>Prices per one million tokens</h3>
+          <p class="muted">Change these whenever provider pricing changes. Overrides stay in this browser; recorded token counts never change.</p>
+        </div>
+        <label>Input USD<input id="ai-input-price" type="number" min="0" step="0.0001" required></label>
+        <label>Cached input USD<input id="ai-cached-input-price" type="number" min="0" step="0.0001" required></label>
+        <label>Cache write USD<input id="ai-cache-write-price" type="number" min="0" step="0.0001" required></label>
+        <label>Output USD<input id="ai-output-price" type="number" min="0" step="0.0001" required></label>
+        <div class="button-row">
+          <button type="submit">Apply prices</button>
+          <button id="reset-ai-pricing" class="secondary" type="button">Use server defaults</button>
+        </div>
+      </form>
+      <section class="organizer-panel ai-usage-history" aria-labelledby="ai-usage-history-heading">
+        <div class="section-heading">
+          <div><p class="eyebrow">Literal token records</p><h3 id="ai-usage-history-heading">Recent model calls</h3></div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>When</th><th>Model</th><th>Input</th><th>Cached</th><th>Cache write</th><th>Output</th><th>Estimated cost</th></tr></thead>
+            <tbody id="ai-usage-rows"></tbody>
+          </table>
+        </div>
+        <p id="ai-usage-empty" class="empty">No metered model usage has been recorded yet.</p>
+        <p id="ai-usage-status" class="status" role="status"></p>
+      </section>
     </section>
 
     <section id="trace-panel" class="trace-panel" hidden aria-labelledby="trace-heading">

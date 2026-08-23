@@ -488,7 +488,17 @@ export class CodexAppServerClient extends EventEmitter {
       developerInstructions,
       input: [
         { type: "text", text: input },
-        ...(requestAttachmentInput ? [{ type: "text", text: requestAttachmentInput }] : []),
+        ...(typeof requestAttachmentInput === "string"
+          ? [{ type: "text", text: requestAttachmentInput }]
+          : requestAttachmentInput?.mediaKind === "image"
+            ? [{
+                type: "unsupported_image",
+                filename: requestAttachmentInput.filename,
+                mimeType: requestAttachmentInput.mimeType,
+                byteSize: requestAttachmentInput.byteSize,
+                sha256: requestAttachmentInput.sha256,
+              }]
+            : []),
       ],
       callableTools: this.dynamicTools(tools),
       toolDelivery: conversationId
@@ -520,6 +530,9 @@ export class CodexAppServerClient extends EventEmitter {
     onEvent,
   }) {
     await this.start();
+    if (requestAttachmentInput?.mediaKind === "image") {
+      throw new Error("Image requests require SLAYER_MODEL_TRANSPORT=openai-responses");
+    }
     if (!this.health().versionMatches) throw new Error(this.health().reason);
     await this.refreshAccount();
     if (this.account?.type !== "chatgpt") {
@@ -583,7 +596,7 @@ export class CodexAppServerClient extends EventEmitter {
       threadId,
       input: [
         { type: "text", text: input },
-        ...(requestAttachmentInput ? [{ type: "text", text: requestAttachmentInput }] : []),
+        ...(typeof requestAttachmentInput === "string" ? [{ type: "text", text: requestAttachmentInput }] : []),
       ],
       ...(effort && !["none", "off"].includes(effort) ? { effort } : {}),
       sandboxPolicy: { type: "readOnly", networkAccess: false },

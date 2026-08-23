@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { CodexAppServerClient } from "./codex-app-server-client.mjs";
+import { OpenAIResponsesClient } from "./openai-responses-client.mjs";
 
 const requiredMethods = ["start", "close", "health", "describeRequest", "runTurn"];
 
@@ -16,10 +17,20 @@ export function assertModelTransport(transport) {
 }
 
 export async function createModelTransport(config) {
+  if (config.modelTransport === "openai-responses") {
+    return assertModelTransport(new OpenAIResponsesClient({
+      apiKey: config.openAIApiKey,
+      baseUrl: config.openAIBaseUrl,
+      requestTimeoutMs: config.openAIRequestTimeoutMs,
+      modelContextWindowTokens: config.openAIContextWindowTokens,
+      imageDetail: config.openAIImageDetail,
+      pricing: config.aiPricing,
+    }));
+  }
   if (config.modelTransport !== "codex-app-server") {
     throw new Error(
       `Unsupported SLAYER_MODEL_TRANSPORT: ${config.modelTransport}. `
-      + "Install an adapter and register it in src/model-transport.mjs.",
+      + "Choose openai-responses or codex-app-server.",
     );
   }
 

@@ -25,7 +25,7 @@ The central invariant is:
 The immediate system priorities are:
 
 1. Give **1. Agent Slayer application** controlled access to local and remote
-   tools without inheriting Codex's general-purpose agent capabilities.
+   tools without enabling provider-owned tools outside Slayer's registry.
 2. Preserve a literal, chronological account of each request in **19. Agent
    activity ledger**.
 3. Keep personal history and application data in **35. Agent database** while
@@ -37,19 +37,16 @@ The immediate system priorities are:
 
 - **1. Agent Slayer application** owns request intake, context construction,
   tool discovery, tool execution, queuing, persistence, and the final response.
-- **2. OpenAI language model used by the agent** is reached through Codex App
-  Server over local stdio.
-- **12. ChatGPT subscription** and **13. ChatGPT subscription connection** are
-  the selected model-authentication path. Agent Slayer rejects API-key model
-  authentication and separately metered **14. OpenAI Platform API account**
-  usage.
-- **50. Agent requests** continue on one persistent Codex thread until the user
-  starts a new conversation. A callable-tool schema change starts a replacement
-  thread so restored dynamic tools always match the application registry.
-- Agent Slayer supplies replacement base instructions, bounded context, and
-  dynamically discovered tool schemas. Codex shell, filesystem, browser, app,
-  plugin, MCP, skill, and subagent facilities are disabled. An unexpected
-  built-in agent action fails the request.
+- **2. OpenAI language model used by the agent** is reached through the OpenAI
+  Responses API. The Codex App Server adapter remains a legacy fallback.
+- **14. OpenAI Platform API account** is the selected model-authentication and
+  metered-billing path. `OPENAI_API_KEY` remains server-side.
+- **50. Agent requests** continue through a persisted Responses API chain until
+  the user starts a new conversation. Exact callable schemas are resent on every
+  API call; a schema change starts a replacement chain with bounded history.
+- Agent Slayer supplies base instructions, bounded context, images, and exact
+  tool schemas. No provider-owned tool is enabled; an unexpected output item
+  cannot execute application behavior.
 - **51. Slayer runtime** is ordinary application code. It is not a
   context-engine plugin or a general plugin interface.
 - **3. TLOM MCP server** is currently authenticated with a user-scoped bearer
@@ -67,9 +64,9 @@ The immediate system priorities are:
   are stored in the existing SQLite database. Explicitly approved schema
   changes are applied by the repository migration runner after it creates a
   backup.
-- Large recordings live in **20. Agent media storage**; SQLite stores their
-  metadata and relationships.
-- The current UI displays the application revision, model quota, request list,
+- Recordings and request images live in **20. Agent media storage**; SQLite
+  stores their metadata and relationships.
+- The current UI displays the application revision, metered AI usage, request list,
 literal event trace, calendar, grouped to-do list, and provider-neutral OAuth
 integration manager. Its voice-first composer and live request progress
 follow the interface requirements below. To-do task actions can enter a
@@ -83,8 +80,8 @@ and all-day task schedules are stored distinctly.
 - **1. Agent Slayer application**, including its HTTP service and FIFO worker.
 - **9. Agent Slayer HTTP service** and **10. Agent Slayer web client**.
 - **11. Agent Slayer request queue** for typed and recorded requests.
-- **13. ChatGPT subscription connection** through the isolated Codex App Server
-  adapter.
+- **14. OpenAI Platform API account** through the OpenAI Responses adapter;
+  **13. ChatGPT subscription connection** remains available through the Codex fallback.
 - The provider-neutral model-transport contract.
 - The application-owned local tool registry and MCP client.
 - **19. Agent activity ledger**, **21. Agent short-term memory service**, **22.
@@ -98,8 +95,8 @@ and all-day task schedules are stored distinctly.
 
 ### Outside this repository
 
-- **2. OpenAI language model used by the agent**, Codex App Server, and the
-  ChatGPT account service.
+- **2. OpenAI language model used by the agent**, the OpenAI Responses service,
+  and the optional Codex/ChatGPT account service.
 - TLOM's application behavior, **3. TLOM MCP server**, **4. TLOM API**, and **34.
   TLOM database**.
 - Every other remote MCP implementation and its private data.
@@ -115,13 +112,13 @@ another remote service.
 One **50. Agent request** follows this path:
 
 ```text
-typed text or stored voice recording
+typed text, stored request image, or stored voice recording
   -> request row appended to the SQLite ledger
   -> strict FIFO queue
   -> local transcription when audio was supplied
   -> bounded profile and recent history context
   -> exact immediate tool schemas plus an organized deferred-capability catalog
-  -> persistent Codex App Server thread while callable schemas stay unchanged
+  -> persistent OpenAI response chain with exact schemas sent on every call
   -> optional model-requested capability expansion in a replacement thread
   -> model tool call, if requested
   -> exact Agent Slayer function or remote MCP call
@@ -167,17 +164,24 @@ before the final response is accepted.
 ## Model boundary
 
 `SlayerRuntime` depends on the provider-neutral model transport defined in
-`src/model-transport.mjs`. The selected adapter is Codex App Server, launched
-over stdio from `src/codex-app-server-client.mjs`.
+`src/model-transport.mjs`. The selected adapter is OpenAI Responses in
+`src/openai-responses-client.mjs`. It authenticates with the server-side API
+key, sends image data directly to the model, translates Slayer schemas into
+function definitions, and returns function outputs in the same response chain.
+It normalizes provider tokens and cost estimates for the ledger.
 
-The adapter uses a dedicated `SLAYER_CODEX_HOME` and an empty
+The adapter never enables built-in OpenAI tools; Agent Slayer owns every
+callable function and executes it through the existing registry. The exact
+schemas are present in every Responses API request and in the literal trace.
+
+The fallback adapter uses a dedicated `SLAYER_CODEX_HOME` and an empty
 `SLAYER_CODEX_WORKDIR` outside this repository. Startup audits the effective
 Codex configuration and fails health if MCP servers, plugins, or subagents leak
 into that isolated home. The configured Codex version is pinned and checked as
 an application compatibility boundary.
 
-The Codex thread is persistent, read-only, noninteractive, and network-disabled.
-Agent Slayer—not Codex—owns the MCP clients and application functions. Adding a
+The Codex fallback thread is persistent, read-only, noninteractive, and
+network-disabled. Agent Slayer—not either provider—owns the MCP clients and application functions. Adding a
 different model transport means implementing the existing transport contract;
 it does not turn the application into a plugin system.
 
@@ -271,7 +275,7 @@ file contents; it does not claim remote provider revocation.
 There is one chronological application history. Recent memory and old memory
 are different queries over it, not separate stores.
 
-The active Codex thread carries its native message and tool history across
+The active OpenAI response chain carries native message and tool history across
 requests. Starting a new conversation resets that model-visible history without
 deleting the application ledger or domain data. The model can explicitly invoke
 `history_recent`, `history_search`, or `history_range` when older application
@@ -280,7 +284,7 @@ request during the same database operation.
 
 This preserves the distinction between:
 
-- **21. Agent short-term memory service**: the active resumable Codex thread.
+- **21. Agent short-term memory service**: the active resumable model response chain.
 - **22. Agent long-term memory**: explicit search over older requests and
   responses in the same ledger.
 
@@ -300,13 +304,14 @@ through **3. TLOM MCP server** when needed.
 - the model request description and visible model response;
 - each tool call, arguments, result, error, and operation identifier;
 - the final response returned by the application;
-- provider usage and ChatGPT quota observations.
+- provider tokens, configurable estimated API cost, and fallback ChatGPT quota observations.
 
 The ledger does not claim to contain hidden model reasoning or events hidden
 inside a remote MCP implementation. Secret-like values are passed through the
 application's redaction boundary before JSON event payloads are stored.
 
-**23. Agent observability system** is the `/health` response plus the web trace
+**23. Agent observability system** is the `/health` response, AI Usage screen,
+plus the web trace
 derived from the ledger. Health reports the runtime revision, database status,
 model transport, authentication mode, version check, quota, integrations, and
 actually registered tools. The per-request trace stays chronological and
@@ -477,7 +482,8 @@ so old notes and future discussions stay understandable.
 - **5. Legacy phone-app transcription**, **6. Phone-native
   transcription**, and **8. Direct audio input to the OpenAI model** are not the
   selected request path.
-- **14. OpenAI Platform API account** is excluded for model transport.
+- **12. ChatGPT subscription** and **13. ChatGPT subscription connection** are
+  retained as the optional Codex fallback rather than the selected path.
 - **17. Agent speech-generation service** is not implemented; speech generation
   currently uses the web browser's native speech engine.
 - **18. Phone audio player** is implemented as automatic browser speech playback
@@ -532,8 +538,8 @@ Node HTTP server that provides static files, health, request, voice, trace, and
 optional MCP OAuth endpoints.
 
 **10. Agent Slayer web client** — The
-mobile-friendly browser client for typed input, recording, request status,
-quota, integration state, and request traces. Its target phone layout puts a
+mobile-friendly browser client for typed input, image/file attachment,
+recording, request status, API usage/cost, integration state, and request traces. Its target phone layout puts a
 large red voice button first and shows elapsed time plus the current operation
 for every active request.
 
@@ -541,16 +547,16 @@ for every active request.
 shared by typed and recorded
 requests.
 
-**12. ChatGPT subscription** — The ChatGPT account entitlement used by Codex.
-It is separate from **14. OpenAI Platform API account** billing.
+**12. ChatGPT subscription** — The optional ChatGPT account entitlement used by
+the Codex fallback. It is separate from **14. OpenAI Platform API account** billing.
 
 **13. ChatGPT subscription connection** *(formerly ChatGPT OAuth connection)* —
-The authenticated account in Agent Slayer's isolated Codex home. Agent Slayer
-requires the account type reported by Codex to be `chatgpt`.
+The optional authenticated account in Agent Slayer's isolated Codex home. When
+that fallback is selected, Agent Slayer requires Codex to report `chatgpt`.
 
-**14. OpenAI Platform API account** — The separately metered developer service
-authenticated with an API key. It remains defined but is excluded from Agent
-Slayer's model transport.
+**14. OpenAI Platform API account** — The selected separately metered developer
+service authenticated with the server-side `OPENAI_API_KEY`. Token usage and
+editable cost estimates are visible on the AI Usage screen.
 
 **15. Phone audio recorder** — The browser `MediaRecorder` path that captures an
 original microphone recording for upload.

@@ -14,7 +14,16 @@ const allowedExtensions = new Map([
   ])],
 ]);
 
+const allowedImageExtensions = new Map([
+  [".jpg", new Set(["image/jpeg", "application/octet-stream"])],
+  [".jpeg", new Set(["image/jpeg", "application/octet-stream"])],
+  [".png", new Set(["image/png", "application/octet-stream"])],
+  [".webp", new Set(["image/webp", "application/octet-stream"])],
+  [".gif", new Set(["image/gif", "application/octet-stream"])],
+]);
+
 const supportedAttachmentMessage = "Only text .csv, .txt, and .vcf attachments are supported";
+const supportedRequestAttachmentMessage = "Only JPEG, PNG, WebP, GIF, CSV, TXT, and vCard attachments are supported";
 const allowedTextControlBytes = new Set([0x09, 0x0a, 0x0c, 0x0d]);
 
 function inputError(message, statusCode = 400) {
@@ -93,6 +102,85 @@ function decodedText(bytes) {
   }
 }
 
+function imageSignatureMatches(bytes, mimeType) {
+  if (mimeType === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mimeType === "image/png") {
+    return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (mimeType === "image/gif") {
+    const signature = bytes.subarray(0, 6).toString("ascii");
+    return signature === "GIF87a" || signature === "GIF89a";
+  }
+  if (mimeType === "image/webp") {
+    return bytes.length >= 12
+      && bytes.subarray(0, 4).toString("ascii") === "RIFF"
+      && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  return false;
+}
+
+function canonicalImageMimeType(extension) {
+  if ([".jpg", ".jpeg"].includes(extension)) return "image/jpeg";
+  return `image/${extension.slice(1)}`;
+}
+
+async function requestBytes(request, maximumBytes) {
+  const chunks = [];
+  let byteSize = 0;
+  for await (const chunk of request) {
+    byteSize += chunk.length;
+    if (byteSize > maximumBytes) {
+      throw inputError(`Attachment exceeds the ${maximumBytes}-byte operational safety ceiling`, 413);
+    }
+    chunks.push(chunk);
+  }
+  if (byteSize === 0) throw inputError("Attachment was empty");
+  return Buffer.concat(chunks);
+}
+
+async function storeAttachment(bytes, {
+  extension, originalFilename, mediaKind, mimeType, encoding = null,
+  mediaRoot, ledger, now, uuid,
+}) {
+  const relativeDirectory = path.join(
+    String(now.getUTCFullYear()),
+    String(now.getUTCMonth() + 1).padStart(2, "0"),
+  );
+  const directory = path.join(mediaRoot, relativeDirectory);
+  await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
+  const storedName = `${uuid()}${extension}`;
+  const absoluteFilename = path.join(directory, storedName);
+  await fsp.writeFile(absoluteFilename, bytes, { flag: "wx", mode: 0o600 });
+  const storagePath = path.posix.join("media", ...relativeDirectory.split(path.sep), storedName);
+  let file;
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  try {
+    file = ledger.registerFile({
+      storagePath,
+      originalFilename,
+      mediaKind,
+      mimeType,
+      sha256,
+      byteSize: bytes.length,
+    });
+  } catch (error) {
+    await fsp.unlink(absoluteFilename).catch(() => {});
+    throw error;
+  }
+  if (file.duplicate && file.storagePath !== storagePath) {
+    await fsp.unlink(absoluteFilename).catch(() => {});
+  }
+  return {
+    ...file,
+    originalFilename,
+    mediaKind,
+    mimeType,
+    byteSize: bytes.length,
+    sha256,
+    ...(encoding ? { encoding } : {}),
+  };
+}
+
 export function safeMediaPath(mediaRoot, storagePath) {
   const root = path.resolve(mediaRoot);
   const relative = String(storagePath ?? "").replace(/^media\//, "");
@@ -119,55 +207,47 @@ export async function receiveTextAttachment(request, {
     throw inputError(supportedAttachmentMessage, 415);
   }
 
-  const chunks = [];
-  let byteSize = 0;
-  for await (const chunk of request) {
-    byteSize += chunk.length;
-    if (byteSize > maximumBytes) {
-      throw inputError(`Attachment exceeds the ${maximumBytes}-byte limit`, 413);
-    }
-    chunks.push(chunk);
-  }
-  if (byteSize === 0) throw inputError("Attachment was empty");
-  const bytes = Buffer.concat(chunks);
+  const bytes = await requestBytes(request, maximumBytes);
   const { encoding } = decodedText(bytes);
+  return storeAttachment(bytes, {
+    extension, originalFilename, mediaKind: "document", mimeType, encoding,
+    mediaRoot, ledger, now, uuid,
+  });
+}
 
-  const relativeDirectory = path.join(
-    String(now.getUTCFullYear()),
-    String(now.getUTCMonth() + 1).padStart(2, "0"),
-  );
-  const directory = path.join(mediaRoot, relativeDirectory);
-  await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
-  const storedName = `${uuid()}${extension}`;
-  const absoluteFilename = path.join(directory, storedName);
-  await fsp.writeFile(absoluteFilename, bytes, { flag: "wx", mode: 0o600 });
-
-  const storagePath = path.posix.join("media", ...relativeDirectory.split(path.sep), storedName);
-  let file;
-  try {
-    file = ledger.registerFile({
-      storagePath,
-      originalFilename,
-      mediaKind: "document",
-      mimeType,
-      sha256: createHash("sha256").update(bytes).digest("hex"),
-      byteSize,
+export async function receiveRequestAttachment(request, options = {}) {
+  const originalFilename = normalizedFilename(options.filename);
+  const extension = path.extname(originalFilename).toLowerCase();
+  if (allowedExtensions.has(extension)) {
+    return receiveTextAttachment(request, {
+      filename: originalFilename,
+      mediaRoot: options.mediaRoot,
+      maximumBytes: options.maximumBytes,
+      ledger: options.ledger,
+      now: options.now,
+      uuid: options.uuid,
     });
-  } catch (error) {
-    await fsp.unlink(absoluteFilename).catch(() => {});
-    throw error;
   }
-  if (file.duplicate && file.storagePath !== storagePath) {
-    await fsp.unlink(absoluteFilename).catch(() => {});
+  const suppliedMimeType = normalizedMimeType(request.headers?.["content-type"]);
+  const allowedMimeTypes = allowedImageExtensions.get(extension);
+  if (!allowedMimeTypes || !allowedMimeTypes.has(suppliedMimeType)) {
+    throw inputError(supportedRequestAttachmentMessage, 415);
   }
-  return {
-    ...file,
+  const mimeType = canonicalImageMimeType(extension);
+  const bytes = await requestBytes(request, options.maximumBytes);
+  if (!imageSignatureMatches(bytes, mimeType)) {
+    throw inputError(`Attachment bytes do not match ${mimeType}`, 415);
+  }
+  return storeAttachment(bytes, {
+    extension,
     originalFilename,
-    mediaKind: "document",
+    mediaKind: "image",
     mimeType,
-    byteSize,
-    encoding,
-  };
+    mediaRoot: options.mediaRoot,
+    ledger: options.ledger,
+    now: options.now ?? new Date(),
+    uuid: options.uuid ?? randomUUID,
+  });
 }
 
 export async function readTextAttachment({ mediaRoot, file, maximumBytes }) {
@@ -197,5 +277,39 @@ export async function readTextAttachment({ mediaRoot, file, maximumBytes }) {
     sha256,
     text: decodedAttachment.text,
     encoding: decodedAttachment.encoding,
+  };
+}
+
+export async function readRequestAttachment({ mediaRoot, file, maximumBytes, maximumTextBytes = maximumBytes }) {
+  if (file?.media_kind === "document") {
+    return readTextAttachment({ mediaRoot, file, maximumBytes: maximumTextBytes });
+  }
+  if (!file || file.media_kind !== "image") throw new Error("Request attachment is not a supported document or image");
+  const originalFilename = normalizedFilename(file.original_filename);
+  const extension = path.extname(originalFilename).toLowerCase();
+  const mimeType = normalizedMimeType(file.mime_type);
+  if (!allowedImageExtensions.get(extension)?.has(mimeType)) {
+    throw new Error("Stored request image is not a supported JPEG, PNG, WebP, or GIF file");
+  }
+  const bytes = await fsp.readFile(safeMediaPath(mediaRoot, file.storage_path));
+  if (bytes.length > maximumBytes) throw new Error("Stored request image exceeds the configured operational safety ceiling");
+  if (file.byte_size != null && Number(file.byte_size) !== bytes.length) {
+    throw new Error("Stored request image size does not match its file record");
+  }
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  if (file.sha256 && file.sha256 !== sha256) {
+    throw new Error("Stored request image checksum does not match its file record");
+  }
+  if (!imageSignatureMatches(bytes, mimeType)) {
+    throw new Error(`Stored request image bytes do not match ${mimeType}`);
+  }
+  return {
+    fileId: Number(file.file_id),
+    filename: originalFilename,
+    mediaKind: "image",
+    mimeType,
+    byteSize: bytes.length,
+    sha256,
+    dataBase64: bytes.toString("base64"),
   };
 }

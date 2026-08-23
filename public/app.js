@@ -13,6 +13,7 @@ const elements = {
   respondSilently: document.querySelector("#respond-silently"),
   requestFile: document.querySelector("#request-file"),
   requestFileLabel: document.querySelector("#request-file-label"),
+  requestImagePreview: document.querySelector("#request-image-preview"),
   removeRequestFile: document.querySelector("#remove-request-file"),
   runLimitsButton: document.querySelector("#run-limits-button"),
   runLimitsSummary: document.querySelector("#run-limits-summary"),
@@ -66,6 +67,23 @@ const elements = {
   contentView: document.querySelector("#content-view"),
   contactsView: document.querySelector("#contacts-view"),
   logsView: document.querySelector("#logs-view"),
+  aiUsageView: document.querySelector("#ai-usage-view"),
+  refreshAiUsage: document.querySelector("#refresh-ai-usage"),
+  aiUsageMonthCost: document.querySelector("#ai-usage-month-cost"),
+  aiUsageMonthTokens: document.querySelector("#ai-usage-month-tokens"),
+  aiUsageTotalCost: document.querySelector("#ai-usage-total-cost"),
+  aiUsageTotalTokens: document.querySelector("#ai-usage-total-tokens"),
+  aiUsageCurrentModel: document.querySelector("#ai-usage-current-model"),
+  aiUsageEntryCount: document.querySelector("#ai-usage-entry-count"),
+  aiPricingForm: document.querySelector("#ai-pricing-form"),
+  aiInputPrice: document.querySelector("#ai-input-price"),
+  aiCachedInputPrice: document.querySelector("#ai-cached-input-price"),
+  aiCacheWritePrice: document.querySelector("#ai-cache-write-price"),
+  aiOutputPrice: document.querySelector("#ai-output-price"),
+  resetAiPricing: document.querySelector("#reset-ai-pricing"),
+  aiUsageRows: document.querySelector("#ai-usage-rows"),
+  aiUsageEmpty: document.querySelector("#ai-usage-empty"),
+  aiUsageStatus: document.querySelector("#ai-usage-status"),
   calendarRangeLabel: document.querySelector("#calendar-range-label"),
   calendarTimeZone: document.querySelector("#calendar-time-zone"),
   calendarGrid: document.querySelector("#calendar-grid"),
@@ -276,9 +294,12 @@ let contactDuplicateReview = { groups: [], hasMore: false };
 const selectedContactIds = new Set();
 let logTrackers = [];
 let logEntries = [];
+let aiUsageData = null;
+let requestImagePreviewUrl = null;
 const requestNodes = new Map();
 const speechQueueStorageKey = "agent-slayer-pending-spoken-responses";
 const responseSilenceStorageKey = "agent-slayer-respond-silently";
+const aiPricingStorageKey = "agent-slayer-ai-pricing";
 const activeUtterances = new Set();
 const pendingSpokenRequestIds = loadPendingSpokenRequestIds();
 elements.respondSilently.checked = loadResponseSilencePreference();
@@ -419,9 +440,27 @@ function formatFileSize(bytes) {
 
 function updateRequestFileSelection() {
   const file = elements.requestFile.files?.[0] ?? null;
+  if (requestImagePreviewUrl) URL.revokeObjectURL(requestImagePreviewUrl);
+  requestImagePreviewUrl = null;
   elements.requestFileLabel.hidden = !file;
   elements.removeRequestFile.hidden = !file;
   elements.requestFileLabel.textContent = file ? `${file.name} · ${formatFileSize(file.size)}` : "";
+  const image = Boolean(file && (file.type.startsWith("image/") || /\.(?:jpe?g|png|webp|gif)$/iu.test(file.name)));
+  elements.requestImagePreview.hidden = !image;
+  elements.requestImagePreview.removeAttribute("src");
+  if (image) {
+    requestImagePreviewUrl = URL.createObjectURL(file);
+    elements.requestImagePreview.src = requestImagePreviewUrl;
+  }
+}
+
+function requestFileMimeType(file) {
+  if (file.type) return file.type;
+  const extension = file.name.toLowerCase().split(".").pop();
+  return ({
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif",
+    csv: "text/csv", vcf: "text/vcard", txt: "text/plain",
+  })[extension] || "application/octet-stream";
 }
 
 function runLimitsText(runLimits) {
@@ -765,6 +804,9 @@ function resetLabel(timestamp) {
 
 function healthUsageLabel(model) {
   const name = model?.displayName || "Model";
+  if (model?.usageMode === "metered") return model.ready
+    ? `${name} · metered API`
+    : `${name} · key required`;
   const windows = usageWindows(model?.usage).filter((window) => Number.isFinite(window.remainingPercent));
   if (!windows.length) return `${name} usage unavailable`;
   const limiting = windows.toSorted((left, right) => left.remainingPercent - right.remainingPercent)[0];
@@ -777,13 +819,109 @@ function requestUsageLabel(usage) {
   const largestDelta = deltas.length ? Math.max(...deltas) : null;
   const tokens = usage.tokenUsage?.totalTokens;
   const parts = [];
-  if (largestDelta == null) parts.push("quota update pending");
+  if (Number.isFinite(usage.estimatedCostUsd)) parts.push(`${formatUsd(usage.estimatedCostUsd)} estimated`);
+  else if (usage.provider === "openai") parts.push("cost estimate unavailable");
+  else if (largestDelta == null) parts.push("quota update pending");
   else if (largestDelta === 0) parts.push("quota change <1%");
   else parts.push(`+${largestDelta}% quota`);
   if (Number.isFinite(tokens)) parts.push(`${tokens.toLocaleString()} tokens`);
   const remaining = (usage.windows ?? []).map((window) => window.remainingPercent).filter(Number.isFinite);
   if (remaining.length) parts.push(`${Math.min(...remaining)}% left`);
   return parts.join(" · ");
+}
+
+function formatUsd(value) {
+  const amount = Number(value) || 0;
+  const digits = amount > 0 && amount < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat(undefined, {
+    style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits,
+  }).format(amount);
+}
+
+function validPricing(value) {
+  return value && ["inputPerMillion", "cachedInputPerMillion", "cacheWritePerMillion", "outputPerMillion"]
+    .every((key) => Number.isFinite(Number(value[key])) && Number(value[key]) >= 0);
+}
+
+function storedAiPricing(defaultPricing) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(aiPricingStorageKey) || "null");
+    if (validPricing(stored)) return stored;
+  } catch { /* Use server defaults. */ }
+  return defaultPricing;
+}
+
+function aiEntryCost(entry, pricing) {
+  const uncached = Math.max(
+    0,
+    Number(entry.inputTokens) - Number(entry.cachedInputTokens) - Number(entry.cacheWriteTokens),
+  );
+  return (
+    uncached * pricing.inputPerMillion
+    + Number(entry.cachedInputTokens) * pricing.cachedInputPerMillion
+    + Number(entry.cacheWriteTokens) * pricing.cacheWritePerMillion
+    + Number(entry.outputTokens) * pricing.outputPerMillion
+  ) / 1_000_000;
+}
+
+function meteredAiEntry(entry) {
+  return entry.transport === "openai-responses"
+    || entry.transport === "openai"
+    || Number.isFinite(entry.recordedEstimatedCostUsd);
+}
+
+function renderAiUsage() {
+  if (!aiUsageData) return;
+  const pricing = storedAiPricing(aiUsageData.defaultPricing);
+  elements.aiInputPrice.value = String(pricing.inputPerMillion);
+  elements.aiCachedInputPrice.value = String(pricing.cachedInputPerMillion);
+  elements.aiCacheWritePrice.value = String(pricing.cacheWritePerMillion);
+  elements.aiOutputPrice.value = String(pricing.outputPerMillion);
+  const entries = aiUsageData.entries.filter(meteredAiEntry);
+  const now = new Date();
+  const monthEntries = entries.filter((entry) => {
+    const date = new Date(entry.occurredAtUtc);
+    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  });
+  const summarize = (selected) => ({
+    tokens: selected.reduce((total, entry) => total + Number(entry.totalTokens || 0), 0),
+    cost: selected.reduce((total, entry) => total + aiEntryCost(entry, pricing), 0),
+  });
+  const month = summarize(monthEntries);
+  const total = summarize(entries);
+  elements.aiUsageMonthCost.textContent = formatUsd(month.cost);
+  elements.aiUsageMonthTokens.textContent = `${month.tokens.toLocaleString()} tokens`;
+  elements.aiUsageTotalCost.textContent = formatUsd(total.cost);
+  elements.aiUsageTotalTokens.textContent = `${total.tokens.toLocaleString()} tokens`;
+  elements.aiUsageCurrentModel.textContent = `${aiUsageData.current.model} via ${aiUsageData.current.transport}`;
+  elements.aiUsageEntryCount.textContent = `${entries.length.toLocaleString()} recorded model ${entries.length === 1 ? "call" : "calls"}`;
+  elements.aiUsageRows.replaceChildren();
+  for (const entry of entries) {
+    const row = document.createElement("tr");
+    const values = [
+      formatDisplayDate(entry.occurredAtUtc),
+      entry.model || entry.transport || "Unknown",
+      Number(entry.inputTokens).toLocaleString(),
+      Number(entry.cachedInputTokens).toLocaleString(),
+      Number(entry.cacheWriteTokens).toLocaleString(),
+      Number(entry.outputTokens).toLocaleString(),
+      formatUsd(aiEntryCost(entry, pricing)),
+    ];
+    for (const value of values) row.append(node("td", "", value));
+    elements.aiUsageRows.append(row);
+  }
+  elements.aiUsageEmpty.hidden = entries.length > 0;
+}
+
+async function loadAiUsage() {
+  elements.aiUsageStatus.textContent = "Loading usage…";
+  try {
+    aiUsageData = await api("/api/ai-usage?limit=10000");
+    renderAiUsage();
+    elements.aiUsageStatus.textContent = "";
+  } catch (error) {
+    elements.aiUsageStatus.textContent = error.message;
+  }
 }
 
 function selectionTouchesRequests() {
@@ -999,8 +1137,9 @@ async function loadHealth() {
   elements.runtime.classList.toggle("not-ready", !body.ready);
   elements.runtime.title = `${body.ready ? "Ready" : "Not ready"}. Click to copy full health diagnostics.`;
   elements.usage.textContent = healthUsageLabel(body.model);
-  elements.usage.classList.toggle("ready", Boolean(body.model?.usage));
-  elements.usage.classList.toggle("not-ready", !body.model?.usage);
+  const usageAvailable = Boolean(body.model?.usage || (body.model?.ready && body.model?.usageMode === "metered"));
+  elements.usage.classList.toggle("ready", usageAvailable);
+  elements.usage.classList.toggle("not-ready", !usageAvailable);
   renderIntegrations(body.integrations ?? {});
   updateEventInviteDraftAvailability();
 }
@@ -1140,6 +1279,7 @@ function switchView(view) {
   elements.contentView.hidden = view !== "content";
   elements.contactsView.hidden = view !== "contacts";
   elements.logsView.hidden = view !== "logs";
+  elements.aiUsageView.hidden = view !== "ai-usage";
   elements.agentViewButton.classList.toggle("active", view === "agent");
   elements.hatsViewButton.classList.toggle("active", view === "hats");
   if (view === "agent") {
@@ -1160,6 +1300,7 @@ function switchView(view) {
   if (view === "content") void refreshContent();
   if (view === "contacts") void refreshContacts();
   if (view === "logs") void refreshLogs();
+  if (view === "ai-usage") void loadAiUsage();
 }
 
 function renderHats(body) {
@@ -3432,10 +3573,7 @@ elements.form.addEventListener("submit", async (event) => {
     let primaryFileId = null;
     if (file) {
       elements.status.textContent = "Uploading attachment…";
-      const lowerName = file.name.toLowerCase();
-      const mimeType = file.type || (lowerName.endsWith(".csv")
-        ? "text/csv"
-        : (lowerName.endsWith(".vcf") ? "text/vcard" : "text/plain"));
+      const mimeType = requestFileMimeType(file);
       const uploaded = await api(`/api/request-files?filename=${encodeURIComponent(file.name)}`, {
         method: "POST",
         headers: { "Content-Type": mimeType },
@@ -3623,7 +3761,29 @@ elements.integrationList.addEventListener("click", async (event) => {
   }
 });
 elements.runtime.addEventListener("click", (event) => copyText(JSON.stringify(lastHealth, null, 2), event.currentTarget));
-elements.usage.addEventListener("click", (event) => copyText(JSON.stringify(lastHealth?.body?.model?.usage ?? null, null, 2), event.currentTarget));
+elements.usage.addEventListener("click", () => switchView("ai-usage"));
+elements.refreshAiUsage.addEventListener("click", () => void loadAiUsage());
+elements.aiPricingForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const pricing = {
+    inputPerMillion: Number(elements.aiInputPrice.value),
+    cachedInputPerMillion: Number(elements.aiCachedInputPrice.value),
+    cacheWritePerMillion: Number(elements.aiCacheWritePrice.value),
+    outputPerMillion: Number(elements.aiOutputPrice.value),
+  };
+  if (!validPricing(pricing)) {
+    elements.aiUsageStatus.textContent = "Prices must be non-negative numbers.";
+    return;
+  }
+  localStorage.setItem(aiPricingStorageKey, JSON.stringify(pricing));
+  renderAiUsage();
+  elements.aiUsageStatus.textContent = "Pricing override saved in this browser.";
+});
+elements.resetAiPricing.addEventListener("click", () => {
+  localStorage.removeItem(aiPricingStorageKey);
+  renderAiUsage();
+  elements.aiUsageStatus.textContent = "Using the server pricing defaults.";
+});
 elements.closeTrace.addEventListener("click", () => { elements.tracePanel.hidden = true; });
 elements.copyTrace.addEventListener("click", (event) => copyText(JSON.stringify(activeTrace, null, 2), event.currentTarget));
 elements.tokenForm.addEventListener("submit", () => {

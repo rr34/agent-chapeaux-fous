@@ -268,7 +268,8 @@ export class SlayerRuntime {
           },
         },
       });
-      const toolDelivery = conversationId ? "retained" : "sent";
+      const schemasSentThisCall = providerRequest.toolDelivery === "sent in every Responses API call";
+      const toolDelivery = schemasSentThisCall || !conversationId ? "sent" : "retained";
       this.ledger.append({
         type: "tools.sent", status: "complete", actorType: "system", actorName: "Tool registry",
         channel, turnId: requestId,
@@ -281,6 +282,7 @@ export class SlayerRuntime {
           availableCount: availableTools.length,
           schemaBytes: serializedBytes(providerCallableTools),
           delivery: toolDelivery,
+          protocolDelivery: providerRequest.toolDelivery ?? null,
           capabilities: compilation.capabilities,
           explicitHats: compilation.explicitHats ?? [],
           deferredCapabilities: compilation.deferredCapabilities ?? [],

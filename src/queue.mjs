@@ -1,12 +1,17 @@
-import { readTextAttachment, safeMediaPath } from "./request-attachments.mjs";
+import { readRequestAttachment, safeMediaPath } from "./request-attachments.mjs";
 
 export class RequestQueue {
-  constructor({ ledger, runtime, transcriber, mediaRoot, maxTextAttachmentBytes = 10 * 1024 * 1024 }) {
+  constructor({
+    ledger, runtime, transcriber, mediaRoot,
+    maxTextAttachmentBytes = 10 * 1024 * 1024,
+    maxRequestAttachmentBytes = 50 * 1024 * 1024,
+  }) {
     this.ledger = ledger;
     this.runtime = runtime;
     this.transcriber = transcriber;
     this.mediaRoot = mediaRoot;
     this.maxTextAttachmentBytes = maxTextAttachmentBytes;
+    this.maxRequestAttachmentBytes = maxRequestAttachmentBytes;
     this.running = false;
     this.wakeRequested = false;
   }
@@ -54,11 +59,12 @@ export class RequestQueue {
         });
       }
       let attachment = null;
-      if (file?.media_kind === "document") {
-        attachment = await readTextAttachment({
+      if (["document", "image"].includes(file?.media_kind)) {
+        attachment = await readRequestAttachment({
           mediaRoot: this.mediaRoot,
           file,
-          maximumBytes: this.maxTextAttachmentBytes,
+          maximumBytes: this.maxRequestAttachmentBytes,
+          maximumTextBytes: this.maxTextAttachmentBytes,
         });
         this.ledger.append({
           type: "attachment.read", status: "complete", actorType: "service",
@@ -66,6 +72,7 @@ export class RequestQueue {
           turnId: request.turnId, name: "Request attachment read",
           payload: {
             filename: attachment.filename,
+            mediaKind: attachment.mediaKind,
             mimeType: attachment.mimeType,
             byteSize: attachment.byteSize,
             sha256: attachment.sha256,

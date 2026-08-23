@@ -182,19 +182,37 @@ test("context usage, intent checkpoints, and exact tool receipts remain recovera
     });
     ledger.finish(ledger.trace(first.requestId)[0], "The objective is still active.");
     ledger.append({
+      type: "model.response", status: "complete", actorType: "model", actorName: "gpt-5.6-terra",
+      turnId: first.requestId, operationId: "model-usage-1",
+      payload: { transport: "openai-responses", conversationId: "resp_1" },
+    });
+    ledger.append({
       type: "model.usage", status: "complete", turnId: first.requestId,
       operationId: "model-usage-1",
       payload: {
-        tokenUsage: { inputTokens: 170000, cachedInputTokens: 160000 },
+        provider: "openai",
+        tokenUsage: {
+          inputTokens: 170000, cachedInputTokens: 150000, cacheWriteTokens: 10000,
+          outputTokens: 2000, totalTokens: 172000,
+        },
+        contextInputTokens: 85000,
         contextWindowTokens: 258400,
+        estimatedCostUsd: 0.1,
       },
     });
     const next = ledger.createRequest({ text: "Continue." });
 
     const usage = ledger.latestModelContextUsage();
-    assert.equal(usage.inputTokens, 170000);
+    assert.equal(usage.inputTokens, 85000);
     assert.equal(usage.contextWindowTokens, 258400);
-    assert.ok(usage.usedPercent > 65);
+    assert.ok(usage.usedPercent > 30);
+
+    const metered = ledger.modelUsage({ limit: 10 });
+    assert.equal(metered[0].model, "gpt-5.6-terra");
+    assert.equal(metered[0].transport, "openai-responses");
+    assert.equal(metered[0].cachedInputTokens, 150000);
+    assert.equal(metered[0].cacheWriteTokens, 10000);
+    assert.equal(metered[0].recordedEstimatedCostUsd, 0.1);
 
     const checkpoint = ledger.conversationCheckpoint({
       beforeRequestId: next.requestId,

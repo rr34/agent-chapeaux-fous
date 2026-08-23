@@ -362,16 +362,23 @@ test("new typed and voice requests speak by default with a persistent silent pre
   assert.doesNotMatch(architecture, /automatic speech playback[^\n]+not/);
 });
 
-test("the request composer accepts one bounded CSV, vCard, or text attachment", () => {
+test("the request composer accepts one image or text attachment and exposes metered AI usage", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
-  assert.match(document, /id="request-file"[^>]+accept="\.csv,\.vcf,\.txt,text\/csv,text\/vcard,text\/x-vcard,text\/plain"/);
+  assert.match(document, /id="request-file"[^>]+accept="[^"]*\.jpg[^"]*image\/jpeg[^"]*text\/csv/);
+  assert.match(document, /id="request-image-preview"/);
+  assert.match(document, /data-view="ai-usage"/);
+  assert.match(document, /id="ai-usage-view"/);
+  assert.match(document, /id="ai-pricing-form"/);
   assert.match(application, /\/api\/request-files\?filename=/);
-  assert.match(application, /lowerName\.endsWith\("\.vcf"\) \? "text\/vcard"/);
+  assert.match(application, /jpg: "image\/jpeg"/);
+  assert.match(application, /\/api\/ai-usage\?limit=10000/);
+  assert.match(application, /aiPricingStorageKey/);
   assert.match(application, /JSON\.stringify\(\{ text, primaryFileId, runLimits: pendingRunLimits \}\)/);
-  assert.match(server, /receiveTextAttachment/);
+  assert.match(server, /receiveRequestAttachment/);
   assert.match(server, /url\.pathname === "\/api\/request-files"/);
+  assert.match(server, /url\.pathname === "\/api\/ai-usage"/);
   assert.match(server, /ledger\.createRequest\(\{ text, channel: "web", primaryFileId, runLimits \}\)/);
 });
 

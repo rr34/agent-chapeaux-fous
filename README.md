@@ -3,9 +3,10 @@
 Chapeaux Fous is a small, inspectable model-and-tools application. The internal
 repository and compatibility identifiers still use `agent-slayer`. It is not an
 agent framework and has no plugin host. The request compiler, tool registry,
-SQLite ledger, and web client are provider-neutral. Codex App Server is the
-initial model transport because it can use the user's ChatGPT subscription instead
-of separately billed API-key requests.
+SQLite ledger, and web client are provider-neutral. The default transport is the
+directly billed OpenAI Responses API because it supports first-class image
+input, persistent response chains, and application-defined functions. Codex App
+Server remains an environment-selected legacy fallback.
 
 The complete request path is:
 
@@ -45,14 +46,12 @@ first and displays the others as companion badges.
 
 ## First local run
 
-Requirements: Node.js 22.5 or newer, Codex CLI, a ChatGPT account with Codex
-access, and an existing Slayer database snapshot.
+Requirements: Node.js 22.5 or newer, an OpenAI API project/key with API billing,
+and an existing Slayer database snapshot.
 
 ```bash
 cp .env.example .env
-# Edit .env.
-npm run codex:login
-npm run codex:status
+# Set OPENAI_API_KEY and SLAYER_ACCESS_TOKEN in .env.
 cp /path/to/latest-snapshot.sqlite data/agent.sqlite
 npm install
 npm run schema:migrate
@@ -68,9 +67,12 @@ and grouped personal logs with native entry creation. Contacts support people,
 organizations, and services with tags, birthday, notes, and stacked contact
 methods. Possible duplicates are reviewed and merged explicitly; source records
 remain as inactive history so existing references are preserved. Stored birthdays
-continue to appear on the calendar. Agent requests may include one bounded CSV,
-vCard/VCF, or plain-text attachment decoded as UTF-8, UTF-16, or Windows-1252.
-Small files appear in full in visible model context;
+continue to appear on the calendar. Agent requests may include one JPEG, PNG,
+WebP, GIF, CSV, vCard/VCF, or plain-text attachment. Text is decoded as UTF-8,
+UTF-16, or Windows-1252. Image originals remain in the existing media store and
+are loaded only while the queued request is processed. OpenAI receives images at
+the configured detail; `original` is the default so small receipt text remains
+visible. Small text files appear in full in visible model context;
 large files contribute a bounded preview while native file tools can process the verified
 full attachment. A task's Schedule
 button opens the calendar in day-pick mode; selecting a day writes the task's
@@ -80,9 +82,27 @@ to-do editor and agent tools.
 `.env` intentionally lives beside `.env.example` in the repository root. It is
 ignored by Git and loaded by the process before configuration is evaluated.
 
-## Codex connection
+## OpenAI Responses connection
 
-The runtime starts `codex app-server` over local stdio and requires its active
+Set `SLAYER_MODEL_TRANSPORT=openai-responses`, `OPENAI_API_KEY`, and the desired
+`SLAYER_MODEL` in `.env`, then restart the process. The key remains server-side,
+is absent from health and traces, and is redacted from provider errors. Every
+Responses API call contains the exact currently callable function schemas.
+Function results return through `function_call_output` in the same persisted
+response chain before a final answer is accepted.
+
+`SLAYER_OPENAI_IMAGE_DETAIL=original` favors receipt legibility. Change it to
+`high` or `low` when input-token efficiency matters more than tiny visual
+details. `SLAYER_MAX_REQUEST_ATTACHMENT_BYTES` is a generous operational memory
+ceiling, not a usage allowance, and can be raised. The dedicated **AI Usage**
+screen totals recorded tokens and estimates USD cost. Its per-million-token
+prices can be changed in the browser without modifying historical usage; server
+defaults come from `SLAYER_AI_*_COST_PER_MILLION`.
+
+## Codex fallback
+
+Set `SLAYER_MODEL_TRANSPORT=codex-app-server` and restart to use the legacy
+subscription transport. The runtime starts `codex app-server` over local stdio and requires its active
 account to be `chatgpt`. API-key authentication is deliberately rejected. Run
 `npm run codex:login` as the same Unix user that runs Agent Slayer. This uses a
 dedicated, gitignored `data/codex-home` so Slayer cannot inherit MCP servers,
@@ -120,7 +140,7 @@ excluding raw tool payloads. This is pressure-triggered rather than based on a
 fixed message count; ordinary conversations remain native and uncompressed.
 
 The default model is `gpt-5.6-terra`; change `SLAYER_MODEL` explicitly if
-desired. Dynamic tools are an experimental Codex App Server feature, so deploy
+desired. In the Codex fallback, dynamic tools are an experimental App Server feature, so deploy
 the configured Codex CLI version and treat version changes as application
 upgrades: update the required version, regenerate/inspect its protocol schema,
 run the test suite, and complete an authenticated tool-loop probe.
@@ -133,11 +153,11 @@ description, and `runTurn`. Tool definitions and tool results stay in Slayer's
 provider-neutral format. A transport adapter performs protocol translation and
 returns a normalized final response, usage report, and provider trace.
 
-To support another model runtime, add one adapter implementing that contract,
-register its configuration in `createModelTransport`, and select it with
-`SLAYER_MODEL_TRANSPORT`. No context, SQLite, tool, queue, ledger, HTTP, or web
-client code should change. This is an explicit application boundary, not a
-plugin system.
+The registered `openai-responses` and `codex-app-server` adapters are selected
+with `SLAYER_MODEL_TRANSPORT`. Another provider should require a protocol
+adapter while modality-independent context, SQLite, tools, queueing, and ledger
+behavior remain owned by Slayer. This is an explicit application boundary, not
+a plugin system.
 
 ## Request and context compilation
 
@@ -168,14 +188,14 @@ The trace records the selection reasons, selected versus available counts,
 serialized schema bytes, instruction character counts, and whether schemas were
 sent with a new thread or retained on a resumed thread.
 
-## Subscription usage
+## Model usage
 
-Agent Slayer reads Codex's ChatGPT rate-limit buckets before and after each
-request. The header shows the most constrained remaining percentage and reset
-time. Each completed request records token usage, quota change, and remaining
-capacity. Percentage changes can be zero for small calls because the service
-reports integer percentages and can update asynchronously; token usage remains
-visible even then.
+OpenAI calls record literal input, cached-input, output, reasoning, and total
+tokens plus an estimated cost using configurable prices. The AI Usage screen
+shows month and recorded totals and a per-call history. Estimates are editable
+because provider prices can change; historical token counts remain the durable
+authority. The Codex fallback still records ChatGPT rate-limit buckets and token
+usage, but subscription calls are not counted as metered API cost.
 
 ## Tools
 

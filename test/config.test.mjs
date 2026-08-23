@@ -4,12 +4,21 @@ import path from "node:path";
 import test from "node:test";
 import { loadConfig, repositoryRoot } from "../src/config.mjs";
 
-test("the default Codex workspace cannot inherit repository instructions", () => {
+test("OpenAI Responses is the default while the Codex fallback workspace remains isolated", () => {
   const config = loadConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     XDG_STATE_HOME: "/tmp/agent-slayer-state-test",
   });
   assert.equal(config.codexRequiredVersion, "0.149.0");
+  assert.equal(config.modelTransport, "openai-responses");
+  assert.equal(config.openAIBaseUrl, "https://api.openai.com/v1");
+  assert.equal(config.openAIImageDetail, "original");
+  assert.deepEqual(config.aiPricing, {
+    inputPerMillion: 2,
+    cachedInputPerMillion: 0.2,
+    cacheWritePerMillion: 2.5,
+    outputPerMillion: 12,
+  });
   assert.equal(config.hatCatalogPath, path.join(repositoryRoot, "config", "hats.json"));
   assert.equal(config.codexWorkDirectory, "/tmp/agent-slayer-state-test/agent-slayer/codex-workspace");
   assert.equal(config.codexWorkDirectory.startsWith(`${repositoryRoot}${path.sep}`), false);
@@ -85,13 +94,16 @@ test("text request attachments have a separate bounded upload limit", () => {
   assert.equal(defaults.conversationCheckpointCharacters, 48 * 1024);
   assert.equal(defaults.maxInlineToolResultCharacters, 32 * 1024);
   assert.equal(defaults.maxTextAttachmentBytes, 10 * 1024 * 1024);
+  assert.equal(defaults.maxRequestAttachmentBytes, 50 * 1024 * 1024);
   assert.equal(defaults.maxAttachmentContextCharacters, 64 * 1024);
   const configured = loadConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_MAX_TEXT_ATTACHMENT_BYTES: "8192",
+    SLAYER_MAX_REQUEST_ATTACHMENT_BYTES: "67108864",
     SLAYER_MAX_ATTACHMENT_CONTEXT_CHARACTERS: "4096",
   });
   assert.equal(configured.maxTextAttachmentBytes, 8192);
+  assert.equal(configured.maxRequestAttachmentBytes, 67108864);
   assert.equal(configured.maxAttachmentContextCharacters, 4096);
 });
 

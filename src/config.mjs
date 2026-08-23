@@ -22,6 +22,16 @@ function percentage(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 && parsed < 100 ? parsed : fallback;
 }
 
+function nonnegativeNumber(value, fallback) {
+  const parsed = Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function selectedValue(value, allowed, fallback) {
+  const selected = String(value ?? "").trim().toLowerCase();
+  return allowed.includes(selected) ? selected : fallback;
+}
+
 function resolveFromRoot(value, fallback) {
   return path.resolve(repositoryRoot, value?.trim() || fallback);
 }
@@ -81,7 +91,22 @@ export function loadConfig(environment = process.env) {
       ? resolveFromRoot(environment.SLAYER_MCP_OAUTH_ROOT)
       : path.join(stateRoot, "mcp-oauth"),
     publicRoot: path.join(repositoryRoot, "public"),
-    modelTransport: environment.SLAYER_MODEL_TRANSPORT?.trim() || "codex-app-server",
+    modelTransport: environment.SLAYER_MODEL_TRANSPORT?.trim() || "openai-responses",
+    openAIApiKey: environment.OPENAI_API_KEY?.trim() || "",
+    openAIBaseUrl: environment.SLAYER_OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1",
+    openAIRequestTimeoutMs: positiveInteger(environment.SLAYER_OPENAI_TIMEOUT_MS, 10 * 60 * 1000),
+    openAIContextWindowTokens: positiveInteger(environment.SLAYER_OPENAI_CONTEXT_WINDOW_TOKENS, 1_050_000),
+    openAIImageDetail: selectedValue(
+      environment.SLAYER_OPENAI_IMAGE_DETAIL,
+      ["auto", "low", "high", "original"],
+      "original",
+    ),
+    aiPricing: {
+      inputPerMillion: nonnegativeNumber(environment.SLAYER_AI_INPUT_COST_PER_MILLION, 2),
+      cachedInputPerMillion: nonnegativeNumber(environment.SLAYER_AI_CACHED_INPUT_COST_PER_MILLION, 0.2),
+      cacheWritePerMillion: nonnegativeNumber(environment.SLAYER_AI_CACHE_WRITE_COST_PER_MILLION, 2.5),
+      outputPerMillion: nonnegativeNumber(environment.SLAYER_AI_OUTPUT_COST_PER_MILLION, 12),
+    },
     codexCommand: environment.SLAYER_CODEX_COMMAND?.trim() || "codex",
     codexRequiredVersion: environment.SLAYER_CODEX_REQUIRED_VERSION?.trim() || "0.149.0",
     codexHome: resolveFromRoot(environment.SLAYER_CODEX_HOME, "data/codex-home"),
@@ -103,6 +128,10 @@ export function loadConfig(environment = process.env) {
     maxTextAttachmentBytes: positiveInteger(
       environment.SLAYER_MAX_TEXT_ATTACHMENT_BYTES,
       10 * 1024 * 1024,
+    ),
+    maxRequestAttachmentBytes: positiveInteger(
+      environment.SLAYER_MAX_REQUEST_ATTACHMENT_BYTES,
+      50 * 1024 * 1024,
     ),
     maxAttachmentContextCharacters: positiveInteger(
       environment.SLAYER_MAX_ATTACHMENT_CONTEXT_CHARACTERS,

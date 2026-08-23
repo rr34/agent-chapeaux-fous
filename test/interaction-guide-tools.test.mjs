@@ -60,6 +60,7 @@ test("interaction guides keep list results metadata-only and use versioned updat
 
 test("a repeating to-do links to a guide and generated occurrences preserve the link", async (context) => {
   const { store, registry } = harness(context);
+  const firstOccurrence = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const createdGuide = await registry.execute("interaction_guide_create", {
     name: "Evening Reflection",
     guide_text: "Ask what went well, then summarize the day.",
@@ -69,7 +70,7 @@ test("a repeating to-do links to a guide and generated occurrences preserve the 
     text: "Evening reflection",
     group: "Inbox",
     interaction_guide_id: guideId,
-    scheduled_at_utc: "2026-08-20T23:00:00.000Z",
+    scheduled_at_utc: firstOccurrence,
     due_at_utc: null,
     recurrence: {
       frequency: "DAILY", interval: 1, weekdays: [], count: 3,

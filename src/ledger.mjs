@@ -441,7 +441,7 @@ export class Ledger {
     const event = publicEvent(row);
     if (!event) return null;
     const tokenUsage = event.payload?.tokenUsage ?? {};
-    const inputTokens = Number(tokenUsage.inputTokens);
+    const inputTokens = Number(event.payload?.contextInputTokens ?? tokenUsage.inputTokens);
     let contextWindowTokens = Number(event.payload?.contextWindowTokens);
     if (!Number.isFinite(contextWindowTokens) || contextWindowTokens <= 0) {
       const matches = [...String(row.response_payload_json ?? "").matchAll(/"modelContextWindow":(\d+)/gu)];
@@ -461,6 +461,43 @@ export class Ledger {
         ? (inputTokens / contextWindowTokens) * 100
         : null,
     };
+  }
+
+  modelUsage({ limit = 1000 } = {}) {
+    const selectedLimit = Math.max(1, Math.min(10_000, Number.parseInt(String(limit), 10) || 1000));
+    const rows = this.store.requireReady().prepare(`
+      SELECT usage.*, response.actor_name AS response_model,
+             response.payload_json AS response_payload_json
+      FROM activity_events AS usage
+      LEFT JOIN activity_events AS response
+        ON response.operation_id = usage.operation_id
+       AND response.event_type = 'model.response'
+      WHERE usage.event_type = 'model.usage'
+      ORDER BY usage.event_seq DESC
+      LIMIT ?
+    `).all(selectedLimit);
+    return rows.map((row) => {
+      const event = publicEvent(row);
+      let responsePayload = {};
+      try { responsePayload = JSON.parse(row.response_payload_json || "{}"); } catch {}
+      const tokenUsage = event.payload?.tokenUsage ?? {};
+      return {
+        eventSeq: event.eventSeq,
+        requestId: event.turnId,
+        occurredAtUtc: event.occurredAtUtc,
+        model: row.response_model ?? null,
+        transport: responsePayload.transport ?? event.payload?.provider ?? null,
+        inputTokens: Number(tokenUsage.inputTokens ?? 0),
+        cachedInputTokens: Number(tokenUsage.cachedInputTokens ?? 0),
+        cacheWriteTokens: Number(tokenUsage.cacheWriteTokens ?? 0),
+        outputTokens: Number(tokenUsage.outputTokens ?? 0),
+        reasoningOutputTokens: Number(tokenUsage.reasoningOutputTokens ?? 0),
+        totalTokens: Number(tokenUsage.totalTokens ?? 0),
+        recordedEstimatedCostUsd: Number.isFinite(Number(event.payload?.estimatedCostUsd))
+          ? Number(event.payload.estimatedCostUsd)
+          : null,
+      };
+    });
   }
 
   conversationCheckpoint({ afterEventSeq = 0, beforeRequestId = null, maximumCharacters = 48 * 1024 } = {}) {

@@ -6,7 +6,12 @@ import { Readable } from "node:stream";
 import test from "node:test";
 import { ContextBuilder } from "../src/context.mjs";
 import { RequestQueue } from "../src/queue.mjs";
-import { readTextAttachment, receiveTextAttachment } from "../src/request-attachments.mjs";
+import {
+  readRequestAttachment,
+  readTextAttachment,
+  receiveRequestAttachment,
+  receiveTextAttachment,
+} from "../src/request-attachments.mjs";
 
 function uploadRequest(bytes, mimeType) {
   const request = Readable.from([Buffer.from(bytes)]);
@@ -111,6 +116,64 @@ test("UTF-8 vCard attachments are stored and returned verbatim for model context
   assert.equal(attachment.text, vcard);
   assert.equal(attachment.filename, "contacts.vcf");
   assert.equal(attachment.sha256, registration.sha256);
+});
+
+test("receipt images are stored with integrity metadata and read only while processing", async (context) => {
+  const mediaRoot = temporaryMedia(context);
+  let registration;
+  const ledger = {
+    registerFile(input) {
+      registration = input;
+      return { fileId: 45, duplicate: false, storagePath: input.storagePath };
+    },
+  };
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from("receipt-image-bytes"),
+  ]);
+  const uploaded = await receiveRequestAttachment(uploadRequest(png, "image/png"), {
+    filename: "receipt.png", mediaRoot, maximumBytes: 1024, ledger,
+    now: new Date("2026-08-18T12:00:00.000Z"), uuid: () => "receipt-id",
+  });
+  assert.equal(uploaded.mediaKind, "image");
+  assert.equal(uploaded.mimeType, "image/png");
+  assert.equal(registration.mediaKind, "image");
+  assert.equal(registration.storagePath, "media/2026/08/receipt-id.png");
+
+  const attachment = await readRequestAttachment({
+    mediaRoot,
+    maximumBytes: 1024,
+    file: {
+      file_id: 45,
+      storage_path: registration.storagePath,
+      original_filename: "receipt.png",
+      media_kind: "image",
+      mime_type: "image/png",
+      sha256: registration.sha256,
+      byte_size: registration.byteSize,
+    },
+  });
+  assert.equal(attachment.filename, "receipt.png");
+  assert.equal(attachment.sha256, registration.sha256);
+  assert.deepEqual(Buffer.from(attachment.dataBase64, "base64"), png);
+});
+
+test("request images reject mismatched content but use a generous configurable ceiling", async (context) => {
+  const mediaRoot = temporaryMedia(context);
+  const ledger = { registerFile() { throw new Error("must not register"); } };
+  await assert.rejects(
+    receiveRequestAttachment(uploadRequest("not a jpeg", "image/jpeg"), {
+      filename: "receipt.jpg", mediaRoot, maximumBytes: 1024, ledger,
+    }),
+    /do not match image\/jpeg/,
+  );
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01]);
+  await assert.rejects(
+    receiveRequestAttachment(uploadRequest(jpeg, "image/jpeg"), {
+      filename: "receipt.jpg", mediaRoot, maximumBytes: 4, ledger,
+    }),
+    (error) => error.statusCode === 413 && /operational safety ceiling/.test(error.message),
+  );
 });
 
 test("request attachments reject unsupported files, binary content, and oversized text", async (context) => {
@@ -263,6 +326,24 @@ test("large attachment context is a bounded preview while retaining full-file me
   assert.equal(context.attachment.sha256, "large-sha");
 });
 
+test("image context carries verified metadata and bytes separately from developer instructions", async () => {
+  const builder = new ContextBuilder({
+    ledger: { recentConversation() { return []; } },
+    profileFacts: { list() { return { facts: [] }; } },
+    maximumCharacters: 1000,
+  });
+  const attachment = {
+    filename: "receipt.jpg", mediaKind: "image", mimeType: "image/jpeg",
+    byteSize: 500, sha256: "receipt-sha", dataBase64: "/9j/",
+  };
+  const built = await builder.build("request-image", "What did I spend?", { attachment });
+  assert.equal(built.attachment.mediaKind, "image");
+  assert.equal(built.requestAttachmentInput.dataBase64, "/9j/");
+  assert.match(built.requestAttachmentInput.text, /Attached request image/);
+  assert.doesNotMatch(built.developerInstructions, /\/9j\//);
+  assert.doesNotMatch(JSON.stringify(built.attachment), /\/9j\//);
+});
+
 test("the request queue supplies a stored document to the same runtime request", async (context) => {
   const mediaRoot = temporaryMedia(context);
   const csv = "name\nAlice\n";
@@ -306,4 +387,34 @@ test("the request queue supplies a stored document to the same runtime request",
   assert.equal(runtimeRequest.attachment.text, csv);
   assert.deepEqual(runtimeRequest.runLimits, { maxToolCalls: 256, timeoutMs: 3_600_000 });
   assert.equal(events.some(({ type }) => type === "attachment.read"), true);
+});
+
+test("the request queue supplies stored receipt bytes to the model runtime", async (context) => {
+  const mediaRoot = temporaryMedia(context);
+  const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x01, 0x02]);
+  fs.writeFileSync(path.join(mediaRoot, "receipt.jpg"), bytes);
+  const { createHash } = await import("node:crypto");
+  const file = {
+    file_id: 10, storage_path: "media/receipt.jpg", original_filename: "receipt.jpg",
+    media_kind: "image", mime_type: "image/jpeg",
+    sha256: createHash("sha256").update(bytes).digest("hex"), byte_size: bytes.length,
+  };
+  let runtimeRequest;
+  const ledger = {
+    markProcessing() {}, file() { return file; }, append() {}, finish() {},
+    fail(_request, error) { throw error; },
+  };
+  const queue = new RequestQueue({
+    ledger,
+    runtime: { async run(input) { runtimeRequest = input; return "done"; } },
+    transcriber: { async transcribe() { throw new Error("must not transcribe"); } },
+    mediaRoot,
+    maxRequestAttachmentBytes: 1024,
+  });
+  await queue.process({
+    eventId: "event-image", turnId: "request-image", content: "Read this receipt.",
+    channel: "web", primaryFileId: 10, payload: {},
+  });
+  assert.equal(runtimeRequest.attachment.mediaKind, "image");
+  assert.deepEqual(Buffer.from(runtimeRequest.attachment.dataBase64, "base64"), bytes);
 });
