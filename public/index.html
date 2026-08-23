@@ -12,7 +12,10 @@
 <body>
   <header class="topbar">
     <div class="topbar-primary-actions">
-      <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">Agent</button>
+      <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">
+        <span id="agent-mascot" class="agent-mascot agent-mascot-nav" aria-hidden="true"></span>
+        <span>Agent</span>
+      </button>
       <button id="hats-view-button" class="secondary app-nav-hats" type="button">Hats</button>
     </div>
     <div class="topbar-actions">
@@ -666,8 +669,11 @@
         </div>
         <p class="user-request"></p>
         <div class="agent-response" hidden>
-          <p></p>
-          <button class="copy-response secondary compact" type="button">Copy response</button>
+          <span class="agent-response-avatar agent-mascot" role="img"></span>
+          <div class="agent-response-body">
+            <p></p>
+            <button class="copy-response secondary compact" type="button">Copy response</button>
+          </div>
         </div>
         <p class="request-error" hidden></p>
         <div class="request-progress" hidden>

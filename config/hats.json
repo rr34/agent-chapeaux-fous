@@ -11,6 +11,7 @@
     {
       "id": "email",
       "label": "email",
+      "icon": "email",
       "aliases": ["mail"],
       "capability": "email",
       "description": "Read, draft, send, organize, and clean up email.",
@@ -19,6 +20,7 @@
     {
       "id": "contacts",
       "label": "contacts",
+      "icon": "contacts",
       "aliases": ["contact", "address book"],
       "capability": "contacts",
       "description": "Find, create, import, tag, and merge contacts.",
@@ -27,6 +29,7 @@
     {
       "id": "to-do",
       "label": "to-do",
+      "icon": "to-do",
       "aliases": ["todo", "to do", "to-do list", "task list"],
       "capability": "todos",
       "description": "Manage the personal to-do list and its groups.",
@@ -35,6 +38,7 @@
     {
       "id": "log",
       "label": "log",
+      "icon": "log",
       "aliases": ["logs", "tracker"],
       "capability": "logs",
       "description": "Record and review grouped personal logs and trackers.",
@@ -43,6 +47,7 @@
     {
       "id": "calendar",
       "label": "calendar",
+      "icon": "calendar",
       "aliases": ["schedule"],
       "capability": "calendar",
       "description": "Read and manage calendar events and schedules.",
@@ -51,6 +56,7 @@
     {
       "id": "landlord",
       "label": "landlord",
+      "icon": "landlord",
       "aliases": ["real estate", "tlom"],
       "capability": "integration:tlom",
       "description": "Work with properties, buildings, projects, and property tasks.",
@@ -59,6 +65,7 @@
     {
       "id": "weatherman",
       "label": "weatherman",
+      "icon": "weatherman",
       "aliases": ["weather man", "weather"],
       "capability": "integration:weather",
       "description": "Look up locations, forecasts, and weather conditions.",

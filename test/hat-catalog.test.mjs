@@ -39,6 +39,7 @@ test("the public manual derives availability and backing tools from the callable
   const weatherman = manual.hats.find(({ id }) => id === "weatherman");
   const landlord = manual.hats.find(({ id }) => id === "landlord");
   assert.equal(email.available, true);
+  assert.equal(email.icon, "email");
   assert.deepEqual(email.tools.map(({ name }) => name), ["email_search"]);
   assert.equal(weatherman.available, true);
   assert.deepEqual(weatherman.tools.map(({ name }) => name), ["remote_weather_forecast"]);
@@ -60,4 +61,20 @@ test("hat definitions reject aliases assigned to multiple hats", () => {
       { id: "two", label: "two", aliases: ["shared"], capability: "two", description: "Two", example: "Two" },
     ],
   }), /belongs to both one and two/);
+});
+
+test("hat definitions reject unsafe SVG icon identifiers", () => {
+  assert.throws(() => new HatCatalog({
+    version: 1,
+    invocationTemplate: "Agent, as my {hat}, {request}",
+    manual: {
+      title: "Hats",
+      introduction: "Introduction",
+      destinationRule: "Destination",
+      multipleRule: "Multiple",
+    },
+    hats: [
+      { id: "one", label: "one", icon: "../outside", capability: "one", description: "One", example: "One" },
+    ],
+  }), /icon is invalid/);
 });

@@ -284,6 +284,11 @@ export class Ledger {
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
     const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
     const usage = [...events].reverse().find((event) => event.type === "model.usage");
+    const compiled = [...events].reverse().find((event) => (
+      event.type === "context.sent"
+      && Array.isArray(event.payload?.capabilitySelection?.explicitHats)
+    ));
+    const explicitHats = compiled?.payload.capabilitySelection.explicitHats ?? [];
     const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
     const requestKind = request.payload?.requestKind ?? null;
     const sourceFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
@@ -316,6 +321,7 @@ export class Ledger {
       error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
       usage: usage?.payload || null,
       eventCount: events.length,
+      ...(explicitHats.length ? { explicitHats } : {}),
       ...(requestKind ? { requestKind } : {}),
       ...(videoEligible ? { videoEligible: true } : {}),
       ...(video ? { video } : {}),

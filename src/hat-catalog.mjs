@@ -60,6 +60,7 @@ export class HatCatalog {
       const hat = {
         id,
         label: requiredText(entry.label, `Hat ${id} label`, 100),
+        icon: requiredText(entry.icon ?? id, `Hat ${id} icon`, 80),
         aliases: Array.isArray(entry.aliases)
           ? entry.aliases.map((alias) => requiredText(alias, `Hat ${id} alias`, 100))
           : [],
@@ -67,6 +68,7 @@ export class HatCatalog {
         description: requiredText(entry.description, `Hat ${id} description`, 2000),
         example: requiredText(entry.example, `Hat ${id} example`, 2000),
       };
+      if (!identifierPattern.test(hat.icon)) throw new Error(`Hat ${id} icon is invalid`);
       for (const alias of uniqueAliases(hat)) {
         const existing = aliases.get(alias);
         if (existing && existing !== id) throw new Error(`Hat alias "${alias}" belongs to both ${existing} and ${id}`);

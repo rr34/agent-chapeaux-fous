@@ -47,6 +47,7 @@ const elements = {
   tokenDialog: document.querySelector("#token-dialog"),
   tokenForm: document.querySelector("#token-form"),
   token: document.querySelector("#token"),
+  agentMascot: document.querySelector("#agent-mascot"),
   agentViewButton: document.querySelector("#agent-view-button"),
   hatsViewButton: document.querySelector("#hats-view-button"),
   composerHatsLink: document.querySelector("#composer-hats-link"),
@@ -372,6 +373,43 @@ function node(tag, className = "", textContent = "") {
   if (className) element.className = className;
   if (textContent !== "") element.textContent = textContent;
   return element;
+}
+
+const svgNamespace = "http://www.w3.org/2000/svg";
+
+function mascotSvg(hat = null) {
+  const svg = document.createElementNS(svgNamespace, "svg");
+  svg.setAttribute("class", "agent-hat-svg");
+  svg.setAttribute("viewBox", "0 0 128 128");
+  svg.setAttribute("aria-hidden", "true");
+  const head = document.createElementNS(svgNamespace, "use");
+  head.setAttribute("href", "/hats.svg#agent-head");
+  svg.append(head);
+  if (hat) {
+    const wornHat = document.createElementNS(svgNamespace, "use");
+    wornHat.setAttribute("href", `/hats.svg#hat-${hat.icon || hat.id}`);
+    svg.append(wornHat);
+  }
+  return svg;
+}
+
+function renderAgentMascot(target, hats = []) {
+  const explicitHats = Array.isArray(hats) ? hats.filter((hat) => hat?.id) : [];
+  target.replaceChildren(mascotSvg(explicitHats[0] ?? null));
+  if (explicitHats.length > 1) {
+    const badges = node("span", "agent-hat-badges");
+    for (const hat of explicitHats.slice(1)) {
+      const badge = node("span", "agent-hat-badge");
+      badge.append(mascotSvg(hat));
+      badges.append(badge);
+    }
+    target.append(badges);
+  }
+  const description = explicitHats.length === 0
+    ? "Chapeaux Fous without an explicitly spoken hat"
+    : `Chapeaux Fous wearing ${explicitHats.map(({ label, id }) => label || id).join(" and ")}`;
+  target.title = description;
+  if (target.getAttribute("aria-hidden") !== "true") target.setAttribute("aria-label", description);
 }
 
 function formatFileSize(bytes) {
@@ -850,6 +888,7 @@ function requestNode(request, index) {
   elapsed.hidden = !elapsed.textContent;
   node.querySelector(".user-request").textContent = request.request;
   const response = node.querySelector(".agent-response");
+  renderAgentMascot(node.querySelector(".agent-response-avatar"), request.explicitHats);
   response.hidden = !request.response;
   if (request.response) response.querySelector("p").textContent = request.response;
   const error = node.querySelector(".request-error");
@@ -910,6 +949,7 @@ async function loadRequests({ force = false } = {}) {
     if (!seen.has(id)) { node.remove(); requestNodes.delete(id); }
   }
   elements.empty.hidden = body.requests.length > 0;
+  renderAgentMascot(elements.agentMascot, body.requests[0]?.explicitHats);
   speakCompletedResponses(body.requests);
 }
 
@@ -1133,12 +1173,16 @@ function renderHats(body) {
     const card = node("article", "hat-card");
     card.classList.toggle("available", hat.available);
     const heading = node("div", "hat-card-heading");
+    const title = node("div", "hat-card-title");
+    const mascot = node("span", "agent-mascot hat-card-mascot");
+    renderAgentMascot(mascot, [hat]);
     const identity = node("div", "hat-identity");
     identity.append(
       node("p", "eyebrow", "As my"),
       node("h2", "", hat.label),
     );
-    heading.append(identity, node("span", `hat-availability ${hat.available ? "available" : "unavailable"}`, hat.available ? "Available" : "Not connected"));
+    title.append(mascot, identity);
+    heading.append(title, node("span", `hat-availability ${hat.available ? "available" : "unavailable"}`, hat.available ? "Available" : "Not connected"));
     card.append(heading, node("p", "hat-description", hat.description));
     const example = node("blockquote", "hat-example", hat.example);
     card.append(example);
@@ -3732,6 +3776,7 @@ for (const button of document.querySelectorAll(".dialog-close")) {
   button.addEventListener("click", () => button.closest("dialog")?.close());
 }
 
+renderAgentMascot(elements.agentMascot);
 if (!accessToken) elements.tokenDialog.showModal();
 if (new URLSearchParams(window.location.search).get("oauth") === "connected") {
   elements.status.textContent = "MCP OAuth connected.";

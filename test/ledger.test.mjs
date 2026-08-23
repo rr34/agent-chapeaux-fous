@@ -67,6 +67,35 @@ test("one-shot run limits persist on the queued request event", () => {
   }
 });
 
+test("recent requests expose only the hats recorded by the request compiler", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const created = ledger.createRequest({ text: "As my contacts, find Tim, then as my email, write him." });
+    ledger.append({
+      type: "context.sent",
+      status: "complete",
+      turnId: created.requestId,
+      payload: {
+        capabilitySelection: {
+          explicitHats: [
+            { id: "contacts", label: "contacts", icon: "contacts" },
+            { id: "email", label: "email", icon: "email" },
+          ],
+        },
+      },
+    });
+    assert.deepEqual(ledger.recentRequests()[0].explicitHats, [
+      { id: "contacts", label: "contacts", icon: "contacts" },
+      { id: "email", label: "email", icon: "email" },
+    ]);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("request IDs resolve from an unambiguous visible prefix", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.filename);

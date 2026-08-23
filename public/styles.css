@@ -91,6 +91,35 @@ section { margin-bottom: 1rem; }
 .app-nav select { min-width: 10rem; padding: .5rem 2rem .5rem .65rem; }
 .app-nav-agent.active, .app-nav-hats.active { color: white; background: var(--accent); border-color: var(--accent); }
 .app-nav-agent.active:hover, .app-nav-hats.active:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+.app-nav-agent { display: inline-flex; align-items: center; gap: .45rem; padding: .3rem .7rem .3rem .35rem; }
+
+.agent-mascot {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+}
+.agent-hat-svg { display: block; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 4px 5px rgba(0, 0, 0, .28)); }
+.agent-hat-badges { position: absolute; right: -8px; bottom: -5px; display: flex; gap: 2px; }
+.agent-hat-badge {
+  display: grid;
+  place-items: center;
+  width: 29px;
+  height: 29px;
+  padding: 1px;
+  overflow: hidden;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: #252b30;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .35);
+}
+.agent-hat-badge .agent-hat-svg { width: 31px; height: 31px; }
+.agent-mascot-nav { width: 35px; height: 35px; margin: -6px 0; }
+.agent-mascot-nav .agent-hat-badges { right: -7px; bottom: -7px; }
+.agent-mascot-nav .agent-hat-badge { width: 19px; height: 19px; border-width: 1px; }
+.agent-mascot-nav .agent-hat-badge .agent-hat-svg { width: 21px; height: 21px; }
 
 .composer, .requests, .trace-panel {
   padding: 1rem;
@@ -519,6 +548,8 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .hat-card { min-width: 0; padding: 1rem; background: var(--panel); border: 1px solid var(--line); border-radius: 15px; }
 .hat-card.available { border-color: rgba(83, 200, 137, .35); }
 .hat-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .7rem; }
+.hat-card-title { display: flex; align-items: center; gap: .65rem; min-width: 0; }
+.hat-card-mascot { width: 72px; height: 72px; margin: -.8rem 0 -.2rem -.45rem; }
 .hat-card-heading h2 { margin: 0; font-size: 1.35rem; }
 .hat-identity .eyebrow { margin-bottom: 0; }
 .hat-availability { flex: 0 0 auto; padding: .25rem .5rem; border-radius: 999px; font-size: .68rem; }
@@ -561,6 +592,9 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .request-entry[data-status="error"] .request-status, .request-error { color: var(--bad); }
 .user-request { margin-bottom: .7rem; color: #c8d0d5; white-space: pre-wrap; }
 .agent-response { margin: 0 0 .7rem; padding: .8rem; background: #1a1f23; border-left: 3px solid var(--accent); border-radius: 4px 9px 9px 4px; }
+.agent-response:not([hidden]) { display: flex; align-items: flex-start; gap: .7rem; }
+.agent-response-avatar { width: 58px; height: 58px; margin: -.3rem 0 0 -.35rem; }
+.agent-response-body { min-width: 0; flex: 1; }
 .agent-response p { margin-bottom: .7rem; line-height: 1.5; white-space: pre-wrap; user-select: text; }
 .request-error { white-space: pre-wrap; }
 .request-actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }

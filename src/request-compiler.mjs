@@ -417,8 +417,8 @@ export class RequestCompiler {
         guidance,
         catalog,
       ].filter(Boolean).join("\n\n"),
-      explicitHats: explicitHats.map(({ id, label, capability, spokenAs, index }) => ({
-        id, label, capability, spokenAs, index,
+      explicitHats: explicitHats.map(({ id, label, icon, capability, spokenAs, index }) => ({
+        id, label, icon, capability, spokenAs, index,
         available: (grouped.get(capability) ?? []).length > 0,
       })),
       instructionCapabilities: fragments.map(({ capability }) => capability),

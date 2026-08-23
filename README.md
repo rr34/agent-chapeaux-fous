@@ -36,10 +36,12 @@ Hats are optional and are never inferred. Requests without a spoken hat use the
 ordinary capability selector exactly as before. More than one hat can be spoken
 in one request, and ordinary tool selection may add other supporting tool
 families without labeling them as hats. `config/hats.json` is the versioned
-catalog of public names, aliases, destination capabilities, descriptions, and
-examples. The request compiler and the web client's **Hats** manual screen both
-use that catalog; live availability and backing tool names come from the actual
-callable tool registry.
+catalog of public names, aliases, destination capabilities, descriptions,
+examples, and SVG artwork. The request compiler and the web client's **Hats**
+manual screen both use that catalog; live availability and backing tool names
+come from the actual callable tool registry. The on-screen mascot changes only
+for hats the user explicitly spoke. With several spoken hats, it wears the
+first and displays the others as companion badges.
 
 ## First local run
 

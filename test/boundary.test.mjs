@@ -88,6 +88,7 @@ test("base instructions stay universal while capability fragments retain domain 
 test("the client exposes a live user manual generated from the explicit hat catalog", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const hatsSvg = fs.readFileSync(path.join(root, "public", "hats.svg"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   const catalog = JSON.parse(fs.readFileSync(path.join(root, "config", "hats.json"), "utf8"));
 
@@ -95,13 +96,18 @@ test("the client exposes a live user manual generated from the explicit hat cata
   assert.match(document, /data-view="hats"/);
   assert.match(document, /id="hats-view"/);
   assert.match(document, /id="composer-hats-link"/);
+  assert.match(document, /id="agent-mascot"/);
   assert.match(application, /async function refreshHats/);
+  assert.match(application, /function renderAgentMascot/);
   assert.match(application, /api\("\/api\/hats"\)/);
   assert.match(application, /hat\.tools/);
   assert.match(server, /url\.pathname === "\/api\/hats"/);
   assert.match(server, /hatCatalog\.publicManual\(registry\.toolDefinitions\(\), capabilityForTool\)/);
   assert.equal(catalog.hats.some(({ id, capability }) => id === "weatherman" && capability === "integration:weather"), true);
   assert.equal(catalog.hats.some(({ id }) => id === "accountant"), false);
+  for (const hat of catalog.hats) {
+    assert.match(hatsSvg, new RegExp(`id="hat-${hat.icon}"`));
+  }
 });
 
 test("the todo editor builds recurrence without exposing an RRULE input", () => {
@@ -197,7 +203,7 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /data-view="calendar"/);
   assert.match(document, /data-view="todos"/);
-  assert.match(document, /id="agent-view-button"[^>]*>Agent<\/button>/);
+  assert.match(document, /id="agent-view-button"[^>]*>[\s\S]*?<span>Agent<\/span>[\s\S]*?<\/button>/);
   assert.match(document, /id="view-selector"/);
   assert.doesNotMatch(document, /<option[^>]+value="agent"/);
   assert.match(document, /data-view="content"/);
