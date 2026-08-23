@@ -1,6 +1,7 @@
-# Agent Slayer
+# Chapeaux Fous
 
-Agent Slayer is a small, inspectable model-and-tools application. It is not an
+Chapeaux Fous is a small, inspectable model-and-tools application. The internal
+repository and compatibility identifiers still use `agent-slayer`. It is not an
 agent framework and has no plugin host. The request compiler, tool registry,
 SQLite ledger, and web client are provider-neutral. Codex App Server is the
 initial model transport because it can use the user's ChatGPT subscription instead
@@ -22,6 +23,23 @@ web or voice input
 Every boundary is recorded in `activity_events` and shown in the web trace:
 user request, context, tools, exact model request, exact model response, tool
 call, tool result, and final answer.
+
+## Hats and the user manual
+
+Users may make one or more roles explicit with the convention:
+
+```text
+Chapeaux Fous, as my [hat], [request].
+```
+
+Hats are optional and are never inferred. Requests without a spoken hat use the
+ordinary capability selector exactly as before. More than one hat can be spoken
+in one request, and ordinary tool selection may add other supporting tool
+families without labeling them as hats. `config/hats.json` is the versioned
+catalog of public names, aliases, destination capabilities, descriptions, and
+examples. The request compiler and the web client's **Hats** manual screen both
+use that catalog; live availability and backing tool names come from the actual
+callable tool registry.
 
 ## First local run
 

@@ -44,7 +44,9 @@ test("base instructions stay universal while capability fragments retain domain 
     .join("\n");
   assert.doesNotMatch(baseInstructions, /TLOM/i);
   assert.doesNotMatch(baseInstructions, /personal to-dos|native JMAP|contact_dedupe_clear/);
-  assert.ok(baseInstructions.length < 2500, `universal prompt grew to ${baseInstructions.length} characters`);
+  assert.ok(baseInstructions.length < 2800, `universal prompt grew to ${baseInstructions.length} characters`);
+  assert.match(baseInstructions, /You are Chapeaux Fous/);
+  assert.match(baseInstructions, /Never infer or\s+announce a hat the user did not speak/);
   assert.match(baseInstructions, /inspect its metadata, visible structure,\s+headers, and relevant records/);
   assert.match(baseInstructions, /never ask the user to\s+identify information plainly visible in the attachment/);
   assert.match(instructions, /personal to-dos/);
@@ -81,6 +83,25 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /page reading, not web search/);
   assert.match(instructions, /Relevant profile types/);
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
+});
+
+test("the client exposes a live user manual generated from the explicit hat catalog", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  const catalog = JSON.parse(fs.readFileSync(path.join(root, "config", "hats.json"), "utf8"));
+
+  assert.match(document, /id="hats-view-button"/);
+  assert.match(document, /data-view="hats"/);
+  assert.match(document, /id="hats-view"/);
+  assert.match(document, /id="composer-hats-link"/);
+  assert.match(application, /async function refreshHats/);
+  assert.match(application, /api\("\/api\/hats"\)/);
+  assert.match(application, /hat\.tools/);
+  assert.match(server, /url\.pathname === "\/api\/hats"/);
+  assert.match(server, /hatCatalog\.publicManual\(registry\.toolDefinitions\(\), capabilityForTool\)/);
+  assert.equal(catalog.hats.some(({ id, capability }) => id === "weatherman" && capability === "integration:weather"), true);
+  assert.equal(catalog.hats.some(({ id }) => id === "accountant"), false);
 });
 
 test("the todo editor builds recurrence without exposing an RRULE input", () => {

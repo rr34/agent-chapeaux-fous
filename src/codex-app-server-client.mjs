@@ -212,7 +212,7 @@ export class CodexAppServerClient extends EventEmitter {
     });
 
     this.initializeResult = await this.request("initialize", {
-      clientInfo: { name: "agent_slayer", title: "Agent Slayer", version: "0.2.0" },
+      clientInfo: { name: "agent_slayer", title: "Chapeaux Fous", version: "0.2.0" },
       capabilities: { experimentalApi: true },
     }, { timeoutMs: this.startupTimeoutMs });
     this.notify("initialized", {});

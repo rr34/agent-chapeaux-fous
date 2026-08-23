@@ -67,6 +67,7 @@ export function loadConfig(environment = process.env) {
     databasePath: resolveFromRoot(environment.SLAYER_DATABASE, "data/agent.sqlite"),
     mediaRoot: resolveFromRoot(environment.SLAYER_MEDIA_ROOT, "media"),
     systemPromptPath: path.join(repositoryRoot, "config/system-prompt.md"),
+    hatCatalogPath: path.join(repositoryRoot, "config/hats.json"),
     capabilityInstructionsPath: path.join(repositoryRoot, "config/instructions"),
     profileFactQuestionsPath: path.join(repositoryRoot, "config/profile-fact-questions.json"),
     mcpConfigPath: resolveFromRoot(environment.SLAYER_MCP_CONFIG, "config/mcp-servers.json"),

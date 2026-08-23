@@ -4,14 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111315">
-  <title>Agent Slayer</title>
+  <title>Chapeaux Fous</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="topbar">
-    <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">Agent</button>
+    <div class="topbar-primary-actions">
+      <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">Agent</button>
+      <button id="hats-view-button" class="secondary app-nav-hats" type="button">Hats</button>
+    </div>
     <div class="topbar-actions">
       <button id="refresh" class="top-refresh" type="button">Refresh</button>
       <details class="runtime-details">
@@ -26,10 +29,11 @@
   </header>
 
   <main>
-    <nav class="app-nav" aria-label="Agent Slayer sections">
+    <nav class="app-nav" aria-label="Chapeaux Fous sections">
       <label for="view-selector">Screen</label>
       <select id="view-selector">
         <option value="">Choose screen…</option>
+        <option data-view="hats" value="hats">Hats</option>
         <option data-view="calendar" value="calendar">Calendar</option>
         <option data-view="todos" value="todos">To-Do List</option>
         <option data-view="content" value="content">Content</option>
@@ -50,7 +54,8 @@
         <button id="cancel-recording" class="secondary compact cancel-recording" type="button" hidden>Cancel recording</button>
       </div>
       <form id="request-form">
-        <textarea id="request-text" rows="4" placeholder="Tell Slayer what to do…" required></textarea>
+        <textarea id="request-text" rows="4" placeholder="Tell Chapeaux Fous what to do…" required></textarea>
+        <button id="composer-hats-link" class="text-button composer-hats-link" type="button">Which hat should I use?</button>
         <div class="composer-actions">
           <div class="request-attachment-control">
             <label class="attachment-button" for="request-file">Attach CSV/vCard/text</label>
@@ -91,9 +96,27 @@
         </div>
       </div>
       <div id="request-list" class="request-list"></div>
-      <p id="empty" class="empty">No Agent Slayer requests yet.</p>
+      <p id="empty" class="empty">No Chapeaux Fous requests yet.</p>
     </section>
     </div>
+
+    <section id="hats-view" class="app-view hats-view" hidden>
+      <header class="organizer-heading hats-heading">
+        <div>
+          <p class="eyebrow">User manual</p>
+          <h1 id="hats-title">How to talk to Chapeaux Fous</h1>
+        </div>
+      </header>
+      <section class="hat-introduction organizer-panel" aria-labelledby="hat-template-heading">
+        <p id="hat-template-heading" class="eyebrow">The convention</p>
+        <p id="hat-invocation-template" class="hat-invocation-template"></p>
+        <p id="hat-introduction"></p>
+        <p id="hat-destination-rule" class="muted"></p>
+        <p id="hat-multiple-rule" class="muted"></p>
+      </section>
+      <div id="hat-list" class="hat-list" aria-live="polite"></div>
+      <p id="hat-status" class="status" role="status"></p>
+    </section>
 
     <section id="calendar-view" class="app-view" hidden>
       <header class="organizer-heading">
@@ -273,7 +296,7 @@
       <button class="secondary compact dialog-close" type="button">Close</button>
     </div>
     <div id="integration-list" class="integration-list"></div>
-    <p class="muted">Disconnect removes Agent Slayer's local OAuth credentials and tools. It does not claim to revoke the provider-side grant.</p>
+    <p class="muted">Disconnect removes Chapeaux Fous's local OAuth credentials and tools. It does not claim to revoke the provider-side grant.</p>
   </dialog>
 
   <dialog id="event-dialog" class="editor-dialog">
@@ -365,7 +388,7 @@
         <div><p class="eyebrow">Fastmail email draft</p><h2 id="event-invite-title">Invite contacts</h2></div>
         <button class="secondary compact dialog-close" type="button">Close</button>
       </header>
-      <p class="event-invite-intro">Uses the saved Agent Slayer event. This creates a draft only; it does not send email or add anything to Fastmail Calendar.</p>
+      <p class="event-invite-intro">Uses the saved Chapeaux Fous event. This creates a draft only; it does not send email or add anything to Fastmail Calendar.</p>
       <label>Find contacts<input id="event-invite-search" type="search" placeholder="Name or email…" autocomplete="off"></label>
       <fieldset class="event-invite-recipients">
         <legend>Recipients</legend>
@@ -597,7 +620,7 @@
   <dialog id="token-dialog">
     <form id="token-form" method="dialog">
       <p class="eyebrow">Private service</p>
-      <h2>Connect to Agent Slayer</h2>
+      <h2>Connect to Chapeaux Fous</h2>
       <label for="token">Access token</label>
       <input id="token" type="password" autocomplete="current-password" required>
       <p class="muted">Stored only in this browser.</p>

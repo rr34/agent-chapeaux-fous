@@ -141,7 +141,7 @@ function integrationAliases(provider) {
 }
 
 export function selectRequestCapabilities({
-  tools, text, attachment = null, recentConversation = [], previousCapabilities = [],
+  tools, text, attachment = null, recentConversation = [], previousCapabilities = [], explicitHats = [],
 }) {
   const grouped = new Map();
   for (const tool of tools) {
@@ -178,6 +178,15 @@ export function selectRequestCapabilities({
     ...(grouped.has("database") ? ["database"] : []),
   ]);
   const reasons = [];
+
+  for (const hat of explicitHats) {
+    if (grouped.has(hat.capability)) {
+      selected.add(hat.capability);
+      reasons.push(`${hat.capability}:explicit-hat:${hat.id}`);
+    } else {
+      reasons.push(`${hat.capability}:explicit-hat-unavailable:${hat.id}`);
+    }
+  }
 
   for (const [capability, pattern] of capabilityPatterns) {
     if (grouped.has(capability) && pattern.test(routingText)) {
@@ -239,6 +248,8 @@ export function selectRequestCapabilities({
     reasons.push("fallback:unclassified-tools");
   } else if (attachmentRoute.uncertain) {
     reasons.push("catalog:uncertain-attachment");
+  } else if (meaningfulSelections.length === 0 && explicitHats.length > 0) {
+    reasons.push("catalog:explicit-hat-unavailable");
   } else if (meaningfulSelections.length === 0 && !clearlyToolFree) {
     reasons.push("catalog:ambiguous-request");
   } else if (meaningfulSelections.length === 0) {
@@ -318,9 +329,36 @@ function overrideSelection(tools, capabilities) {
   };
 }
 
+function explicitHatInstructions(explicitHats, groupedTools) {
+  if (explicitHats.length === 0) return "";
+  const lines = [
+    "# Hats explicitly spoken by the user",
+    "Only the hats listed below were explicitly invoked. Do not infer, invent, or label any other active hat. Ordinary capability selection still applies to the rest of the exact user request.",
+    "A spoken hat identifies the role or destination for the relevant part of the request; it does not restrict use of supporting tools. When several hats were spoken, honor them in the order shown and complete the corresponding work in that order when dependencies require it.",
+  ];
+  for (const [index, hat] of explicitHats.entries()) {
+    const available = (groupedTools.get(hat.capability) ?? []).length > 0;
+    lines.push(`${index + 1}. ${hat.label} (${hat.capability}) — ${available ? "callable" : "not currently backed by a callable tool family"}. ${hat.description}`);
+  }
+  if (explicitHats.some((hat) => (groupedTools.get(hat.capability) ?? []).length === 0)) {
+    lines.push("Do not silently substitute a different destination for an explicitly spoken hat whose tool family is unavailable.");
+  }
+  return lines.join("\n");
+}
+
+function ambiguousHatInstructions(selection, hatCatalog) {
+  if (!hatCatalog || !selection.reasons.includes("catalog:ambiguous-request")) return "";
+  return [
+    "# Ambiguous destination",
+    "If the available request and context do not resolve the intended destination, ask with this consistent teaching pattern:",
+    "I wasn't sure which one you meant—say ‘as my [hat]’ to point me at it. For example: ‘Chapeaux Fous, as my email, send John the invoice.’",
+  ].join("\n");
+}
+
 export class RequestCompiler {
-  constructor({ instructionRoot, readFile = fs.readFile } = {}) {
+  constructor({ instructionRoot, hatCatalog = null, readFile = fs.readFile } = {}) {
     this.instructionRoot = instructionRoot;
+    this.hatCatalog = hatCatalog;
     this.readFile = readFile;
     this.instructions = new Map();
   }
@@ -336,10 +374,11 @@ export class RequestCompiler {
   }
 
   async compile(input) {
+    const explicitHats = this.hatCatalog?.explicitHats(input.text) ?? [];
     const expanding = Array.isArray(input.capabilityOverride);
     const selection = expanding
       ? overrideSelection(input.tools, input.capabilityOverride)
-      : selectRequestCapabilities(input);
+      : selectRequestCapabilities({ ...input, explicitHats });
     const grouped = new Map();
     for (const tool of input.tools) {
       const capability = capabilityForTool(tool);
@@ -372,7 +411,16 @@ export class RequestCompiler {
     return {
       ...selection,
       tools: requestCapabilities ? [...selection.tools, requestCapabilities] : selection.tools,
-      instructions: [guidance, catalog].filter(Boolean).join("\n\n"),
+      instructions: [
+        explicitHatInstructions(explicitHats, grouped),
+        ambiguousHatInstructions(selection, this.hatCatalog),
+        guidance,
+        catalog,
+      ].filter(Boolean).join("\n\n"),
+      explicitHats: explicitHats.map(({ id, label, capability, spokenAs, index }) => ({
+        id, label, capability, spokenAs, index,
+        available: (grouped.get(capability) ?? []).length > 0,
+      })),
       instructionCapabilities: fragments.map(({ capability }) => capability),
       deferredCapabilities,
       capabilityCatalog: deferredCapabilities.map((capability) => ({

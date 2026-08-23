@@ -89,8 +89,8 @@ section { margin-bottom: 1rem; }
 }
 .app-nav label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
 .app-nav select { min-width: 10rem; padding: .5rem 2rem .5rem .65rem; }
-.app-nav-agent.active { color: white; background: var(--accent); border-color: var(--accent); }
-.app-nav-agent.active:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+.app-nav-agent.active, .app-nav-hats.active { color: white; background: var(--accent); border-color: var(--accent); }
+.app-nav-agent.active:hover, .app-nav-hats.active:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
 
 .composer, .requests, .trace-panel {
   padding: 1rem;
@@ -133,6 +133,7 @@ section { margin-bottom: 1rem; }
 .record-timer { margin-bottom: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cancel-recording { margin: -.4rem auto 1rem; }
 #request-form { padding-top: .85rem; border-top: 1px solid var(--line); }
+.composer-hats-link { margin-top: .35rem; }
 
 textarea, input {
   width: 100%;
@@ -184,8 +185,10 @@ button.secondary:hover { border-color: #56616a; background: #252b31; }
 button.danger { color: white; background: #9f342f; }
 button.danger:hover { background: #bd4039; }
 button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
+button.text-button { min-height: 0; padding: .2rem 0; color: var(--muted); background: transparent; border: 0; font-size: .78rem; }
+button.text-button:hover { color: var(--text); background: transparent; text-decoration: underline; }
 
-.topbar-actions { display: flex; align-items: center; gap: .45rem; }
+.topbar-actions, .topbar-primary-actions { display: flex; align-items: center; gap: .45rem; }
 .runtime-details { position: relative; }
 .runtime-details > summary, .runtime, .usage, .integration, .top-refresh {
   min-height: 34px;
@@ -504,6 +507,34 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 .event-invite-choice small { overflow: hidden; margin-top: .14rem; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .event-invite-count { margin-right: auto; color: var(--muted); font-size: .78rem; }
 
+.hats-heading { align-items: flex-end; }
+.hat-introduction { padding: clamp(1rem, 3vw, 1.5rem); }
+.hat-introduction p:last-child { margin-bottom: 0; }
+.hat-invocation-template {
+  margin: .35rem 0 1rem;
+  color: var(--text);
+  font: 500 clamp(1.05rem, 4vw, 1.45rem)/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.hat-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: .8rem; }
+.hat-card { min-width: 0; padding: 1rem; background: var(--panel); border: 1px solid var(--line); border-radius: 15px; }
+.hat-card.available { border-color: rgba(83, 200, 137, .35); }
+.hat-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .7rem; }
+.hat-card-heading h2 { margin: 0; font-size: 1.35rem; }
+.hat-identity .eyebrow { margin-bottom: 0; }
+.hat-availability { flex: 0 0 auto; padding: .25rem .5rem; border-radius: 999px; font-size: .68rem; }
+.hat-availability.available { color: var(--good); background: rgba(83, 200, 137, .1); }
+.hat-availability.unavailable { color: var(--warn); background: rgba(240, 189, 79, .1); }
+.hat-description { min-height: 2.8em; margin: .8rem 0; color: var(--muted); line-height: 1.4; }
+.hat-example { margin: 0 0 .8rem; padding: .75rem; color: var(--text); background: #101316; border-left: 3px solid var(--accent); border-radius: 4px 9px 9px 4px; line-height: 1.45; }
+.hat-actions { display: flex; justify-content: flex-end; margin-bottom: .65rem; }
+.hat-tools { border-top: 1px solid var(--line); }
+.hat-tools summary { padding: .7rem 0 0; color: var(--muted); cursor: pointer; font-size: .75rem; }
+.hat-tool-list { display: grid; gap: .65rem; margin: .75rem 0 0; padding: 0; list-style: none; }
+.hat-tool-list li { min-width: 0; }
+.hat-tool-list code, .hat-tool-list span { display: block; overflow-wrap: anywhere; }
+.hat-tool-list code { color: var(--text); font-size: .75rem; }
+.hat-tool-list span { margin-top: .15rem; color: var(--muted); font-size: .7rem; line-height: 1.35; }
+
 .status, .muted, .empty { color: var(--muted); }
 .status { min-height: 1.3rem; margin: .6rem 0 0; font-size: .88rem; }
 .empty { margin: 1.5rem 0; text-align: center; }
@@ -586,6 +617,8 @@ dialog h2, dialog p { margin-bottom: 0; }
       .8rem
       max(.7rem, env(safe-area-inset-left, 0px));
   }
+  .topbar-primary-actions { gap: .3rem; }
+  .topbar-primary-actions button { padding-inline: .65rem; }
   .composer-actions { align-items: stretch; flex-direction: column; }
   .request-attachment-control { width: 100%; }
   .request-file-label { max-width: calc(100vw - 10rem); }

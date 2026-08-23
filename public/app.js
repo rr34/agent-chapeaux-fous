@@ -48,8 +48,18 @@ const elements = {
   tokenForm: document.querySelector("#token-form"),
   token: document.querySelector("#token"),
   agentViewButton: document.querySelector("#agent-view-button"),
+  hatsViewButton: document.querySelector("#hats-view-button"),
+  composerHatsLink: document.querySelector("#composer-hats-link"),
   viewSelector: document.querySelector("#view-selector"),
   agentView: document.querySelector("#agent-view"),
+  hatsView: document.querySelector("#hats-view"),
+  hatsTitle: document.querySelector("#hats-title"),
+  hatInvocationTemplate: document.querySelector("#hat-invocation-template"),
+  hatIntroduction: document.querySelector("#hat-introduction"),
+  hatDestinationRule: document.querySelector("#hat-destination-rule"),
+  hatMultipleRule: document.querySelector("#hat-multiple-rule"),
+  hatList: document.querySelector("#hat-list"),
+  hatStatus: document.querySelector("#hat-status"),
   calendarView: document.querySelector("#calendar-view"),
   todosView: document.querySelector("#todos-view"),
   contentView: document.querySelector("#content-view"),
@@ -1084,12 +1094,14 @@ function switchView(view) {
   if (view !== "calendar" && calendarSchedulingTodo) cancelCalendarScheduling({ render: false });
   activeView = view;
   elements.agentView.hidden = view !== "agent";
+  elements.hatsView.hidden = view !== "hats";
   elements.calendarView.hidden = view !== "calendar";
   elements.todosView.hidden = view !== "todos";
   elements.contentView.hidden = view !== "content";
   elements.contactsView.hidden = view !== "contacts";
   elements.logsView.hidden = view !== "logs";
   elements.agentViewButton.classList.toggle("active", view === "agent");
+  elements.hatsViewButton.classList.toggle("active", view === "hats");
   if (view === "agent") {
     elements.agentViewButton.setAttribute("aria-current", "page");
     elements.viewSelector.value = "";
@@ -1097,11 +1109,77 @@ function switchView(view) {
     elements.agentViewButton.removeAttribute("aria-current");
     elements.viewSelector.value = view;
   }
+  if (view === "hats") {
+    elements.hatsViewButton.setAttribute("aria-current", "page");
+    void refreshHats();
+  } else {
+    elements.hatsViewButton.removeAttribute("aria-current");
+  }
   if (view === "calendar") void refreshCalendar();
   if (view === "todos") void refreshTodos();
   if (view === "content") void refreshContent();
   if (view === "contacts") void refreshContacts();
   if (view === "logs") void refreshLogs();
+}
+
+function renderHats(body) {
+  elements.hatsTitle.textContent = body.manual.title;
+  elements.hatInvocationTemplate.textContent = body.invocationTemplate;
+  elements.hatIntroduction.textContent = body.manual.introduction;
+  elements.hatDestinationRule.textContent = body.manual.destinationRule;
+  elements.hatMultipleRule.textContent = body.manual.multipleRule;
+  elements.hatList.replaceChildren();
+  for (const hat of body.hats) {
+    const card = node("article", "hat-card");
+    card.classList.toggle("available", hat.available);
+    const heading = node("div", "hat-card-heading");
+    const identity = node("div", "hat-identity");
+    identity.append(
+      node("p", "eyebrow", "As my"),
+      node("h2", "", hat.label),
+    );
+    heading.append(identity, node("span", `hat-availability ${hat.available ? "available" : "unavailable"}`, hat.available ? "Available" : "Not connected"));
+    card.append(heading, node("p", "hat-description", hat.description));
+    const example = node("blockquote", "hat-example", hat.example);
+    card.append(example);
+    const actions = node("div", "hat-actions");
+    const tryExample = node("button", "secondary compact", "Use this example");
+    tryExample.type = "button";
+    tryExample.addEventListener("click", () => {
+      elements.text.value = hat.example;
+      switchView("agent");
+      elements.text.focus();
+    });
+    actions.append(tryExample);
+    const details = node("details", "hat-tools");
+    const summary = node("summary", "", hat.toolCount === 1 ? "1 backing tool" : `${hat.toolCount} backing tools`);
+    details.append(summary);
+    if (hat.tools.length === 0) {
+      details.append(node("p", "muted", "No callable tools currently back this hat."));
+    } else {
+      const list = node("ul", "hat-tool-list");
+      for (const tool of hat.tools) {
+        const item = node("li");
+        item.append(node("code", "", tool.name));
+        if (tool.description) item.append(node("span", "", tool.description));
+        list.append(item);
+      }
+      details.append(list);
+    }
+    card.append(actions, details);
+    elements.hatList.append(card);
+  }
+}
+
+async function refreshHats() {
+  elements.hatStatus.textContent = "Loading hats…";
+  try {
+    renderHats(await api("/api/hats"));
+    elements.hatStatus.textContent = "";
+  } catch (error) {
+    elements.hatList.replaceChildren();
+    elements.hatStatus.textContent = error.message || "Hats are unavailable.";
+  }
 }
 
 async function refreshCalendar() {
@@ -1354,7 +1432,7 @@ function renderAgenda() {
   elements.agendaDate.textContent = formatDisplayDate(selectedCalendarDate, { includeTime: false });
   elements.agendaList.replaceChildren();
   if (events.length === 0 && todoEntries.length === 0) {
-    elements.agendaList.append(node("p", "agenda-empty", "Nothing scheduled. Add an event here or tell Slayer what to put on the calendar."));
+    elements.agendaList.append(node("p", "agenda-empty", "Nothing scheduled. Add an event here or tell Chapeaux Fous what to put on the calendar."));
     return;
   }
   for (const calendarEvent of events) {
@@ -3466,7 +3544,7 @@ elements.cancelRecording.addEventListener("click", () => {
 elements.refresh.addEventListener("click", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
 elements.requestLimit.addEventListener("change", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
 elements.newConversation.addEventListener("click", async () => {
-  if (!window.confirm("Start a new conversation? Slayer will stop carrying the current conversation context into the next request.")) return;
+  if (!window.confirm("Start a new conversation? Chapeaux Fous will stop carrying the current conversation context into the next request.")) return;
   elements.newConversation.disabled = true;
   try {
     await api("/api/conversation/reset", { method: "POST" });
@@ -3485,7 +3563,7 @@ elements.integrationList.addEventListener("click", async (event) => {
   button.disabled = true;
   try {
     if (button.classList.contains("disconnect-integration")) {
-      if (!window.confirm(`Disconnect ${name}? Agent Slayer will delete its local OAuth credentials and remove the provider's tools.`)) return;
+      if (!window.confirm(`Disconnect ${name}? Chapeaux Fous will delete its local OAuth credentials and remove the provider's tools.`)) return;
       await api(`/api/integrations/${encodeURIComponent(name)}/oauth/disconnect`, { method: "POST" });
       elements.status.textContent = `${name} disconnected locally.`;
       await loadHealth();
@@ -3510,6 +3588,8 @@ elements.tokenForm.addEventListener("submit", () => {
   setTimeout(() => Promise.allSettled([loadHealth(), loadRequests({ force: true })]), 0);
 });
 elements.agentViewButton.addEventListener("click", () => switchView("agent"));
+elements.hatsViewButton.addEventListener("click", () => switchView("hats"));
+elements.composerHatsLink.addEventListener("click", () => switchView("hats"));
 elements.viewSelector.addEventListener("change", () => {
   if (elements.viewSelector.value) switchView(elements.viewSelector.value);
 });

@@ -12,8 +12,9 @@ import { InteractionGuides } from "./interaction-guides.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
+import { loadHatCatalog } from "./hat-catalog.mjs";
 import { RequestQueue } from "./queue.mjs";
-import { RequestCompiler } from "./request-compiler.mjs";
+import { capabilityForTool, RequestCompiler } from "./request-compiler.mjs";
 import { createNativeSearchCoordinator } from "./search/native-search.mjs";
 import { receiveTextAttachment, safeMediaPath } from "./request-attachments.mjs";
 import { normalizeRunLimits } from "./run-limits.mjs";
@@ -47,6 +48,7 @@ const organizer = store.status.ready ? new OrganizerStore(config.databasePath) :
 const profileFacts = new ProfileFacts({ store, ledger });
 const interactionGuides = new InteractionGuides({ store, ledger });
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
+const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
 const registry = new ToolRegistry();
 const searchCoordinator = store.status.ready
@@ -100,7 +102,10 @@ const contextBuilder = new ContextBuilder({
   profileFactQuestions,
   maximumAttachmentCharacters: config.maxAttachmentContextCharacters,
 });
-const requestCompiler = new RequestCompiler({ instructionRoot: config.capabilityInstructionsPath });
+const requestCompiler = new RequestCompiler({
+  instructionRoot: config.capabilityInstructionsPath,
+  hatCatalog,
+});
 const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, requestCompiler, ledger, config });
 const transcriber = new WhisperTranscriber({
   pythonExecutable: config.pythonExecutable,
@@ -142,7 +147,7 @@ function sendOAuthPage(response, statusCode, { title, message, redirect = false 
   const escapedMessage = String(message).replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
   })[character]);
-  const body = Buffer.from(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapedTitle}</title><body><main><h1>${escapedTitle}</h1><p>${escapedMessage}</p><p><a href="/">Return to Agent Slayer</a></p></main>${redirect ? '<script>setTimeout(() => location.replace("/?oauth=connected"), 800)</script>' : ""}</body></html>`);
+  const body = Buffer.from(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapedTitle}</title><body><main><h1>${escapedTitle}</h1><p>${escapedMessage}</p><p><a href="/">Return to Chapeaux Fous</a></p></main>${redirect ? '<script>setTimeout(() => location.replace("/?oauth=connected"), 800)</script>' : ""}</body></html>`);
   response.writeHead(statusCode, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": body.length,
@@ -178,7 +183,7 @@ function authorized(request) {
 
 function requireAuthorization(request, response) {
   if (authorized(request)) return true;
-  sendJson(response, 401, { error: "A valid Slayer access token is required" });
+  sendJson(response, 401, { error: "A valid Chapeaux Fous access token is required" });
   return false;
 }
 
@@ -306,6 +311,10 @@ const server = http.createServer(async (request, response) => {
         localCredentialsRemoved: true,
         providerGrantRevoked: false,
       });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/hats") {
+      sendJson(response, 200, hatCatalog.publicManual(registry.toolDefinitions(), capabilityForTool));
       return;
     }
     if (!store.status.ready) {

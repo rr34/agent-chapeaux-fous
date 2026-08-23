@@ -18,8 +18,10 @@ import { registerSearchTools } from "../src/tools/search-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
+import { loadHatCatalog } from "../src/hat-catalog.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const hatCatalog = await loadHatCatalog(path.join(repositoryRoot, "config", "hats.json"));
 
 function tool(name, source = "local") {
   return {
@@ -330,6 +332,63 @@ test("provider names select only that integration", () => {
   const weather = selectRequestCapabilities({ tools, text: "What is tomorrow's weather forecast?" });
   assert.equal(names(weather).includes("remote_weather_forecast"), true);
   assert.equal(names(weather).includes("remote_tlom_query_data"), false);
+});
+
+test("explicit hats add their tool families without labeling ordinary tool selection as inferred hats", async () => {
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+    hatCatalog,
+  });
+  const compiled = await compiler.compile({
+    tools,
+    text: "Chapeaux Fous, as my contacts, find Tim and then send him an email.",
+  });
+
+  assert.deepEqual(compiled.explicitHats.map(({ id }) => id), ["contacts"]);
+  assert.equal(compiled.capabilities.includes("contacts"), true);
+  assert.equal(compiled.capabilities.includes("email"), true);
+  assert.equal(names(compiled).includes("contact_search"), true);
+  assert.equal(names(compiled).includes("email_send"), true);
+  assert.match(compiled.instructions, /Only the hats listed below were explicitly invoked/);
+  assert.doesNotMatch(compiled.instructions, /inferred hat/iu);
+});
+
+test("multiple explicit hats remain ordered and receive exact schemas in the first compilation", async () => {
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+    hatCatalog,
+  });
+  const compiled = await compiler.compile({
+    tools,
+    text: "As my contacts, find Tim, then as my email, send him the inspection notice.",
+  });
+
+  assert.deepEqual(compiled.explicitHats.map(({ id }) => id), ["contacts", "email"]);
+  assert.equal(names(compiled).includes("contact_search"), true);
+  assert.equal(names(compiled).includes("email_send"), true);
+  assert.ok(compiled.reasons.includes("contacts:explicit-hat:contacts"));
+  assert.ok(compiled.reasons.includes("email:explicit-hat:email"));
+  assert.ok(compiled.instructions.indexOf("1. contacts") < compiled.instructions.indexOf("2. email"));
+});
+
+test("landlord and weatherman hats map to their connected integration capabilities", async () => {
+  const compiler = new RequestCompiler({ hatCatalog });
+  const landlord = await compiler.compile({ tools, text: "As my landlord, add a roof inspection task." });
+  const weather = await compiler.compile({ tools, text: "As my weatherman, will it freeze tonight?" });
+
+  assert.equal(names(landlord).includes("remote_tlom_query_data"), true);
+  assert.deepEqual(landlord.explicitHats.map(({ id }) => id), ["landlord"]);
+  assert.equal(names(weather).includes("remote_weather_forecast"), true);
+  assert.deepEqual(weather.explicitHats.map(({ id }) => id), ["weatherman"]);
+});
+
+test("ordinary requests select tools without creating hats", async () => {
+  const compiler = new RequestCompiler({ hatCatalog });
+  const compiled = await compiler.compile({ tools, text: "Send Tim an email." });
+
+  assert.deepEqual(compiled.explicitHats, []);
+  assert.equal(compiled.capabilities.includes("email"), true);
+  assert.doesNotMatch(compiled.instructions, /Hats explicitly spoken/);
 });
 
 test("an active integration scope remains additive for an ordinary project-task request", () => {

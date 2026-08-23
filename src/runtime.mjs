@@ -119,6 +119,7 @@ export class SlayerRuntime {
           followsPriorTurn: false,
           availableToolCount: availableTools.length,
           instructions: "",
+          explicitHats: [],
           instructionCapabilities: [],
           deferredCapabilities: [],
           capabilityCatalog: [],
@@ -249,6 +250,7 @@ export class SlayerRuntime {
             checkpointInjected: Boolean(context.conversationCheckpoint),
           },
           capabilitySelection: {
+            explicitHats: compilation.explicitHats ?? [],
             capabilities: compilation.capabilities,
             deferredCapabilities: compilation.deferredCapabilities ?? [],
             capabilityCatalog: compilation.capabilityCatalog ?? [],
@@ -280,6 +282,7 @@ export class SlayerRuntime {
           schemaBytes: serializedBytes(providerCallableTools),
           delivery: toolDelivery,
           capabilities: compilation.capabilities,
+          explicitHats: compilation.explicitHats ?? [],
           deferredCapabilities: compilation.deferredCapabilities ?? [],
           capabilityCatalog: compilation.capabilityCatalog ?? [],
           dependentTools: compilation.dependentTools ?? [],

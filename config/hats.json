@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "invocationTemplate": "Chapeaux Fous, as my {hat}, {request}",
+  "manual": {
+    "title": "How to talk to Chapeaux Fous",
+    "introduction": "Name a hat when you want to make the destination or role explicit. When the request is already clear, speak naturally and skip the hat.",
+    "destinationRule": "A hat identifies the role or destination for the relevant part of the request. It does not prevent Chapeaux Fous from using other tools needed to finish the work.",
+    "multipleRule": "Use more than one hat in the same request when the work crosses roles. Chapeaux Fous follows explicitly spoken hats in the order they appear."
+  },
+  "hats": [
+    {
+      "id": "email",
+      "label": "email",
+      "aliases": ["mail"],
+      "capability": "email",
+      "description": "Read, draft, send, organize, and clean up email.",
+      "example": "Chapeaux Fous, as my email, send John the invoice."
+    },
+    {
+      "id": "contacts",
+      "label": "contacts",
+      "aliases": ["contact", "address book"],
+      "capability": "contacts",
+      "description": "Find, create, import, tag, and merge contacts.",
+      "example": "Chapeaux Fous, as my contacts, find Tim's phone number."
+    },
+    {
+      "id": "to-do",
+      "label": "to-do",
+      "aliases": ["todo", "to do", "to-do list", "task list"],
+      "capability": "todos",
+      "description": "Manage the personal to-do list and its groups.",
+      "example": "Chapeaux Fous, as my to-do, add a task to replace the furnace filter."
+    },
+    {
+      "id": "log",
+      "label": "log",
+      "aliases": ["logs", "tracker"],
+      "capability": "logs",
+      "description": "Record and review grouped personal logs and trackers.",
+      "example": "Chapeaux Fous, as my log, record that I weigh 180 pounds today."
+    },
+    {
+      "id": "calendar",
+      "label": "calendar",
+      "aliases": ["schedule"],
+      "capability": "calendar",
+      "description": "Read and manage calendar events and schedules.",
+      "example": "Chapeaux Fous, as my calendar, add a dentist appointment Tuesday at 14:00."
+    },
+    {
+      "id": "landlord",
+      "label": "landlord",
+      "aliases": ["real estate", "tlom"],
+      "capability": "integration:tlom",
+      "description": "Work with properties, buildings, projects, and property tasks.",
+      "example": "Chapeaux Fous, as my landlord, add a roof inspection task."
+    },
+    {
+      "id": "weatherman",
+      "label": "weatherman",
+      "aliases": ["weather man", "weather"],
+      "capability": "integration:weather",
+      "description": "Look up locations, forecasts, and weather conditions.",
+      "example": "Chapeaux Fous, as my weatherman, will it freeze tonight?"
+    }
+  ]
+}
