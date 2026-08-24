@@ -59,6 +59,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /personal-log tools/);
   assert.match(instructions, /complete natural-language log\s+content/);
   assert.match(instructions, /use `log_import` in bounded batches/);
+  assert.match(instructions, /call `log_update` on each intended entry/);
   assert.match(instructions, /contact_file_import/);
   assert.match(instructions, /full verified file in one\s+call/);
   assert.match(instructions, /Use `contact_import` in bounded batches\s+only/);
@@ -102,6 +103,7 @@ test("the client exposes a live user manual generated from the explicit hat cata
   assert.match(application, /api\("\/api\/hats"\)/);
   assert.match(application, /hat\.tools/);
   assert.match(server, /url\.pathname === "\/api\/hats"/);
+  assert.match(server, /\["\/hats\.svg", \["hats\.svg", "image\/svg\+xml"\]\]/);
   assert.match(server, /hatCatalog\.publicManual\(registry\.toolDefinitions\(\), capabilityForTool\)/);
   assert.equal(catalog.hats.some(({ id, capability }) => id === "weatherman" && capability === "integration:weather"), true);
   assert.equal(catalog.hats.some(({ id }) => id === "accountant"), false);

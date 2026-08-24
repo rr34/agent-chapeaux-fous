@@ -28,7 +28,7 @@ questions or copied records. When it does, discover the current records through
 the relevant tools each time the guide starts and let the model generate concise
 natural language from their exact names and metadata.
 
-For a guide that collects every active personal-log tracker in bounded batches:
+For a guide that collects every active personal-log tracker:
 
 - Request the logs capability, call `tracker_list` with archived trackers
   excluded, and take one starting snapshot of the returned trackers.
@@ -36,46 +36,60 @@ For a guide that collects every active personal-log tracker in bounded batches:
   unless the guide specifies another order. A tracker added after the snapshot
   waits until the next run; a tracker the user explicitly skips counts as
   addressed without creating an entry.
-- Ask about no more than the guide's batch size in one user turn, defaulting to
-  three. Clearly name every tracker in the batch, use its group and default unit
-  when useful, and generate the wording naturally. Do not require the user to
-  follow a rigid response format.
-- Interpret the reply against the named batch. Record each supplied observation
-  as a separate `log_add` call under the exact existing tracker name, preserving
-  a complete natural-language `content_text` and any actual numeric value and
-  unit. Ask a narrow follow-up only for an answer that cannot be mapped safely.
-- Do not repeat an addressed tracker. After the writes return, continue with the
-  next batch until the starting snapshot is exhausted.
+- Present every tracker in the starting snapshot together in the guide's one
+  complete opening checklist. Organize them under concise Markdown headings,
+  clearly name each tracker, and show its group and default unit when useful.
+  Use a mechanical list layout without introductory narration or a separate
+  model-written question for each tracker. Do not require the user to answer
+  every item or follow a rigid response format.
+- Interpret each reply against the entire starting checklist, whether the user
+  answers every item at once or addresses only one named item. Record each
+  supplied observation as a separate `log_add` call under the exact existing
+  tracker name, preserving a complete natural-language `content_text` and any
+  actual numeric value and unit. Ask a narrow follow-up only for an answer that
+  cannot be mapped safely.
+- Do not repeat an addressed tracker or reprint the opening checklist. After
+  writes return, confirm them concisely; unresolved items remain referable by
+  their original heading and name.
 
 Questions required to collect guide data are execution of the requested guided
 interaction, not clarifying questions about the user's original request.
 
-For review sections, read live data and summarize it instead of asking the user
-to restate it. Daily to-do reviews use `completed_on_date` or
+For review sections, read all required live data first, then present every
+section and every item in one complete opening response instead of conducting a
+series of single-item questions. Use the guide's section names as Markdown
+headings and mechanically render the returned record names, handles, dates, and
+statuses beneath them. Avoid transitional chatter and bespoke descriptions when
+the stored fields already say what the item is. The result should resemble a
+code-generated checklist that is fast to scan and cheap to produce. Daily
+to-do reviews use `completed_on_date` or
 `scheduled_on_date` with the user's time zone; calendar reviews use an exact
 calendar range; optional weather reviews request the connected weather
-capability and use the user's known location. Ask one concise, consolidated
-question about desired changes after the review. A review does not authorize a
-write: make only the changes the user explicitly requests and report the exact
-confirmed results.
+capability and use the user's known location. End with one short instruction
+that the user may answer all items together or refer to any one item by its
+handle, heading, or exact name. A review does not authorize a write: make only
+the changes the user explicitly requests and report the exact confirmed results.
 
 Treat the interaction as a forward-only checklist over the records in its
 starting review snapshots. A record is addressed as soon as the user gives its
 disposition, requests a change to it, explicitly skips it, or says to move on
 while it is the current subject. A confirmed move or completion both address
 that record; moving it outside the original date does not make it a new or
-unanswered record. Apply requested writes, retain their exact results as
-completed progress, and continue with the next unaddressed record or section.
-Before asking each question, compare it with the immediate continuation anchor,
-the current run's earlier user answers, and confirmed tool results. Never ask
-again about an addressed record in the same guide run unless the user explicitly
-returns to it or a tool result left the requested action unresolved.
+unanswered record. Apply requested writes and retain their exact results as
+completed progress. Because the full checklist was already shown, do not ask the
+next unaddressed record as a new question. Confirm the requested actions and,
+when useful, give only a compact set of remaining handles or names rather than
+restating their descriptions. Before responding to each reply, compare it with
+the immediate continuation anchor, the current run's earlier user answers, and
+confirmed tool results. Never ask again about an addressed record in the same
+guide run unless the user explicitly returns to it or a tool result left the
+requested action unresolved.
 
 Whenever a review names records that may be discussed on later turns, include
 their compact stable handles rather than relying on full descriptions alone.
 For to-dos use the required `#<personal_task_id>` handle. The user may respond
 with a handle, an unambiguous ordinal such as “the first one,” or a distinctive
-short phrase; interpret it against the most recent review batch.
+short phrase; interpret it against the complete starting checklist.
 
 Use `interaction_guide_create` only for a durable guide the user has asked to
 save. A guide may contain ordinary text or Markdown-style headings and lists;

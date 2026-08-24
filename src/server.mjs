@@ -130,6 +130,7 @@ const staticFiles = new Map([
   ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],
   ["/service-worker.js", ["service-worker.js", "text/javascript; charset=utf-8"]],
   ["/icon.svg", ["icon.svg", "image/svg+xml"]],
+  ["/hats.svg", ["hats.svg", "image/svg+xml"]],
 ]);
 
 function sendJson(response, statusCode, body) {

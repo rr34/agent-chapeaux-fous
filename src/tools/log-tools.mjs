@@ -107,6 +107,17 @@ function joinedTracker(database, trackerId) {
   `).get(trackerId);
 }
 
+function joinedEntry(database, entryId) {
+  return database.prepare(`
+    SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+           log_group.name AS group_name
+    FROM log_entries AS entry
+    JOIN trackers AS tracker USING (tracker_id)
+    JOIN log_groups AS log_group USING (log_group_id)
+    WHERE entry.log_entry_id = ?
+  `).get(entryId);
+}
+
 const trackerAliasFamilies = new Map([
   ["poop", "bowel_elimination"],
   ["poops", "bowel_elimination"],
@@ -664,6 +675,88 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         purpose: "List stored personal log entries together with their tracker and log group database fields.",
         entriesOnly: true,
       });
+    },
+  });
+
+  registry.register({
+    name: "log_update",
+    description: "Correct one existing personal-log entry by its exact log_entry_id. Null leaves content_text, number_value, unit, or occurred_at_utc unchanged. An empty unit clears only the unit. Set clear_number_value true to clear both the numeric projection and its unit. This updates the original entry without creating a replacement and preserves its tracker and provenance fields.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        log_entry_id: { type: "integer", minimum: 1 },
+        content_text: nullableString,
+        number_value: { type: ["number", "null"] },
+        clear_number_value: { type: "boolean" },
+        unit: nullableString,
+        occurred_at_utc: nullableString,
+      },
+      required: [
+        "log_entry_id", "content_text", "number_value", "clear_number_value", "unit", "occurred_at_utc",
+      ],
+    },
+    async execute({
+      log_entry_id: entryId,
+      content_text: contentText,
+      number_value: numberValue,
+      clear_number_value: clearNumberValue,
+      unit,
+      occurred_at_utc: occurredAtUtc,
+    }, context) {
+      const database = store.requireReady();
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        const beforeRow = joinedEntry(database, entryId);
+        if (!beforeRow) throw new Error(`Log entry ${entryId} does not exist`);
+        const values = {};
+        if (contentText !== null) values.content_text = requiredText(contentText, "Log content", 10000);
+        if (clearNumberValue) {
+          if (numberValue !== null) {
+            throw new Error("clear_number_value cannot be combined with a new number_value");
+          }
+          if (unit !== null && optionalUnit(unit) !== null) {
+            throw new Error("clear_number_value cannot be combined with a new unit");
+          }
+          values.number_value = null;
+          values.unit = null;
+        } else {
+          if (numberValue !== null) values.number_value = numberValue;
+          if (unit !== null) values.unit = optionalUnit(unit);
+        }
+        if (occurredAtUtc !== null) {
+          const selectedOccurrence = normalizedInstant(occurredAtUtc, { label: "Log occurrence time" });
+          if (selectedOccurrence === null) throw new Error("Log occurrence time cannot be empty");
+          values.occurred_at_utc = selectedOccurrence;
+        }
+        if (Object.keys(values).length === 0) throw new Error("No log entry changes were supplied");
+        const prospective = { ...beforeRow, ...values };
+        if (prospective.unit !== null && prospective.number_value === null) {
+          throw new Error("A log unit requires a numeric value");
+        }
+        values.updated_at_utc = new Date().toISOString();
+        const assignments = Object.keys(values).map((column) => `"${column}" = ?`).join(", ");
+        database.prepare(`UPDATE log_entries SET ${assignments} WHERE log_entry_id = ?`)
+          .run(...Object.values(values), entryId);
+        const entry = databaseEntry(joinedEntry(database, entryId));
+        const result = { updated: true, before: databaseEntry(beforeRow), entry };
+        ledger.append({
+          type: "personal_log.updated", status: "complete", actorType: "tool",
+          actorName: "log_update", turnId: context.requestId, operationId: context.callId,
+          name: "Personal log entry updated", content: entry.content_text, payload: result,
+          subjectType: "log_entry", subjectId: String(entry.log_entry_id),
+        });
+        const semanticResult = logResult(schemaSemantics, context, result, {
+          name: "log_update",
+          purpose: "Return the personal log entry before and after an exact-ID correction.",
+          entriesOnly: true,
+        });
+        database.exec("COMMIT");
+        return semanticResult;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     },
   });
 

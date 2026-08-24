@@ -209,9 +209,10 @@ view models are separate from this model-facing contract.
   events use exact `calendar_events` field names plus compiler semantics;
   recurrence instances and contact birthdays are clearly separated as computed
   occurrences. All-day events and structured recurrence are first-class.
-- `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update` for
-  grouped, reusable personal tracking, complete time-stamped observations, and
-  idempotent bounded imports from any source.
+- `log_add`, `log_import`, `log_list`, `log_update`, `tracker_list`, and
+  `tracker_update` for grouped, reusable personal tracking, complete
+  time-stamped observations, exact-ID corrections, and idempotent bounded
+  imports from any source.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` for durable
   user facts. Broad fact types may repeat; replacement and deletion target an
   exact stable row ID and archive the previous row.

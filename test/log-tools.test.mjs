@@ -37,6 +37,22 @@ test("log_add exposes one complete content field and no boolean or mandatory val
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "valueKind"), false);
 });
 
+test("log_update exposes exact-ID partial corrections without tracker or provenance fields", (context) => {
+  const { registry } = loggingHarness(context);
+  const definition = registry.toolDefinitions().find((tool) => tool.name === "log_update");
+  assert.deepEqual(Object.keys(definition.inputSchema.properties), [
+    "log_entry_id",
+    "content_text",
+    "number_value",
+    "clear_number_value",
+    "unit",
+    "occurred_at_utc",
+  ]);
+  assert.equal(Object.hasOwn(definition.inputSchema.properties, "tracker_id"), false);
+  assert.equal(Object.hasOwn(definition.inputSchema.properties, "source"), false);
+  assert.equal(Object.hasOwn(definition.inputSchema.properties, "external_id"), false);
+});
+
 test("log_add creates and reuses a grouped numeric tracker while preserving complete content", async (context) => {
   const { store, ledger, request, registry } = loggingHarness(context);
 
@@ -135,6 +151,101 @@ test("log_add records text-only events without a boolean or value kind", async (
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-medication" });
   assert.equal(medication.entry.number_value, null);
+});
+
+test("log_update corrects one historical entry while preserving its identity and provenance", async (context) => {
+  const { store, ledger, request, registry } = loggingHarness(context, "Correct my old pain units");
+  const oldEntry = await registry.execute("log_add", {
+    tracker: "Left arm pain",
+    group: "Biometrics",
+    content_text: "Left arm pain value: 8. It was as bad as it has ever been.",
+    number_value: 8,
+    unit: null,
+    occurred_at_utc: "2026-08-16T04:00:00Z",
+    create_if_missing: true,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "pain-old" });
+  await registry.execute("log_add", {
+    tracker: "Left arm pain",
+    group: null,
+    content_text: "Left arm pain is 4 out of 10.",
+    number_value: 4,
+    unit: "out of 10",
+    occurred_at_utc: "2026-08-20T04:54:00Z",
+    create_if_missing: false,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "pain-new" });
+
+  const corrected = await registry.execute("log_update", {
+    log_entry_id: oldEntry.entry.log_entry_id,
+    content_text: null,
+    number_value: null,
+    clear_number_value: false,
+    unit: "out of 10",
+    occurred_at_utc: null,
+  }, { requestId: request.requestId, callId: "pain-correct" });
+
+  assert.equal(corrected.before.unit, null);
+  assert.equal(corrected.entry.log_entry_id, oldEntry.entry.log_entry_id);
+  assert.equal(corrected.entry.content_text, oldEntry.entry.content_text);
+  assert.equal(corrected.entry.number_value, 8);
+  assert.equal(corrected.entry.unit, "out of 10");
+  assert.equal(corrected.entry.occurred_at_utc, oldEntry.entry.occurred_at_utc);
+  assert.equal(corrected.entry.source, oldEntry.entry.source);
+  assert.equal(corrected.entry.source_event_id, oldEntry.entry.source_event_id);
+  assert.ok(corrected.entry.updated_at_utc);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 2);
+  assert.equal(
+    ledger.trace(request.requestId).filter((event) => event.type === "personal_log.updated").length,
+    1,
+  );
+});
+
+test("log_update enforces numeric-unit consistency and can clear both projections", async (context) => {
+  const { store, request, registry } = loggingHarness(context, "Correct a log entry");
+  const textEntry = await registry.execute("log_add", {
+    tracker: "Medication",
+    group: "Biometrics",
+    content_text: "Took morning medication.",
+    number_value: null,
+    unit: null,
+    occurred_at_utc: "2026-08-16T12:00:00Z",
+    create_if_missing: true,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "text-entry" });
+  await assert.rejects(
+    registry.execute("log_update", {
+      log_entry_id: textEntry.entry.log_entry_id,
+      content_text: null,
+      number_value: null,
+      clear_number_value: false,
+      unit: "points",
+      occurred_at_utc: null,
+    }, { requestId: request.requestId, callId: "invalid-unit" }),
+    /unit requires a numeric value/,
+  );
+  assert.equal(
+    store.requireReady().prepare("SELECT unit FROM log_entries WHERE log_entry_id = ?")
+      .get(textEntry.entry.log_entry_id).unit,
+    null,
+  );
+
+  const numericEntry = await registry.execute("log_add", {
+    tracker: "Pain",
+    group: "Biometrics",
+    content_text: "Pain was present.",
+    number_value: 3,
+    unit: "out of 10",
+    occurred_at_utc: "2026-08-17T12:00:00Z",
+    create_if_missing: true,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "numeric-entry" });
+  const cleared = await registry.execute("log_update", {
+    log_entry_id: numericEntry.entry.log_entry_id,
+    content_text: null,
+    number_value: null,
+    clear_number_value: true,
+    unit: null,
+    occurred_at_utc: null,
+  }, { requestId: request.requestId, callId: "clear-number" });
+  assert.equal(cleared.entry.number_value, null);
+  assert.equal(cleared.entry.unit, null);
 });
 
 test("tracker_update moves, renames, clears units, and archives a tracker", async (context) => {

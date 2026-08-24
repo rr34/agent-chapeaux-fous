@@ -242,11 +242,12 @@ capability selector, which controls which exact tool schemas are callable.
   it never sends the message, writes to a remote calendar, or changes the local
   calendar's authority. Every displayed agenda event also has a phone-friendly
   copy action for sharing its saved details through another app.
-- `log_add`, `log_import`, `log_list`, `tracker_list`, and `tracker_update`
+- `log_add`, `log_import`, `log_list`, `log_update`, `tracker_list`, and `tracker_update`
   provide the native grouped personal-log path. Each entry keeps complete
   natural-language content with optional numeric and unit projections for
-  calculation and trends. Bounded imports use generic source and external IDs
-  for safe replay without source-specific application code.
+  calculation and trends. Exact-ID corrections update an original entry without
+  creating a duplicate. Bounded imports use generic source and external IDs for
+  safe replay without source-specific application code.
 - `contact_file_import` parses a complete attached CSV or vCard/VCF directly,
   importing up to 10,000 contacts in one transaction without asking the model
   to reproduce every row. The model maps CSV headers from a bounded preview;

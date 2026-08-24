@@ -18,3 +18,9 @@ historical records from any supplied external source, use `log_import` in bounde
 with the source's stable record IDs or deterministic IDs when
 none are supplied; report conflicts rather than silently replacing prior
 imports.
+
+When the user asks to correct existing observations, call `log_list` to resolve
+the exact stable `log_entry_id`, then call `log_update` on each intended entry.
+Update the original rows instead of creating replacement observations. Preserve
+every field the user did not ask to change; a tracker default unit does not
+retroactively rewrite older entry units.

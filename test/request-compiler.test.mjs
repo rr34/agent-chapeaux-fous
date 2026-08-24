@@ -63,6 +63,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("contact_merge_batch")), "contacts");
   assert.equal(capabilityForTool(tool("todo_add")), "todos");
   assert.equal(capabilityForTool(tool("tracker_update")), "logs");
+  assert.equal(capabilityForTool(tool("log_update")), "logs");
   assert.equal(capabilityForTool(tool("interaction_guide_update")), "interaction-guides");
   assert.equal(capabilityForTool(tool("database_read")), "database");
   assert.equal(capabilityForTool(tool("database_write")), "database-write");
@@ -144,7 +145,8 @@ test("starting a linked guide selects guide and to-do capabilities", async () =>
   assert.equal(names(compiled).includes("interaction_guide_get"), true);
   assert.match(compiled.instructions, /## interaction-guides/);
   assert.match(compiled.instructions, /take one starting snapshot/);
-  assert.match(compiled.instructions, /defaulting to\s+three/);
+  assert.match(compiled.instructions, /one\s+complete opening checklist/);
+  assert.doesNotMatch(compiled.instructions, /defaulting to\s+three/);
   assert.match(compiled.instructions, /completed_on_date/);
 
   const scheduled = await compiler.compile({
@@ -185,9 +187,12 @@ test("guided to-do reviews compile stable handles and forward-only progress rule
   assert.match(compiled.instructions, /forward-only checklist/);
   assert.match(compiled.instructions, /Never ask\s+again about an addressed record/);
   assert.match(compiled.instructions, /moving it outside the original date does not make it/);
+  assert.match(compiled.instructions, /every item in one complete opening response/);
+  assert.match(compiled.instructions, /code-generated checklist/);
+  assert.match(compiled.instructions, /do not ask the\s+next unaddressed record/);
 });
 
-test("one natural answer for a three-tracker guide batch retains log tools", () => {
+test("one natural answer to an all-tracker guide checklist retains log tools", () => {
   const selection = selectRequestCapabilities({
     tools,
     text: "Weight is 185 pounds, left-arm pain is 3 out of 10, and I slept 7 hours.",
@@ -244,6 +249,19 @@ test("common plural request words select their focused tool families", () => {
     assert.equal(names(selection).includes(toolName), true, text);
     assert.equal(selection.fallbackAll, false, text);
   }
+});
+
+test("a request to correct records in the logs selects the personal-log capability directly", () => {
+  const registry = new ToolRegistry();
+  registerLogTools(registry, {}, {}, null);
+  const selection = selectRequestCapabilities({
+    tools: registry.toolDefinitions(),
+    text: "Some records in the logs have no unit; update those so they all say out of 10.",
+  });
+  assert.equal(selection.capabilities.includes("logs"), true);
+  assert.equal(names(selection).includes("log_list"), true);
+  assert.equal(names(selection).includes("log_update"), true);
+  assert.equal(selection.fallbackAll, false);
 });
 
 test("native database reads are always callable while database writes require explicit mutation intent", () => {
