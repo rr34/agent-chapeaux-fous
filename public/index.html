@@ -11,29 +11,12 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="topbar-primary-actions">
-      <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">
-        <span id="agent-mascot" class="agent-mascot agent-mascot-nav" aria-hidden="true"></span>
-        <span>Agent</span>
-      </button>
-      <button id="hats-view-button" class="secondary app-nav-hats" type="button">Hats</button>
-    </div>
-    <div class="topbar-actions">
-      <button id="refresh" class="top-refresh" type="button">Refresh</button>
-      <details class="runtime-details">
-        <summary>Info</summary>
-        <div class="runtime-details-panel">
-          <button id="integrations-button" class="integration" type="button">Integrations</button>
-          <button id="usage" class="usage" type="button" title="Open AI token and cost usage">AI usage</button>
-          <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
-        </div>
-      </details>
-    </div>
-  </header>
-
-  <main>
+    <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">
+      <span id="agent-mascot" class="agent-mascot agent-mascot-nav" aria-hidden="true"></span>
+      <span>Agent</span>
+    </button>
     <nav class="app-nav" aria-label="Chapeaux Fous sections">
-      <label for="view-selector">Screen</label>
+      <label class="sr-only" for="view-selector">Screen</label>
       <select id="view-selector">
         <option value="">Choose screen…</option>
         <option data-view="hats" value="hats">Hats</option>
@@ -45,7 +28,18 @@
         <option data-view="ai-usage" value="ai-usage">AI Usage</option>
       </select>
     </nav>
+    <button id="refresh" class="top-refresh" type="button">Refresh</button>
+    <details class="runtime-details">
+      <summary>Info</summary>
+      <div class="runtime-details-panel">
+        <button id="integrations-button" class="integration" type="button">Integrations</button>
+        <button id="usage" class="usage" type="button" title="Open AI token and cost usage">AI usage</button>
+        <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+      </div>
+    </details>
+  </header>
 
+  <main>
     <div id="agent-view" class="app-view">
     <section class="composer" aria-labelledby="request-heading">
       <h2 id="request-heading" class="sr-only">New request</h2>

@@ -50,7 +50,6 @@ const elements = {
   token: document.querySelector("#token"),
   agentMascot: document.querySelector("#agent-mascot"),
   agentViewButton: document.querySelector("#agent-view-button"),
-  hatsViewButton: document.querySelector("#hats-view-button"),
   composerHatsLink: document.querySelector("#composer-hats-link"),
   viewSelector: document.querySelector("#view-selector"),
   agentView: document.querySelector("#agent-view"),
@@ -1281,7 +1280,6 @@ function switchView(view) {
   elements.logsView.hidden = view !== "logs";
   elements.aiUsageView.hidden = view !== "ai-usage";
   elements.agentViewButton.classList.toggle("active", view === "agent");
-  elements.hatsViewButton.classList.toggle("active", view === "hats");
   if (view === "agent") {
     elements.agentViewButton.setAttribute("aria-current", "page");
     elements.viewSelector.value = "";
@@ -1290,10 +1288,7 @@ function switchView(view) {
     elements.viewSelector.value = view;
   }
   if (view === "hats") {
-    elements.hatsViewButton.setAttribute("aria-current", "page");
     void refreshHats();
-  } else {
-    elements.hatsViewButton.removeAttribute("aria-current");
   }
   if (view === "calendar") void refreshCalendar();
   if (view === "todos") void refreshTodos();
@@ -3723,7 +3718,7 @@ elements.cancelRecording.addEventListener("click", () => {
   recorder.stop();
 });
 
-elements.refresh.addEventListener("click", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
+elements.refresh.addEventListener("click", () => window.location.reload());
 elements.requestLimit.addEventListener("change", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
 elements.newConversation.addEventListener("click", async () => {
   if (!window.confirm("Start a new conversation? Chapeaux Fous will stop carrying the current conversation context into the next request.")) return;
@@ -3792,7 +3787,6 @@ elements.tokenForm.addEventListener("submit", () => {
   setTimeout(() => Promise.allSettled([loadHealth(), loadRequests({ force: true })]), 0);
 });
 elements.agentViewButton.addEventListener("click", () => switchView("agent"));
-elements.hatsViewButton.addEventListener("click", () => switchView("hats"));
 elements.composerHatsLink.addEventListener("click", () => switchView("hats"));
 elements.viewSelector.addEventListener("change", () => {
   if (elements.viewSelector.value) switchView(elements.viewSelector.value);

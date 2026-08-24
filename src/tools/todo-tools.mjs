@@ -2,7 +2,7 @@ import {
   archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupSequenceMode,
 } from "../todo-group-operations.mjs";
 import { generateNextRoutineTask } from "../organizer-store.mjs";
-import { moveOverdueTodosToToday } from "../todo-schedule-operations.mjs";
+import { localDateUtcBounds, moveOverdueTodosToToday } from "../todo-schedule-operations.mjs";
 import {
   buildTodoRecurrenceRule, todoRecurrenceSchema, validateTimeZone,
 } from "../todo-recurrence.mjs";
@@ -218,18 +218,28 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_list",
-    description: "List the user's native personal to-do items. Use this whenever they ask about their personal to-dos or development to-do list.",
+    description: "List the user's native personal to-do items. Use completed_on_date to select tasks completed on one local calendar date and scheduled_on_date to select tasks scheduled on one local calendar date; these are query filters and do not add ranges to task records. Supply time_zone whenever either date filter is used. With no status and no completed date, terminal tasks remain excluded as before.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         group: optionalText,
         status: { type: ["string", "null"], enum: [...todoStatuses, null] },
+        completed_on_date: { type: ["string", "null"], description: "Local completion date in YYYY-MM-DD form." },
+        scheduled_on_date: { type: ["string", "null"], description: "Local scheduled date in YYYY-MM-DD form." },
+        time_zone: { type: ["string", "null"], description: "IANA time zone used to interpret date filters." },
         limit: { type: "integer", minimum: 1, maximum: 200 },
       },
       required: ["group", "status", "limit"],
     },
-    async execute({ group: groupName, status, limit }, context) {
+    async execute({
+      group: groupName,
+      status,
+      completed_on_date: completedOnDate = null,
+      scheduled_on_date: scheduledOnDate = null,
+      time_zone: timeZone = null,
+      limit,
+    }, context) {
       const database = store.requireReady();
       const conditions = [];
       const values = [];
@@ -240,9 +250,25 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       if (status) {
         conditions.push("task.status = ?");
         values.push(status);
-      } else {
+      } else if (completedOnDate === null) {
         conditions.push("task.status NOT IN ('complete', 'ignore', 'archive')");
       }
+      for (const [column, localDate] of [
+        ["completed_at_utc", completedOnDate],
+        ["scheduled_at_utc", scheduledOnDate],
+      ]) {
+        if (localDate === null) continue;
+        const bounds = localDateUtcBounds({ localDate, timeZone });
+        conditions.push(`task.${column} >= ? AND task.${column} < ?`);
+        values.push(bounds.startsAtUtc, bounds.endsAtUtc);
+      }
+      const order = completedOnDate !== null
+        ? "task.completed_at_utc DESC, task.personal_task_id DESC"
+        : scheduledOnDate !== null
+          ? "task.scheduled_at_utc, task.personal_task_id"
+          : `todo_group.name COLLATE NOCASE,
+                 task.sequence IS NULL, task.sequence DESC,
+                 task.sort_position, task.personal_task_id`;
       const rows = database.prepare(`
         SELECT task.*, todo_group.name AS group_name,
                routine.recurrence_rule AS routine_recurrence_rule,
@@ -257,12 +283,20 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         LEFT JOIN interaction_guides AS interaction_guide
           ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
-        ORDER BY todo_group.name COLLATE NOCASE,
-                 task.sequence IS NULL, task.sequence DESC,
-                 task.sort_position, task.personal_task_id
+        ORDER BY ${order}
         LIMIT ?
       `).all(...values, Math.min(200, Math.max(1, Number(limit) || 50))).map(databaseTask);
-      return todoResult(schemaSemantics, context, { count: rows.length, tasks: rows }, {
+      return todoResult(schemaSemantics, context, {
+        filters: {
+          group: groupName ?? null,
+          status: status ?? null,
+          completed_on_date: completedOnDate,
+          scheduled_on_date: scheduledOnDate,
+          time_zone: completedOnDate !== null || scheduledOnDate !== null ? timeZone : null,
+        },
+        count: rows.length,
+        tasks: rows,
+      }, {
         name: "todo_list",
         purpose: "List personal tasks together with their to-do group and optional routine fields.",
       });

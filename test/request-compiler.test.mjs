@@ -144,6 +144,9 @@ test("starting a linked guide selects guide and to-do capabilities", async () =>
   assert.equal(compiled.capabilities.includes("todos"), true);
   assert.equal(names(compiled).includes("interaction_guide_get"), true);
   assert.match(compiled.instructions, /## interaction-guides/);
+  assert.match(compiled.instructions, /take one starting snapshot/);
+  assert.match(compiled.instructions, /defaulting to\s+three/);
+  assert.match(compiled.instructions, /completed_on_date/);
 
   const scheduled = await compiler.compile({
     tools,
@@ -167,6 +170,25 @@ test("a terse answer to a guide question retains the guided interaction capabili
   });
   assert.equal(selection.followsPriorTurn, true);
   assert.deepEqual(selection.capabilities, ["database", "interaction-guides", "profile", "todos"]);
+  assert.ok(selection.reasons.includes("interaction-guides:question-answer-continuation"));
+});
+
+test("one natural answer for a three-tracker guide batch retains log tools", () => {
+  const selection = selectRequestCapabilities({
+    tools,
+    text: "Weight is 185 pounds, left-arm pain is 3 out of 10, and I slept 7 hours.",
+    recentConversation: [
+      { role: "user", content: 'Start the "Evening Briefing" interaction guide.' },
+      {
+        role: "assistant",
+        content: "For weight, left-arm pain, and sleep: what should I record for each tonight?",
+      },
+    ],
+    previousCapabilities: ["database", "interaction-guides", "logs", "profile", "todos"],
+  });
+  assert.equal(selection.followsPriorTurn, true);
+  assert.equal(selection.capabilities.includes("logs"), true);
+  assert.equal(names(selection).includes("log_add"), true);
   assert.ok(selection.reasons.includes("interaction-guides:question-answer-continuation"));
 });
 

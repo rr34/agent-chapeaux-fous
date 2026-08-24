@@ -68,6 +68,25 @@ function zonedPartsToUtc(parts, zone) {
   return new Date(candidate);
 }
 
+export function localDateUtcBounds({ localDate: localDateValue, timeZone: timeZoneValue }) {
+  const localDate = calendarDateParts(localDateValue, "localDate");
+  const timeZone = validatedTimeZone(timeZoneValue);
+  const nextDate = new Date(
+    Date.UTC(localDate.year, localDate.month - 1, localDate.day) + dayMilliseconds,
+  );
+  const nextLocalDate = {
+    year: nextDate.getUTCFullYear(),
+    month: nextDate.getUTCMonth() + 1,
+    day: nextDate.getUTCDate(),
+  };
+  return {
+    localDate: localDateValue,
+    timeZone,
+    startsAtUtc: zonedPartsToUtc(localDate, timeZone).toISOString(),
+    endsAtUtc: zonedPartsToUtc(nextLocalDate, timeZone).toISOString(),
+  };
+}
+
 export function moveOverdueTodosToToday(database, {
   localDate: localDateValue,
   timeZone: timeZoneValue,

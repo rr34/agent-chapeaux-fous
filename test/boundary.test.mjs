@@ -92,7 +92,7 @@ test("the client exposes a live user manual generated from the explicit hat cata
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   const catalog = JSON.parse(fs.readFileSync(path.join(root, "config", "hats.json"), "utf8"));
 
-  assert.match(document, /id="hats-view-button"/);
+  assert.doesNotMatch(document, /id="hats-view-button"/);
   assert.match(document, /data-view="hats"/);
   assert.match(document, /id="hats-view"/);
   assert.match(document, /id="composer-hats-link"/);
@@ -206,6 +206,10 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(document, /id="agent-view-button"[^>]*>[\s\S]*?<span>Agent<\/span>[\s\S]*?<\/button>/);
   assert.match(document, /id="view-selector"/);
   assert.doesNotMatch(document, /<option[^>]+value="agent"/);
+  assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="view-selector"'));
+  assert.ok(document.indexOf('id="view-selector"') < document.indexOf('id="refresh"'));
+  assert.ok(document.indexOf('id="refresh"') < document.indexOf('<summary>Info</summary>'));
+  assert.match(application, /refresh\.addEventListener\("click", \(\) => window\.location\.reload\(\)\)/);
   assert.match(document, /data-view="content"/);
   assert.match(document, /data-view="logs"/);
   assert.match(document, /id="content-view"/);

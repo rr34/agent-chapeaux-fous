@@ -22,6 +22,12 @@ When the user specifies a position while creating a to-do, pass that 1-based
 group. Manual position changes preserve stable sequence numbers; those numbers
 remain the primary display order in groups with automatic sequencing enabled.
 
+For a daily review, use `todo_list.completed_on_date` to read tasks completed on
+one local date and `todo_list.scheduled_on_date` to read tasks scheduled on one
+local date. Always supply the applicable IANA `time_zone`. These select tasks by
+the single completion or schedule timestamp already stored on each task; they
+do not represent a range belonging to the task.
+
 When `todo_add` reports `group_resolution.used_inbox_fallback=true`, state that
 the to-do was added to Inbox and ask whether to create the requested group and
 move the task there. Do not create the group until the user confirms. Use

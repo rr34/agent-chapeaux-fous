@@ -5,7 +5,98 @@ import { Ledger } from "../src/ledger.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
+import { localDateUtcBounds } from "../src/todo-schedule-operations.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
+
+test("local calendar-date boundaries honor daylight-saving changes", () => {
+  assert.deepEqual(
+    localDateUtcBounds({ localDate: "2026-03-08", timeZone: "America/New_York" }),
+    {
+      localDate: "2026-03-08",
+      timeZone: "America/New_York",
+      startsAtUtc: "2026-03-08T05:00:00.000Z",
+      endsAtUtc: "2026-03-09T04:00:00.000Z",
+    },
+  );
+  assert.deepEqual(
+    localDateUtcBounds({ localDate: "2026-11-01", timeZone: "America/New_York" }),
+    {
+      localDate: "2026-11-01",
+      timeZone: "America/New_York",
+      startsAtUtc: "2026-11-01T04:00:00.000Z",
+      endsAtUtc: "2026-11-02T05:00:00.000Z",
+    },
+  );
+});
+
+test("todo_list filters single completion and schedule timestamps by local date", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const database = store.requireReady();
+  const insert = database.prepare(`
+    INSERT INTO personal_tasks (
+      todo_group_id, text, status, scheduled_at_utc, completed_at_utc
+    ) VALUES (1, ?, ?, ?, ?)
+  `);
+  insert.run("Completed before local day", "complete", null, "2026-11-01T03:59:59.999Z");
+  insert.run("Completed at local-day start", "complete", null, "2026-11-01T04:00:00.000Z");
+  insert.run("Completed near local-day end", "complete", null, "2026-11-02T04:59:59.999Z");
+  insert.run("Completed at next local day", "complete", null, "2026-11-02T05:00:00.000Z");
+  insert.run("Scheduled before local day", "todo", "2026-03-08T04:59:59.999Z", null);
+  insert.run("Scheduled at local-day start", "todo", "2026-03-08T05:00:00.000Z", null);
+  insert.run("Scheduled near local-day end", "todo", "2026-03-09T03:59:59.999Z", null);
+  insert.run("Scheduled at next local day", "todo", "2026-03-09T04:00:00.000Z", null);
+
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+  const definition = registry.toolDefinitions().find(({ name }) => name === "todo_list");
+  assert.deepEqual(
+    Object.keys(definition.inputSchema.properties).filter((name) => name.endsWith("_on_date")),
+    ["completed_on_date", "scheduled_on_date"],
+  );
+
+  const completed = await registry.execute("todo_list", {
+    group: null,
+    status: null,
+    completed_on_date: "2026-11-01",
+    scheduled_on_date: null,
+    time_zone: "America/New_York",
+    limit: 20,
+  });
+  assert.deepEqual(completed.tasks.map(({ text }) => text), [
+    "Completed near local-day end",
+    "Completed at local-day start",
+  ]);
+  assert.equal(completed.filters.completed_on_date, "2026-11-01");
+
+  const scheduled = await registry.execute("todo_list", {
+    group: null,
+    status: null,
+    completed_on_date: null,
+    scheduled_on_date: "2026-03-08",
+    time_zone: "America/New_York",
+    limit: 20,
+  });
+  assert.deepEqual(scheduled.tasks.map(({ text }) => text), [
+    "Scheduled at local-day start",
+    "Scheduled near local-day end",
+  ]);
+  assert.equal(scheduled.filters.scheduled_on_date, "2026-03-08");
+
+  await assert.rejects(
+    registry.execute("todo_list", {
+      group: null,
+      status: null,
+      completed_on_date: "2026-11-01",
+      scheduled_on_date: null,
+      time_zone: null,
+      limit: 20,
+    }),
+    /timeZone is required/,
+  );
+});
 
 test("todo_group_list exposes every active group including empty catchalls", async (context) => {
   const temporary = temporaryDatabase();

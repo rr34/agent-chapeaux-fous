@@ -46,8 +46,9 @@ button { touch-action: manipulation; }
   z-index: 10;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  justify-content: flex-start;
+  gap: .45rem;
+  flex-wrap: nowrap;
   padding:
     calc(1rem + env(safe-area-inset-top, 0px))
     max(1rem, env(safe-area-inset-right, 0px), calc((100vw - 920px) / 2))
@@ -78,19 +79,12 @@ section { margin-bottom: 1rem; }
 .app-nav {
   display: flex;
   align-items: center;
-  gap: .55rem;
-  width: fit-content;
-  max-width: 100%;
-  margin-bottom: 1rem;
-  padding: .45rem .55rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
+  min-width: 0;
+  margin-right: auto;
 }
-.app-nav label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
 .app-nav select { min-width: 10rem; padding: .5rem 2rem .5rem .65rem; }
-.app-nav-agent.active, .app-nav-hats.active { color: white; background: var(--accent); border-color: var(--accent); }
-.app-nav-agent.active:hover, .app-nav-hats.active:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+.app-nav-agent.active { color: white; background: var(--accent); border-color: var(--accent); }
+.app-nav-agent.active:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
 .app-nav-agent { display: inline-flex; align-items: center; gap: .45rem; padding: .3rem .7rem .3rem .35rem; }
 
 .agent-mascot {
@@ -218,7 +212,6 @@ button.compact { min-height: 32px; padding: .35rem .6rem; font-size: .78rem; }
 button.text-button { min-height: 0; padding: .2rem 0; color: var(--muted); background: transparent; border: 0; font-size: .78rem; }
 button.text-button:hover { color: var(--text); background: transparent; text-decoration: underline; }
 
-.topbar-actions, .topbar-primary-actions { display: flex; align-items: center; gap: .45rem; }
 .runtime-details { position: relative; }
 .runtime-details > summary, .runtime, .usage, .integration, .top-refresh {
   min-height: 34px;
@@ -658,8 +651,7 @@ dialog form { display: grid; gap: .8rem; }
 dialog h2, dialog p { margin-bottom: 0; }
 
 @media (max-width: 580px) {
-  .app-nav { width: 100%; }
-  .app-nav label { display: none; }
+  .app-nav { flex: 1 1 auto; margin-right: 0; }
   .app-nav select { min-width: 0; flex: 1; }
   .topbar {
     padding:
@@ -668,8 +660,8 @@ dialog h2, dialog p { margin-bottom: 0; }
       .8rem
       max(.7rem, env(safe-area-inset-left, 0px));
   }
-  .topbar-primary-actions { gap: .3rem; }
-  .topbar-primary-actions button { padding-inline: .65rem; }
+  .app-nav-agent { padding-right: .55rem; }
+  .top-refresh, .runtime-details > summary { padding-inline: .5rem; }
   .composer-actions { align-items: stretch; flex-direction: column; }
   .request-attachment-control { width: 100%; }
   .request-file-label { max-width: calc(100vw - 10rem); }
