@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OpenAIResponsesClient, estimatedCost, openAITools } from "../src/openai-responses-client.mjs";
+import {
+  OpenAIResponsesClient,
+  estimatedCost,
+  openAICompatibleSchema,
+  openAITools,
+} from "../src/openai-responses-client.mjs";
 
 function jsonResponse(body, { ok = true, status = 200 } = {}) {
   return { ok, status, async json() { return body; } };
@@ -124,13 +129,53 @@ test("OpenAI request descriptions expose schemas and image metadata without byte
   assert.doesNotMatch(JSON.stringify(client.health()), /sk_test/);
 });
 
+test("OpenAI schemas omit provider-unsupported uniqueness constraints without mutating local schemas", () => {
+  const localSchema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      values: {
+        type: "array",
+        minItems: 1,
+        maxItems: 4,
+        uniqueItems: true,
+        items: { type: "string" },
+      },
+    },
+    required: ["values"],
+  };
+
+  const compatible = openAICompatibleSchema(localSchema);
+  assert.equal(localSchema.properties.values.uniqueItems, true);
+  assert.equal(Object.hasOwn(compatible.properties.values, "uniqueItems"), false);
+  assert.equal(compatible.properties.values.minItems, 1);
+  assert.equal(compatible.properties.values.maxItems, 4);
+  assert.equal(
+    Object.hasOwn(openAITools([{ name: "collect", description: "Collect", inputSchema: localSchema }])[0]
+      .parameters.properties.values, "uniqueItems"),
+    false,
+  );
+  const description = new OpenAIResponsesClient({ apiKey: "sk_test_secret_value_123456" })
+    .describeRequest({
+      model: "gpt-5.6-terra", effort: "medium", conversationId: null,
+      baseInstructions: "BASE", developerInstructions: "CONTEXT", input: "Collect",
+      tools: [], outputSchema: localSchema, maxToolCalls: 0, runTimeoutMs: null,
+    });
+  assert.deepEqual(description.outputSchema, compatible);
+});
+
 test("OpenAI Responses sends strict JSON Schema output contracts", async () => {
   const requests = [];
   const outputSchema = {
     type: "object",
     additionalProperties: false,
-    properties: { objective: { type: "string" } },
-    required: ["objective"],
+    properties: {
+      objective: { type: "string" },
+      capabilities: {
+        type: "array", uniqueItems: true, items: { type: "string" },
+      },
+    },
+    required: ["objective", "capabilities"],
   };
   const client = new OpenAIResponsesClient({
     apiKey: "sk_test_secret_value_123456",
@@ -140,7 +185,10 @@ test("OpenAI Responses sends strict JSON Schema output contracts", async () => {
         id: "resp_structured", status: "completed",
         output: [{
           type: "message", role: "assistant",
-          content: [{ type: "output_text", text: '{"objective":"Orient request"}' }],
+          content: [{
+            type: "output_text",
+            text: '{"objective":"Orient request","capabilities":[]}',
+          }],
         }],
         usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
       });
@@ -153,14 +201,17 @@ test("OpenAI Responses sends strict JSON Schema output contracts", async () => {
     tools: [], outputSchema, maxToolCalls: 0, onToolCall: async () => null,
   });
 
+  const providerSchema = openAICompatibleSchema(outputSchema);
   assert.deepEqual(requests[0].text, {
     format: {
-      type: "json_schema", name: "agent_slayer_structured_output", strict: true, schema: outputSchema,
+      type: "json_schema", name: "agent_slayer_structured_output", strict: true,
+      schema: providerSchema,
     },
   });
+  assert.equal(outputSchema.properties.capabilities.uniqueItems, true);
   assert.equal(Object.hasOwn(requests[0], "tool_choice"), false);
   assert.equal(Object.hasOwn(requests[0], "parallel_tool_calls"), false);
-  assert.equal(result.text, '{"objective":"Orient request"}');
+  assert.equal(result.text, '{"objective":"Orient request","capabilities":[]}');
   assert.equal(result.protocol.structuredOutput, true);
 });
 

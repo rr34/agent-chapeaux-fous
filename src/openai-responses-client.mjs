@@ -9,12 +9,21 @@ function combinedInstructions(baseInstructions, developerInstructions) {
   ].filter(Boolean).join("\n\n");
 }
 
+function openAICompatibleSchema(schema) {
+  if (schema == null) return schema;
+  // Retain application-only validation keywords in local schemas, but omit
+  // constraints the Responses API Structured Outputs subset rejects.
+  return JSON.parse(JSON.stringify(schema, (key, value) => (
+    key === "uniqueItems" ? undefined : value
+  )));
+}
+
 function openAITools(tools) {
   return tools.map(({ name, description, inputSchema }) => ({
     type: "function",
     name,
     description,
-    parameters: inputSchema,
+    parameters: openAICompatibleSchema(inputSchema),
   }));
 }
 
@@ -189,6 +198,7 @@ export class OpenAIResponsesClient {
       : requestAttachmentInput
         ? { type: "text", included: true }
         : null;
+    const providerOutputSchema = openAICompatibleSchema(outputSchema);
     return {
       transport: this.id,
       endpoint: `${this.baseUrl}/responses`,
@@ -202,7 +212,7 @@ export class OpenAIResponsesClient {
       developerInstructions,
       input: [{ type: "text", text: input }, ...(attachment ? [attachment] : [])],
       callableTools: openAITools(tools),
-      outputSchema,
+      outputSchema: providerOutputSchema,
       toolDelivery: "sent in every Responses API call",
       executionBoundary: {
         persistentResponseChain: true,
@@ -274,6 +284,7 @@ export class OpenAIResponsesClient {
     if (!this.health().ready) throw new Error(this.health().reason);
     const instructions = combinedInstructions(baseInstructions, developerInstructions);
     const callableTools = openAITools(tools);
+    const providerOutputSchema = openAICompatibleSchema(outputSchema);
     const totalUsage = {
       inputTokens: 0,
       cachedInputTokens: 0,
@@ -301,13 +312,13 @@ export class OpenAIResponsesClient {
         tools: callableTools,
         ...(callableTools.length ? { tool_choice: "auto", parallel_tool_calls: true } : {}),
         store: true,
-        ...(outputSchema ? {
+        ...(providerOutputSchema ? {
           text: {
             format: {
               type: "json_schema",
               name: "agent_slayer_structured_output",
               strict: true,
-              schema: outputSchema,
+              schema: providerOutputSchema,
             },
           },
         } : {}),
@@ -388,11 +399,11 @@ export class OpenAIResponsesClient {
         endpoint: `${this.baseUrl}/responses`,
         responseId: response.id,
         toolSchemaCount: callableTools.length,
-        structuredOutput: Boolean(outputSchema),
+        structuredOutput: Boolean(providerOutputSchema),
         imageDetail: requestAttachmentInput?.mediaKind === "image" ? this.imageDetail : null,
       },
     };
   }
 }
 
-export { estimatedCost, openAITools };
+export { estimatedCost, openAICompatibleSchema, openAITools };

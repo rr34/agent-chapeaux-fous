@@ -149,7 +149,9 @@ export class SlayerRuntime {
       channel, turnId: requestId, name: `${label} context sent`, content: developerInstructions,
       payload: {
         workflowStep: step, workflowStepLabel: label, stepIndex,
-        structuredOutputSchema: outputSchema,
+        structuredOutputSchema: providerRequest.outputSchema
+          ?? providerRequest.structuredOutput
+          ?? outputSchema,
         boundedContextCharacters: developerInstructions.length,
       },
     });
