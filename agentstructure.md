@@ -13,14 +13,12 @@ connect old discussions to this repository.
 
 The central invariant is:
 
-> The first model interaction for every **50. Agent request** visibly contains
-> the user's exact request, the bounded context, the exact schemas of every tool
-> immediately callable in that interaction, and an organized catalog of
-> connected capability families whose detailed schemas were deferred. The model
-> may request cataloged capabilities; their exact schemas become visible before
-> they become callable in a continuation of the same user request. A requested
-> tool executes the named application function, and its result returns to the
-> same model exchange before a final answer is accepted.
+> Every **50. Agent request** begins with a literal orientation interaction
+> containing the exact request, bounded source-referenced context, the strict
+> TurnBrief schema, and the connected capability catalog. Execution receives the
+> accepted TurnBrief and every exact callable schema before a requested tool can
+> execute. Its result returns to the same model exchange before a final answer
+> is accepted.
 
 The immediate system priorities are:
 
@@ -38,12 +36,13 @@ The immediate system priorities are:
 - **1. Agent Slayer application** owns request intake, context construction,
   tool discovery, tool execution, queuing, persistence, and the final response.
 - **2. OpenAI language model used by the agent** is reached through the OpenAI
-  Responses API. The Codex App Server adapter remains a legacy fallback.
+  Responses API.
 - **14. OpenAI Platform API account** is the selected model-authentication and
   metered-billing path. `OPENAI_API_KEY` remains server-side.
-- **50. Agent requests** continue through a persisted Responses API chain until
-  the user starts a new conversation. Exact callable schemas are resent on every
-  API call; a schema change starts a replacement chain with bounded history.
+- **50. Agent requests** use explicit orientation, execution, conditional audit,
+  and repair interactions. Exact callable schemas are present in execution and
+  repair calls; the application-owned TurnBrief and rolling state carry intent
+  across phases and later requests.
 - Agent Slayer supplies base instructions, bounded context, images, and exact
   tool schemas. No provider-owned tool is enabled; an unexpected output item
   cannot execute application behavior.
@@ -80,8 +79,7 @@ and all-day task schedules are stored distinctly.
 - **1. Agent Slayer application**, including its HTTP service and FIFO worker.
 - **9. Agent Slayer HTTP service** and **10. Agent Slayer web client**.
 - **11. Agent Slayer request queue** for typed and recorded requests.
-- **14. OpenAI Platform API account** through the OpenAI Responses adapter;
-  **13. ChatGPT subscription connection** remains available through the Codex fallback.
+- **14. OpenAI Platform API account** through the OpenAI Responses adapter.
 - The provider-neutral model-transport contract.
 - The application-owned local tool registry and MCP client.
 - **19. Agent activity ledger**, **21. Agent short-term memory service**, **22.
@@ -95,8 +93,8 @@ and all-day task schedules are stored distinctly.
 
 ### Outside this repository
 
-- **2. OpenAI language model used by the agent**, the OpenAI Responses service,
-  and the optional Codex/ChatGPT account service.
+- **2. OpenAI language model used by the agent** and the OpenAI Responses
+  service.
 - TLOM's application behavior, **3. TLOM MCP server**, **4. TLOM API**, and **34.
   TLOM database**.
 - Every other remote MCP implementation and its private data.
@@ -174,16 +172,9 @@ The adapter never enables built-in OpenAI tools; Agent Slayer owns every
 callable function and executes it through the existing registry. The exact
 schemas are present in every Responses API request and in the literal trace.
 
-The fallback adapter uses a dedicated `SLAYER_CODEX_HOME` and an empty
-`SLAYER_CODEX_WORKDIR` outside this repository. Startup audits the effective
-Codex configuration and fails health if MCP servers, plugins, or subagents leak
-into that isolated home. The configured Codex version is pinned and checked as
-an application compatibility boundary.
-
-The Codex fallback thread is persistent, read-only, noninteractive, and
-network-disabled. Agent Slayer—not either provider—owns the MCP clients and application functions. Adding a
-different model transport means implementing the existing transport contract;
-it does not turn the application into a plugin system.
+Agent Slayer—not the provider—owns the MCP clients and application functions.
+Adding a different model transport means implementing the existing transport
+contract; it does not turn the application into a plugin system.
 
 ## Tool boundary
 
@@ -486,7 +477,8 @@ so old notes and future discussions stay understandable.
   transcription**, and **8. Direct audio input to the OpenAI model** are not the
   selected request path.
 - **12. ChatGPT subscription** and **13. ChatGPT subscription connection** are
-  retained as the optional Codex fallback rather than the selected path.
+  retained only as historical vocabulary; no subscription-backed model path is
+  implemented.
 - **17. Agent speech-generation service** is not implemented; speech generation
   currently uses the web browser's native speech engine.
 - **18. Phone audio player** is implemented as automatic browser speech playback
@@ -550,12 +542,13 @@ for every active request.
 shared by typed and recorded
 requests.
 
-**12. ChatGPT subscription** — The optional ChatGPT account entitlement used by
-the Codex fallback. It is separate from **14. OpenAI Platform API account** billing.
+**12. ChatGPT subscription** — A historical concept from the removed
+subscription-backed model path. It is separate from **14. OpenAI Platform API
+account** billing and is not used by this application.
 
 **13. ChatGPT subscription connection** *(formerly ChatGPT OAuth connection)* —
-The optional authenticated account in Agent Slayer's isolated Codex home. When
-that fallback is selected, Agent Slayer requires Codex to report `chatgpt`.
+A historical concept from the removed subscription-backed model path. No such
+connection is configured or callable.
 
 **14. OpenAI Platform API account** — The selected separately metered developer
 service authenticated with the server-side `OPENAI_API_KEY`. Token usage and

@@ -4,13 +4,11 @@ import path from "node:path";
 import test from "node:test";
 import { loadConfig, repositoryRoot } from "../src/config.mjs";
 
-test("OpenAI Responses is the default while the Codex fallback workspace remains isolated", () => {
+test("OpenAI Responses configuration has stable defaults", () => {
   const config = loadConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     XDG_STATE_HOME: "/tmp/agent-slayer-state-test",
   });
-  assert.equal(config.codexRequiredVersion, "0.149.0");
-  assert.equal(config.modelTransport, "openai-responses");
   assert.equal(config.openAIBaseUrl, "https://api.openai.com/v1");
   assert.equal(config.openAIImageDetail, "original");
   assert.equal(config.reasoningEffort, "high");
@@ -25,8 +23,6 @@ test("OpenAI Responses is the default while the Codex fallback workspace remains
     outputPerMillion: 12,
   });
   assert.equal(config.hatCatalogPath, path.join(repositoryRoot, "config", "hats.json"));
-  assert.equal(config.codexWorkDirectory, "/tmp/agent-slayer-state-test/agent-slayer/codex-workspace");
-  assert.equal(config.codexWorkDirectory.startsWith(`${repositoryRoot}${path.sep}`), false);
 });
 
 test("turn workflow reasoning effort is independently configurable by phase", () => {
@@ -43,16 +39,6 @@ test("turn workflow reasoning effort is independently configurable by phase", ()
   assert.equal(config.auditReasoningEffort, "medium");
   assert.equal(config.repairReasoningEffort, "high");
   assert.equal(config.turnWorkflowEnabled, false);
-});
-
-test("an explicitly configured Codex workspace inside the repository is rejected", () => {
-  assert.throws(
-    () => loadConfig({
-      SLAYER_ALLOW_UNAUTHENTICATED: "true",
-      SLAYER_CODEX_WORKDIR: "data/codex-workspace",
-    }),
-    /must be outside the Agent Slayer repository/,
-  );
 });
 
 test("the public URL controls browser OAuth callbacks", () => {

@@ -3,10 +3,9 @@
 Chapeaux Fous is a small, inspectable model-and-tools application. The internal
 repository and compatibility identifiers still use `agent-slayer`. It is not an
 agent framework and has no plugin host. The request compiler, tool registry,
-SQLite ledger, and web client are provider-neutral. The default transport is the
+SQLite ledger, and web client are provider-neutral. The installed transport is the
 directly billed OpenAI Responses API because it supports first-class image
-input, persistent response chains, and application-defined functions. Codex App
-Server remains an environment-selected legacy fallback.
+input, response chains, structured outputs, and application-defined functions.
 
 The complete request path is:
 
@@ -86,8 +85,8 @@ ignored by Git and loaded by the process before configuration is evaluated.
 
 ## OpenAI Responses connection
 
-Set `SLAYER_MODEL_TRANSPORT=openai-responses`, `OPENAI_API_KEY`, and the desired
-`SLAYER_MODEL` in `.env`, then restart the process. The key remains server-side,
+Set `OPENAI_API_KEY` and the desired `SLAYER_MODEL` in `.env`, then restart the
+process. The key remains server-side,
 is absent from health and traces, and is redacted from provider errors. Every
 Responses API call contains the exact currently callable function schemas.
 Function results return through `function_call_output` in the same persisted
@@ -103,33 +102,14 @@ screen totals recorded tokens and estimates USD cost. Its per-million-token
 prices can be changed in the browser without modifying historical usage; server
 defaults come from `SLAYER_AI_*_COST_PER_MILLION`.
 
-## Codex fallback
-
-Set `SLAYER_MODEL_TRANSPORT=codex-app-server` and restart to use the legacy
-subscription transport. The runtime starts `codex app-server` over local stdio and requires its active
-account to be `chatgpt`. API-key authentication is deliberately rejected. Run
-`npm run codex:login` as the same Unix user that runs Agent Slayer. This uses a
-dedicated, gitignored `data/codex-home` so Slayer cannot inherit MCP servers,
-plugins, skills, instructions, or other configuration from normal Codex use.
-If `codex` is not on the service PATH, set `SLAYER_CODEX_COMMAND` to the
-executable's absolute path before running the login script.
-`SLAYER_CODEX_REQUIRED_VERSION` makes health fail visibly when the executable
-does not match the App Server version tested by this release.
+## Conversation state
 
 Each workflow phase is an explicit model interaction. Agent Slayer supplies
 bounded application-owned context and the accepted TurnBrief instead of relying
 on an opaque provider thread to remember what a short follow-up meant. If an
 execution call requests an additional cataloged capability, its continuation
 receives the exact schemas, the original request, and bounded receipts for tools
-already used in that request. App Server's
-unrelated agent capabilities are disabled at startup. Every turn is also read-only,
-network-disabled, and rooted in the empty
-`~/.local/state/agent-slayer/codex-workspace` directory outside every source
-repository. If
-Codex nevertheless emits a shell, file, web, app, or subagent item, Agent Slayer
-interrupts and rejects the turn instead of accepting its answer.
-Startup also reads the effective Codex configuration and fails health if any
-MCP server, plugin, or subagent configuration leaked into the isolated home.
+already used in that request.
 
 Agent Slayer stores a compact, source-referenced rolling conversation state
 after orientation. This state is an index, not authority: each new orienter also
@@ -140,10 +120,7 @@ ledger boundary for both recent context and rolling state without deleting
 application history.
 
 The default model is `gpt-5.6-terra`; change `SLAYER_MODEL` explicitly if
-desired. In the Codex fallback, dynamic tools are an experimental App Server feature, so deploy
-the configured Codex CLI version and treat version changes as application
-upgrades: update the required version, regenerate/inspect its protocol schema,
-run the test suite, and complete an authenticated tool-loop probe.
+desired.
 
 ## Model transport boundary
 
@@ -153,11 +130,11 @@ description, and `runTurn`. Tool definitions and tool results stay in Slayer's
 provider-neutral format. A transport adapter performs protocol translation and
 returns a normalized final response, usage report, and provider trace.
 
-The registered `openai-responses` and `codex-app-server` adapters are selected
-with `SLAYER_MODEL_TRANSPORT`. Another provider should require a protocol
-adapter while modality-independent context, SQLite, tools, queueing, and ledger
-behavior remain owned by Slayer. This is an explicit application boundary, not
-a plugin system.
+The installed adapter is `openai-responses`. The provider-neutral contract is
+retained deliberately: another provider should require a protocol adapter while
+modality-independent context, SQLite, tools, queueing, and ledger behavior
+remain owned by Slayer. This is an explicit application boundary, not a plugin
+system.
 
 ## Request and context compilation
 
@@ -201,8 +178,6 @@ execution uses the main configured effort, audit defaults to `low`, and repair
 uses its own strong effort. These are configurable with
 `SLAYER_ORIENTATION_REASONING_EFFORT`, `SLAYER_REASONING_EFFORT`,
 `SLAYER_AUDIT_REASONING_EFFORT`, and `SLAYER_REPAIR_REASONING_EFFORT`.
-The Codex fallback still records ChatGPT rate-limit buckets and token usage, but
-subscription calls are not counted as metered API cost.
 
 ## Tools
 
@@ -347,10 +322,9 @@ server-side and is excluded from health, traces, tool schemas, and tool results.
 JMAP is the email authority: mailbox membership, keywords, threads, message
 bodies, attachment blobs, identities, and submission state are read live.
 `email_changes` exposes standard state-token pagination for efficient future
-mirroring without making a local cache authoritative. Email does not use the
-MCP configuration or Codex's isolated network boundary; the named local tool
-function performs each JMAP request and returns its result to the same model
-exchange.
+mirroring without making a local cache authoritative. Email does not use the MCP
+configuration; the named local tool function performs each JMAP request and
+returns its result to the same model exchange.
 
 `config/profile-fact-questions.json` is the versioned catalog of standard
 secretary question families. It defines a broad repeatable fact type, the exact
@@ -372,9 +346,9 @@ beside the local tools. Every
 immediately callable schema is placed in the current model interaction; deferred
 integration families appear first in the capability catalog and receive exact
 schemas if the model requests them. The active model transport performs the
-protocol translation. Codex's own MCP, app, plugin, shell, and filesystem
-facilities are not the application tool path. Missing or failed integrations
-are visible in `/health`; they are never silently represented as available.
+protocol translation. Provider-owned tools are not the application tool path.
+Missing or failed integrations are visible in `/health`; they are never
+silently represented as available.
 
 MCP integrations with an `oauth` block use the standard MCP authorization-code
 flow with OAuth discovery, dynamic client registration, PKCE, and refresh

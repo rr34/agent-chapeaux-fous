@@ -20,9 +20,8 @@ test("a model adapter must implement the complete Slayer transport boundary", ()
   assert.equal(assertModelTransport(transport), transport);
 });
 
-test("the OpenAI Responses adapter is selected entirely through configuration", async () => {
+test("the installed transport factory returns an adapter that satisfies the provider-neutral contract", async () => {
   const transport = await createModelTransport({
-    modelTransport: "openai-responses",
     openAIApiKey: "sk_test_secret_value_123456",
     openAIBaseUrl: "https://api.openai.com/v1",
     openAIRequestTimeoutMs: 600000,

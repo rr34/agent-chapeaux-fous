@@ -60,13 +60,6 @@ export function loadConfig(environment = process.env) {
   ) {
     throw new Error("SLAYER_PUBLIC_URL must be an HTTPS origin (or an HTTP loopback origin) without credentials, a path, query parameters, or a fragment");
   }
-  const codexWorkDirectory = environment.SLAYER_CODEX_WORKDIR?.trim()
-    ? resolveFromRoot(environment.SLAYER_CODEX_WORKDIR)
-    : path.join(stateRoot, "codex-workspace");
-  if (codexWorkDirectory === repositoryRoot || codexWorkDirectory.startsWith(`${repositoryRoot}${path.sep}`)) {
-    throw new Error("SLAYER_CODEX_WORKDIR must be outside the Agent Slayer repository so Codex cannot inherit AGENTS.md");
-  }
-
   return {
     repositoryRoot,
     host,
@@ -94,7 +87,6 @@ export function loadConfig(environment = process.env) {
       ? resolveFromRoot(environment.SLAYER_MCP_OAUTH_ROOT)
       : path.join(stateRoot, "mcp-oauth"),
     publicRoot: path.join(repositoryRoot, "public"),
-    modelTransport: environment.SLAYER_MODEL_TRANSPORT?.trim() || "openai-responses",
     openAIApiKey: environment.OPENAI_API_KEY?.trim() || "",
     openAIBaseUrl: environment.SLAYER_OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1",
     openAIRequestTimeoutMs: positiveInteger(environment.SLAYER_OPENAI_TIMEOUT_MS, 10 * 60 * 1000),
@@ -110,11 +102,6 @@ export function loadConfig(environment = process.env) {
       cacheWritePerMillion: nonnegativeNumber(environment.SLAYER_AI_CACHE_WRITE_COST_PER_MILLION, 2.5),
       outputPerMillion: nonnegativeNumber(environment.SLAYER_AI_OUTPUT_COST_PER_MILLION, 12),
     },
-    codexCommand: environment.SLAYER_CODEX_COMMAND?.trim() || "codex",
-    codexRequiredVersion: environment.SLAYER_CODEX_REQUIRED_VERSION?.trim() || "0.149.0",
-    codexHome: resolveFromRoot(environment.SLAYER_CODEX_HOME, "data/codex-home"),
-    codexWorkDirectory,
-    codexRequestTimeoutMs: positiveInteger(environment.SLAYER_CODEX_TIMEOUT_MS, 10 * 60 * 1000),
     model: environment.SLAYER_MODEL?.trim() || "gpt-5.6-terra",
     reasoningEffort: environment.SLAYER_REASONING_EFFORT?.trim() || "high",
     orientationReasoningEffort: environment.SLAYER_ORIENTATION_REASONING_EFFORT?.trim() || "medium",

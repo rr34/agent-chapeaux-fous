@@ -45,9 +45,8 @@ function userIntegrationUrl(value) {
 }
 
 export function remoteToolName(serverName, toolName) {
-  // `mcp__` is a runtime-owned namespace in Codex App Server, not an
-  // application tool prefix. Source metadata already records that this tool
-  // came from MCP, so expose a provider-neutral application name instead.
+  // Source metadata records that this tool came from MCP, so keep its callable
+  // application name independent from protocol-specific namespace conventions.
   return safeName(`remote_${serverName}_${toolName}`);
 }
 

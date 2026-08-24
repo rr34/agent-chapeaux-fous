@@ -8,7 +8,7 @@ import { FileOAuthClientProvider } from "../src/mcp-oauth.mjs";
 import { McpToolManager, remoteToolName } from "../src/tools/mcp-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
-test("remote application tools never use Codex's reserved MCP namespace", () => {
+test("remote application tools use provider-neutral names", () => {
   const name = remoteToolName("weather", "openmeteo_search_locations");
   assert.equal(name, "remote_weather_openmeteo_search_locations");
   assert.equal(name.startsWith("mcp__"), false);

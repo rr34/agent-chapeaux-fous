@@ -1,5 +1,5 @@
 [Unit]
-Description=Agent Slayer web, voice, Codex, and tool service
+Description=Agent Slayer web, voice, OpenAI, and tool service
 After=network-online.target
 Wants=network-online.target
 

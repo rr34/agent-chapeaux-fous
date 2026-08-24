@@ -11,7 +11,7 @@ function completedTurn(overrides = {}) {
   return {
     text: "The tool returned hello.",
     threadId: "thread-1",
-    turnId: "codex-turn-1",
+    turnId: "provider-turn-1",
     status: "completed",
     messages: [{ type: "agentMessage", phase: "final_answer", text: "The tool returned hello." }],
     events: [],
@@ -299,7 +299,7 @@ test("the runtime expands deferred capabilities and continues the same user requ
       return completedTurn({
         text: "Capability expansion requested.",
         threadId: "thread-1",
-        turnId: "codex-turn-1",
+        turnId: "provider-turn-1",
       });
     }
     const executed = await payload.onToolCall({
@@ -311,7 +311,7 @@ test("the runtime expands deferred capabilities and continues the same user requ
     return completedTurn({
       text: "The deferred beta action completed.",
       threadId: "thread-2",
-      turnId: "codex-turn-2",
+      turnId: "provider-turn-2",
     });
   });
   const registry = new ToolRegistry();
