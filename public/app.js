@@ -33,6 +33,12 @@ const elements = {
   integrationsButton: document.querySelector("#integrations-button"),
   integrationsDialog: document.querySelector("#integrations-dialog"),
   integrationList: document.querySelector("#integration-list"),
+  mcpIntegrationForm: document.querySelector("#mcp-integration-form"),
+  mcpIntegrationName: document.querySelector("#mcp-integration-name"),
+  mcpIntegrationUrl: document.querySelector("#mcp-integration-url"),
+  mcpIntegrationToken: document.querySelector("#mcp-integration-token"),
+  mcpIntegrationConnect: document.querySelector("#mcp-integration-connect"),
+  mcpIntegrationError: document.querySelector("#mcp-integration-error"),
   usage: document.querySelector("#usage"),
   refresh: document.querySelector("#refresh"),
   newConversation: document.querySelector("#new-conversation"),
@@ -1144,25 +1150,39 @@ async function loadHealth() {
 }
 
 function renderIntegrations(integrations) {
-  const oauthEntries = Object.entries(integrations).filter(([, integration]) => integration.oauth);
-  const connected = oauthEntries.filter(([, integration]) => integration.ready).length;
+  const entries = Object.entries(integrations)
+    .filter(([name]) => !name.endsWith("configuration"));
+  const connected = entries.filter(([, integration]) => integration.ready).length;
   elements.integrationsButton.textContent = connected ? `Integrations · ${connected}` : "Integrations";
   elements.integrationsButton.classList.toggle("ready", connected > 0);
   elements.integrationList.replaceChildren();
-  if (oauthEntries.length === 0) {
-    elements.integrationList.append(node("p", "empty", "No OAuth integrations are configured."));
+  if (entries.length === 0) {
+    elements.integrationList.append(node("p", "empty", "No integrations are connected yet."));
     return;
   }
-  for (const [name, integration] of oauthEntries) {
+  for (const [name, integration] of entries) {
     const card = node("article", "integration-card");
     const identity = node("div", "integration-identity");
+    const status = integration.disabled
+      ? "Disabled"
+      : integration.ready
+        ? `Connected${integration.toolCount == null ? "" : ` · ${integration.toolCount} tools`}`
+        : integration.error
+          ? "Connection failed"
+          : "Disconnected";
     identity.append(
       node("strong", "", name),
-      node("span", "", integration.disabled ? "Disabled" : integration.ready ? "Connected" : "Disconnected"),
+      node("span", "", status),
     );
+    if (integration.error) identity.title = integration.error;
     card.classList.toggle("ready", Boolean(integration.ready));
     card.append(identity);
-    if (!integration.disabled) {
+    if (integration.userManaged) {
+      const action = node("button", "secondary compact remove-integration", "Remove");
+      action.type = "button";
+      action.dataset.name = name;
+      card.append(action);
+    } else if (integration.oauth && !integration.disabled) {
       const action = node("button", integration.ready ? "secondary compact disconnect-integration" : "compact connect-integration");
       action.type = "button";
       action.dataset.name = name;
@@ -3733,13 +3753,42 @@ elements.newConversation.addEventListener("click", async () => {
   }
 });
 elements.integrationsButton.addEventListener("click", () => elements.integrationsDialog.showModal());
+elements.mcpIntegrationForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  elements.mcpIntegrationConnect.disabled = true;
+  elements.mcpIntegrationError.textContent = "";
+  try {
+    const name = elements.mcpIntegrationName.value.trim();
+    await api("/api/integrations/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        url: elements.mcpIntegrationUrl.value.trim(),
+        token: elements.mcpIntegrationToken.value,
+      }),
+    });
+    elements.mcpIntegrationForm.reset();
+    elements.status.textContent = `${name} connected.`;
+    await loadHealth();
+  } catch (error) {
+    elements.mcpIntegrationError.textContent = error.message;
+  } finally {
+    elements.mcpIntegrationConnect.disabled = false;
+  }
+});
 elements.integrationList.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-name]");
   if (!button || !elements.integrationList.contains(button)) return;
   const name = button.dataset.name;
   button.disabled = true;
   try {
-    if (button.classList.contains("disconnect-integration")) {
+    if (button.classList.contains("remove-integration")) {
+      if (!window.confirm(`Remove ${name}? Its locally stored API token and tools will be deleted from Chapeaux Fous.`)) return;
+      await api(`/api/integrations/${encodeURIComponent(name)}`, { method: "DELETE" });
+      elements.status.textContent = `${name} removed.`;
+      await loadHealth();
+    } else if (button.classList.contains("disconnect-integration")) {
       if (!window.confirm(`Disconnect ${name}? Chapeaux Fous will delete its local OAuth credentials and remove the provider's tools.`)) return;
       await api(`/api/integrations/${encodeURIComponent(name)}/oauth/disconnect`, { method: "POST" });
       elements.status.textContent = `${name} disconnected locally.`;

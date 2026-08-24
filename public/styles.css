@@ -473,6 +473,12 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .integration-identity strong { text-transform: capitalize; }
 .integration-identity span { margin-top: .2rem; color: var(--muted); font-size: .78rem; }
 .integration-card.ready .integration-identity span { color: var(--good); }
+.integration-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.integration-form h3 { margin: 0; font-size: 1rem; }
+.integration-form label { display: grid; gap: .4rem; color: var(--muted); font-size: .78rem; }
+.integration-form .button-row { justify-content: flex-end; }
+.integration-footnote { font-size: .75rem; line-height: 1.4; }
+#integrations-dialog { width: min(540px, calc(100% - 2rem)); max-height: calc(100dvh - 1.5rem); overflow: auto; }
 .editor-dialog { width: min(620px, calc(100% - 1.5rem)); max-height: calc(100dvh - 1.5rem); overflow: auto; }
 .run-limits-dialog { width: min(520px, calc(100% - 1.5rem)); }
 .run-limits-intro { color: var(--muted); font-size: .82rem; line-height: 1.45; }

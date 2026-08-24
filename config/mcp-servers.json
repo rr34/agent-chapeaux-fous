@@ -7,14 +7,6 @@
       "Authorization": "Bearer ${TLOM_ACCESS_TOKEN}"
     }
   },
-  "nutrition": {
-    "enabled": true,
-    "url": "https://nutrition-mcp.com/mcp",
-    "oauth": {
-      "enabled": true,
-      "scopes": []
-    }
-  },
   "weather": {
     "enabled": true,
     "url": "https://open-meteo.caseyjhand.com/mcp",

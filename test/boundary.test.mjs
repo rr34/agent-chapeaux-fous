@@ -186,14 +186,16 @@ test("calendar controls use simple visibility states and explicit 24-hour event 
   assert.match(application, /elements\.todoScheduled\.step = allDay \? "1" : "60";/);
 });
 
-test("the web client provides a provider-neutral OAuth integrations manager", () => {
+test("the web client manages OAuth and UI-added bearer MCP integrations", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(document, /id="integrations-button"/);
   assert.match(document, /id="integrations-dialog"/);
-  assert.match(application, /\.filter\(\(\[, integration\]\) => integration\.oauth\)/);
-  assert.doesNotMatch(application, /\.find\(\(\[, integration\]\) => integration\.oauth\)/);
-  assert.match(application, /for \(const \[name, integration\] of oauthEntries\)/);
+  assert.match(document, /id="mcp-integration-form"/);
+  assert.match(document, /id="mcp-integration-token" type="password"/);
+  assert.match(application, /for \(const \[name, integration\] of entries\)/);
+  assert.match(application, /\/api\/integrations\/mcp/);
+  assert.match(application, /remove-integration/);
   assert.match(application, /oauth\/disconnect/);
 });
 

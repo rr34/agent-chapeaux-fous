@@ -378,9 +378,7 @@ integration has its own status, action, and callback:
 
 OAuth client registrations and tokens are stored as mode `0600` files under
 `~/.local/state/agent-slayer/mcp-oauth` by default. The directory is mode
-`0700`. Set `SLAYER_MCP_OAUTH_ROOT` to override it. Nutrition selects this
-generic OAuth path and does not use a `NUTRITION_ACCESS_TOKEN`; connect it in the
-web interface and sign in to Nutrition there.
+`0700`. Set `SLAYER_MCP_OAUTH_ROOT` to override it.
 
 **Disconnect** immediately closes the MCP client, removes that provider's tools
 from the callable registry, and deletes Agent Slayer's local OAuth registration

@@ -71,6 +71,7 @@ await modelTransport.start().catch((error) => {
 });
 const mcp = new McpToolManager({
   configPath: config.mcpConfigPath,
+  userConfigPath: config.mcpUserConfigPath,
   oauthRoot: config.mcpOAuthRoot,
   publicUrl: config.publicUrl,
 });
@@ -312,6 +313,18 @@ const server = http.createServer(async (request, response) => {
         localCredentialsRemoved: true,
         providerGrantRevoked: false,
       });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/integrations/mcp") {
+      const body = await readJson(request);
+      sendJson(response, 201, { integration: await mcp.addBearerIntegration(body) });
+      if (store.status.ready) queue.notify();
+      return;
+    }
+    const userIntegrationMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+    if (request.method === "DELETE" && userIntegrationMatch) {
+      sendJson(response, 200, { integration: await mcp.removeUserIntegration(userIntegrationMatch[1]) });
+      if (store.status.ready) queue.notify();
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/hats") {

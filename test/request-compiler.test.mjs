@@ -52,7 +52,6 @@ const tools = [
   tool("global_search"),
   tool("remote_tlom_query_data", "mcp:tlom"),
   tool("remote_weather_forecast", "mcp:weather"),
-  tool("remote_nutrition_lookup", "mcp:nutrition"),
 ];
 
 function names(selection) {

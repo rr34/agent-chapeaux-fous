@@ -42,6 +42,7 @@ test("the public URL controls browser OAuth callbacks", () => {
   });
   assert.equal(config.publicUrl, "https://slayer.example.test/");
   assert.equal(config.mcpOAuthRoot, "/tmp/agent-slayer-state-test/agent-slayer/mcp-oauth");
+  assert.equal(config.mcpUserConfigPath, "/tmp/agent-slayer-state-test/agent-slayer/mcp-connections.json");
 });
 
 test("the public URL rejects credentials and non-HTTP schemes", () => {
@@ -57,15 +58,6 @@ test("the public URL rejects credentials and non-HTTP schemes", () => {
     () => loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "http://slayer.example.test" }),
     /must be an HTTPS origin/,
   );
-});
-
-test("Nutrition selects generic MCP OAuth without a static access token", () => {
-  const integrations = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "config", "mcp-servers.json"), "utf8"));
-  assert.deepEqual(integrations.nutrition.oauth, { enabled: true, scopes: [] });
-  assert.equal(integrations.nutrition.headers, undefined);
-
-  const environmentExample = fs.readFileSync(path.join(repositoryRoot, ".env.example"), "utf8");
-  assert.doesNotMatch(environmentExample, /NUTRITION_ACCESS_TOKEN/);
 });
 
 test("native JMAP email configuration is independent of MCP", () => {

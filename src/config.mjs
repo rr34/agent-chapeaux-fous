@@ -81,6 +81,9 @@ export function loadConfig(environment = process.env) {
     capabilityInstructionsPath: path.join(repositoryRoot, "config/instructions"),
     profileFactQuestionsPath: path.join(repositoryRoot, "config/profile-fact-questions.json"),
     mcpConfigPath: resolveFromRoot(environment.SLAYER_MCP_CONFIG, "config/mcp-servers.json"),
+    mcpUserConfigPath: environment.SLAYER_MCP_USER_CONFIG?.trim()
+      ? resolveFromRoot(environment.SLAYER_MCP_USER_CONFIG)
+      : path.join(stateRoot, "mcp-connections.json"),
     jmapSessionUrl: environment.SLAYER_JMAP_SESSION_URL?.trim() || "",
     jmapAccessToken: environment.SLAYER_JMAP_ACCESS_TOKEN?.trim() || "",
     jmapAccountId: environment.SLAYER_JMAP_ACCOUNT_ID?.trim() || "",

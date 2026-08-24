@@ -283,3 +283,58 @@ test("multiple OAuth MCP integrations authorize and connect independently", asyn
   assert.deepEqual(registry.list().map(({ name }) => name).sort(), ["remote_alpha_ping", "remote_beta_ping"]);
   await manager.close();
 });
+
+test("UI-managed bearer MCP integrations persist privately, reload, and can be removed", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  const userConfigPath = path.join(temporary.directory, "private", "mcp-connections.json");
+  fs.writeFileSync(configPath, "{}");
+  const transports = [];
+  const managerOptions = {
+    configPath,
+    userConfigPath,
+    clientFactory: () => ({
+      async connect() {},
+      async listTools() {
+        return { tools: [{ name: "ledger_verify", description: "Verify the ledger", inputSchema: { type: "object" } }] };
+      },
+      async callTool() { return { structuredContent: { verified: true } }; },
+      async close() {},
+    }),
+    transportFactory: (url, options) => {
+      transports.push({ url: url.toString(), options });
+      return { async close() {} };
+    },
+  };
+
+  const first = new McpToolManager(managerOptions);
+  const firstRegistry = new ToolRegistry();
+  await first.initialize(firstRegistry);
+  const connected = await first.addBearerIntegration({
+    name: "Accounting MCP",
+    url: "https://accounting.example.test/mcp",
+    token: "cfacct_private-token",
+  });
+  assert.equal(connected.ready, true);
+  assert.equal(connected.userManaged, true);
+  assert.equal(transports[0].options.requestInit.headers.Authorization, "Bearer cfacct_private-token");
+  assert.deepEqual(await firstRegistry.execute("remote_accounting-mcp_ledger_verify", {}), { verified: true });
+  assert.equal(fs.statSync(userConfigPath).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.dirname(userConfigPath)).mode & 0o777, 0o700);
+  assert.match(fs.readFileSync(userConfigPath, "utf8"), /cfacct_private-token/);
+  await first.close();
+
+  const restarted = new McpToolManager(managerOptions);
+  const restartedRegistry = new ToolRegistry();
+  await restarted.initialize(restartedRegistry);
+  assert.equal(restarted.health()["accounting-mcp"].ready, true);
+  assert.equal(restarted.health()["accounting-mcp"].userManaged, true);
+  assert.equal(restartedRegistry.list().length, 1);
+  const removed = await restarted.removeUserIntegration("accounting-mcp");
+  assert.equal(removed.removed, true);
+  assert.equal(restarted.health()["accounting-mcp"], undefined);
+  assert.equal(restartedRegistry.list().length, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(userConfigPath, "utf8")), {});
+  await restarted.close();
+});

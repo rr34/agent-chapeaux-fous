@@ -346,8 +346,17 @@
       <div><p class="eyebrow">External tools</p><h2>Integrations</h2></div>
       <button class="secondary compact dialog-close" type="button">Close</button>
     </div>
+    <p class="muted">Connect an MCP server and make its tools available to Chapeaux Fous.</p>
     <div id="integration-list" class="integration-list"></div>
-    <p class="muted">Disconnect removes Chapeaux Fous's local OAuth credentials and tools. It does not claim to revoke the provider-side grant.</p>
+    <form id="mcp-integration-form" class="integration-form">
+      <h3>Add MCP</h3>
+      <label>Connection name<input id="mcp-integration-name" required maxlength="64" autocomplete="off" placeholder="Accounting"></label>
+      <label>MCP URL<input id="mcp-integration-url" type="url" required maxlength="2048" autocomplete="url" placeholder="https://accounting.example.com/mcp"></label>
+      <label>API token<input id="mcp-integration-token" type="password" required maxlength="16384" autocomplete="off" placeholder="Paste the token from the MCP service"></label>
+      <div class="button-row"><button id="mcp-integration-connect" type="submit">Connect</button></div>
+      <p id="mcp-integration-error" class="form-error" role="alert"></p>
+    </form>
+    <p class="muted integration-footnote">Tokens added here are stored in Chapeaux Fous's private application state, never in the repository or browser.</p>
   </dialog>
 
   <dialog id="event-dialog" class="editor-dialog">

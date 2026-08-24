@@ -262,8 +262,6 @@ storage. It becomes active only for a server entry with an `oauth` block. A
 public HTTPS callback origin is therefore an OAuth deployment requirement, not
 a requirement for the current TLOM bearer-token connection.
 
-Nutrition selects that generic OAuth path at `https://nutrition-mcp.com/mcp`.
-It has no provider-specific authentication code or static access-token setting.
 The web client keeps one general Integrations control in the header and renders
 every configured OAuth provider inside it. Each integration's client
 registration and tokens are stored in its own private file. Disconnect closes
