@@ -5,6 +5,7 @@ import {
   shiftLocalDateTime,
   splitLocalDateTime,
 } from "./event-date-time.js";
+import { markdownToSpeech, renderMarkdown } from "./markdown.js";
 
 const elements = {
   form: document.querySelector("#request-form"),
@@ -351,7 +352,9 @@ function expectSpokenResponse(requestId, respondSilently) {
 function speakResponse(text) {
   if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) return;
   try {
-    const utterance = new SpeechSynthesisUtterance(text);
+    const spokenText = markdownToSpeech(text);
+    if (!spokenText) return;
+    const utterance = new SpeechSynthesisUtterance(spokenText);
     utterance.lang = document.documentElement.lang || "en";
     activeUtterances.add(utterance);
     const release = () => activeUtterances.delete(utterance);
@@ -1003,7 +1006,7 @@ function requestNode(request, index) {
       copyText(request.requestId, event.currentTarget);
     });
     node.querySelector(".copy-response").addEventListener("click", (event) => {
-      copyText(node.querySelector(".agent-response p").textContent, event.currentTarget);
+      copyText(node.querySelector(".agent-response-markdown").dataset.markdown || "", event.currentTarget);
     });
     node.querySelector(".show-trace").addEventListener("click", () => showTrace(request.requestId));
     node.querySelector(".make-video").addEventListener("click", (event) => {
@@ -1033,7 +1036,11 @@ function requestNode(request, index) {
   const response = node.querySelector(".agent-response");
   renderAgentMascot(node.querySelector(".agent-response-avatar"), request.explicitHats);
   response.hidden = !request.response;
-  if (request.response) response.querySelector("p").textContent = request.response;
+  const responseMarkdown = response.querySelector(".agent-response-markdown");
+  if (request.response && responseMarkdown.dataset.markdown !== request.response) {
+    responseMarkdown.dataset.markdown = request.response;
+    renderMarkdown(responseMarkdown, request.response);
+  }
   const error = node.querySelector(".request-error");
   error.hidden = !request.error;
   error.textContent = request.error || "";

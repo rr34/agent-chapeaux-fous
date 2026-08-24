@@ -350,7 +350,10 @@ test("the request composer keeps Shift+Enter for newlines and submits other Ente
 
 test("new typed and voice requests speak by default with a persistent silent preference", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const markdown = fs.readFileSync(path.join(root, "public", "markdown.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
   const architecture = fs.readFileSync(path.join(root, "agentstructure.md"), "utf8");
   assert.match(document, /id="respond-silently" type="checkbox"/);
@@ -361,6 +364,16 @@ test("new typed and voice requests speak by default with a persistent silent pre
   assert.match(application, /expectSpokenResponse\(created\.requestId, recordingRespondSilently\)/);
   assert.match(application, /pendingSpokenRequestIds\.has\(request\.requestId\)/);
   assert.match(application, /speakResponse\(request\.response\)/);
+  assert.match(application, /markdownToSpeech\(text\)/);
+  assert.match(application, /renderMarkdown\(responseMarkdown, request\.response\)/);
+  assert.match(markdown, /DOMPurify\.sanitize\(rendered, sanitizerOptions\)/);
+  assert.match(markdown, /marked\.parse\(source, \{ gfm: true/);
+  assert.match(document, /class="agent-response-markdown"/);
+  assert.match(document, /"dompurify": "\/vendor\/dompurify\.js"/);
+  assert.match(document, /"marked": "\/vendor\/marked\.js"/);
+  assert.match(styles, /\.agent-response-markdown pre/);
+  assert.match(server, /"\/vendor\/dompurify\.js"/);
+  assert.match(server, /"\/vendor\/marked\.js"/);
   assert.match(application, /responseSilenceStorageKey = "agent-slayer-respond-silently"/);
   assert.match(application, /elements\.respondSilently\.checked = loadResponseSilencePreference\(\)/);
   assert.match(application, /elements\.respondSilently\.addEventListener\("change", saveResponseSilencePreference\)/);

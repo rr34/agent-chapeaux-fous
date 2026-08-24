@@ -429,7 +429,10 @@ Responses to new typed and recorded requests are spoken by default through the
 web browser's native speech synthesis. **Respond silently** suppresses speech
 for that request and persists as a browser-local preference. Speech generation
 therefore occurs on the client device; Agent Slayer does not currently run a
-server-side TTS engine.
+server-side TTS engine. Written responses render GitHub-flavored Markdown after
+HTML sanitization. Before speech playback, Markdown structure and formatting
+punctuation are converted into natural pauses and spoken labels; code blocks are
+left visible and summarized rather than read punctuation by punctuation.
 
 ## Deployment
 

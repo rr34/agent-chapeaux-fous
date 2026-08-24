@@ -611,7 +611,44 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .agent-response:not([hidden]) { display: flex; align-items: flex-start; gap: .7rem; }
 .agent-response-avatar { width: 58px; height: 58px; margin: -.3rem 0 0 -.35rem; }
 .agent-response-body { min-width: 0; flex: 1; }
-.agent-response p { margin-bottom: .7rem; line-height: 1.5; white-space: pre-wrap; user-select: text; }
+.agent-response-markdown { line-height: 1.55; overflow-wrap: anywhere; user-select: text; }
+.agent-response-markdown > :first-child { margin-top: 0; }
+.agent-response-markdown > :last-child { margin-bottom: .7rem; }
+.agent-response-markdown h1,
+.agent-response-markdown h2,
+.agent-response-markdown h3,
+.agent-response-markdown h4,
+.agent-response-markdown h5,
+.agent-response-markdown h6 { margin: 1.15em 0 .45em; line-height: 1.25; letter-spacing: -.015em; }
+.agent-response-markdown h1 { font-size: 1.45rem; }
+.agent-response-markdown h2 { font-size: 1.25rem; }
+.agent-response-markdown h3 { font-size: 1.08rem; }
+.agent-response-markdown h4,
+.agent-response-markdown h5,
+.agent-response-markdown h6 { font-size: 1rem; }
+.agent-response-markdown p,
+.agent-response-markdown ul,
+.agent-response-markdown ol,
+.agent-response-markdown blockquote,
+.agent-response-markdown pre,
+.agent-response-markdown table { margin: 0 0 .8rem; }
+.agent-response-markdown ul,
+.agent-response-markdown ol { padding-left: 1.4rem; }
+.agent-response-markdown li + li { margin-top: .3rem; }
+.agent-response-markdown li > p { margin-bottom: .3rem; }
+.agent-response-markdown blockquote { padding: .15rem 0 .15rem .8rem; color: #c8d0d5; border-left: 3px solid var(--line); }
+.agent-response-markdown blockquote > :last-child { margin-bottom: 0; }
+.agent-response-markdown code { padding: .12em .3em; background: #0d1012; border: 1px solid #303840; border-radius: 4px; font: .88em/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.agent-response-markdown pre { max-width: 100%; padding: .75rem; overflow-x: auto; background: #0d1012; border: 1px solid #303840; border-radius: 8px; }
+.agent-response-markdown pre code { padding: 0; white-space: pre; background: transparent; border: 0; }
+.agent-response-markdown a { color: #ff9877; text-underline-offset: 2px; }
+.agent-response-markdown hr { margin: 1rem 0; border: 0; border-top: 1px solid var(--line); }
+.agent-response-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.agent-response-markdown th,
+.agent-response-markdown td { padding: .4rem .55rem; border: 1px solid var(--line); text-align: left; }
+.agent-response-markdown th { background: #111518; }
+.agent-response-markdown input[type="checkbox"] { width: auto; margin: 0 .35rem 0 0; accent-color: var(--accent); }
+.markdown-image-alt { color: var(--muted); font-style: italic; }
 .request-error { white-space: pre-wrap; }
 .request-actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
 .make-video { margin-right: auto; }

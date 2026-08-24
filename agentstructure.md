@@ -433,9 +433,11 @@ The implemented recorded-request path is:
 Typed requests skip file storage and transcription but enter the same FIFO.
 The current browser retains its access token, persistent Respond silently
 preference, and pending spoken-response IDs locally. It automatically speaks
-completed responses by default through browser-native speech synthesis. It does
-not yet implement the earlier IndexedDB upload outbox or live interruption
-semantics.
+completed responses by default through browser-native speech synthesis. Written
+responses render sanitized GitHub-flavored Markdown, while speech receives a
+plain-language traversal of the Markdown structure instead of raw formatting
+punctuation. It does not yet implement the earlier IndexedDB upload outbox or
+live interruption semantics.
 
 ## Access and deployment boundary
 

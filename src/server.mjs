@@ -126,11 +126,14 @@ const staticFiles = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
   ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
   ["/event-date-time.js", ["event-date-time.js", "text/javascript; charset=utf-8"]],
+  ["/markdown.js", ["markdown.js", "text/javascript; charset=utf-8"]],
   ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
   ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],
   ["/service-worker.js", ["service-worker.js", "text/javascript; charset=utf-8"]],
   ["/icon.svg", ["icon.svg", "image/svg+xml"]],
   ["/hats.svg", ["hats.svg", "image/svg+xml"]],
+  ["/vendor/dompurify.js", [path.join(config.repositoryRoot, "node_modules", "dompurify", "dist", "purify.es.mjs"), "text/javascript; charset=utf-8"]],
+  ["/vendor/marked.js", [path.join(config.repositoryRoot, "node_modules", "marked", "lib", "marked.esm.js"), "text/javascript; charset=utf-8"]],
 ]);
 
 function sendJson(response, statusCode, body) {
@@ -255,8 +258,8 @@ function health() {
 async function serveStatic(pathname, response) {
   const selected = staticFiles.get(pathname);
   if (!selected) return false;
-  const [name, contentType] = selected;
-  const body = await fsp.readFile(path.join(config.publicRoot, name));
+  const [filename, contentType] = selected;
+  const body = await fsp.readFile(path.isAbsolute(filename) ? filename : path.join(config.publicRoot, filename));
   response.writeHead(200, { "Content-Type": contentType, "Content-Length": body.length, "Cache-Control": pathname === "/service-worker.js" ? "no-cache" : "public, max-age=300" });
   response.end(body);
   return true;

@@ -20,6 +20,8 @@
     "@remotion/bundler": "4.0.507",
     "@remotion/media-utils": "4.0.507",
     "@remotion/renderer": "4.0.507",
+    "dompurify": "3.4.14",
+    "marked": "18.0.10",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "remotion": "4.0.507",
