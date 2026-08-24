@@ -43,14 +43,6 @@ function providerCandidate(result) {
   return null;
 }
 
-export function providerActionReadiness(result) {
-  for (const candidate of objectCandidates(result)) {
-    const readiness = selectedEntry(candidate, actionReadinessName)?.[1];
-    if (typeof readiness === "boolean") return readiness;
-  }
-  return null;
-}
-
 function providerExpiration(candidate) {
   const expiration = selectedEntry(candidate, /^(?:expiresAt|expires_at)$/u)?.[1];
   return typeof expiration === "string" && expiration ? expiration : null;
@@ -151,45 +143,8 @@ export function matchingDeferredActionReferences(argumentsObject, references) {
   }, reference));
 }
 
-function briefText(brief) {
-  return JSON.stringify([
-    brief.objective,
-    brief.summary,
-    brief.authorizedActions,
-    brief.completionCriteria,
-  ]);
-}
-
-function directDryRunReceipt(receipt) {
-  if (!receipt?.ok || receiptInspectionTool.test(receipt.tool ?? "")) return false;
-  return receipt.arguments?.dry_run === true
-    || receipt.arguments?.dryRun === true
-    || receipt.result?.dryRun === true
-    || receipt.result?.dry_run === true
-    || receipt.deferredActionReference?.providerMetadata?.ready === true;
-}
-
-export function completionReceiptFindings({ brief, receipts, authorizedActionReferences }) {
+export function completionReceiptFindings({ receipts, authorizedActionReferences }) {
   const findings = [];
-  if (/\bdry[ -]?run\b/iu.test(briefText(brief))) {
-    const directReceipts = receipts.filter(directDryRunReceipt);
-    if (directReceipts.length === 0) {
-      findings.push({
-        code: "DIRECT_DRY_RUN_RECEIPT_REQUIRED",
-        message: "The requested dry run has no successful direct dry-run tool receipt from this request. Historical receipt-list or receipt-read calls do not execute a new dry run.",
-        repairInstruction: "Call the actual dry-run operation with the complete current input. Do not report the dry run as completed from historical receipts.",
-      });
-    } else if (directReceipts.some((receipt) => (
-      receipt.providerActionReadiness === true
-      && !receipt.deferredActionReference
-    ))) {
-      findings.push({
-        code: "MCP_ACTION_REFERENCE_REQUIRED",
-        message: "The provider reported a commit-ready result but its exact opaque action reference was not available in the direct receipt.",
-        repairInstruction: "Use the provider operation that returns its exact commit identifier. Do not reconstruct, replay, or guess provider-owned state.",
-      });
-    }
-  }
   for (const reference of authorizedActionReferences) {
     const completed = receipts.some((receipt) => receiptUsesReference(receipt, reference));
     if (!completed) {

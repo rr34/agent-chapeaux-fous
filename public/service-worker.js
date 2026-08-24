@@ -1,4 +1,4 @@
-const cacheName = "agent-slayer-shell-v41";
+const cacheName = "agent-slayer-shell-v42";
 const shell = [
   "/", "/app.js", "/event-date-time.js", "/markdown.js", "/vendor/dompurify.js", "/vendor/marked.js",
   "/styles.css", "/icon.svg", "/hats.svg", "/manifest.webmanifest",

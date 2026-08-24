@@ -119,31 +119,22 @@ test("opaque MCP arguments must match a provider reference selected by the TurnB
   );
 });
 
-test("historical receipt inspection cannot satisfy a current dry-run or deferred-action contract", () => {
+test("receipt findings enforce only explicitly authorized MCP action references", () => {
   const reference = actionReference();
-  const dryRunBrief = {
-    objective: "Perform a dry run.", summary: "Dry run it.",
-    authorizedActions: [], completionCriteria: ["Dry run completed."],
-  };
   const historicalOnly = [{
     tool: "tool_receipt_read", arguments: { receiptEventSeq: 42 }, ok: true,
     result: { chunk: '{"dryRun":true}' },
   }];
   assert.deepEqual(
     completionReceiptFindings({
-      brief: dryRunBrief,
       receipts: historicalOnly,
       authorizedActionReferences: [],
     }).map(({ code }) => code),
-    ["DIRECT_DRY_RUN_RECEIPT_REQUIRED"],
+    [],
   );
 
-  const commitBrief = {
-    objective: "Execute it.", summary: "Approved.", authorizedActions: [], completionCriteria: [],
-  };
   assert.deepEqual(
     completionReceiptFindings({
-      brief: commitBrief,
       receipts: historicalOnly,
       authorizedActionReferences: [reference],
     }).map(({ code }) => code),

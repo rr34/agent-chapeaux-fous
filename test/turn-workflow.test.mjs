@@ -337,17 +337,16 @@ test("a historical receipt cannot masquerade as a new dry run and repair preserv
       return completed("Dry run completed: 273 accounts.", 50);
     }
     if (index === 2) {
-      assert.match(payload.developerInstructions, /DIRECT_DRY_RUN_RECEIPT_REQUIRED/);
       return completed(JSON.stringify({
         contractVersion: 1,
-        outcome: "complete",
-        summary: "The historical receipt proves it.",
-        satisfiedCriteria: ["Dry run completed."],
-        remainingActions: [],
-        repairInstructions: [],
+        outcome: "repair_needed",
+        summary: "A historical receipt does not prove this requested operation ran.",
+        satisfiedCriteria: [],
+        remainingActions: ["Run the provider's current preview operation."],
+        repairInstructions: ["Call the current MCP operation instead of reading another receipt."],
       }), 10);
     }
-    assert.match(payload.developerInstructions, /Call the actual dry-run operation/);
+    assert.match(payload.developerInstructions, /Call the current MCP operation/);
     const direct = await payload.onToolCall({
       callId: "direct-dry-run",
       tool: "remote_accounting_import_account_tree",
@@ -380,6 +379,77 @@ test("a historical receipt cannot masquerade as a new dry run and repair preserv
     type === "tool.result" && name === "remote_accounting_import_account_tree"
   ));
   assert.equal(directReceipt.payload.result.importPlanId, "plan-current-273");
+});
+
+test("provider-guided missing inputs survive repair instead of being replaced by a domain guard", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "tool_receipt_read",
+    description: "Read historical evidence without executing the provider operation.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { receiptEventSeq: { type: "integer" } }, required: ["receiptEventSeq"],
+    },
+    async execute() { return { chunk: '{"historicalPreview":true}' }; },
+  });
+  registry.register({
+    name: "remote_accounting_provider_preview",
+    description: "Run the current provider preview after all provider-required unit scales are supplied.",
+    source: "mcp:accounting",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { unit_scales: { type: "object", additionalProperties: { type: "integer" } } },
+      required: ["unit_scales"],
+    },
+    async execute() { return { status: "ready" }; },
+  });
+  const providerBrief = {
+    ...brief(),
+    requestType: "new_objective",
+    objective: "Run the provider's current validation preview.",
+    summary: "Validate the current provider input.",
+    requiredCapabilities: ["database", "integration:accounting"],
+    completionCriteria: ["Report the current provider result or its exact missing inputs."],
+  };
+  const missingInputResponse = "I need the five unit scales required by the provider before I can run its current preview.";
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(providerBrief), 20);
+    if (index === 1) {
+      await payload.onToolCall({
+        callId: "historical", tool: "tool_receipt_read", arguments: { receiptEventSeq: 42 },
+      });
+      return completed("The provider preview passed.", 50);
+    }
+    if (index === 2) return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "repair_needed",
+      summary: "Historical evidence did not execute the current provider operation.",
+      satisfiedCriteria: [],
+      remainingActions: ["Follow the provider contract for the current input."],
+      repairInstructions: ["Ask for any exact provider-required inputs that are still missing."],
+    }), 10);
+    return completed(missingInputResponse, 30);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  const result = await runtime.run({
+    requestId: "request-provider-preview",
+    requestEventId: "event-current",
+    text: "Run the provider's current validation preview.",
+  });
+
+  assert.equal(result, missingInputResponse);
+  assert.equal(ledger.events.some(({ type }) => type === "completion.guard"), false);
 });
 
 test("approval binds execution to the exact active plan and blocks request-id substitution", async () => {

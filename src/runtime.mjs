@@ -5,7 +5,6 @@ import {
   deferredActionArgumentProblem,
   extractDeferredActionReference,
   incompleteReceiptResponse,
-  providerActionReadiness,
 } from "./deferred-actions.mjs";
 import { requestCapabilityCatalog } from "./request-compiler.mjs";
 import {
@@ -898,7 +897,6 @@ export class SlayerRuntime {
                 ok: true,
                 result: inline.deliveredResult,
                 receiptEventSeq,
-                providerActionReadiness: providerActionReadiness(toolResult),
                 ...(deferredActionReference ? { deferredActionReference } : {}),
               });
               if (inline.paged) {
