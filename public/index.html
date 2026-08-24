@@ -68,6 +68,10 @@
             <input id="request-file" class="sr-only" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.csv,.vcf,.txt,image/jpeg,image/png,image/webp,image/gif,text/csv,text/vcard,text/x-vcard,text/plain">
             <span id="request-file-label" class="request-file-label" hidden></span>
             <img id="request-image-preview" class="request-image-preview" alt="Selected request image preview" hidden>
+            <select id="request-existing-file" class="request-existing-file" aria-label="Use a previously uploaded file">
+              <option value="">Previously uploaded file…</option>
+            </select>
+            <button id="edit-selected-file" class="secondary compact" type="button" hidden>Edit details</button>
             <button id="remove-request-file" class="secondary compact" type="button" hidden>Remove</button>
           </div>
           <div class="request-run-controls">
@@ -696,6 +700,20 @@
     </form>
   </dialog>
 
+  <dialog id="file-dialog" class="editor-dialog file-dialog">
+    <form id="file-form">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Stored upload</p><h2 id="file-dialog-heading">File details</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <p id="file-original-filename" class="muted"></p>
+      <label>Title<input id="file-title" type="text" maxlength="200" required></label>
+      <label>Description<textarea id="file-description" maxlength="5000" rows="5"></textarea></label>
+      <p id="file-form-error" class="form-error"></p>
+      <footer class="editor-actions"><button type="submit">Save file details</button></footer>
+    </form>
+  </dialog>
+
   <dialog id="run-limits-dialog" class="run-limits-dialog">
     <form id="run-limits-form">
       <header class="dialog-heading">
@@ -733,6 +751,12 @@
           <span class="request-usage" hidden></span>
         </div>
         <p class="user-request"></p>
+        <div class="request-attachment" hidden>
+          <button class="request-file-reference secondary compact" type="button"></button>
+          <span class="request-file-original"></span>
+          <span class="request-file-description"></span>
+          <button class="edit-request-file secondary compact" type="button">Edit details</button>
+        </div>
         <div class="agent-response" hidden>
           <span class="agent-response-avatar agent-mascot" role="img"></span>
           <div class="agent-response-body">

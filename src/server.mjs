@@ -23,6 +23,7 @@ import { runtimeIdentity } from "./runtime-identity.mjs";
 import { SchemaSemantics } from "./schema-semantics.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
+import { registerFileTools } from "./tools/file-tools.mjs";
 import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
 import { registerCalendarTools } from "./tools/calendar-tools.mjs";
 import { registerContactTools } from "./tools/contact-tools.mjs";
@@ -90,6 +91,12 @@ if (store.status.ready) {
   registerInteractionGuideTools(registry, interactionGuides, schemaSemantics);
   registerProfileFactTools(registry, profileFacts, schemaSemantics);
   registerDatabaseTools(registry, store, ledger, schemaSemantics, searchCoordinator);
+  registerFileTools(registry, {
+    ledger,
+    searchCoordinator,
+    mediaRoot: config.mediaRoot,
+    maximumTextBytes: config.maxTextAttachmentBytes,
+  });
   registerSearchTools(registry, searchCoordinator);
   registerVideoTools(registry, videoService);
 }
@@ -645,6 +652,43 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/api/log-entries") {
       sendJson(response, 201, { entry: organizer.createLogEntry(await readJson(request)) });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/files") {
+      sendJson(response, 200, ledger.listFiles({
+        query: url.searchParams.get("query"),
+        limit: url.searchParams.get("limit") || 200,
+      }));
+      return;
+    }
+    const fileMetadataMatch = /^\/api\/files\/(\d+)$/.exec(url.pathname);
+    if (request.method === "GET" && fileMetadataMatch) {
+      const file = ledger.fileDetails(Number(fileMetadataMatch[1]));
+      if (!file) {
+        sendJson(response, 404, { error: `File ${fileMetadataMatch[1]} was not found` });
+        return;
+      }
+      sendJson(response, 200, { file });
+      return;
+    }
+    if (request.method === "PATCH" && fileMetadataMatch) {
+      const body = await readJson(request);
+      const file = ledger.updateFile(Number(fileMetadataMatch[1]), {
+        title: body.title,
+        description: body.description,
+        titleSource: "user",
+      });
+      ledger.append({
+        type: "file.metadata.updated",
+        status: "complete",
+        actorType: "user",
+        actorName: "web",
+        name: `Updated file #${file.fileId} metadata`,
+        subjectType: "file",
+        subjectId: String(file.fileId),
+        payload: { fileId: file.fileId, titleSource: file.titleSource },
+      });
+      sendJson(response, 200, { file });
       return;
     }
     const integrationProblem = mcp.requiredProblem() || jmap.requiredProblem();

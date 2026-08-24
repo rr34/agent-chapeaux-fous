@@ -5,6 +5,65 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0019: durable-file-catalog
+-- Give persisted files concise human-facing identity and synchronized full-text
+-- discovery without moving file bytes into SQLite.
+
+ALTER TABLE files
+ADD COLUMN title TEXT
+                 CHECK (title IS NULL OR length(trim(title)) BETWEEN 1 AND 200);
+
+ALTER TABLE files
+ADD COLUMN description TEXT
+                       CHECK (description IS NULL OR length(trim(description)) BETWEEN 1 AND 5000);
+
+ALTER TABLE files
+ADD COLUMN title_source TEXT NOT NULL DEFAULT 'original_filename'
+                             CHECK (title_source IN ('original_filename', 'ai', 'user'));
+
+ALTER TABLE files
+ADD COLUMN updated_at_utc TEXT;
+
+UPDATE files
+SET title = COALESCE(NULLIF(trim(original_filename), ''), 'File ' || file_id);
+
+CREATE INDEX files_created
+    ON files(created_at_utc DESC, file_id DESC);
+
+CREATE VIRTUAL TABLE files_fts USING fts5(
+    title,
+    description,
+    original_filename,
+    content = 'files',
+    content_rowid = 'file_id'
+);
+
+CREATE TRIGGER files_fts_insert
+AFTER INSERT ON files
+BEGIN
+    INSERT INTO files_fts(rowid, title, description, original_filename)
+    VALUES (NEW.file_id, NEW.title, NEW.description, NEW.original_filename);
+END;
+
+CREATE TRIGGER files_fts_delete
+AFTER DELETE ON files
+BEGIN
+    INSERT INTO files_fts(files_fts, rowid, title, description, original_filename)
+    VALUES ('delete', OLD.file_id, OLD.title, OLD.description, OLD.original_filename);
+END;
+
+CREATE TRIGGER files_fts_update
+AFTER UPDATE OF title, description, original_filename ON files
+BEGIN
+    INSERT INTO files_fts(files_fts, rowid, title, description, original_filename)
+    VALUES ('delete', OLD.file_id, OLD.title, OLD.description, OLD.original_filename);
+    INSERT INTO files_fts(rowid, title, description, original_filename)
+    VALUES (NEW.file_id, NEW.title, NEW.description, NEW.original_filename);
+END;
+
+INSERT INTO files_fts(files_fts) VALUES ('rebuild');
+-- end migration 0019
+
 -- migration 0018: interaction-guides
 -- Store user-owned plans for structured interactions independently from
 -- recurring to-do definitions. A repeating to-do may point to one guide, but

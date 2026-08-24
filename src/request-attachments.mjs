@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { parseCsvRows } from "./contact-file-import.mjs";
 
 const allowedExtensions = new Map([
   [".csv", new Set([
@@ -140,7 +141,7 @@ async function requestBytes(request, maximumBytes) {
 
 async function storeAttachment(bytes, {
   extension, originalFilename, mediaKind, mimeType, encoding = null,
-  mediaRoot, ledger, now, uuid,
+  title = originalFilename, description = null, mediaRoot, ledger, now, uuid,
 }) {
   const relativeDirectory = path.join(
     String(now.getUTCFullYear()),
@@ -158,6 +159,8 @@ async function storeAttachment(bytes, {
     file = ledger.registerFile({
       storagePath,
       originalFilename,
+      title,
+      description,
       mediaKind,
       mimeType,
       sha256,
@@ -179,6 +182,27 @@ async function storeAttachment(bytes, {
     sha256,
     ...(encoding ? { encoding } : {}),
   };
+}
+
+function documentDescription(extension, text) {
+  if (extension === ".csv") {
+    try {
+      const rows = parseCsvRows(text);
+      const headers = (rows[0] ?? []).map((value) => String(value).trim()).filter(Boolean);
+      const dataRows = rows.slice(1).filter((row) => row.some((value) => String(value).trim())).length;
+      const columns = headers.slice(0, 12).join(", ");
+      const omitted = Math.max(0, headers.length - 12);
+      return `CSV with ${dataRows} data ${dataRows === 1 ? "row" : "rows"}${columns ? `. Columns: ${columns}${omitted ? `, and ${omitted} more` : ""}.` : "."}`;
+    } catch {
+      return "CSV document.";
+    }
+  }
+  if ([".vcf", ".vcard"].includes(extension)) {
+    const cards = (text.match(/^BEGIN:VCARD\s*$/gimu) ?? []).length;
+    return cards ? `vCard document with ${cards} ${cards === 1 ? "contact" : "contacts"}.` : "vCard document.";
+  }
+  const lines = text ? text.split(/\r\n|\n|\r/u).length : 0;
+  return lines ? `Text document with ${lines} ${lines === 1 ? "line" : "lines"}.` : "Text document.";
 }
 
 export function safeMediaPath(mediaRoot, storagePath) {
@@ -208,9 +232,11 @@ export async function receiveTextAttachment(request, {
   }
 
   const bytes = await requestBytes(request, maximumBytes);
-  const { encoding } = decodedText(bytes);
+  const { text, encoding } = decodedText(bytes);
   return storeAttachment(bytes, {
     extension, originalFilename, mediaKind: "document", mimeType, encoding,
+    title: originalFilename,
+    description: documentDescription(extension, text),
     mediaRoot, ledger, now, uuid,
   });
 }
@@ -241,6 +267,8 @@ export async function receiveRequestAttachment(request, options = {}) {
   return storeAttachment(bytes, {
     extension,
     originalFilename,
+    title: originalFilename,
+    description: "Image file.",
     mediaKind: "image",
     mimeType,
     mediaRoot: options.mediaRoot,

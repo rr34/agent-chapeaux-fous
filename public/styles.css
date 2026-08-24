@@ -187,6 +187,7 @@ textarea:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .attachment-button:hover { border-color: #56616a; background: #252b31; }
 .request-image-preview { width: 58px; height: 58px; object-fit: cover; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
 .request-file-label { overflow: hidden; max-width: 24rem; color: var(--muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.request-existing-file { max-width: 25rem; min-height: 42px; padding: .55rem .7rem; color: var(--text); background: #0e1113; border: 1px solid var(--line); border-radius: 10px; }
 .request-run-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .45rem; }
 .respond-silently-control { gap: .4rem; padding: .45rem .3rem; color: var(--muted); font-size: .78rem; white-space: nowrap; cursor: pointer; }
 #respond-silently { width: 1rem; height: 1rem; margin: 0; padding: 0; accent-color: var(--accent); }
@@ -608,6 +609,11 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .request-entry[data-status="complete"] .request-status { color: var(--good); }
 .request-entry[data-status="error"] .request-status, .request-error { color: var(--bad); }
 .user-request { margin-bottom: .7rem; color: #c8d0d5; white-space: pre-wrap; }
+.request-attachment { display: grid; grid-template-columns: max-content 1fr max-content; align-items: center; gap: .35rem .65rem; margin: 0 0 .7rem; padding: .65rem; background: rgba(89, 164, 255, .08); border: 1px solid rgba(89, 164, 255, .22); border-radius: 9px; }
+.request-attachment[hidden] { display: none; }
+.request-file-reference { justify-self: start; color: #a8d0ff; }
+.request-file-original, .request-file-description { min-width: 0; color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
+.request-file-description { grid-column: 1 / -1; }
 .agent-response { margin: 0 0 .7rem; padding: .8rem; background: #1a1f23; border-left: 3px solid var(--accent); border-radius: 4px 9px 9px 4px; }
 .agent-response:not([hidden]) { display: flex; align-items: flex-start; gap: .7rem; }
 .agent-response-avatar { width: 58px; height: 38px; margin: 0 0 0 -.25rem; }
@@ -709,6 +715,9 @@ dialog h2, dialog p { margin-bottom: 0; }
   .composer-actions { align-items: stretch; flex-direction: column; }
   .request-attachment-control { width: 100%; }
   .request-file-label { max-width: calc(100vw - 10rem); }
+  .request-existing-file { max-width: calc(100vw - 3rem); }
+  .request-attachment { grid-template-columns: 1fr; }
+  .request-file-description { grid-column: 1; }
   .request-run-controls { justify-content: stretch; }
   .respond-silently-control { margin-right: auto; }
   .request-run-controls #send { margin-left: auto; }

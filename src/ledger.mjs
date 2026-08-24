@@ -31,6 +31,27 @@ function publicEvent(row) {
   };
 }
 
+function publicFile(row) {
+  if (!row) return null;
+  return {
+    fileId: Number(row.file_id),
+    title: row.title || row.original_filename || `File ${row.file_id}`,
+    description: row.description ?? null,
+    titleSource: row.title_source ?? "original_filename",
+    originalFilename: row.original_filename ?? null,
+    mediaKind: row.media_kind,
+    mimeType: row.mime_type ?? null,
+    sha256: row.sha256 ?? null,
+    byteSize: row.byte_size == null ? null : Number(row.byte_size),
+    durationMs: row.duration_ms == null ? null : Number(row.duration_ms),
+    width: row.width == null ? null : Number(row.width),
+    height: row.height == null ? null : Number(row.height),
+    sourceEventId: row.source_event_id ?? null,
+    createdAtUtc: row.created_at_utc,
+    updatedAtUtc: row.updated_at_utc ?? null,
+  };
+}
+
 const receivedEventTypes = ["request.received", "voice.request.received"];
 const responseEventTypes = ["assistant.response", "agent.turn.end"];
 const conversationTextEventTypes = [
@@ -210,6 +231,13 @@ export class Ledger {
       payload: { ...metadata, ...(runLimits === null ? {} : { runLimits }) },
       primaryFileId,
     });
+    if (primaryFileId !== null) {
+      this.store.requireReady().prepare(`
+        UPDATE files
+        SET source_event_id = COALESCE(source_event_id, ?)
+        WHERE file_id = ?
+      `).run(eventId, primaryFileId);
+    }
     return { requestId, eventId };
   }
 
@@ -321,6 +349,7 @@ export class Ledger {
       error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
       usage: usage?.payload || null,
       eventCount: events.length,
+      ...(sourceFile ? { attachment: publicFile(sourceFile) } : {}),
       ...(explicitHats.length ? { explicitHats } : {}),
       ...(requestKind ? { requestKind } : {}),
       ...(videoEligible ? { videoEligible: true } : {}),
@@ -989,22 +1018,93 @@ export class Ledger {
 
   registerFile({
     storagePath, originalFilename, mimeType, sha256, byteSize, mediaKind = "audio",
-    durationMs = null, width = null, height = null,
+    durationMs = null, width = null, height = null, title = originalFilename, description = null,
   }) {
     const database = this.store.requireReady();
     const existing = database.prepare("SELECT * FROM files WHERE sha256 = ? AND byte_size = ? ORDER BY file_id LIMIT 1").get(sha256, byteSize);
-    if (existing) return { fileId: Number(existing.file_id), duplicate: true, storagePath: existing.storage_path };
-    const result = database.prepare(`
+    if (existing) return { ...publicFile(existing), duplicate: true, storagePath: existing.storage_path };
+    const row = database.prepare(`
       INSERT INTO files (
-        storage_path, original_filename, media_kind, mime_type, sha256, byte_size,
-        duration_ms, width, height
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(storagePath, originalFilename, mediaKind, mimeType, sha256, byteSize, durationMs, width, height);
-    return { fileId: Number(result.lastInsertRowid), duplicate: false, storagePath };
+        storage_path, original_filename, title, description, title_source, media_kind, mime_type,
+        sha256, byte_size, duration_ms, width, height
+      ) VALUES (?, ?, ?, ?, 'original_filename', ?, ?, ?, ?, ?, ?, ?)
+      RETURNING *
+    `).get(
+      storagePath, originalFilename, String(title || originalFilename || "Stored file").trim(),
+      description == null ? null : String(description).trim(), mediaKind, mimeType,
+      sha256, byteSize, durationMs, width, height,
+    );
+    return { ...publicFile(row), duplicate: false, storagePath };
   }
 
   file(fileId) {
     return this.store.requireReady().prepare("SELECT * FROM files WHERE file_id = ?").get(fileId);
+  }
+
+  fileDetails(fileId) {
+    const row = this.file(fileId);
+    if (!row) return null;
+    const origins = this.store.requireReady().prepare(`
+      SELECT event_seq, event_id, turn_id, content_text, occurred_at_utc
+      FROM activity_events
+      WHERE primary_file_id = ?
+        AND event_type IN ('request.received', 'voice.request.received')
+      ORDER BY event_seq
+      LIMIT 20
+    `).all(fileId).map((origin) => ({
+      eventSeq: Number(origin.event_seq),
+      eventId: origin.event_id,
+      requestId: origin.turn_id,
+      request: origin.content_text,
+      occurredAtUtc: origin.occurred_at_utc,
+    }));
+    return { ...publicFile(row), origins };
+  }
+
+  listFiles({ query = null, limit = 100 } = {}) {
+    const bounded = Number(limit);
+    if (!Number.isSafeInteger(bounded) || bounded < 1 || bounded > 500) {
+      throw new Error("File list limit must be an integer from 1 to 500");
+    }
+    const selectedQuery = String(query ?? "").trim();
+    const pattern = `%${selectedQuery.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+    const rows = this.store.requireReady().prepare(`
+      SELECT DISTINCT file.*
+      FROM files AS file
+      LEFT JOIN activity_events AS event
+        ON event.primary_file_id = file.file_id
+       AND event.event_type IN ('request.received', 'voice.request.received')
+      WHERE ? = ''
+         OR file.title LIKE ? ESCAPE '\\'
+         OR file.description LIKE ? ESCAPE '\\'
+         OR file.original_filename LIKE ? ESCAPE '\\'
+         OR event.content_text LIKE ? ESCAPE '\\'
+      ORDER BY file.created_at_utc DESC, file.file_id DESC
+      LIMIT ?
+    `).all(selectedQuery, pattern, pattern, pattern, pattern, bounded).map(publicFile);
+    return { query: selectedQuery || null, count: rows.length, files: rows };
+  }
+
+  updateFile(fileId, { title, description, titleSource = "user" }) {
+    if (!Number.isSafeInteger(fileId) || fileId < 1) throw new Error("File ID must be a positive integer");
+    const selectedTitle = String(title ?? "").trim();
+    const selectedDescription = description == null ? null : String(description).trim() || null;
+    if (!["ai", "user"].includes(titleSource)) throw new Error("File title source must be ai or user");
+    if (!selectedTitle || selectedTitle.length > 200) throw new Error("File title must contain 1 to 200 characters");
+    if (selectedDescription && selectedDescription.length > 5000) throw new Error("File description cannot exceed 5000 characters");
+    const database = this.store.requireReady();
+    const existing = database.prepare("SELECT title_source FROM files WHERE file_id = ?").get(fileId);
+    if (!existing) throw new Error(`File ${fileId} does not exist`);
+    if (titleSource === "ai" && existing.title_source === "user") {
+      throw new Error(`File ${fileId} has a user-edited title and cannot be overwritten by AI`);
+    }
+    const row = database.prepare(`
+      UPDATE files
+      SET title = ?, description = ?, title_source = ?, updated_at_utc = ?
+      WHERE file_id = ?
+      RETURNING *
+    `).get(selectedTitle, selectedDescription, titleSource, new Date().toISOString(), fileId);
+    return publicFile(row);
   }
 
   requestHash(text) {

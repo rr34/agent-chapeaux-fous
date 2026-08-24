@@ -192,6 +192,10 @@ test("context usage, intent checkpoints, and exact tool receipts remain recovera
       payload: { callId: "large-read", result: { rows: ["alpha", "beta"], importantDetail: "preserved" } },
     });
     ledger.finish(ledger.trace(first.requestId)[0], "The objective is still active.");
+    const historicalRequest = ledger.recentRequests().find(({ requestId }) => requestId === first.requestId);
+    assert.equal(historicalRequest.attachment.fileId, attachment.fileId);
+    assert.equal(historicalRequest.attachment.title, "account-tree.csv");
+    assert.equal(historicalRequest.attachment.originalFilename, "account-tree.csv");
     ledger.append({
       type: "model.response", status: "complete", actorType: "model", actorName: "gpt-5.6-terra",
       turnId: first.requestId, operationId: "model-usage-1",

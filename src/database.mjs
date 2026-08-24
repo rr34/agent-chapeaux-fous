@@ -8,7 +8,10 @@ export const requiredDatabaseShape = {
     "source", "channel", "session_id", "turn_id", "trace_id", "operation_id",
     "name", "content_text", "payload_json", "primary_file_id", "subject_type", "subject_id", "error_text",
   ],
-  files: ["file_id", "storage_path", "original_filename", "media_kind", "mime_type", "sha256", "byte_size"],
+  files: [
+    "file_id", "storage_path", "original_filename", "title", "description", "title_source",
+    "media_kind", "mime_type", "sha256", "byte_size", "created_at_utc", "updated_at_utc",
+  ],
   contacts: [
     "contact_id", "contact_kind", "display_name", "given_name", "family_name",
     "organization_name", "is_self", "status", "birth_date", "notes", "source", "external_id",
@@ -61,6 +64,7 @@ const protectedWriteTables = new Set([
   "activity_event_files",
   "activity_events",
   "activity_events_fts",
+  "files_fts",
   "agent_turn_attempts",
   "database_meta",
   "files",
@@ -153,6 +157,7 @@ export class SlayerDatabase {
       WHERE type IN ('table', 'view')
         AND name NOT LIKE 'sqlite_%'
         AND name NOT LIKE 'activity_events_fts_%'
+        AND name NOT LIKE 'files_fts_%'
       ORDER BY type, name
     `).all().map(serializable);
   }

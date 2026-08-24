@@ -15,7 +15,16 @@ const elements = {
   requestFile: document.querySelector("#request-file"),
   requestFileLabel: document.querySelector("#request-file-label"),
   requestImagePreview: document.querySelector("#request-image-preview"),
+  requestExistingFile: document.querySelector("#request-existing-file"),
+  editSelectedFile: document.querySelector("#edit-selected-file"),
   removeRequestFile: document.querySelector("#remove-request-file"),
+  fileDialog: document.querySelector("#file-dialog"),
+  fileForm: document.querySelector("#file-form"),
+  fileDialogHeading: document.querySelector("#file-dialog-heading"),
+  fileOriginalFilename: document.querySelector("#file-original-filename"),
+  fileTitle: document.querySelector("#file-title"),
+  fileDescription: document.querySelector("#file-description"),
+  fileFormError: document.querySelector("#file-form-error"),
   runLimitsButton: document.querySelector("#run-limits-button"),
   runLimitsSummary: document.querySelector("#run-limits-summary"),
   runLimitsDialog: document.querySelector("#run-limits-dialog"),
@@ -302,6 +311,8 @@ let logTrackers = [];
 let logEntries = [];
 let aiUsageData = null;
 let requestImagePreviewUrl = null;
+let storedFiles = [];
+let editingFileId = null;
 const requestNodes = new Map();
 const speechQueueStorageKey = "agent-slayer-pending-spoken-responses";
 const responseSilenceStorageKey = "agent-slayer-respond-silently";
@@ -450,10 +461,12 @@ function formatFileSize(bytes) {
 
 function updateRequestFileSelection() {
   const file = elements.requestFile.files?.[0] ?? null;
+  const existingFileId = Number(elements.requestExistingFile.value) || null;
   if (requestImagePreviewUrl) URL.revokeObjectURL(requestImagePreviewUrl);
   requestImagePreviewUrl = null;
   elements.requestFileLabel.hidden = !file;
-  elements.removeRequestFile.hidden = !file;
+  elements.removeRequestFile.hidden = !file && existingFileId === null;
+  elements.editSelectedFile.hidden = existingFileId === null;
   elements.requestFileLabel.textContent = file ? `${file.name} · ${formatFileSize(file.size)}` : "";
   const image = Boolean(file && (file.type.startsWith("image/") || /\.(?:jpe?g|png|webp|gif)$/iu.test(file.name)));
   elements.requestImagePreview.hidden = !image;
@@ -461,6 +474,64 @@ function updateRequestFileSelection() {
   if (image) {
     requestImagePreviewUrl = URL.createObjectURL(file);
     elements.requestImagePreview.src = requestImagePreviewUrl;
+  }
+}
+
+function renderStoredFileOptions() {
+  const selected = elements.requestExistingFile.value;
+  elements.requestExistingFile.replaceChildren(new Option("Previously uploaded file…", ""));
+  for (const file of storedFiles) {
+    const original = file.originalFilename && file.originalFilename !== file.title
+      ? ` — ${file.originalFilename}`
+      : "";
+    elements.requestExistingFile.append(new Option(`#${file.fileId} ${file.title}${original}`, String(file.fileId)));
+  }
+  if ([...elements.requestExistingFile.options].some((option) => option.value === selected)) {
+    elements.requestExistingFile.value = selected;
+  }
+  updateRequestFileSelection();
+}
+
+async function loadFiles() {
+  const body = await api("/api/files?limit=200");
+  storedFiles = body.files ?? [];
+  renderStoredFileOptions();
+}
+
+async function openFileEditor(fileId) {
+  const body = await api(`/api/files/${fileId}`);
+  const file = body.file;
+  editingFileId = file.fileId;
+  elements.fileDialogHeading.textContent = `File #${file.fileId}`;
+  elements.fileOriginalFilename.textContent = `Original filename: ${file.originalFilename || "Unavailable"}`;
+  elements.fileTitle.value = file.title || "";
+  elements.fileDescription.value = file.description || "";
+  elements.fileFormError.textContent = "";
+  elements.fileDialog.showModal();
+  elements.fileTitle.focus();
+}
+
+async function saveFileDetails(event) {
+  event.preventDefault();
+  if (!editingFileId) return;
+  elements.fileFormError.textContent = "";
+  const submit = elements.fileForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  try {
+    await api(`/api/files/${editingFileId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: elements.fileTitle.value,
+        description: elements.fileDescription.value.trim() || null,
+      }),
+    });
+    elements.fileDialog.close();
+    await Promise.all([loadFiles(), loadRequests({ force: true })]);
+  } catch (error) {
+    elements.fileFormError.textContent = error.message || "Could not save file details.";
+  } finally {
+    submit.disabled = false;
   }
 }
 
@@ -1018,6 +1089,14 @@ function requestNode(request, index) {
       const fileId = Number(event.currentTarget.dataset.fileId);
       if (Number.isSafeInteger(fileId) && fileId > 0) void downloadInteractionVideo(fileId, event.currentTarget);
     });
+    node.querySelector(".request-file-reference").addEventListener("click", (event) => {
+      const fileId = Number(event.currentTarget.dataset.fileId);
+      if (fileId) copyText(`file ${fileId}`, event.currentTarget);
+    });
+    node.querySelector(".edit-request-file").addEventListener("click", (event) => {
+      const fileId = Number(event.currentTarget.dataset.fileId);
+      if (fileId) void openFileEditor(fileId);
+    });
     requestNodes.set(request.requestId, node);
   }
   node.dataset.status = request.status;
@@ -1035,6 +1114,22 @@ function requestNode(request, index) {
   elapsed.textContent = Number.isFinite(request.elapsedMs) ? `${formatDuration(request.elapsedMs)} elapsed` : "";
   elapsed.hidden = !elapsed.textContent;
   node.querySelector(".user-request").textContent = request.request;
+  const attachment = node.querySelector(".request-attachment");
+  const file = request.attachment;
+  attachment.hidden = !file;
+  if (file) {
+    const reference = attachment.querySelector(".request-file-reference");
+    reference.dataset.fileId = String(file.fileId);
+    reference.textContent = `File #${file.fileId} · ${file.title}`;
+    reference.title = `Copy reference: file ${file.fileId}`;
+    const original = attachment.querySelector(".request-file-original");
+    original.textContent = file.originalFilename ? `Original filename: ${file.originalFilename}` : "";
+    original.hidden = !original.textContent;
+    const description = attachment.querySelector(".request-file-description");
+    description.textContent = file.description || "";
+    description.hidden = !description.textContent;
+    attachment.querySelector(".edit-request-file").dataset.fileId = String(file.fileId);
+  }
   const response = node.querySelector(".agent-response");
   renderAgentMascot(node.querySelector(".agent-response-avatar"), request.explicitHats);
   response.hidden = !request.response;
@@ -3594,7 +3689,9 @@ elements.form.addEventListener("submit", async (event) => {
   elements.status.textContent = "Submitting…";
   try {
     const file = elements.requestFile.files?.[0] ?? null;
-    let primaryFileId = null;
+    let primaryFileId = Number(elements.requestExistingFile.value) || null;
+    let selectedStoredFile = storedFiles.find((entry) => entry.fileId === primaryFileId) ?? null;
+    let uploadedNewFile = false;
     if (file) {
       elements.status.textContent = "Uploading attachment…";
       const mimeType = requestFileMimeType(file);
@@ -3604,7 +3701,9 @@ elements.form.addEventListener("submit", async (event) => {
         body: file,
       });
       primaryFileId = uploaded.fileId;
-      elements.status.textContent = "Submitting request…";
+      selectedStoredFile = uploaded;
+      uploadedNewFile = true;
+      elements.status.textContent = `Uploaded ${uploaded.originalFilename} as file #${uploaded.fileId}. Submitting request…`;
     }
     const created = await api("/api/requests", {
       method: "POST",
@@ -3614,11 +3713,16 @@ elements.form.addEventListener("submit", async (event) => {
     expectSpokenResponse(created.requestId, respondSilently);
     elements.text.value = "";
     elements.requestFile.value = "";
+    elements.requestExistingFile.value = "";
     updateRequestFileSelection();
     pendingRunLimits = null;
     updateRunLimitsSummary();
-    elements.status.textContent = "Queued.";
-    await loadRequests({ force: true });
+    elements.status.textContent = uploadedNewFile
+      ? `Uploaded ${selectedStoredFile.originalFilename} as file #${primaryFileId}. Request queued.`
+      : selectedStoredFile
+        ? `Queued with file #${primaryFileId} — ${selectedStoredFile.title || selectedStoredFile.originalFilename}.`
+      : "Queued.";
+    await Promise.all([loadRequests({ force: true }), loadFiles()]);
   } catch (error) {
     elements.status.textContent = error.message;
   } finally {
@@ -3632,10 +3736,23 @@ elements.text.addEventListener("keydown", (event) => {
   event.preventDefault();
   if (!elements.send.disabled) elements.form.requestSubmit();
 });
-elements.requestFile.addEventListener("change", updateRequestFileSelection);
+elements.requestFile.addEventListener("change", () => {
+  if (elements.requestFile.files?.length) elements.requestExistingFile.value = "";
+  updateRequestFileSelection();
+});
+elements.requestExistingFile.addEventListener("change", () => {
+  if (elements.requestExistingFile.value) elements.requestFile.value = "";
+  updateRequestFileSelection();
+});
+elements.editSelectedFile.addEventListener("click", () => {
+  const fileId = Number(elements.requestExistingFile.value);
+  if (fileId) void openFileEditor(fileId);
+});
+elements.fileForm.addEventListener("submit", saveFileDetails);
 elements.respondSilently.addEventListener("change", saveResponseSilencePreference);
 elements.removeRequestFile.addEventListener("click", () => {
   elements.requestFile.value = "";
+  elements.requestExistingFile.value = "";
   updateRequestFileSelection();
 });
 elements.runLimitsButton.addEventListener("click", openRunLimitsDialog);
@@ -4008,6 +4125,7 @@ if (new URLSearchParams(window.location.search).get("oauth") === "connected") {
 }
 loadHealth().catch(() => {});
 loadRequests({ force: true }).catch(() => {});
+loadFiles().catch(() => {});
 switchView("agent");
 setInterval(() => loadHealth().catch(() => {}), 5000);
 setInterval(() => loadRequests().catch(() => {}), 1500);

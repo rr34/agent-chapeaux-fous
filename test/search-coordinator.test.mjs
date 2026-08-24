@@ -81,7 +81,7 @@ test("search coordinator interleaves providers and reports partial failures lite
   assert.equal(result.providers.find(({ scope }) => scope === "broken").error, "provider is offline");
 });
 
-test("native coordinator searches calendar, contacts, and history through one tool", async (context) => {
+test("native coordinator searches calendar, contacts, files, and history through one tool", async (context) => {
   const { organizer, ledger, coordinator } = harness(context);
   organizer.createCalendar({
     title: "Planning review",
@@ -89,18 +89,24 @@ test("native coordinator searches calendar, contacts, and history through one to
     startsAtUtc: "2099-08-18T19:00:00.000Z",
   });
   organizer.createContact({ displayName: "Alice Rivera", notes: "Planning collaborator" });
+  const storedFile = ledger.registerFile({
+    storagePath: "media/alice-plan.csv", originalFilename: "alice-plan.csv",
+    title: "Alice planning data", description: "Revised proposal source rows",
+    mediaKind: "document", mimeType: "text/csv", sha256: "alice-plan", byteSize: 42,
+  });
+  ledger.createRequest({ text: "Upload Alice's planning source", primaryFileId: storedFile.fileId });
   const request = ledger.createRequest({ text: "Alice proposed the revised plan" });
   ledger.finish(ledger.trace(request.requestId)[0], "The proposal was recorded.");
 
   const registry = new ToolRegistry();
   registerSearchTools(registry, coordinator);
   const definition = registry.toolDefinitions().find(({ name }) => name === "global_search");
-  assert.deepEqual(definition.inputSchema.properties.scopes.items.enum, ["calendar", "contacts", "history"]);
+  assert.deepEqual(definition.inputSchema.properties.scopes.items.enum, ["calendar", "contacts", "files", "history"]);
   assert.deepEqual(definition.inputSchema.properties.match_mode.enum, ["terms", "phrase", "near"]);
 
   const result = await registry.execute("global_search", {
     query: "Alice",
-    scopes: ["calendar", "contacts", "history"],
+    scopes: ["calendar", "contacts", "files", "history"],
     match_mode: "terms",
     max_distance: 12,
     context_tokens: 24,
@@ -108,10 +114,11 @@ test("native coordinator searches calendar, contacts, and history through one to
   });
   assert.equal(result.partial, false);
   assert.deepEqual(new Set(result.hits.map(({ provider }) => provider)), new Set([
-    "calendar", "contacts", "history",
+    "calendar", "contacts", "files", "history",
   ]));
   assert.equal(result.hits.find(({ provider }) => provider === "calendar").title, "Planning review");
   assert.equal(result.hits.find(({ provider }) => provider === "contacts").title, "Alice Rivera");
+  assert.match(result.hits.find(({ provider }) => provider === "files").title, /File #\d+ — Alice planning data/);
   assert.match(result.hits.find(({ provider }) => provider === "history").snippet, /Alice proposed/);
 });
 

@@ -66,6 +66,14 @@ export class RequestQueue {
           maximumBytes: this.maxRequestAttachmentBytes,
           maximumTextBytes: this.maxTextAttachmentBytes,
         });
+        attachment = {
+          ...attachment,
+          fileId: Number(file.file_id),
+          title: file.title || file.original_filename,
+          description: file.description ?? null,
+          titleSource: file.title_source ?? "original_filename",
+          originalFilename: file.original_filename,
+        };
         this.ledger.append({
           type: "attachment.read", status: "complete", actorType: "service",
           actorName: "Request attachment reader", channel: request.channel,

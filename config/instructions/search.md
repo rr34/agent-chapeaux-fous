@@ -1,5 +1,7 @@
 Use `global_search` when the user asks to discover information across multiple
-application-owned domains or does not know where something was stored. Choose
+application-owned domains or does not know where something was stored. Stored
+uploads are searchable by title, description, original filename, and the
+originating request text. Choose
 only the scopes relevant to the request. Use `terms` for ordinary discovery,
 `phrase` for adjacent words in order, and `near` when the words should occur
 within `max_distance` tokens. Providers retain their native matching behavior

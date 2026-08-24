@@ -16,11 +16,14 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 18, 'Agent Slayer test database');
+    VALUES (1, 19, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
       original_filename TEXT,
+      title TEXT,
+      description TEXT,
+      title_source TEXT NOT NULL DEFAULT 'original_filename',
       media_kind TEXT NOT NULL DEFAULT 'other',
       mime_type TEXT,
       sha256 TEXT,
@@ -29,8 +32,27 @@ export function temporaryDatabase() {
       width INTEGER,
       height INTEGER,
       source_event_id TEXT,
-      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT
     ) STRICT;
+    CREATE VIRTUAL TABLE files_fts USING fts5(
+      title, description, original_filename,
+      content = 'files', content_rowid = 'file_id'
+    );
+    CREATE TRIGGER files_fts_insert AFTER INSERT ON files BEGIN
+      INSERT INTO files_fts(rowid, title, description, original_filename)
+      VALUES (new.file_id, new.title, new.description, new.original_filename);
+    END;
+    CREATE TRIGGER files_fts_delete AFTER DELETE ON files BEGIN
+      INSERT INTO files_fts(files_fts, rowid, title, description, original_filename)
+      VALUES ('delete', old.file_id, old.title, old.description, old.original_filename);
+    END;
+    CREATE TRIGGER files_fts_update AFTER UPDATE OF title, description, original_filename ON files BEGIN
+      INSERT INTO files_fts(files_fts, rowid, title, description, original_filename)
+      VALUES ('delete', old.file_id, old.title, old.description, old.original_filename);
+      INSERT INTO files_fts(rowid, title, description, original_filename)
+      VALUES (new.file_id, new.title, new.description, new.original_filename);
+    END;
     CREATE TABLE activity_events (
       event_seq INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id TEXT NOT NULL UNIQUE,

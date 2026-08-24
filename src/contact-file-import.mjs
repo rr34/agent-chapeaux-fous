@@ -4,7 +4,7 @@ import path from "node:path";
 const maximumContacts = 10_000;
 const maximumColumns = 500;
 
-function parseCsvRows(text) {
+export function parseCsvRows(text) {
   const rows = [];
   let row = [];
   let value = "";

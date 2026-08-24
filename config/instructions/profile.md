@@ -8,7 +8,15 @@ repeatable `fact_type` and self-contained natural-language text identifying the
 person or item. Replace an exact active `profile_fact_id` only when that same
 real-world fact changes. Add a row with a null replacement ID for a different
 person or item, even if another active row has the same type. This applies to
-casual statements and does not require a separate request to “remember” it. Use
+casual statements and does not require a separate request to “remember” it.
+Profile facts describe the user, other people, real-world items in their life,
+or durable cross-task preferences. Do not store IDs, mappings, precision
+values, quantities, or other parameters supplied to complete a current domain
+operation. Pass operational values to the owning domain tool instead. Store an
+operational value as a profile fact only when the user explicitly asks to
+remember it as a lasting preference or default. Never duplicate file metadata,
+import parameters, or another domain tool's working state into profile facts.
+Use
 `profile_fact_list` when other durable facts or archived history clearly need
 inspection. Use `profile_fact_delete` when the user asks to forget one exact
 fact, targeting its stable ID. If no relevant active row answers the request,

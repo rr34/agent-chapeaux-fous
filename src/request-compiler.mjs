@@ -9,6 +9,7 @@ const localCapabilityMatchers = [
   ["logs", (tool) => tool.name.startsWith("log_") || tool.name.startsWith("tracker_")],
   ["interaction-guides", (tool) => tool.name.startsWith("interaction_guide_")],
   ["profile", (tool) => tool.name.startsWith("profile_fact_")],
+  ["files", (tool) => tool.name.startsWith("file_")],
   ["database-write", (tool) => tool.name === "database_write"],
   ["database", (tool) => [
     "database_schema", "database_read", "tool_receipt_list", "tool_receipt_read",
@@ -28,6 +29,7 @@ const instructionFiles = new Map([
   ["logs", "logs.md"],
   ["interaction-guides", "interaction-guides.md"],
   ["profile", "profile.md"],
+  ["files", "files.md"],
   ["database", "database.md"],
   ["database-write", "database-write.md"],
   ["history", "history.md"],
@@ -44,6 +46,7 @@ const capabilityPatterns = new Map([
   ["logs", /\b(?:personal logs?|log entr(?:y|ies)|(?:my|the) logs?|food log|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
   ["interaction-guides", /\b(?:interaction guides?|guided interactions?)\b|\b(?:start|use|update|change|edit|create|make|show|list|archive|schedule).{0,60}\bguide\b/iu],
   ["profile", /\b(?:remember that|remember my|keep on file|profile fact|forget (?:that|my)|my preference|i prefer|i am allergic|my address|my phone|my vehicle|my car|my time ?zone|my\b.{0,80}\b(?:is|are|changed))\b/iu],
+  ["files", /\b(?:file\s*#?\s*\d+|file id|uploaded file|previous upload|past upload|attachment|document|csv|vcard|original filename)\b/iu],
   ["database", /\b(?:database|db|sqlite|schema|table|ledger|audit trail|tool receipts?|activity events?|stored row|content item|content group|video job|correspondence)\b/iu],
   ["database-write", /(?:\b(?:write|insert|update|delete|remove|import|save|create|change)\b.{0,60}\b(?:database|db|sqlite|table|rows?|content items?|content groups?|video jobs?)\b)|(?:\b(?:database|db|sqlite|table|rows?|content items?|content groups?|video jobs?)\b.{0,60}\b(?:write|insert|update|delete|remove|import|save|create|change)\b)/iu],
   ["history", /\b(?:what did we|what have we|talked about|discussed|previous conversation|prior conversation|conversation history|earlier today|last time|yesterday we|recent exchange)\b/iu],
@@ -69,12 +72,13 @@ const capabilitySummaries = new Map([
   ["logs", "Read, record, and correct personal logs and trackers."],
   ["interaction-guides", "Create, inspect, update, and follow user-owned guides for structured interactions."],
   ["profile", "Read and maintain durable profile facts."],
+  ["files", "Find and retrieve durable uploads by stable file ID, and maintain their title and description."],
   ["database", "Inspect schema and read supported native SQLite-backed application data, including the durable activity ledger."],
   ["database-write", "Write supported native SQLite-backed application data; read-only database access is already callable."],
   ["history", "Search prior Agent Slayer conversations."],
   ["email", "Read, draft, send, organize, and clean up email."],
   ["video", "Render an interaction video from the current request trace."],
-  ["search", "Search across calendar, contacts, and conversation history with compact normalized results."],
+  ["search", "Search across calendar, contacts, durable uploads, and conversation history with compact normalized results."],
 ]);
 
 export function capabilityForTool(tool) {
@@ -118,21 +122,21 @@ function attachmentCapabilities(attachment) {
   const mimeType = normalizedText(attachment.mimeType).toLowerCase();
   const preview = normalizedText(attachment.text).slice(0, 8000).toLowerCase();
   if (filename.endsWith(".vcf") || filename.endsWith(".vcard") || mimeType.includes("vcard")) {
-    return { capabilities: ["contacts"], uncertain: false };
+    return { capabilities: ["files", "contacts"], uncertain: false };
   }
   if (filename.endsWith(".csv") || mimeType.includes("csv")) {
     if (/\b(?:email|phone|given_name|family_name|display_name|categories)\b/u.test(preview)) {
-      return { capabilities: ["contacts"], uncertain: false };
+      return { capabilities: ["files", "contacts"], uncertain: false };
     }
     if (/\b(?:tracker|occurred_at|number_value|content_text|unit)\b/u.test(preview)) {
-      return { capabilities: ["logs"], uncertain: false };
+      return { capabilities: ["files", "logs"], uncertain: false };
     }
     if (/\b(?:content_type|content_status|content_url|published_at|relationship_to_user)\b/u.test(preview)) {
-      return { capabilities: ["database", "database-write"], uncertain: false };
+      return { capabilities: ["files", "database", "database-write"], uncertain: false };
     }
-    return { capabilities: [], uncertain: true };
+    return { capabilities: ["files"], uncertain: true };
   }
-  return { capabilities: [], uncertain: true };
+  return { capabilities: ["files"], uncertain: true };
 }
 
 function integrationAliases(provider) {
@@ -175,6 +179,7 @@ export function selectRequestCapabilities({
     : enrichedRoutingText(currentText);
   const selected = new Set([
     ...(grouped.has("profile") ? ["profile"] : []),
+    ...(grouped.has("files") ? ["files"] : []),
     ...(grouped.has("database") ? ["database"] : []),
   ]);
   const reasons = [];
@@ -239,7 +244,7 @@ export function selectRequestCapabilities({
   }
 
   const meaningfulSelections = [...selected]
-    .filter((capability) => !["profile", "database"].includes(capability));
+    .filter((capability) => !["profile", "files", "database"].includes(capability));
   const clearlyToolFree = clearlyToolFreeCurrentRequest;
   const fallbackAll = grouped.has("unclassified");
 

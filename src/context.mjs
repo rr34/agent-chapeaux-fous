@@ -181,6 +181,10 @@ export class ContextBuilder {
       : result.text;
     if (attachment?.mediaKind === "image") {
       const metadata = {
+        fileId: attachment.fileId,
+        title: attachment.title,
+        description: attachment.description,
+        titleSource: attachment.titleSource,
         filename: attachment.filename,
         mediaKind: attachment.mediaKind,
         mimeType: attachment.mimeType,
@@ -201,6 +205,10 @@ export class ContextBuilder {
       const attachmentContents = String(attachment.text ?? "");
       const attachmentResult = bounded(attachmentContents, this.maximumAttachmentCharacters);
       const metadata = {
+        fileId: attachment.fileId,
+        title: attachment.title,
+        description: attachment.description,
+        titleSource: attachment.titleSource,
         filename: attachment.filename,
         mimeType: attachment.mimeType,
         byteSize: attachment.byteSize,
@@ -256,6 +264,10 @@ export class ContextBuilder {
         totalSentCharacters: text.length,
       },
       attachment: attachment ? {
+        fileId: attachment.fileId,
+        title: attachment.title,
+        description: attachment.description,
+        titleSource: attachment.titleSource,
         filename: attachment.filename,
         mediaKind: attachment.mediaKind ?? "document",
         mimeType: attachment.mimeType,

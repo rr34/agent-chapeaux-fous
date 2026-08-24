@@ -63,7 +63,7 @@ export function registerProfileFactTools(registry, profileFacts, schemaSemantics
 
   registry.register({
     name: "profile_fact_set",
-    description: "Add or replace one durable profile-fact row. Call this whenever the user states or corrects stable personal information, even casually. Use a broad repeatable fact_type and self-contained fact_text identifying the person or item. Set replaces_profile_fact_id to the exact active row ID only when that same real-world fact changed; use null for a different person or item even if another active row has the same type.",
+    description: "Add or replace one durable fact about the user, another person, a real-world item in their life, or a lasting cross-task preference. Call this when the user states or corrects stable personal information, even casually. Never store operational IDs, mappings, precision values, quantities, file metadata, import parameters, or other current-task working state unless the user explicitly asks to remember one as a lasting preference or default. Use a broad repeatable fact_type and self-contained fact_text identifying the person or item. Set replaces_profile_fact_id to the exact active row ID only when that same real-world fact changed; use null for a different person or item even if another active row has the same type.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -73,7 +73,7 @@ export function registerProfileFactTools(registry, profileFacts, schemaSemantics
           type: "string",
           minLength: 1,
           maxLength: 10000,
-          description: "Self-contained natural-language fact, such as 'My wife's car is a 2020 Honda CR-V.'",
+          description: "Self-contained durable personal fact, such as 'My wife's car is a 2020 Honda CR-V.' Never use this for a domain operation's working parameters.",
         },
         replaces_profile_fact_id: {
           type: ["integer", "null"],

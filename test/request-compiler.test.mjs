@@ -11,6 +11,7 @@ import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
 import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerJmapEmailTools } from "../src/tools/jmap-email-tools.mjs";
+import { registerFileTools } from "../src/tools/file-tools.mjs";
 import { registerLogTools } from "../src/tools/log-tools.mjs";
 import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
@@ -71,6 +72,27 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
   assert.equal(capabilityForTool(tool("video_render_interaction")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
+  assert.equal(capabilityForTool(tool("file_read")), "files");
+});
+
+test("durable file retrieval remains callable on a terse later request", async () => {
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+  });
+  const compiled = await compiler.compile({
+    tools: [
+      tool("profile_fact_list"), tool("profile_fact_set"), tool("database_read"),
+      tool("file_get"), tool("file_read"), tool("file_search"), tool("file_update"),
+    ],
+    text: "Use file 200 and continue.",
+    recentConversation: [], previousCapabilities: [],
+  });
+  assert.deepEqual(names(compiled), [
+    "profile_fact_list", "profile_fact_set", "database_read",
+    "file_get", "file_read", "file_search", "file_update",
+  ]);
+  assert.match(compiled.instructions, /stable numeric file ID/);
+  assert.match(compiled.instructions, /call `file_get`\s+or `file_read` with 200/);
 });
 
 test("an explicit interaction-video request selects the contained renderer", () => {
@@ -111,6 +133,9 @@ test("every currently registered local tool belongs to an explicit capability", 
   registerInteractionGuideTools(registry, {}, null);
   registerProfileFactTools(registry, {}, null);
   registerDatabaseTools(registry, {}, {}, null);
+  registerFileTools(registry, {
+    ledger: {}, searchCoordinator: {}, mediaRoot: "/tmp", maximumTextBytes: 1,
+  });
   registerJmapEmailTools(registry, { health() { return { ready: true }; } });
   registerSearchTools(registry, {
     listProviders() { return [{ id: "history" }]; },

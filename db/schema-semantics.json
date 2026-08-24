@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 18,
-    "schemaFingerprint": "c68213e4501fd8e8ac029442ee2df93d4aa51d05ce7d59aa00b014ee16e54e56",
-    "extractedAt": "2026-08-20T21:54:41.820Z"
+    "schemaVersion": 19,
+    "schemaFingerprint": "f054de35f9cbecea6f78b20a68e6f951ba2a452c98590d44cba5588aa81725cd",
+    "extractedAt": "2026-08-24T14:47:54.132Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -8533,8 +8533,18 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE files (\n    -- Metadata for external files in Agent media storage; file bytes are never stored in this table.\n    file_id             INTEGER PRIMARY KEY,\n    storage_path        TEXT NOT NULL UNIQUE,\n    original_filename   TEXT,\n    media_kind          TEXT NOT NULL DEFAULT 'other'\n                        CHECK (media_kind IN (\n                            'audio', 'video', 'image', 'document',\n                            'archive', 'other'\n                        )),\n    mime_type           TEXT,\n    -- SHA-256 supports integrity checks and deduplication; media dimensions/duration aid render workflows.\n    sha256              TEXT,\n    byte_size           INTEGER CHECK (byte_size IS NULL OR byte_size >= 0),\n    duration_ms         INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),\n    width               INTEGER CHECK (width IS NULL OR width > 0),\n    height              INTEGER CHECK (height IS NULL OR height > 0),\n    -- source_event_id identifies the ledger event that introduced the file when known.\n    source_event_id     TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))\n) STRICT",
+        "definition": "CREATE TABLE files (\n    -- Metadata for external files in Agent media storage; file bytes are never stored in this table.\n    file_id             INTEGER PRIMARY KEY,\n    storage_path        TEXT NOT NULL UNIQUE,\n    original_filename   TEXT,\n    media_kind          TEXT NOT NULL DEFAULT 'other'\n                        CHECK (media_kind IN (\n                            'audio', 'video', 'image', 'document',\n                            'archive', 'other'\n                        )),\n    mime_type           TEXT,\n    -- SHA-256 supports integrity checks and deduplication; media dimensions/duration aid render workflows.\n    sha256              TEXT,\n    byte_size           INTEGER CHECK (byte_size IS NULL OR byte_size >= 0),\n    duration_ms         INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),\n    width               INTEGER CHECK (width IS NULL OR width > 0),\n    height              INTEGER CHECK (height IS NULL OR height > 0),\n    -- source_event_id identifies the ledger event that introduced the file when known.\n    source_event_id     TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))\n, title TEXT\n                 CHECK (title IS NULL OR length(trim(title)) BETWEEN 1 AND 200), description TEXT\n                       CHECK (description IS NULL OR length(trim(description)) BETWEEN 1 AND 5000), title_source TEXT NOT NULL DEFAULT 'original_filename'\n                             CHECK (title_source IN ('original_filename', 'ai', 'user')), updated_at_utc TEXT) STRICT",
         "indexes": [
+          {
+            "name": "files_created",
+            "columns": [
+              "created_at_utc",
+              "file_id"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          },
           {
             "name": "files_sha256_unique",
             "columns": [
@@ -8921,6 +8931,122 @@
             "sensitivity": null
           }
         },
+        "title": {
+          "mechanics": {
+            "present": true,
+            "name": "title",
+            "ordinal": 12,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Concise human-facing title for the stored file. Initially derived from the original filename and may later be suggested by AI or edited by the user.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "description": {
+          "mechanics": {
+            "present": true,
+            "name": "description",
+            "ordinal": 13,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Plain-language searchable description of the file contents.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "title_source": {
+          "mechanics": {
+            "present": true,
+            "name": "title_source",
+            "ordinal": 14,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'original_filename'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": [
+              "original_filename",
+              "ai",
+              "user"
+            ]
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Authority that supplied the current title, used to prevent AI from overwriting a user-edited title.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {
+              "original_filename": "The title is the deterministic upload-time fallback.",
+              "ai": "The title was suggested by the model after inspecting the file.",
+              "user": "The title was confirmed or edited by the user and must not be overwritten by AI."
+            },
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "updated_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "updated_at_utc",
+            "ordinal": 15,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp of the most recent title or description change.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
         "metadata_json": {
           "mechanics": {
             "present": false,
@@ -8939,6 +9065,165 @@
             "meaning": "Structured file-, media-, or provider-specific details without dedicated columns.",
             "units": null,
             "format": "JSON object encoded as text",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        }
+      },
+      "relationships": {}
+    },
+    "files_fts": {
+      "mechanics": {
+        "present": true,
+        "kind": "virtual_table",
+        "definition": "CREATE VIRTUAL TABLE files_fts USING fts5(\n    title,\n    description,\n    original_filename,\n    content = 'files',\n    content_rowid = 'file_id'\n)",
+        "indexes": []
+      },
+      "semantics": {
+        "purpose": "Provides synchronized FTS5 discovery over durable file titles, descriptions, and original filenames.",
+        "rowMeaning": "One search-index row derived from one files row with the same rowid/file_id.",
+        "sourceOfTruth": false,
+        "derivedFrom": [
+          "files"
+        ],
+        "synonyms": [],
+        "keywords": [],
+        "routingWeight": null,
+        "importantRules": [],
+        "sensitivity": null
+      },
+      "fields": {
+        "title": {
+          "mechanics": {
+            "present": true,
+            "name": "title",
+            "ordinal": 0,
+            "type": null,
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": "files.title",
+            "meaning": "Search-index copy of files.title.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "description": {
+          "mechanics": {
+            "present": true,
+            "name": "description",
+            "ordinal": 1,
+            "type": null,
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": "files.description",
+            "meaning": "Search-index copy of files.description.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "original_filename": {
+          "mechanics": {
+            "present": true,
+            "name": "original_filename",
+            "ordinal": 2,
+            "type": null,
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": "files.original_filename",
+            "meaning": "Search-index copy of files.original_filename.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "files_fts": {
+          "mechanics": {
+            "present": true,
+            "name": "files_fts",
+            "ordinal": 3,
+            "type": null,
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": true,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "FTS5 hidden control column used for index maintenance commands.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "rank": {
+          "mechanics": {
+            "present": true,
+            "name": "rank",
+            "ordinal": 4,
+            "type": null,
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": true,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "FTS5 hidden relevance rank for the current query.",
+            "units": null,
+            "format": null,
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
