@@ -93,8 +93,9 @@ section { margin-bottom: 1rem; }
   place-items: center;
   flex: 0 0 auto;
   width: 64px;
-  height: 64px;
+  height: 42px;
 }
+.agent-mascot[hidden] { display: none; }
 .agent-hat-svg { display: block; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 4px 5px rgba(0, 0, 0, .28)); }
 .agent-hat-badges { position: absolute; right: -8px; bottom: -5px; display: flex; gap: 2px; }
 .agent-hat-badge {
@@ -110,7 +111,7 @@ section { margin-bottom: 1rem; }
   box-shadow: 0 3px 8px rgba(0, 0, 0, .35);
 }
 .agent-hat-badge .agent-hat-svg { width: 31px; height: 31px; }
-.agent-mascot-nav { width: 35px; height: 35px; margin: -6px 0; }
+.agent-mascot-nav { width: 35px; height: 24px; margin: -2px 0; }
 .agent-mascot-nav .agent-hat-badges { right: -7px; bottom: -7px; }
 .agent-mascot-nav .agent-hat-badge { width: 19px; height: 19px; border-width: 1px; }
 .agent-mascot-nav .agent-hat-badge .agent-hat-svg { width: 21px; height: 21px; }
@@ -565,7 +566,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .hat-card.available { border-color: rgba(83, 200, 137, .35); }
 .hat-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .7rem; }
 .hat-card-title { display: flex; align-items: center; gap: .65rem; min-width: 0; }
-.hat-card-mascot { width: 72px; height: 72px; margin: -.8rem 0 -.2rem -.45rem; }
+.hat-card-mascot { width: 72px; height: 46px; margin: -.35rem 0 0 -.35rem; }
 .hat-card-heading h2 { margin: 0; font-size: 1.35rem; }
 .hat-identity .eyebrow { margin-bottom: 0; }
 .hat-availability { flex: 0 0 auto; padding: .25rem .5rem; border-radius: 999px; font-size: .68rem; }
@@ -609,7 +610,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .user-request { margin-bottom: .7rem; color: #c8d0d5; white-space: pre-wrap; }
 .agent-response { margin: 0 0 .7rem; padding: .8rem; background: #1a1f23; border-left: 3px solid var(--accent); border-radius: 4px 9px 9px 4px; }
 .agent-response:not([hidden]) { display: flex; align-items: flex-start; gap: .7rem; }
-.agent-response-avatar { width: 58px; height: 58px; margin: -.3rem 0 0 -.35rem; }
+.agent-response-avatar { width: 58px; height: 38px; margin: 0 0 0 -.25rem; }
 .agent-response-body { min-width: 0; flex: 1; }
 .agent-response-markdown { line-height: 1.55; overflow-wrap: anywhere; user-select: text; }
 .agent-response-markdown > :first-child { margin-top: 0; }

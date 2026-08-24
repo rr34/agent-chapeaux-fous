@@ -732,6 +732,81 @@ test("a failed tool result is returned to the model transport instead of becomin
   assert.match(toolResponse.error, /expected failure/);
 });
 
+test("an identical failed tool call is blocked while a materially corrected retry can run", async () => {
+  const responses = [];
+  let executions = 0;
+  const completeAccountTree = Array.from({ length: 273 }, (_value, index) => ({
+    full_name: `Assets:Account ${index + 1}`,
+  }));
+  const modelTransport = fakeTransport(async (payload) => {
+    const failedArguments = { accounts: completeAccountTree, currencies: [], dry_run: true };
+    responses.push(await payload.onToolCall({
+      callId: "account-tree-initial",
+      tool: "import_account_tree",
+      arguments: failedArguments,
+    }));
+    responses.push(await payload.onToolCall({
+      callId: "account-tree-identical-retry",
+      tool: "import_account_tree",
+      arguments: { dry_run: true, currencies: [], accounts: completeAccountTree },
+    }));
+    responses.push(await payload.onToolCall({
+      callId: "account-tree-corrected-retry",
+      tool: "import_account_tree",
+      arguments: {
+        accounts: completeAccountTree,
+        currencies: [{ code: "VIGIX", scale: 3 }],
+        dry_run: true,
+      },
+    }));
+    return completedTurn({ text: "The complete 273-account dry run passed." });
+  });
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "import_account_tree",
+    description: "Dry-run a complete account tree.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        accounts: { type: "array", items: { type: "object", additionalProperties: true } },
+        currencies: { type: "array", items: { type: "object", additionalProperties: true } },
+        dry_run: { type: "boolean" },
+      },
+      required: ["accounts", "currencies", "dry_run"],
+    },
+    async execute({ currencies }) {
+      executions += 1;
+      if (currencies.length === 0) throw new Error('Currency "VIGIX" is not supported.');
+      return { dryRun: true, totalCount: 273, plannedCount: 273 };
+    },
+  });
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: {
+      async build() {
+        return { text: "context", profileFacts: [], history: [], contextBudget: { truncated: false } };
+      },
+    },
+    ledger: { append() {} },
+    config: { ...runtimeConfig(), maxToolCalls: 4 },
+  });
+  runtime.systemPrompt = "prompt";
+
+  assert.equal(
+    await runtime.run({ requestId: "account-tree", requestEventId: "account-tree-event", text: "Dry-run the complete account tree." }),
+    "The complete 273-account dry run passed.",
+  );
+  assert.equal(executions, 2);
+  assert.equal(responses[0].ok, false);
+  assert.match(responses[0].error, /VIGIX/);
+  assert.equal(responses[1].ok, false);
+  assert.match(responses[1].error, /identical import_account_tree call/);
+  assert.equal(responses[2].ok, true);
+  assert.equal(responses[2].result.totalCount, 273);
+});
+
 test("strict tool schemas are enforced before application functions execute", async () => {
   let executions = 0;
   const registry = new ToolRegistry();

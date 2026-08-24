@@ -406,37 +406,39 @@ function node(tag, className = "", textContent = "") {
 
 const svgNamespace = "http://www.w3.org/2000/svg";
 
-function mascotSvg(hat = null) {
+function hatSvg(hat) {
   const svg = document.createElementNS(svgNamespace, "svg");
   svg.setAttribute("class", "agent-hat-svg");
-  svg.setAttribute("viewBox", "0 0 128 128");
+  svg.setAttribute("viewBox", "0 0 128 72");
   svg.setAttribute("aria-hidden", "true");
-  const head = document.createElementNS(svgNamespace, "use");
-  head.setAttribute("href", "/hats.svg#agent-head");
-  svg.append(head);
-  if (hat) {
-    const wornHat = document.createElementNS(svgNamespace, "use");
-    wornHat.setAttribute("href", `/hats.svg#hat-${hat.icon || hat.id}`);
-    svg.append(wornHat);
-  }
+  const artwork = document.createElementNS(svgNamespace, "use");
+  artwork.setAttribute("href", `/hats.svg#hat-${hat.icon || hat.id}`);
+  artwork.setAttribute("width", "128");
+  artwork.setAttribute("height", "128");
+  svg.append(artwork);
   return svg;
 }
 
 function renderAgentMascot(target, hats = []) {
   const explicitHats = Array.isArray(hats) ? hats.filter((hat) => hat?.id) : [];
-  target.replaceChildren(mascotSvg(explicitHats[0] ?? null));
+  target.replaceChildren();
+  target.hidden = explicitHats.length === 0;
+  if (explicitHats.length === 0) {
+    target.removeAttribute("title");
+    if (target.getAttribute("aria-hidden") !== "true") target.removeAttribute("aria-label");
+    return;
+  }
+  target.append(hatSvg(explicitHats[0]));
   if (explicitHats.length > 1) {
     const badges = node("span", "agent-hat-badges");
     for (const hat of explicitHats.slice(1)) {
       const badge = node("span", "agent-hat-badge");
-      badge.append(mascotSvg(hat));
+      badge.append(hatSvg(hat));
       badges.append(badge);
     }
     target.append(badges);
   }
-  const description = explicitHats.length === 0
-    ? "Chapeaux Fous without an explicitly spoken hat"
-    : `Chapeaux Fous wearing ${explicitHats.map(({ label, id }) => label || id).join(" and ")}`;
+  const description = `${explicitHats.map(({ label, id }) => label || id).join(" and ")} hat${explicitHats.length === 1 ? "" : "s"}`;
   target.title = description;
   if (target.getAttribute("aria-hidden") !== "true") target.setAttribute("aria-label", description);
 }

@@ -169,7 +169,18 @@ test("context usage, intent checkpoints, and exact tool receipts remain recovera
   const store = new SlayerDatabase(temporary.filename);
   const ledger = new Ledger(store);
   try {
-    const first = ledger.createRequest({ text: "Keep the original objective intact." });
+    const attachment = ledger.registerFile({
+      storagePath: "media/account-tree.csv",
+      originalFilename: "account-tree.csv",
+      mediaKind: "document",
+      mimeType: "text/csv",
+      sha256: "account-tree-sha",
+      byteSize: 273,
+    });
+    const first = ledger.createRequest({
+      text: "Keep the original objective intact.",
+      primaryFileId: attachment.fileId,
+    });
     ledger.append({
       type: "tool.call", phase: "start", status: "processing", turnId: first.requestId,
       operationId: "large-read", name: "example_read",
@@ -219,6 +230,7 @@ test("context usage, intent checkpoints, and exact tool receipts remain recovera
       maximumCharacters: 8000,
     });
     assert.match(checkpoint.text, /Keep the original objective intact/);
+    assert.match(checkpoint.text, new RegExp(`primary_file_id=${attachment.fileId}`));
     assert.match(checkpoint.text, /The objective is still active/);
     assert.match(checkpoint.text, /receipt_event_seq=/);
     assert.doesNotMatch(checkpoint.text, /importantDetail/);

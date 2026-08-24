@@ -590,7 +590,10 @@ export class Ledger {
     );
     const conversationBlocks = conversation.map((event) => {
       const role = receivedEventTypes.includes(event.type) ? "USER" : "ASSISTANT";
-      return `${role} [request_id=${event.turnId ?? "none"} at=${event.occurredAtUtc}]: ${event.content}`;
+      const attachmentReference = event.primaryFileId == null
+        ? ""
+        : ` primary_file_id=${event.primaryFileId}`;
+      return `${role} [request_id=${event.turnId ?? "none"} at=${event.occurredAtUtc}${attachmentReference}]: ${event.content}`;
     });
     const boundedConversation = edgeBoundedBlocks(conversationBlocks, conversationBudget);
     const conversationText = [

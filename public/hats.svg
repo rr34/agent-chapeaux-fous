@@ -1,18 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg">
-  <symbol id="agent-head" viewBox="0 0 128 128">
-    <ellipse cx="64" cy="119" rx="35" ry="12" fill="#0b0d0f" opacity=".38"/>
-    <path d="M38 119c2-17 12-26 26-26s24 9 26 26" fill="#f05a28" stroke="#111315" stroke-width="5"/>
-    <circle cx="31" cy="76" r="10" fill="#d99b72" stroke="#111315" stroke-width="5"/>
-    <circle cx="97" cy="76" r="10" fill="#d99b72" stroke="#111315" stroke-width="5"/>
-    <circle cx="64" cy="73" r="36" fill="#f3c39c" stroke="#111315" stroke-width="6"/>
-    <path d="M36 63c4-20 15-31 29-31 14 0 25 10 28 29-10-9-19-12-29-12-11 0-20 5-28 14Z" fill="#713820" stroke="#111315" stroke-width="5"/>
-    <path d="M48 69q7-5 13 0M68 69q7-5 13 0" fill="none" stroke="#713820" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="55" cy="77" r="3.8" fill="#111315"/>
-    <circle cx="75" cy="77" r="3.8" fill="#111315"/>
-    <path d="M53 91q11 9 23 0" fill="none" stroke="#111315" stroke-width="4" stroke-linecap="round"/>
-    <path d="m58 107 6 8 7-8" fill="none" stroke="#fff2e8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  </symbol>
-
   <symbol id="hat-email" viewBox="0 0 128 128">
     <path d="M29 42c4-24 20-34 40-32 18 2 29 14 32 34Z" fill="#315984" stroke="#111315" stroke-width="6" stroke-linejoin="round"/>
     <path d="M28 42h73l5 14H23Z" fill="#203a59" stroke="#111315" stroke-width="6" stroke-linejoin="round"/>

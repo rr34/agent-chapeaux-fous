@@ -16,6 +16,20 @@ function serializedBytes(value) {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
 
+function canonicalToolArguments(value) {
+  if (Array.isArray(value)) return value.map(canonicalToolArguments);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonicalToolArguments(value[key])]),
+    );
+  }
+  return value;
+}
+
+function toolAttemptKey(name, args) {
+  return `${name}\n${JSON.stringify(canonicalToolArguments(args))}`;
+}
+
 function joinedInstructions(...sections) {
   return sections.map((section) => String(section ?? "").trim()).filter(Boolean).join("\n\n");
 }
@@ -152,6 +166,7 @@ export class SlayerRuntime {
     const sameRequestReceipts = [];
     let conversationCheckpoint = null;
     let finalAttemptStartedNewConversation = !conversationId;
+    const failedToolAttempts = new Set();
     while (true) {
       attempt += 1;
       finalAttemptStartedNewConversation = !conversationId;
@@ -385,6 +400,17 @@ export class SlayerRuntime {
               });
               return { ok: true, result: toolResult };
             }
+            const attemptKey = toolAttemptKey(name, args);
+            if (failedToolAttempts.has(attemptKey)) {
+              const message = `An identical ${name} call with the same arguments already failed during this request. Do not repeat it; make a material correction or report the blocker.`;
+              sameRequestReceipts.push({ tool: name, arguments: args, ok: false, error: message });
+              this.ledger.append({
+                type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                actorName: name, channel, turnId: requestId, operationId: callId, name,
+                payload: { callId, name }, error: message,
+              });
+              return { ok: false, error: message };
+            }
             try {
               const toolResult = await this.registry.execute(name, args, {
                 requestId, requestEventId, callId, channel, attachment, videoSource,
@@ -426,6 +452,7 @@ export class SlayerRuntime {
               return { ok: true, result: inline.deliveredResult };
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
+              failedToolAttempts.add(attemptKey);
               sameRequestReceipts.push({ tool: name, arguments: args, ok: false, error: message });
               this.ledger.append({
                 type: "tool.result", phase: "error", status: "error", actorType: "tool",
