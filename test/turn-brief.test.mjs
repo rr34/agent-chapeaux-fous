@@ -11,7 +11,7 @@ function validBrief() {
     objective: "Create the offered reminder.",
     summary: "The current request accepts the prior offer.",
     requiredCapabilities: ["todos"],
-    authorizedArtifactIds: [],
+    authorizedActionReferenceIds: [],
     authorizedActions: [sourced],
     prohibitedActions: [],
     deferredActions: [],
@@ -49,18 +49,18 @@ test("TurnBrief parsing enforces source references and unique capability selecti
     /requiredCapabilities must contain unique items/,
   );
 
-  const unauthorizedArtifact = validBrief();
-  unauthorizedArtifact.authorizedArtifactIds = ["commit-plan:not-visible"];
+  const unauthorizedReference = validBrief();
+  unauthorizedReference.authorizedActionReferenceIds = ["mcp-action:not-visible"];
   assert.throws(
-    () => parseStructuredModelOutput(JSON.stringify(unauthorizedArtifact), schema, "Orientation"),
-    /authorizedArtifactIds has too many items/,
+    () => parseStructuredModelOutput(JSON.stringify(unauthorizedReference), schema, "Orientation"),
+    /authorizedActionReferenceIds has too many items/,
   );
 
-  const artifactSchema = turnBriefSchema(["todos"], ["commit-plan:visible"]);
-  const authorizedArtifact = validBrief();
-  authorizedArtifact.authorizedArtifactIds = ["commit-plan:visible"];
+  const referenceSchema = turnBriefSchema(["todos"], ["mcp-action:visible"]);
+  const authorizedReference = validBrief();
+  authorizedReference.authorizedActionReferenceIds = ["mcp-action:visible"];
   assert.deepEqual(
-    parseStructuredModelOutput(JSON.stringify(authorizedArtifact), artifactSchema, "Orientation"),
-    authorizedArtifact,
+    parseStructuredModelOutput(JSON.stringify(authorizedReference), referenceSchema, "Orientation"),
+    authorizedReference,
   );
 });

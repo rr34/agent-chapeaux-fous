@@ -23,9 +23,9 @@ const sourcedStatement = {
   required: ["text", "sourceEventSeqs"],
 };
 
-export function turnBriefSchema(capabilities, actionArtifactIds = []) {
+export function turnBriefSchema(capabilities, actionReferenceIds = []) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
-  const allowedArtifactIds = [...new Set(actionArtifactIds)].sort();
+  const allowedReferenceIds = [...new Set(actionReferenceIds)].sort();
   return {
     type: "object",
     additionalProperties: false,
@@ -47,12 +47,12 @@ export function turnBriefSchema(capabilities, actionArtifactIds = []) {
         uniqueItems: true,
         items: { type: "string", enum: allowedCapabilities },
       },
-      authorizedArtifactIds: {
+      authorizedActionReferenceIds: {
         type: "array",
-        maxItems: allowedArtifactIds.length,
+        maxItems: allowedReferenceIds.length,
         uniqueItems: true,
-        items: allowedArtifactIds.length
-          ? { type: "string", enum: allowedArtifactIds }
+        items: allowedReferenceIds.length
+          ? { type: "string", enum: allowedReferenceIds }
           : { type: "string" },
       },
       authorizedActions: { type: "array", maxItems: 20, items: sourcedStatement },
@@ -94,7 +94,7 @@ export function turnBriefSchema(capabilities, actionArtifactIds = []) {
     },
     required: [
       "contractVersion", "requestType", "responseMode", "objective", "summary",
-      "requiredCapabilities", "authorizedArtifactIds", "authorizedActions",
+      "requiredCapabilities", "authorizedActionReferenceIds", "authorizedActions",
       "prohibitedActions", "deferredActions",
       "constraints", "unresolvedQuestions", "completionCriteria", "evidence", "audit",
       "conversationState",
@@ -148,7 +148,7 @@ export function orientationContext({
   previousState,
   fallbackCheckpoint,
   capabilityCatalog,
-  actionArtifacts = [],
+  deferredActionReferences = [],
   explicitHats = [],
 }) {
   return [
@@ -164,9 +164,9 @@ export function orientationContext({
     "## Prior rolling conversation state",
     JSON.stringify(previousState ?? null, null, 2),
     "",
-    "## Active commit-ready action artifacts",
-    "These are the only opaque plans currently available for a short approval. Select an artifact ID only when the current request authorizes that exact preview. Never substitute a request ID or infer a plan ID from prose.",
-    JSON.stringify(actionArtifacts, null, 2),
+    "## Active MCP-owned deferred actions",
+    "These references are derived from immutable tool receipts. The MCP owns each operation, its data, readiness, expiration, validation, and execution. Select a reference ID only when the current request authorizes that exact provider operation. Never substitute a request ID or infer an opaque identifier from prose.",
+    JSON.stringify(deferredActionReferences, null, 2),
     "",
     ...(fallbackCheckpoint ? [
       "## Bounded fallback checkpoint",
@@ -181,15 +181,15 @@ export function orientationContext({
   ].join("\n");
 }
 
-export function turnBriefInstructions(brief, authorizedArtifacts = []) {
+export function turnBriefInstructions(brief, authorizedActionReferences = []) {
   return [
     "# Accepted TurnBrief",
     "This source-grounded contract defines the current request. Execute its objective and authorized actions, respect prohibited and deferred actions, and continue until every completion criterion is satisfied or a genuinely new blocker is proven by a tool result. Do not re-infer a narrower task from the latest sentence alone.",
     JSON.stringify(brief, null, 2),
     "",
-    "# Authorized action artifacts",
-    "Opaque plan identifiers may be copied only from these artifacts. Never use a request ID, receipt ID, or guessed value as a plan ID. A historical receipt inspection is evidence only; it does not execute the inspected action.",
-    JSON.stringify(authorizedArtifacts, null, 2),
+    "# Authorized MCP action references",
+    "These references contain only the opaque invocation data returned by an MCP. The MCP remains authoritative for the operation and its lifecycle. Copy an opaque identifier only from an authorized reference; never use a request ID, receipt ID, or guessed value. A historical receipt inspection is evidence only and does not execute the provider action.",
+    JSON.stringify(authorizedActionReferences, null, 2),
   ].join("\n");
 }
 
@@ -217,7 +217,7 @@ export const orientationInstructions = [
   "You are the orientation phase of Chapeaux Fous. Produce only the schema-constrained TurnBrief.",
   "Resolve the exact current request against the supplied recent conversation and rolling state.",
   "A short approval can authorize a concrete prior offer without repeating its wording. A correction changes only what it explicitly changes. An addition preserves the earlier objective. A question does not authorize a write.",
-  "When approval concerns a commit-ready preview, select its exact active action artifact in authorizedArtifactIds. If no matching artifact exists, do not fabricate or infer one.",
+  "When approval concerns an MCP-owned deferred operation, select its exact active reference in authorizedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",
   "Select every capability family the executor may need. Keep the output concise, source-grounded, and explicit about completion.",
 ].join("\n");
 

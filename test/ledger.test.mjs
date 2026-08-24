@@ -340,39 +340,47 @@ test("rolling conversation state is bounded by an explicit new-conversation even
   }
 });
 
-test("commit-plan artifacts survive unrelated requests and leave the active set after use", () => {
+test("MCP deferred actions are derived from receipts and leave the active set after execution", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.filename);
   const ledger = new Ledger(store);
   try {
-    const artifact = {
-      contractVersion: 1,
-      artifactId: "commit-plan:ledger-test",
-      kind: "commit_plan",
-      status: "ready",
-      sourceTool: "remote_accounting_import_account_tree",
-      sourceRequestId: "request-dry-run",
-      sourceReceiptEventSeq: 42,
-      planId: "plan-ledger-test",
-      planArgumentName: "import_plan_id",
-      readyToCommit: true,
-      expiresAt: "2099-01-01T00:00:00.000Z",
-      previewDigest: "sha256:ledger-test",
-      summary: { accountsCreated: 273 },
-    };
     ledger.append({
-      type: "action.artifact", status: "complete",
-      payload: { artifact }, subjectType: "action_artifact", subjectId: artifact.artifactId,
+      type: "tool.call", status: "processing", operationId: "dry-run-call",
+      name: "remote_accounting_import_account_tree",
+      turnId: "request-dry-run",
+      payload: { arguments: { dry_run: true } },
+    });
+    ledger.append({
+      type: "tool.result", status: "complete", operationId: "dry-run-call",
+      name: "remote_accounting_import_account_tree",
+      turnId: "request-dry-run",
+      payload: { result: {
+        readyToCommit: true,
+        importPlanId: "plan-ledger-test",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        summary: { accountsCreated: 273 },
+      } },
     });
     ledger.createRequest({ text: "An unrelated request between preview and approval." });
-    assert.deepEqual(ledger.activeActionArtifacts(), [artifact]);
+    const references = ledger.activeDeferredActionReferences();
+    assert.equal(references.length, 1);
+    assert.equal(references[0].opaqueId, "plan-ledger-test");
+    assert.equal(references[0].argumentName, "import_plan_id");
 
     ledger.append({
-      type: "action.artifact.status", status: "complete",
-      payload: { artifactId: artifact.artifactId, status: "committed" },
-      subjectType: "action_artifact", subjectId: artifact.artifactId,
+      type: "tool.call", status: "processing", operationId: "commit-call",
+      name: "remote_accounting_commit_account_tree_import",
+      turnId: "request-approval",
+      payload: { arguments: { import_plan_id: "plan-ledger-test" } },
     });
-    assert.deepEqual(ledger.activeActionArtifacts(), []);
+    ledger.append({
+      type: "tool.result", status: "complete", operationId: "commit-call",
+      name: "remote_accounting_commit_account_tree_import",
+      turnId: "request-approval",
+      payload: { result: { status: "committed" } },
+    });
+    assert.deepEqual(ledger.activeDeferredActionReferences(), []);
   } finally {
     store.close();
     temporary.cleanup();

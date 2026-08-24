@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { activeCommitPlanArtifacts } from "./action-artifacts.mjs";
+import { activeDeferredActionReferences } from "./deferred-actions.mjs";
 import { safeJson } from "./redaction.mjs";
 
 function publicEvent(row) {
@@ -556,14 +556,32 @@ export class Ledger {
     return event?.payload?.state ?? null;
   }
 
-  activeActionArtifacts({ afterEventSeq = 0 } = {}) {
+  activeDeferredActionReferences({ afterEventSeq = 0 } = {}) {
     const rows = this.store.requireReady().prepare(`
-      SELECT * FROM activity_events
-      WHERE event_type IN ('action.artifact', 'action.artifact.status')
-        AND event_seq > ?
-      ORDER BY event_seq
+      SELECT result.*, call.payload_json AS call_payload_json
+      FROM activity_events AS result
+      LEFT JOIN activity_events AS call
+        ON call.operation_id = result.operation_id
+       AND call.event_type = 'tool.call'
+       AND call.name = result.name
+      WHERE result.event_type = 'tool.result'
+        AND result.event_seq > ?
+      ORDER BY result.event_seq
     `).all(Math.max(0, Number(afterEventSeq) || 0));
-    return activeCommitPlanArtifacts(rows.map(publicEvent));
+    const receipts = rows.map((row) => {
+      const event = publicEvent(row);
+      let callPayload = {};
+      try { callPayload = JSON.parse(row.call_payload_json || "{}"); } catch {}
+      return {
+        receiptEventSeq: event.eventSeq,
+        requestId: event.turnId,
+        tool: event.name,
+        arguments: callPayload.arguments ?? {},
+        result: event.payload?.result ?? null,
+        ok: event.status === "complete",
+      };
+    });
+    return activeDeferredActionReferences(receipts);
   }
 
   latestModelContextUsage({ afterEventSeq = 0 } = {}) {

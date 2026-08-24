@@ -1,13 +1,12 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import {
-  commitReadiness,
   completionReceiptFindings,
-  extractCommitPlanArtifact,
+  deferredActionArgumentProblem,
+  extractDeferredActionReference,
   incompleteReceiptResponse,
-  matchingPlanArtifacts,
-  planArgumentProblem,
-} from "./action-artifacts.mjs";
+  providerActionReadiness,
+} from "./deferred-actions.mjs";
 import { requestCapabilityCatalog } from "./request-compiler.mjs";
 import {
   auditContext,
@@ -317,8 +316,8 @@ export class SlayerRuntime {
     const previousState = typeof this.ledger.latestConversationState === "function"
       ? this.ledger.latestConversationState({ afterEventSeq: boundaryEventSeq })
       : null;
-    const activeActionArtifacts = typeof this.ledger.activeActionArtifacts === "function"
-      ? this.ledger.activeActionArtifacts({ afterEventSeq: boundaryEventSeq })
+    const activeActionReferences = typeof this.ledger.activeDeferredActionReferences === "function"
+      ? this.ledger.activeDeferredActionReferences({ afterEventSeq: boundaryEventSeq })
       : [];
     const fallbackCheckpoint = !previousState
       && recentConversation.length >= 10
@@ -343,7 +342,7 @@ export class SlayerRuntime {
       : null;
     const schema = turnBriefSchema(
       catalog.map(({ capability }) => capability),
-      activeActionArtifacts.map(({ artifactId }) => artifactId),
+      activeActionReferences.map(({ referenceId }) => referenceId),
     );
     const orientation = await this.#runStructuredStep({
       requestId: args.requestId,
@@ -363,7 +362,7 @@ export class SlayerRuntime {
           previousState,
           fallbackCheckpoint,
           capabilityCatalog: catalog,
-          actionArtifacts: activeActionArtifacts,
+          deferredActionReferences: activeActionReferences,
           explicitHats: routing.explicitHats,
         }),
         args.supplementalInstructions,
@@ -373,8 +372,8 @@ export class SlayerRuntime {
       runTimeoutMs: remainingTimeoutMs(),
     });
     const brief = orientation.value;
-    const authorizedArtifacts = activeActionArtifacts.filter(({ artifactId }) => (
-      brief.authorizedArtifactIds.includes(artifactId)
+    const authorizedActionReferences = activeActionReferences.filter(({ referenceId }) => (
+      brief.authorizedActionReferenceIds.includes(referenceId)
     ));
     this.ledger.append({
       type: "turn.brief", status: "complete", actorType: "service",
@@ -414,9 +413,10 @@ export class SlayerRuntime {
       },
       supplementalInstructions: joinedInstructions(
         args.supplementalInstructions,
-        turnBriefInstructions(brief, authorizedArtifacts),
+        turnBriefInstructions(brief, authorizedActionReferences),
       ),
-      authorizedArtifacts,
+      activeActionReferences,
+      authorizedActionReferences,
     };
     const execution = await this.#runExecutorStep(executorArgs, {
       step: "execution", label: "Execute request", stepIndex: 2,
@@ -425,7 +425,7 @@ export class SlayerRuntime {
     const executionFindings = completionReceiptFindings({
       brief,
       receipts: execution.receipts,
-      authorizedArtifacts,
+      authorizedActionReferences,
     });
     if (!brief.audit.required && execution.receipts.length === 0 && executionFindings.length === 0) {
       return execution.text;
@@ -477,7 +477,7 @@ export class SlayerRuntime {
     const finalFindings = completionReceiptFindings({
       brief,
       receipts: repair.receipts,
-      authorizedArtifacts,
+      authorizedActionReferences,
     });
     if (finalFindings.length) {
       const response = incompleteReceiptResponse(finalFindings);
@@ -510,7 +510,7 @@ export class SlayerRuntime {
     model = null, effort = null, supplementalInstructions = "", videoSource = null,
     capabilityOverride = null, workflowStep = null, workflowStepLabel = null, stepIndex = null,
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
-    authorizedArtifacts = [],
+    activeActionReferences = [], authorizedActionReferences = [],
   }) {
     const availableTools = this.registry.toolDefinitions();
     const priorConversation = !isolatedConversation && typeof this.ledger.currentModelConversation === "function"
@@ -578,7 +578,7 @@ export class SlayerRuntime {
     let attempt = 0;
     let result;
     const sameRequestReceipts = [...initialReceipts];
-    const generatedArtifacts = [];
+    const generatedActionReferences = [];
     let conversationCheckpoint = null;
     let finalAttemptStartedNewConversation = !conversationId;
     const failedToolAttempts = new Set();
@@ -800,15 +800,19 @@ export class SlayerRuntime {
               return { ok: false, error: message };
             }
             if (workflowStep) {
-              const artifactProblem = planArgumentProblem(args, authorizedArtifacts);
-              if (artifactProblem) {
-                sameRequestReceipts.push({ tool: name, arguments: args, ok: false, error: artifactProblem });
+              const referenceProblem = deferredActionArgumentProblem(
+                args,
+                authorizedActionReferences,
+                activeActionReferences,
+              );
+              if (referenceProblem) {
+                sameRequestReceipts.push({ tool: name, arguments: args, ok: false, error: referenceProblem });
                 this.ledger.append({
                   type: "tool.result", phase: "error", status: "error", actorType: "tool",
                   actorName: name, channel, turnId: requestId, operationId: callId, name,
-                  payload: { callId, name }, error: artifactProblem,
+                  payload: { callId, name }, error: referenceProblem,
                 });
-                return { ok: false, error: artifactProblem };
+                return { ok: false, error: referenceProblem };
               }
             }
             if (name === "request_capabilities") {
@@ -867,35 +871,19 @@ export class SlayerRuntime {
               const receiptEventSeq = typeof this.ledger.eventSequence === "function"
                 ? this.ledger.eventSequence(resultEventId)
                 : null;
-              const actionArtifact = extractCommitPlanArtifact({
+              const deferredActionReference = extractDeferredActionReference({
                 tool: name,
                 result: toolResult,
                 requestId,
                 receiptEventSeq,
               });
-              if (actionArtifact) {
-                if (!generatedArtifacts.some(({ artifactId }) => artifactId === actionArtifact.artifactId)) {
-                  generatedArtifacts.push(actionArtifact);
-                }
-                this.ledger.append({
-                  type: "action.artifact", status: "complete", actorType: "service",
-                  actorName: "Action artifact manager", channel, turnId: requestId,
-                  name: "Commit-ready plan preserved",
-                  content: `Preserved commit-ready artifact ${actionArtifact.artifactId}`,
-                  payload: { artifact: actionArtifact },
-                  subjectType: "action_artifact", subjectId: actionArtifact.artifactId,
-                });
-              }
-              if (/commit/iu.test(name)) {
-                for (const artifact of matchingPlanArtifacts(args, authorizedArtifacts)) {
-                  this.ledger.append({
-                    type: "action.artifact.status", status: "complete", actorType: "service",
-                    actorName: "Action artifact manager", channel, turnId: requestId,
-                    name: "Commit plan consumed", content: `Committed ${artifact.artifactId}`,
-                    payload: { artifactId: artifact.artifactId, status: "committed", receiptEventSeq },
-                    subjectType: "action_artifact", subjectId: artifact.artifactId,
-                  });
-                }
+              if (
+                deferredActionReference
+                && !generatedActionReferences.some(({ referenceId }) => (
+                  referenceId === deferredActionReference.referenceId
+                ))
+              ) {
+                generatedActionReferences.push(deferredActionReference);
               }
               const inline = inlineToolResult(toolResult, {
                 tool: name,
@@ -910,8 +898,8 @@ export class SlayerRuntime {
                 ok: true,
                 result: inline.deliveredResult,
                 receiptEventSeq,
-                commitReadiness: commitReadiness(toolResult),
-                ...(actionArtifact ? { actionArtifact } : {}),
+                providerActionReadiness: providerActionReadiness(toolResult),
+                ...(deferredActionReference ? { deferredActionReference } : {}),
               });
               if (inline.paged) {
                 this.ledger.append({
@@ -1006,7 +994,7 @@ export class SlayerRuntime {
       text: result.text,
       result,
       receipts: sameRequestReceipts,
-      artifacts: generatedArtifacts,
+      actionReferences: generatedActionReferences,
       toolCallCount: totalToolCallCount,
       capabilities: compilation.capabilities,
       conversationId: finalConversationId,

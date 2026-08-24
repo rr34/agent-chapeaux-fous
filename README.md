@@ -119,6 +119,12 @@ fallback when no structured state exists. Starting a new conversation creates a
 ledger boundary for both recent context and rolling state without deleting
 application history.
 
+Deferred operations returned by an MCP remain owned by that MCP. Agent Slayer
+does not copy their plans, payloads, readiness state, or lifecycle into a native
+table or artifact event. It derives a small opaque action reference from the
+existing immutable tool receipt so a later approval can select the exact
+provider identifier; the MCP still validates and executes the operation.
+
 The default model is `gpt-5.6-terra`; change `SLAYER_MODEL` explicitly if
 desired.
 

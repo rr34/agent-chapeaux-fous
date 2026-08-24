@@ -29,7 +29,7 @@ function completed(text, totalTokens) {
   };
 }
 
-function brief({ auditRequired = true, authorizedArtifactIds = [] } = {}) {
+function brief({ auditRequired = true, authorizedActionReferenceIds = [] } = {}) {
   const source = { text: "Run the previously offered action.", sourceEventSeqs: [4, 9] };
   return {
     contractVersion: 1,
@@ -38,7 +38,7 @@ function brief({ auditRequired = true, authorizedArtifactIds = [] } = {}) {
     objective: "Create the reminder that the assistant just offered to create.",
     summary: "The user authorized the concrete action offered in the prior assistant turn.",
     requiredCapabilities: ["todos"],
-    authorizedArtifactIds,
+    authorizedActionReferenceIds,
     authorizedActions: [source],
     prohibitedActions: [],
     deferredActions: [],
@@ -57,7 +57,7 @@ function brief({ auditRequired = true, authorizedArtifactIds = [] } = {}) {
   };
 }
 
-function fakeLedger({ actionArtifacts = [] } = {}) {
+function fakeLedger({ actionReferences = [] } = {}) {
   const events = [];
   const sequences = new Map([["event-current", 9]]);
   let nextSequence = 10;
@@ -73,7 +73,7 @@ function fakeLedger({ actionArtifacts = [] } = {}) {
     eventSequence(eventId) { return sequences.get(eventId) ?? null; },
     conversationBoundaryEventSeq() { return 0; },
     latestConversationState() { return null; },
-    activeActionArtifacts() { return structuredClone(actionArtifacts); },
+    activeDeferredActionReferences() { return structuredClone(actionReferences); },
     recentConversation() {
       return [
         {
@@ -375,29 +375,26 @@ test("a historical receipt cannot masquerade as a new dry run and repair preserv
 
   assert.equal(result, "New dry run completed and its exact commit plan was preserved.");
   assert.equal(dryRuns, 1);
-  const artifactEvent = ledger.events.find(({ type }) => type === "action.artifact");
-  assert.equal(artifactEvent.payload.artifact.planId, "plan-current-273");
-  assert.equal(artifactEvent.payload.artifact.sourceTool, "remote_accounting_import_account_tree");
+  assert.equal(ledger.events.some(({ type }) => type.startsWith("action.artifact")), false);
+  const directReceipt = ledger.events.find(({ type, name }) => (
+    type === "tool.result" && name === "remote_accounting_import_account_tree"
+  ));
+  assert.equal(directReceipt.payload.result.importPlanId, "plan-current-273");
 });
 
 test("approval binds execution to the exact active plan and blocks request-id substitution", async () => {
   const requests = [];
-  const artifact = {
-    contractVersion: 1,
-    artifactId: "commit-plan:approved",
-    kind: "commit_plan",
-    status: "ready",
+  const actionReference = {
+    referenceId: "mcp-action:approved",
+    action: "commit",
     sourceTool: "remote_accounting_import_account_tree",
     sourceRequestId: "request-dry-run",
     sourceReceiptEventSeq: 42,
-    planId: "plan-exact-273",
-    planArgumentName: "import_plan_id",
-    readyToCommit: true,
-    expiresAt: "2099-01-01T00:00:00.000Z",
-    previewDigest: "sha256:273",
-    summary: { accountsCreated: 273, currenciesCreated: 5 },
+    argumentName: "import_plan_id",
+    opaqueId: "plan-exact-273",
+    providerMetadata: { ready: true, expiresAt: "2099-01-01T00:00:00.000Z" },
   };
-  const ledger = fakeLedger({ actionArtifacts: [artifact] });
+  const ledger = fakeLedger({ actionReferences: [actionReference] });
   const commits = [];
   const registry = new ToolRegistry();
   registry.register({
@@ -414,11 +411,11 @@ test("approval binds execution to the exact active plan and blocks request-id su
     },
   });
   const approvalBrief = {
-    ...brief({ authorizedArtifactIds: [artifact.artifactId] }),
+    ...brief({ authorizedActionReferenceIds: [actionReference.referenceId] }),
     objective: "Commit the exact approved account-tree preview.",
     summary: "The user approved the commit-ready account-tree plan.",
     requiredCapabilities: ["integration:accounting"],
-    completionCriteria: ["A successful commit receipt for the authorized artifact exists."],
+    completionCriteria: ["A successful receipt for the authorized MCP action exists."],
   };
   const toolResponses = [];
   const modelTransport = transport(async (payload, index) => {
@@ -427,7 +424,7 @@ test("approval binds execution to the exact active plan and blocks request-id su
       return completed(JSON.stringify(approvalBrief), 20);
     }
     if (index === 1) {
-      assert.match(payload.developerInstructions, /commit-plan:approved/);
+      assert.match(payload.developerInstructions, /mcp-action:approved/);
       toolResponses.push(await payload.onToolCall({
         callId: "guessed",
         tool: "remote_accounting_commit_account_tree_import",
@@ -436,7 +433,7 @@ test("approval binds execution to the exact active plan and blocks request-id su
       toolResponses.push(await payload.onToolCall({
         callId: "exact",
         tool: "remote_accounting_commit_account_tree_import",
-        arguments: { import_plan_id: artifact.planId },
+        arguments: { import_plan_id: actionReference.opaqueId },
       }));
       return completed("Committed the exact approved plan.", 50);
     }
@@ -470,10 +467,5 @@ test("approval binds execution to the exact active plan and blocks request-id su
   assert.match(toolResponses[0].error, /Never substitute a request ID/);
   assert.equal(toolResponses[1].ok, true);
   assert.deepEqual(commits, [{ import_plan_id: "plan-exact-273" }]);
-  assert.equal(
-    ledger.events.some(({ type, payload }) => (
-      type === "action.artifact.status" && payload.status === "committed"
-    )),
-    true,
-  );
+  assert.equal(ledger.events.some(({ type }) => type.startsWith("action.artifact")), false);
 });
