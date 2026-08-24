@@ -325,6 +325,12 @@ const server = http.createServer(async (request, response) => {
       if (store.status.ready) queue.notify();
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/integrations/mcp/refresh") {
+      const integrations = await mcp.refreshTools();
+      sendJson(response, 200, { integrations });
+      if (store.status.ready && mcp.ready() && !jmap.requiredProblem()) queue.notify();
+      return;
+    }
     const userIntegrationMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
     if (request.method === "DELETE" && userIntegrationMatch) {
       sendJson(response, 200, { integration: await mcp.removeUserIntegration(userIntegrationMatch[1]) });

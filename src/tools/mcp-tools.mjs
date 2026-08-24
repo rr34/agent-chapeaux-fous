@@ -113,6 +113,7 @@ export class McpToolManager {
     this.userServers = {};
     this.userServerNames = new Set();
     this.registry = null;
+    this.refreshPromise = null;
   }
 
   async initialize(registry) {
@@ -214,9 +215,15 @@ export class McpToolManager {
       const response = await client.listTools();
       const allowed = server.includeTools ? new Set(server.includeTools) : null;
       const tools = response.tools.filter((tool) => !allowed || allowed.has(tool.name));
-      await this.connections.get(serverName)?.client.close().catch(() => {});
+      const previousConnection = this.connections.get(serverName);
+      if (previousConnection) {
+        await Promise.allSettled([
+          previousConnection.client.close(),
+          previousConnection.transport?.close?.(),
+        ]);
+      }
       this.connections.set(serverName, { client, transport });
-      for (const tool of tools) this.registerRemoteTool(serverName, tool);
+      this.replaceServerTools(serverName, tools);
       this.states[serverName] = {
         ready: true,
         required: server.required === true,
@@ -231,6 +238,15 @@ export class McpToolManager {
       await transport.close().catch(() => {});
       throw error;
     }
+  }
+
+  replaceServerTools(serverName, tools) {
+    for (const modelName of this.serverTools.get(serverName) ?? []) {
+      this.registry.unregister(modelName);
+      this.registeredTools.delete(modelName);
+    }
+    this.serverTools.delete(serverName);
+    for (const tool of tools) this.registerRemoteTool(serverName, tool);
   }
 
   registerRemoteTool(serverName, tool) {
@@ -336,6 +352,49 @@ export class McpToolManager {
       this.registeredTools.delete(modelName);
     }
     this.serverTools.delete(serverName);
+  }
+
+  async refreshTools() {
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = this.refreshToolsFromServers();
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
+  async refreshToolsFromServers() {
+    const entries = await Promise.all(Object.entries(this.servers).map(async ([serverName, server]) => {
+      if (server.enabled === false) return [serverName, { refreshed: false, skipped: "disabled" }];
+      let provider;
+      try {
+        provider = this.oauthProviders.get(serverName);
+        if (server.oauth?.enabled !== false && server.oauth && (!provider || !await provider.tokens())) {
+          return [serverName, { refreshed: false, skipped: "authorization required" }];
+        }
+        await this.connectServer(serverName, server, provider);
+        return [serverName, {
+          refreshed: true,
+          toolCount: this.states[serverName].toolCount,
+          tools: this.states[serverName].tools,
+        }];
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const previous = this.states[serverName] ?? {
+          ready: false,
+          required: server.required === true,
+          oauth: Boolean(provider),
+          userManaged: this.userServerNames.has(serverName),
+          url: server.url,
+        };
+        this.states[serverName] = this.connections.has(serverName)
+          ? { ...previous, refreshError: message }
+          : { ...previous, ready: false, error: message, refreshError: message };
+        return [serverName, { refreshed: false, error: message }];
+      }
+    }));
+    return Object.fromEntries(entries);
   }
 
   async saveUserServers() {

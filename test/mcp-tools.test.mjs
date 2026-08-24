@@ -284,6 +284,78 @@ test("multiple OAuth MCP integrations authorize and connect independently", asyn
   await manager.close();
 });
 
+test("refresh replaces MCP tool names and schemas while preserving the last good list on failure", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    inventory: { enabled: true, url: "https://inventory.example.test/mcp" },
+  }));
+
+  let generation = 0;
+  const closed = [];
+  const clients = [
+    [
+      { name: "item_read", description: "Read an item", inputSchema: { type: "object", required: ["oldId"] } },
+      { name: "item_retired", description: "Retired tool", inputSchema: { type: "object" } },
+    ],
+    [
+      { name: "item_read", description: "Read current inventory", inputSchema: { type: "object", required: ["sku"] } },
+      { name: "item_create", description: "Create an item", inputSchema: { type: "object" } },
+    ],
+  ];
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => {
+      const clientGeneration = generation++;
+      return {
+        async connect() {},
+        async listTools() {
+          if (!clients[clientGeneration]) throw new Error("inventory refresh unavailable");
+          return { tools: clients[clientGeneration] };
+        },
+        async callTool({ name }) { return { structuredContent: { name, clientGeneration } }; },
+        async close() { closed.push(clientGeneration); },
+      };
+    },
+    transportFactory: () => ({ async close() {} }),
+  });
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+  assert.deepEqual(
+    registry.list().map(({ name }) => name).sort(),
+    ["remote_inventory_item_read", "remote_inventory_item_retired"],
+  );
+
+  const refreshed = await manager.refreshTools();
+  assert.deepEqual(refreshed.inventory, {
+    refreshed: true,
+    toolCount: 2,
+    tools: ["item_read", "item_create"],
+  });
+  assert.deepEqual(
+    registry.list().map(({ name }) => name).sort(),
+    ["remote_inventory_item_create", "remote_inventory_item_read"],
+  );
+  const readDefinition = registry.list().find(({ name }) => name === "remote_inventory_item_read");
+  assert.equal(readDefinition.description, "[inventory] Read current inventory");
+  assert.deepEqual(readDefinition.parameters.required, ["sku"]);
+  assert.deepEqual(await registry.execute("remote_inventory_item_create", {}), {
+    name: "item_create", clientGeneration: 1,
+  });
+  assert.deepEqual(closed, [0]);
+
+  const failed = await manager.refreshTools();
+  assert.deepEqual(failed.inventory, { refreshed: false, error: "inventory refresh unavailable" });
+  assert.equal(manager.health().inventory.ready, true);
+  assert.equal(manager.health().inventory.refreshError, "inventory refresh unavailable");
+  assert.deepEqual(
+    registry.list().map(({ name }) => name).sort(),
+    ["remote_inventory_item_create", "remote_inventory_item_read"],
+  );
+  await manager.close();
+});
+
 test("UI-managed bearer MCP integrations persist privately, reload, and can be removed", async (context) => {
   const temporary = temporaryDirectory();
   context.after(temporary.cleanup);

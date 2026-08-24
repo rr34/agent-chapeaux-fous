@@ -213,7 +213,9 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="view-selector"'));
   assert.ok(document.indexOf('id="view-selector"') < document.indexOf('id="refresh"'));
   assert.ok(document.indexOf('id="refresh"') < document.indexOf('<summary>Info</summary>'));
-  assert.match(application, /refresh\.addEventListener\("click", \(\) => window\.location\.reload\(\)\)/);
+  assert.match(application, /refresh\.addEventListener\("click", async \(\) =>/);
+  assert.match(application, /api\("\/api\/integrations\/mcp\/refresh", \{ method: "POST" \}\)/);
+  assert.match(server, /url\.pathname === "\/api\/integrations\/mcp\/refresh"/);
   assert.match(document, /data-view="content"/);
   assert.match(document, /data-view="logs"/);
   assert.match(document, /id="content-view"/);

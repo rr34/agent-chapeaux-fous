@@ -1181,7 +1181,7 @@ function renderIntegrations(integrations) {
       node("strong", "", name),
       node("span", "", status),
     );
-    if (integration.error) identity.title = integration.error;
+    if (integration.error || integration.refreshError) identity.title = integration.refreshError || integration.error;
     card.classList.toggle("ready", Boolean(integration.ready));
     card.append(identity);
     if (integration.userManaged) {
@@ -3745,7 +3745,19 @@ elements.cancelRecording.addEventListener("click", () => {
   recorder.stop();
 });
 
-elements.refresh.addEventListener("click", () => window.location.reload());
+elements.refresh.addEventListener("click", async () => {
+  elements.refresh.disabled = true;
+  elements.refresh.textContent = "Refreshing…";
+  elements.status.textContent = "Refreshing MCP tools…";
+  try {
+    await api("/api/integrations/mcp/refresh", { method: "POST" });
+    window.location.reload();
+  } catch (error) {
+    elements.status.textContent = error.message;
+    elements.refresh.disabled = false;
+    elements.refresh.textContent = "Refresh";
+  }
+});
 elements.requestLimit.addEventListener("change", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
 elements.newConversation.addEventListener("click", async () => {
   if (!window.confirm("Start a new conversation? Chapeaux Fous will stop carrying the current conversation context into the next request.")) return;

@@ -241,7 +241,9 @@ Agent Slayer reads `config/mcp-servers.json` at startup and independently
 connects to each enabled MCP server. Remote schemas discovered by `tools/list`
 are registered under provider-neutral names such as
 `remote_tlom_<upstream-tool-name>`. The source and original upstream name remain
-available in the registry and health output.
+available in the registry and health output. The web client's **Refresh** action
+reconnects to every enabled, authorized MCP and replaces that provider's
+registered tool names and schemas with its latest `tools/list` response.
 
 The current TLOM configuration is:
 

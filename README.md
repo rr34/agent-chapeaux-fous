@@ -357,8 +357,11 @@ standard type is relevant. Answers live only in SQLite; the repository contains
 no user's profile values.
 
 Remote MCP tools are discovered by Agent Slayer from
-`config/mcp-servers.json` at process startup. Their exact discovered schemas are
-eligible for deterministic request selection beside the local tools. Every
+`config/mcp-servers.json` at process startup and rediscovered from every enabled,
+authorized MCP when the web client's **Refresh** button is used. Added, removed,
+and changed tool schemas replace that provider's prior registry entries. Their
+exact discovered schemas are eligible for deterministic request selection
+beside the local tools. Every
 immediately callable schema is placed in the current model interaction; deferred
 integration families appear first in the capability catalog and receive exact
 schemas if the model requests them. The active model transport performs the
