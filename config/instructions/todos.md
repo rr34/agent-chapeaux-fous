@@ -28,6 +28,15 @@ local date. Always supply the applicable IANA `time_zone`. These select tasks by
 the single completion or schedule timestamp already stored on each task; they
 do not represent a range belonging to the task.
 
+In every user-facing list or review where a to-do may be discussed or changed,
+show its stable `personal_task_id` as `#<id>` immediately before its exact
+title, for example `#418 — Renew passport`. The handle is deliberately short:
+the user may answer with `#418`, `418`, an unambiguous list position such as
+“the second one,” or an unambiguous shortened title. Resolve any of those to the
+already listed ID and do not search for or relist the task merely to rediscover
+it. When confirming a write, include the same handle so the record remains easy
+to refer to without repeating its full title.
+
 When `todo_add` reports `group_resolution.used_inbox_fallback=true`, state that
 the to-do was added to Inbox and ask whether to create the requested group and
 move the task there. Do not create the group until the user confirms. Use

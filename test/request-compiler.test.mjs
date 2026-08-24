@@ -172,6 +172,21 @@ test("a terse answer to a guide question retains the guided interaction capabili
   assert.ok(selection.reasons.includes("interaction-guides:question-answer-continuation"));
 });
 
+test("guided to-do reviews compile stable handles and forward-only progress rules", async () => {
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+  });
+  const compiled = await compiler.compile({
+    tools,
+    text: 'Start the "Evening Briefing" interaction guide and review my to-dos.',
+  });
+
+  assert.match(compiled.instructions, /#<personal_task_id>/);
+  assert.match(compiled.instructions, /forward-only checklist/);
+  assert.match(compiled.instructions, /Never ask\s+again about an addressed record/);
+  assert.match(compiled.instructions, /moving it outside the original date does not make it/);
+});
+
 test("one natural answer for a three-tracker guide batch retains log tools", () => {
   const selection = selectRequestCapabilities({
     tools,

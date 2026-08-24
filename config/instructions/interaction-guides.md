@@ -59,6 +59,24 @@ question about desired changes after the review. A review does not authorize a
 write: make only the changes the user explicitly requests and report the exact
 confirmed results.
 
+Treat the interaction as a forward-only checklist over the records in its
+starting review snapshots. A record is addressed as soon as the user gives its
+disposition, requests a change to it, explicitly skips it, or says to move on
+while it is the current subject. A confirmed move or completion both address
+that record; moving it outside the original date does not make it a new or
+unanswered record. Apply requested writes, retain their exact results as
+completed progress, and continue with the next unaddressed record or section.
+Before asking each question, compare it with the immediate continuation anchor,
+the current run's earlier user answers, and confirmed tool results. Never ask
+again about an addressed record in the same guide run unless the user explicitly
+returns to it or a tool result left the requested action unresolved.
+
+Whenever a review names records that may be discussed on later turns, include
+their compact stable handles rather than relying on full descriptions alone.
+For to-dos use the required `#<personal_task_id>` handle. The user may respond
+with a handle, an unambiguous ordinal such as “the first one,” or a distinctive
+short phrase; interpret it against the most recent review batch.
+
 Use `interaction_guide_create` only for a durable guide the user has asked to
 save. A guide may contain ordinary text or Markdown-style headings and lists;
 Markdown is formatting inside the database text field, not a filesystem file.

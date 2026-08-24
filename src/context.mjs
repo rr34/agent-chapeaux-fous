@@ -31,6 +31,16 @@ function boundedRecentHistory(history, maximum = 10_000) {
   return `${omitted}${selected.join("\n\n")}`;
 }
 
+function boundedContinuationAnchor(history, maximum = 3_000) {
+  const previousAssistant = [...history].reverse()
+    .find(({ role, content }) => role === "assistant" && String(content ?? ""))?.content ?? "";
+  const text = String(previousAssistant);
+  if (!text) return null;
+  if (text.length <= maximum) return text;
+  const prefix = "[beginning of prior assistant response omitted]\n";
+  return `${prefix}${text.slice(-(maximum - prefix.length))}`;
+}
+
 function activeTrackerRows(store, limit = 200) {
   if (!store?.status?.ready) return [];
   return store.requireReady().prepare(`
@@ -125,12 +135,23 @@ export class ContextBuilder {
       ? activeTrackerRows(this.store)
       : [];
     const historyText = boundedRecentHistory(history);
+    const continuationAnchor = continuingConversation
+      ? boundedContinuationAnchor(history)
+      : null;
     const sections = [
       "# Current time",
       `Current UTC time: ${new Date().toISOString()}`,
       "Resolve relative dates using an active time_zone profile fact when one is available.",
       "",
     ];
+    if (continuationAnchor) {
+      sections.push(
+        "# Immediate continuation anchor",
+        "The current user request directly answers or continues the assistant response below. Resolve short answers, pronouns, requested changes, and commands such as ‘next’ or ‘move on’ against this response before considering older subjects. Do not ask again about a record whose disposition or requested change was already established in the active interaction.",
+        `ASSISTANT: ${continuationAnchor}`,
+        "",
+      );
+    }
     if (relevantProfileTypes.length) {
       sections.push(
         "# Relevant active profile facts",
