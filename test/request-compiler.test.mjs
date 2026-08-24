@@ -4,6 +4,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   capabilityForTool,
+  requestCapabilityCatalog,
   RequestCompiler,
   selectRequestCapabilities,
 } from "../src/request-compiler.mjs";
@@ -73,6 +74,17 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("video_render_interaction")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
   assert.equal(capabilityForTool(tool("file_read")), "files");
+});
+
+test("the orienter receives one organized catalog of every connected capability family", () => {
+  const catalog = requestCapabilityCatalog([...tools, tool("brand_new_local_operation")]);
+  assert.equal(catalog.some(({ capability }) => capability === "orchestration"), false);
+  assert.equal(catalog.some(({ capability }) => capability === "unclassified"), true);
+  assert.equal(catalog.some(({ capability }) => capability === "integration:tlom"), true);
+  assert.deepEqual(
+    catalog.find(({ capability }) => capability === "email").representativeTools,
+    ["email_search", "email_send"],
+  );
 });
 
 test("durable file retrieval remains callable on a terse later request", async () => {

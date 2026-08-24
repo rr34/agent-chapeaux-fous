@@ -29,6 +29,7 @@ function runtimeConfig() {
   return {
     model: "test-model",
     reasoningEffort: "high",
+    turnWorkflowEnabled: false,
     maxToolCalls: 4,
     systemPromptPath: "unused",
   };

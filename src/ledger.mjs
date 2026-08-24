@@ -165,10 +165,14 @@ export function requestProgress(events, startedAtMs) {
   const videoTranscription = activeOperation(events, "video.source.transcription.start", ["video.source.transcription.complete", "request.error"]);
   const model = activeOperation(events, "model.request", ["model.response", "request.error"]);
   let label = "Queued";
+  const activeStep = activeOperation(events, "agent.step", ["agent.step"]);
   if (tool) label = `Running ${tool.name || tool.actorName || "tool"}`;
   else if (videoTranscription) label = "Timing video captions";
   else if (transcription) label = "Transcribing";
-  else if (model) label = "Waiting for model";
+  else if (model) label = model.payload?.workflowStep
+    ? `${model.payload.workflowStepLabel || model.payload.workflowStep} · waiting for model`
+    : "Waiting for model";
+  else if (activeStep) label = activeStep.name || "Processing request step";
   else if (last?.type === "tools.sent" || last?.type === "context.sent") label = "Building model request";
   else if (last?.type === "model.response" || last?.type === "model.usage" || last?.type === "assistant.response") label = "Finishing response";
   else if (last?.type === "request.processing") label = "Preparing request";
@@ -180,6 +184,79 @@ export function requestProgress(events, startedAtMs) {
     modelCalls: events.filter((event) => event.type === "model.request" && event.phase === "start").length,
     toolCalls: events.filter((event) => event.type === "tool.call" && event.phase === "start").length,
   };
+}
+
+function emptyTokenUsage() {
+  return {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+    totalTokens: 0,
+  };
+}
+
+function addTokenUsage(total, usage) {
+  for (const key of Object.keys(total)) total[key] += Number(usage?.[key] ?? 0);
+  return total;
+}
+
+function requestUsage(events) {
+  const usageEvents = events.filter((event) => event.type === "model.usage");
+  if (!usageEvents.length) return null;
+  const tokenUsage = usageEvents.reduce(
+    (total, event) => addTokenUsage(total, event.payload?.tokenUsage),
+    emptyTokenUsage(),
+  );
+  const estimatedCosts = usageEvents
+    .map((event) => Number(event.payload?.estimatedCostUsd))
+    .filter(Number.isFinite);
+  const latest = usageEvents.at(-1)?.payload ?? {};
+  return {
+    ...latest,
+    tokenUsage,
+    ...(estimatedCosts.length
+      ? { estimatedCostUsd: estimatedCosts.reduce((total, value) => total + value, 0) }
+      : {}),
+    modelCallCount: usageEvents.length,
+  };
+}
+
+function workflowSteps(events) {
+  const starts = events.filter((event) => event.type === "agent.step" && event.phase === "start");
+  return starts.map((start) => {
+    const terminal = events.find((event) => (
+      event.type === "agent.step"
+      && event.eventSeq > start.eventSeq
+      && event.operationId === start.operationId
+      && ["end", "error"].includes(event.phase)
+    ));
+    const usageEvents = events.filter((event) => (
+      event.type === "model.usage"
+      && event.payload?.workflowStep === start.payload?.workflowStep
+      && event.eventSeq > start.eventSeq
+      && (!terminal || event.eventSeq < terminal.eventSeq)
+    ));
+    const tokenUsage = usageEvents.reduce(
+      (total, event) => addTokenUsage(total, event.payload?.tokenUsage),
+      emptyTokenUsage(),
+    );
+    const costs = usageEvents
+      .map((event) => Number(event.payload?.estimatedCostUsd))
+      .filter(Number.isFinite);
+    return {
+      step: start.payload?.workflowStep ?? start.name ?? "step",
+      label: start.name ?? start.payload?.workflowStep ?? "Step",
+      status: terminal?.status ?? "processing",
+      effort: start.payload?.reasoningEffort ?? null,
+      elapsedMs: terminal ? Math.max(0, terminal.occurredAtMs - start.occurredAtMs) : null,
+      modelCalls: usageEvents.length,
+      tokenUsage,
+      estimatedCostUsd: costs.length ? costs.reduce((total, value) => total + value, 0) : null,
+      summary: terminal?.content ?? null,
+    };
+  });
 }
 
 export class Ledger {
@@ -311,7 +388,7 @@ export class Ledger {
     const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
     const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
-    const usage = [...events].reverse().find((event) => event.type === "model.usage");
+    const usage = requestUsage(events);
     const compiled = [...events].reverse().find((event) => (
       event.type === "context.sent"
       && Array.isArray(event.payload?.capabilitySelection?.explicitHats)
@@ -347,7 +424,8 @@ export class Ledger {
       request: request.content || transcript?.content || "Voice request",
       response: response?.content || null,
       error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
-      usage: usage?.payload || null,
+      usage,
+      steps: workflowSteps(events),
       eventCount: events.length,
       ...(sourceFile ? { attachment: publicFile(sourceFile) } : {}),
       ...(explicitHats.length ? { explicitHats } : {}),
@@ -455,6 +533,28 @@ export class Ledger {
     });
   }
 
+  conversationBoundaryEventSeq() {
+    const row = this.store.requireReady().prepare(`
+      SELECT event_seq FROM activity_events
+      WHERE event_type = 'conversation.reset'
+      ORDER BY event_seq DESC
+      LIMIT 1
+    `).get();
+    return Math.max(0, Number(row?.event_seq ?? 0));
+  }
+
+  latestConversationState({ afterEventSeq = 0 } = {}) {
+    const row = this.store.requireReady().prepare(`
+      SELECT * FROM activity_events
+      WHERE event_type = 'conversation.state'
+        AND event_seq > ?
+      ORDER BY event_seq DESC
+      LIMIT 1
+    `).get(Math.max(0, Number(afterEventSeq) || 0));
+    const event = publicEvent(row);
+    return event?.payload?.state ?? null;
+  }
+
   latestModelContextUsage({ afterEventSeq = 0 } = {}) {
     const row = this.store.requireReady().prepare(`
       SELECT usage.*, response.payload_json AS response_payload_json
@@ -516,6 +616,8 @@ export class Ledger {
         occurredAtUtc: event.occurredAtUtc,
         model: row.response_model ?? null,
         transport: responsePayload.transport ?? event.payload?.provider ?? null,
+        workflowStep: event.payload?.workflowStep ?? null,
+        reasoningEffort: event.payload?.reasoningEffort ?? null,
         inputTokens: Number(tokenUsage.inputTokens ?? 0),
         cachedInputTokens: Number(tokenUsage.cachedInputTokens ?? 0),
         cacheWriteTokens: Number(tokenUsage.cacheWriteTokens ?? 0),
@@ -809,6 +911,7 @@ export class Ledger {
       Math.min(40, Math.max(2, limit * 2)),
     ).map(publicEvent).reverse();
     return rows.map((event) => ({
+      eventSeq: event.eventSeq,
       role: receivedEventTypes.includes(event.type) ? "user" : "assistant",
       content: event.content,
       requestId: event.turnId,

@@ -616,6 +616,7 @@ test("legacy voice-service requests remain visible without rewriting their event
     response: "The old response",
     error: null,
     usage: null,
+    steps: [],
     eventCount: 2,
   }]);
   assert.deepEqual(

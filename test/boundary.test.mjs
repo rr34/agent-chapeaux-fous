@@ -51,6 +51,8 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(baseInstructions, /never ask the user to\s+identify information plainly visible in the attachment/);
   assert.match(baseInstructions, /original requested outcome and full scope authoritative/);
   assert.match(baseInstructions, /missing information as\s+parameters for the original task/);
+  assert.match(baseInstructions, /accepts your offered action,\s+perform it/);
+  assert.match(baseInstructions, /ask\s+for authorization again/);
   assert.match(baseInstructions, /never\s+repeat an identical failed call/);
   assert.match(baseInstructions, /same error\s+recurs after a relevant correction, stop and report the blocker/);
   assert.match(baseInstructions, /genuinely new validation errors while the tool budget allows/);
@@ -229,6 +231,7 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="view-selector"'));
   assert.ok(document.indexOf('id="view-selector"') < document.indexOf('id="refresh"'));
   assert.ok(document.indexOf('id="refresh"') < document.indexOf('<summary>Info</summary>'));
+  assert.match(application, /Git commit: \$\{commit\}/);
   assert.match(application, /refresh\.addEventListener\("click", async \(\) =>/);
   assert.match(application, /api\("\/api\/integrations\/mcp\/refresh", \{ method: "POST" \}\)/);
   assert.match(server, /url\.pathname === "\/api\/integrations\/mcp\/refresh"/);
@@ -441,6 +444,19 @@ test("the request composer can apply one-shot tool and time limits", () => {
   assert.match(application, /runLimits: pendingRunLimits/);
   assert.match(application, /pendingRunLimits = null/);
   assert.match(server, /normalizeRunLimits\(body\.runLimits\)/);
+});
+
+test("the request feed exposes literal workflow steps and per-step token usage", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.match(document, /class="request-steps" aria-label="Agent steps" hidden/);
+  assert.match(application, /function renderRequestSteps/);
+  assert.match(application, /step\.tokenUsage\?\.totalTokens/);
+  assert.match(application, /request-step-token/);
+  assert.match(application, /renderRequestSteps\(node\.querySelector\("\.request-steps"\), request\.steps\)/);
+  assert.match(application, /"agent\.step": "AGENT STEP"/);
+  assert.match(application, /"turn\.brief": "ACCEPTED TURNBRIEF"/);
+  assert.match(application, /"conversation\.state": "ROLLING CONVERSATION STATE"/);
 });
 
 test("the request feed can start a new native model conversation without clearing application history", () => {

@@ -473,6 +473,7 @@ export class CodexAppServerClient extends EventEmitter {
     input,
     requestAttachmentInput,
     tools,
+    outputSchema = null,
     maxToolCalls,
     runTimeoutMs,
   }) {
@@ -501,6 +502,7 @@ export class CodexAppServerClient extends EventEmitter {
             : []),
       ],
       callableTools: this.dynamicTools(tools),
+      outputSchema,
       toolDelivery: conversationId
         ? "retained on the resumed conversation"
         : "sent in thread/start",
@@ -524,6 +526,7 @@ export class CodexAppServerClient extends EventEmitter {
     input,
     requestAttachmentInput = null,
     tools,
+    outputSchema = null,
     maxToolCalls = 128,
     runTimeoutMs = null,
     onToolCall,
@@ -599,6 +602,7 @@ export class CodexAppServerClient extends EventEmitter {
         ...(typeof requestAttachmentInput === "string" ? [{ type: "text", text: requestAttachmentInput }] : []),
       ],
       ...(effort && !["none", "off"].includes(effort) ? { effort } : {}),
+      ...(outputSchema ? { outputSchema } : {}),
       sandboxPolicy: { type: "readOnly", networkAccess: false },
       approvalPolicy: "never",
     };

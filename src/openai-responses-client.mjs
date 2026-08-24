@@ -180,6 +180,7 @@ export class OpenAIResponsesClient {
     input,
     requestAttachmentInput,
     tools,
+    outputSchema = null,
     maxToolCalls,
     runTimeoutMs,
   }) {
@@ -201,6 +202,7 @@ export class OpenAIResponsesClient {
       developerInstructions,
       input: [{ type: "text", text: input }, ...(attachment ? [attachment] : [])],
       callableTools: openAITools(tools),
+      outputSchema,
       toolDelivery: "sent in every Responses API call",
       executionBoundary: {
         persistentResponseChain: true,
@@ -262,6 +264,7 @@ export class OpenAIResponsesClient {
     input,
     requestAttachmentInput = null,
     tools,
+    outputSchema = null,
     maxToolCalls = 128,
     runTimeoutMs = null,
     onToolCall,
@@ -296,9 +299,18 @@ export class OpenAIResponsesClient {
         instructions,
         input: nextInput,
         tools: callableTools,
-        tool_choice: "auto",
-        parallel_tool_calls: true,
+        ...(callableTools.length ? { tool_choice: "auto", parallel_tool_calls: true } : {}),
         store: true,
+        ...(outputSchema ? {
+          text: {
+            format: {
+              type: "json_schema",
+              name: "agent_slayer_structured_output",
+              strict: true,
+              schema: outputSchema,
+            },
+          },
+        } : {}),
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
         ...(effort ? { reasoning: { effort: effort === "off" ? "none" : effort } } : {}),
       };
@@ -376,6 +388,7 @@ export class OpenAIResponsesClient {
         endpoint: `${this.baseUrl}/responses`,
         responseId: response.id,
         toolSchemaCount: callableTools.length,
+        structuredOutput: Boolean(outputSchema),
         imageDetail: requestAttachmentInput?.mediaKind === "image" ? this.imageDetail : null,
       },
     };

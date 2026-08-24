@@ -124,6 +124,46 @@ test("OpenAI request descriptions expose schemas and image metadata without byte
   assert.doesNotMatch(JSON.stringify(client.health()), /sk_test/);
 });
 
+test("OpenAI Responses sends strict JSON Schema output contracts", async () => {
+  const requests = [];
+  const outputSchema = {
+    type: "object",
+    additionalProperties: false,
+    properties: { objective: { type: "string" } },
+    required: ["objective"],
+  };
+  const client = new OpenAIResponsesClient({
+    apiKey: "sk_test_secret_value_123456",
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse({
+        id: "resp_structured", status: "completed",
+        output: [{
+          type: "message", role: "assistant",
+          content: [{ type: "output_text", text: '{"objective":"Orient request"}' }],
+        }],
+        usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+      });
+    },
+  });
+
+  const result = await client.runTurn({
+    model: "gpt-5.6-terra", effort: "medium", conversationId: null,
+    baseInstructions: "ORIENT", developerInstructions: "SOURCES", input: "Continue.",
+    tools: [], outputSchema, maxToolCalls: 0, onToolCall: async () => null,
+  });
+
+  assert.deepEqual(requests[0].text, {
+    format: {
+      type: "json_schema", name: "agent_slayer_structured_output", strict: true, schema: outputSchema,
+    },
+  });
+  assert.equal(Object.hasOwn(requests[0], "tool_choice"), false);
+  assert.equal(Object.hasOwn(requests[0], "parallel_tool_calls"), false);
+  assert.equal(result.text, '{"objective":"Orient request"}');
+  assert.equal(result.protocol.structuredOutput, true);
+});
+
 test("OpenAI API errors redact the configured key", async () => {
   const apiKey = "sk_test_secret_value_123456";
   const client = new OpenAIResponsesClient({

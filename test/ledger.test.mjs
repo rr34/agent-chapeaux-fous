@@ -205,6 +205,8 @@ test("context usage, intent checkpoints, and exact tool receipts remain recovera
       type: "model.usage", status: "complete", turnId: first.requestId,
       operationId: "model-usage-1",
       payload: {
+        workflowStep: "execution",
+        reasoningEffort: "high",
         provider: "openai",
         tokenUsage: {
           inputTokens: 170000, cachedInputTokens: 150000, cacheWriteTokens: 10000,
@@ -225,6 +227,8 @@ test("context usage, intent checkpoints, and exact tool receipts remain recovera
     const metered = ledger.modelUsage({ limit: 10 });
     assert.equal(metered[0].model, "gpt-5.6-terra");
     assert.equal(metered[0].transport, "openai-responses");
+    assert.equal(metered[0].workflowStep, "execution");
+    assert.equal(metered[0].reasoningEffort, "high");
     assert.equal(metered[0].cachedInputTokens, 150000);
     assert.equal(metered[0].cacheWriteTokens, 10000);
     assert.equal(metered[0].recordedEstimatedCostUsd, 0.1);
@@ -252,6 +256,84 @@ test("context usage, intent checkpoints, and exact tool receipts remain recovera
     const envelope = JSON.parse(chunks.join(""));
     assert.deepEqual(envelope.call.arguments, { query: "important records" });
     assert.equal(envelope.outcome.result.importantDetail, "preserved");
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
+test("request details aggregate total usage and preserve usage for each workflow step", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const created = ledger.createRequest({ text: "Go ahead and do that." });
+    const addStep = ({ step, label, index, effort, tokens, cost }) => {
+      const operationId = `workflow:${step}`;
+      ledger.append({
+        type: "agent.step", phase: "start", status: "processing",
+        turnId: created.requestId, operationId, name: label,
+        payload: { workflowStep: step, workflowStepLabel: label, stepIndex: index, reasoningEffort: effort },
+      });
+      ledger.append({
+        type: "model.usage", status: "complete", turnId: created.requestId,
+        operationId: `model:${step}`,
+        payload: {
+          workflowStep: step, workflowStepLabel: label, stepIndex: index, reasoningEffort: effort,
+          tokenUsage: {
+            inputTokens: tokens - 5, cachedInputTokens: 0, cacheWriteTokens: 0,
+            outputTokens: 5, reasoningOutputTokens: 0, totalTokens: tokens,
+          },
+          estimatedCostUsd: cost,
+        },
+      });
+      ledger.append({
+        type: "agent.step", phase: "end", status: "complete",
+        turnId: created.requestId, operationId, name: label, content: `${label} complete`,
+        payload: { workflowStep: step, workflowStepLabel: label, stepIndex: index, reasoningEffort: effort },
+      });
+    };
+    addStep({ step: "orientation", label: "Orient request", index: 1, effort: "medium", tokens: 20, cost: 0.01 });
+    addStep({ step: "execution", label: "Execute request", index: 2, effort: "xhigh", tokens: 50, cost: 0.04 });
+    addStep({ step: "audit", label: "Audit completion", index: 3, effort: "low", tokens: 10, cost: 0.005 });
+    ledger.finish(ledger.trace(created.requestId)[0], "Done.");
+
+    const request = ledger.recentRequests().find(({ requestId }) => requestId === created.requestId);
+    assert.equal(request.usage.tokenUsage.totalTokens, 80);
+    assert.equal(request.usage.modelCallCount, 3);
+    assert.equal(request.usage.estimatedCostUsd, 0.055);
+    assert.deepEqual(request.steps.map(({ step, effort, tokenUsage }) => ({
+      step, effort, totalTokens: tokenUsage.totalTokens,
+    })), [
+      { step: "orientation", effort: "medium", totalTokens: 20 },
+      { step: "execution", effort: "xhigh", totalTokens: 50 },
+      { step: "audit", effort: "low", totalTokens: 10 },
+    ]);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
+test("rolling conversation state is bounded by an explicit new-conversation event", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const state = {
+      activeObjective: "Finish the import.",
+      openCommitments: [],
+      durableConstraints: [],
+      unresolvedQuestions: [],
+      relevantRequestIds: ["request-before-reset"],
+    };
+    ledger.append({ type: "conversation.state", payload: { state } });
+    assert.deepEqual(ledger.latestConversationState(), state);
+
+    ledger.resetModelConversation();
+    const boundary = ledger.conversationBoundaryEventSeq();
+    assert.ok(boundary > 0);
+    assert.equal(ledger.latestConversationState({ afterEventSeq: boundary }), null);
   } finally {
     store.close();
     temporary.cleanup();

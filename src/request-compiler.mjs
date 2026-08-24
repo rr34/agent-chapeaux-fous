@@ -286,6 +286,25 @@ function capabilitySummary(capability, tools) {
   return capabilitySummaries.get(capability) ?? `${capability} application capability.`;
 }
 
+export function requestCapabilityCatalog(tools) {
+  const grouped = new Map();
+  for (const tool of tools) {
+    const capability = capabilityForTool(tool);
+    if (capability === "orchestration") continue;
+    const entries = grouped.get(capability) ?? [];
+    entries.push(tool);
+    grouped.set(capability, entries);
+  }
+  return [...grouped.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([capability, entries]) => ({
+      capability,
+      summary: capabilitySummary(capability, entries),
+      toolCount: entries.length,
+      representativeTools: entries.slice(0, 5).map(({ name }) => name),
+    }));
+}
+
 export function capabilityRequestDefinition(capabilities) {
   const allowed = [...new Set(capabilities)].sort();
   if (allowed.length === 0) return null;

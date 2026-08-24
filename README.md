@@ -12,18 +12,19 @@ The complete request path is:
 
 ```text
 web or voice input
-  -> high-recall capability selection using request text and active integration scope
-  -> bounded recent context from SQLite plus selected capability guidance
-  -> model turn containing exact immediate schemas plus an organized deferred catalog
-  -> optional model-requested capability expansion in a replacement model thread
-  -> local or MCP tool execution
-  -> tool result returned to that same model exchange
+  -> orientation call with the exact request, bounded source context, and capability catalog
+  -> strict, source-referenced TurnBrief plus rolling conversation state
+  -> execution call with the accepted TurnBrief and exact selected tool schemas
+  -> local or MCP tool execution, with results returned to that same model exchange
+  -> conditional receipt-based completion audit
+  -> optional receipt-aware repair within the remaining turn-wide budget
   -> final response
 ```
 
 Every boundary is recorded in `activity_events` and shown in the web trace:
-user request, context, tools, exact model request, exact model response, tool
-call, tool result, and final answer.
+user request, orientation, rolling state, execution, conditional audit and
+repair, context, tools, exact model requests and responses, tool calls and
+results, per-step usage, and the final answer.
 
 ## Hats and the user manual
 
@@ -90,7 +91,9 @@ Set `SLAYER_MODEL_TRANSPORT=openai-responses`, `OPENAI_API_KEY`, and the desired
 is absent from health and traces, and is redacted from provider errors. Every
 Responses API call contains the exact currently callable function schemas.
 Function results return through `function_call_output` in the same persisted
-response chain before a final answer is accepted.
+response chain before that execution or repair call can finish. Orientation and
+completion audit calls have no callable functions and use strict structured
+outputs instead.
 
 `SLAYER_OPENAI_IMAGE_DETAIL=original` favors receipt legibility. Change it to
 `high` or `low` when input-token efficiency matters more than tiny visual
@@ -113,16 +116,12 @@ executable's absolute path before running the login script.
 `SLAYER_CODEX_REQUIRED_VERSION` makes health fail visibly when the executable
 does not match the App Server version tested by this release.
 
-Requests continue on one persistent Codex thread while the compiled callable
-capabilities stay the same, or until the user starts a new conversation. Agent
-Slayer resumes that thread with current replacement base instructions and
-bounded context, executes tool calls itself, and owns the durable SQLite ledger.
-A changed callable-tool schema automatically starts a replacement thread so the
-model never receives stale tool definitions; up to twelve recent exchanges are
-injected. When an
-on-demand capability expansion starts a replacement thread, the original
-request and bounded receipts for tools already used in that request are also
-injected. App Server's
+Each workflow phase is an explicit model interaction. Agent Slayer supplies
+bounded application-owned context and the accepted TurnBrief instead of relying
+on an opaque provider thread to remember what a short follow-up meant. If an
+execution call requests an additional cataloged capability, its continuation
+receives the exact schemas, the original request, and bounded receipts for tools
+already used in that request. App Server's
 unrelated agent capabilities are disabled at startup. Every turn is also read-only,
 network-disabled, and rooted in the empty
 `~/.local/state/agent-slayer/codex-workspace` directory outside every source
@@ -132,13 +131,13 @@ interrupts and rejects the turn instead of accepting its answer.
 Startup also reads the effective Codex configuration and fails health if any
 MCP server, plugin, or subagent configuration leaked into the isolated home.
 
-Agent Slayer also records the provider's latest input-token count and context
-window. When a retained native thread reaches `SLAYER_CONTEXT_ROLLOVER_PERCENT`
-(65% by default), the next request starts a replacement thread. Its bounded
-conversation checkpoint preserves the earliest objective, recent user and
-assistant exchanges, and a compact index of durable tool receipts while
-excluding raw tool payloads. This is pressure-triggered rather than based on a
-fixed message count; ordinary conversations remain native and uncompressed.
+Agent Slayer stores a compact, source-referenced rolling conversation state
+after orientation. This state is an index, not authority: each new orienter also
+receives exact recent ledger entries and may retain or change state only when
+those event numbers support it. A bounded conversation checkpoint remains a
+fallback when no structured state exists. Starting a new conversation creates a
+ledger boundary for both recent context and rolling state without deleting
+application history.
 
 The default model is `gpt-5.6-terra`; change `SLAYER_MODEL` explicitly if
 desired. In the Codex fallback, dynamic tools are an experimental App Server feature, so deploy
@@ -162,29 +161,29 @@ a plugin system.
 
 ## Request and context compilation
 
-Agent Slayer owns a request compiler in application code. It
-pairs each local domain's exact tool schemas with versioned capability guidance
-from `config/instructions/`; `config/system-prompt.md` contains only universal
-behavior. Routing considers the exact request, verified attachment metadata and
-preview, recent exchange text for short confirmations, and the capability set
-of the active model conversation. An active connected-integration capability is
-retained additively for ordinary actionable follow-ups unless the user explicitly
-selects another integration. Recognized requests receive the likely bundles plus
-one `request_capabilities` function and a concise catalog of the connected
-families whose exact schemas were deferred. If the model requests one of those
-families, Agent Slayer starts a replacement thread with the expanded exact
-schemas, preserves earlier same-request tool receipts, and continues the
-original request automatically. Read-only schema and database-ledger access is
-always present; mutation access remains separately routed. An unclear request or
-unknown attachment receives that small core plus the organized deferred catalog,
-letting the model choose a family without paying to send every schema. A newly registered local tool that has not yet
-been assigned to a hard-coded capability also forces that full fallback, so
-additions cannot silently disappear from model access.
+Agent Slayer owns request and context compilation in application code.
+Orientation receives the exact request, verified attachment context, exact
+recent ledger entries, prior rolling state, explicit hats, and an organized
+catalog of every connected capability family. It emits a strict `TurnBrief`
+that classifies continuations, authorizations, corrections, additions, and new
+objectives; identifies authorized and prohibited actions; selects required
+capabilities; and defines concrete completion criteria. Source-grounded fields
+carry ledger event numbers. This lets “go ahead and do that” preserve a specific
+prior offer without hoping the executor infers the same continuity.
+
+Execution is compiled from the accepted TurnBrief. It receives the exact schemas
+for selected capability families plus versioned guidance from
+`config/instructions/`; `config/system-prompt.md` contains only universal
+behavior. Read-only profile, file, schema, and ledger access remains present
+when available, while mutation access remains separately selected. A newly
+registered local tool that has not yet been assigned to a capability still
+forces the conservative full fallback so additions cannot silently disappear.
 
 The selected tool list is enforcement, not a hint: a model call outside the
 current interaction's callable set is rejected before the application function
-can run. Cataloged capabilities are not callable until the model explicitly
-requests them and receives their exact schemas on the continuation turn.
+can run. Orientation and audit have no callable domain tools. Cataloged
+capabilities become callable only after their exact schemas are present in an
+execution interaction or continuation.
 The trace records the selection reasons, selected versus available counts,
 serialized schema bytes, instruction character counts, and whether schemas were
 sent with a new thread or retained on a resumed thread.
@@ -195,8 +194,15 @@ OpenAI calls record literal input, cached-input, output, reasoning, and total
 tokens plus an estimated cost using configurable prices. The AI Usage screen
 shows month and recorded totals and a per-call history. Estimates are editable
 because provider prices can change; historical token counts remain the durable
-authority. The Codex fallback still records ChatGPT rate-limit buckets and token
-usage, but subscription calls are not counted as metered API cost.
+authority. Each request card and trace also break usage down by orientation,
+execution, audit, and repair, including reasoning effort, tokens, elapsed time,
+and recorded estimated cost. Orientation defaults to `medium` reasoning,
+execution uses the main configured effort, audit defaults to `low`, and repair
+uses its own strong effort. These are configurable with
+`SLAYER_ORIENTATION_REASONING_EFFORT`, `SLAYER_REASONING_EFFORT`,
+`SLAYER_AUDIT_REASONING_EFFORT`, and `SLAYER_REPAIR_REASONING_EFFORT`.
+The Codex fallback still records ChatGPT rate-limit buckets and token usage, but
+subscription calls are not counted as metered API cost.
 
 ## Tools
 

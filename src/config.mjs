@@ -117,6 +117,12 @@ export function loadConfig(environment = process.env) {
     codexRequestTimeoutMs: positiveInteger(environment.SLAYER_CODEX_TIMEOUT_MS, 10 * 60 * 1000),
     model: environment.SLAYER_MODEL?.trim() || "gpt-5.6-terra",
     reasoningEffort: environment.SLAYER_REASONING_EFFORT?.trim() || "high",
+    orientationReasoningEffort: environment.SLAYER_ORIENTATION_REASONING_EFFORT?.trim() || "medium",
+    auditReasoningEffort: environment.SLAYER_AUDIT_REASONING_EFFORT?.trim() || "low",
+    repairReasoningEffort: environment.SLAYER_REPAIR_REASONING_EFFORT?.trim()
+      || environment.SLAYER_REASONING_EFFORT?.trim()
+      || "high",
+    turnWorkflowEnabled: environment.SLAYER_TURN_WORKFLOW_ENABLED !== "false",
     maxToolCalls: positiveInteger(environment.SLAYER_MAX_TOOL_CALLS, 128),
     contextRolloverPercent: percentage(environment.SLAYER_CONTEXT_ROLLOVER_PERCENT, 65),
     conversationCheckpointCharacters: positiveInteger(

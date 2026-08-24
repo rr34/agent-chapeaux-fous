@@ -657,6 +657,11 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .agent-response-markdown input[type="checkbox"] { width: auto; margin: 0 .35rem 0 0; accent-color: var(--accent); }
 .markdown-image-alt { color: var(--muted); font-style: italic; }
 .request-error { white-space: pre-wrap; }
+.request-steps { display: grid; gap: .3rem; margin: .65rem 0; padding: 0; list-style: none; }
+.request-step { display: flex; flex-wrap: wrap; gap: .4rem; align-items: baseline; color: var(--muted); font-size: .75rem; }
+.request-step strong { color: var(--text); font-weight: 500; }
+.request-step[data-status="processing"] strong { color: var(--accent); }
+.request-step-token { font-variant-numeric: tabular-nums; }
 .request-actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
 .make-video { margin-right: auto; }
 .download-video { margin-right: auto; background: var(--good); color: #07130d; }

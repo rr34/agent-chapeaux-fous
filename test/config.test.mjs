@@ -13,6 +13,11 @@ test("OpenAI Responses is the default while the Codex fallback workspace remains
   assert.equal(config.modelTransport, "openai-responses");
   assert.equal(config.openAIBaseUrl, "https://api.openai.com/v1");
   assert.equal(config.openAIImageDetail, "original");
+  assert.equal(config.reasoningEffort, "high");
+  assert.equal(config.orientationReasoningEffort, "medium");
+  assert.equal(config.auditReasoningEffort, "low");
+  assert.equal(config.repairReasoningEffort, "high");
+  assert.equal(config.turnWorkflowEnabled, true);
   assert.deepEqual(config.aiPricing, {
     inputPerMillion: 2,
     cachedInputPerMillion: 0.2,
@@ -22,6 +27,22 @@ test("OpenAI Responses is the default while the Codex fallback workspace remains
   assert.equal(config.hatCatalogPath, path.join(repositoryRoot, "config", "hats.json"));
   assert.equal(config.codexWorkDirectory, "/tmp/agent-slayer-state-test/agent-slayer/codex-workspace");
   assert.equal(config.codexWorkDirectory.startsWith(`${repositoryRoot}${path.sep}`), false);
+});
+
+test("turn workflow reasoning effort is independently configurable by phase", () => {
+  const config = loadConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_REASONING_EFFORT: "xhigh",
+    SLAYER_ORIENTATION_REASONING_EFFORT: "low",
+    SLAYER_AUDIT_REASONING_EFFORT: "medium",
+    SLAYER_REPAIR_REASONING_EFFORT: "high",
+    SLAYER_TURN_WORKFLOW_ENABLED: "false",
+  });
+  assert.equal(config.reasoningEffort, "xhigh");
+  assert.equal(config.orientationReasoningEffort, "low");
+  assert.equal(config.auditReasoningEffort, "medium");
+  assert.equal(config.repairReasoningEffort, "high");
+  assert.equal(config.turnWorkflowEnabled, false);
 });
 
 test("an explicitly configured Codex workspace inside the repository is rejected", () => {

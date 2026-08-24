@@ -4,20 +4,20 @@ This repository is a normal application, not an agent framework or plugin.
 
 ## Core invariant
 
-The first model interaction for every user request must visibly contain:
+Every user request must begin with a literal orientation interaction that visibly contains:
 
 1. the user's exact request;
-2. the bounded context sent to the model; and
-3. the exact schemas of every tool immediately callable in that interaction; and
-4. an organized catalog of connected capability families whose detailed schemas
-   were deferred.
+2. the bounded, source-referenced conversation context sent to the model;
+3. the strict TurnBrief output schema; and
+4. an organized catalog of connected capability families.
 
-The model may request a cataloged capability. Before any newly loaded function
-can be called, its exact schema must be visible in a continuation of the same
-user request. A model tool call must execute the named application function, and
-its result must be returned to the same model exchange before a final answer is
-accepted. Never claim that an unavailable or merely cataloged tool is already
-callable.
+The execution interaction must visibly contain the accepted TurnBrief and the
+exact schema of every callable tool. No application function may run before its
+schema appears in that execution interaction. A model tool call must execute the
+named application function, and its result must be returned to the same model
+exchange before a final answer is accepted. The trace must record orientation,
+execution, conditional completion audit, repair, and per-step model usage
+literally. Never claim that an unavailable or merely cataloged tool is callable.
 
 ## Change safety
 

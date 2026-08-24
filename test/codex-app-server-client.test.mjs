@@ -117,6 +117,30 @@ test("request descriptions expose one-shot execution limits", () => {
   assert.equal(description.toolDelivery, "sent in thread/start");
 });
 
+test("Codex turns carry phase-specific effort and structured output schemas", async (context) => {
+  const process = new FakeCodexProcess();
+  const client = new CodexAppServerClient({
+    command: "/fake/codex", requiredVersion: "codex-test/1", codexHome: "/fake", cwd: "/fake/workspace",
+    spawnImplementation: () => process,
+  });
+  context.after(() => client.close());
+  const outputSchema = {
+    type: "object", additionalProperties: false,
+    properties: { objective: { type: "string" } }, required: ["objective"],
+  };
+
+  await client.runTurn({
+    model: "test-model", effort: "medium", conversationId: null,
+    baseInstructions: "ORIENT", developerInstructions: "SOURCES", input: "Continue.",
+    tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" } }],
+    outputSchema, maxToolCalls: 1, onToolCall: async () => ({ ok: true }),
+  });
+
+  const turnStart = process.messages.find(({ method }) => method === "turn/start");
+  assert.equal(turnStart.params.effort, "medium");
+  assert.deepEqual(turnStart.params.outputSchema, outputSchema);
+});
+
 test("request descriptions distinguish retained callable schemas from protocol delivery", () => {
   const client = new CodexAppServerClient({ command: "/fake/codex", codexHome: "/fake", cwd: "/fake/workspace" });
   const description = client.describeRequest({

@@ -102,6 +102,7 @@ export class ContextBuilder {
     conversationStartEventSeq = 0,
     capabilities = [],
     conversationCheckpoint = null,
+    includeRecentExchanges = true,
   } = {}) {
     const activeProfileFacts = this.profileFacts.list({ status: "active", limit: null }).facts;
     const history = nativeConversation && !continuingConversation
@@ -169,7 +170,7 @@ export class ContextBuilder {
         "",
       );
     }
-    if (!nativeConversation && !conversationCheckpoint) {
+    if (!nativeConversation && !conversationCheckpoint && includeRecentExchanges) {
       sections.push("# Recent complete exchanges", historyText);
     }
     const result = bounded(sections.join("\n"), this.maximumCharacters);

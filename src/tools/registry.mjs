@@ -7,7 +7,7 @@ function typeMatches(value, type) {
   return typeof value === type;
 }
 
-function schemaProblem(value, schema, path = "arguments") {
+export function schemaProblem(value, schema, path = "arguments") {
   if (!schema || typeof schema !== "object") return null;
   if (Array.isArray(schema.anyOf)) {
     if (schema.anyOf.some((candidate) => schemaProblem(value, candidate, path) === null)) return null;
@@ -34,6 +34,10 @@ function schemaProblem(value, schema, path = "arguments") {
   if (Array.isArray(value)) {
     if (schema.minItems != null && value.length < schema.minItems) return `${path} has too few items`;
     if (schema.maxItems != null && value.length > schema.maxItems) return `${path} has too many items`;
+    if (schema.uniqueItems === true) {
+      const signatures = value.map((item) => JSON.stringify(item));
+      if (new Set(signatures).size !== signatures.length) return `${path} must contain unique items`;
+    }
     if (schema.items) {
       for (let index = 0; index < value.length; index += 1) {
         const problem = schemaProblem(value[index], schema.items, `${path}[${index}]`);

@@ -911,6 +911,24 @@ function requestUsageLabel(usage) {
   return parts.join(" · ");
 }
 
+function renderRequestSteps(container, steps = []) {
+  container.replaceChildren();
+  for (const step of steps) {
+    const item = document.createElement("li");
+    item.className = "request-step";
+    item.dataset.status = step.status;
+    item.append(node("strong", "", step.label));
+    const tokens = Number(step.tokenUsage?.totalTokens);
+    if (Number.isFinite(tokens) && (tokens > 0 || step.status !== "processing")) {
+      item.append(node("span", "request-step-token", `${tokens.toLocaleString()} tokens`));
+    }
+    if (Number.isFinite(step.elapsedMs)) item.append(node("span", "", formatDuration(step.elapsedMs)));
+    if (step.effort) item.append(node("span", "", `${step.effort} reasoning`));
+    container.append(item);
+  }
+  container.hidden = steps.length === 0;
+}
+
 function formatUsd(value) {
   const amount = Number(value) || 0;
   const digits = amount > 0 && amount < 0.01 ? 4 : 2;
@@ -1141,6 +1159,7 @@ function requestNode(request, index) {
   const error = node.querySelector(".request-error");
   error.hidden = !request.error;
   error.textContent = request.error || "";
+  renderRequestSteps(node.querySelector(".request-steps"), request.steps);
   const usage = node.querySelector(".request-usage");
   usage.textContent = requestUsageLabel(request.usage);
   usage.hidden = !usage.textContent;
@@ -1203,6 +1222,9 @@ async function loadRequests({ force = false } = {}) {
 function traceLabel(event, index) {
   const labels = {
     "request.received": "USER REQUEST",
+    "agent.step": "AGENT STEP",
+    "turn.brief": "ACCEPTED TURNBRIEF",
+    "conversation.state": "ROLLING CONVERSATION STATE",
     "context.sent": "CONTEXT SENT",
     "tools.sent": "TOOLS AVAILABLE",
     "model.request": "MODEL REQUEST",
@@ -1212,7 +1234,12 @@ function traceLabel(event, index) {
     "tool.result": "TOOL RESULT",
     "assistant.response": "FINAL RESPONSE",
   };
-  return `${index + 1}. ${labels[event.type] || event.type.toUpperCase()} · ${event.status || event.phase}`;
+  const workflowStep = event.payload?.workflowStepLabel || event.payload?.workflowStep;
+  const tokens = Number(event.payload?.tokenUsage?.totalTokens);
+  const details = [event.status || event.phase];
+  if (workflowStep) details.push(workflowStep);
+  if (Number.isFinite(tokens)) details.push(`${tokens.toLocaleString()} tokens`);
+  return `${index + 1}. ${labels[event.type] || event.type.toUpperCase()} · ${details.join(" · ")}`;
 }
 
 async function showTrace(requestId) {
@@ -1223,7 +1250,7 @@ async function showTrace(requestId) {
   body.events.forEach((event, index) => {
     const details = document.createElement("details");
     details.className = "trace-event";
-    if (["request.received", "context.sent", "tools.sent", "model.request", "tool.call", "tool.result", "assistant.response", "request.error"].includes(event.type)) details.open = true;
+    if (["request.received", "agent.step", "turn.brief", "conversation.state", "context.sent", "tools.sent", "model.request", "tool.call", "tool.result", "assistant.response", "request.error"].includes(event.type)) details.open = true;
     const summary = document.createElement("summary");
     summary.textContent = traceLabel(event, index);
     const pre = document.createElement("pre");
@@ -1241,7 +1268,7 @@ async function loadHealth() {
   try { body = await response.json(); } catch { body = { ready: false, error: `Invalid health response (${response.status})` }; }
   lastHealth = { checkedAtUtc: new Date().toISOString(), httpStatus: response.status, body };
   const commit = body.runtime?.commit || "uncommitted";
-  elements.runtime.textContent = `${commit}${body.runtime?.dirty ? "-dirty" : ""}`;
+  elements.runtime.textContent = `Git commit: ${commit}${body.runtime?.dirty ? "-dirty" : ""}`;
   elements.runtime.classList.toggle("ready", Boolean(body.ready));
   elements.runtime.classList.toggle("not-ready", !body.ready);
   elements.runtime.title = `${body.ready ? "Ready" : "Not ready"}. Click to copy full health diagnostics.`;

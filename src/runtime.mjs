@@ -1,5 +1,16 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import { requestCapabilityCatalog } from "./request-compiler.mjs";
+import {
+  auditContext,
+  auditInstructions,
+  completionAuditSchema,
+  orientationContext,
+  orientationInstructions,
+  parseStructuredModelOutput,
+  turnBriefInstructions,
+  turnBriefSchema,
+} from "./turn-brief.mjs";
 
 function argumentsObject(value) {
   if (value == null) return {};
@@ -38,7 +49,7 @@ function sameRequestReceiptInstructions(receipts, maximumCharacters = 24_000) {
   if (!receipts.length) return "";
   const header = [
     "# Earlier tool receipts from this same user request",
-    "These calls already happened before capability expansion. Treat successful receipts as completed actions, continue from their exact results, and do not repeat them unless the user explicitly asked for repetition.",
+    "These calls already happened earlier in this request. Treat successful receipts as completed actions, continue from their exact results, and do not repeat them unless the user explicitly asked for repetition.",
   ].join("\n");
   const blocks = [];
   let characters = header.length;
@@ -98,15 +109,365 @@ export class SlayerRuntime {
     return this.systemPrompt;
   }
 
-  async run({
+  async #runStructuredStep({
+    requestId,
+    channel,
+    step,
+    label,
+    stepIndex,
+    model,
+    effort,
+    input,
+    developerInstructions,
+    requestAttachmentInput = null,
+    outputSchema,
+    runTimeoutMs = null,
+  }) {
+    const operationId = `${this.modelTransport.id}:${requestId}:${step}`;
+    this.ledger.append({
+      type: "agent.step", phase: "start", status: "processing", actorType: "service",
+      actorName: "Structured turn workflow", channel, turnId: requestId, operationId,
+      name: label, content: `Started ${label.toLowerCase()}`,
+      payload: { workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort },
+    });
+    const turnRequest = {
+      model,
+      effort,
+      conversationId: null,
+      baseInstructions: step === "orientation" ? orientationInstructions : auditInstructions,
+      developerInstructions,
+      input,
+      requestAttachmentInput,
+      tools: [],
+      outputSchema,
+      maxToolCalls: 0,
+      runTimeoutMs,
+    };
+    const providerRequest = this.modelTransport.describeRequest(turnRequest);
+    this.ledger.append({
+      type: "context.sent", status: "complete", actorType: "system", actorName: "Context builder",
+      channel, turnId: requestId, name: `${label} context sent`, content: developerInstructions,
+      payload: {
+        workflowStep: step, workflowStepLabel: label, stepIndex,
+        structuredOutputSchema: outputSchema,
+        boundedContextCharacters: developerInstructions.length,
+      },
+    });
+    this.ledger.append({
+      type: "tools.sent", status: "complete", actorType: "system", actorName: "Tool registry",
+      channel, turnId: requestId, name: `No tools callable during ${label.toLowerCase()}`,
+      payload: {
+        workflowStep: step, workflowStepLabel: label, stepIndex,
+        count: 0, availableCount: this.registry.toolDefinitions().length, tools: [],
+      },
+    });
+    this.ledger.append({
+      type: "model.request", phase: "start", status: "processing", actorType: "service",
+      actorName: `${this.modelTransport.displayName} transport`, channel, turnId: requestId,
+      operationId, name: `${label} model request`,
+      payload: {
+        ...providerRequest,
+        workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort,
+      },
+    });
+    let responseRecorded = false;
+    try {
+      const result = await this.modelTransport.runTurn({
+        ...turnRequest,
+        onToolCall: async ({ tool }) => {
+          throw new Error(`${tool} is not callable during ${label.toLowerCase()}`);
+        },
+      });
+      this.ledger.append({
+        type: "model.response", phase: "end", status: "complete", actorType: "model",
+        actorName: model, channel, turnId: requestId, operationId, name: `${label} model response`,
+        content: result.text,
+        payload: {
+          workflowStep: step, workflowStepLabel: label, stepIndex,
+          transport: this.modelTransport.id,
+          conversationId: result.conversationId ?? result.threadId ?? null,
+          providerTurnId: result.providerTurnId ?? result.turnId ?? null,
+          status: result.status,
+          messages: result.messages,
+          protocolEvents: result.events,
+        },
+      });
+      this.ledger.append({
+        type: "model.usage", status: "complete", actorType: "service",
+        actorName: `${this.modelTransport.displayName} usage`, channel, turnId: requestId,
+        operationId, name: `${label} model usage`,
+        payload: {
+          ...result.usage,
+          workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort,
+        },
+      });
+      responseRecorded = true;
+      const value = parseStructuredModelOutput(result.text, outputSchema, label);
+      this.ledger.append({
+        type: "agent.step", phase: "end", status: "complete", actorType: "service",
+        actorName: "Structured turn workflow", channel, turnId: requestId, operationId,
+        name: label, content: value.summary ?? `Completed ${label.toLowerCase()}`,
+        payload: { workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort, result: value },
+      });
+      return { value, result };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!responseRecorded) {
+        this.ledger.append({
+          type: "model.response", phase: "error", status: "error", actorType: "external",
+          actorName: this.modelTransport.displayName, channel, turnId: requestId,
+          operationId, name: `${label} model response failed`, error: message,
+        });
+      }
+      this.ledger.append({
+        type: "agent.step", phase: "error", status: "error", actorType: "service",
+        actorName: "Structured turn workflow", channel, turnId: requestId, operationId,
+        name: label, content: message, error: message,
+        payload: { workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort },
+      });
+      throw error;
+    }
+  }
+
+  async #runExecutorStep(args, { step, label, stepIndex, effort, initialReceipts = [] }) {
+    const operationId = `${this.modelTransport.id}:${args.requestId}:${step}`;
+    this.ledger.append({
+      type: "agent.step", phase: "start", status: "processing", actorType: "service",
+      actorName: "Structured turn workflow", channel: args.channel ?? "web", turnId: args.requestId,
+      operationId, name: label, content: `Started ${label.toLowerCase()}`,
+      payload: { workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort },
+    });
+    try {
+      const execution = await this.#runExecutor({
+        ...args,
+        effort,
+        workflowStep: step,
+        workflowStepLabel: label,
+        stepIndex,
+        isolatedConversation: true,
+        conversationStartEventSeq: typeof this.ledger.conversationBoundaryEventSeq === "function"
+          ? this.ledger.conversationBoundaryEventSeq()
+          : 0,
+        initialReceipts,
+      });
+      this.ledger.append({
+        type: "agent.step", phase: "end", status: "complete", actorType: "service",
+        actorName: "Structured turn workflow", channel: args.channel ?? "web", turnId: args.requestId,
+        operationId, name: label, content: execution.text,
+        payload: {
+          workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort,
+          toolCallCount: execution.toolCallCount,
+        },
+      });
+      return execution;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.ledger.append({
+        type: "agent.step", phase: "error", status: "error", actorType: "service",
+        actorName: "Structured turn workflow", channel: args.channel ?? "web", turnId: args.requestId,
+        operationId, name: label, content: message, error: message,
+        payload: { workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort },
+      });
+      throw error;
+    }
+  }
+
+  async #runWorkflow(args) {
+    const channel = args.channel ?? "web";
+    const workflowStartedAt = Date.now();
+    const configuredTimeoutMs = args.runLimits?.timeoutMs ?? null;
+    const configuredMaxToolCalls = args.runLimits == null
+      ? this.config.maxToolCalls
+      : args.runLimits.maxToolCalls;
+    const remainingTimeoutMs = () => {
+      if (configuredTimeoutMs === null) return null;
+      const remaining = configuredTimeoutMs - (Date.now() - workflowStartedAt);
+      if (remaining <= 0) throw new Error(`Turn workflow timed out after ${configuredTimeoutMs}ms`);
+      return remaining;
+    };
+    const availableTools = this.registry.toolDefinitions();
+    const catalog = requestCapabilityCatalog(availableTools);
+    const routing = await this.requestCompiler.compile({
+      tools: availableTools,
+      text: args.text,
+      attachment: args.attachment,
+      recentConversation: [],
+      previousCapabilities: [],
+    });
+    const boundaryEventSeq = typeof this.ledger.conversationBoundaryEventSeq === "function"
+      ? this.ledger.conversationBoundaryEventSeq()
+      : 0;
+    const recentConversation = typeof this.ledger.recentConversation === "function"
+      ? this.ledger.recentConversation({
+          beforeRequestId: args.requestId,
+          afterEventSeq: boundaryEventSeq,
+          limit: 6,
+        })
+      : [];
+    const previousState = typeof this.ledger.latestConversationState === "function"
+      ? this.ledger.latestConversationState({ afterEventSeq: boundaryEventSeq })
+      : null;
+    const fallbackCheckpoint = !previousState
+      && recentConversation.length >= 10
+      && typeof this.ledger.conversationCheckpoint === "function"
+      ? this.ledger.conversationCheckpoint({
+          afterEventSeq: boundaryEventSeq,
+          beforeRequestId: args.requestId,
+          maximumCharacters: 16_000,
+        }).text
+      : null;
+    const orientationBaseContext = await this.contextBuilder.build(args.requestId, args.text, {
+      attachment: args.attachment,
+      nativeConversation: false,
+      continuingConversation: false,
+      conversationStartEventSeq: boundaryEventSeq,
+      capabilities: [],
+      conversationCheckpoint: null,
+      includeRecentExchanges: false,
+    });
+    const requestEventSeq = typeof this.ledger.eventSequence === "function"
+      ? this.ledger.eventSequence(args.requestEventId)
+      : null;
+    const schema = turnBriefSchema(catalog.map(({ capability }) => capability));
+    const orientation = await this.#runStructuredStep({
+      requestId: args.requestId,
+      channel,
+      step: "orientation",
+      label: "Orient request",
+      stepIndex: 1,
+      model: args.model || this.config.model,
+      effort: this.config.orientationReasoningEffort ?? "medium",
+      input: args.text,
+      developerInstructions: joinedInstructions(
+        orientationBaseContext.developerInstructions ?? orientationBaseContext.text,
+        orientationContext({
+          requestId: args.requestId,
+          requestEventSeq,
+          recentConversation,
+          previousState,
+          fallbackCheckpoint,
+          capabilityCatalog: catalog,
+          explicitHats: routing.explicitHats,
+        }),
+        args.supplementalInstructions,
+      ),
+      requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
+      outputSchema: schema,
+      runTimeoutMs: remainingTimeoutMs(),
+    });
+    const brief = orientation.value;
+    this.ledger.append({
+      type: "turn.brief", status: "complete", actorType: "service",
+      actorName: "Turn orienter", channel, turnId: args.requestId,
+      name: "Accepted TurnBrief", content: brief.summary,
+      payload: { brief, sourceRequestId: args.requestId },
+      subjectType: "turn_brief", subjectId: args.requestId,
+    });
+    this.ledger.append({
+      type: "conversation.state", status: "complete", actorType: "service",
+      actorName: "Turn orienter", channel, turnId: args.requestId,
+      name: "Rolling conversation state", content: brief.summary,
+      payload: {
+        state: brief.conversationState,
+        sourceTurnBrief: brief,
+        sourceRequestId: args.requestId,
+      },
+      subjectType: "conversation_state", subjectId: "main",
+    });
+    const coreCapabilities = routing.capabilities.filter((capability) => (
+      routing.fallbackAll || ["profile", "files", "database"].includes(capability)
+    ));
+    const explicitHatCapabilities = routing.explicitHats
+      .filter(({ available }) => available)
+      .map(({ capability }) => capability);
+    const executionCapabilities = [...new Set([
+      ...coreCapabilities,
+      ...explicitHatCapabilities,
+      ...brief.requiredCapabilities,
+    ])];
+    const executorArgs = {
+      ...args,
+      capabilityOverride: executionCapabilities,
+      runLimits: {
+        maxToolCalls: configuredMaxToolCalls,
+        timeoutMs: remainingTimeoutMs(),
+      },
+      supplementalInstructions: joinedInstructions(
+        args.supplementalInstructions,
+        turnBriefInstructions(brief),
+      ),
+    };
+    const execution = await this.#runExecutorStep(executorArgs, {
+      step: "execution", label: "Execute request", stepIndex: 2,
+      effort: args.effort || this.config.reasoningEffort,
+    });
+    if (!brief.audit.required && execution.receipts.length === 0) return execution.text;
+
+    const audit = await this.#runStructuredStep({
+      requestId: args.requestId,
+      channel,
+      step: "audit",
+      label: "Audit completion",
+      stepIndex: 3,
+      model: args.model || this.config.model,
+      effort: this.config.auditReasoningEffort ?? "low",
+      input: `Audit completion of request ${args.requestId}.`,
+      developerInstructions: auditContext({
+        brief,
+        receipts: execution.receipts,
+        executorResponse: execution.text,
+      }),
+      outputSchema: completionAuditSchema,
+      runTimeoutMs: remainingTimeoutMs(),
+    });
+    if (audit.value.outcome !== "repair_needed") return execution.text;
+
+    const remainingToolCalls = configuredMaxToolCalls === null
+      ? null
+      : Math.max(0, configuredMaxToolCalls - execution.toolCallCount);
+    const repairArgs = {
+      ...executorArgs,
+      runLimits: {
+        maxToolCalls: remainingToolCalls,
+        timeoutMs: remainingTimeoutMs(),
+      },
+      supplementalInstructions: joinedInstructions(
+        executorArgs.supplementalInstructions,
+        "# Completion audit requires repair",
+        JSON.stringify(audit.value, null, 2),
+        "Perform only the remaining authorized work. Earlier successful receipts are completed actions and must not be repeated. Return the final user-facing response after repair.",
+      ),
+    };
+    const repair = await this.#runExecutorStep(repairArgs, {
+      step: "repair", label: "Repair completion", stepIndex: 4,
+      effort: this.config.repairReasoningEffort ?? args.effort ?? this.config.reasoningEffort,
+      initialReceipts: execution.receipts,
+    });
+    return repair.text;
+  }
+
+  async run(args) {
+    if (
+      this.config.turnWorkflowEnabled !== false
+      && this.requestCompiler
+      && !Array.isArray(args.capabilityOverride)
+    ) {
+      return this.#runWorkflow(args);
+    }
+    const execution = await this.#runExecutor(args);
+    return execution.text;
+  }
+
+  async #runExecutor({
     requestId, requestEventId, text, channel = "web", attachment = null, runLimits = null,
     model = null, effort = null, supplementalInstructions = "", videoSource = null,
-    capabilityOverride = null,
+    capabilityOverride = null, workflowStep = null, workflowStepLabel = null, stepIndex = null,
+    isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
   }) {
     const availableTools = this.registry.toolDefinitions();
-    const priorConversation = typeof this.ledger.currentModelConversation === "function"
+    const priorConversation = !isolatedConversation && typeof this.ledger.currentModelConversation === "function"
       ? this.ledger.currentModelConversation()
-      : { markerEventSeq: 0, capabilities: [] };
+      : { conversationId: null, markerEventSeq: conversationStartEventSeq, capabilities: [] };
     const recentConversation = this.requestCompiler
       && priorConversation.conversationId
       && typeof this.ledger.recentConversation === "function"
@@ -139,9 +500,13 @@ export class SlayerRuntime {
           capabilityCatalog: [],
         };
     const initialToolFingerprint = callableToolsFingerprint(compilation.tools);
-    let conversation = typeof this.ledger.activeModelConversation === "function"
+    let conversation = !isolatedConversation && typeof this.ledger.activeModelConversation === "function"
       ? this.ledger.activeModelConversation(initialToolFingerprint)
-      : { conversationId: null, markerEventSeq: 0, reason: "new" };
+      : {
+          conversationId: null,
+          markerEventSeq: conversationStartEventSeq,
+          reason: isolatedConversation ? "turn_brief" : "new",
+        };
     const priorContextUsage = priorConversation.conversationId
       && typeof this.ledger.latestModelContextUsage === "function"
       ? this.ledger.latestModelContextUsage({ afterEventSeq: priorConversation.markerEventSeq })
@@ -156,19 +521,28 @@ export class SlayerRuntime {
     }
     const baseInstructions = await this.loadSystemPrompt();
     const maxToolCalls = runLimits === null ? this.config.maxToolCalls : runLimits.maxToolCalls;
-    const runTimeoutMs = runLimits?.timeoutMs ?? null;
+    const configuredRunTimeoutMs = runLimits?.timeoutMs ?? null;
+    const executorStartedAt = Date.now();
     const selectedModel = model || this.config.model;
     const selectedEffort = effort || this.config.reasoningEffort;
     let conversationId = conversation.conversationId;
     let totalToolCallCount = 0;
     let attempt = 0;
     let result;
-    const sameRequestReceipts = [];
+    const sameRequestReceipts = [...initialReceipts];
     let conversationCheckpoint = null;
     let finalAttemptStartedNewConversation = !conversationId;
     const failedToolAttempts = new Set();
     while (true) {
       attempt += 1;
+      const runTimeoutMs = configuredRunTimeoutMs === null
+        ? null
+        : attempt === 1
+          ? configuredRunTimeoutMs
+          : configuredRunTimeoutMs - (Date.now() - executorStartedAt);
+      if (runTimeoutMs !== null && runTimeoutMs <= 0) {
+        throw new Error(`Model execution timed out after ${configuredRunTimeoutMs}ms`);
+      }
       finalAttemptStartedNewConversation = !conversationId;
       const tools = compilation.tools;
       const callableToolNames = new Set(tools.map(({ name }) => name));
@@ -206,6 +580,7 @@ export class SlayerRuntime {
         conversationStartEventSeq: conversation.markerEventSeq,
         capabilities: compilation.capabilities,
         conversationCheckpoint: conversationId ? null : conversationCheckpoint,
+        ...(workflowStep ? { includeRecentExchanges: false } : {}),
       });
       const continuingAfterExpansion = attempt > 1
         ? "Capability expansion is complete. Continue and finish the original user request using the newly callable tools. Do not ask the user to repeat it, and do not repeat actions already confirmed by earlier tool results."
@@ -214,7 +589,9 @@ export class SlayerRuntime {
         compilation.instructions,
         context.developerInstructions ?? context.text,
         supplementalInstructions,
-        attempt > 1 ? sameRequestReceiptInstructions(sameRequestReceipts) : "",
+        attempt > 1 || initialReceipts.length
+          ? sameRequestReceiptInstructions(sameRequestReceipts)
+          : "",
         continuingAfterExpansion,
       );
       const remainingToolCalls = maxToolCalls === null
@@ -245,6 +622,7 @@ export class SlayerRuntime {
         type: "context.sent", status: "complete", actorType: "system", actorName: "Context builder",
         channel, turnId: requestId, name: "Compiled context sent", content: developerInstructions,
         payload: {
+          workflowStep, workflowStepLabel, stepIndex, reasoningEffort: selectedEffort,
           attempt,
           profileFacts: context.profileFacts,
           activeTrackers: context.activeTrackers ?? [],
@@ -292,6 +670,7 @@ export class SlayerRuntime {
           ? `${tools.length} callable tools available on resumed conversation`
           : `${tools.length} callable tools sent with new conversation`,
         payload: {
+          workflowStep, workflowStepLabel, stepIndex, reasoningEffort: selectedEffort,
           attempt,
           count: tools.length,
           availableCount: availableTools.length,
@@ -307,11 +686,15 @@ export class SlayerRuntime {
           tools,
         },
       });
-      const operationId = `${this.modelTransport.id}:${requestId}:${attempt}`;
+      const operationId = `${this.modelTransport.id}:${requestId}:${workflowStep ?? "model"}:${attempt}`;
       this.ledger.append({
         type: "model.request", phase: "start", status: "processing", actorType: "service",
         actorName: `${this.modelTransport.displayName} transport`, channel, turnId: requestId, operationId,
-        name: attempt === 1 ? "Model request" : "Model request after tool expansion", payload: providerRequest,
+        name: attempt === 1 ? "Model request" : "Model request after tool expansion",
+        payload: {
+          ...providerRequest,
+          workflowStep, workflowStepLabel, stepIndex, reasoningEffort: selectedEffort,
+        },
       });
 
       const requestedCapabilities = new Set();
@@ -478,6 +861,7 @@ export class SlayerRuntime {
         actorName: selectedModel, channel, turnId: requestId, operationId,
         name: requestedCapabilities.size > 0 ? "Model requested additional tools" : "Model response",
         payload: {
+          workflowStep, workflowStepLabel, stepIndex,
           attempt,
           transport: this.modelTransport.id,
           conversationId: result.conversationId ?? result.threadId ?? null,
@@ -490,7 +874,11 @@ export class SlayerRuntime {
       this.ledger.append({
         type: "model.usage", status: "complete", actorType: "service",
         actorName: `${this.modelTransport.displayName} usage`, channel, turnId: requestId,
-        operationId, name: "Model usage after request", payload: result.usage,
+        operationId, name: "Model usage after request",
+        payload: {
+          ...result.usage,
+          workflowStep, workflowStepLabel, stepIndex, reasoningEffort: selectedEffort,
+        },
       });
 
       if (requestedCapabilities.size === 0) break;
@@ -508,7 +896,11 @@ export class SlayerRuntime {
 
     const finalConversationId = result.conversationId ?? result.threadId;
     const finalToolFingerprint = callableToolsFingerprint(compilation.tools);
-    if (finalAttemptStartedNewConversation && typeof this.ledger.markConversationStarted === "function") {
+    if (
+      !isolatedConversation
+      && finalAttemptStartedNewConversation
+      && typeof this.ledger.markConversationStarted === "function"
+    ) {
       this.ledger.markConversationStarted({
         conversationId: finalConversationId,
         toolFingerprint: finalToolFingerprint,
@@ -517,6 +909,13 @@ export class SlayerRuntime {
         channel,
       });
     }
-    return result.text;
+    return {
+      text: result.text,
+      result,
+      receipts: sameRequestReceipts,
+      toolCallCount: totalToolCallCount,
+      capabilities: compilation.capabilities,
+      conversationId: finalConversationId,
+    };
   }
 }

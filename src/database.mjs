@@ -118,6 +118,27 @@ export function inspectDatabase(database) {
   return { ready: problems.length === 0, problems, objects: objects.map(serializable) };
 }
 
+export function summarizeDatabaseObjects(objects) {
+  const entries = Array.isArray(objects) ? objects : [];
+  const fts5Tables = entries.filter((object) => (
+    object?.type === "table"
+    && /^\s*CREATE\s+VIRTUAL\s+TABLE\b[\s\S]*\bUSING\s+fts5\s*\(/iu.test(String(object.sql ?? ""))
+  ));
+  const fts5ShadowNames = new Set(fts5Tables.flatMap(({ name }) => (
+    ["data", "idx", "content", "docsize", "config"].map((suffix) => `${name}_${suffix}`)
+  )));
+  const logical = entries.filter(({ name }) => !fts5ShadowNames.has(name));
+  const applicationTableCount = logical.filter(({ type }) => type === "table").length;
+  const applicationViewCount = logical.filter(({ type }) => type === "view").length;
+  return {
+    applicationTableCount,
+    applicationViewCount,
+    applicationObjectCount: applicationTableCount + applicationViewCount,
+    sqliteObjectCount: entries.length,
+    fts5ShadowTableCount: entries.filter(({ name }) => fts5ShadowNames.has(name)).length,
+  };
+}
+
 export class SlayerDatabase {
   constructor(filename) {
     this.filename = filename;
