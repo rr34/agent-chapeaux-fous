@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { activeCommitPlanArtifacts } from "./action-artifacts.mjs";
 import { safeJson } from "./redaction.mjs";
 
 function publicEvent(row) {
@@ -553,6 +554,16 @@ export class Ledger {
     `).get(Math.max(0, Number(afterEventSeq) || 0));
     const event = publicEvent(row);
     return event?.payload?.state ?? null;
+  }
+
+  activeActionArtifacts({ afterEventSeq = 0 } = {}) {
+    const rows = this.store.requireReady().prepare(`
+      SELECT * FROM activity_events
+      WHERE event_type IN ('action.artifact', 'action.artifact.status')
+        AND event_seq > ?
+      ORDER BY event_seq
+    `).all(Math.max(0, Number(afterEventSeq) || 0));
+    return activeCommitPlanArtifacts(rows.map(publicEvent));
   }
 
   latestModelContextUsage({ afterEventSeq = 0 } = {}) {

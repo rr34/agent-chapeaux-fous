@@ -23,8 +23,9 @@ const sourcedStatement = {
   required: ["text", "sourceEventSeqs"],
 };
 
-export function turnBriefSchema(capabilities) {
+export function turnBriefSchema(capabilities, actionArtifactIds = []) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
+  const allowedArtifactIds = [...new Set(actionArtifactIds)].sort();
   return {
     type: "object",
     additionalProperties: false,
@@ -45,6 +46,14 @@ export function turnBriefSchema(capabilities) {
         maxItems: Math.max(1, allowedCapabilities.length),
         uniqueItems: true,
         items: { type: "string", enum: allowedCapabilities },
+      },
+      authorizedArtifactIds: {
+        type: "array",
+        maxItems: allowedArtifactIds.length,
+        uniqueItems: true,
+        items: allowedArtifactIds.length
+          ? { type: "string", enum: allowedArtifactIds }
+          : { type: "string" },
       },
       authorizedActions: { type: "array", maxItems: 20, items: sourcedStatement },
       prohibitedActions: textList(),
@@ -85,7 +94,8 @@ export function turnBriefSchema(capabilities) {
     },
     required: [
       "contractVersion", "requestType", "responseMode", "objective", "summary",
-      "requiredCapabilities", "authorizedActions", "prohibitedActions", "deferredActions",
+      "requiredCapabilities", "authorizedArtifactIds", "authorizedActions",
+      "prohibitedActions", "deferredActions",
       "constraints", "unresolvedQuestions", "completionCriteria", "evidence", "audit",
       "conversationState",
     ],
@@ -138,6 +148,7 @@ export function orientationContext({
   previousState,
   fallbackCheckpoint,
   capabilityCatalog,
+  actionArtifacts = [],
   explicitHats = [],
 }) {
   return [
@@ -153,6 +164,10 @@ export function orientationContext({
     "## Prior rolling conversation state",
     JSON.stringify(previousState ?? null, null, 2),
     "",
+    "## Active commit-ready action artifacts",
+    "These are the only opaque plans currently available for a short approval. Select an artifact ID only when the current request authorizes that exact preview. Never substitute a request ID or infer a plan ID from prose.",
+    JSON.stringify(actionArtifacts, null, 2),
+    "",
     ...(fallbackCheckpoint ? [
       "## Bounded fallback checkpoint",
       fallbackCheckpoint,
@@ -166,15 +181,19 @@ export function orientationContext({
   ].join("\n");
 }
 
-export function turnBriefInstructions(brief) {
+export function turnBriefInstructions(brief, authorizedArtifacts = []) {
   return [
     "# Accepted TurnBrief",
     "This source-grounded contract defines the current request. Execute its objective and authorized actions, respect prohibited and deferred actions, and continue until every completion criterion is satisfied or a genuinely new blocker is proven by a tool result. Do not re-infer a narrower task from the latest sentence alone.",
     JSON.stringify(brief, null, 2),
+    "",
+    "# Authorized action artifacts",
+    "Opaque plan identifiers may be copied only from these artifacts. Never use a request ID, receipt ID, or guessed value as a plan ID. A historical receipt inspection is evidence only; it does not execute the inspected action.",
+    JSON.stringify(authorizedArtifacts, null, 2),
   ].join("\n");
 }
 
-export function auditContext({ brief, receipts, executorResponse }) {
+export function auditContext({ brief, receipts, executorResponse, deterministicFindings = [] }) {
   return [
     "# Completion audit input",
     "Compare the accepted TurnBrief with literal tool receipts and the proposed executor response. Mark complete only when the receipts and response prove every requested outcome. Mark repair_needed when safe callable work remains. Mark blocked only for a new evidenced blocker. Do not invent actions or authorization.",
@@ -185,6 +204,10 @@ export function auditContext({ brief, receipts, executorResponse }) {
     "## Tool receipts from execution",
     JSON.stringify(receipts, null, 2),
     "",
+    "## Deterministic receipt findings",
+    JSON.stringify(deterministicFindings, null, 2),
+    "These findings are application-enforced. A historical receipt read cannot satisfy a missing direct action receipt.",
+    "",
     "## Proposed executor response",
     executorResponse,
   ].join("\n");
@@ -194,6 +217,7 @@ export const orientationInstructions = [
   "You are the orientation phase of Chapeaux Fous. Produce only the schema-constrained TurnBrief.",
   "Resolve the exact current request against the supplied recent conversation and rolling state.",
   "A short approval can authorize a concrete prior offer without repeating its wording. A correction changes only what it explicitly changes. An addition preserves the earlier objective. A question does not authorize a write.",
+  "When approval concerns a commit-ready preview, select its exact active action artifact in authorizedArtifactIds. If no matching artifact exists, do not fabricate or infer one.",
   "Select every capability family the executor may need. Keep the output concise, source-grounded, and explicit about completion.",
 ].join("\n");
 

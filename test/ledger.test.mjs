@@ -340,6 +340,45 @@ test("rolling conversation state is bounded by an explicit new-conversation even
   }
 });
 
+test("commit-plan artifacts survive unrelated requests and leave the active set after use", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const artifact = {
+      contractVersion: 1,
+      artifactId: "commit-plan:ledger-test",
+      kind: "commit_plan",
+      status: "ready",
+      sourceTool: "remote_accounting_import_account_tree",
+      sourceRequestId: "request-dry-run",
+      sourceReceiptEventSeq: 42,
+      planId: "plan-ledger-test",
+      planArgumentName: "import_plan_id",
+      readyToCommit: true,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      previewDigest: "sha256:ledger-test",
+      summary: { accountsCreated: 273 },
+    };
+    ledger.append({
+      type: "action.artifact", status: "complete",
+      payload: { artifact }, subjectType: "action_artifact", subjectId: artifact.artifactId,
+    });
+    ledger.createRequest({ text: "An unrelated request between preview and approval." });
+    assert.deepEqual(ledger.activeActionArtifacts(), [artifact]);
+
+    ledger.append({
+      type: "action.artifact.status", status: "complete",
+      payload: { artifactId: artifact.artifactId, status: "committed" },
+      subjectType: "action_artifact", subjectId: artifact.artifactId,
+    });
+    assert.deepEqual(ledger.activeActionArtifacts(), []);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("completed requests report elapsed time from receipt through the terminal event", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.filename);

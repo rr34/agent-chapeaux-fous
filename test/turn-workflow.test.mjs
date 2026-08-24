@@ -29,7 +29,7 @@ function completed(text, totalTokens) {
   };
 }
 
-function brief({ auditRequired = true } = {}) {
+function brief({ auditRequired = true, authorizedArtifactIds = [] } = {}) {
   const source = { text: "Run the previously offered action.", sourceEventSeqs: [4, 9] };
   return {
     contractVersion: 1,
@@ -38,6 +38,7 @@ function brief({ auditRequired = true } = {}) {
     objective: "Create the reminder that the assistant just offered to create.",
     summary: "The user authorized the concrete action offered in the prior assistant turn.",
     requiredCapabilities: ["todos"],
+    authorizedArtifactIds,
     authorizedActions: [source],
     prohibitedActions: [],
     deferredActions: [],
@@ -56,7 +57,7 @@ function brief({ auditRequired = true } = {}) {
   };
 }
 
-function fakeLedger() {
+function fakeLedger({ actionArtifacts = [] } = {}) {
   const events = [];
   const sequences = new Map([["event-current", 9]]);
   let nextSequence = 10;
@@ -72,6 +73,7 @@ function fakeLedger() {
     eventSequence(eventId) { return sequences.get(eventId) ?? null; },
     conversationBoundaryEventSeq() { return 0; },
     latestConversationState() { return null; },
+    activeActionArtifacts() { return structuredClone(actionArtifacts); },
     recentConversation() {
       return [
         {
@@ -275,5 +277,203 @@ test("a failed completion audit adds a bounded repair call without repeating suc
     ledger.events.filter(({ type, phase }) => type === "agent.step" && phase === "start")
       .map(({ payload }) => payload.workflowStep),
     ["orientation", "execution", "audit", "repair"],
+  );
+});
+
+test("a historical receipt cannot masquerade as a new dry run and repair preserves the real plan", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  let dryRuns = 0;
+  registry.register({
+    name: "tool_receipt_read",
+    description: "Read an old receipt.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { receiptEventSeq: { type: "integer" } }, required: ["receiptEventSeq"],
+    },
+    async execute() { return { chunk: '{"dryRun":true,"plannedCount":273}' }; },
+  });
+  registry.register({
+    name: "remote_accounting_import_account_tree",
+    description: "Dry-run an account-tree import and create a durable commit plan.",
+    source: "mcp:accounting",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        accounts: { type: "array", items: { type: "object", additionalProperties: true } },
+        dry_run: { type: "boolean" },
+      },
+      required: ["accounts", "dry_run"],
+    },
+    async execute() {
+      dryRuns += 1;
+      return {
+        dryRun: true,
+        readyToCommit: true,
+        importPlanId: "plan-current-273",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        previewDigest: "sha256:273",
+        summary: { accountsCreated: 273, currenciesCreated: 5 },
+      };
+    },
+  });
+  const dryRunBrief = {
+    ...brief({ auditRequired: false }),
+    requestType: "new_objective",
+    objective: "Perform a new dry run of the account-tree import.",
+    summary: "Dry-run the current account tree.",
+    requiredCapabilities: ["database", "integration:accounting"],
+    authorizedActions: [{ text: "Dry-run the current import.", sourceEventSeqs: [9] }],
+    completionCriteria: ["A successful direct dry-run receipt exists."],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(dryRunBrief), 20);
+    if (index === 1) {
+      const historical = await payload.onToolCall({
+        callId: "historical", tool: "tool_receipt_read", arguments: { receiptEventSeq: 42 },
+      });
+      assert.equal(historical.ok, true);
+      return completed("Dry run completed: 273 accounts.", 50);
+    }
+    if (index === 2) {
+      assert.match(payload.developerInstructions, /DIRECT_DRY_RUN_RECEIPT_REQUIRED/);
+      return completed(JSON.stringify({
+        contractVersion: 1,
+        outcome: "complete",
+        summary: "The historical receipt proves it.",
+        satisfiedCriteria: ["Dry run completed."],
+        remainingActions: [],
+        repairInstructions: [],
+      }), 10);
+    }
+    assert.match(payload.developerInstructions, /Call the actual dry-run operation/);
+    const direct = await payload.onToolCall({
+      callId: "direct-dry-run",
+      tool: "remote_accounting_import_account_tree",
+      arguments: { accounts: [{ full_name: "Assets" }], dry_run: true },
+    });
+    assert.equal(direct.ok, true);
+    assert.equal(direct.result.importPlanId, "plan-current-273");
+    return completed("New dry run completed and its exact commit plan was preserved.", 40);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: { ...workflowConfig(), maxToolCalls: 4 },
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  const result = await runtime.run({
+    requestId: "request-dry-run",
+    requestEventId: "event-current",
+    text: "Run a new dry run of the account tree.",
+  });
+
+  assert.equal(result, "New dry run completed and its exact commit plan was preserved.");
+  assert.equal(dryRuns, 1);
+  const artifactEvent = ledger.events.find(({ type }) => type === "action.artifact");
+  assert.equal(artifactEvent.payload.artifact.planId, "plan-current-273");
+  assert.equal(artifactEvent.payload.artifact.sourceTool, "remote_accounting_import_account_tree");
+});
+
+test("approval binds execution to the exact active plan and blocks request-id substitution", async () => {
+  const requests = [];
+  const artifact = {
+    contractVersion: 1,
+    artifactId: "commit-plan:approved",
+    kind: "commit_plan",
+    status: "ready",
+    sourceTool: "remote_accounting_import_account_tree",
+    sourceRequestId: "request-dry-run",
+    sourceReceiptEventSeq: 42,
+    planId: "plan-exact-273",
+    planArgumentName: "import_plan_id",
+    readyToCommit: true,
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    previewDigest: "sha256:273",
+    summary: { accountsCreated: 273, currenciesCreated: 5 },
+  };
+  const ledger = fakeLedger({ actionArtifacts: [artifact] });
+  const commits = [];
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "remote_accounting_commit_account_tree_import",
+    description: "Commit one exact durable account-tree plan.",
+    source: "mcp:accounting",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { import_plan_id: { type: "string" } }, required: ["import_plan_id"],
+    },
+    async execute(argumentsObject) {
+      commits.push(argumentsObject);
+      return { status: "committed", accountsCreated: 273, currenciesCreated: 5 };
+    },
+  });
+  const approvalBrief = {
+    ...brief({ authorizedArtifactIds: [artifact.artifactId] }),
+    objective: "Commit the exact approved account-tree preview.",
+    summary: "The user approved the commit-ready account-tree plan.",
+    requiredCapabilities: ["integration:accounting"],
+    completionCriteria: ["A successful commit receipt for the authorized artifact exists."],
+  };
+  const toolResponses = [];
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      assert.match(payload.developerInstructions, /plan-exact-273/);
+      return completed(JSON.stringify(approvalBrief), 20);
+    }
+    if (index === 1) {
+      assert.match(payload.developerInstructions, /commit-plan:approved/);
+      toolResponses.push(await payload.onToolCall({
+        callId: "guessed",
+        tool: "remote_accounting_commit_account_tree_import",
+        arguments: { import_plan_id: "request-dry-run" },
+      }));
+      toolResponses.push(await payload.onToolCall({
+        callId: "exact",
+        tool: "remote_accounting_commit_account_tree_import",
+        arguments: { import_plan_id: artifact.planId },
+      }));
+      return completed("Committed the exact approved plan.", 50);
+    }
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "The exact authorized plan has a successful commit receipt.",
+      satisfiedCriteria: ["The authorized plan was committed."],
+      remainingActions: [],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  const result = await runtime.run({
+    requestId: "request-approval",
+    requestEventId: "event-current",
+    text: "Go ahead and execute the import.",
+  });
+
+  assert.equal(result, "Committed the exact approved plan.");
+  assert.equal(toolResponses[0].ok, false);
+  assert.match(toolResponses[0].error, /Never substitute a request ID/);
+  assert.equal(toolResponses[1].ok, true);
+  assert.deepEqual(commits, [{ import_plan_id: "plan-exact-273" }]);
+  assert.equal(
+    ledger.events.some(({ type, payload }) => (
+      type === "action.artifact.status" && payload.status === "committed"
+    )),
+    true,
   );
 });
