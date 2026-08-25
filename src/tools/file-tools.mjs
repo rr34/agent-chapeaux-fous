@@ -9,6 +9,7 @@ function requireFile(ledger, fileId) {
 export function registerFileTools(registry, {
   ledger, searchCoordinator, mediaRoot, maximumTextBytes,
 }) {
+  registry = registry.withCapability?.("files") ?? registry;
   registry.register({
     name: "file_get",
     description: "Get authoritative metadata for one durably stored upload by its stable file ID, including title, description, original filename, integrity metadata, and originating requests. This does not return file contents; use file_read for verified text contents.",

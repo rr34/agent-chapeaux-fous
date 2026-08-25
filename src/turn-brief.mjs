@@ -193,7 +193,9 @@ export function turnBriefInstructions(brief, authorizedActionReferences = []) {
   ].join("\n");
 }
 
-export function auditContext({ brief, receipts, executorResponse, deterministicFindings = [] }) {
+export function auditContext({
+  brief, receipts, executorResponse, deterministicFindings = [], auditEffects = [],
+}) {
   return [
     "# Completion audit input",
     "Compare the accepted TurnBrief with literal tool receipts and the proposed executor response. Mark complete only when the receipts and response prove every requested outcome. Mark repair_needed when safe callable work remains. Mark blocked only for a new evidenced blocker. Do not invent actions or authorization.",
@@ -207,6 +209,9 @@ export function auditContext({ brief, receipts, executorResponse, deterministicF
     "## Deterministic receipt findings",
     JSON.stringify(deterministicFindings, null, 2),
     "These findings are application-enforced. A historical receipt read cannot satisfy a missing direct action receipt.",
+    "",
+    "## Successful calls with declared or unknown effects",
+    JSON.stringify(auditEffects, null, 2),
     "",
     "## Proposed executor response",
     executorResponse,

@@ -1,111 +1,117 @@
 import { createHash } from "node:crypto";
+import { schemaProblem } from "./tools/registry.mjs";
 
 const receiptInspectionTool = /(?:^|_)tool_receipt_(?:list|read)$/u;
-const actionReadinessName = /^(?:readyTo(?<camel>[A-Z][A-Za-z0-9]*)|ready_to_(?<snake>[a-z0-9_]+))$/u;
-const opaqueIdentifierName = /(?:PlanId|plan_id|ActionId|action_id)$/u;
 
-function objectCandidates(result) {
-  if (!result || typeof result !== "object" || Array.isArray(result)) return [];
-  return [
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+}
+
+function sameValue(left, right) {
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+}
+
+function actionCandidate(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+  const candidates = [
     result,
     ...Object.values(result).filter((value) => value && typeof value === "object" && !Array.isArray(value)),
   ];
-}
-
-function selectedEntry(value, namePattern) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return Object.entries(value).find(([name]) => namePattern.test(name)) ?? null;
-}
-
-function snakeCase(name) {
-  return name
-    .replace(/([a-z0-9])([A-Z])/gu, "$1_$2")
-    .replaceAll("-", "_")
-    .toLowerCase();
-}
-
-function providerCandidate(result) {
-  for (const candidate of objectCandidates(result)) {
-    const readiness = selectedEntry(candidate, actionReadinessName);
-    const identifier = selectedEntry(candidate, opaqueIdentifierName);
+  for (const candidate of candidates) {
+    const nextAction = candidate.nextAction;
+    const approval = nextAction?.onApproval;
     if (
-      readiness?.[1] === true
-      && typeof identifier?.[1] === "string"
-      && identifier[1].trim()
+      nextAction?.type === "request_user_confirmation"
+      && typeof approval?.tool === "string"
+      && approval.tool.trim()
+      && approval.arguments
+      && typeof approval.arguments === "object"
+      && !Array.isArray(approval.arguments)
     ) {
-      const readinessMatch = readiness[0].match(actionReadinessName);
-      const action = readinessMatch?.groups?.camel?.toLowerCase()
-        ?? readinessMatch?.groups?.snake?.replaceAll("_", "-")
-        ?? "execute";
-      return { action, candidate, identifierName: identifier[0], opaqueId: identifier[1].trim() };
+      return { candidate, approval };
     }
   }
   return null;
 }
 
 function providerExpiration(candidate) {
-  const expiration = selectedEntry(candidate, /^(?:expiresAt|expires_at)$/u)?.[1];
-  return typeof expiration === "string" && expiration ? expiration : null;
+  const value = candidate.expiresAt ?? candidate.expires_at ?? null;
+  return typeof value === "string" && value ? value : null;
 }
 
-// This is a derived view over an immutable MCP receipt, not an agent-owned plan.
-// The provider owns the referenced operation, payload, readiness, and lifecycle.
+// The provider owns the operation and plan. This reference binds only the
+// provider-declared same-server invocation to a source receipt and user approval.
 export function extractDeferredActionReference({
   tool,
+  toolDefinition,
   result,
   requestId,
   receiptEventSeq = null,
+  resolveProviderTool,
 }) {
-  const provider = providerCandidate(result);
-  if (!provider) return null;
-  const argumentName = snakeCase(provider.identifierName);
-  const digest = createHash("sha256")
-    .update(`${receiptEventSeq ?? "unknown"}\n${tool}\n${argumentName}\n${provider.opaqueId}`)
-    .digest("hex")
-    .slice(0, 24);
+  if (!toolDefinition?.source?.startsWith("mcp:")) return null;
+  const action = actionCandidate(result);
+  if (!action) return null;
+  const target = resolveProviderTool?.(action.approval.tool.trim());
+  if (!target || target.source !== toolDefinition.source || target.upstreamName !== action.approval.tool.trim()) {
+    return null;
+  }
+  const argumentsObject = structuredClone(action.approval.arguments);
+  const problem = schemaProblem(argumentsObject, target.parameters ?? { type: "object" });
+  if (problem) return null;
+  const identity = JSON.stringify(canonical({
+    source: toolDefinition.source,
+    sourceTool: tool,
+    targetTool: target.name,
+    arguments: argumentsObject,
+  }));
+  const digest = createHash("sha256").update(identity).digest("hex").slice(0, 24);
   return {
     referenceId: `mcp-action:${digest}`,
-    action: provider.action,
+    action: "provider-confirmed-action",
+    sourceProvider: toolDefinition.source,
     sourceTool: tool,
+    sourceUpstreamTool: toolDefinition.upstreamName ?? null,
     sourceRequestId: requestId,
     sourceReceiptEventSeq: Number.isSafeInteger(receiptEventSeq) ? receiptEventSeq : null,
-    argumentName,
-    opaqueId: provider.opaqueId,
+    targetTool: target.name,
+    targetUpstreamTool: target.upstreamName,
+    arguments: argumentsObject,
     providerMetadata: {
       ready: true,
-      expiresAt: providerExpiration(provider.candidate),
+      status: typeof action.candidate.status === "string" ? action.candidate.status : null,
+      expiresAt: providerExpiration(action.candidate),
     },
   };
 }
 
-function argumentValues(value, argumentNames, path = [], found = []) {
-  if (!value || typeof value !== "object") return found;
-  for (const [key, child] of Object.entries(value)) {
-    const childPath = [...path, key];
-    if (argumentNames.has(key)) found.push({ path: childPath.join("."), name: key, value: child });
-    else if (child && typeof child === "object") argumentValues(child, argumentNames, childPath, found);
-  }
-  return found;
-}
-
 function receiptUsesReference(receipt, reference) {
-  if (!receipt?.ok || receiptInspectionTool.test(receipt.tool ?? "")) return false;
-  return argumentValues(receipt.arguments, new Set([reference.argumentName]))
-    .some(({ value }) => value === reference.opaqueId);
+  return Boolean(
+    receipt?.ok
+    && !receiptInspectionTool.test(receipt.tool ?? "")
+    && receipt.tool === reference.targetTool
+    && sameValue(receipt.arguments ?? {}, reference.arguments ?? {}),
+  );
 }
 
 export function activeDeferredActionReferences(receipts, { now = Date.now() } = {}) {
-  const references = receipts
-    .filter((receipt) => receipt?.ok && !receiptInspectionTool.test(receipt.tool ?? ""))
-    .map((receipt) => extractDeferredActionReference({
-      tool: receipt.tool,
-      result: receipt.result,
-      requestId: receipt.requestId,
-      receiptEventSeq: receipt.receiptEventSeq,
-    }))
-    .filter(Boolean);
-  return references.filter((reference) => {
-    const expiration = reference.providerMetadata.expiresAt;
+  const references = receipts.flatMap((receipt) => {
+    if (!receipt?.ok || receiptInspectionTool.test(receipt.tool ?? "")) return [];
+    const stored = receipt.deferredActionReference;
+    if (!stored) return [];
+    return [{
+      ...stored,
+      sourceReceiptEventSeq: Number.isSafeInteger(stored.sourceReceiptEventSeq)
+        ? stored.sourceReceiptEventSeq
+        : receipt.receiptEventSeq,
+    }];
+  });
+  const latestById = new Map();
+  for (const reference of references) latestById.set(reference.referenceId, reference);
+  return [...latestById.values()].filter((reference) => {
+    const expiration = reference.providerMetadata?.expiresAt;
     if (expiration) {
       const expiresAt = Date.parse(expiration);
       if (Number.isFinite(expiresAt) && expiresAt <= now) return false;
@@ -118,26 +124,23 @@ export function activeDeferredActionReferences(receipts, { now = Date.now() } = 
 }
 
 export function deferredActionArgumentProblem(
+  toolName,
   argumentsObject,
   authorizedReferences,
   activeReferences = authorizedReferences,
 ) {
-  const knownNames = new Set(activeReferences.map(({ argumentName }) => argumentName));
-  const supplied = argumentValues(argumentsObject, knownNames);
-  if (supplied.length === 0) return null;
-  const allowed = new Map(authorizedReferences.map((reference) => (
-    [`${reference.argumentName}\n${reference.opaqueId}`, reference]
-  )));
-  const invalid = supplied.find(({ name, value }) => (
-    typeof value !== "string" || !allowed.has(`${name}\n${value}`)
+  const relevant = activeReferences.filter(({ targetTool }) => targetTool === toolName);
+  if (relevant.length === 0) return null;
+  const authorized = authorizedReferences.some((reference) => (
+    reference.targetTool === toolName && sameValue(argumentsObject, reference.arguments)
   ));
-  if (!invalid) return null;
-  return `Opaque MCP action argument ${invalid.path} must exactly match a provider reference authorized by the accepted TurnBrief. Never substitute a request ID, receipt ID, or guessed identifier.`;
+  if (authorized) return null;
+  return `Provider action ${toolName} must exactly match an active provider invocation authorized by the accepted TurnBrief. Never substitute a request ID, receipt ID, plan ID, arguments, or target tool.`;
 }
 
-export function matchingDeferredActionReferences(argumentsObject, references) {
+export function matchingDeferredActionReferences(toolName, argumentsObject, references) {
   return references.filter((reference) => receiptUsesReference({
-    tool: "direct_action",
+    tool: toolName,
     arguments: argumentsObject,
     ok: true,
   }, reference));
@@ -151,8 +154,8 @@ export function completionReceiptFindings({ receipts, authorizedActionReferences
       findings.push({
         code: "AUTHORIZED_MCP_ACTION_RECEIPT_REQUIRED",
         referenceId: reference.referenceId,
-        message: `Authorized MCP action reference ${reference.referenceId} has no successful direct execution receipt in this request.`,
-        repairInstruction: `Execute only reference ${reference.referenceId} using its exact opaque identifier. Do not substitute another identifier.`,
+        message: `Authorized MCP action reference ${reference.referenceId} has no successful receipt for its exact provider-declared tool and arguments in this request.`,
+        repairInstruction: `Execute only reference ${reference.referenceId} using its exact target tool and complete arguments. Do not substitute another identifier, tool, or argument object.`,
       });
     }
   }

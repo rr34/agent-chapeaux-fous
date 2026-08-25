@@ -124,6 +124,7 @@ function writeEvent(database, ledger, context, {
 export function registerCalendarTools(
   registry, store, organizer, ledger, schemaSemantics = null, searchCoordinator = null,
 ) {
+  registry = registry.withCapability?.("calendar") ?? registry;
   registry.register({
     name: "calendar_event_search",
     description: "Search stored native calendar event series by title, description, and location. Every whitespace-separated query term must match at least one of those fields. Results are stored event records, not expanded recurrence occurrences or derived contact birthdays, and archived events are excluded unless explicitly requested.",

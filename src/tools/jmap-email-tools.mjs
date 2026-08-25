@@ -237,6 +237,7 @@ function findSetFailures(result) {
 }
 
 export function registerJmapEmailTools(registry, client) {
+  registry = registry.withCapability?.("email") ?? registry;
   if (!client.health().ready) throw new Error("Cannot register JMAP email tools before the client is ready");
   const cleanupSelections = new Map();
   const cleanupLifetimeMs = 30 * 60 * 1000;

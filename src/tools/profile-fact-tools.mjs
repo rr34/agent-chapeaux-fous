@@ -36,6 +36,7 @@ function factResult(schemaSemantics, context, result, name, purpose) {
 }
 
 export function registerProfileFactTools(registry, profileFacts, schemaSemantics = null) {
+  registry = registry.withCapability?.("profile") ?? registry;
   registry.register({
     name: "profile_fact_list",
     description: "List active or archived durable profile facts, including stable row IDs. The first model request automatically includes active rows only for profile types selected as relevant to that request; use this tool when other durable facts clearly need inspection.",

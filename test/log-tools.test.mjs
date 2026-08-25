@@ -393,6 +393,10 @@ test("log context includes authoritative active tracker names", async (context) 
     ledger,
     store,
     profileFacts: { list() { return { facts: [] }; } },
+    capabilityContext: (capabilities, contextOptions) => registry.capabilityContext(
+      capabilities,
+      contextOptions,
+    ),
   }).build(next.requestId, "Log a bowel movement", { capabilities: ["logs"] });
 
   assert.match(built.text, /# Active personal-log trackers/);

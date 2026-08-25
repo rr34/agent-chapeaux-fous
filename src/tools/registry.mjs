@@ -66,6 +66,59 @@ export function schemaProblem(value, schema, path = "arguments") {
 export class ToolRegistry {
   constructor() {
     this.tools = new Map();
+    this.capabilities = new Map();
+  }
+
+  registerCapability(manifest) {
+    const id = String(manifest?.id ?? "").trim();
+    if (!id) throw new Error("A capability manifest needs an id");
+    const existing = this.capabilities.get(id) ?? {};
+    this.capabilities.set(id, { ...existing, ...manifest, id });
+    return this;
+  }
+
+  withCapability(capabilityId) {
+    const registry = this;
+    return {
+      register(tool) {
+        const manifest = registry.capabilityManifest(capabilityId);
+        const declaredReadOnly = manifest?.readOnlyTools?.includes(tool.name);
+        registry.register({
+          ...tool,
+          capabilityId: tool.capabilityId ?? capabilityId,
+          annotations: tool.annotations ?? (declaredReadOnly === undefined ? null : {
+            readOnlyHint: declaredReadOnly,
+          }),
+        });
+        return this;
+      },
+    };
+  }
+
+  setCapabilityContextProvider(capabilityId, contextProvider) {
+    if (typeof contextProvider !== "function") throw new Error("A capability context provider must be a function");
+    const existing = this.capabilities.get(capabilityId) ?? { id: capabilityId };
+    this.capabilities.set(capabilityId, { ...existing, contextProvider });
+    return this;
+  }
+
+  capabilityManifest(capabilityId) {
+    return this.capabilities.get(capabilityId) ?? null;
+  }
+
+  capabilityManifests() {
+    return [...this.capabilities.values()].map(({ contextProvider: _contextProvider, ...manifest }) => ({ ...manifest }));
+  }
+
+  async capabilityContext(capabilityIds, context = {}) {
+    const sections = [];
+    for (const capabilityId of [...new Set(capabilityIds ?? [])]) {
+      const provider = this.capabilities.get(capabilityId)?.contextProvider;
+      if (!provider) continue;
+      const section = await provider(context);
+      if (section?.text) sections.push({ capability: capabilityId, ...section });
+    }
+    return sections;
   }
 
   register(tool) {
@@ -83,19 +136,43 @@ export class ToolRegistry {
     return this.tools.delete(name);
   }
 
+  get(name) {
+    return this.tools.get(name) ?? null;
+  }
+
+  resolveUpstreamTool(source, upstreamName) {
+    return [...this.tools.values()].find((tool) => (
+      tool.source === source && tool.upstreamName === upstreamName
+    )) ?? null;
+  }
+
   list() {
     return [...this.tools.values()].map(({ execute: _execute, source, ...tool }) => ({ ...tool, source }));
   }
 
   toolDefinitions() {
-    return [...this.tools.values()].map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.parameters,
-      strict: tool.strict,
-      source: tool.source,
-      upstreamName: tool.upstreamName ?? null,
-    }));
+    return [...this.tools.values()].map((tool) => {
+      const manifest = this.capabilities.get(tool.capabilityId);
+      const capability = manifest
+        ? Object.fromEntries(Object.entries(manifest).filter(([name, value]) => (
+            typeof value !== "function" && name !== "guidance"
+          )))
+        : null;
+      return {
+        name: tool.name,
+        title: tool.title ?? null,
+        description: tool.description,
+        inputSchema: tool.parameters,
+        outputSchema: tool.outputSchema ?? null,
+        strict: tool.strict,
+        source: tool.source,
+        upstreamName: tool.upstreamName ?? null,
+        capabilityId: tool.capabilityId ?? null,
+        capability,
+        annotations: tool.annotations ?? null,
+        metadata: tool.metadata ?? null,
+      };
+    });
   }
 
   async execute(name, argumentsObject, context = {}) {

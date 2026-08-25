@@ -28,6 +28,7 @@ function guideResult(schemaSemantics, context, result, name, purpose, fields = i
 }
 
 export function registerInteractionGuideTools(registry, interactionGuides, schemaSemantics = null) {
+  registry = registry.withCapability?.("interaction-guides") ?? registry;
   registry.register({
     name: "interaction_guide_list",
     description: "List interaction-guide metadata without loading any guide text. Use this to discover the exact guide ID and name before fetching, editing, scheduling, or starting one.",

@@ -180,6 +180,7 @@ function todoResult(schemaSemantics, context, result, {
 const optionalText = { type: ["string", "null"] };
 
 export function registerTodoTools(registry, store, ledger, schemaSemantics = null) {
+  registry = registry.withCapability?.("todos") ?? registry;
   registry.register({
     name: "todo_group_list",
     description: "List active native to-do groups and their open task counts. Before adding a to-do without an explicitly named group, use this to choose the best clear existing group from the task's subject and context. Use Inbox only when no existing group is a reasonable match.",

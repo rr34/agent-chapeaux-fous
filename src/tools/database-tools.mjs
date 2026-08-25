@@ -22,7 +22,10 @@ function projection(schemaSemantics, operation, context) {
 export function registerDatabaseTools(
   registry, store, ledger, schemaSemantics = null, searchCoordinator = null,
 ) {
-  registry.register({
+  const databaseRegistry = registry.withCapability?.("database") ?? registry;
+  const writeRegistry = registry.withCapability?.("database-write") ?? registry;
+  const historyRegistry = registry.withCapability?.("history") ?? registry;
+  databaseRegistry.register({
     name: "database_schema",
     description: "Inspect the existing Slayer SQLite tables, views, columns, foreign keys, and CREATE statements. This never changes schema.",
     parameters: {
@@ -46,7 +49,7 @@ export function registerDatabaseTools(
     },
   });
 
-  registry.register({
+  databaseRegistry.register({
     name: "database_read",
     description: "Read bounded rows from one existing SQLite table or view. Equality filters only; no raw SQL is accepted. When hasMore is true, repeat the same read with nextOffset to continue.",
     strict: false,
@@ -80,9 +83,9 @@ export function registerDatabaseTools(
     },
   });
 
-  registry.register({
+  writeRegistry.register({
     name: "database_write",
-    description: "Insert, update, or delete rows in an approved existing domain table. Raw SQL, schema changes, and writes to the activity ledger are impossible. Update and delete require equality filters.",
+    description: "Insert, update, or delete rows in an explicitly allowlisted transitional native table that has no focused model mutation tool. Raw SQL, schema changes, and writes to tool-owned domain tables or the activity ledger are impossible. Update and delete require equality filters.",
     strict: false,
     parameters: {
       type: "object",
@@ -114,7 +117,7 @@ export function registerDatabaseTools(
     },
   });
 
-  registry.register({
+  databaseRegistry.register({
     name: "tool_receipt_list",
     description: "List durable historical tool-result receipts without loading their full payloads. Use requestId to inspect one request, or null for the newest global receipts. Continue with nextBeforeEventSeq when hasMore is true.",
     parameters: {
@@ -132,7 +135,7 @@ export function registerDatabaseTools(
     },
   });
 
-  registry.register({
+  databaseRegistry.register({
     name: "tool_receipt_read",
     description: "Read one exact durable tool call/result receipt as bounded JSON text. Start at offset 0 and continue with nextOffset while hasMore is true. Use this instead of repeating a completed action whose large result was paged or whose native model thread was replaced.",
     parameters: {
@@ -150,7 +153,7 @@ export function registerDatabaseTools(
     },
   });
 
-  registry.register({
+  historyRegistry.register({
     name: "history_recent",
     description: "Return recent user requests and Slayer responses from the application-owned global history.",
     parameters: {
@@ -165,7 +168,7 @@ export function registerDatabaseTools(
     },
   });
 
-  registry.register({
+  historyRegistry.register({
     name: "history_search",
     description: "Search older user requests and Slayer responses by text.",
     parameters: {
@@ -185,7 +188,7 @@ export function registerDatabaseTools(
     },
   });
 
-  registry.register({
+  historyRegistry.register({
     name: "history_range",
     description: "Return paired user requests and Slayer responses submitted within an explicit UTC date-time range, optionally filtered to a topic in the same lookup. Use this for relative-time references such as earlier today, yesterday, last week, or last month after resolving the user's words and time zone into startAtUtc inclusive and endAtUtc exclusive. When the request also suggests a topic, pass 1-5 concise distinctive terms in query; every term must occur somewhere in the paired user request or response. Pass null when no topic is implied. Results are chronological. Continue with nextAfterRequestId when hasMore is true.",
     parameters: {
@@ -208,18 +211,4 @@ export function registerDatabaseTools(
     },
   });
 
-  registry.register({
-    name: "email_cleanup_receipt_list",
-    description: "Recover exact recent email mutation receipts from Agent Slayer's durable tool ledger. Use this when the user asks which messages were just trashed, archived, updated, or deleted, especially when a prior response omitted or misstated them. Results reconstruct message ids and available sender, subject, and received time from the successful mutation and its same-request search or preview results.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: { limit: { type: "integer", minimum: 1, maximum: 10 } },
-      required: ["limit"],
-    },
-    async execute({ limit }) {
-      const receipts = ledger.recentEmailCleanupReceipts(limit);
-      return { count: receipts.length, receipts };
-    },
-  });
 }

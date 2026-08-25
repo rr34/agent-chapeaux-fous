@@ -41,47 +41,13 @@ function boundedContinuationAnchor(history, maximum = 3_000) {
   return `${prefix}${text.slice(-(maximum - prefix.length))}`;
 }
 
-function activeTrackerRows(store, limit = 200) {
-  if (!store?.status?.ready) return [];
-  return store.requireReady().prepare(`
-    SELECT tracker.tracker_id, tracker.name, tracker.default_unit,
-           log_group.name AS group_name,
-           COUNT(entry.log_entry_id) AS entry_count,
-           MAX(entry.occurred_at_utc) AS last_logged_at_utc
-    FROM trackers AS tracker
-    JOIN log_groups AS log_group USING (log_group_id)
-    LEFT JOIN log_entries AS entry USING (tracker_id)
-    WHERE tracker.archived_at_utc IS NULL
-      AND log_group.archived_at_utc IS NULL
-    GROUP BY tracker.tracker_id
-    ORDER BY tracker.name COLLATE NOCASE
-    LIMIT ?
-  `).all(limit).map((row) => ({
-    trackerId: Number(row.tracker_id),
-    name: row.name,
-    group: row.group_name,
-    defaultUnit: row.default_unit,
-    entryCount: Number(row.entry_count),
-    lastLoggedAtUtc: row.last_logged_at_utc,
-  }));
-}
-
-function activeTrackersContext(trackers) {
-  if (!trackers.length) return "No active personal-log trackers exist.";
-  return trackers.map((tracker) => [
-    `- [tracker ${tracker.trackerId}] name: ${tracker.name}`,
-    `group: ${tracker.group}`,
-    `entries: ${tracker.entryCount}`,
-    `default_unit: ${tracker.defaultUnit ?? "none"}`,
-  ].join(" | ")).join("\n");
-}
-
 export class ContextBuilder {
   constructor({
     ledger,
     profileFacts,
     store = null,
     profileFactQuestions = null,
+    capabilityContext = null,
     historyLimit = 12,
     maximumCharacters = 16000,
     maximumAttachmentCharacters = 64 * 1024,
@@ -90,6 +56,7 @@ export class ContextBuilder {
     this.profileFacts = profileFacts;
     this.store = store;
     this.profileFactQuestions = profileFactQuestions;
+    this.capabilityContext = capabilityContext;
     this.historyLimit = historyLimit;
     this.maximumCharacters = maximumCharacters;
     this.maximumAttachmentCharacters = maximumAttachmentCharacters;
@@ -132,9 +99,11 @@ export class ContextBuilder {
       ? activeProfileFacts.filter(({ factType }) => relevantProfileTypes.includes(factType))
       : [];
     const questionInstructions = profileFactQuestionInstructions(relevantProfileQuestions);
-    const activeTrackers = capabilities.includes("logs")
-      ? activeTrackerRows(this.store)
+    const capabilitySections = this.capabilityContext
+      ? await this.capabilityContext(capabilities, { requestId, requestText, store: this.store })
       : [];
+    const activeTrackers = capabilitySections
+      .find(({ capability }) => capability === "logs")?.data?.trackers ?? [];
     const historyText = boundedRecentHistory(history);
     const continuationAnchor = continuingConversation
       ? boundedContinuationAnchor(history)
@@ -162,11 +131,10 @@ export class ContextBuilder {
         "",
       );
     }
-    if (capabilities.includes("logs")) {
+    for (const section of capabilitySections) {
       sections.push(
-        "# Active personal-log trackers",
-        "These names are authoritative. Reuse the most plausible existing tracker verbatim when the user's wording is synonymous; do not create a paraphrased duplicate.",
-        activeTrackersContext(activeTrackers),
+        `# ${section.heading || section.capability}`,
+        section.text,
         "",
       );
     }

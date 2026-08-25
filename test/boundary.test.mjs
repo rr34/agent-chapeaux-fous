@@ -56,8 +56,8 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(baseInstructions, /never\s+repeat an identical failed call/);
   assert.match(baseInstructions, /same error\s+recurs after a relevant correction, stop and report the blocker/);
   assert.match(baseInstructions, /genuinely new validation errors while the tool budget allows/);
-  assert.match(baseInstructions, /retry the complete\s+original batch/);
-  assert.match(baseInstructions, /success on a subset does not validate omitted items/);
+  assert.match(baseInstructions, /follow the tool's own contract for\s+validation, atomicity, partial success, and safe replay/);
+  assert.doesNotMatch(baseInstructions, /atomic batch validation or import/);
   assert.match(baseInstructions, /perform it instead of continuing open-ended diagnostics/);
   assert.match(baseInstructions, /compare the outcome the user requested with what the tool results actually\s+prove/);
   assert.match(baseInstructions, /If a safe, relevant tool action remains, continue/);

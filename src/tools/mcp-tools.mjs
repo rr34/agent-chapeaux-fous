@@ -50,14 +50,63 @@ export function remoteToolName(serverName, toolName) {
   return safeName(`remote_${serverName}_${toolName}`);
 }
 
+const mcpResultMetadata = Symbol("mcpResultMetadata");
+
+function normalizedContentItem(item) {
+  if (!item || typeof item !== "object") return item;
+  if (item.type === "text") return { type: "text", text: item.text };
+  if (item.type === "resource" || item.type === "resource_link") return structuredClone(item);
+  return {
+    type: item.type,
+    ...(item.name ? { name: item.name } : {}),
+    ...(item.title ? { title: item.title } : {}),
+    ...(item.uri ? { uri: item.uri } : {}),
+    ...(item.mimeType ? { mimeType: item.mimeType } : {}),
+    omittedBinaryData: Boolean(item.data),
+  };
+}
+
 function resultContent(result) {
-  if (result?.structuredContent != null) return result.structuredContent;
-  if (!Array.isArray(result?.content)) return result;
-  return result.content.map((item) => {
-    if (item.type === "text") return item.text;
-    if (item.type === "resource") return item.resource;
-    return { type: item.type, mimeType: item.mimeType, omittedBinaryData: Boolean(item.data) };
-  });
+  const content = Array.isArray(result?.content) ? result.content.map(normalizedContentItem) : [];
+  let value;
+  if (result?.structuredContent != null) {
+    const duplicateText = JSON.stringify(result.structuredContent);
+    const supplemental = content.filter((item) => item.type !== "text" || item.text !== duplicateText);
+    value = result.structuredContent && typeof result.structuredContent === "object"
+      ? structuredClone(result.structuredContent)
+      : result.structuredContent;
+    if (supplemental.length) {
+      value = value && typeof value === "object" && !Array.isArray(value)
+        ? { ...value, mcpSupplementalContent: supplemental }
+        : { structuredContent: value, mcpSupplementalContent: supplemental };
+    }
+  } else if (content.length) {
+    value = content.map((item) => item.type === "text" ? item.text : item);
+  } else {
+    value = result;
+  }
+  if (value && typeof value === "object") {
+    Object.defineProperty(value, mcpResultMetadata, {
+      value: {
+        meta: result?._meta ?? null,
+        isError: result?.isError === true,
+        contentTypes: content.map(({ type }) => type),
+      },
+      enumerable: false,
+    });
+  }
+  return value;
+}
+
+export function mcpResultDetails(value) {
+  return value && typeof value === "object" ? value[mcpResultMetadata] ?? null : null;
+}
+
+function boundedSummary(value, fallback, maximum = 600) {
+  const text = String(value ?? "").replaceAll(/\s+/g, " ").trim();
+  if (!text) return fallback;
+  const sentence = text.match(/^.*?[.!?](?:\s|$)/u)?.[0]?.trim() ?? text;
+  return sentence.length <= maximum ? sentence : `${sentence.slice(0, maximum - 1)}…`;
 }
 
 async function connectWithTimeout(client, transport, timeoutMs = 8000) {
@@ -214,6 +263,24 @@ export class McpToolManager {
       const response = await client.listTools();
       const allowed = server.includeTools ? new Set(server.includeTools) : null;
       const tools = response.tools.filter((tool) => !allowed || allowed.has(tool.name));
+      const serverInfo = client.getServerVersion?.() ?? null;
+      const serverInstructions = client.getInstructions?.() ?? null;
+      this.registry.registerCapability({
+        id: `integration:${serverName}`,
+        title: serverInfo?.title || serverInfo?.name || serverName,
+        summary: server.summary || boundedSummary(
+          serverInstructions,
+          `${serverInfo?.title || serverInfo?.name || serverName} connected MCP integration.`,
+        ),
+        aliases: [...new Set([
+          serverName,
+          serverInfo?.name,
+          serverInfo?.title,
+          ...(server.aliases ?? []),
+        ].filter(Boolean))],
+        guidance: serverInstructions || null,
+        source: `mcp:${serverName}`,
+      });
       const previousConnection = this.connections.get(serverName);
       if (previousConnection) {
         await Promise.allSettled([
@@ -232,6 +299,8 @@ export class McpToolManager {
         url: server.url,
         toolCount: tools.length,
         tools: tools.map((tool) => tool.name),
+        server: serverInfo,
+        instructionsAvailable: Boolean(serverInstructions),
       };
     } catch (error) {
       await transport.close().catch(() => {});
@@ -253,8 +322,13 @@ export class McpToolManager {
     if (this.registeredTools.has(modelName)) return;
     this.registry.register({
       name: modelName,
+      title: tool.title ?? null,
       description: `[${serverName}] ${tool.description || tool.name}`,
       parameters: tool.inputSchema || { type: "object", additionalProperties: true },
+      outputSchema: tool.outputSchema ?? null,
+      annotations: tool.annotations ?? null,
+      metadata: tool._meta ?? null,
+      capabilityId: `integration:${serverName}`,
       strict: false,
       source: `mcp:${serverName}`,
       upstreamName: tool.name,
@@ -262,7 +336,6 @@ export class McpToolManager {
         const connection = this.connections.get(serverName);
         if (!connection) throw new Error(`${serverName} is not connected`);
         const result = await connection.client.callTool({ name: tool.name, arguments: argumentsObject });
-        if (result.isError) throw new Error(JSON.stringify(resultContent(result)));
         return resultContent(result);
       },
     });

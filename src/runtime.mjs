@@ -7,6 +7,7 @@ import {
   incompleteReceiptResponse,
 } from "./deferred-actions.mjs";
 import { requestCapabilityCatalog } from "./request-compiler.mjs";
+import { mcpResultDetails } from "./tools/mcp-tools.mjs";
 import {
   auditContext,
   auditInstructions,
@@ -45,6 +46,20 @@ function canonicalToolArguments(value) {
 
 function toolAttemptKey(name, args) {
   return `${name}\n${JSON.stringify(canonicalToolArguments(args))}`;
+}
+
+export function auditEffectsForReceipts(receipts, registry) {
+  return receipts.flatMap((receipt) => {
+    if (!receipt?.ok || receipt.tool === "request_capabilities") return [];
+    const annotations = registry.get(receipt.tool)?.annotations;
+    if (annotations?.readOnlyHint === true) return [];
+    return [{
+      tool: receipt.tool,
+      reason: annotations?.readOnlyHint === false
+        ? "tool declares possible effects"
+        : "tool effects are not declared read-only",
+    }];
+  });
 }
 
 function joinedInstructions(...sections) {
@@ -97,6 +112,12 @@ function inlineToolResult(toolResult, { tool, receiptEventSeq, maximumCharacters
     fullResultCharacters: serialized.length,
     paged: true,
   };
+}
+
+function providerToolError(tool, result) {
+  const serialized = JSON.stringify(result ?? null);
+  const detail = serialized.length > 2 && serialized.length <= 2_000 ? `: ${serialized}` : "";
+  return `${tool} returned an MCP error result${detail}`;
 }
 
 export class SlayerRuntime {
@@ -426,7 +447,24 @@ export class SlayerRuntime {
       receipts: execution.receipts,
       authorizedActionReferences,
     });
-    if (!brief.audit.required && execution.receipts.length === 0 && executionFindings.length === 0) {
+    const auditEffects = auditEffectsForReceipts(execution.receipts, this.registry);
+    if (!brief.audit.required && auditEffects.length === 0 && executionFindings.length === 0) {
+      const operationId = `${this.modelTransport.id}:${args.requestId}:audit`;
+      const auditPayload = {
+        workflowStep: "audit", workflowStepLabel: "Audit completion", stepIndex: 3,
+        reasoningEffort: null, skipped: true,
+        reason: "TurnBrief did not require an audit and all successful calls declared read-only effects.",
+      };
+      this.ledger.append({
+        type: "agent.step", phase: "start", status: "processing", actorType: "service",
+        actorName: "Structured turn workflow", channel, turnId: args.requestId, operationId,
+        name: "Audit completion", content: "Evaluating whether an audit is required", payload: auditPayload,
+      });
+      this.ledger.append({
+        type: "agent.step", phase: "end", status: "complete", actorType: "service",
+        actorName: "Structured turn workflow", channel, turnId: args.requestId, operationId,
+        name: "Audit skipped", content: auditPayload.reason, payload: auditPayload,
+      });
       return execution.text;
     }
 
@@ -444,6 +482,7 @@ export class SlayerRuntime {
         receipts: execution.receipts,
         executorResponse: execution.text,
         deterministicFindings: executionFindings,
+        auditEffects,
       }),
       outputSchema: completionAuditSchema,
       runTimeoutMs: remainingTimeoutMs(),
@@ -800,6 +839,7 @@ export class SlayerRuntime {
             }
             if (workflowStep) {
               const referenceProblem = deferredActionArgumentProblem(
+                name,
                 args,
                 authorizedActionReferences,
                 activeActionReferences,
@@ -862,27 +902,52 @@ export class SlayerRuntime {
               const toolResult = await this.registry.execute(name, args, {
                 requestId, requestEventId, callId, channel, attachment, videoSource,
               });
+              const toolDefinition = this.registry.get(name);
+              const providerResult = mcpResultDetails(toolResult);
+              const deferredActionReference = providerResult?.isError ? null : extractDeferredActionReference({
+                tool: name,
+                toolDefinition,
+                result: toolResult,
+                requestId,
+                resolveProviderTool: (upstreamName) => this.registry.resolveUpstreamTool(
+                  toolDefinition?.source,
+                  upstreamName,
+                ),
+              });
+              if (providerResult?.isError) {
+                const message = providerToolError(name, toolResult);
+                failedToolAttempts.add(attemptKey);
+                this.ledger.append({
+                  type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                  actorName: name, channel, turnId: requestId, operationId: callId, name,
+                  payload: { callId, name, result: toolResult, providerResult }, error: message,
+                });
+                sameRequestReceipts.push({ tool: name, arguments: args, ok: false, result: toolResult, error: message });
+                return { ok: false, error: message, result: toolResult };
+              }
               const resultEventId = this.ledger.append({
                 type: "tool.result", phase: "end", status: "complete", actorType: "tool",
                 actorName: name, channel, turnId: requestId, operationId: callId, name,
-                payload: { callId, name, result: toolResult },
+                payload: {
+                  callId, name, result: toolResult,
+                  ...(providerResult ? { providerResult } : {}),
+                  ...(deferredActionReference ? { deferredActionReference } : {}),
+                },
               });
               const receiptEventSeq = typeof this.ledger.eventSequence === "function"
                 ? this.ledger.eventSequence(resultEventId)
                 : null;
-              const deferredActionReference = extractDeferredActionReference({
-                tool: name,
-                result: toolResult,
-                requestId,
-                receiptEventSeq,
-              });
+              const sourcedActionReference = deferredActionReference ? {
+                ...deferredActionReference,
+                sourceReceiptEventSeq: receiptEventSeq,
+              } : null;
               if (
-                deferredActionReference
+                sourcedActionReference
                 && !generatedActionReferences.some(({ referenceId }) => (
-                  referenceId === deferredActionReference.referenceId
+                  referenceId === sourcedActionReference.referenceId
                 ))
               ) {
-                generatedActionReferences.push(deferredActionReference);
+                generatedActionReferences.push(sourcedActionReference);
               }
               const inline = inlineToolResult(toolResult, {
                 tool: name,
@@ -897,7 +962,7 @@ export class SlayerRuntime {
                 ok: true,
                 result: inline.deliveredResult,
                 receiptEventSeq,
-                ...(deferredActionReference ? { deferredActionReference } : {}),
+                ...(sourcedActionReference ? { deferredActionReference: sourcedActionReference } : {}),
               });
               if (inline.paged) {
                 this.ledger.append({

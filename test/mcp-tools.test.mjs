@@ -5,7 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { FileOAuthClientProvider } from "../src/mcp-oauth.mjs";
-import { McpToolManager, remoteToolName } from "../src/tools/mcp-tools.mjs";
+import { SlayerRuntime } from "../src/runtime.mjs";
+import { McpToolManager, mcpResultDetails, remoteToolName } from "../src/tools/mcp-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
 test("remote application tools use provider-neutral names", () => {
@@ -13,6 +14,132 @@ test("remote application tools use provider-neutral names", () => {
   assert.equal(name, "remote_weather_openmeteo_search_locations");
   assert.equal(name.startsWith("mcp__"), false);
   assert.match(name, /^[A-Za-z][A-Za-z0-9_-]{0,63}$/);
+});
+
+test("MCP identity, contracts, metadata, and supplemental resources survive adaptation", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    accounting: { enabled: true, url: "https://accounting.example.test/mcp", aliases: ["books"] },
+  }));
+  const structuredContent = Object.freeze({ status: "ready", planId: "provider-plan" });
+  const fakeClient = {
+    async connect() {},
+    getServerVersion() { return { name: "accounting-server", title: "Accounting" }; },
+    getInstructions() { return "Use exact provider plans. Commit only after confirmation."; },
+    async listTools() {
+      return { tools: [
+        {
+          name: "plan_import", title: "Plan import", description: "Build an import plan.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          outputSchema: { type: "object", properties: { status: { type: "string" } } },
+          annotations: { readOnlyHint: true, idempotentHint: true },
+          _meta: { providerTool: "accounting-plan" },
+        },
+        {
+          name: "failing_operation", description: "Return a structured provider error.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+      ] };
+    },
+    async callTool({ name }) {
+      if (name === "failing_operation") {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "The provider rejected this operation." }],
+          _meta: { providerCode: "REJECTED" },
+        };
+      }
+      return {
+        structuredContent,
+        content: [
+          { type: "text", text: JSON.stringify(structuredContent) },
+          { type: "resource_link", uri: "accounting://plans/provider-plan", name: "Import plan" },
+        ],
+        _meta: { receipt: "provider-receipt" },
+      };
+    },
+    async close() {},
+  };
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => fakeClient,
+    transportFactory: () => ({ async close() {} }),
+  });
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+
+  const definition = registry.toolDefinitions().find(({ name }) => name === "remote_accounting_plan_import");
+  assert.equal(definition.title, "Plan import");
+  assert.deepEqual(definition.outputSchema, {
+    type: "object", properties: { status: { type: "string" } },
+  });
+  assert.deepEqual(definition.annotations, { readOnlyHint: true, idempotentHint: true });
+  assert.deepEqual(definition.metadata, { providerTool: "accounting-plan" });
+  assert.equal(definition.capabilityId, "integration:accounting");
+  assert.equal(definition.capability.title, "Accounting");
+  assert.deepEqual(definition.capability.aliases, ["accounting", "accounting-server", "Accounting", "books"]);
+  assert.equal(manager.health().accounting.instructionsAvailable, true);
+
+  const result = await registry.execute("remote_accounting_plan_import", {});
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.mcpSupplementalContent, [{
+    type: "resource_link", uri: "accounting://plans/provider-plan", name: "Import plan",
+  }]);
+  assert.deepEqual(mcpResultDetails(result), {
+    meta: { receipt: "provider-receipt" }, isError: false,
+    contentTypes: ["text", "resource_link"],
+  });
+
+  const providerError = await registry.execute("remote_accounting_failing_operation", {});
+  assert.deepEqual(providerError, ["The provider rejected this operation."]);
+  assert.deepEqual(mcpResultDetails(providerError), {
+    meta: { providerCode: "REJECTED" }, isError: true, contentTypes: ["text"],
+  });
+
+  const events = [];
+  let errorResponse;
+  const runtime = new SlayerRuntime({
+    modelTransport: {
+      id: "mcp-error-test", displayName: "MCP error test",
+      describeRequest(payload) { return { tools: payload.tools, input: payload.input }; },
+      async runTurn(payload) {
+        errorResponse = await payload.onToolCall({
+          callId: "provider-error", tool: "remote_accounting_failing_operation", arguments: {},
+        });
+        return {
+          text: "The provider rejected the operation.", threadId: null, turnId: "provider-turn",
+          status: "completed", messages: [], events: [],
+          usage: { tokenUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } },
+        };
+      },
+    },
+    registry,
+    contextBuilder: {
+      async build() {
+        return {
+          text: "context", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: { append(event) { events.push(event); } },
+    config: {
+      model: "test-model", reasoningEffort: "low", turnWorkflowEnabled: false,
+      maxToolCalls: 2, systemPromptPath: "unused",
+    },
+  });
+  runtime.systemPrompt = "SYSTEM";
+  await runtime.run({ requestId: "provider-error-request", requestEventId: "event-1", text: "Try it." });
+  assert.equal(errorResponse.ok, false);
+  assert.match(errorResponse.error, /returned an MCP error result/);
+  const errorEvent = events.find(({ type, status }) => type === "tool.result" && status === "error");
+  assert.deepEqual(errorEvent.payload.providerResult, {
+    meta: { providerCode: "REJECTED" }, isError: true, contentTypes: ["text"],
+  });
+  await manager.close();
 });
 
 function temporaryDirectory() {

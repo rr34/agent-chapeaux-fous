@@ -3,6 +3,7 @@ import test from "node:test";
 import { RequestCompiler } from "../src/request-compiler.mjs";
 import { SlayerRuntime } from "../src/runtime.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
+import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 
 function usage(totalTokens) {
   return {
@@ -88,6 +89,53 @@ function fakeLedger({ actionReferences = [] } = {}) {
     },
   };
 }
+
+test("a TurnBrief can skip the audit for declared read-only work and the trace says so", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("todos").register({
+    name: "todo_list",
+    description: "List to-dos without changing them.",
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { return { todos: [] }; },
+  });
+  const readBrief = {
+    ...brief({ auditRequired: false }),
+    requestType: "informational",
+    responseMode: "answer",
+    objective: "List the current to-dos.",
+    summary: "The user asked to read current to-dos.",
+    authorizedActions: [],
+    completionCriteria: ["Report the current to-do list."],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(readBrief), 12);
+    const response = await payload.onToolCall({ callId: "read-todos", tool: "todo_list", arguments: {} });
+    assert.equal(response.ok, true);
+    return completed("There are no current to-dos.", 18);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-read-todos", requestEventId: "event-current", text: "What are my to-dos?",
+  }), "There are no current to-dos.");
+  assert.equal(requests.length, 2);
+  const skipped = ledger.events.find(({ type, phase, payload }) => (
+    type === "agent.step" && phase === "end" && payload?.skipped
+  ));
+  assert.equal(skipped.name, "Audit skipped");
+  assert.match(skipped.content, /declared read-only effects/);
+});
 
 function contextBuilder() {
   return {
@@ -456,12 +504,14 @@ test("approval binds execution to the exact active plan and blocks request-id su
   const requests = [];
   const actionReference = {
     referenceId: "mcp-action:approved",
-    action: "commit",
+    action: "provider-confirmed-action",
+    sourceProvider: "mcp:accounting",
     sourceTool: "remote_accounting_import_account_tree",
     sourceRequestId: "request-dry-run",
     sourceReceiptEventSeq: 42,
-    argumentName: "import_plan_id",
-    opaqueId: "plan-exact-273",
+    targetTool: "remote_accounting_commit_account_tree_import",
+    targetUpstreamTool: "commit_account_tree_import",
+    arguments: { import_plan_id: "plan-exact-273" },
     providerMetadata: { ready: true, expiresAt: "2099-01-01T00:00:00.000Z" },
   };
   const ledger = fakeLedger({ actionReferences: [actionReference] });
@@ -503,7 +553,7 @@ test("approval binds execution to the exact active plan and blocks request-id su
       toolResponses.push(await payload.onToolCall({
         callId: "exact",
         tool: "remote_accounting_commit_account_tree_import",
-        arguments: { import_plan_id: actionReference.opaqueId },
+        arguments: actionReference.arguments,
       }));
       return completed("Committed the exact approved plan.", 50);
     }

@@ -1,4 +1,5 @@
 export function registerSearchTools(registry, searchCoordinator) {
+  registry = registry.withCapability?.("search") ?? registry;
   const scopes = searchCoordinator.listProviders().map(({ id }) => id);
   registry.register({
     name: "global_search",

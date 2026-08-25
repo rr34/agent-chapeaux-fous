@@ -12,6 +12,7 @@ import { InteractionGuides } from "./interaction-guides.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
+import { registerNativeCapabilities } from "./native-capabilities.mjs";
 import { loadHatCatalog } from "./hat-catalog.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { capabilityForTool, RequestCompiler } from "./request-compiler.mjs";
@@ -25,6 +26,7 @@ import { WhisperTranscriber } from "./transcriber.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
 import { registerFileTools } from "./tools/file-tools.mjs";
 import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
+import { registerEmailReceiptTools } from "./tools/email-receipts.mjs";
 import { registerCalendarTools } from "./tools/calendar-tools.mjs";
 import { registerContactTools } from "./tools/contact-tools.mjs";
 import { registerLogTools } from "./tools/log-tools.mjs";
@@ -52,6 +54,7 @@ const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQu
 const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
 const registry = new ToolRegistry();
+registerNativeCapabilities(registry);
 const searchCoordinator = store.status.ready
   ? createNativeSearchCoordinator({ store, organizer, ledger })
   : null;
@@ -99,20 +102,25 @@ if (store.status.ready) {
   });
   registerSearchTools(registry, searchCoordinator);
   registerVideoTools(registry, videoService);
+  registerEmailReceiptTools(registry, ledger);
 }
 await mcp.initialize(registry);
 await jmap.initialize();
-if (jmap.health().ready) registerJmapEmailTools(registry, jmap);
+if (jmap.health().ready) {
+  registerJmapEmailTools(registry, jmap);
+}
 const contextBuilder = new ContextBuilder({
   ledger,
   profileFacts,
   store,
   profileFactQuestions,
+  capabilityContext: (capabilities, context) => registry.capabilityContext(capabilities, context),
   maximumAttachmentCharacters: config.maxAttachmentContextCharacters,
 });
 const requestCompiler = new RequestCompiler({
   instructionRoot: config.capabilityInstructionsPath,
   hatCatalog,
+  capabilityManifest: (capabilityId) => registry.capabilityManifest(capabilityId),
 });
 const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, requestCompiler, ledger, config });
 const transcriber = new WhisperTranscriber({

@@ -82,6 +82,7 @@ const capabilitySummaries = new Map([
 ]);
 
 export function capabilityForTool(tool) {
+  if (typeof tool.capabilityId === "string" && tool.capabilityId) return tool.capabilityId;
   if (typeof tool.source === "string" && tool.source.startsWith("mcp:")) {
     return `integration:${tool.source.slice(4)}`;
   }
@@ -116,11 +117,26 @@ function recentRoutingText(entries) {
   return entries.slice(-12).map(({ role, content }) => `${role}: ${content}`).join("\n");
 }
 
-function attachmentCapabilities(attachment) {
+function attachmentHintMatches(hint, { filename, mimeType, preview }) {
+  const extensionMatches = (hint.extensions ?? []).some((extension) => filename.endsWith(extension));
+  const mimeMatches = (hint.mimeIncludes ?? []).some((part) => mimeType.includes(part));
+  if ((hint.extensions?.length || hint.mimeIncludes?.length) && !extensionMatches && !mimeMatches) return false;
+  if (hint.headerTerms?.length && !hint.headerTerms.some((term) => preview.includes(String(term).toLowerCase()))) return false;
+  return true;
+}
+
+function attachmentCapabilities(attachment, grouped = new Map()) {
   if (!attachment) return { capabilities: [], uncertain: false };
   const filename = normalizedText(attachment.filename).toLowerCase();
   const mimeType = normalizedText(attachment.mimeType).toLowerCase();
   const preview = normalizedText(attachment.text).slice(0, 8000).toLowerCase();
+  const declared = [...grouped.entries()].flatMap(([capability, tools]) => {
+    const hints = tools.find(({ capability: manifest }) => manifest)?.capability?.attachmentHints ?? [];
+    return hints.some((hint) => attachmentHintMatches(hint, { filename, mimeType, preview }))
+      ? [capability]
+      : [];
+  });
+  if (declared.length) return { capabilities: ["files", ...new Set(declared)], uncertain: false };
   if (filename.endsWith(".vcf") || filename.endsWith(".vcard") || mimeType.includes("vcard")) {
     return { capabilities: ["files", "contacts"], uncertain: false };
   }
@@ -142,6 +158,11 @@ function attachmentCapabilities(attachment) {
 function integrationAliases(provider) {
   const normalized = provider.replaceAll(/[_-]+/g, " ");
   return new RegExp(`\\b${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "iu");
+}
+
+function capabilityAliasMatches(tools, routingText) {
+  const aliases = tools.find(({ capability }) => capability)?.capability?.aliases ?? [];
+  return aliases.some((alias) => integrationAliases(String(alias)).test(routingText));
 }
 
 export function selectRequestCapabilities({
@@ -200,6 +221,12 @@ export function selectRequestCapabilities({
     }
   }
 
+  for (const [capability, entries] of grouped) {
+    if (selected.has(capability) || !capabilityAliasMatches(entries, routingText)) continue;
+    selected.add(capability);
+    reasons.push(`${capability}:declared-alias`);
+  }
+
   if (
     selected.has("interaction-guides")
     && grouped.has("todos")
@@ -212,7 +239,7 @@ export function selectRequestCapabilities({
   for (const capability of grouped.keys()) {
     if (!capability.startsWith("integration:")) continue;
     const provider = capability.slice("integration:".length);
-    if (integrationAliases(provider).test(routingText)) {
+    if (integrationAliases(provider).test(routingText) || capabilityAliasMatches(grouped.get(capability) ?? [], routingText)) {
       selected.add(capability);
       reasons.push(`${capability}:request`);
     }
@@ -229,7 +256,7 @@ export function selectRequestCapabilities({
     }
   }
 
-  const attachmentRoute = attachmentCapabilities(attachment);
+  const attachmentRoute = attachmentCapabilities(attachment, grouped);
   for (const capability of attachmentRoute.capabilities) {
     if (grouped.has(capability)) selected.add(capability);
     reasons.push(`${capability}:attachment`);
@@ -262,7 +289,13 @@ export function selectRequestCapabilities({
   }
 
   const dependentToolNames = new Set();
-  if (selected.has("email")) dependentToolNames.add("contact_lookup_batch");
+  for (const capability of selected) {
+    const manifest = grouped.get(capability)?.find(({ capability: item }) => item)?.capability;
+    for (const toolName of manifest?.dependentTools ?? []) dependentToolNames.add(toolName);
+  }
+  if (selected.has("email") && !grouped.get("email")?.some(({ capability }) => capability)) {
+    dependentToolNames.add("contact_lookup_batch");
+  }
   const selectedTools = tools.filter((tool) => (
     selected.has(capabilityForTool(tool)) || dependentToolNames.has(tool.name)
   ));
@@ -278,6 +311,8 @@ export function selectRequestCapabilities({
 }
 
 function capabilitySummary(capability, tools) {
+  const declared = tools.find(({ capability: manifest }) => manifest)?.capability?.summary;
+  if (declared) return declared;
   if (capability.startsWith("integration:")) {
     const provider = capability.slice("integration:".length);
     const examples = tools.slice(0, 3).map(({ name }) => name).join(", ");
@@ -335,7 +370,13 @@ function overrideSelection(tools, capabilities) {
   const selected = [...new Set(capabilities)].filter((capability) => typeof capability === "string" && capability);
   const selectedSet = new Set(selected);
   const dependentToolNames = new Set();
-  if (selectedSet.has("email")) dependentToolNames.add("contact_lookup_batch");
+  for (const capability of selectedSet) {
+    const manifest = tools.find((tool) => capabilityForTool(tool) === capability && tool.capability)?.capability;
+    for (const toolName of manifest?.dependentTools ?? []) dependentToolNames.add(toolName);
+  }
+  if (selectedSet.has("email") && !tools.some((tool) => capabilityForTool(tool) === "email" && tool.capability)) {
+    dependentToolNames.add("contact_lookup_batch");
+  }
   const selectedTools = tools.filter((tool) => (
     selectedSet.has(capabilityForTool(tool)) || dependentToolNames.has(tool.name)
   ));
@@ -380,15 +421,21 @@ function ambiguousHatInstructions(selection, hatCatalog) {
 }
 
 export class RequestCompiler {
-  constructor({ instructionRoot, hatCatalog = null, readFile = fs.readFile } = {}) {
+  constructor({
+    instructionRoot, hatCatalog = null, readFile = fs.readFile, capabilityManifest = null,
+  } = {}) {
     this.instructionRoot = instructionRoot;
     this.hatCatalog = hatCatalog;
     this.readFile = readFile;
+    this.capabilityManifest = capabilityManifest;
     this.instructions = new Map();
   }
 
-  async #instruction(capability) {
-    const filename = instructionFiles.get(capability);
+  async #instruction(capability, tools = []) {
+    const declaredGuidance = this.capabilityManifest?.(capability)?.guidance;
+    if (declaredGuidance) return declaredGuidance;
+    const filename = tools.find(({ capability: manifest }) => manifest)?.capability?.instructionFile
+      ?? instructionFiles.get(capability);
     if (!filename || !this.instructionRoot) return null;
     if (!this.instructions.has(capability)) {
       const contents = await this.readFile(path.join(this.instructionRoot, filename), "utf8");
@@ -420,7 +467,7 @@ export class RequestCompiler {
     const requestCapabilities = capabilityRequestDefinition(deferredCapabilities);
     const fragments = (await Promise.all(selection.capabilities.map(async (capability) => ({
       capability,
-      text: await this.#instruction(capability),
+      text: await this.#instruction(capability, grouped.get(capability) ?? []),
     })))).filter(({ text }) => text);
     const guidance = fragments.length
       ? ["# Active capability guidance", ...fragments.map(({ capability, text }) => `\n## ${capability}\n${text}`)].join("\n")

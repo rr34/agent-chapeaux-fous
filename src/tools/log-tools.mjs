@@ -97,6 +97,46 @@ function logResult(schemaSemantics, context, result, {
   });
 }
 
+export function logCapabilityContext(store, limit = 200) {
+  const trackers = !store?.status?.ready ? [] : store.requireReady().prepare(`
+    SELECT tracker.tracker_id, tracker.name, tracker.default_unit,
+           log_group.name AS group_name,
+           COUNT(entry.log_entry_id) AS entry_count,
+           MAX(entry.occurred_at_utc) AS last_logged_at_utc
+    FROM trackers AS tracker
+    JOIN log_groups AS log_group USING (log_group_id)
+    LEFT JOIN log_entries AS entry USING (tracker_id)
+    WHERE tracker.archived_at_utc IS NULL
+      AND log_group.archived_at_utc IS NULL
+    GROUP BY tracker.tracker_id
+    ORDER BY tracker.name COLLATE NOCASE
+    LIMIT ?
+  `).all(limit).map((row) => ({
+    trackerId: Number(row.tracker_id),
+    name: row.name,
+    group: row.group_name,
+    defaultUnit: row.default_unit,
+    entryCount: Number(row.entry_count),
+    lastLoggedAtUtc: row.last_logged_at_utc,
+  }));
+  const rows = trackers.length
+    ? trackers.map((tracker) => [
+        `- [tracker ${tracker.trackerId}] name: ${tracker.name}`,
+        `group: ${tracker.group}`,
+        `entries: ${tracker.entryCount}`,
+        `default_unit: ${tracker.defaultUnit ?? "none"}`,
+      ].join(" | ")).join("\n")
+    : "No active personal-log trackers exist.";
+  return {
+    heading: "Active personal-log trackers",
+    text: [
+      "These names are authoritative. Reuse the most plausible existing tracker verbatim when the user's wording is synonymous; do not create a paraphrased duplicate.",
+      rows,
+    ].join("\n"),
+    data: { trackers },
+  };
+}
+
 function joinedTracker(database, trackerId) {
   return database.prepare(`
     SELECT tracker.*, log_group.name AS group_name,
@@ -396,6 +436,9 @@ function sameImportedEntry(row, input) {
 }
 
 export function registerLogTools(registry, store, ledger, schemaSemantics = null) {
+  const rootRegistry = registry;
+  registry = registry.withCapability?.("logs") ?? registry;
+  rootRegistry.setCapabilityContextProvider?.("logs", () => logCapabilityContext(store));
   registry.register({
     name: "log_add",
     description: "Record one entry in the user's authoritative personal log. The content must remain a complete human-readable entry; number and unit are optional queryable projections, not replacements for that text. Reuse the most plausible existing tracker for exact or synonymous wording. If none matches and create_if_missing is false, no tracker or log entry is written and the result proposes a tracker for user confirmation. Set create_if_missing true only after explicit user creation intent or confirmation. On confirmed first use, create the tracker and requested group atomically; use General when group is null. A supplied group never silently moves an existing tracker.",

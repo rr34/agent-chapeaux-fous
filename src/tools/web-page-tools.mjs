@@ -1,4 +1,5 @@
 export function registerWebPageTools(registry, client) {
+  registry = registry.withCapability?.("web") ?? registry;
   registry.register({
     name: "web_page_read",
     description: "Read one specific HTTP(S) page by URL and return its extracted text, metadata, and links. Use only for a URL the user supplied or a link returned by a previously read page, including pagination. This tool does not search the web. Private/local network targets and non-text responses are rejected.",

@@ -19,6 +19,15 @@ exchange before a final answer is accepted. The trace must record orientation,
 execution, conditional completion audit, repair, and per-step model usage
 literally. Never claim that an unavailable or merely cataloged tool is callable.
 
+## Tool and MCP boundary
+
+Follow `TOOL-MCP-BOUNDARY.md` when adding or changing native tools, MCP
+connections, routing, approval workflows, receipts, or domain persistence.
+Agent core may select, authorize, invoke, trace, and audit tools, but it must not
+recreate provider-owned plans or infer provider workflow semantics from field
+names. Business validation and mutation invariants belong to the tool that owns
+the data. Generic database writes are default-deny for tool-owned tables.
+
 ## Change safety
 
 - Leave changes unstaged unless Nate explicitly requests a Git action.

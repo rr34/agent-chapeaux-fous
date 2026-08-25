@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { summarizeDatabaseObjects } from "../src/database.mjs";
+import { SlayerDatabase, modelWritableTables, summarizeDatabaseObjects } from "../src/database.mjs";
+import { temporaryDatabase } from "./helpers.mjs";
 
 test("database counts distinguish logical objects from SQLite FTS5 shadow tables", () => {
   const objects = [
@@ -23,4 +24,19 @@ test("database counts distinguish logical objects from SQLite FTS5 shadow tables
     sqliteObjectCount: 7,
     fts5ShadowTableCount: 4,
   });
+});
+
+test("generic model writes use an explicit allowlist instead of inheriting new domain tables", (context) => {
+  const temporary = temporaryDatabase();
+  context.after(temporary.cleanup);
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+
+  assert.deepEqual([...modelWritableTables].sort(), ["content_groups", "content_items"]);
+  assert.equal(store.objectInfo("content_items", { writable: true }).writable, true);
+  assert.throws(
+    () => store.objectInfo("contacts", { writable: true }),
+    /Model writes are not permitted on contacts/,
+  );
+  assert.equal(store.objectInfo("contacts").writable, false);
 });

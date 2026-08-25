@@ -69,7 +69,6 @@ const terminalEventTypes = [
   "voice.request.interrupted",
   "voice.transcription.error",
 ];
-const emailMutationToolNames = ["email_cleanup_apply", "email_bulk_update", "email_update"];
 
 function placeholders(values) {
   return values.map(() => "?").join(", ");
@@ -578,6 +577,7 @@ export class Ledger {
         tool: event.name,
         arguments: callPayload.arguments ?? {},
         result: event.payload?.result ?? null,
+        deferredActionReference: event.payload?.deferredActionReference ?? null,
         ok: event.status === "complete",
       };
     });
@@ -1060,92 +1060,25 @@ export class Ledger {
     };
   }
 
-  recentEmailCleanupReceipts(limit = 5) {
-    const bounded = Math.min(10, Math.max(1, Number(limit) || 5));
+  recentSuccessfulToolRequestIds(toolNames, limit = 5) {
+    const names = [...new Set(toolNames ?? [])].filter((name) => typeof name === "string" && name);
+    if (names.length === 0) return [];
+    const bounded = Math.min(100, Math.max(1, Number(limit) || 5));
     const rows = this.store.requireReady().prepare(`
-      SELECT * FROM activity_events
+      SELECT turn_id FROM activity_events
       WHERE event_type = 'tool.result'
         AND status = 'complete'
-        AND name IN (${placeholders(emailMutationToolNames)})
+        AND name IN (${placeholders(names)})
       ORDER BY event_seq DESC
-      LIMIT 200
-    `).all(...emailMutationToolNames).map(publicEvent);
+      LIMIT 1000
+    `).all(...names);
     const turnIds = [];
     for (const row of rows) {
-      if (!row.turnId || turnIds.includes(row.turnId)) continue;
-      turnIds.push(row.turnId);
+      if (!row.turn_id || turnIds.includes(row.turn_id)) continue;
+      turnIds.push(row.turn_id);
       if (turnIds.length >= bounded) break;
     }
-    return turnIds.map((turnId) => {
-      const events = this.trace(turnId);
-      const request = events.find((event) => receivedEventTypes.includes(event.type));
-      const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
-      const messagesById = new Map();
-      for (const event of events.filter((item) => item.type === "tool.result" && item.status === "complete")) {
-        const result = event.payload?.result;
-        const messages = [
-          ...(Array.isArray(result?.messages) ? result.messages : []),
-          ...(Array.isArray(result?.list) ? result.list : []),
-        ];
-        for (const message of messages) {
-          if (message?.id) messagesById.set(message.id, message);
-        }
-      }
-      const operations = events
-        .filter((event) => (
-          event.type === "tool.result"
-          && event.status === "complete"
-          && emailMutationToolNames.includes(event.name)
-        ))
-        .map((resultEvent) => {
-          const call = events.find((event) => (
-            event.type === "tool.call"
-            && event.operationId === resultEvent.operationId
-            && event.name === resultEvent.name
-          ));
-          const args = call?.payload?.arguments ?? {};
-          const result = resultEvent.payload?.result ?? {};
-          const directMessages = Array.isArray(result.messages) ? result.messages : [];
-          for (const message of directMessages) {
-            if (message?.id) messagesById.set(message.id, message);
-          }
-          const emailIds = resultEvent.name === "email_cleanup_apply"
-            ? directMessages.map(({ id }) => id)
-            : resultEvent.name === "email_bulk_update"
-              ? (result.emailIds ?? args.email_ids ?? [])
-              : [args.email_id].filter(Boolean);
-          const action = result.action
-            ?? args.action
-            ?? (args.destroy ? "permanent_destroy" : "update");
-          return {
-            tool: resultEvent.name,
-            action,
-            occurredAtUtc: resultEvent.occurredAtUtc,
-            emailIds,
-          };
-        });
-      const ids = [...new Set(operations.flatMap(({ emailIds }) => emailIds))];
-      const messages = ids.map((id) => {
-        const message = messagesById.get(id);
-        return {
-          id,
-          threadId: message?.threadId ?? null,
-          receivedAt: message?.receivedAt ?? null,
-          from: message?.from ?? null,
-          subject: message?.subject ?? null,
-        };
-      });
-      return {
-        requestId: turnId,
-        requestedAtUtc: request?.occurredAtUtc ?? null,
-        request: request?.content ?? null,
-        response: response?.content ?? null,
-        operationCount: operations.length,
-        affectedCount: ids.length,
-        operations,
-        messages,
-      };
-    });
+    return turnIds;
   }
 
   registerFile({

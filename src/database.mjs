@@ -60,17 +60,10 @@ export const requiredDatabaseShape = {
   ],
 };
 
-const protectedWriteTables = new Set([
-  "activity_event_files",
-  "activity_events",
-  "activity_events_fts",
-  "files_fts",
-  "agent_turn_attempts",
-  "database_meta",
-  "files",
-  "interaction_guides",
-  "profile_facts",
-]);
+// Transitional model-write surface. Every focused native domain table is
+// default-deny and must be mutated through its owning service/tool. Content has
+// no focused model mutation tools yet, so it remains explicitly available.
+export const modelWritableTables = new Set(["content_groups", "content_items"]);
 
 function identifier(name, label = "identifier") {
   if (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
@@ -187,12 +180,12 @@ export class SlayerDatabase {
     identifier(name, "object");
     const object = this.objects().find((candidate) => candidate.name === name);
     if (!object) throw new Error(`Unknown database object: ${name}`);
-    if (writable && (object.type !== "table" || protectedWriteTables.has(name) || /^CREATE VIRTUAL TABLE/i.test(object.sql))) {
+    if (writable && (object.type !== "table" || !modelWritableTables.has(name) || /^CREATE VIRTUAL TABLE/i.test(object.sql))) {
       throw new Error(`Model writes are not permitted on ${name}`);
     }
     const columns = this.requireReady().prepare(`PRAGMA table_info(${identifier(name, "object")})`).all().map(serializable);
     const foreignKeys = this.requireReady().prepare(`PRAGMA foreign_key_list(${identifier(name, "object")})`).all().map(serializable);
-    return { ...object, writable: object.type === "table" && !protectedWriteTables.has(name), columns, foreignKeys };
+    return { ...object, writable: object.type === "table" && modelWritableTables.has(name), columns, foreignKeys };
   }
 
   validateColumns(names, available) {

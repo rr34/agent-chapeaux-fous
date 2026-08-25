@@ -4,6 +4,7 @@ import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
+import { registerEmailReceiptTools } from "../src/tools/email-receipts.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
 test("active request progress follows the latest unfinished ledger operation", () => {
@@ -355,18 +356,26 @@ test("MCP deferred actions are derived from receipts and leave the active set af
       type: "tool.result", status: "complete", operationId: "dry-run-call",
       name: "remote_accounting_import_account_tree",
       turnId: "request-dry-run",
-      payload: { result: {
-        readyToCommit: true,
-        importPlanId: "plan-ledger-test",
-        expiresAt: "2099-01-01T00:00:00.000Z",
-        summary: { accountsCreated: 273 },
-      } },
+      payload: {
+        result: { status: "ready", summary: { accountsCreated: 273 } },
+        deferredActionReference: {
+          referenceId: "mcp-action:ledger-test",
+          action: "provider-confirmed-action",
+          sourceProvider: "mcp:accounting",
+          sourceTool: "remote_accounting_import_account_tree",
+          sourceRequestId: "request-dry-run",
+          sourceReceiptEventSeq: null,
+          targetTool: "remote_accounting_commit_account_tree_import",
+          targetUpstreamTool: "commit_account_tree_import",
+          arguments: { import_plan_id: "plan-ledger-test" },
+          providerMetadata: { ready: true, status: "ready", expiresAt: "2099-01-01T00:00:00.000Z" },
+        },
+      },
     });
     ledger.createRequest({ text: "An unrelated request between preview and approval." });
     const references = ledger.activeDeferredActionReferences();
     assert.equal(references.length, 1);
-    assert.equal(references[0].opaqueId, "plan-ledger-test");
-    assert.equal(references[0].argumentName, "import_plan_id");
+    assert.deepEqual(references[0].arguments, { import_plan_id: "plan-ledger-test" });
 
     ledger.append({
       type: "tool.call", status: "processing", operationId: "commit-call",
@@ -479,6 +488,7 @@ test("history_range exposes paired history without returning its current request
     const current = ledger.createRequest({ text: "What did we discuss today?" });
     const registry = new ToolRegistry();
     registerDatabaseTools(registry, store, ledger);
+    registerEmailReceiptTools(registry, ledger);
     const result = await registry.execute("history_range", {
       startAtUtc: "2020-01-01T00:00:00.000Z",
       endAtUtc: "2030-01-01T00:00:00.000Z",
@@ -557,6 +567,7 @@ test("email cleanup receipts recover exact messages from successful prior tool o
     ledger.finish(ledger.trace(later.requestId)[0], "I looked at the oldest Trash messages.");
     const registry = new ToolRegistry();
     registerDatabaseTools(registry, store, ledger);
+    registerEmailReceiptTools(registry, ledger);
     const result = await registry.execute("email_cleanup_receipt_list", { limit: 5 });
     assert.equal(result.count, 1);
     assert.equal(result.receipts[0].requestId, cleanup.requestId);
