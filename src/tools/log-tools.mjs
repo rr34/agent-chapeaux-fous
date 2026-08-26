@@ -438,7 +438,13 @@ function sameImportedEntry(row, input) {
 export function registerLogTools(registry, store, ledger, schemaSemantics = null) {
   const rootRegistry = registry;
   registry = registry.withCapability?.("logs") ?? registry;
-  rootRegistry.setCapabilityContextProvider?.("logs", () => logCapabilityContext(store));
+  rootRegistry.registerContextView?.("logs", {
+    id: "logs.active_trackers",
+    title: "Active personal-log trackers",
+    description: "Active tracker names and IDs with their groups, units, and entry counts.",
+    maximumItems: 200,
+    execute: () => logCapabilityContext(store),
+  });
   registry.register({
     name: "log_add",
     description: "Record one entry in the user's authoritative personal log. The content must remain a complete human-readable entry; number and unit are optional queryable projections, not replacements for that text. Reuse the most plausible existing tracker for exact or synonymous wording. If none matches and create_if_missing is false, no tracker or log entry is written and the result proposes a tracker for user confirmation. Set create_if_missing true only after explicit user creation intent or confirmation. On confirmed first use, create the tracker and requested group atomically; use General when group is null. A supplied group never silently moves an existing tracker.",

@@ -23,9 +23,10 @@ const sourcedStatement = {
   required: ["text", "sourceEventSeqs"],
 };
 
-export function turnBriefSchema(capabilities, actionReferenceIds = []) {
+export function turnBriefSchema(capabilities, actionReferenceIds = [], contextViewIds = []) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
   const allowedReferenceIds = [...new Set(actionReferenceIds)].sort();
+  const allowedContextViews = [...new Set(contextViewIds)].sort();
   return {
     type: "object",
     additionalProperties: false,
@@ -53,6 +54,14 @@ export function turnBriefSchema(capabilities, actionReferenceIds = []) {
         uniqueItems: true,
         items: allowedReferenceIds.length
           ? { type: "string", enum: allowedReferenceIds }
+          : { type: "string" },
+      },
+      contextRequests: {
+        type: "array",
+        maxItems: allowedContextViews.length,
+        uniqueItems: true,
+        items: allowedContextViews.length
+          ? { type: "string", enum: allowedContextViews }
           : { type: "string" },
       },
       authorizedActions: { type: "array", maxItems: 20, items: sourcedStatement },
@@ -95,6 +104,7 @@ export function turnBriefSchema(capabilities, actionReferenceIds = []) {
     required: [
       "contractVersion", "requestType", "responseMode", "objective", "summary",
       "requiredCapabilities", "authorizedActionReferenceIds", "authorizedActions",
+      "contextRequests",
       "prohibitedActions", "deferredActions",
       "constraints", "unresolvedQuestions", "completionCriteria", "evidence", "audit",
       "conversationState",
@@ -178,6 +188,7 @@ export function orientationContext({
     "",
     "## Connected capability families",
     JSON.stringify(capabilityCatalog, null, 2),
+    "Context views are small read-only datasets that the application can prepare after orientation and before execution. Request only views that materially help execution resolve existing names, identifiers, or categories. They are not writes and do not replace domain tools.",
   ].join("\n");
 }
 
@@ -223,6 +234,7 @@ export const orientationInstructions = [
   "Resolve the exact current request against the supplied recent conversation and rolling state.",
   "A short approval can authorize a concrete prior offer without repeating its wording. A correction changes only what it explicitly changes. An addition preserves the earlier objective. A question does not authorize a write.",
   "When approval concerns an MCP-owned deferred operation, select its exact active reference in authorizedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",
+  "Use contextRequests to ask the application for small advertised read-only datasets that execution needs up front, such as existing tag, group, or tracker names and IDs. Do not request unrelated views.",
   "Select every capability family the executor may need. Keep the output concise, source-grounded, and explicit about completion.",
 ].join("\n");
 

@@ -51,6 +51,13 @@ test("todo_list filters single completion and schedule timestamps by local date"
 
   const registry = new ToolRegistry();
   registerTodoTools(registry, store, new Ledger(store));
+  const [groupContext] = await registry.prepareContext(["todos.active_groups"]);
+  assert.deepEqual(groupContext.data.groups.map(({ todoGroupId, name }) => ({ todoGroupId, name })), [
+    { todoGroupId: 2, name: "Development" },
+    { todoGroupId: 1, name: "Inbox" },
+  ]);
+  assert.match(groupContext.text, /\[group 2\] Development/);
+  assert.doesNotMatch(groupContext.text, /Completed before local day/);
   const definition = registry.toolDefinitions().find(({ name }) => name === "todo_list");
   assert.deepEqual(
     Object.keys(definition.inputSchema.properties).filter((name) => name.endsWith("_on_date")),

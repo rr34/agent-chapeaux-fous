@@ -88,6 +88,16 @@ test("contact_import stores methods and overlapping tags and is replay-safe", as
   );
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM contacts").get().count, 1);
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM tags").get().count, 3);
+  const [tagContext] = await registry.prepareContext(["contacts.active_tags"]);
+  assert.deepEqual(tagContext.data.tags.map(({ label, slug, contactCount }) => ({
+    label, slug, contactCount,
+  })), [
+    { label: "Family", slug: "family", contactCount: 1 },
+    { label: "Watch Customer", slug: "watch-customer", contactCount: 1 },
+    { label: "Wedding Attendee", slug: "wedding-attendee", contactCount: 1 },
+  ]);
+  assert.match(tagContext.text, /Wedding Attendee \[wedding-attendee\] \| contacts: 1/);
+  assert.doesNotMatch(tagContext.text, /Alex Rivera/);
 
   const conflict = await registry.execute("contact_import", {
     ...batch,

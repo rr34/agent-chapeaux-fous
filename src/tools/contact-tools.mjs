@@ -364,10 +364,52 @@ function compactDuplicateCandidate(contact) {
   };
 }
 
+export function contactTagContext(store, limit = 200) {
+  const database = store.requireReady();
+  const totalCount = Number(database.prepare(`
+    SELECT COUNT(*) AS count FROM tags WHERE is_active = 1
+  `).get().count);
+  const tags = database.prepare(`
+    SELECT tag.tag_id, tag.slug, tag.label,
+           COUNT(assignment.record_id) AS contact_count
+    FROM tags AS tag
+    LEFT JOIN record_tags AS assignment
+      ON assignment.tag_id = tag.tag_id
+     AND assignment.record_type = 'contact'
+    WHERE tag.is_active = 1
+    GROUP BY tag.tag_id
+    ORDER BY tag.label COLLATE NOCASE, tag.slug
+    LIMIT ?
+  `).all(limit).map((row) => ({
+    slug: row.slug,
+    label: row.label,
+    contactCount: Number(row.contact_count),
+  }));
+  return {
+    heading: "Active contact tags",
+    text: tags.length
+      ? [
+          "Use these exact active labels and stable slugs to resolve approximate tag wording. Counts describe tag assignments; no contacts are included.",
+          ...tags.map((tag) => `- ${tag.label} [${tag.slug}] | contacts: ${tag.contactCount}`),
+          ...(totalCount > tags.length ? [`[${totalCount - tags.length} additional active tag(s) omitted]`] : []),
+        ].join("\n")
+      : "No active contact tags exist.",
+    data: { tags, totalCount, omittedCount: totalCount - tags.length },
+  };
+}
+
 export function registerContactTools(
   registry, store, organizer, ledger, schemaSemantics = null, searchCoordinator = null,
 ) {
+  const rootRegistry = registry;
   registry = registry.withCapability?.("contacts") ?? registry;
+  rootRegistry.registerContextView?.("contacts", {
+    id: "contacts.active_tags",
+    title: "Active contact tags",
+    description: "Active contact tag labels and stable slugs with assignment counts; no contact records.",
+    maximumItems: 200,
+    execute: () => contactTagContext(store),
+  });
   registry.register({
     name: "contact_import",
     description: "Import a bounded batch of 1 through 200 already-normalized contacts supplied as structured data without a file. Use contact_file_import for an attached CSV or vCard/VCF so the application processes the complete file directly. Supply a stable source name and one stable external_id per source record. Contacts may include multiple methods and overlapping tags. The source and external_id pair is idempotent: exact replays are unchanged, conflicting replays are reported without overwriting, and all new contacts, methods, tags, and tag assignments are written in one transaction.",

@@ -67,6 +67,7 @@ export class ToolRegistry {
   constructor() {
     this.tools = new Map();
     this.capabilities = new Map();
+    this.contextViews = new Map();
   }
 
   registerCapability(manifest) {
@@ -95,11 +96,45 @@ export class ToolRegistry {
     };
   }
 
-  setCapabilityContextProvider(capabilityId, contextProvider) {
-    if (typeof contextProvider !== "function") throw new Error("A capability context provider must be a function");
-    const existing = this.capabilities.get(capabilityId) ?? { id: capabilityId };
-    this.capabilities.set(capabilityId, { ...existing, contextProvider });
+  registerContextView(capabilityId, view) {
+    const id = String(view?.id ?? "").trim();
+    if (!id || typeof view?.execute !== "function") {
+      throw new Error("A capability context view needs an id and execute function");
+    }
+    if (this.contextViews.has(id)) throw new Error(`Duplicate capability context view: ${id}`);
+    const definition = {
+      id,
+      capabilityId,
+      title: String(view.title ?? id),
+      description: String(view.description ?? "").trim(),
+      maximumItems: Number.isSafeInteger(view.maximumItems) ? view.maximumItems : null,
+    };
+    this.contextViews.set(id, { ...definition, execute: view.execute });
+    const manifest = this.capabilities.get(capabilityId) ?? { id: capabilityId };
+    const contextViews = [...(manifest.contextViews ?? []).filter((item) => item.id !== id), definition];
+    this.capabilities.set(capabilityId, { ...manifest, contextViews });
     return this;
+  }
+
+  contextView(id) {
+    return this.contextViews.get(id) ?? null;
+  }
+
+  async prepareContext(viewIds, context = {}) {
+    const sections = [];
+    for (const id of [...new Set(viewIds ?? [])]) {
+      const view = this.contextViews.get(id);
+      if (!view) throw new Error(`Unknown capability context view: ${id}`);
+      const result = await view.execute(context);
+      if (!result?.text) continue;
+      sections.push({
+        view: id,
+        capability: view.capabilityId,
+        title: view.title,
+        ...result,
+      });
+    }
+    return sections;
   }
 
   capabilityManifest(capabilityId) {
@@ -107,18 +142,7 @@ export class ToolRegistry {
   }
 
   capabilityManifests() {
-    return [...this.capabilities.values()].map(({ contextProvider: _contextProvider, ...manifest }) => ({ ...manifest }));
-  }
-
-  async capabilityContext(capabilityIds, context = {}) {
-    const sections = [];
-    for (const capabilityId of [...new Set(capabilityIds ?? [])]) {
-      const provider = this.capabilities.get(capabilityId)?.contextProvider;
-      if (!provider) continue;
-      const section = await provider(context);
-      if (section?.text) sections.push({ capability: capabilityId, ...section });
-    }
-    return sections;
+    return [...this.capabilities.values()].map((manifest) => ({ ...manifest }));
   }
 
   register(tool) {

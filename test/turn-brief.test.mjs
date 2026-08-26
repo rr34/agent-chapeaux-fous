@@ -12,6 +12,7 @@ function validBrief() {
     summary: "The current request accepts the prior offer.",
     requiredCapabilities: ["todos"],
     authorizedActionReferenceIds: [],
+    contextRequests: [],
     authorizedActions: [sourced],
     prohibitedActions: [],
     deferredActions: [],
@@ -62,5 +63,22 @@ test("TurnBrief parsing enforces source references and unique capability selecti
   assert.deepEqual(
     parseStructuredModelOutput(JSON.stringify(authorizedReference), referenceSchema, "Orientation"),
     authorizedReference,
+  );
+
+  const contextSchema = turnBriefSchema(
+    ["todos", "contacts"],
+    [],
+    ["todos.active_groups", "contacts.active_tags"],
+  );
+  const contextual = validBrief();
+  contextual.contextRequests = ["todos.active_groups"];
+  assert.deepEqual(
+    parseStructuredModelOutput(JSON.stringify(contextual), contextSchema, "Orientation"),
+    contextual,
+  );
+  contextual.contextRequests = ["contacts.unknown_view"];
+  assert.throws(
+    () => parseStructuredModelOutput(JSON.stringify(contextual), contextSchema, "Orientation"),
+    /contextRequests\[0\] must be one of/,
   );
 });

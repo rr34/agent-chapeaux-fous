@@ -337,6 +337,7 @@ export function requestCapabilityCatalog(tools) {
       summary: capabilitySummary(capability, entries),
       toolCount: entries.length,
       representativeTools: entries.slice(0, 5).map(({ name }) => name),
+      contextViews: entries.find(({ capability: manifest }) => manifest)?.capability?.contextViews ?? [],
     }));
 }
 

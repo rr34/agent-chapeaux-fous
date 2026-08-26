@@ -363,6 +363,7 @@ export class SlayerRuntime {
     const schema = turnBriefSchema(
       catalog.map(({ capability }) => capability),
       activeActionReferences.map(({ referenceId }) => referenceId),
+      catalog.flatMap(({ contextViews = [] }) => contextViews.map(({ id }) => id)),
     );
     const orientation = await this.#runStructuredStep({
       requestId: args.requestId,
@@ -413,6 +414,64 @@ export class SlayerRuntime {
       },
       subjectType: "conversation_state", subjectId: "main",
     });
+    const contextOperationId = `${this.modelTransport.id}:${args.requestId}:context_preparation`;
+    this.ledger.append({
+      type: "agent.step", phase: "start", status: "processing", actorType: "service",
+      actorName: "Structured turn workflow", channel, turnId: args.requestId,
+      operationId: contextOperationId, name: "Prepare execution context",
+      content: "Preparing orientation-requested context",
+      payload: {
+        workflowStep: "context_preparation", workflowStepLabel: "Prepare execution context",
+        stepIndex: 2, reasoningEffort: null, requests: brief.contextRequests,
+      },
+    });
+    let preparedCapabilityContext;
+    try {
+      preparedCapabilityContext = await this.registry.prepareContext(brief.contextRequests, {
+        requestId: args.requestId,
+        requestEventId: args.requestEventId,
+        requestText: args.text,
+        channel,
+      });
+      this.ledger.append({
+        type: "context.prepared", status: "complete", actorType: "service",
+        actorName: "Capability context", channel, turnId: args.requestId,
+        operationId: contextOperationId, name: "Execution context prepared",
+        content: preparedCapabilityContext.length
+          ? preparedCapabilityContext.map(({ title, view }) => `${title} (${view})`).join(", ")
+          : "No capability context requested",
+        payload: { requests: brief.contextRequests, sections: preparedCapabilityContext },
+      });
+      this.ledger.append({
+        type: "agent.step", phase: "end", status: "complete", actorType: "service",
+        actorName: "Structured turn workflow", channel, turnId: args.requestId,
+        operationId: contextOperationId, name: "Prepare execution context",
+        content: preparedCapabilityContext.length
+          ? `Prepared ${preparedCapabilityContext.length} requested context view(s)`
+          : "No execution context was requested",
+        payload: {
+          workflowStep: "context_preparation", workflowStepLabel: "Prepare execution context",
+          stepIndex: 2, reasoningEffort: null, requests: brief.contextRequests,
+          preparedCount: preparedCapabilityContext.length,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.ledger.append({
+        type: "agent.step", phase: "error", status: "error", actorType: "service",
+        actorName: "Structured turn workflow", channel, turnId: args.requestId,
+        operationId: contextOperationId, name: "Prepare execution context",
+        content: message, error: message,
+        payload: {
+          workflowStep: "context_preparation", workflowStepLabel: "Prepare execution context",
+          stepIndex: 2, reasoningEffort: null, requests: brief.contextRequests,
+        },
+      });
+      throw error;
+    }
+    const contextCapabilities = brief.contextRequests.map((viewId) => (
+      this.registry.contextView(viewId)?.capabilityId
+    )).filter(Boolean);
     const coreCapabilities = routing.capabilities.filter((capability) => (
       routing.fallbackAll || ["profile", "files", "database"].includes(capability)
     ));
@@ -423,6 +482,7 @@ export class SlayerRuntime {
       ...coreCapabilities,
       ...explicitHatCapabilities,
       ...brief.requiredCapabilities,
+      ...contextCapabilities,
     ])];
     const executorArgs = {
       ...args,
@@ -437,9 +497,10 @@ export class SlayerRuntime {
       ),
       activeActionReferences,
       authorizedActionReferences,
+      preparedCapabilityContext,
     };
     const execution = await this.#runExecutorStep(executorArgs, {
-      step: "execution", label: "Execute request", stepIndex: 2,
+      step: "execution", label: "Execute request", stepIndex: 3,
       effort: args.effort || this.config.reasoningEffort,
     });
     const executionFindings = completionReceiptFindings({
@@ -451,7 +512,7 @@ export class SlayerRuntime {
     if (!brief.audit.required && auditEffects.length === 0 && executionFindings.length === 0) {
       const operationId = `${this.modelTransport.id}:${args.requestId}:audit`;
       const auditPayload = {
-        workflowStep: "audit", workflowStepLabel: "Audit completion", stepIndex: 3,
+        workflowStep: "audit", workflowStepLabel: "Audit completion", stepIndex: 4,
         reasoningEffort: null, skipped: true,
         reason: "TurnBrief did not require an audit and all successful calls declared read-only effects.",
       };
@@ -473,7 +534,7 @@ export class SlayerRuntime {
       channel,
       step: "audit",
       label: "Audit completion",
-      stepIndex: 3,
+      stepIndex: 4,
       model: args.model || this.config.model,
       effort: this.config.auditReasoningEffort ?? "low",
       input: `Audit completion of request ${args.requestId}.`,
@@ -508,7 +569,7 @@ export class SlayerRuntime {
       ),
     };
     const repair = await this.#runExecutorStep(repairArgs, {
-      step: "repair", label: "Repair completion", stepIndex: 4,
+      step: "repair", label: "Repair completion", stepIndex: 5,
       effort: this.config.repairReasoningEffort ?? args.effort ?? this.config.reasoningEffort,
       initialReceipts: execution.receipts,
     });
@@ -549,6 +610,7 @@ export class SlayerRuntime {
     capabilityOverride = null, workflowStep = null, workflowStepLabel = null, stepIndex = null,
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
     activeActionReferences = [], authorizedActionReferences = [],
+    preparedCapabilityContext = null,
   }) {
     const availableTools = this.registry.toolDefinitions();
     const priorConversation = !isolatedConversation && typeof this.ledger.currentModelConversation === "function"
@@ -666,6 +728,7 @@ export class SlayerRuntime {
         continuingConversation: Boolean(conversationId),
         conversationStartEventSeq: conversation.markerEventSeq,
         capabilities: compilation.capabilities,
+        ...(preparedCapabilityContext === null ? {} : { preparedCapabilityContext }),
         conversationCheckpoint: conversationId ? null : conversationCheckpoint,
         ...(workflowStep ? { includeRecentExchanges: false } : {}),
       });

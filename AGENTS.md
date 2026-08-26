@@ -12,17 +12,22 @@ Every user request must begin with a literal orientation interaction that visibl
 4. an organized catalog of connected capability families.
 
 The execution interaction must visibly contain the accepted TurnBrief and the
-exact schema of every callable tool. No application function may run before its
-schema appears in that execution interaction. A model tool call must execute the
-named application function, and its result must be returned to the same model
-exchange before a final answer is accepted. The trace must record orientation,
-execution, conditional completion audit, repair, and per-step model usage
-literally. Never claim that an unavailable or merely cataloged tool is callable.
+exact schema of every callable tool. Before execution, the application may read
+only named, bounded, read-only context views advertised in the orientation
+catalog and selected by the TurnBrief's strict `contextRequests` field. No
+mutation or ordinary tool may run before its exact schema appears in execution.
+A model tool call must execute the named application function, and its result
+must be returned to the same model exchange before a final answer is accepted.
+The trace must record orientation, execution-context preparation, execution,
+conditional completion audit, repair, and per-step model usage literally. Never
+claim that an unavailable or merely cataloged tool is callable.
 
-## Tool and MCP boundary
+## Agent and tool manifesto
 
-Follow `TOOL-MCP-BOUNDARY.md` when adding or changing native tools, MCP
-connections, routing, approval workflows, receipts, or domain persistence.
+Follow `AGENT-TOOL-MANIFESTO.md` when adding or changing model interactions,
+context selection, native tools, MCP connections, routing, approval workflows,
+receipts, or domain persistence. Use `AGENT-TERMINOLOGY.md` for the numbered
+canonical names.
 Agent core may select, authorize, invoke, trace, and audit tools, but it must not
 recreate provider-owned plans or infer provider workflow semantics from field
 names. Business validation and mutation invariants belong to the tool that owns

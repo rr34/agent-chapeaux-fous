@@ -179,8 +179,50 @@ function todoResult(schemaSemantics, context, result, {
 
 const optionalText = { type: ["string", "null"] };
 
+function activeTodoGroupRows(store) {
+  return store.requireReady().prepare(`
+    SELECT todo_group.todo_group_id, todo_group.name, todo_group.uses_sequence,
+           todo_group.archived_at_utc,
+           COUNT(task.personal_task_id) AS open_task_count
+    FROM todo_groups AS todo_group
+    LEFT JOIN personal_tasks AS task
+      ON task.todo_group_id = todo_group.todo_group_id
+     AND task.status NOT IN ('complete', 'ignore', 'archive')
+    WHERE todo_group.archived_at_utc IS NULL
+    GROUP BY todo_group.todo_group_id
+    ORDER BY todo_group.name COLLATE NOCASE, todo_group.todo_group_id
+  `).all();
+}
+
+export function todoGroupContext(store, limit = 100) {
+  const allRows = activeTodoGroupRows(store);
+  const rows = allRows.slice(0, limit).map((row) => ({
+    todoGroupId: Number(row.todo_group_id),
+    name: row.name,
+  }));
+  return {
+    heading: "Active to-do groups",
+    text: rows.length
+      ? [
+          "Use these exact existing group names and IDs when they plausibly match the request. Do not load or infer individual to-do items from this reference list.",
+          ...rows.map((group) => `- [group ${group.todoGroupId}] ${group.name}`),
+          ...(allRows.length > rows.length ? [`[${allRows.length - rows.length} additional active group(s) omitted]`] : []),
+        ].join("\n")
+      : "No active to-do groups exist.",
+    data: { groups: rows, totalCount: allRows.length, omittedCount: allRows.length - rows.length },
+  };
+}
+
 export function registerTodoTools(registry, store, ledger, schemaSemantics = null) {
+  const rootRegistry = registry;
   registry = registry.withCapability?.("todos") ?? registry;
+  rootRegistry.registerContextView?.("todos", {
+    id: "todos.active_groups",
+    title: "Active to-do groups",
+    description: "Active to-do group names and IDs; no individual to-do items.",
+    maximumItems: 100,
+    execute: () => todoGroupContext(store),
+  });
   registry.register({
     name: "todo_group_list",
     description: "List active native to-do groups and their open task counts. Before adding a to-do without an explicitly named group, use this to choose the best clear existing group from the task's subject and context. Use Inbox only when no existing group is a reasonable match.",
@@ -191,18 +233,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       required: [],
     },
     async execute(_argumentsObject, context) {
-      const rows = store.requireReady().prepare(`
-        SELECT todo_group.todo_group_id, todo_group.name, todo_group.uses_sequence,
-               todo_group.archived_at_utc,
-               COUNT(task.personal_task_id) AS open_task_count
-        FROM todo_groups AS todo_group
-        LEFT JOIN personal_tasks AS task
-          ON task.todo_group_id = todo_group.todo_group_id
-         AND task.status NOT IN ('complete', 'ignore', 'archive')
-        WHERE todo_group.archived_at_utc IS NULL
-        GROUP BY todo_group.todo_group_id
-        ORDER BY todo_group.name COLLATE NOCASE, todo_group.todo_group_id
-      `).all();
+      const rows = activeTodoGroupRows(store);
       return todoResult(schemaSemantics, context, {
         count: rows.length,
         groups: rows.map((row) => ({

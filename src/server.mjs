@@ -114,7 +114,6 @@ const contextBuilder = new ContextBuilder({
   profileFacts,
   store,
   profileFactQuestions,
-  capabilityContext: (capabilities, context) => registry.capabilityContext(capabilities, context),
   maximumAttachmentCharacters: config.maxAttachmentContextCharacters,
 });
 const requestCompiler = new RequestCompiler({

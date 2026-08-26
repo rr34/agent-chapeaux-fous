@@ -389,15 +389,15 @@ test("log context includes authoritative active tracker names", async (context) 
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-context" });
   const next = ledger.createRequest({ text: "Log a bowel movement" });
+  const preparedCapabilityContext = await registry.prepareContext(["logs.active_trackers"]);
   const built = await new ContextBuilder({
     ledger,
     store,
     profileFacts: { list() { return { facts: [] }; } },
-    capabilityContext: (capabilities, contextOptions) => registry.capabilityContext(
-      capabilities,
-      contextOptions,
-    ),
-  }).build(next.requestId, "Log a bowel movement", { capabilities: ["logs"] });
+  }).build(next.requestId, "Log a bowel movement", {
+    capabilities: ["logs"],
+    preparedCapabilityContext,
+  });
 
   assert.match(built.text, /# Active personal-log trackers/);
   assert.match(built.text, /name: Poop \| group: Health \| entries: 1/);

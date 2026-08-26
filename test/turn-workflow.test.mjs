@@ -40,6 +40,7 @@ function brief({ auditRequired = true, authorizedActionReferenceIds = [] } = {})
     summary: "The user authorized the concrete action offered in the prior assistant turn.",
     requiredCapabilities: ["todos"],
     authorizedActionReferenceIds,
+    contextRequests: [],
     authorizedActions: [source],
     prohibitedActions: [],
     deferredActions: [],
@@ -101,17 +102,35 @@ test("a TurnBrief can skip the audit for declared read-only work and the trace s
     parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
     async execute() { return { todos: [] }; },
   });
+  registry.registerContextView("todos", {
+    id: "todos.active_groups",
+    title: "Active to-do groups",
+    description: "Existing active to-do groups and IDs.",
+    maximumItems: 100,
+    async execute() {
+      return {
+        heading: "Active to-do groups",
+        text: "- [group 7] Wedding",
+        data: { groups: [{ todoGroupId: 7, name: "Wedding" }] },
+      };
+    },
+  });
   const readBrief = {
     ...brief({ auditRequired: false }),
     requestType: "informational",
     responseMode: "answer",
     objective: "List the current to-dos.",
     summary: "The user asked to read current to-dos.",
+    contextRequests: ["todos.active_groups"],
     authorizedActions: [],
     completionCriteria: ["Report the current to-do list."],
   };
   const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(readBrief), 12);
+    if (index === 0) {
+      assert.match(payload.developerInstructions, /todos\.active_groups/);
+      return completed(JSON.stringify(readBrief), 12);
+    }
+    assert.match(payload.developerInstructions, /\[group 7\] Wedding/);
     const response = await payload.onToolCall({ callId: "read-todos", tool: "todo_list", arguments: {} });
     assert.equal(response.ok, true);
     return completed("There are no current to-dos.", 18);
@@ -140,9 +159,14 @@ test("a TurnBrief can skip the audit for declared read-only work and the trace s
 function contextBuilder() {
   return {
     async build(_requestId, _requestText, options) {
+      const prepared = options.preparedCapabilityContext ?? [];
+      const developerInstructions = [
+        "BOUNDED APPLICATION CONTEXT",
+        ...prepared.map(({ heading, text }) => `# ${heading}\n${text}`),
+      ].join("\n\n");
       return {
-        text: "BOUNDED APPLICATION CONTEXT",
-        developerInstructions: "BOUNDED APPLICATION CONTEXT",
+        text: developerInstructions,
+        developerInstructions,
         requestAttachmentInput: null,
         profileFacts: [],
         activeProfileFactCount: 0,
@@ -266,7 +290,7 @@ test("orientation resolves a short approval, execution acts from the TurnBrief, 
   assert.deepEqual(
     ledger.events.filter(({ type, phase }) => type === "agent.step" && phase === "start")
       .map(({ payload }) => payload.workflowStep),
-    ["orientation", "execution", "audit"],
+    ["orientation", "context_preparation", "execution", "audit"],
   );
   const operationIds = ledger.events
     .filter(({ type }) => type === "model.request")
@@ -324,7 +348,7 @@ test("a failed completion audit adds a bounded repair call without repeating suc
   assert.deepEqual(
     ledger.events.filter(({ type, phase }) => type === "agent.step" && phase === "start")
       .map(({ payload }) => payload.workflowStep),
-    ["orientation", "execution", "audit", "repair"],
+    ["orientation", "context_preparation", "execution", "audit", "repair"],
   );
 });
 

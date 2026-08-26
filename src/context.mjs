@@ -47,7 +47,6 @@ export class ContextBuilder {
     profileFacts,
     store = null,
     profileFactQuestions = null,
-    capabilityContext = null,
     historyLimit = 12,
     maximumCharacters = 16000,
     maximumAttachmentCharacters = 64 * 1024,
@@ -56,7 +55,6 @@ export class ContextBuilder {
     this.profileFacts = profileFacts;
     this.store = store;
     this.profileFactQuestions = profileFactQuestions;
-    this.capabilityContext = capabilityContext;
     this.historyLimit = historyLimit;
     this.maximumCharacters = maximumCharacters;
     this.maximumAttachmentCharacters = maximumAttachmentCharacters;
@@ -68,6 +66,7 @@ export class ContextBuilder {
     continuingConversation = false,
     conversationStartEventSeq = 0,
     capabilities = [],
+    preparedCapabilityContext = null,
     conversationCheckpoint = null,
     includeRecentExchanges = true,
   } = {}) {
@@ -99,9 +98,7 @@ export class ContextBuilder {
       ? activeProfileFacts.filter(({ factType }) => relevantProfileTypes.includes(factType))
       : [];
     const questionInstructions = profileFactQuestionInstructions(relevantProfileQuestions);
-    const capabilitySections = this.capabilityContext
-      ? await this.capabilityContext(capabilities, { requestId, requestText, store: this.store })
-      : [];
+    const capabilitySections = preparedCapabilityContext ?? [];
     const activeTrackers = capabilitySections
       .find(({ capability }) => capability === "logs")?.data?.trackers ?? [];
     const historyText = boundedRecentHistory(history);

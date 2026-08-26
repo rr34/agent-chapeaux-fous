@@ -376,7 +376,7 @@ test("new typed and voice requests speak by default with a persistent silent pre
   const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
-  const architecture = fs.readFileSync(path.join(root, "agentstructure.md"), "utf8");
+  const terminology = fs.readFileSync(path.join(root, "AGENT-TERMINOLOGY.md"), "utf8");
   assert.match(document, /id="respond-silently" type="checkbox"/);
   assert.doesNotMatch(document, /id="respond-silently"[^>]+checked/);
   assert.match(document, /<span>Respond silently<\/span>/);
@@ -400,8 +400,8 @@ test("new typed and voice requests speak by default with a persistent silent pre
   assert.match(application, /elements\.respondSilently\.addEventListener\("change", saveResponseSilencePreference\)/);
   assert.doesNotMatch(application, /elements\.respondSilently\.checked = false/);
   assert.match(readme, /spoken by default through the\s+web browser's native speech synthesis/);
-  assert.match(architecture, /automatically speaks\s+completed responses by default through browser-native speech synthesis/);
-  assert.doesNotMatch(architecture, /automatic speech playback[^\n]+not/);
+  assert.match(terminology, /automatically speaks each\s+completed response/);
+  assert.doesNotMatch(terminology, /automatic speech playback[^\n]+not/);
 });
 
 test("the request composer accepts one image or text attachment and exposes metered AI usage", () => {
