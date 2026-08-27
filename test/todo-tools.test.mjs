@@ -625,6 +625,7 @@ test("legacy voice-service requests remain visible without rewriting their event
     usage: null,
     steps: [],
     eventCount: 2,
+    scriptSelectable: true,
   }]);
   assert.deepEqual(
     ledger.recentConversation().map(({ role, content }) => ({ role, content })),

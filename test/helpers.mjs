@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 20, 'Agent Slayer test database');
+    VALUES (1, 21, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -164,6 +164,36 @@ export function temporaryDatabase() {
       updated_at_utc TEXT,
       UNIQUE (content_group_id, sequence)
     ) STRICT;
+    CREATE TABLE video_scripts (
+      video_script_id INTEGER PRIMARY KEY,
+      title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 200),
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'archived')),
+      schema_version INTEGER NOT NULL DEFAULT 1 CHECK (schema_version = 1),
+      script_json TEXT NOT NULL CHECK (
+        length(script_json) <= 500000 AND json_valid(script_json) AND json_type(script_json) = 'object'
+      ),
+      script_text TEXT NOT NULL CHECK (length(trim(script_text)) BETWEEN 1 AND 500000),
+      created_by_event_id TEXT UNIQUE REFERENCES activity_events(event_id) ON DELETE SET NULL,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at_utc TEXT,
+      archived_at_utc TEXT,
+      version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+      CHECK (
+        (status = 'draft' AND archived_at_utc IS NULL)
+        OR (status = 'archived' AND archived_at_utc IS NOT NULL)
+      )
+    ) STRICT;
+    CREATE TABLE video_script_sources (
+      video_script_id INTEGER NOT NULL REFERENCES video_scripts(video_script_id) ON DELETE CASCADE,
+      request_event_id TEXT NOT NULL REFERENCES activity_events(event_id) ON DELETE RESTRICT,
+      source_order INTEGER NOT NULL CHECK (source_order > 0),
+      PRIMARY KEY (video_script_id, request_event_id),
+      UNIQUE (video_script_id, source_order)
+    ) STRICT, WITHOUT ROWID;
+    CREATE INDEX video_scripts_status_created
+      ON video_scripts(status, created_at_utc DESC, video_script_id DESC);
+    CREATE INDEX video_script_sources_request
+      ON video_script_sources(request_event_id, video_script_id);
     CREATE TABLE calendar_events (
       calendar_event_id INTEGER PRIMARY KEY,
       ical_uid TEXT,

@@ -1,14 +1,11 @@
-# Interaction video creation
+# AI-video script creation
 
-The user explicitly clicked **Make a video of this interaction**. Treat this as a production request, not a discussion about video.
+The user explicitly selected completed interactions and requested one portable script for an external AI video generator.
 
-- Use only `video_render_interaction` to create the MP4.
-- The application-supplied source interaction is authoritative. Do not substitute another conversation or invent activity.
-- Normalize the raw Whisper transcript for readable captions: fix punctuation, capitalization, obvious homophones, and spoken-number formatting while preserving the user's meaning and voice.
-- Choose one coherent, contiguous request-audio section. Use the full recording when it fits. If it is long, select the strongest contiguous excerpt; never splice words into a sentence the user did not say.
-- Caption cue times are absolute milliseconds in the source recording and must follow the supplied word timings.
-- Write a short accurate hook, 1-6 concise response highlights, and call the render tool exactly once.
-- Do not claim the video exists unless the tool returns `ok: true` and a download URL.
-- After a successful render, tell the user to use the **Download video** button on the completed request card. Do not emit the internal `/api/videos/...` path as a Markdown link; ordinary response text is deliberately not rendered as HTML.
-
-The renderer supplies the vertical format, authentic source audio, speech-synchronized red button, real activity animation, caption treatment, and response layout. Do not call unrelated tools.
+- Request the `video.selected_interactions` context view during orientation. It is the only authoritative source package for this operation.
+- Use every selected interaction in its supplied chronological order. Do not substitute, omit, or add conversations.
+- Ground every scene in one or more selected request IDs. Preserve actual outcomes and clearly avoid invented actions, quotations, demonstrations, or results.
+- Remove secrets and unrelated private material. Include personal details only when they are essential to the requested story and present in the selected evidence.
+- Produce a cohesive production brief, consolidated generator prompt, and scene-by-scene plan usable with a general AI video generator.
+- Call `video_script_create` exactly once with the complete script. Do not render an MP4 and do not call unrelated tools.
+- Claim success only when the tool returns a persisted script ID. Tell the user the draft is available under **Content → Video scripts**.

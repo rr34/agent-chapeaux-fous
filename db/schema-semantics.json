@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 20,
-    "schemaFingerprint": "0d4c2eb1868b564eb3055b6e3468ca93a1e9bd547497bb525997b086c59ec0ac",
-    "extractedAt": "2026-08-27T20:51:00.661Z"
+    "schemaVersion": 21,
+    "schemaFingerprint": "4876c113c0c328c4e21387fd83c398b9feb47a8435fa8ea7cb67d9ac65c57daa",
+    "extractedAt": "2026-08-27T22:19:34.090Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -17096,6 +17096,577 @@
             "cardinality": "Each video render job may reference zero or one personal to-do item; one todo may be used by multiple render attempts.",
             "importantRules": [
               "Deleting the referenced todo preserves the render history and clears this reference."
+            ]
+          }
+        }
+      }
+    },
+    "video_script_sources": {
+      "mechanics": {
+        "present": true,
+        "kind": "table",
+        "definition": "CREATE TABLE video_script_sources (\n    video_script_id  INTEGER NOT NULL\n                     REFERENCES video_scripts(video_script_id) ON DELETE CASCADE,\n    request_event_id TEXT NOT NULL\n                     REFERENCES activity_events(event_id) ON DELETE RESTRICT,\n    source_order     INTEGER NOT NULL CHECK (source_order > 0),\n    PRIMARY KEY (video_script_id, request_event_id),\n    UNIQUE (video_script_id, source_order)\n) STRICT, WITHOUT ROWID",
+        "indexes": [
+          {
+            "name": "sqlite_autoindex_video_script_sources_1",
+            "columns": [
+              "video_script_id",
+              "request_event_id"
+            ],
+            "unique": true,
+            "partial": false,
+            "origin": "pk"
+          },
+          {
+            "name": "sqlite_autoindex_video_script_sources_2",
+            "columns": [
+              "video_script_id",
+              "source_order"
+            ],
+            "unique": true,
+            "partial": false,
+            "origin": "u"
+          },
+          {
+            "name": "video_script_sources_request",
+            "columns": [
+              "request_event_id",
+              "video_script_id"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          }
+        ]
+      },
+      "semantics": {
+        "purpose": "Preserves the ordered many-to-many grounding between a portable AI-video script and the completed Agent Slayer interactions explicitly selected for it.",
+        "rowMeaning": "One row links one video script to one selected request event at one stable chronological source position.",
+        "sourceOfTruth": true,
+        "derivedFrom": [],
+        "synonyms": [
+          "video script interactions",
+          "script source conversations"
+        ],
+        "keywords": [
+          "selected interactions",
+          "script sources",
+          "source order"
+        ],
+        "routingWeight": 0.5,
+        "importantRules": [
+          "Every source must be an exact completed request event selected by the user.",
+          "source_order is chronological within one script and must not be inferred from display order."
+        ],
+        "sensitivity": "Links portable content drafts to private user requests and responses."
+      },
+      "fields": {
+        "video_script_id": {
+          "mechanics": {
+            "present": true,
+            "name": "video_script_id",
+            "ordinal": 0,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 1,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Portable AI-video script grounded by this source association.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "request_event_id": {
+          "mechanics": {
+            "present": true,
+            "name": "request_event_id",
+            "ordinal": 1,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 2,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Exact immutable request-received ledger event selected as source evidence.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "source_order": {
+          "mechanics": {
+            "present": true,
+            "name": "source_order",
+            "ordinal": 2,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "One-based chronological position of this interaction among the script's selected sources.",
+            "units": "position",
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        }
+      },
+      "relationships": {
+        "fk:request_event_id->activity_events.event_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:request_event_id->activity_events.event_id",
+            "columns": [
+              "request_event_id"
+            ],
+            "targetObject": "activity_events",
+            "targetColumns": [
+              "event_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "RESTRICT"
+          },
+          "semantics": {
+            "meaning": "Connects the source association to the exact selected request-received ledger event.",
+            "cardinality": "Each association references exactly one request event; one request may ground many scripts.",
+            "importantRules": [
+              "A referenced request event cannot be deleted while it grounds a retained script."
+            ]
+          }
+        },
+        "fk:video_script_id->video_scripts.video_script_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:video_script_id->video_scripts.video_script_id",
+            "columns": [
+              "video_script_id"
+            ],
+            "targetObject": "video_scripts",
+            "targetColumns": [
+              "video_script_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "CASCADE"
+          },
+          "semantics": {
+            "meaning": "Connects the source association to its portable AI-video script.",
+            "cardinality": "Each association belongs to exactly one script; one script has one through eight ordered sources.",
+            "importantRules": [
+              "Deleting a script deletes only its source associations, never the underlying ledger interactions."
+            ]
+          }
+        }
+      }
+    },
+    "video_scripts": {
+      "mechanics": {
+        "present": true,
+        "kind": "table",
+        "definition": "CREATE TABLE video_scripts (\n    video_script_id     INTEGER PRIMARY KEY,\n    title               TEXT NOT NULL\n                        CHECK (length(trim(title)) BETWEEN 1 AND 200),\n    status              TEXT NOT NULL DEFAULT 'draft'\n                        CHECK (status IN ('draft', 'archived')),\n    schema_version      INTEGER NOT NULL DEFAULT 1\n                        CHECK (schema_version = 1),\n    script_json         TEXT NOT NULL\n                        CHECK (\n                            length(script_json) <= 500000\n                            AND json_valid(script_json)\n                            AND json_type(script_json) = 'object'\n                        ),\n    script_text         TEXT NOT NULL\n                        CHECK (length(trim(script_text)) BETWEEN 1 AND 500000),\n    created_by_event_id TEXT UNIQUE REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT,\n    archived_at_utc     TEXT,\n    version             INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    CHECK (\n        (status = 'draft' AND archived_at_utc IS NULL)\n        OR (status = 'archived' AND archived_at_utc IS NOT NULL)\n    )\n) STRICT",
+        "indexes": [
+          {
+            "name": "sqlite_autoindex_video_scripts_1",
+            "columns": [
+              "created_by_event_id"
+            ],
+            "unique": true,
+            "partial": false,
+            "origin": "u"
+          },
+          {
+            "name": "video_scripts_status_created",
+            "columns": [
+              "status",
+              "created_at_utc",
+              "video_script_id"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          }
+        ]
+      },
+      "semantics": {
+        "purpose": "Stores reusable, copy-ready production scripts for external AI video generators, grounded in explicitly selected Agent Slayer interactions.",
+        "rowMeaning": "One row is one versioned portable video-script draft with a structured production plan and deterministic human-readable export.",
+        "sourceOfTruth": true,
+        "derivedFrom": [],
+        "synonyms": [
+          "AI video scripts",
+          "video production briefs",
+          "generator scripts"
+        ],
+        "keywords": [
+          "video script",
+          "generator prompt",
+          "scene plan",
+          "production brief"
+        ],
+        "routingWeight": 0.8,
+        "importantRules": [
+          "A script is a content-production artifact, not an MP4 render job.",
+          "Creation is idempotent for the exact Agent Slayer request event recorded in created_by_event_id.",
+          "Source interactions are authoritative and are preserved separately in video_script_sources."
+        ],
+        "sensitivity": "May contain private details selected from user interactions; secrets and unrelated private details must be excluded before persistence."
+      },
+      "fields": {
+        "video_script_id": {
+          "mechanics": {
+            "present": true,
+            "name": "video_script_id",
+            "ordinal": 0,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 1,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable local identifier for the portable AI-video script.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "title": {
+          "mechanics": {
+            "present": true,
+            "name": "title",
+            "ordinal": 1,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Concise human-facing title for finding and copying the production script.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "status": {
+          "mechanics": {
+            "present": true,
+            "name": "status",
+            "ordinal": 2,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'draft'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": [
+              "draft",
+              "archived"
+            ]
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Current user-facing lifecycle state of the script.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {
+              "draft": "Active script available for review and use with an external generator.",
+              "archived": "Retained script hidden from the default active view."
+            },
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "schema_version": {
+          "mechanics": {
+            "present": true,
+            "name": "schema_version",
+            "ordinal": 3,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": "1",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Version of the structured script_json production-plan contract.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "script_json": {
+          "mechanics": {
+            "present": true,
+            "name": "script_json",
+            "ordinal": 4,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Complete structured production plan, including generator prompt, scenes, grounding references, continuity notes, and negative constraints.",
+            "units": null,
+            "format": "JSON object encoded as text",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "script_text": {
+          "mechanics": {
+            "present": true,
+            "name": "script_text",
+            "ordinal": 5,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Complete copy-ready Markdown production script deterministically compiled from script_json at creation time.",
+            "units": null,
+            "format": "Markdown",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "created_by_event_id": {
+          "mechanics": {
+            "present": true,
+            "name": "created_by_event_id",
+            "ordinal": 6,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Exact request-received ledger event whose authorized tool execution created this script.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "created_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "created_at_utc",
+            "ordinal": 7,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC time when the script record was created.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "updated_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "updated_at_utc",
+            "ordinal": 8,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC time of the latest script lifecycle or content update.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "archived_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "archived_at_utc",
+            "ordinal": 9,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC time when the script was archived; null while it remains a draft.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "version": {
+          "mechanics": {
+            "present": true,
+            "name": "version",
+            "ordinal": 10,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": "1",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Monotonic optimistic-concurrency version for user-visible script changes.",
+            "units": "revision",
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        }
+      },
+      "relationships": {
+        "fk:created_by_event_id->activity_events.event_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:created_by_event_id->activity_events.event_id",
+            "columns": [
+              "created_by_event_id"
+            ],
+            "targetObject": "activity_events",
+            "targetColumns": [
+              "event_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "SET NULL"
+          },
+          "semantics": {
+            "meaning": "Connects the script to the exact Agent Slayer request that authorized and created it.",
+            "cardinality": "Each script references at most one creating request event, and uniqueness permits one script per creating request.",
+            "importantRules": [
+              "Deleting the creating event preserves the script and clears this provenance reference."
             ]
           }
         }

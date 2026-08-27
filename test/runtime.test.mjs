@@ -984,13 +984,13 @@ test("a request can override the normal tool budget and pass a model-turn deadli
   );
 });
 
-test("a video request can select a one-turn model and reasoning override", async () => {
+test("a video-script request can select a one-turn model and reasoning override", async () => {
   let received;
   const events = [];
   const runtime = new SlayerRuntime({
     modelTransport: fakeTransport(async (payload) => {
       received = { model: payload.model, effort: payload.effort, instructions: payload.developerInstructions };
-      return completedTurn({ text: "Rendered." });
+      return completedTurn({ text: "Drafted." });
     }),
     registry: new ToolRegistry(),
     contextBuilder: {
@@ -1005,7 +1005,7 @@ test("a video request can select a one-turn model and reasoning override", async
   await runtime.run({
     requestId: "video-request",
     requestEventId: "video-event",
-    text: "Make the video.",
+    text: "Create the video script.",
     model: "gpt-5.6-sol",
     effort: "high",
     supplementalInstructions: "EXACT SOURCE",

@@ -71,7 +71,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("database_write")), "database-write");
   assert.equal(capabilityForTool(tool("email_send")), "email");
   assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
-  assert.equal(capabilityForTool(tool("video_render_interaction")), "video");
+  assert.equal(capabilityForTool(tool("video_script_create")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
   assert.equal(capabilityForTool(tool("file_read")), "files");
 });
@@ -107,12 +107,12 @@ test("durable file retrieval remains callable on a terse later request", async (
   assert.match(compiled.instructions, /call `file_get`\s+or `file_read` with 200/);
 });
 
-test("an explicit interaction-video request selects the contained renderer", () => {
+test("an explicit interaction-video request selects the script creator", () => {
   const selection = selectRequestCapabilities({
-    tools: [...tools, tool("video_render_interaction")],
-    text: "Create the finished vertical video for this interaction.",
+    tools: [...tools, tool("video_script_create")],
+    text: "Create a portable video script from these interactions.",
   });
-  assert.equal(names(selection).includes("video_render_interaction"), true);
+  assert.equal(names(selection).includes("video_script_create"), true);
   assert.equal(selection.capabilities.includes("video"), true);
   assert.equal(selection.fallbackAll, false);
 });
@@ -122,13 +122,13 @@ test("an application capability override ignores unrelated prior-conversation ro
     instructionRoot: path.join(repositoryRoot, "config", "instructions"),
   });
   const compiled = await compiler.compile({
-    tools: [...tools, tool("video_render_interaction")],
-    text: "Create the MP4 for this interaction and return the download link.",
+    tools: [...tools, tool("video_script_create")],
+    text: "Create the AI-video script from these selected interactions.",
     recentConversation: [{ role: "user", content: "Add this to my calendar." }],
     previousCapabilities: ["calendar", "profile"],
     capabilityOverride: ["video"],
   });
-  assert.deepEqual(names(compiled), ["video_render_interaction"]);
+  assert.deepEqual(names(compiled), ["video_script_create"]);
   assert.deepEqual(compiled.capabilities, ["video"]);
   assert.deepEqual(compiled.reasons, ["video:application-override"]);
   assert.match(compiled.instructions, /## video/);

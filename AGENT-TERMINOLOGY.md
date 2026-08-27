@@ -91,17 +91,21 @@ elapsed-time and current-stage display.
 **24. TimeV3 MCP server** — A possible controlled TimeV3 tool boundary. It is
 retained in the vocabulary but is not currently configured.
 
-**25. Video-content service** — A deferred application that would package a
-specifically requested interaction for video rendering.
+**25. Video-script service** — The native domain that packages explicitly
+selected completed interactions into a versioned, portable production script
+for an external AI video generator.
 
-**26. Video-rendering worker** — A deferred process that would render a
-structured video project to an MP4.
+**26. Legacy video-rendering appendix** — The retained, unregistered Remotion
+implementation and historical MP4 download path. It is not callable by the
+agent and does not run in the request queue.
 
-**27. Video template** — A deferred reusable visual and editorial arrangement
-for captions, audio, imagery, activity, branding, and timing.
+**27. Portable video-script contract** — The versioned production brief,
+generator prompt, scene plan, grounding references, continuity requirements,
+and negative constraints stored for one AI-video script.
 
-**28. Interaction-replay interface** — A deferred visual reconstruction of a
-request from ledger events rather than a screen recording.
+**28. Selected-interaction script context** — The bounded, chronologically
+ordered, source-referenced request and response evidence prepared only after
+orientation selects the advertised video context view.
 
 **29. Content-selection process** — A deferred automated process for choosing
 interactions to turn into content.
@@ -125,9 +129,10 @@ schema, user isolation, authorization, and internal instrumentation.
 Agent Slayer's ledger, history, files, durable profile facts, personal to-dos,
 personal logs, and any compatible domain tables and views.
 
-**36. Publishable-content filter** — A deferred boundary that would remove
-secrets and unrelated private material before selected activity becomes content
-input.
+**36. Publishable-content filter** — The initial video-script boundary that
+bounds selected request and response text, redacts recognized secret patterns,
+and requires the script interaction to omit unrelated private material. Broader
+policy classification remains future work.
 
 **37. Personal communications server** — A deferred authoritative self-hosted
 email, calendar, and contacts service.

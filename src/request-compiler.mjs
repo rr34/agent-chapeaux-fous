@@ -51,7 +51,7 @@ const capabilityPatterns = new Map([
   ["database-write", /(?:\b(?:write|insert|update|delete|remove|import|save|create|change)\b.{0,60}\b(?:database|db|sqlite|table|rows?|content items?|content groups?|video jobs?)\b)|(?:\b(?:database|db|sqlite|table|rows?|content items?|content groups?|video jobs?)\b.{0,60}\b(?:write|insert|update|delete|remove|import|save|create|change)\b)/iu],
   ["history", /\b(?:what did we|what have we|talked about|discussed|previous conversation|prior conversation|conversation history|earlier today|last time|yesterday we|recent exchange)\b/iu],
   ["email", /\b(?:e-?mail|inbox|mailbox|sender|subject line|email thread|draft|compose|send (?:it|this|that|an?|the|a message)|message .{0,40}(?:to|on)|reply to|forward (?:it|this|that|the)|spam|trash folder|invite .{0,40}(?:to|for))\b/iu],
-  ["video", /\b(?:make|create|render|generate|produce).{0,40}\bvideo\b|\bvideo.{0,40}(?:interaction|request|response|render)\b/iu],
+  ["video", /\b(?:make|create|generate|produce).{0,40}\bvideo(?: script)?\b|\bvideo.{0,40}(?:script|interaction|request|response)\b/iu],
   ["search", /\b(?:global|unified|cross[ -]?domain|everywhere)\s+search\b|\b(?:find|search|look for)\b.{0,80}\b(?:everything|anything|across (?:all|my)|everywhere|all (?:my|available) (?:data|records?|information))\b/iu],
 ]);
 
@@ -77,7 +77,7 @@ const capabilitySummaries = new Map([
   ["database-write", "Write supported native SQLite-backed application data; read-only database access is already callable."],
   ["history", "Search prior Agent Slayer conversations."],
   ["email", "Read, draft, send, organize, and clean up email."],
-  ["video", "Render an interaction video from the current request trace."],
+  ["video", "Create portable AI-video-generator scripts from explicitly selected interactions."],
   ["search", "Search across calendar, contacts, durable uploads, and conversation history with compact normalized results."],
 ]);
 

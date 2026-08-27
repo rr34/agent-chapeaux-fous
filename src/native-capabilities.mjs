@@ -77,8 +77,8 @@ export const nativeCapabilityManifests = [
     ],
   },
   {
-    id: "video", title: "Interaction video", summary: "Render a video from the current request trace.",
-    aliases: ["video", "render"], instructionFile: "video.md",
+    id: "video", title: "AI-video scripts", summary: "Create portable AI-video-generator scripts from explicitly selected interactions.",
+    aliases: ["video", "video script", "script"], instructionFile: "video.md",
   },
   {
     id: "search", title: "Global search",

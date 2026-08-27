@@ -414,6 +414,18 @@ does not read rows, authorize access, choose tools, or execute SQL. The current
 runtime uses it on structured database tool operations. It does not perform
 pre-model enrichment or change which tools are supplied.
 
+## Video
+
+The `video/` directory preserves the former Remotion interaction-video
+implementation for historical reference and manual experimentation. Agent
+Slayer does not register its render tool, load this renderer during server
+startup, or invoke it from the request queue.
+
+The active product path creates portable, source-grounded AI-video scripts
+through `src/video-scripts.mjs` and leaves video generation to an external AI
+video generator. Existing stored MP4 files remain downloadable through the
+historical read-only endpoint.
+
 ## Voice transcription
 
 The web client records audio and sends it to the same FIFO request queue. To

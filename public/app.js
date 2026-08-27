@@ -53,6 +53,11 @@ const elements = {
   refresh: document.querySelector("#refresh"),
   newConversation: document.querySelector("#new-conversation"),
   requestLimit: document.querySelector("#request-limit"),
+  selectVideoScriptSources: document.querySelector("#select-video-script-sources"),
+  videoScriptSelection: document.querySelector("#video-script-selection"),
+  videoScriptSelectionCount: document.querySelector("#video-script-selection-count"),
+  cancelVideoScriptSelection: document.querySelector("#cancel-video-script-selection"),
+  generateVideoScript: document.querySelector("#generate-video-script"),
   list: document.querySelector("#request-list"),
   empty: document.querySelector("#empty"),
   template: document.querySelector("#request-template"),
@@ -80,6 +85,7 @@ const elements = {
   calendarView: document.querySelector("#calendar-view"),
   todosView: document.querySelector("#todos-view"),
   contentView: document.querySelector("#content-view"),
+  videoScriptsView: document.querySelector("#video-scripts-view"),
   contactsView: document.querySelector("#contacts-view"),
   logsView: document.querySelector("#logs-view"),
   interactionsView: document.querySelector("#interactions-view"),
@@ -230,6 +236,11 @@ const elements = {
   contentTranscript: document.querySelector("#content-transcript"),
   contentDelete: document.querySelector("#content-delete"),
   contentFormError: document.querySelector("#content-form-error"),
+  refreshVideoScripts: document.querySelector("#refresh-video-scripts"),
+  videoScriptStatusFilter: document.querySelector("#video-script-status-filter"),
+  videoScriptCount: document.querySelector("#video-script-count"),
+  videoScriptList: document.querySelector("#video-script-list"),
+  videoScriptEmpty: document.querySelector("#video-script-empty"),
   contactSearch: document.querySelector("#contact-search"),
   contactTagFilter: document.querySelector("#contact-tag-filter"),
   contactRenameTag: document.querySelector("#contact-rename-tag"),
@@ -340,6 +351,9 @@ let todoGuides = [];
 let contentItems = [];
 let contentGroups = [];
 let contentSearchTimer = null;
+let videoScripts = [];
+let selectingVideoScriptSources = false;
+const selectedVideoScriptRequestIds = new Set();
 let loadedTodoRecurrenceTimeZone = null;
 let todoRecurrenceDirty = false;
 let movingOverdueTodos = false;
@@ -1073,24 +1087,75 @@ function selectionTouchesRequests() {
   return elements.list.contains(range.commonAncestorContainer) || range.intersectsNode(elements.list);
 }
 
-async function makeInteractionVideo(requestId, button) {
-  button.disabled = true;
-  const original = button.textContent;
-  button.textContent = "Queueing video…";
+function updateVideoScriptSelection() {
+  const count = selectedVideoScriptRequestIds.size;
+  elements.videoScriptSelection.hidden = !selectingVideoScriptSources;
+  elements.selectVideoScriptSources.textContent = selectingVideoScriptSources
+    ? "Selecting interactions…"
+    : "Create video script";
+  elements.videoScriptSelectionCount.textContent = count
+    ? `${count} ${count === 1 ? "interaction" : "interactions"} selected`
+    : "No interactions selected";
+  elements.generateVideoScript.disabled = count === 0;
+  for (const [id, entry] of requestNodes) {
+    const choice = entry.querySelector(".video-script-source-choice");
+    const checkbox = entry.querySelector(".video-script-source-checkbox");
+    const eligible = entry.dataset.scriptSelectable === "true";
+    choice.hidden = !selectingVideoScriptSources || !eligible;
+    checkbox.checked = selectedVideoScriptRequestIds.has(id);
+    entry.querySelector(".request-card").classList.toggle(
+      "video-script-selected",
+      selectedVideoScriptRequestIds.has(id),
+    );
+  }
+}
+
+function beginVideoScriptSelection() {
+  selectingVideoScriptSources = true;
+  updateVideoScriptSelection();
+}
+
+function cancelVideoScriptSelection() {
+  selectingVideoScriptSources = false;
+  selectedVideoScriptRequestIds.clear();
+  updateVideoScriptSelection();
+}
+
+function toggleVideoScriptSource(requestId, checked, checkbox) {
+  if (checked && selectedVideoScriptRequestIds.size >= 8) {
+    checkbox.checked = false;
+    window.alert("Choose no more than 8 interactions for one video script.");
+    return;
+  }
+  if (checked) selectedVideoScriptRequestIds.add(requestId);
+  else selectedVideoScriptRequestIds.delete(requestId);
+  updateVideoScriptSelection();
+}
+
+async function generateSelectedVideoScript() {
+  if (selectedVideoScriptRequestIds.size === 0) return;
+  elements.generateVideoScript.disabled = true;
+  const original = elements.generateVideoScript.textContent;
+  elements.generateVideoScript.textContent = "Queueing script…";
   try {
-    const created = await api(`/api/requests/${requestId}/video`, {
+    const created = await api("/api/video-scripts/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ runLimits: pendingRunLimits }),
+      body: JSON.stringify({
+        sourceRequestIds: [...selectedVideoScriptRequestIds],
+        runLimits: pendingRunLimits,
+      }),
     });
-    if (!created.existing) {
-      pendingRunLimits = null;
-      updateRunLimitsSummary();
-    }
+    pendingRunLimits = null;
+    updateRunLimitsSummary();
+    cancelVideoScriptSelection();
+    elements.status.textContent = `Video-script request ${created.requestId.slice(0, 8)} queued. The completed draft will appear under Content → Video scripts.`;
     await loadRequests({ force: true });
   } catch (error) {
-    button.textContent = error.message || "Could not queue video";
-    setTimeout(() => { button.textContent = original; button.disabled = false; }, 2500);
+    elements.status.textContent = error.message || "Could not queue the video-script request.";
+  } finally {
+    elements.generateVideoScript.textContent = original;
+    elements.generateVideoScript.disabled = selectedVideoScriptRequestIds.size === 0;
   }
 }
 
@@ -1143,8 +1208,8 @@ function requestNode(request, index) {
       copyText(node.querySelector(".agent-response-markdown").dataset.markdown || "", event.currentTarget);
     });
     node.querySelector(".show-trace").addEventListener("click", () => showTrace(request.requestId));
-    node.querySelector(".make-video").addEventListener("click", (event) => {
-      void makeInteractionVideo(request.requestId, event.currentTarget);
+    node.querySelector(".video-script-source-checkbox").addEventListener("change", (event) => {
+      toggleVideoScriptSource(request.requestId, event.currentTarget.checked, event.currentTarget);
     });
     node.querySelector(".download-video").addEventListener("click", (event) => {
       const fileId = Number(event.currentTarget.dataset.fileId);
@@ -1161,6 +1226,7 @@ function requestNode(request, index) {
     requestNodes.set(request.requestId, node);
   }
   node.dataset.status = request.status;
+  node.dataset.scriptSelectable = String(Boolean(request.scriptSelectable));
   node.querySelector(".conversation-separator").hidden = !request.conversationStarted;
   const requestNumber = node.querySelector(".request-number");
   requestNumber.textContent = `Request ${request.requestId.slice(0, 8)}`;
@@ -1215,31 +1281,19 @@ function requestNode(request, index) {
   } else {
     delete progress.dataset.progress;
   }
-  const makeVideo = node.querySelector(".make-video");
   const downloadVideo = node.querySelector(".download-video");
-  const videoStatus = node.querySelector(".video-status");
   const video = request.video;
-  makeVideo.hidden = !request.videoEligible || video?.status === "complete";
-  makeVideo.disabled = Boolean(video && ["queued", "processing"].includes(video.status));
-  makeVideo.textContent = video?.status === "error"
-    ? "Retry video"
-    : video?.status === "queued"
-      ? "Video queued"
-      : video?.status === "processing"
-        ? "Making video…"
-        : "Make a video of this interaction";
   downloadVideo.hidden = video?.status !== "complete" || !video.fileId;
   if (video?.fileId) downloadVideo.dataset.fileId = String(video.fileId);
   else delete downloadVideo.dataset.fileId;
-  videoStatus.hidden = !video || video.status === "complete";
-  videoStatus.classList.toggle("error", video?.status === "error");
-  videoStatus.textContent = video?.status === "error"
-    ? (video.error || "Video creation failed. The exact error is in the video request trace.")
-    : video?.status === "queued"
-      ? `Video request ${video.requestId.slice(0, 8)} is queued in FIFO order.`
-      : video?.status === "processing"
-        ? `Video request ${video.requestId.slice(0, 8)} is running and blocks the queue until the MP4 is ready.`
-        : "";
+  const choice = node.querySelector(".video-script-source-choice");
+  choice.hidden = !selectingVideoScriptSources || !request.scriptSelectable;
+  const sourceCheckbox = node.querySelector(".video-script-source-checkbox");
+  sourceCheckbox.checked = selectedVideoScriptRequestIds.has(request.requestId);
+  node.querySelector(".request-card").classList.toggle(
+    "video-script-selected",
+    selectedVideoScriptRequestIds.has(request.requestId),
+  );
   node.style.order = index;
   return node;
 }
@@ -1255,8 +1309,13 @@ async function loadRequests({ force = false } = {}) {
     if (!node.isConnected) elements.list.append(node);
   });
   for (const [id, node] of requestNodes) {
-    if (!seen.has(id)) { node.remove(); requestNodes.delete(id); }
+    if (!seen.has(id)) {
+      node.remove();
+      requestNodes.delete(id);
+      selectedVideoScriptRequestIds.delete(id);
+    }
   }
+  updateVideoScriptSelection();
   elements.empty.hidden = body.requests.length > 0;
   renderAgentMascot(elements.agentMascot, body.requests[0]?.explicitHats);
   speakCompletedResponses(body.requests);
@@ -1480,6 +1539,7 @@ function switchView(view) {
   elements.calendarView.hidden = view !== "calendar";
   elements.todosView.hidden = view !== "todos";
   elements.contentView.hidden = view !== "content";
+  elements.videoScriptsView.hidden = view !== "video-scripts";
   elements.contactsView.hidden = view !== "contacts";
   elements.logsView.hidden = view !== "logs";
   elements.interactionsView.hidden = view !== "interactions";
@@ -1498,6 +1558,7 @@ function switchView(view) {
   if (view === "calendar") void refreshCalendar();
   if (view === "todos") void refreshTodos();
   if (view === "content") void refreshContent();
+  if (view === "video-scripts") void refreshVideoScripts();
   if (view === "contacts") void refreshContacts();
   if (view === "logs") void refreshLogs();
   if (view === "interactions") void refreshInteractionGuides();
@@ -2987,6 +3048,89 @@ function renderContent() {
     if (items.length === 0) cards.append(node("p", "empty", "No content in this group for the current filters."));
     section.append(heading, cards);
     elements.contentList.append(section);
+  }
+}
+
+async function refreshVideoScripts() {
+  elements.videoScriptList.replaceChildren(node("p", "empty", "Loading video scripts…"));
+  elements.videoScriptEmpty.hidden = true;
+  try {
+    const body = await api(`/api/video-scripts?status=${encodeURIComponent(elements.videoScriptStatusFilter.value)}&limit=500`);
+    videoScripts = body.scripts;
+    renderVideoScripts();
+  } catch (error) {
+    elements.videoScriptList.replaceChildren(node("p", "empty", error.message || "Video scripts unavailable."));
+    elements.videoScriptCount.textContent = "";
+  }
+}
+
+function renderVideoScripts() {
+  elements.videoScriptList.replaceChildren();
+  elements.videoScriptCount.textContent = `${videoScripts.length} ${videoScripts.length === 1 ? "script" : "scripts"}`;
+  elements.videoScriptEmpty.hidden = videoScripts.length > 0;
+  for (const script of videoScripts) {
+    const card = node("article", "video-script-card organizer-panel");
+    const heading = node("div", "video-script-card-heading");
+    const identity = node("div", "video-script-card-identity");
+    identity.append(node("h3", "", script.title));
+    const meta = node("div", "video-script-meta");
+    meta.append(
+      node("span", "todo-pill", script.status),
+      node("span", "todo-pill", `${script.plan.durationSeconds} seconds`),
+      node("span", "todo-pill", script.plan.aspectRatio),
+      node("span", "todo-pill", formatDisplayDate(script.updatedAtUtc || script.createdAtUtc)),
+    );
+    identity.append(meta);
+    const sources = node("div", "video-script-sources");
+    sources.append(node("span", "", "Sources:"));
+    for (const source of script.sources) {
+      const sourceButton = node("button", "secondary compact", `Request ${source.requestId.slice(0, 8)}`);
+      sourceButton.type = "button";
+      sourceButton.title = source.request;
+      sourceButton.addEventListener("click", () => {
+        if (/^[0-9a-f][0-9a-f-]{7,35}$/i.test(source.requestId)) void showTrace(source.requestId);
+        else copyText(source.requestId, sourceButton);
+      });
+      sources.append(sourceButton);
+    }
+    identity.append(sources);
+    const actions = node("div", "video-script-actions");
+    const copy = node("button", "compact", "Copy complete script");
+    copy.type = "button";
+    copy.addEventListener("click", () => copyText(script.scriptText, copy));
+    const copyPrompt = node("button", "secondary compact", "Copy generator prompt");
+    copyPrompt.type = "button";
+    copyPrompt.addEventListener("click", () => copyText(script.plan.generatorPrompt, copyPrompt));
+    actions.append(copy, copyPrompt);
+    if (script.status === "draft") {
+      const archive = node("button", "secondary compact", "Archive");
+      archive.type = "button";
+      archive.addEventListener("click", () => void archiveVideoScript(script, archive));
+      actions.append(archive);
+    }
+    heading.append(identity, actions);
+    const document = node("details", "video-script-document");
+    const documentBody = node("div", "agent-response-markdown video-script-markdown");
+    renderMarkdown(documentBody, script.scriptText);
+    document.append(node("summary", "", "Open complete script"), documentBody);
+    card.append(heading, document);
+    elements.videoScriptList.append(card);
+  }
+}
+
+async function archiveVideoScript(script, button) {
+  if (!window.confirm(`Archive “${script.title}”?`)) return;
+  button.disabled = true;
+  try {
+    await api(`/api/video-scripts/${script.id}/archive`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: script.version }),
+    });
+    await refreshVideoScripts();
+  } catch (error) {
+    window.alert(error.message || "Could not archive the video script.");
+    button.disabled = false;
   }
 }
 
@@ -4602,6 +4746,14 @@ elements.contentStatusFilter.addEventListener("change", () => void refreshConten
 elements.contentGroupFilter.addEventListener("change", () => void refreshContent());
 elements.contentForm.addEventListener("submit", saveContent);
 elements.contentDelete.addEventListener("click", () => void deleteEditedContent());
+elements.refreshVideoScripts.addEventListener("click", () => void refreshVideoScripts());
+elements.videoScriptStatusFilter.addEventListener("change", () => void refreshVideoScripts());
+elements.selectVideoScriptSources.addEventListener("click", () => {
+  if (selectingVideoScriptSources) cancelVideoScriptSelection();
+  else beginVideoScriptSelection();
+});
+elements.cancelVideoScriptSelection.addEventListener("click", cancelVideoScriptSelection);
+elements.generateVideoScript.addEventListener("click", () => void generateSelectedVideoScript());
 elements.newContact.addEventListener("click", () => openContactEditor());
 elements.contactSearch.addEventListener("input", renderContacts);
 elements.contactTagFilter.addEventListener("change", renderContacts);

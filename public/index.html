@@ -30,7 +30,10 @@
         <option data-view="hats" value="hats">Hats</option>
         <option data-view="calendar" value="calendar">Calendar</option>
         <option data-view="todos" value="todos">To-Do List</option>
-        <option data-view="content" value="content">Content</option>
+        <optgroup label="Content">
+          <option data-view="content" value="content">Library</option>
+          <option data-view="video-scripts" value="video-scripts">Video scripts</option>
+        </optgroup>
         <option data-view="contacts" value="contacts">Contacts</option>
         <option data-view="logs" value="logs">Logs</option>
         <option data-view="interactions" value="interactions">Structured Interactions</option>
@@ -96,6 +99,7 @@
           <h2 id="requests-heading">Requests</h2>
         </div>
         <div class="request-heading-actions">
+          <button id="select-video-script-sources" class="secondary compact" type="button">Create video script</button>
           <label class="request-limit-label" for="request-limit">
             <span>Show</span>
             <select id="request-limit">
@@ -105,6 +109,16 @@
             </select>
           </label>
           <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
+        </div>
+      </div>
+      <div id="video-script-selection" class="video-script-selection organizer-panel" role="status" aria-live="polite" hidden>
+        <div>
+          <strong id="video-script-selection-count">No interactions selected</strong>
+          <span>Select up to 8 completed interactions. The script will use them in chronological order.</span>
+        </div>
+        <div class="video-script-selection-actions">
+          <button id="cancel-video-script-selection" class="secondary compact" type="button">Cancel</button>
+          <button id="generate-video-script" class="compact" type="button" disabled>Generate script</button>
         </div>
       </div>
       <div id="request-list" class="request-list"></div>
@@ -269,6 +283,28 @@
         <span id="content-count" class="toolbar-count"></span>
       </div>
       <section id="content-list" class="content-list" aria-live="polite"></section>
+    </section>
+
+    <section id="video-scripts-view" class="app-view" hidden>
+      <header class="organizer-heading">
+        <div>
+          <p class="eyebrow">Content production</p>
+          <h2>Video scripts</h2>
+          <p class="muted">Portable, copy-ready production plans grounded in selected Agent interactions.</p>
+        </div>
+        <button id="refresh-video-scripts" class="secondary" type="button">Refresh</button>
+      </header>
+      <div class="video-script-toolbar organizer-panel">
+        <label for="video-script-status-filter">Show</label>
+        <select id="video-script-status-filter">
+          <option value="draft">Drafts</option>
+          <option value="archived">Archived</option>
+          <option value="all">Everything</option>
+        </select>
+        <span id="video-script-count" class="toolbar-count"></span>
+      </div>
+      <section id="video-script-list" class="video-script-list" aria-live="polite"></section>
+      <p id="video-script-empty" class="empty">No video scripts in this view.</p>
     </section>
 
     <section id="contacts-view" class="app-view" hidden>
@@ -884,11 +920,13 @@
           </div>
         </div>
         <div class="request-actions">
-          <button class="make-video secondary compact" type="button" hidden>Make a video of this interaction</button>
-          <button class="download-video compact" type="button" hidden>Download video</button>
+          <label class="video-script-source-choice" hidden>
+            <input class="video-script-source-checkbox" type="checkbox">
+            <span>Select for video script</span>
+          </label>
+          <button class="download-video secondary compact" type="button" hidden>Download legacy MP4</button>
           <button class="show-trace secondary compact" type="button">Show exact trace</button>
         </div>
-        <p class="video-status" hidden></p>
       </div>
     </article>
   </template>

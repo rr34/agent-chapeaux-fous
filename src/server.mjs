@@ -39,8 +39,8 @@ import { registerProfileFactTools } from "./tools/profile-fact-tools.mjs";
 import { registerSearchTools } from "./tools/search-tools.mjs";
 import { registerTodoTools } from "./tools/todo-tools.mjs";
 import { registerWebPageTools } from "./tools/web-page-tools.mjs";
-import { registerVideoTools } from "./tools/video-tools.mjs";
-import { VideoService } from "./video-service.mjs";
+import { registerVideoScriptTools } from "./tools/video-script-tools.mjs";
+import { VideoScripts } from "./video-scripts.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
 
 const config = loadConfig();
@@ -50,6 +50,7 @@ const ledger = new Ledger(store);
 const organizer = store.status.ready ? new OrganizerStore(config.databasePath) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
 const interactionGuides = new InteractionGuides({ store, ledger });
+const videoScripts = store.status.ready ? new VideoScripts({ store, ledger }) : null;
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
@@ -58,12 +59,6 @@ registerNativeCapabilities(registry);
 const searchCoordinator = store.status.ready
   ? createNativeSearchCoordinator({ store, organizer, ledger })
   : null;
-const videoService = new VideoService({
-  ledger,
-  mediaRoot: config.mediaRoot,
-  outputRoot: config.videoOutputRoot,
-  browserExecutable: config.remotionBrowserExecutable,
-});
 const webPageClient = new WebPageClient({
   timeoutMs: config.webPageTimeoutMs,
   maximumBytes: config.webPageMaximumBytes,
@@ -101,7 +96,7 @@ if (store.status.ready) {
     maximumTextBytes: config.maxTextAttachmentBytes,
   });
   registerSearchTools(registry, searchCoordinator);
-  registerVideoTools(registry, videoService);
+  registerVideoScriptTools(registry, videoScripts);
   registerEmailReceiptTools(registry, ledger);
 }
 await mcp.initialize(registry);
@@ -657,6 +652,57 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/video-scripts") {
+      sendJson(response, 200, videoScripts.list({
+        status: url.searchParams.get("status") || "draft",
+        limit: Number(url.searchParams.get("limit") || 200),
+      }));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/video-scripts/generate") {
+      const body = await readJson(request);
+      const sources = videoScripts.validateSelection(body.sourceRequestIds);
+      const sourceRequestIds = sources.map(({ requestId }) => requestId);
+      const runLimits = normalizeRunLimits(body.runLimits);
+      const created = ledger.createRequest({
+        text: [
+          "Create one portable, copy-ready AI-video-generator script grounded in every selected interaction below.",
+          "Use the selected interactions in chronological order, preserve factual outcomes, omit secrets and unrelated private details, and do not render an MP4.",
+          ...sourceRequestIds.map((id, index) => `${index + 1}. Source interaction ${id}`),
+        ].join("\n"),
+        channel: "web",
+        runLimits,
+        metadata: {
+          requestKind: "video_script",
+          sourceRequestIds,
+          model: config.videoModel,
+          effort: config.videoReasoningEffort,
+        },
+      });
+      queue.notify();
+      sendJson(response, 202, { ...created, sourceRequestIds });
+      return;
+    }
+    const videoScriptMatch = /^\/api\/video-scripts\/(\d+)$/.exec(url.pathname);
+    if (request.method === "GET" && videoScriptMatch) {
+      const script = videoScripts.get(videoScriptMatch[1]);
+      if (!script) {
+        sendJson(response, 404, { error: "Video script not found" });
+        return;
+      }
+      sendJson(response, 200, { script });
+      return;
+    }
+    const videoScriptArchiveMatch = /^\/api\/video-scripts\/(\d+)\/archive$/.exec(url.pathname);
+    if (request.method === "POST" && videoScriptArchiveMatch) {
+      const body = await readJson(request);
+      sendJson(response, 200, videoScripts.archive(
+        videoScriptArchiveMatch[1],
+        body.version,
+        { actorType: "user", actorName: "web", channel: "web" },
+      ));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/content-groups") {
       sendJson(response, 200, { groups: organizer.listContentGroups() });
       return;
@@ -786,44 +832,6 @@ const server = http.createServer(async (request, response) => {
       const created = ledger.createRequest({ text, channel: "web", primaryFileId, runLimits });
       queue.notify();
       sendJson(response, 202, created);
-      return;
-    }
-    const interactionVideoMatch = /^\/api\/requests\/([0-9a-f][0-9a-f-]{7,35})\/video$/.exec(url.pathname);
-    if (request.method === "POST" && interactionVideoMatch) {
-      const resolved = ledger.resolveRequestId(interactionVideoMatch[1]);
-      if (resolved.status === "missing") {
-        sendJson(response, 404, { error: `No request matches ${interactionVideoMatch[1]}` });
-        return;
-      }
-      if (resolved.status === "ambiguous") {
-        sendJson(response, 409, { error: `More than one request matches ${interactionVideoMatch[1]}` });
-        return;
-      }
-      if (resolved.status === "invalid") {
-        sendJson(response, 400, { error: "Request ID must be an 8-36 character hexadecimal UUID or prefix" });
-        return;
-      }
-      ledger.interactionVideoSource(resolved.requestId);
-      const existing = ledger.videoForSourceRequest(resolved.requestId);
-      if (existing && existing.status !== "error") {
-        sendJson(response, 200, { existing: true, ...existing });
-        return;
-      }
-      const body = await readJson(request);
-      const runLimits = normalizeRunLimits(body.runLimits) ?? { maxToolCalls: 256, timeoutMs: 60 * 60 * 1000 };
-      const created = ledger.createRequest({
-        text: `Create the finished vertical interaction video MP4 for source interaction ${resolved.requestId}. Normalize its Whisper transcript for captions, select one coherent audio section, accurately show the real agent activity and response, render it, and return the download link.`,
-        channel: "web",
-        runLimits,
-        metadata: {
-          requestKind: "interaction_video",
-          sourceRequestId: resolved.requestId,
-          model: config.videoModel,
-          effort: config.videoReasoningEffort,
-        },
-      });
-      queue.notify();
-      sendJson(response, 202, { ...created, sourceRequestId: resolved.requestId });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/voice") {

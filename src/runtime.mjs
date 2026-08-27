@@ -623,7 +623,7 @@ export class SlayerRuntime {
 
   async #runExecutor({
     requestId, requestEventId, text, channel = "web", attachment = null, runLimits = null,
-    model = null, effort = null, supplementalInstructions = "", videoSource = null,
+    model = null, effort = null, supplementalInstructions = "",
     capabilityOverride = null, workflowStep = null, workflowStepLabel = null, stepIndex = null,
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
     activeActionReferences = [], authorizedActionReferences = [],
@@ -1031,7 +1031,7 @@ export class SlayerRuntime {
             }
             try {
               const toolResult = await this.registry.execute(name, toolArguments, {
-                requestId, requestEventId, callId, channel, attachment, videoSource,
+                requestId, requestEventId, callId, channel, attachment,
               });
               const toolDefinition = this.registry.get(name);
               const providerResult = mcpResultDetails(toolResult);

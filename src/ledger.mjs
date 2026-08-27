@@ -397,9 +397,8 @@ export class Ledger {
     const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
     const requestKind = request.payload?.requestKind ?? null;
     const sourceFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
-    const videoEligible = requestKind !== "interaction_video"
-      && Boolean(terminal)
-      && sourceFile?.media_kind === "audio";
+    const scriptSelectable = terminal?.status === "complete"
+      && !["interaction_video", "video_script"].includes(requestKind);
     const ownRenderedVideo = requestKind === "interaction_video"
       ? [...events].reverse().find((event) => event.type === "video.render.completed")
       : null;
@@ -430,7 +429,7 @@ export class Ledger {
       ...(sourceFile ? { attachment: publicFile(sourceFile) } : {}),
       ...(explicitHats.length ? { explicitHats } : {}),
       ...(requestKind ? { requestKind } : {}),
-      ...(videoEligible ? { videoEligible: true } : {}),
+      ...(scriptSelectable ? { scriptSelectable: true } : {}),
       ...(video ? { video } : {}),
       ...(events.some((event) => event.type === "conversation.started")
         ? { conversationStarted: true }
