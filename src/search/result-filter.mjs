@@ -5,7 +5,7 @@ const protectedField = /(?:^id$|_id$|Id$|^name$|^title$|^status$|^version$|Ref$|
 export const readResultFilterSchema = {
   type: "object",
   additionalProperties: false,
-  description: "Required deterministic filtering applied after this read and before its result enters LLM context. Use a null collection_path for automatic selection when the result has zero or one top-level record array.",
+  description: "Required deterministic filtering applied after this read and before its result enters LLM context. Filtering is selective, not compulsory compression: for imports or other completeness-sensitive work, use no query or field projection and choose limits large enough to preserve the complete requested source page. Use a null collection_path for automatic selection when the result has zero or one top-level record array.",
   properties: {
     collection_path: {
       type: ["string", "null"], maxLength: 500,
@@ -30,12 +30,12 @@ export const readResultFilterSchema = {
       description: "Top-level collection-item fields to remove, except protected identity and reference fields.",
     },
     max_items: {
-      type: "integer", minimum: 1, maximum: 200,
-      description: "Maximum collection items allowed into the next LLM context.",
+      type: "integer", minimum: 1, maximum: 10000,
+      description: "Maximum collection items allowed into the next LLM context. Choose a high limit when every item is required for an import or exact reconstruction; choose a smaller limit for search and review.",
     },
     max_characters: {
-      type: "integer", minimum: 1000, maximum: 32768,
-      description: "Maximum serialized result characters allowed inline before receipt paging is used.",
+      type: "integer", minimum: 1000, maximum: 100000,
+      description: "Maximum useful serialized result characters allowed inline before paging is used. Filter bookkeeping is not charged against this budget. Choose a high limit when source completeness is worth the additional model-context cost.",
     },
   },
   required: [
@@ -172,11 +172,50 @@ function protocolReceipt({
   };
 }
 
-function withReceipt(value, receipt) {
+function modelFilterSummary(receipt) {
+  return {
+    status: receipt.status,
+    collectionPath: receipt.collectionPath,
+    summary: receipt.summary,
+    ...(receipt.status === "partial" ? {
+      requiredAction: "Continue reading the source. Do not treat this partial result as the complete input to a completeness-sensitive operation.",
+    } : {}),
+  };
+}
+
+function withFilterSummary(value, receipt) {
+  const summary = modelFilterSummary(receipt);
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    return { ...value, result_filter: receipt };
+    return { ...value, result_filter: summary };
   }
-  return { data: value, result_filter: receipt };
+  return { data: value, result_filter: summary };
+}
+
+function filePageWithinBudget(value, maximumCharacters) {
+  if (
+    !value || typeof value !== "object" || Array.isArray(value)
+    || typeof value.content !== "string"
+    || !Number.isSafeInteger(value.offset) || value.offset < 0
+    || typeof value.has_more !== "boolean"
+    || !(value.next_offset === null || Number.isSafeInteger(value.next_offset))
+  ) return null;
+
+  const page = structuredClone(value);
+  let low = 0;
+  let high = value.content.length;
+  while (low < high) {
+    const midpoint = Math.ceil((low + high) / 2);
+    page.content = value.content.slice(0, midpoint);
+    page.has_more = midpoint < value.content.length || value.has_more;
+    page.next_offset = page.has_more ? value.offset + midpoint : value.next_offset;
+    if (JSON.stringify(page).length <= maximumCharacters) low = midpoint;
+    else high = midpoint - 1;
+  }
+  if (low === 0) return null;
+  page.content = value.content.slice(0, low);
+  page.has_more = low < value.content.length || value.has_more;
+  page.next_offset = page.has_more ? value.offset + low : value.next_offset;
+  return page;
 }
 
 export class ResultFilterBoundary {
@@ -234,15 +273,13 @@ export class ResultFilterBoundary {
       return { ok: false, error: message, deliveredResult: { result_filter: receipt }, receipt, paged: false };
     }
 
-    const provisionalReceipt = protocolReceipt({
-      requestId, interactionId, tool, source, filterRequest,
-      status: returned === 0 ? "empty" : "complete", collectionPath,
-      inputCharacters, outputCharacters: 0, candidates, returned, prunedByReason,
-    });
-    let deliveredResult = withReceipt(filtered, provisionalReceipt);
-    let serialized = JSON.stringify(deliveredResult);
-    const overMaximum = serialized.length > filterRequest.max_characters;
-    if (overMaximum && !Number.isSafeInteger(receiptEventSeq)) {
+    const usefulSerialized = JSON.stringify(filtered);
+    const overMaximum = usefulSerialized.length > filterRequest.max_characters;
+    const nativePage = overMaximum
+      ? filePageWithinBudget(filtered, filterRequest.max_characters)
+      : null;
+    const receiptPaged = overMaximum && nativePage === null;
+    if (receiptPaged && !Number.isSafeInteger(receiptEventSeq)) {
       const error = "Filtered result exceeds max_characters and has no durable receipt available for paging";
       const receipt = protocolReceipt({
         requestId, interactionId, tool, source, filterRequest, status: "error", collectionPath,
@@ -252,25 +289,31 @@ export class ResultFilterBoundary {
         ok: false, error, deliveredResult: { result_filter: receipt }, receipt, paged: false,
       };
     }
+
     const paged = overMaximum;
-    const status = paged ? "partial" : provisionalReceipt.status;
+    const outputValue = nativePage ?? filtered;
+    const outputCharacters = paged
+      ? (nativePage ? JSON.stringify(nativePage).length : 0)
+      : usefulSerialized.length;
+    const sourceHasMore = outputValue?.has_more === true;
+    const itemLimited = Number(prunedByReason.max_items ?? 0) > 0;
+    const status = paged || sourceHasMore || itemLimited
+      ? "partial"
+      : returned === 0 ? "empty" : "complete";
     const receipt = protocolReceipt({
-      requestId, interactionId, tool, source, filterRequest, status, collectionPath,
-      inputCharacters, outputCharacters: paged ? filterRequest.max_characters : serialized.length,
+      requestId, interactionId, tool, source, filterRequest,
+      status, collectionPath, inputCharacters, outputCharacters,
       candidates, returned, prunedByReason, paged,
     });
-    deliveredResult = withReceipt(filtered, receipt);
-    serialized = JSON.stringify(deliveredResult);
-    if (paged) {
+    let deliveredResult = withFilterSummary(outputValue, receipt);
+    if (receiptPaged) {
       deliveredResult = {
         full_result_stored_in_receipt: true,
         receipt_event_seq: receiptEventSeq,
         tool,
-        full_result_characters: serialized.length,
-        leading_filtered_result_json: serialized.slice(0, filterRequest.max_characters),
-        leading_result_characters: filterRequest.max_characters,
+        full_result_characters: usefulSerialized.length,
         result_filter: receipt,
-        continuation: "Call tool_receipt_read with this receipt_event_seq starting at offset 0 to page the exact unfiltered receipt. Do not repeat the original read.",
+        continuation: "Call tool_receipt_read with this receipt_event_seq starting at offset 0 to page the exact unfiltered receipt. No arbitrary JSON prefix was included because it could split a value or record.",
       };
     }
     return { ok: true, deliveredResult, receipt, paged };

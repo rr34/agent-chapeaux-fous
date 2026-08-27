@@ -257,7 +257,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .runtime.not-ready, .usage.not-ready, .integration.not-ready { color: var(--bad); }
 .integration:disabled { cursor: default; opacity: 1; }
 
-.organizer-heading, .calendar-toolbar, .todo-toolbar, .contact-toolbar, .log-toolbar, .dialog-heading, .editor-actions {
+.organizer-heading, .calendar-search-bar, .todo-toolbar, .contact-toolbar, .log-toolbar, .dialog-heading, .editor-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -265,6 +265,27 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 }
 .organizer-heading { margin: .25rem .15rem .75rem; }
 .organizer-heading h2 { margin: 0; font-size: clamp(1.5rem, 5vw, 2.1rem); letter-spacing: -.035em; }
+.calendar-range-heading { align-items: flex-end; margin-top: 0; }
+.calendar-heading-copy { min-width: 0; }
+.calendar-heading-actions { display: flex; gap: .55rem; padding-bottom: .15rem; }
+.calendar-date-control { display: flex; align-items: center; gap: .24em; min-height: 4.1rem; }
+.calendar-date-weekday { white-space: nowrap; }
+.calendar-date-stepper { display: grid; grid-template-rows: 1.15rem auto 1.15rem; justify-items: center; align-items: center; }
+.calendar-date-value { line-height: 1.08; white-space: nowrap; }
+.calendar-date-arrow {
+  min-width: 2rem;
+  height: 1.1rem;
+  padding: 0 .35rem;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: .58rem;
+  line-height: 1;
+}
+.calendar-date-arrow:hover { color: white; background: var(--panel-raised); }
+.calendar-date-arrow:focus-visible { color: white; outline: 2px solid var(--accent); outline-offset: 1px; }
+.calendar-visible-range { margin: .12rem 0 0; color: var(--muted); font-size: .72rem; }
 .organizer-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 15px; }
 .ai-usage-view { display: grid; gap: 1rem; }
 .ai-usage-view[hidden] { display: none; }
@@ -282,15 +303,14 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .ai-usage-history th:first-child, .ai-usage-history td:first-child,
 .ai-usage-history th:nth-child(2), .ai-usage-history td:nth-child(2) { text-align: left; }
 .ai-usage-history th { color: var(--muted); font-size: .72rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }
-.calendar-toolbar, .todo-toolbar, .content-toolbar, .contact-toolbar, .log-toolbar { margin-bottom: 1rem; padding: .65rem .8rem; }
-.calendar-toolbar { flex-wrap: wrap; }
-.calendar-navigation { display: flex; align-items: center; gap: .45rem; }
+.calendar-search-bar, .todo-toolbar, .content-toolbar, .contact-toolbar, .log-toolbar { margin-bottom: 1rem; padding: .65rem .8rem; }
+.calendar-search-bar { flex-wrap: wrap; }
 .calendar-search-controls { display: flex; align-items: end; gap: .65rem; flex: 1 1 25rem; }
 .calendar-search { display: grid; grid-template-columns: auto minmax(10rem, 1fr); align-items: center; gap: .55rem; flex: 1; color: var(--muted); font-size: .8rem; }
 .calendar-search input { padding: .6rem; }
 .calendar-search-archived { display: flex; align-items: center; gap: .4rem; padding-bottom: .62rem; color: var(--muted); font-size: .76rem; white-space: nowrap; }
 .calendar-search-archived input { width: auto; }
-.calendar-toolbar small { color: var(--muted); }
+.calendar-search-bar small { color: var(--muted); }
 .calendar-schedule-mode { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding: .8rem; border-color: rgba(112, 167, 255, .6); background: rgba(112, 167, 255, .09); }
 .calendar-schedule-mode[hidden] { display: none; }
 .calendar-schedule-mode p { margin: 0 0 .2rem; }
@@ -340,7 +360,11 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .day-todo { overflow: hidden; color: var(--muted); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
 .day-more { color: var(--muted); font-size: .62rem; }
 .agenda-panel { padding: 1rem; }
-.agenda-panel h3 { margin: 0 0 .9rem; font-size: 1.05rem; }
+.agenda-panel h3 { margin: 0; font-size: 1.05rem; }
+.agenda-section { margin: 1rem 0 0; }
+.agenda-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: .55rem; padding-bottom: .4rem; border-bottom: 1px solid var(--line); }
+.agenda-section-heading h4 { margin: 0; font-size: .78rem; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; }
+.agenda-section-heading span { color: var(--muted); font-size: .7rem; }
 .agenda-list { display: grid; gap: .55rem; }
 .agenda-event { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; align-items: stretch; }
 .agenda-item, .todo-card { color: var(--text); background: #101316; border: 1px solid var(--line); border-radius: 13px; }
@@ -350,6 +374,17 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .agenda-event-copy { align-self: stretch; white-space: nowrap; }
 .agenda-item.todo { border-left: 3px solid #70a7ff; }
 .agenda-empty { color: var(--muted); font-size: .83rem; line-height: 1.45; }
+.agenda-all-day .agenda-item { border-left: 3px solid var(--accent); }
+.agenda-all-day .agenda-item.todo { border-left-color: #70a7ff; }
+.agenda-timeline { position: relative; display: grid; gap: .65rem; }
+.agenda-timeline::before { content: ""; position: absolute; top: 1rem; bottom: 1rem; left: 6.72rem; width: 1px; background: var(--line); }
+.agenda-timeline-row { display: grid; grid-template-columns: 5.9rem 1rem minmax(0, 1fr); gap: .35rem; align-items: start; }
+.agenda-timeline-time { display: grid; gap: .1rem; padding-top: .65rem; color: var(--text); font-size: .73rem; text-align: right; white-space: nowrap; }
+.agenda-timeline-end, .agenda-timeline-kind { color: var(--muted); font-size: .64rem; }
+.agenda-timeline-marker { position: relative; z-index: 1; justify-self: center; width: .62rem; height: .62rem; margin-top: .83rem; background: var(--accent); border: 2px solid var(--panel); border-radius: 50%; box-shadow: 0 0 0 1px var(--accent); }
+.agenda-timeline-marker.todo { background: #70a7ff; box-shadow: 0 0 0 1px #70a7ff; }
+.agenda-timeline-empty { position: relative; margin: .2rem 0 0; padding-left: 7.6rem; }
+.agenda-timeline.empty::before { display: none; }
 .todo-toolbar, .contact-toolbar, .log-toolbar { justify-content: flex-start; }
 .todo-toolbar { flex-wrap: wrap; }
 .todo-toolbar label, .contact-toolbar label, .log-toolbar label { color: var(--muted); font-size: .8rem; font-weight: 400; }
@@ -734,11 +769,14 @@ dialog h2, dialog p { margin-bottom: 0; }
   .request-heading-actions { align-items: flex-end; flex-direction: column-reverse; }
   .trace-panel { inset: 0; width: 100%; border-radius: 0; }
   .button-row { align-items: stretch; flex-direction: column; }
-  .calendar-toolbar { align-items: flex-start; }
-  .calendar-toolbar > small { width: 100%; max-width: none; text-align: right; }
+  .calendar-search-bar { align-items: flex-start; }
+  .calendar-search-bar > small { width: 100%; max-width: none; text-align: right; }
   .calendar-search-controls { align-items: stretch; flex-basis: 100%; flex-direction: column; gap: .45rem; }
   .calendar-search { grid-template-columns: 1fr; }
   .calendar-search-archived { padding-bottom: 0; }
+  .calendar-range-heading { align-items: stretch; flex-direction: column; }
+  .calendar-date-control { gap: .18em; font-size: clamp(1.25rem, 6vw, 1.75rem); }
+  .calendar-heading-actions { align-self: flex-end; }
   .calendar-search-results-heading { align-items: flex-start; flex-direction: column; }
   .calendar-search-results-heading small { text-align: left; }
   .calendar-search-result { grid-template-columns: 1fr; }
@@ -748,6 +786,12 @@ dialog h2, dialog p { margin-bottom: 0; }
   .day-event { background: var(--accent); border-left: 0; }
   .day-todo { background: #70a7ff; }
   .day-more { display: none; }
+  .agenda-event { grid-template-columns: 1fr; }
+  .agenda-timeline::before { left: 5.32rem; }
+  .agenda-timeline-row { grid-template-columns: 4.5rem .8rem minmax(0, 1fr); gap: .25rem; }
+  .agenda-timeline-time { font-size: .68rem; }
+  .agenda-timeline-end, .agenda-timeline-kind { font-size: .59rem; }
+  .agenda-timeline-empty { padding-left: 6rem; }
   .editor-grid { grid-template-columns: 1fr; }
   .recurrence-ending { grid-template-columns: 1fr; }
   .todo-toolbar, .content-toolbar, .contact-toolbar, .log-toolbar { align-items: stretch; flex-wrap: wrap; }

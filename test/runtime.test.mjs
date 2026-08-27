@@ -769,6 +769,7 @@ test("oversized live tool results spill to an exact paginated receipt without re
   assert.equal(executions, 1);
   assert.equal(pagedResult.ok, true);
   assert.equal(pagedResult.result.full_result_stored_in_receipt, true);
+  assert.equal(Object.hasOwn(pagedResult.result, "leading_result_json"), false);
   assert.equal(receiptPage.ok, true);
   assert.match(receiptPage.result.chunk, /preserved/);
   assert.match(receiptPage.result.chunk, /xxxxx/);

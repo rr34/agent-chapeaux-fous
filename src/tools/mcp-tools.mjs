@@ -330,6 +330,7 @@ export class McpToolManager {
       metadata: tool._meta ?? null,
       capabilityId: `integration:${serverName}`,
       strict: false,
+      validateArguments: true,
       source: `mcp:${serverName}`,
       upstreamName: tool.name,
       execute: async (argumentsObject) => {

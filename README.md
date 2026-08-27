@@ -429,3 +429,40 @@ left visible and summarized rather than read punctuation by punctuation.
 `systemd/agent-slayer.service.example` is a reference only. Update its paths,
 copy it into the user systemd directory, and enable it during the separate
 deployment step.
+
+After deploying an application update with no pending database migration,
+restart the installed user service and inspect its status and recent startup
+output:
+
+```bash
+systemctl --user restart agent-slayer.service
+systemctl --user status agent-slayer.service --no-pager
+journalctl --user -u agent-slayer.service -n 100 --no-pager
+```
+
+When an update includes a database migration, stop the running writer before
+changing the database. If the dependency lock changed, install the exact
+dependency set while the service is stopped. Then migrate, verify, and start the
+service again:
+
+```bash
+cd /home/nate/code/agent-chapeaux-fous
+
+systemctl --user stop agent-slayer.service
+npm ci
+
+npm run schema:migrate -- --no-semantics
+npm run db:verify
+
+systemctl --user start agent-slayer.service
+systemctl --user status agent-slayer.service --no-pager
+journalctl --user -u agent-slayer.service -n 100 --no-pager
+```
+
+Do not start the service if migration or verification fails. The migration
+runner creates a timestamped backup under `data/backups/`, applies pending
+migrations transactionally, and checks database integrity. The
+`--no-semantics` option prevents deployment from rewriting the tracked semantic
+catalog; schema-semantic changes should already be present in the deployed
+revision. Running the migration command again is safe and reports when the
+database is already current.

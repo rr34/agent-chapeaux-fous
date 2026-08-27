@@ -381,7 +381,7 @@ function overrideSelection(tools, capabilities) {
   const selectedTools = tools.filter((tool) => (
     selectedSet.has(capabilityForTool(tool)) || dependentToolNames.has(tool.name)
   ));
-  if (selectedTools.length === 0) {
+  if (selected.length > 0 && selectedTools.length === 0) {
     throw new Error(`Capability override has no callable tools: ${selected.join(", ")}`);
   }
   return {
@@ -458,7 +458,7 @@ export class RequestCompiler {
       entries.push(tool);
       grouped.set(capability, entries);
     }
-    const deferredCapabilities = expanding
+    const deferredCapabilities = (expanding && input.allowCapabilityExpansion !== true)
       || selection.fallbackAll
       || selection.reasons.includes("core:tool-free-request")
       ? []

@@ -130,19 +130,7 @@
     </section>
 
     <section id="calendar-view" class="app-view" hidden>
-      <header class="organizer-heading">
-        <div>
-          <p class="eyebrow">Authoritative agent calendar</p>
-          <h2 id="calendar-range-label">Calendar</h2>
-        </div>
-        <button id="new-event" type="button">New event</button>
-      </header>
-      <div class="calendar-toolbar organizer-panel">
-        <div class="calendar-navigation">
-          <button id="previous-weeks" class="secondary compact" type="button" aria-label="Previous two weeks">‹</button>
-          <button id="today" class="secondary compact" type="button">Today</button>
-          <button id="next-weeks" class="secondary compact" type="button" aria-label="Next two weeks">›</button>
-        </div>
+      <div class="calendar-search-bar organizer-panel">
         <div class="calendar-search-controls">
           <label class="calendar-search" for="calendar-search">
             <span>Search calendar</span>
@@ -155,6 +143,34 @@
         </div>
         <small id="calendar-time-zone"></small>
       </div>
+      <header class="organizer-heading calendar-range-heading">
+        <div class="calendar-heading-copy">
+          <p class="eyebrow">Authoritative agent calendar</p>
+          <h2 id="calendar-date-control" class="calendar-date-control">
+            <span id="calendar-weekday" class="calendar-date-weekday">Monday,</span>
+            <span class="calendar-date-stepper">
+              <button id="next-calendar-month" class="calendar-date-arrow" type="button" aria-label="Next month">▲</button>
+              <span id="calendar-month" class="calendar-date-value">January</span>
+              <button id="previous-calendar-month" class="calendar-date-arrow" type="button" aria-label="Previous month">▼</button>
+            </span>
+            <span class="calendar-date-stepper calendar-date-day-stepper">
+              <button id="next-weeks" class="calendar-date-arrow" type="button" aria-label="Next two weeks">▲</button>
+              <span id="calendar-day" class="calendar-date-value">1</span>
+              <button id="previous-weeks" class="calendar-date-arrow" type="button" aria-label="Previous two weeks">▼</button>
+            </span>
+            <span class="calendar-date-stepper">
+              <button id="next-calendar-year" class="calendar-date-arrow" type="button" aria-label="Next year">▲</button>
+              <span id="calendar-year" class="calendar-date-value">2026</span>
+              <button id="previous-calendar-year" class="calendar-date-arrow" type="button" aria-label="Previous year">▼</button>
+            </span>
+          </h2>
+          <p id="calendar-range-label" class="calendar-visible-range" aria-live="polite"></p>
+        </div>
+        <div class="calendar-heading-actions">
+          <button id="today" class="secondary" type="button">Today</button>
+          <button id="new-event" type="button">New event</button>
+        </div>
+      </header>
       <div id="calendar-schedule-mode" class="calendar-schedule-mode organizer-panel" role="status" aria-live="polite" hidden>
         <div>
           <p class="eyebrow">Scheduling task</p>
@@ -180,11 +196,24 @@
           </div>
           <div id="calendar-grid" class="calendar-grid"></div>
         </section>
-        <aside class="agenda-panel organizer-panel">
+        <section class="agenda-panel organizer-panel" aria-labelledby="agenda-date">
           <p class="eyebrow">Selected day</p>
           <h3 id="agenda-date">Today</h3>
-          <div id="agenda-list" class="agenda-list"></div>
-        </aside>
+          <section class="agenda-section agenda-all-day" aria-labelledby="agenda-all-day-heading">
+            <div class="agenda-section-heading">
+              <h4 id="agenda-all-day-heading">All day</h4>
+              <span id="agenda-all-day-count"></span>
+            </div>
+            <div id="agenda-all-day-list" class="agenda-list"></div>
+          </section>
+          <section class="agenda-section agenda-timed" aria-labelledby="agenda-timeline-heading">
+            <div class="agenda-section-heading">
+              <h4 id="agenda-timeline-heading">Timeline</h4>
+              <span id="agenda-timeline-count"></span>
+            </div>
+            <div id="agenda-timeline" class="agenda-timeline"></div>
+          </section>
+        </section>
       </div>
     </section>
 

@@ -100,6 +100,11 @@ const elements = {
   aiUsageEmpty: document.querySelector("#ai-usage-empty"),
   aiUsageStatus: document.querySelector("#ai-usage-status"),
   calendarRangeLabel: document.querySelector("#calendar-range-label"),
+  calendarDateControl: document.querySelector("#calendar-date-control"),
+  calendarWeekday: document.querySelector("#calendar-weekday"),
+  calendarMonth: document.querySelector("#calendar-month"),
+  calendarDay: document.querySelector("#calendar-day"),
+  calendarYear: document.querySelector("#calendar-year"),
   calendarTimeZone: document.querySelector("#calendar-time-zone"),
   calendarGrid: document.querySelector("#calendar-grid"),
   calendarSearch: document.querySelector("#calendar-search"),
@@ -113,10 +118,17 @@ const elements = {
   calendarScheduleHint: document.querySelector("#calendar-schedule-hint"),
   cancelCalendarSchedule: document.querySelector("#cancel-calendar-schedule"),
   agendaDate: document.querySelector("#agenda-date"),
-  agendaList: document.querySelector("#agenda-list"),
+  agendaAllDayCount: document.querySelector("#agenda-all-day-count"),
+  agendaAllDayList: document.querySelector("#agenda-all-day-list"),
+  agendaTimelineCount: document.querySelector("#agenda-timeline-count"),
+  agendaTimeline: document.querySelector("#agenda-timeline"),
   previousWeeks: document.querySelector("#previous-weeks"),
   today: document.querySelector("#today"),
   nextWeeks: document.querySelector("#next-weeks"),
+  previousCalendarMonth: document.querySelector("#previous-calendar-month"),
+  nextCalendarMonth: document.querySelector("#next-calendar-month"),
+  previousCalendarYear: document.querySelector("#previous-calendar-year"),
+  nextCalendarYear: document.querySelector("#next-calendar-year"),
   newEvent: document.querySelector("#new-event"),
   eventDialog: document.querySelector("#event-dialog"),
   eventForm: document.querySelector("#event-form"),
@@ -1349,6 +1361,16 @@ function addDays(value, days) {
   return date;
 }
 
+function addCalendarMonths(value, months) {
+  const date = new Date(value);
+  const day = date.getDate();
+  date.setDate(1);
+  date.setMonth(date.getMonth() + months);
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  date.setDate(Math.min(day, lastDay));
+  return date;
+}
+
 function startOfDay(value) {
   const date = new Date(value);
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -1540,7 +1562,6 @@ async function refreshCalendar() {
 function setCalendarSearchMode(enabled) {
   elements.calendarSearchResults.hidden = !enabled;
   elements.calendarLayout.hidden = enabled;
-  if (enabled) elements.calendarRangeLabel.textContent = "Search calendar";
 }
 
 function formatCalendarSearchWhen(calendarEvent) {
@@ -1637,7 +1658,13 @@ function queueCalendarSearch() {
 function renderCalendar() {
   const { gridStart, gridEnd } = twoWeekCalendarRange(calendarRangeStart);
   const finalDay = addDays(gridEnd, -1);
-  elements.calendarRangeLabel.textContent = `${formatDisplayDate(gridStart, { includeTime: false })} – ${formatDisplayDate(finalDay, { includeTime: false })}`;
+  const displayedDate = new Date(selectedCalendarDate);
+  elements.calendarWeekday.textContent = `${new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(displayedDate)},`;
+  elements.calendarMonth.textContent = new Intl.DateTimeFormat(undefined, { month: "long" }).format(displayedDate);
+  elements.calendarDay.textContent = String(displayedDate.getDate());
+  elements.calendarYear.textContent = String(displayedDate.getFullYear());
+  elements.calendarDateControl.setAttribute("aria-label", formatDisplayDate(displayedDate, { includeTime: false }));
+  elements.calendarRangeLabel.textContent = `Showing ${formatDisplayDate(gridStart, { includeTime: false })} – ${formatDisplayDate(finalDay, { includeTime: false })}`;
   elements.calendarTimeZone.textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
   elements.calendarGrid.replaceChildren();
   const todayKey = localDateKey(new Date());
@@ -1752,27 +1779,14 @@ async function scheduleTodoOnDate(date) {
   }
 }
 
-function renderAgenda() {
-  const events = calendarEvents.filter((calendarEvent) => occursOnDay(calendarEvent, selectedCalendarDate));
-  const todoEntries = [
-    ...todosScheduledOnDay(selectedCalendarDate).map((todo) => ({
-      todo, timing: todo.isAllDay ? "All-day task" : "Scheduled task",
-    })),
-    ...todosDueOnDay(selectedCalendarDate).map((todo) => ({ todo, timing: "Task due" })),
-  ];
-  elements.agendaDate.textContent = formatDisplayDate(selectedCalendarDate, { includeTime: false });
-  elements.agendaList.replaceChildren();
-  if (events.length === 0 && todoEntries.length === 0) {
-    elements.agendaList.append(node("p", "agenda-empty", "Nothing scheduled. Add an event here or tell Chapeaux Fous what to put on the calendar."));
-    return;
-  }
-  for (const calendarEvent of events) {
+function agendaEventItem(calendarEvent, { allDay = false } = {}) {
     const item = node("div", "agenda-event");
     const button = node("button", "agenda-item");
     button.type = "button";
+    const details = [allDay ? "All-day event" : null, calendarEvent.location].filter(Boolean).join(" · ");
     button.append(
       node("strong", "", calendarEvent.title),
-      node("span", "", [formatEventTime(calendarEvent), calendarEvent.location].filter(Boolean).join(" · ")),
+      node("span", "", details),
     );
     if (calendarEvent.seriesId) {
       button.title = "Edit this recurring event series.";
@@ -1794,9 +1808,10 @@ function renderAgenda() {
     copy.setAttribute("aria-label", `Copy calendar event details: ${calendarEvent.title}`);
     copy.addEventListener("click", (event) => void copyText(calendarEventCopyText(calendarEvent), event.currentTarget));
     item.append(button, copy);
-    elements.agendaList.append(item);
-  }
-  for (const { todo, timing } of todoEntries) {
+    return item;
+}
+
+function agendaTodoItem(todo, timing) {
     const item = node("div", "agenda-event");
     const button = node("button", "agenda-item todo");
     button.type = "button";
@@ -1810,7 +1825,86 @@ function renderAgenda() {
       startGuide.addEventListener("click", () => void startTodoInteractionGuide(todo, startGuide));
       item.append(startGuide);
     }
-    elements.agendaList.append(item);
+    return item;
+}
+
+function agendaTimelineTime(startsAtUtc, endsAtUtc = null, { timeZone = null, label = null } = {}) {
+  const time = node("time", "agenda-timeline-time");
+  time.dateTime = startsAtUtc;
+  time.append(node("span", "agenda-timeline-start", formatDisplayTime(startsAtUtc, { timeZone })));
+  if (endsAtUtc) time.append(node("span", "agenda-timeline-end", `to ${formatDisplayTime(endsAtUtc, { timeZone })}`));
+  if (label) time.append(node("span", "agenda-timeline-kind", label));
+  return time;
+}
+
+function renderAgenda() {
+  const events = calendarEvents.filter((calendarEvent) => occursOnDay(calendarEvent, selectedCalendarDate));
+  const todoEntries = [
+    ...todosScheduledOnDay(selectedCalendarDate).map((todo) => ({
+      todo,
+      timing: todo.isAllDay ? "All-day task" : "Scheduled task",
+      startsAtUtc: todo.scheduledAtUtc,
+      isAllDay: todo.isAllDay,
+    })),
+    ...todosDueOnDay(selectedCalendarDate).map((todo) => ({
+      todo,
+      timing: "Task due",
+      startsAtUtc: todo.dueAtUtc,
+      isAllDay: false,
+    })),
+  ];
+  const allDayEntries = [
+    ...events.filter(({ isAllDay }) => isAllDay).map((calendarEvent) => ({ type: "event", calendarEvent })),
+    ...todoEntries.filter(({ isAllDay }) => isAllDay).map((entry) => ({ type: "todo", ...entry })),
+  ];
+  const timedEntries = [
+    ...events.filter(({ isAllDay }) => !isAllDay).map((calendarEvent) => ({
+      type: "event",
+      calendarEvent,
+      startsAtUtc: calendarEvent.startsAtUtc,
+    })),
+    ...todoEntries.filter(({ isAllDay }) => !isAllDay).map((entry) => ({ type: "todo", ...entry })),
+  ].sort((left, right) => new Date(left.startsAtUtc).getTime() - new Date(right.startsAtUtc).getTime());
+
+  elements.agendaDate.textContent = formatDisplayDate(selectedCalendarDate, { includeTime: false });
+  elements.agendaAllDayCount.textContent = `${allDayEntries.length} ${allDayEntries.length === 1 ? "item" : "items"}`;
+  elements.agendaTimelineCount.textContent = `${timedEntries.length} ${timedEntries.length === 1 ? "item" : "items"}`;
+  elements.agendaAllDayList.replaceChildren();
+  elements.agendaTimeline.replaceChildren();
+  elements.agendaTimeline.classList.toggle("empty", timedEntries.length === 0);
+
+  if (allDayEntries.length === 0) {
+    elements.agendaAllDayList.append(node("p", "agenda-empty", "No all-day items."));
+  } else {
+    for (const entry of allDayEntries) {
+      elements.agendaAllDayList.append(entry.type === "event"
+        ? agendaEventItem(entry.calendarEvent, { allDay: true })
+        : agendaTodoItem(entry.todo, entry.timing));
+    }
+  }
+
+  if (timedEntries.length === 0) {
+    elements.agendaTimeline.append(node("p", "agenda-empty agenda-timeline-empty", "No timed items."));
+  } else {
+    for (const entry of timedEntries) {
+      const row = node("div", "agenda-timeline-row");
+      if (entry.type === "event") {
+        row.append(
+          agendaTimelineTime(entry.calendarEvent.startsAtUtc, entry.calendarEvent.endsAtUtc, {
+            timeZone: entry.calendarEvent.timeZone || null,
+          }),
+          node("span", "agenda-timeline-marker"),
+          agendaEventItem(entry.calendarEvent),
+        );
+      } else {
+        row.append(
+          agendaTimelineTime(entry.startsAtUtc, null, { label: entry.timing }),
+          node("span", "agenda-timeline-marker todo"),
+          agendaTodoItem(entry.todo, entry.timing),
+        );
+      }
+      elements.agendaTimeline.append(row);
+    }
   }
 }
 
@@ -4006,13 +4100,33 @@ elements.viewSelector.addEventListener("change", () => {
   if (elements.viewSelector.value) switchView(elements.viewSelector.value);
 });
 elements.previousWeeks.addEventListener("click", () => {
-  calendarRangeStart = addDays(calendarRangeStart, -14);
-  selectedCalendarDate = new Date(calendarRangeStart);
+  selectedCalendarDate = addDays(selectedCalendarDate, -14);
+  calendarRangeStart = startOfWeek(selectedCalendarDate);
   void refreshCalendar();
 });
 elements.nextWeeks.addEventListener("click", () => {
-  calendarRangeStart = addDays(calendarRangeStart, 14);
-  selectedCalendarDate = new Date(calendarRangeStart);
+  selectedCalendarDate = addDays(selectedCalendarDate, 14);
+  calendarRangeStart = startOfWeek(selectedCalendarDate);
+  void refreshCalendar();
+});
+elements.previousCalendarMonth.addEventListener("click", () => {
+  selectedCalendarDate = addCalendarMonths(selectedCalendarDate, -1);
+  calendarRangeStart = startOfWeek(selectedCalendarDate);
+  void refreshCalendar();
+});
+elements.nextCalendarMonth.addEventListener("click", () => {
+  selectedCalendarDate = addCalendarMonths(selectedCalendarDate, 1);
+  calendarRangeStart = startOfWeek(selectedCalendarDate);
+  void refreshCalendar();
+});
+elements.previousCalendarYear.addEventListener("click", () => {
+  selectedCalendarDate = addCalendarMonths(selectedCalendarDate, -12);
+  calendarRangeStart = startOfWeek(selectedCalendarDate);
+  void refreshCalendar();
+});
+elements.nextCalendarYear.addEventListener("click", () => {
+  selectedCalendarDate = addCalendarMonths(selectedCalendarDate, 12);
+  calendarRangeStart = startOfWeek(selectedCalendarDate);
   void refreshCalendar();
 });
 elements.today.addEventListener("click", () => {

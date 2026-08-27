@@ -111,9 +111,7 @@ function inlineToolResult(toolResult, { tool, receiptEventSeq, maximumCharacters
       receipt_event_seq: receiptEventSeq,
       tool,
       full_result_characters: serialized.length,
-      leading_result_json: serialized.slice(0, maximumCharacters),
-      leading_result_characters: maximumCharacters,
-      continuation: "Call tool_receipt_read with this receipt_event_seq starting at offset 0 to page the exact call arguments, result, and status. Do not repeat the original tool action.",
+      continuation: "Call tool_receipt_read with this receipt_event_seq starting at offset 0 to page the exact call arguments, result, and status. No arbitrary JSON prefix was included because it could split a value or record. Do not repeat the original tool action.",
     },
     fullResultCharacters: serialized.length,
     paged: true,
@@ -161,6 +159,12 @@ export class SlayerRuntime {
     runTimeoutMs = null,
   }) {
     const operationId = `${this.modelTransport.id}:${requestId}:${step}`;
+    this.ledger.append({
+      type: "agent.step", phase: "start", status: "processing", actorType: "service",
+      actorName: "Structured turn workflow", channel, turnId: requestId, operationId,
+      name: label, content: `Started ${label.toLowerCase()}`,
+      payload: { workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort },
+    });
     const filteredContext = this.resultFilter.filterContext(developerInstructions, {
       requestId,
       interactionId: operationId,
@@ -173,12 +177,6 @@ export class SlayerRuntime {
       actorName: "Search result filter", channel, turnId: requestId, operationId,
       name: `${label} context filter`, content: filteredContext.receipt.status,
       payload: filteredContext.receipt,
-    });
-    this.ledger.append({
-      type: "agent.step", phase: "start", status: "processing", actorType: "service",
-      actorName: "Structured turn workflow", channel, turnId: requestId, operationId,
-      name: label, content: `Started ${label.toLowerCase()}`,
-      payload: { workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort },
     });
     const turnRequest = {
       model,
@@ -495,14 +493,10 @@ export class SlayerRuntime {
     const contextCapabilities = brief.contextRequests.map((viewId) => (
       this.registry.contextView(viewId)?.capabilityId
     )).filter(Boolean);
-    const coreCapabilities = routing.capabilities.filter((capability) => (
-      routing.fallbackAll || ["profile", "files", "database"].includes(capability)
-    ));
     const explicitHatCapabilities = routing.explicitHats
       .filter(({ available }) => available)
       .map(({ capability }) => capability);
     const executionCapabilities = [...new Set([
-      ...coreCapabilities,
       ...explicitHatCapabilities,
       ...brief.requiredCapabilities,
       ...contextCapabilities,
@@ -656,6 +650,7 @@ export class SlayerRuntime {
           recentConversation,
           previousCapabilities: priorConversation.capabilities,
           capabilityOverride,
+          allowCapabilityExpansion: Boolean(workflowStep),
         })
       : {
           tools: availableTools,
@@ -1239,6 +1234,7 @@ export class SlayerRuntime {
         recentConversation,
         previousCapabilities: priorConversation.capabilities,
         capabilityOverride: [...new Set([...compilation.capabilities, ...requestedCapabilities])],
+        allowCapabilityExpansion: Boolean(workflowStep),
       });
     }
 

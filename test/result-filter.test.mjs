@@ -38,6 +38,8 @@ test("read-only tool schemas require the search-data filter without changing pro
   const definition = registry.toolDefinitions()[0];
   assert.equal(definition.inputSchema.required.includes("result_filter"), true);
   assert.equal(definition.inputSchema.properties.result_filter.additionalProperties, false);
+  assert.equal(definition.inputSchema.properties.result_filter.properties.max_items.maximum, 10000);
+  assert.equal(definition.inputSchema.properties.result_filter.properties.max_characters.maximum, 100000);
   assert.equal(definition.annotations.readOnlyHint, true);
 
   await registry.execute("records_read", { status: "active" });
@@ -78,6 +80,25 @@ test("the result boundary deterministically searches, projects, and limits a rec
   });
   assert.equal(result.receipt.summary.candidates, 3);
   assert.equal(result.receipt.summary.returned, 1);
+  assert.equal(result.receipt.status, "partial");
+  assert.match(result.deliveredResult.result_filter.requiredAction, /Do not treat this partial result/);
+});
+
+test("the agent can preserve a complete collection when completeness is worth the context cost", () => {
+  const boundary = new ResultFilterBoundary();
+  const records = Array.from({ length: 273 }, (_, index) => ({ id: index + 1 }));
+  const result = boundary.filterReadResult({ records }, {
+    requestId: "request-complete-collection",
+    interactionId: "call-complete-collection",
+    tool: "records_read",
+    source: "test",
+    filterRequest: filterRequest({ max_items: 10000, max_characters: 100000 }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.deliveredResult.records.length, 273);
+  assert.equal(result.receipt.status, "complete");
+  assert.equal(result.receipt.summary.pruned, 0);
 });
 
 test("the result boundary rejects an ambiguous collection instead of leaking unfiltered data", () => {
@@ -110,6 +131,95 @@ test("identity filtering still emits a protocol receipt", () => {
   assert.equal(result.deliveredResult.value, "small");
   assert.equal(result.deliveredResult.result_filter.status, "complete");
   assert.equal(result.receipt.summary.candidates, null);
+});
+
+test("filter bookkeeping does not page a complete CSV-sized source that fits its useful-result budget", () => {
+  const boundary = new ResultFilterBoundary();
+  const source = {
+    file: {
+      fileId: 200,
+      title: "Accounts CSV",
+      description: "m".repeat(2500),
+      originalFilename: "accounts.csv",
+      origins: [{ requestId: "request-1" }],
+    },
+    verified: true,
+    encoding: "utf-8",
+    total_characters: 29965,
+    offset: 0,
+    content: "x".repeat(29965),
+    has_more: false,
+    next_offset: null,
+  };
+  assert.equal(JSON.stringify(source).length, 32720);
+
+  const result = boundary.filterReadResult(source, {
+    requestId: "request-csv",
+    interactionId: "call-csv",
+    tool: "file_read",
+    source: "local",
+    filterRequest: filterRequest({ max_characters: 32768 }),
+    receiptEventSeq: 20,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.paged, false);
+  assert.equal(result.deliveredResult.content.length, 29965);
+  assert.equal(result.deliveredResult.has_more, false);
+  assert.equal(result.deliveredResult.result_filter.status, "complete");
+  assert.equal(result.receipt.summary.outputCharacters, 32720);
+});
+
+test("an oversized native file result becomes a structurally valid source page", () => {
+  const boundary = new ResultFilterBoundary();
+  const source = {
+    file: { fileId: 200, title: "Accounts CSV" },
+    verified: true,
+    encoding: "utf-8",
+    total_characters: 2000,
+    offset: 0,
+    content: "x".repeat(2000),
+    has_more: false,
+    next_offset: null,
+  };
+  const result = boundary.filterReadResult(source, {
+    requestId: "request-native-page",
+    interactionId: "call-native-page",
+    tool: "file_read",
+    source: "local",
+    filterRequest: filterRequest({ max_characters: 1000 }),
+    receiptEventSeq: 21,
+  });
+
+  const { result_filter: filterSummary, ...deliveredPage } = result.deliveredResult;
+  assert.equal(result.ok, true);
+  assert.equal(result.paged, true);
+  assert.equal(JSON.stringify(deliveredPage).length <= 1000, true);
+  assert.equal(deliveredPage.content.length > 0, true);
+  assert.equal(source.content.startsWith(deliveredPage.content), true);
+  assert.equal(deliveredPage.has_more, true);
+  assert.equal(deliveredPage.next_offset, deliveredPage.content.length);
+  assert.equal(filterSummary.status, "partial");
+  assert.match(filterSummary.requiredAction, /Do not treat this partial result as the complete input/);
+  assert.equal(Object.hasOwn(result.deliveredResult, "leading_filtered_result_json"), false);
+});
+
+test("receipt paging never presents an arbitrary serialized JSON prefix as usable data", () => {
+  const boundary = new ResultFilterBoundary();
+  const result = boundary.filterReadResult({ value: "x".repeat(2000) }, {
+    requestId: "request-receipt-page",
+    interactionId: "call-receipt-page",
+    tool: "single_read",
+    source: "test",
+    filterRequest: filterRequest({ max_characters: 1000 }),
+    receiptEventSeq: 22,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.paged, true);
+  assert.equal(result.deliveredResult.full_result_stored_in_receipt, true);
+  assert.equal(Object.hasOwn(result.deliveredResult, "leading_filtered_result_json"), false);
+  assert.match(result.deliveredResult.continuation, /No arbitrary JSON prefix/);
 });
 
 test("an oversized result without durable receipt paging fails closed", () => {

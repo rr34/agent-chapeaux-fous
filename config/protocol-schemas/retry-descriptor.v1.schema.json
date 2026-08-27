@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Slayer retry descriptor",
+  "description": "The authoritative version 1 contract for machine-readable retry guidance returned by a native tool or MCP provider. A valid descriptor describes whether and how a retry is technically possible; it does not authorize the retry.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "protocol": {
+      "type": "string",
+      "enum": [
+        "agent-slayer.retry-descriptor"
+      ]
+    },
+    "version": {
+      "type": "integer",
+      "enum": [
+        1
+      ]
+    },
+    "retryable": {
+      "type": "boolean",
+      "description": "True only when the owning tool or provider says another attempt can be valid after all reported conditions are satisfied. This field does not authorize or automatically schedule another attempt."
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "A stable machine-readable code supplied by the owning tool or provider. Unknown codes may be recorded and shown but must not be assigned inferred workflow semantics."
+    },
+    "requires_new_client_request_id": {
+      "type": "boolean",
+      "description": "False means a retry remains the same logical provider operation and must reuse its existing provider-defined client request or idempotency ID when one exists. True means the owning provider requires the retry to be a new logical provider operation and the old provider-defined ID must not be reused. This never refers to an Agent Slayer request ID, interaction ID, model tool-call ID, receipt ID, plan ID, or other correlation ID."
+    },
+    "preserve_complete_original_batch": {
+      "type": "boolean",
+      "description": "True means retry arguments must preserve and resubmit the complete original batch plus valid corrections rather than only failed, missing, or changed items."
+    },
+    "retry_after_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "The minimum provider-directed delay in milliseconds measured from the recorded result time, or null when the provider specifies no delay."
+    }
+  },
+  "required": [
+    "protocol",
+    "version",
+    "retryable",
+    "reason_code",
+    "requires_new_client_request_id",
+    "preserve_complete_original_batch",
+    "retry_after_ms"
+  ]
+}

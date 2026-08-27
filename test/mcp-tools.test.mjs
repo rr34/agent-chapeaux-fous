@@ -24,6 +24,7 @@ test("MCP identity, contracts, metadata, and supplemental resources survive adap
     accounting: { enabled: true, url: "https://accounting.example.test/mcp", aliases: ["books"] },
   }));
   const structuredContent = Object.freeze({ status: "ready", planId: "provider-plan" });
+  let callToolCount = 0;
   const fakeClient = {
     async connect() {},
     getServerVersion() { return { name: "accounting-server", title: "Accounting" }; },
@@ -44,6 +45,7 @@ test("MCP identity, contracts, metadata, and supplemental resources survive adap
       ] };
     },
     async callTool({ name }) {
+      callToolCount += 1;
       if (name === "failing_operation") {
         return {
           isError: true,
@@ -82,6 +84,14 @@ test("MCP identity, contracts, metadata, and supplemental resources survive adap
   assert.deepEqual(definition.capability.aliases, ["accounting", "accounting-server", "Accounting", "books"]);
   assert.equal(manager.health().accounting.instructionsAvailable, true);
 
+  await assert.rejects(
+    registry.execute("remote_accounting_failing_operation", {
+      result_filter: { max_characters: 10000 },
+    }),
+    /arguments\.result_filter is not allowed/,
+  );
+  assert.equal(callToolCount, 0);
+
   const result = await registry.execute("remote_accounting_plan_import", {});
   assert.equal(result.status, "ready");
   assert.deepEqual(result.mcpSupplementalContent, [{
@@ -91,12 +101,14 @@ test("MCP identity, contracts, metadata, and supplemental resources survive adap
     meta: { receipt: "provider-receipt" }, isError: false,
     contentTypes: ["text", "resource_link"],
   });
+  assert.equal(callToolCount, 1);
 
   const providerError = await registry.execute("remote_accounting_failing_operation", {});
   assert.deepEqual(providerError, ["The provider rejected this operation."]);
   assert.deepEqual(mcpResultDetails(providerError), {
     meta: { providerCode: "REJECTED" }, isError: true, contentTypes: ["text"],
   });
+  assert.equal(callToolCount, 2);
 
   const events = [];
   let errorResponse;

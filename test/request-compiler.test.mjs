@@ -135,6 +135,27 @@ test("an application capability override ignores unrelated prior-conversation ro
   assert.doesNotMatch(compiled.instructions, /## calendar/);
 });
 
+test("a structured capability override keeps unselected families available only through expansion", async () => {
+  const compiler = new RequestCompiler();
+  const compiled = await compiler.compile({
+    tools: [tool("todo_add"), tool("file_read"), tool("remote_tlom_query_data", "mcp:tlom")],
+    text: "Clock out.",
+    recentConversation: [],
+    previousCapabilities: [],
+    capabilityOverride: ["integration:tlom"],
+    allowCapabilityExpansion: true,
+  });
+
+  assert.deepEqual(names(compiled), ["remote_tlom_query_data", "request_capabilities"]);
+  assert.deepEqual(compiled.capabilities, ["integration:tlom"]);
+  assert.deepEqual(compiled.deferredCapabilities, ["files", "todos"]);
+  assert.deepEqual(
+    compiled.tools.find(({ name }) => name === "request_capabilities")
+      .inputSchema.properties.capabilities.items.enum,
+    ["files", "todos"],
+  );
+});
+
 test("every currently registered local tool belongs to an explicit capability", () => {
   const registry = new ToolRegistry();
   registerWebPageTools(registry, {});

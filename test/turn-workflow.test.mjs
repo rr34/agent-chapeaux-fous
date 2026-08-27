@@ -257,10 +257,22 @@ test("orientation resolves a short approval, execution acts from the TurnBrief, 
   const executions = [];
   const ledger = fakeLedger();
   const registry = todoRegistry(executions);
+  registry.withCapability("files").register({
+    name: "file_read",
+    description: "Read an unrelated file.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { file_id: { type: "integer" } }, required: ["file_id"],
+    },
+    async execute() { return { content: "unrelated" }; },
+  });
   const modelTransport = transport(async (payload, index) => {
     if (index === 0) return completed(JSON.stringify(brief()), 20);
     if (index === 1) {
-      assert.equal(payload.tools.some(({ name }) => name === "todo_create"), true);
+      assert.deepEqual(
+        payload.tools.map(({ name }) => name),
+        ["todo_create", "request_capabilities"],
+      );
       const result = await payload.onToolCall({
         callId: "todo-call", tool: "todo_create", arguments: { title: "Offered reminder" },
       });
@@ -295,7 +307,10 @@ test("orientation resolves a short approval, execution acts from the TurnBrief, 
   assert.equal(result, "Created the reminder.");
   assert.deepEqual(executions, [{ title: "Offered reminder" }]);
   assert.deepEqual(requests.map(({ effort }) => effort), ["medium", "xhigh", "low"]);
-  assert.deepEqual(requests.map(({ tools }) => tools.map(({ name }) => name)), [[], ["todo_create"], []]);
+  assert.deepEqual(
+    requests.map(({ tools }) => tools.map(({ name }) => name)),
+    [[], ["todo_create", "request_capabilities"], []],
+  );
   assert.ok(requests[0].outputSchema);
   assert.equal(requests[0].input, "okay go ahead and do that.");
   assert.match(requests[0].developerInstructions, /I can create the reminder now/);
@@ -304,6 +319,13 @@ test("orientation resolves a short approval, execution acts from the TurnBrief, 
   assert.match(requests[2].developerInstructions, /todo_create/);
   assert.equal(ledger.events.some(({ type }) => type === "turn.brief"), true);
   assert.equal(ledger.events.some(({ type }) => type === "conversation.state"), true);
+  const orientationStart = ledger.events.findIndex(({ type, phase, payload }) => (
+    type === "agent.step" && phase === "start" && payload?.workflowStep === "orientation"
+  ));
+  const orientationFilter = ledger.events.findIndex(({ type, name }) => (
+    type === "search.filter" && name === "Orient request context filter"
+  ));
+  assert.equal(orientationStart < orientationFilter, true);
   assert.deepEqual(
     ledger.events.filter(({ type, phase }) => type === "agent.step" && phase === "start")
       .map(({ payload }) => payload.workflowStep),

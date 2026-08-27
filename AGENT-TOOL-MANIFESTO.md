@@ -36,7 +36,8 @@ between natural speech and efficient tool use.
 The agent structure owns:
 
 - request intake and the exact-request record;
-- bounded conversation context and durable user enrichment;
+- bounded conversation context;
+- private account enrichment and shared AI-assisted product enrichment;
 - capability catalogs and selection;
 - exact tool-schema visibility;
 - authorization binding and approval state;
@@ -67,51 +68,80 @@ capability catalog, selected through `contextRequests`, read through its owning
 domain service, recorded literally, and supplied to execution without another
 model call.
 
-Durable enrichment stores user-specific meaning such as aliases or learned
-interpretations. Context views read current tool-owned data for one execution.
+Context views read current tool-owned data for one execution. Account-specific
+and shared product enrichment are separate, optional agent layers defined in
+section 2E.
 
 The structure improves iteratively from trace evidence. Improvements update
-explicit, testable retrieval rules, filters, catalogs, schemas, enrichment, and
-interaction definitions.
+explicit, testable retrieval rules, filters, catalogs, schemas, and interaction
+definitions.
 
 # 2B. Search engine / filter / pruner
 
-The search engine finds candidate information and reduces it to the smallest
-useful evidence set for the current interaction.
+The search engine is deterministic application code. It does not contain an
+LLM, call an LLM, understand a natural-language objective, or decide for itself
+what would answer that objective. The LLM translates the objective into
+schema-valid search instructions: selected sources from the advertised,
+authorized read capabilities; query text, concepts, and filters; requested
+fields; matching options; and bounds. The search code mechanically executes
+those instructions.
 
 Every time an LLM requests data, it produces a valid search-protocol request.
 Every retrieved dataset passes through the search engine before any of that data
 enters subsequent LLM context. This rule applies even when the retrieved dataset
 is already small and the filter determines that nothing needs to be removed.
 
+The application carries and records the retrieval objective for traceability
+and for the LLM to validate the returned evidence afterward. The search engine
+does not consume that objective as an executable instruction, derive a query
+from it, or use it to judge semantic relevance. If the evidence does not satisfy
+the objective, the LLM may issue another structured search request with revised
+operational instructions.
+
 The search engine owns:
 
-- source selection from advertised read capabilities;
-- bounded candidate retrieval;
-- query construction, normalization, matching, ranking, and deduplication;
-- pruning facts known not to answer the request;
+- validating that requested sources are among the advertised, authorized read
+  capabilities;
+- bounded candidate retrieval through the selected sources' owned read paths;
+- deterministic query normalization, matching, provider-native or explicitly
+  programmed ranking, and rule-based deduplication;
+- deterministic filtering and pruning according to the supplied query, field,
+  match, and limit instructions;
 - preserving stable source references and partial-result metadata;
 - enforcing context-size and result-count limits;
-- selecting exact schema-semantic projections needed to interpret results; and
-- reporting retrieval quality, omissions, and noise for later improvement.
-does search engine own all this or is this the responsibilty of the prompt to the LLM to utilize the search engine and the search engine just empowers the LLM to accomplish all this?
+- applying the exact requested schema projection while retaining protected
+  identity and reference fields; and
+- reporting mechanically observable execution metadata such as matched fields,
+  scores, counts, limits, pruning reasons, pagination, warnings, and errors.
+
+The LLM owns interpreting the objective, selecting sources, constructing the
+operational query and filters, requesting the useful fields and bounds, and
+judging whether the returned evidence answers the objective. The application
+structure owns advertising and enforcing which sources are authorized.
 
 Every retrieval path follows this sequence:
 
-1. choose a source likely to contain the answer;
-2. retrieve a bounded candidate set through the source's owned read path;
-3. interpret fields through the data schema and schema semantics;
-4. filter, rank, and deduplicate the candidates;
-5. prune unrelated fields and records; and
-6. return compact evidence with source references.
+1. the LLM converts the retrieval objective into structured operational search
+   instructions and selects from authorized sources;
+2. the application validates the request and its source authorization;
+3. the search engine retrieves a bounded candidate set through each selected
+   source's owned read path;
+4. the search engine mechanically normalizes, matches, ranks, deduplicates,
+   filters, projects, and limits candidates using provider behavior and explicit
+   programmed rules;
+5. the search engine returns compact evidence with stable references and
+   execution metadata; and
+6. the LLM compares that evidence with the preserved objective and decides
+   whether the objective is satisfied or another search is needed.
 
 Provider-native search accesses provider-owned data. The Agent Slayer search
-layer turns those bounded provider results into request-specific model context.
+layer mechanically bounds and shapes those provider results according to the
+LLM's structured instructions before they enter model context.
 
-The search engine is built on top of the schema-semantics compiler where
-structured data is involved. The compiler supplies deterministic field meaning;
-the search engine applies that meaning to retrieval, ranking, filtering, and
-pruning.
+When a structured retrieval path is explicitly integrated with the
+schema-semantics compiler, the compiler supplies exact projections and
+machine-readable rules that code can apply. The LLM, not the search engine,
+interprets the human-readable field meanings when evaluating the evidence.
 
 # 2C. Structured problem-solving method
 
@@ -176,6 +206,80 @@ Core structured interaction families include:
 Interaction state is explicit and source-referenced. The trace records the
 accepted structured output and every transition literally.
 
+# 2E. Enrichment
+
+Enrichment is an optional agent improvement layer and is deliberately the last
+agent-structure subsection. Agent Slayer must remain correct, authorized,
+traceable, and useful without it. Enrichment may improve later interpretation
+or retrieval, but it never overrides the exact user request, current tool-owned
+data, authorization, tool schemas, or provider results.
+
+Agent Slayer distinguishes private account enrichment from shared AI-assisted
+product enrichment. They have different sources, persistence, review, and
+privacy boundaries and must never be silently combined.
+
+## 2E.1. Private account enrichment
+
+Private account enrichment stores durable meaning that is specific to one user
+or deployment. The current implementation's durable profile facts are account
+enrichment. Future account enrichment may include user-specific aliases,
+terminology, preferences, relationships, or confirmed interpretations.
+
+Account enrichment:
+
+- is grounded in an explicit or casual user statement, a user correction, or a
+  user-confirmed interpretation, never an unconfirmed model inference;
+- when persistence is involved, is written only through an exact authorized
+  path owned by the agent or the relevant domain and is recorded with its source
+  and receipt;
+- remains scoped to that account and is never promoted into a product-wide rule
+  merely because one user supplied it;
+- supports exact correction, replacement, archival, and forgetting;
+- is selected into model context only when relevant and within explicit bounds;
+- does not duplicate conversation history, file metadata, transient working
+  state, tool arguments, or authoritative domain records; and
+- cannot override fresher tool-owned facts or provider business rules.
+
+Private account enrichment is not a prerequisite for improving the shared
+product and does not require aggregating many users' data.
+
+## 2E.2. Shared AI-assisted product enrichment
+
+Shared AI-assisted product enrichment improves behavior for every user. An LLM
+may help a developer propose reusable artifacts such as synonym and alias
+catalogs, phonetic and spelling variants, normalization rules, explicit concept
+equivalences, schema meanings, routing examples, ranking rules, and retrieval
+test cases. This work may use owned domain documentation, tool schemas,
+developer-supplied examples, synthetic cases, and trace evidence explicitly
+approved for product improvement.
+
+AI-generated proposals do not enter runtime behavior directly. Before the
+application or search layer may consume one, it becomes an explicit artifact
+that is reviewed, versioned, tested, source-described, and reversible. Search
+then mechanically applies that artifact just as it applies any other programmed
+rule. This can make search more tolerant of phonetic spellings, misspellings,
+aliases, and domain language, but it does not give the search engine an LLM or
+the ability to understand a natural-language objective.
+
+Shared enrichment:
+
+- must state its supported behavior and deterministic runtime effect;
+- must include positive, negative, ambiguity, and regression tests;
+- must preserve provenance and version history so a harmful rule can be
+  identified and rolled back;
+- must not infer product-wide meaning from private account data by default;
+- may use account-derived evidence only through an explicit, privacy-approved
+  process that defines consent, minimization, de-identification, and retention;
+  and
+- must report matching or routing behavior literally enough to evaluate whether
+  the enrichment helped or introduced noise.
+
+A large user population may provide more usage evidence, but it is not required
+for this work. One developer using AI can build shared enrichment from domain
+knowledge, observed failures, and designed test cases. What cannot be claimed
+without representative evidence is that such enrichment covers how all users
+will speak.
+
 # 3. MCP
 
 An MCP is a connected owner of tools, data, and domain workflows. The same
@@ -221,7 +325,42 @@ video tools use the same domain services as their HTTP and UI adapters. Generic
 database mutation is limited to an explicit allowlist of transitional tables
 whose mutation ownership has been deliberately assigned.
 
-# 4A. MCP protocol
+# 4. Schema-semantics compiler
+
+Schemas are inherent contracts of the blocks and boundaries that publish them;
+they are not a separate owner. The LLM data protocol owns its schemas, the MCP
+protocol carries provider and tool schemas, the search protocol owns its message
+schemas, and each MCP or native domain owns the schema and meanings of its data.
+
+The schema-semantics compiler is a separate shared internal tool because it
+performs one concrete operation across participating structured database-backed
+tools. It is deterministic application code, not an LLM or a model-callable
+tool, and it does not become the owner of any schema it processes.
+
+The compiler owns:
+
+- loading and validating the versioned schema-semantic form;
+- accepting an exact operation description naming the participating objects and
+  fields;
+- combining stored database mechanics with the human-authored meanings for only
+  those named objects and fields;
+- compiling the smallest exact schema-semantic projection for that operation;
+- returning the projection to the participating tool so it can accompany the
+  structured result; and
+- recording each compiled projection literally in the request trace.
+
+The compiler does not access data rows, choose sources or tools, construct
+queries, rank or filter results, authorize access, enforce domain validation,
+mutate data, or interpret field meaning. Application code may mechanically use
+explicit machine-readable projection fields; the LLM interprets human-readable
+meanings supplied with a result.
+
+The current implementation integrates the compiler with participating native
+database-backed tools. Use by another block or protocol requires an explicit
+integration and trace path; shared availability must not be described as use by
+every block when no such integration exists.
+
+# 5. MCP protocol
 
 A protocol is the communication standard at a boundary. Every Agent Slayer
 boundary has a named protocol defining what crosses it and how both sides
@@ -277,8 +416,38 @@ current request authorizes it, and execution may invoke the bound tool only with
 the bound arguments.
 
 An incomplete workflow result carries an explicit status, exact missing fields
-or questions, a structured retry descriptor, and whether the complete original
-batch must be preserved.
+or questions, and a structured retry descriptor. Every retry descriptor
+validates against the single authoritative, versioned schema at
+`config/protocol-schemas/retry-descriptor.v1.schema.json`. That schema, rather
+than a provider-specific prose convention, defines the interoperable field
+contract. A future incompatible contract requires a new versioned schema and an
+explicit protocol-version selection; it must not silently change version 1.
+
+A retry descriptor describes technical retry conditions. It does not authorize
+a mutation, schedule a retry, prove that retrying is safe, or replace the owning
+tool's validation, atomicity, idempotency, and partial-success contract. Only the
+tool or provider that owns the operation may supply its descriptor. Agent Slayer
+validates and records the descriptor but does not infer missing provider
+workflow semantics from an error message or reason-code name.
+
+`requires_new_client_request_id` refers only to a provider-defined client
+request or idempotency identifier explicitly exposed by the tool contract. It
+never refers to the Agent Slayer request ID, LLM interaction ID, model tool-call
+ID, receipt ID, plan ID, or another correlation ID. `false` means the retry is
+the same logical provider operation and must reuse the existing provider client
+request ID when one exists. `true` means the provider requires a new logical
+provider operation: the old provider client request ID must not be reused, and a
+new one is created only when an authorized retry is actually invoked. The trace
+keeps the old and new attempts correlated. If the callable tool schema neither
+exposes such an ID nor declares an application-managed mapping for one, a `true`
+value is unsupported and must not be guessed around.
+
+`preserve_complete_original_batch` states whether a valid retry must resubmit
+the complete original batch with corrections instead of only failed, missing,
+or changed items. `retry_after_ms` is a minimum provider-directed delay measured
+from the recorded result time; `null` means that the provider specified no
+delay. Neither field grants authorization or permits an otherwise identical
+failed call unless the owning tool's validated retry contract allows it.
 
 For MCPs that publish only the standard contract, the protocol uses their
 descriptions, schemas, results, and annotations as published. Provider workflow
@@ -289,7 +458,7 @@ output schemas, annotations, tool metadata, result metadata, and
 non-duplicative resource links. Model-visible structured output stays compact;
 runtime and trace retain client-only metadata.
 
-# 4B. Search engine data protocol
+# 6. Search engine data protocol
 
 The search engine data protocol standardizes everything entering and leaving
 the search engine. JSON is the default encoding; the protocol supplies the
@@ -300,7 +469,8 @@ Every search input contains:
 
 - protocol version, message ID, and Agent Slayer request ID;
 - the LLM interaction ID that requested the data;
-- one explicit retrieval objective;
+- one explicit retrieval objective, preserved for traceability and later LLM
+  validation but not interpreted or executed by the search engine;
 - the original query text plus normalized concepts and filters;
 - authorized source, capability, context-view, or tool references;
 - requested fields and schema-semantics references;
@@ -317,6 +487,11 @@ Every search output contains:
 - candidate, returned, and pruned counts with pruning reasons;
 - schema-semantics references used to interpret the evidence; and
 - partial-source errors and continuation state.
+
+The query, sources, filters, requested fields, matching options, and limits are
+the executable search instructions. The objective is not. The application keeps
+the objective correlated with the result so the requesting LLM can determine
+whether the mechanically retrieved evidence answers it.
 
 The versioned implementation schema is authoritative. Its basic shape is:
 
@@ -376,7 +551,7 @@ Search protocol messages and validation results are recorded literally. Large
 source records remain behind their stable references; model context receives
 the compact evidence selected by this protocol.
 
-# 4C. LLM data protocol
+# 7. LLM data protocol
 
 The LLM data protocol standardizes everything entering and leaving an LLM
 interaction. It keeps instructions, the exact user request, context, state,
@@ -455,32 +630,3 @@ The versioned implementation schema is authoritative. Its basic shape is:
 
 The protocol records the exact typed input, provider-visible request, normalized
 output, validation result, and usage as separate literal trace events.
-
-# 5. Data schema
-
-The data schema is executable documentation for stored information. It combines
-database mechanics with plain-language field meaning so tools, search, and
-people share the same interpretation.
-
-Each data schema defines:
-
-- objects, fields, types, nullability, keys, and relationships;
-- plain-language comments for the meaning of each object and field;
-- units, formats, enumerations, and time semantics;
-- identity, ownership, and lifecycle fields;
-- queryable and filterable fields;
-- validation and mutation invariants enforced by the owning domain service;
-- stable source identifiers used in context and receipts; and
-- versioned, reviewable changes.
-
-The schema-semantics compiler combines database mechanics with human-authored
-comments and meanings into deterministic projections for exact participating
-objects and fields. Structured database tools return the relevant projection
-with their results, and the trace records it.
-
-The search engine consumes compiler projections to understand candidate fields,
-construct better queries, compare equivalent concepts, rank results, and prune
-irrelevant fields before context reaches the LLM.
-
-Schema comments and semantics are code: they are explicit, testable, versioned,
-and reviewed with the schema and the search behavior that depends on them.

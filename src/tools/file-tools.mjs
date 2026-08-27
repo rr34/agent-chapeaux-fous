@@ -26,7 +26,7 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_read",
-    description: "Read a verified character range from one durably stored CSV, text, or vCard upload by stable file ID. The server rechecks the stored byte size and SHA-256 checksum before returning contents. Continue with next_offset while has_more is true. Images cannot be read with this text tool.",
+    description: "Read a verified character range from one durably stored CSV, text, or vCard upload by stable file ID. The server rechecks the stored byte size and SHA-256 checksum before returning contents. For imports and other completeness-sensitive work, use a result_filter with no query or field projection and limits large enough to preserve the requested source page. Continue with next_offset while has_more is true, and do not submit a completeness-sensitive operation until every page has been read. Images cannot be read with this text tool.",
     parameters: {
       type: "object",
       additionalProperties: false,

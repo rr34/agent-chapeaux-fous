@@ -154,6 +154,7 @@ export class ToolRegistry {
       strict: true,
       source: "local",
       ...tool,
+      validateArguments: tool.validateArguments ?? (tool.strict !== false),
     });
     return this;
   }
@@ -208,7 +209,7 @@ export class ToolRegistry {
   async execute(name, argumentsObject, context = {}) {
     const tool = this.tools.get(name);
     if (!tool) throw new Error(`Unknown tool: ${name}`);
-    if (tool.strict !== false) {
+    if (tool.validateArguments !== false) {
       const problem = schemaProblem(argumentsObject, tool.parameters);
       if (problem) throw new Error(`Invalid ${name} arguments: ${problem}`);
     }
