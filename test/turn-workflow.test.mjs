@@ -30,6 +30,19 @@ function completed(text, totalTokens) {
   };
 }
 
+function identityResultFilter(overrides = {}) {
+  return {
+    collection_path: null,
+    query: null,
+    match_mode: "all_terms",
+    include_fields: [],
+    exclude_fields: [],
+    max_items: 200,
+    max_characters: 32768,
+    ...overrides,
+  };
+}
+
 function brief({ auditRequired = true, authorizedActionReferenceIds = [] } = {}) {
   const source = { text: "Run the previously offered action.", sourceEventSeqs: [4, 9] };
   return {
@@ -131,7 +144,11 @@ test("a TurnBrief can skip the audit for declared read-only work and the trace s
       return completed(JSON.stringify(readBrief), 12);
     }
     assert.match(payload.developerInstructions, /\[group 7\] Wedding/);
-    const response = await payload.onToolCall({ callId: "read-todos", tool: "todo_list", arguments: {} });
+    const response = await payload.onToolCall({
+      callId: "read-todos",
+      tool: "todo_list",
+      arguments: { result_filter: identityResultFilter() },
+    });
     assert.equal(response.ok, true);
     return completed("There are no current to-dos.", 18);
   }, requests);

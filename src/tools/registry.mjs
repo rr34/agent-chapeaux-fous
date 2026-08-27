@@ -1,3 +1,5 @@
+import { withReadResultFilterSchema } from "../search/result-filter.mjs";
+
 function typeMatches(value, type) {
   if (type === "null") return value === null;
   if (type === "array") return Array.isArray(value);
@@ -182,18 +184,22 @@ export class ToolRegistry {
             typeof value !== "function" && name !== "guidance"
           )))
         : null;
+      const annotations = tool.annotations ?? null;
       return {
         name: tool.name,
         title: tool.title ?? null,
         description: tool.description,
-        inputSchema: tool.parameters,
+        inputSchema: withReadResultFilterSchema(
+          tool.parameters,
+          annotations?.readOnlyHint === true,
+        ),
         outputSchema: tool.outputSchema ?? null,
         strict: tool.strict,
         source: tool.source,
         upstreamName: tool.upstreamName ?? null,
         capabilityId: tool.capabilityId ?? null,
         capability,
-        annotations: tool.annotations ?? null,
+        annotations,
         metadata: tool.metadata ?? null,
       };
     });

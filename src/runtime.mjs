@@ -7,7 +7,13 @@ import {
   incompleteReceiptResponse,
 } from "./deferred-actions.mjs";
 import { requestCapabilityCatalog } from "./request-compiler.mjs";
+import {
+  readResultFilterSchema,
+  ResultFilterBoundary,
+  splitReadResultFilter,
+} from "./search/result-filter.mjs";
 import { mcpResultDetails } from "./tools/mcp-tools.mjs";
+import { schemaProblem } from "./tools/registry.mjs";
 import {
   auditContext,
   auditInstructions,
@@ -121,13 +127,17 @@ function providerToolError(tool, result) {
 }
 
 export class SlayerRuntime {
-  constructor({ modelTransport, registry, contextBuilder, requestCompiler = null, ledger, config }) {
+  constructor({
+    modelTransport, registry, contextBuilder, requestCompiler = null, ledger, config,
+    resultFilter = new ResultFilterBoundary(),
+  }) {
     this.modelTransport = modelTransport;
     this.registry = registry;
     this.contextBuilder = contextBuilder;
     this.requestCompiler = requestCompiler;
     this.ledger = ledger;
     this.config = config;
+    this.resultFilter = resultFilter;
     this.systemPrompt = null;
   }
 
@@ -151,6 +161,19 @@ export class SlayerRuntime {
     runTimeoutMs = null,
   }) {
     const operationId = `${this.modelTransport.id}:${requestId}:${step}`;
+    const filteredContext = this.resultFilter.filterContext(developerInstructions, {
+      requestId,
+      interactionId: operationId,
+      source: `${step}.developer_context`,
+      maximumCharacters: this.config.maxFilteredContextCharacters ?? 256 * 1024,
+    });
+    developerInstructions = filteredContext.text;
+    this.ledger.append({
+      type: "search.filter", status: "complete", actorType: "service",
+      actorName: "Search result filter", channel, turnId: requestId, operationId,
+      name: `${label} context filter`, content: filteredContext.receipt.status,
+      payload: filteredContext.receipt,
+    });
     this.ledger.append({
       type: "agent.step", phase: "start", status: "processing", actorType: "service",
       actorName: "Structured turn workflow", channel, turnId: requestId, operationId,
@@ -695,6 +718,7 @@ export class SlayerRuntime {
       finalAttemptStartedNewConversation = !conversationId;
       const tools = compilation.tools;
       const callableToolNames = new Set(tools.map(({ name }) => name));
+      const callableToolDefinitions = new Map(tools.map((tool) => [tool.name, tool]));
       if (
         !conversationId
         && priorConversation.conversationId
@@ -744,6 +768,20 @@ export class SlayerRuntime {
           : "",
         continuingAfterExpansion,
       );
+      const contextFilterOperationId = `${this.modelTransport.id}:${requestId}:${workflowStep ?? "model"}:${attempt}:context-filter`;
+      const filteredContext = this.resultFilter.filterContext(developerInstructions, {
+        requestId,
+        interactionId: contextFilterOperationId,
+        source: `${workflowStep ?? "model"}.developer_context`,
+        maximumCharacters: this.config.maxFilteredContextCharacters ?? 256 * 1024,
+      });
+      const modelDeveloperInstructions = filteredContext.text;
+      this.ledger.append({
+        type: "search.filter", status: "complete", actorType: "service",
+        actorName: "Search result filter", channel, turnId: requestId,
+        operationId: contextFilterOperationId, name: "LLM context filter",
+        content: filteredContext.receipt.status, payload: filteredContext.receipt,
+      });
       const remainingToolCalls = maxToolCalls === null
         ? null
         : Math.max(0, maxToolCalls - totalToolCallCount);
@@ -755,7 +793,7 @@ export class SlayerRuntime {
         effort: selectedEffort,
         conversationId,
         baseInstructions,
-        developerInstructions,
+        developerInstructions: modelDeveloperInstructions,
         input: attemptInput,
         requestAttachmentInput: context.requestAttachmentInput ?? null,
         tools,
@@ -770,7 +808,7 @@ export class SlayerRuntime {
 
       this.ledger.append({
         type: "context.sent", status: "complete", actorType: "system", actorName: "Context builder",
-        channel, turnId: requestId, name: "Compiled context sent", content: developerInstructions,
+        channel, turnId: requestId, name: "Compiled context sent", content: modelDeveloperInstructions,
         payload: {
           workflowStep, workflowStepLabel, stepIndex, reasoningEffort: selectedEffort,
           attempt,
@@ -807,7 +845,7 @@ export class SlayerRuntime {
             baseInstructionCharacters: baseInstructions.length,
             capabilityInstructionCharacters: compilation.instructions.length,
             boundedContextCharacters: (context.developerInstructions ?? context.text ?? "").length,
-            totalDeveloperInstructionCharacters: developerInstructions.length,
+            totalDeveloperInstructionCharacters: modelDeveloperInstructions.length,
           },
         },
       });
@@ -900,15 +938,46 @@ export class SlayerRuntime {
               });
               return { ok: false, error: message };
             }
+            const registeredTool = this.registry.get(name);
+            const readOnly = registeredTool?.annotations?.readOnlyHint === true;
+            const { toolArguments, filterRequest } = splitReadResultFilter(args, readOnly);
+            if (readOnly) {
+              const problem = schemaProblem(filterRequest, readResultFilterSchema, "result_filter");
+              if (problem) {
+                const message = `Read tool ${name} requires a valid result_filter: ${problem}`;
+                failedToolAttempts.add(toolAttemptKey(name, args));
+                sameRequestReceipts.push({
+                  tool: name, arguments: toolArguments, resultFilter: filterRequest,
+                  ok: false, error: message,
+                });
+                this.ledger.append({
+                  type: "search.filter", phase: "error", status: "error", actorType: "service",
+                  actorName: "Search result filter", channel, turnId: requestId,
+                  operationId: callId, name: `${name} result filter rejected`,
+                  payload: {
+                    protocol: "agent-slayer.search-data", version: 1,
+                    requestId, interactionId: callId, source: { tool: name },
+                    status: "error", filter: filterRequest ?? null,
+                  },
+                  error: message,
+                });
+                this.ledger.append({
+                  type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                  actorName: name, channel, turnId: requestId, operationId: callId, name,
+                  payload: { callId, name }, error: message,
+                });
+                return { ok: false, error: message };
+              }
+            }
             if (workflowStep) {
               const referenceProblem = deferredActionArgumentProblem(
                 name,
-                args,
+                toolArguments,
                 authorizedActionReferences,
                 activeActionReferences,
               );
               if (referenceProblem) {
-                sameRequestReceipts.push({ tool: name, arguments: args, ok: false, error: referenceProblem });
+                sameRequestReceipts.push({ tool: name, arguments: toolArguments, ok: false, error: referenceProblem });
                 this.ledger.append({
                   type: "tool.result", phase: "error", status: "error", actorType: "tool",
                   actorName: name, channel, turnId: requestId, operationId: callId, name,
@@ -953,7 +1022,11 @@ export class SlayerRuntime {
             const attemptKey = toolAttemptKey(name, args);
             if (failedToolAttempts.has(attemptKey)) {
               const message = `An identical ${name} call with the same arguments already failed during this request. Do not repeat it; make a material correction or report the blocker.`;
-              sameRequestReceipts.push({ tool: name, arguments: args, ok: false, error: message });
+              sameRequestReceipts.push({
+                tool: name, arguments: toolArguments,
+                ...(filterRequest ? { resultFilter: filterRequest } : {}),
+                ok: false, error: message,
+              });
               this.ledger.append({
                 type: "tool.result", phase: "error", status: "error", actorType: "tool",
                 actorName: name, channel, turnId: requestId, operationId: callId, name,
@@ -962,7 +1035,7 @@ export class SlayerRuntime {
               return { ok: false, error: message };
             }
             try {
-              const toolResult = await this.registry.execute(name, args, {
+              const toolResult = await this.registry.execute(name, toolArguments, {
                 requestId, requestEventId, callId, channel, attachment, videoSource,
               });
               const toolDefinition = this.registry.get(name);
@@ -980,13 +1053,43 @@ export class SlayerRuntime {
               if (providerResult?.isError) {
                 const message = providerToolError(name, toolResult);
                 failedToolAttempts.add(attemptKey);
-                this.ledger.append({
+                const resultEventId = this.ledger.append({
                   type: "tool.result", phase: "error", status: "error", actorType: "tool",
                   actorName: name, channel, turnId: requestId, operationId: callId, name,
                   payload: { callId, name, result: toolResult, providerResult }, error: message,
                 });
-                sameRequestReceipts.push({ tool: name, arguments: args, ok: false, result: toolResult, error: message });
-                return { ok: false, error: message, result: toolResult };
+                const receiptEventSeq = typeof this.ledger.eventSequence === "function"
+                  ? this.ledger.eventSequence(resultEventId)
+                  : null;
+                const filteredError = readOnly
+                  ? this.resultFilter.filterReadResult(toolResult, {
+                      requestId,
+                      interactionId: callId,
+                      tool: name,
+                      source: registeredTool?.source ?? callableToolDefinitions.get(name)?.source,
+                      filterRequest,
+                      receiptEventSeq,
+                    })
+                  : null;
+                if (filteredError) {
+                  this.ledger.append({
+                    type: "search.filter",
+                    phase: filteredError.ok ? "end" : "error",
+                    status: filteredError.ok ? "complete" : "error",
+                    actorType: "service", actorName: "Search result filter",
+                    channel, turnId: requestId, operationId: callId,
+                    name: `${name} error result filtered`, content: filteredError.receipt.status,
+                    payload: filteredError.receipt,
+                    ...(filteredError.ok ? {} : { error: filteredError.error }),
+                  });
+                }
+                const deliveredErrorResult = filteredError?.deliveredResult ?? toolResult;
+                sameRequestReceipts.push({
+                  tool: name, arguments: toolArguments,
+                  ...(filterRequest ? { resultFilter: filterRequest } : {}),
+                  ok: false, result: deliveredErrorResult, error: message, receiptEventSeq,
+                });
+                return { ok: false, error: message, result: deliveredErrorResult };
               }
               const resultEventId = this.ledger.append({
                 type: "tool.result", phase: "end", status: "complete", actorType: "tool",
@@ -1012,7 +1115,38 @@ export class SlayerRuntime {
               ) {
                 generatedActionReferences.push(sourcedActionReference);
               }
-              const inline = inlineToolResult(toolResult, {
+              const filtered = readOnly
+                ? this.resultFilter.filterReadResult(toolResult, {
+                    requestId,
+                    interactionId: callId,
+                    tool: name,
+                    source: registeredTool?.source ?? callableToolDefinitions.get(name)?.source,
+                    filterRequest,
+                    receiptEventSeq,
+                  })
+                : null;
+              if (filtered) {
+                this.ledger.append({
+                  type: "search.filter",
+                  phase: filtered.ok ? "end" : "error",
+                  status: filtered.ok ? "complete" : "error",
+                  actorType: "service", actorName: "Search result filter",
+                  channel, turnId: requestId, operationId: callId,
+                  name: `${name} result filtered`, content: filtered.receipt.status,
+                  payload: filtered.receipt,
+                  ...(filtered.ok ? {} : { error: filtered.error }),
+                });
+              }
+              if (filtered && !filtered.ok) {
+                failedToolAttempts.add(attemptKey);
+                sameRequestReceipts.push({
+                  tool: name, arguments: toolArguments, resultFilter: filterRequest,
+                  ok: false, result: filtered.deliveredResult, error: filtered.error,
+                  receiptEventSeq,
+                });
+                return { ok: false, error: filtered.error, result: filtered.deliveredResult };
+              }
+              const inline = filtered ?? inlineToolResult(toolResult, {
                 tool: name,
                 receiptEventSeq,
                 maximumCharacters: name === "tool_receipt_read"
@@ -1021,7 +1155,8 @@ export class SlayerRuntime {
               });
               sameRequestReceipts.push({
                 tool: name,
-                arguments: args,
+                arguments: toolArguments,
+                ...(filterRequest ? { resultFilter: filterRequest } : {}),
                 ok: true,
                 result: inline.deliveredResult,
                 receiptEventSeq,
@@ -1034,8 +1169,10 @@ export class SlayerRuntime {
                   operationId: callId, name,
                   payload: {
                     receiptEventSeq,
-                    fullResultCharacters: inline.fullResultCharacters,
-                    inlineCharacters: this.config.maxInlineToolResultCharacters ?? 32 * 1024,
+                    fullResultCharacters: inline.fullResultCharacters
+                      ?? filtered?.receipt.summary.inputCharacters,
+                    inlineCharacters: filterRequest?.max_characters
+                      ?? this.config.maxInlineToolResultCharacters ?? 32 * 1024,
                   },
                 });
               }
@@ -1043,7 +1180,11 @@ export class SlayerRuntime {
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               failedToolAttempts.add(attemptKey);
-              sameRequestReceipts.push({ tool: name, arguments: args, ok: false, error: message });
+              sameRequestReceipts.push({
+                tool: name, arguments: toolArguments,
+                ...(filterRequest ? { resultFilter: filterRequest } : {}),
+                ok: false, error: message,
+              });
               this.ledger.append({
                 type: "tool.result", phase: "error", status: "error", actorType: "tool",
                 actorName: name, channel, turnId: requestId, operationId: callId, name,

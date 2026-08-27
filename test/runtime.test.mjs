@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
+import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 import { SlayerRuntime } from "../src/runtime.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
@@ -32,6 +33,19 @@ function runtimeConfig() {
     turnWorkflowEnabled: false,
     maxToolCalls: 4,
     systemPromptPath: "unused",
+  };
+}
+
+function identityResultFilter(overrides = {}) {
+  return {
+    collection_path: null,
+    query: null,
+    match_mode: "all_terms",
+    include_fields: [],
+    exclude_fields: [],
+    max_items: 200,
+    max_characters: 32768,
+    ...overrides,
   };
 }
 
@@ -167,6 +181,53 @@ test("the first model turn contains the exact request, context, and callable too
   assert.deepEqual(contextEvent.payload.relevantProfileQuestions, [{ factType: "address" }]);
   assert.equal(contextEvent.payload.attachment.filename, "contacts.csv");
   assert.equal(toolExecutionContext.attachment, attachment);
+});
+
+test("a declared read cannot execute without a valid result-filter boundary", async () => {
+  let executions = 0;
+  let rejected;
+  const events = [];
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "protected_read",
+    description: "Return protected records.",
+    annotations: { readOnlyHint: true },
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() {
+      executions += 1;
+      return { records: [{ id: 1, secret: "must pass through the boundary" }] };
+    },
+  });
+  const runtime = new SlayerRuntime({
+    modelTransport: fakeTransport(async (payload) => {
+      rejected = await payload.onToolCall({
+        callId: "unfiltered-read",
+        tool: "protected_read",
+        arguments: {},
+      });
+      return completedTurn({ text: "The read was rejected." });
+    }),
+    registry,
+    contextBuilder: {
+      async build() {
+        return {
+          text: "bounded", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: { append(event) { events.push(event); } },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+
+  await runtime.run({ requestId: "filter-required", requestEventId: "event-1", text: "Read it." });
+
+  assert.equal(executions, 0);
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /requires a valid result_filter/);
+  assert.equal(events.some(({ type, phase }) => type === "search.filter" && phase === "error"), true);
 });
 
 test("the runtime resumes the active native conversation without reinjecting transcript history", async () => {
@@ -650,10 +711,12 @@ test("oversized live tool results spill to an exact paginated receipt without re
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
   let executions = 0;
   registry.register({
     name: "large_read",
     description: "Return a deliberately large read result.",
+    annotations: { readOnlyHint: true },
     parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
     async execute() {
       executions += 1;
@@ -665,7 +728,11 @@ test("oversized live tool results spill to an exact paginated receipt without re
   let receiptPage;
   const runtime = new SlayerRuntime({
     modelTransport: fakeTransport(async (payload) => {
-      pagedResult = await payload.onToolCall({ callId: "large-call", tool: "large_read", arguments: {} });
+      pagedResult = await payload.onToolCall({
+        callId: "large-call",
+        tool: "large_read",
+        arguments: { result_filter: identityResultFilter({ max_characters: 1000 }) },
+      });
       receiptPage = await payload.onToolCall({
         callId: "receipt-call",
         tool: "tool_receipt_read",
@@ -673,6 +740,7 @@ test("oversized live tool results spill to an exact paginated receipt without re
           receiptEventSeq: pagedResult.result.receipt_event_seq,
           offset: 0,
           maxCharacters: 8000,
+          result_filter: identityResultFilter(),
         },
       });
       return completedTurn({ text: "Recovered the exact result without rerunning it." });
