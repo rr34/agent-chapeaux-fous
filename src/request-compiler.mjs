@@ -81,6 +81,11 @@ const capabilitySummaries = new Map([
   ["search", "Search across calendar, contacts, durable uploads, and conversation history with compact normalized results."],
 ]);
 
+// Transitional native writes must be selected from explicit request intent or
+// an accepted TurnBrief. They are never a fallback for a missing domain-owned
+// mutation tool, especially one owned by an MCP.
+const explicitSelectionOnlyCapabilities = new Set(["database-write"]);
+
 export function capabilityForTool(tool) {
   if (typeof tool.capabilityId === "string" && tool.capabilityId) return tool.capabilityId;
   if (typeof tool.source === "string" && tool.source.startsWith("mcp:")) {
@@ -463,7 +468,11 @@ export class RequestCompiler {
       || selection.reasons.includes("core:tool-free-request")
       ? []
       : [...grouped.keys()]
-        .filter((capability) => capability !== "unclassified" && !selection.capabilities.includes(capability))
+        .filter((capability) => (
+          capability !== "unclassified"
+          && !explicitSelectionOnlyCapabilities.has(capability)
+          && !selection.capabilities.includes(capability)
+        ))
         .sort();
     const requestCapabilities = capabilityRequestDefinition(deferredCapabilities);
     const fragments = (await Promise.all(selection.capabilities.map(async (capability) => ({

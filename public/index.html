@@ -53,6 +53,39 @@
 
   <main>
     <div id="agent-view" class="app-view">
+    <section class="requests" aria-labelledby="requests-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Chronological</p>
+          <h2 id="requests-heading">Requests</h2>
+        </div>
+        <div class="request-heading-actions">
+          <button id="select-video-script-sources" class="secondary compact" type="button">Create video script</button>
+          <label class="request-limit-label" for="request-limit">
+            <span>Show</span>
+            <select id="request-limit">
+              <option value="25" selected>25 requests</option>
+              <option value="50">50 requests</option>
+              <option value="100">100 requests</option>
+            </select>
+          </label>
+          <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
+        </div>
+      </div>
+      <div id="video-script-selection" class="video-script-selection organizer-panel" role="status" aria-live="polite" hidden>
+        <div>
+          <strong id="video-script-selection-count">No interactions selected</strong>
+          <span>Select up to 8 completed interactions. The script will use them in chronological order.</span>
+        </div>
+        <div class="video-script-selection-actions">
+          <button id="cancel-video-script-selection" class="secondary compact" type="button">Cancel</button>
+          <button id="generate-video-script" class="compact" type="button" disabled>Generate script</button>
+        </div>
+      </div>
+      <div id="request-list" class="request-list"></div>
+      <p id="empty" class="empty">No Chapeaux Fous requests yet.</p>
+    </section>
+
     <section class="composer" aria-labelledby="request-heading">
       <h2 id="request-heading" class="sr-only">New request</h2>
       <div class="voice-recorder">
@@ -90,39 +123,6 @@
         </div>
       </form>
       <p id="composer-status" class="status" role="status"></p>
-    </section>
-
-    <section class="requests" aria-labelledby="requests-heading">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Chronological</p>
-          <h2 id="requests-heading">Requests</h2>
-        </div>
-        <div class="request-heading-actions">
-          <button id="select-video-script-sources" class="secondary compact" type="button">Create video script</button>
-          <label class="request-limit-label" for="request-limit">
-            <span>Show</span>
-            <select id="request-limit">
-              <option value="25" selected>25 requests</option>
-              <option value="50">50 requests</option>
-              <option value="100">100 requests</option>
-            </select>
-          </label>
-          <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
-        </div>
-      </div>
-      <div id="video-script-selection" class="video-script-selection organizer-panel" role="status" aria-live="polite" hidden>
-        <div>
-          <strong id="video-script-selection-count">No interactions selected</strong>
-          <span>Select up to 8 completed interactions. The script will use them in chronological order.</span>
-        </div>
-        <div class="video-script-selection-actions">
-          <button id="cancel-video-script-selection" class="secondary compact" type="button">Cancel</button>
-          <button id="generate-video-script" class="compact" type="button" disabled>Generate script</button>
-        </div>
-      </div>
-      <div id="request-list" class="request-list"></div>
-      <p id="empty" class="empty">No Chapeaux Fous requests yet.</p>
     </section>
     </div>
 

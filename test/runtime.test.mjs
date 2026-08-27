@@ -577,6 +577,91 @@ test("late capability expansion preserves earlier same-request tool receipts wit
   assert.equal(betaExecutions, 1);
 });
 
+test("the runtime rejects a second capability-expansion round even if a compiler exposes one", async () => {
+  const modelRequests = [];
+  const expansionTool = (capability) => ({
+    name: "request_capabilities",
+    description: `Load ${capability}.`,
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: {
+        capabilities: { type: "array", items: { type: "string", enum: [capability] } },
+      },
+      required: ["capabilities"],
+    },
+    strict: true, source: "local", upstreamName: null,
+  });
+  const registry = new ToolRegistry();
+  for (const name of ["alpha_action", "beta_action", "gamma_action"]) {
+    registry.register({
+      name, description: name,
+      parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+      async execute() { return { name }; },
+    });
+  }
+  const runtime = new SlayerRuntime({
+    modelTransport: fakeTransport(async (payload) => {
+      modelRequests.push(payload);
+      if (modelRequests.length === 1) {
+        const result = await payload.onToolCall({
+          callId: "expand-beta", tool: "request_capabilities",
+          arguments: { capabilities: ["beta"] },
+        });
+        assert.equal(result.ok, true);
+        return completedTurn({ text: "Loading beta." });
+      }
+      const result = await payload.onToolCall({
+        callId: "expand-gamma", tool: "request_capabilities",
+        arguments: { capabilities: ["gamma"] },
+      });
+      assert.equal(result.ok, false);
+      assert.match(result.error, /single capability-expansion round/);
+      return completedTurn({ text: "Stopped after the bounded expansion." });
+    }),
+    registry,
+    requestCompiler: {
+      async compile({ tools, capabilityOverride, allowCapabilityExpansion }) {
+        if (!capabilityOverride) {
+          return {
+            tools: [tools.find(({ name }) => name === "alpha_action"), expansionTool("beta")],
+            capabilities: ["alpha"], instructionCapabilities: [], reasons: ["initial"],
+            fallbackAll: false, followsPriorTurn: false, availableToolCount: tools.length,
+            deferredCapabilities: ["beta"], capabilityCatalog: [], instructions: "",
+          };
+        }
+        assert.equal(allowCapabilityExpansion, false);
+        return {
+          tools: [
+            tools.find(({ name }) => name === "alpha_action"),
+            tools.find(({ name }) => name === "beta_action"),
+            expansionTool("gamma"),
+          ],
+          capabilities: ["alpha", "beta"], instructionCapabilities: [], reasons: ["expanded"],
+          fallbackAll: false, followsPriorTurn: false, availableToolCount: tools.length,
+          deferredCapabilities: ["gamma"], capabilityCatalog: [], instructions: "",
+        };
+      },
+    },
+    contextBuilder: {
+      async build() {
+        return {
+          text: "bounded", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: { append() {}, markConversationStarted() {} },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+
+  assert.equal(await runtime.run({
+    requestId: "bounded-expansion", requestEventId: "bounded-expansion-event", text: "Use beta.",
+  }), "Stopped after the bounded expansion.");
+  assert.equal(modelRequests.length, 2);
+});
+
 test("a capability change starts a fresh thread with bounded prior conversation context", async () => {
   let contextOptions;
   let modelConversationId;

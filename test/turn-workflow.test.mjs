@@ -271,7 +271,7 @@ test("orientation resolves a short approval, execution acts from the TurnBrief, 
     if (index === 1) {
       assert.deepEqual(
         payload.tools.map(({ name }) => name),
-        ["todo_create", "request_capabilities"],
+        ["todo_create"],
       );
       const result = await payload.onToolCall({
         callId: "todo-call", tool: "todo_create", arguments: { title: "Offered reminder" },
@@ -309,7 +309,7 @@ test("orientation resolves a short approval, execution acts from the TurnBrief, 
   assert.deepEqual(requests.map(({ effort }) => effort), ["medium", "xhigh", "low"]);
   assert.deepEqual(
     requests.map(({ tools }) => tools.map(({ name }) => name)),
-    [[], ["todo_create", "request_capabilities"], []],
+    [[], ["todo_create"], []],
   );
   assert.ok(requests[0].outputSchema);
   assert.equal(requests[0].input, "okay go ahead and do that.");
@@ -317,6 +317,7 @@ test("orientation resolves a short approval, execution acts from the TurnBrief, 
   assert.match(requests[0].developerInstructions, /Connected capability families/);
   assert.match(requests[1].developerInstructions, /Accepted TurnBrief/);
   assert.match(requests[2].developerInstructions, /todo_create/);
+  assert.match(requests[2].developerInstructions, /Complete callable-tool snapshot from execution/);
   assert.equal(ledger.events.some(({ type }) => type === "turn.brief"), true);
   assert.equal(ledger.events.some(({ type }) => type === "conversation.state"), true);
   const orientationStart = ledger.events.findIndex(({ type, phase, payload }) => (
@@ -335,6 +336,72 @@ test("orientation resolves a short approval, execution acts from the TurnBrief, 
     .filter(({ type }) => type === "model.request")
     .map(({ operationId }) => operationId);
   assert.equal(new Set(operationIds).size, operationIds.length);
+});
+
+test("structured execution cannot fish in unrelated capabilities when an MCP operation is absent", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("database-write").register({
+    name: "database_write",
+    description: "Write only explicitly allowlisted native content tables.",
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { throw new Error("database_write must not be called"); },
+  });
+  registry.register({
+    name: "remote_accounting_list_transactions",
+    description: "List owner-scoped accounting transactions; this tool does not delete them.",
+    source: "mcp:accounting",
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { return { transactions: [] }; },
+  });
+  const accountingBrief = {
+    ...brief(),
+    objective: "Delete the 13 confirmed accounting transactions.",
+    summary: "The user confirmed deletion of the reviewed accounting transactions.",
+    requiredCapabilities: ["integration:accounting"],
+    completionCriteria: ["A successful accounting transaction-deletion receipt exists."],
+  };
+  const blockedResponse = "No supported accounting transaction-deletion operation is callable.";
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(accountingBrief), 20);
+    if (index === 1) {
+      assert.deepEqual(
+        payload.tools.map(({ name }) => name),
+        ["remote_accounting_list_transactions"],
+      );
+      return completed(blockedResponse, 30);
+    }
+    assert.match(payload.developerInstructions, /Complete callable-tool snapshot from execution/);
+    assert.match(payload.developerInstructions, /remote_accounting_list_transactions/);
+    assert.doesNotMatch(payload.developerInstructions, /database_write/);
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "blocked",
+      summary: "The complete callable accounting tool snapshot contains no transaction-deletion operation.",
+      satisfiedCriteria: [],
+      remainingActions: ["Delete the confirmed transactions when the accounting MCP publishes that workflow."],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-accounting-delete",
+    requestEventId: "event-current",
+    text: "Delete all 13 transactions.",
+  }), blockedResponse);
+  assert.equal(requests.length, 3);
+  assert.equal(ledger.events.some(({ type }) => type === "tools.expansion.requested"), false);
 });
 
 test("a failed completion audit adds a bounded repair call without repeating successful writes", async () => {

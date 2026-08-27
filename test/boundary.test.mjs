@@ -526,6 +526,17 @@ test("the request feed loads at least twenty-five entries by default and offers 
   assert.match(application, /elements\.requestLimit\.addEventListener\("change"/);
 });
 
+test("the agent chat renders chronologically above its composer", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  assert.ok(document.indexOf('<section class="requests"') < document.indexOf('<section class="composer"'));
+  assert.match(application, /const chronologicalRequests = \[\.\.\.body\.requests\]\.reverse\(\)/);
+  assert.match(application, /chronologicalRequests\.forEach\(\(request, index\) =>/);
+  assert.match(application, /renderAgentMascot\(elements\.agentMascot, body\.requests\[0\]\?\.explicitHats\)/);
+  assert.match(application, /wasFollowingLatest/);
+  assert.match(application, /elements\.form\.scrollIntoView\(\{ block: "end" \}\)/);
+});
+
 test("clicking a displayed request ID copies the complete request ID", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");

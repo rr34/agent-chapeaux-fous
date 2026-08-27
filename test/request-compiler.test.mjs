@@ -530,6 +530,7 @@ test("compiled requests expose an organized deferred catalog and one capability-
   assert.equal(names(compiled).includes("todo_list"), true);
   assert.equal(names(compiled).includes("request_capabilities"), true);
   assert.ok(compiled.deferredCapabilities.includes("integration:tlom"));
+  assert.equal(compiled.deferredCapabilities.includes("database-write"), false);
   assert.match(compiled.instructions, /# Additional available capabilities/);
   assert.match(compiled.instructions, /integration:tlom/);
   const requestTool = compiled.tools.find(({ name }) => name === "request_capabilities");
@@ -541,6 +542,30 @@ test("compiled requests expose an organized deferred catalog and one capability-
   const greeting = await compiler.compile({ tools, text: "Hello!" });
   assert.equal(names(greeting).includes("request_capabilities"), false);
   assert.deepEqual(greeting.deferredCapabilities, []);
+});
+
+test("accepted capability overrides include declared dependent tools without late expansion", async () => {
+  const compiler = new RequestCompiler();
+  const compiled = await compiler.compile({
+    tools: [
+      {
+        ...tool("email_send"),
+        capabilityId: "email",
+        capability: { dependentTools: ["contact_lookup_batch"] },
+      },
+      { ...tool("contact_lookup_batch"), capabilityId: "contacts" },
+      { ...tool("database_write"), capabilityId: "database-write" },
+    ],
+    text: "Send the approved email.",
+    capabilityOverride: ["email"],
+    allowCapabilityExpansion: false,
+  });
+
+  assert.deepEqual(names(compiled), ["email_send", "contact_lookup_batch"]);
+  assert.deepEqual(compiled.dependentTools, ["contact_lookup_batch"]);
+  assert.deepEqual(compiled.deferredCapabilities, []);
+  assert.equal(names(compiled).includes("request_capabilities"), false);
+  assert.equal(names(compiled).includes("database_write"), false);
 });
 
 test("the compiler loads instructions only for selected callable capabilities", async () => {

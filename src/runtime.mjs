@@ -36,6 +36,20 @@ function callableToolsFingerprint(tools) {
   return createHash("sha256").update(JSON.stringify(tools)).digest("hex");
 }
 
+function callableToolCatalog(tools) {
+  return tools
+    .filter(({ name }) => name !== "request_capabilities")
+    .map(({ name, title, description, source, upstreamName, capabilityId, annotations }) => ({
+      name,
+      title: title ?? null,
+      description,
+      source,
+      upstreamName: upstreamName ?? null,
+      capabilityId: capabilityId ?? null,
+      annotations: annotations ?? null,
+    }));
+}
+
 function serializedBytes(value) {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
@@ -561,6 +575,7 @@ export class SlayerRuntime {
         executorResponse: execution.text,
         deterministicFindings: executionFindings,
         auditEffects,
+        callableTools: execution.callableToolCatalog,
       }),
       outputSchema: completionAuditSchema,
       runTimeoutMs: remainingTimeoutMs(),
@@ -650,7 +665,7 @@ export class SlayerRuntime {
           recentConversation,
           previousCapabilities: priorConversation.capabilities,
           capabilityOverride,
-          allowCapabilityExpansion: Boolean(workflowStep),
+          allowCapabilityExpansion: !workflowStep,
         })
       : {
           tools: availableTools,
@@ -693,6 +708,11 @@ export class SlayerRuntime {
     const selectedEffort = effort || this.config.reasoningEffort;
     let conversationId = conversation.conversationId;
     let totalToolCallCount = 0;
+    // Orientation owns capability-family selection for structured execution.
+    // Legacy/direct execution may make one bounded late expansion, but an
+    // expansion can never turn into open-ended capability fishing.
+    const maximumCapabilityExpansionRounds = workflowStep ? 0 : 1;
+    let capabilityExpansionRounds = 0;
     let attempt = 0;
     let result;
     const sameRequestReceipts = [...initialReceipts];
@@ -982,6 +1002,17 @@ export class SlayerRuntime {
               }
             }
             if (name === "request_capabilities") {
+              if (capabilityExpansionRounds >= maximumCapabilityExpansionRounds || expansionRequested) {
+                const message = maximumCapabilityExpansionRounds === 0
+                  ? "Capability expansion is not authorized during structured execution; orientation already selected the accepted TurnBrief capabilities and their declared dependent tools"
+                  : "The single capability-expansion round is already used or pending; finish with the callable tools or report the evidenced blocker";
+                this.ledger.append({
+                  type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                  actorName: name, channel, turnId: requestId, operationId: callId, name,
+                  payload: { callId, name }, error: message,
+                });
+                return { ok: false, error: message };
+              }
               const allowed = new Set(compilation.deferredCapabilities ?? []);
               const requested = Array.isArray(args.capabilities)
                 ? [...new Set(args.capabilities.filter((capability) => allowed.has(capability)))]
@@ -1226,6 +1257,7 @@ export class SlayerRuntime {
 
       if (requestedCapabilities.size === 0) break;
       if (!this.requestCompiler) throw new Error("Capability expansion requires the request compiler");
+      capabilityExpansionRounds += 1;
       conversationId = null;
       compilation = await this.requestCompiler.compile({
         tools: availableTools,
@@ -1234,7 +1266,7 @@ export class SlayerRuntime {
         recentConversation,
         previousCapabilities: priorConversation.capabilities,
         capabilityOverride: [...new Set([...compilation.capabilities, ...requestedCapabilities])],
-        allowCapabilityExpansion: Boolean(workflowStep),
+        allowCapabilityExpansion: capabilityExpansionRounds < maximumCapabilityExpansionRounds,
       });
     }
 
@@ -1260,6 +1292,7 @@ export class SlayerRuntime {
       actionReferences: generatedActionReferences,
       toolCallCount: totalToolCallCount,
       capabilities: compilation.capabilities,
+      callableToolCatalog: callableToolCatalog(compilation.tools),
       conversationId: finalConversationId,
     };
   }

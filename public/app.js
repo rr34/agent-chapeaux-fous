@@ -1301,10 +1301,16 @@ function requestNode(request, index) {
 
 async function loadRequests({ force = false } = {}) {
   if (!force && selectionTouchesRequests()) return;
+  const initialLoad = requestNodes.size === 0;
+  const previousListHeight = elements.list.offsetHeight;
+  const previousPageHeight = document.documentElement.scrollHeight;
+  const wasFollowingLatest = initialLoad
+    || window.scrollY + window.innerHeight >= previousPageHeight - 160;
   const limit = Number(elements.requestLimit.value) || 25;
   const body = await api(`/api/requests?limit=${limit}`);
   const seen = new Set();
-  body.requests.forEach((request, index) => {
+  const chronologicalRequests = [...body.requests].reverse();
+  chronologicalRequests.forEach((request, index) => {
     seen.add(request.requestId);
     const node = requestNode(request, index);
     if (!node.isConnected) elements.list.append(node);
@@ -1320,6 +1326,11 @@ async function loadRequests({ force = false } = {}) {
   elements.empty.hidden = body.requests.length > 0;
   renderAgentMascot(elements.agentMascot, body.requests[0]?.explicitHats);
   speakCompletedResponses(body.requests);
+  const transcriptChangedHeight = elements.list.offsetHeight !== previousListHeight;
+  if (activeView === "agent" && chronologicalRequests.length > 0
+      && wasFollowingLatest && (initialLoad || transcriptChangedHeight)) {
+    requestAnimationFrame(() => elements.form.scrollIntoView({ block: "end" }));
+  }
 }
 
 function traceLabel(event, index) {

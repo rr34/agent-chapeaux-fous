@@ -195,7 +195,7 @@ export function orientationContext({
 export function turnBriefInstructions(brief, authorizedActionReferences = []) {
   return [
     "# Accepted TurnBrief",
-    "This source-grounded contract defines the current request. Execute its objective and authorized actions, respect prohibited and deferred actions, and continue until every completion criterion is satisfied or a genuinely new blocker is proven by a tool result. Do not re-infer a narrower task from the latest sentence alone.",
+    "This source-grounded contract defines the current request. Execute its objective and authorized actions, respect prohibited and deferred actions, and continue until every completion criterion is satisfied or a genuinely new blocker is proven by a tool result or the complete callable-tool snapshot. Do not re-infer a narrower task from the latest sentence alone.",
     JSON.stringify(brief, null, 2),
     "",
     "# Authorized MCP action references",
@@ -205,7 +205,7 @@ export function turnBriefInstructions(brief, authorizedActionReferences = []) {
 }
 
 export function auditContext({
-  brief, receipts, executorResponse, deterministicFindings = [], auditEffects = [],
+  brief, receipts, executorResponse, deterministicFindings = [], auditEffects = [], callableTools = [],
 }) {
   return [
     "# Completion audit input",
@@ -223,6 +223,10 @@ export function auditContext({
     "",
     "## Successful calls with declared or unknown effects",
     JSON.stringify(auditEffects, null, 2),
+    "",
+    "## Complete callable-tool snapshot from execution",
+    JSON.stringify(callableTools, null, 2),
+    "This is the complete set of application functions callable in the executor's final interaction. It may prove that no supported callable operation was available. Interpret only the published names, descriptions, ownership, and annotations; do not invent provider workflow semantics.",
     "",
     "## Proposed executor response",
     executorResponse,
