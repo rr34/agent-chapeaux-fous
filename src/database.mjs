@@ -53,6 +53,11 @@ export const requiredDatabaseShape = {
     "interaction_guide_id", "name", "guide_text", "status", "version",
     "created_at_utc", "updated_at_utc",
   ],
+  interaction_guide_steps: [
+    "interaction_guide_step_id", "interaction_guide_id", "step_number", "name",
+    "opening_text", "objective_text", "instructions_text", "answers_json",
+    "completion_mode", "enabled", "created_at_utc", "updated_at_utc",
+  ],
   todo_routines: [
     "todo_routine_id", "todo_group_id", "text", "first_scheduled_at_utc",
     "first_due_at_utc", "time_zone", "recurrence_rule", "disabled_at_utc",

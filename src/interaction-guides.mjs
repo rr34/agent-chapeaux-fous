@@ -1,4 +1,7 @@
+import { randomUUID } from "node:crypto";
+
 const guideStatuses = new Set(["active", "archived"]);
+const completionModes = new Set(["response_valid", "user_advances", "tool_receipt"]);
 
 function identifier(value, label = "Interaction guide ID") {
   const result = Number(value);
@@ -13,7 +16,39 @@ function requiredText(value, label, maximum) {
   return result;
 }
 
-function publicGuide(row, { includeText = true } = {}) {
+function optionalText(value, label, maximum) {
+  if (value === null || value === undefined) return null;
+  return requiredText(value, label, maximum);
+}
+
+function answersObject(value, label = "Step answers") {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be a JSON object`);
+  }
+  const serialized = JSON.stringify(value);
+  if (serialized.length > 100_000) throw new Error(`${label} cannot exceed 100000 JSON characters`);
+  return { value: JSON.parse(serialized), serialized };
+}
+
+function publicStep(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.interaction_guide_step_id),
+    guideId: Number(row.interaction_guide_id),
+    stepNumber: Number(row.step_number),
+    name: row.name,
+    openingText: row.opening_text,
+    objectiveText: row.objective_text,
+    instructionsText: row.instructions_text,
+    answers: JSON.parse(row.answers_json),
+    completionMode: row.completion_mode,
+    enabled: Boolean(row.enabled),
+    createdAtUtc: row.created_at_utc,
+    updatedAtUtc: row.updated_at_utc,
+  };
+}
+
+function publicGuide(row, { includeText = true, steps = null, activeRun = null } = {}) {
   if (!row) return null;
   return {
     id: Number(row.interaction_guide_id),
@@ -23,6 +58,8 @@ function publicGuide(row, { includeText = true } = {}) {
     version: Number(row.version),
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
+    ...(steps === null ? {} : { steps: steps.map(publicStep) }),
+    ...(activeRun === null ? {} : { activeRun }),
   };
 }
 
@@ -50,7 +87,97 @@ export class InteractionGuides {
       ORDER BY name COLLATE NOCASE, interaction_guide_id
       LIMIT ?
     `).all(...(status === "all" ? [limit] : [status, limit]));
-    return { status, count: rows.length, guides: rows.map((row) => publicGuide(row, { includeText: false })) };
+    const database = this.store.requireReady();
+    const guides = rows.map((row) => {
+      const activeRun = this.#activeRun(database, Number(row.interaction_guide_id));
+      const current = activeRun
+        ? this.#currentRunStep(database, activeRun.id, Number(row.interaction_guide_id))
+        : null;
+      return publicGuide(row, {
+        includeText: false,
+        activeRun: activeRun ? {
+          id: activeRun.id,
+          guideVersion: Number(activeRun.guideVersion),
+          status: "active",
+          currentStepNumber: current ? Number(current.step_number) : null,
+        } : null,
+      });
+    });
+    return { status, count: guides.length, guides };
+  }
+
+  #steps(database, guideId, { enabledOnly = false } = {}) {
+    return database.prepare(`
+      SELECT * FROM interaction_guide_steps
+      WHERE interaction_guide_id = ?
+        ${enabledOnly ? "AND enabled = 1" : ""}
+      ORDER BY step_number, interaction_guide_step_id
+    `).all(guideId);
+  }
+
+  #guideForDefinitionEdit(database, guideId, expectedVersion) {
+    const selectedId = identifier(guideId);
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+      throw new Error("Expected interaction guide version must be a positive integer");
+    }
+    const guide = database.prepare(
+      "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
+    ).get(selectedId);
+    if (!guide) throw new Error(`Interaction guide ${selectedId} does not exist`);
+    if (guide.status !== "active") throw conflict("Archived interaction guides cannot be changed");
+    if (Number(guide.version) !== expectedVersion) {
+      throw conflict("This interaction guide changed after it was read. Fetch it again before updating it.");
+    }
+    const activeRun = this.#activeRun(database, selectedId);
+    if (activeRun) {
+      throw conflict("Finish or cancel the active structured-interaction run before changing its definition");
+    }
+    return guide;
+  }
+
+  #bumpGuideVersion(database, guideId, expectedVersion) {
+    const guide = database.prepare(`
+      UPDATE interaction_guides
+      SET version = version + 1,
+          updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE interaction_guide_id = ? AND version = ?
+      RETURNING *
+    `).get(guideId, expectedVersion);
+    if (!guide) throw conflict("This interaction guide changed while its steps were being updated");
+    return guide;
+  }
+
+  #activeRun(database, guideId) {
+    const row = database.prepare(`
+      SELECT started.*
+      FROM activity_events AS started
+      WHERE started.event_type = 'interaction_guide.run_started'
+        AND json_extract(started.payload_json, '$.interactionGuideId') = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM activity_events AS terminal
+          WHERE terminal.subject_type = 'interaction_guide_run'
+            AND terminal.subject_id = started.subject_id
+            AND terminal.event_type IN (
+              'interaction_guide.run_completed', 'interaction_guide.run_cancelled'
+            )
+        )
+      ORDER BY started.event_seq DESC
+      LIMIT 1
+    `).get(guideId);
+    if (!row) return null;
+    return { id: row.subject_id, ...JSON.parse(row.payload_json) };
+  }
+
+  #currentRunStep(database, runId, guideId) {
+    const completed = new Set(database.prepare(`
+      SELECT json_extract(payload_json, '$.stepNumber') AS step_number
+      FROM activity_events
+      WHERE subject_type = 'interaction_guide_run'
+        AND subject_id = ?
+        AND event_type = 'interaction_guide.step_completed'
+    `).all(runId).map(({ step_number: stepNumber }) => Number(stepNumber)));
+    return this.#steps(database, guideId, { enabledOnly: true })
+      .find((row) => !completed.has(Number(row.step_number))) ?? null;
   }
 
   get({ guideId = null, name = null } = {}) {
@@ -66,7 +193,348 @@ export class InteractionGuides {
       : this.store.requireReady().prepare(
           "SELECT * FROM interaction_guides WHERE name = ? COLLATE NOCASE",
         ).get(selectedName);
-    return publicGuide(row);
+    if (!row) return null;
+    const database = this.store.requireReady();
+    const selectedId = Number(row.interaction_guide_id);
+    const activeRun = this.#activeRun(database, selectedId);
+    const current = activeRun ? this.#currentRunStep(database, activeRun.id, selectedId) : null;
+    return publicGuide(row, {
+      steps: this.#steps(database, selectedId),
+      activeRun: activeRun ? {
+        id: activeRun.id,
+        guideVersion: Number(activeRun.guideVersion),
+        status: "active",
+        currentStepNumber: current ? Number(current.step_number) : null,
+      } : null,
+    });
+  }
+
+  addStep({
+    guideId, expectedVersion, stepNumber, name = null, openingText,
+    objectiveText, instructionsText = null, completionMode = "response_valid", enabled = true,
+  }, context = {}) {
+    const selectedStepNumber = identifier(stepNumber, "Interaction guide step number");
+    if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
+    if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
+    const values = {
+      name: optionalText(name, "Interaction guide step name", 200),
+      openingText: requiredText(openingText, "Interaction guide step opening text", 10_000),
+      objectiveText: requiredText(objectiveText, "Interaction guide step objective text", 10_000),
+      instructionsText: optionalText(instructionsText, "Interaction guide step instructions", 50_000),
+    };
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const guideBefore = this.#guideForDefinitionEdit(database, guideId, expectedVersion);
+      const row = database.prepare(`
+        INSERT INTO interaction_guide_steps (
+          interaction_guide_id, step_number, name, opening_text, objective_text,
+          instructions_text, completion_mode, enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING *
+      `).get(
+        guideBefore.interaction_guide_id, selectedStepNumber, values.name, values.openingText,
+        values.objectiveText, values.instructionsText, completionMode, enabled ? 1 : 0,
+      );
+      const guide = publicGuide(this.#bumpGuideVersion(
+        database, guideBefore.interaction_guide_id, expectedVersion,
+      ));
+      const step = publicStep(row);
+      this.ledger.append({
+        type: "interaction_guide.step_added", status: "complete", actorType: "tool",
+        actorName: "interaction_guide_step_add", turnId: context.requestId,
+        operationId: context.callId, name: "Interaction guide step added",
+        content: `${guide.name} step ${step.stepNumber}`,
+        payload: { guide, step }, subjectType: "interaction_guide", subjectId: String(guide.id),
+      });
+      database.exec("COMMIT");
+      return { created: true, guide, step };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  updateStep({
+    stepId, expectedVersion, stepNumber, name, openingText, objectiveText,
+    instructionsText, completionMode, enabled,
+  }, context = {}) {
+    const selectedStepId = identifier(stepId, "Interaction guide step ID");
+    const selectedStepNumber = identifier(stepNumber, "Interaction guide step number");
+    if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
+    if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
+    const values = {
+      name: optionalText(name, "Interaction guide step name", 200),
+      openingText: requiredText(openingText, "Interaction guide step opening text", 10_000),
+      objectiveText: requiredText(objectiveText, "Interaction guide step objective text", 10_000),
+      instructionsText: optionalText(instructionsText, "Interaction guide step instructions", 50_000),
+    };
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const before = database.prepare(
+        "SELECT * FROM interaction_guide_steps WHERE interaction_guide_step_id = ?",
+      ).get(selectedStepId);
+      if (!before) throw new Error(`Interaction guide step ${selectedStepId} does not exist`);
+      const guideBefore = this.#guideForDefinitionEdit(
+        database, before.interaction_guide_id, expectedVersion,
+      );
+      const row = database.prepare(`
+        UPDATE interaction_guide_steps
+        SET step_number = ?, name = ?, opening_text = ?, objective_text = ?,
+            instructions_text = ?, completion_mode = ?, enabled = ?,
+            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE interaction_guide_step_id = ?
+        RETURNING *
+      `).get(
+        selectedStepNumber, values.name, values.openingText, values.objectiveText,
+        values.instructionsText, completionMode, enabled ? 1 : 0, selectedStepId,
+      );
+      const guide = publicGuide(this.#bumpGuideVersion(
+        database, guideBefore.interaction_guide_id, expectedVersion,
+      ));
+      const step = publicStep(row);
+      this.ledger.append({
+        type: "interaction_guide.step_updated", status: "complete", actorType: "tool",
+        actorName: "interaction_guide_step_update", turnId: context.requestId,
+        operationId: context.callId, name: "Interaction guide step updated",
+        content: `${guide.name} step ${step.stepNumber}`,
+        payload: { before: publicStep(before), guide, step },
+        subjectType: "interaction_guide", subjectId: String(guide.id),
+      });
+      database.exec("COMMIT");
+      return { updated: true, guide, step };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  begin({ guideId = null, name = null, restart = false } = {}, context = {}) {
+    if (typeof restart !== "boolean") throw new Error("Restart must be true or false");
+    const guide = this.get({ guideId, name });
+    if (!guide) throw new Error("Interaction guide not found");
+    if (guide.status !== "active") throw conflict("Archived interaction guides cannot be started");
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const activeRun = this.#activeRun(database, guide.id);
+      if (activeRun && !restart) {
+        if (Number(activeRun.guideVersion) !== guide.version) {
+          throw conflict("The active run uses a different guide version and must be restarted");
+        }
+        const current = this.#currentRunStep(database, activeRun.id, guide.id);
+        database.exec("COMMIT");
+        return {
+          started: false, resumed: true,
+          run: { ...activeRun, status: "active", currentStepNumber: current?.step_number ?? null },
+          guide, currentStep: publicStep(current),
+        };
+      }
+      if (activeRun) {
+        this.ledger.append({
+          type: "interaction_guide.run_cancelled", status: "cancelled", actorType: "tool",
+          actorName: "interaction_guide_start", turnId: context.requestId,
+          operationId: context.callId, name: "Structured interaction restarted",
+          content: guide.name, payload: { interactionGuideId: guide.id, reason: "restart" },
+          subjectType: "interaction_guide_run", subjectId: activeRun.id,
+        });
+      }
+      const enabledSteps = this.#steps(database, guide.id, { enabledOnly: true });
+      if (!enabledSteps.length) throw conflict("This interaction guide has no enabled steps");
+      database.prepare(`
+        UPDATE interaction_guide_steps
+        SET answers_json = '{}', updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE interaction_guide_id = ? AND answers_json <> '{}'
+      `).run(guide.id);
+      const runId = randomUUID();
+      const current = database.prepare(`
+        SELECT * FROM interaction_guide_steps
+        WHERE interaction_guide_step_id = ?
+      `).get(enabledSteps[0].interaction_guide_step_id);
+      const run = {
+        id: runId, interactionGuideId: guide.id, guideVersion: guide.version,
+        status: "active", currentStepNumber: Number(current.step_number),
+      };
+      this.ledger.append({
+        type: "interaction_guide.run_started", status: "processing", actorType: "tool",
+        actorName: "interaction_guide_start", turnId: context.requestId,
+        operationId: context.callId, name: "Structured interaction started",
+        content: guide.name,
+        payload: {
+          interactionGuideId: guide.id, guideVersion: guide.version,
+          stepSnapshot: enabledSteps.map((row) => publicStep({ ...row, answers_json: "{}" })),
+        },
+        subjectType: "interaction_guide_run", subjectId: runId,
+      });
+      database.exec("COMMIT");
+      return {
+        started: true, resumed: false, run, guide: { ...guide, steps: guide.steps.map((step) => ({ ...step, answers: {} })) },
+        currentStep: publicStep(current),
+      };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  answerStep({
+    runId, stepNumber, answers, stepComplete,
+    userConfirmedAdvance = false, completionReceiptEventSeq = null,
+  }, context = {}) {
+    const selectedRunId = requiredText(runId, "Structured interaction run ID", 100);
+    const selectedStepNumber = identifier(stepNumber, "Interaction guide step number");
+    if (typeof stepComplete !== "boolean") throw new Error("Step complete must be true or false");
+    if (typeof userConfirmedAdvance !== "boolean") throw new Error("User confirmed advance must be true or false");
+    const suppliedAnswers = answersObject(answers).value;
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const startedRow = database.prepare(`
+        SELECT * FROM activity_events
+        WHERE event_type = 'interaction_guide.run_started'
+          AND subject_type = 'interaction_guide_run' AND subject_id = ?
+        ORDER BY event_seq DESC LIMIT 1
+      `).get(selectedRunId);
+      if (!startedRow) throw new Error(`Structured interaction run ${selectedRunId} does not exist`);
+      const terminal = database.prepare(`
+        SELECT event_type FROM activity_events
+        WHERE subject_type = 'interaction_guide_run' AND subject_id = ?
+          AND event_type IN ('interaction_guide.run_completed', 'interaction_guide.run_cancelled')
+        ORDER BY event_seq DESC LIMIT 1
+      `).get(selectedRunId);
+      if (terminal) throw conflict("This structured-interaction run is no longer active");
+      const started = JSON.parse(startedRow.payload_json);
+      const guide = database.prepare(
+        "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
+      ).get(started.interactionGuideId);
+      if (!guide || Number(guide.version) !== Number(started.guideVersion)) {
+        throw conflict("The guide definition changed after this run started; restart it before continuing");
+      }
+      const current = this.#currentRunStep(database, selectedRunId, guide.interaction_guide_id);
+      if (!current) throw conflict("This structured-interaction run has no remaining enabled step");
+      if (Number(current.step_number) !== selectedStepNumber) {
+        throw conflict(`The active step is ${current.step_number}, not ${selectedStepNumber}`);
+      }
+      const beforeAnswers = JSON.parse(current.answers_json);
+      const mergedAnswers = { ...beforeAnswers, ...suppliedAnswers };
+      const normalizedAnswers = answersObject(mergedAnswers);
+      if (stepComplete && current.completion_mode === "response_valid" && Object.keys(mergedAnswers).length === 0) {
+        throw conflict("A response-valid step needs at least one recorded answer before completion");
+      }
+      if (stepComplete && current.completion_mode === "user_advances" && !userConfirmedAdvance) {
+        throw conflict("This step advances only after the user explicitly says to continue");
+      }
+      let completionReceipt = null;
+      if (stepComplete && current.completion_mode === "tool_receipt") {
+        if (!Number.isSafeInteger(completionReceiptEventSeq) || completionReceiptEventSeq < 1) {
+          throw conflict("This step needs the successful tool-result event number that proves completion");
+        }
+        completionReceipt = database.prepare(`
+          SELECT event_seq, event_id, event_type, status, name, turn_id
+          FROM activity_events
+          WHERE event_seq = ? AND event_type = 'tool.result' AND status = 'complete'
+            AND (? IS NULL OR turn_id = ?)
+        `).get(completionReceiptEventSeq, context.requestId ?? null, context.requestId ?? null);
+        if (!completionReceipt) throw conflict("The supplied event is not a successful current-request tool receipt");
+      }
+      const saved = database.prepare(`
+        UPDATE interaction_guide_steps
+        SET answers_json = ?, updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE interaction_guide_step_id = ?
+        RETURNING *
+      `).get(normalizedAnswers.serialized, current.interaction_guide_step_id);
+      this.ledger.append({
+        type: stepComplete ? "interaction_guide.step_completed" : "interaction_guide.step_progress",
+        status: stepComplete ? "complete" : "processing", actorType: "tool",
+        actorName: "interaction_guide_step_answer", turnId: context.requestId,
+        operationId: context.callId,
+        name: stepComplete ? "Structured interaction step completed" : "Structured interaction answers recorded",
+        content: `${guide.name} step ${selectedStepNumber}`,
+        payload: {
+          interactionGuideId: Number(guide.interaction_guide_id), stepNumber: selectedStepNumber,
+          answers: mergedAnswers, completionMode: current.completion_mode,
+          completionReceipt,
+        },
+        subjectType: "interaction_guide_run", subjectId: selectedRunId,
+      });
+      const next = stepComplete
+        ? this.#currentRunStep(database, selectedRunId, guide.interaction_guide_id)
+        : saved;
+      const runCompleted = stepComplete && !next;
+      if (runCompleted) {
+        this.ledger.append({
+          type: "interaction_guide.run_completed", status: "complete", actorType: "tool",
+          actorName: "interaction_guide_step_answer", turnId: context.requestId,
+          operationId: context.callId, name: "Structured interaction completed",
+          content: guide.name,
+          payload: { interactionGuideId: Number(guide.interaction_guide_id), guideVersion: Number(guide.version) },
+          subjectType: "interaction_guide_run", subjectId: selectedRunId,
+        });
+      }
+      database.exec("COMMIT");
+      return {
+        recorded: true, stepComplete, runCompleted,
+        run: {
+          id: selectedRunId, interactionGuideId: Number(guide.interaction_guide_id),
+          guideVersion: Number(guide.version), status: runCompleted ? "complete" : "active",
+          currentStepNumber: next ? Number(next.step_number) : null,
+        },
+        step: publicStep(saved), currentStep: publicStep(next),
+      };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  cancelRun({ runId, reason }, context = {}) {
+    const selectedRunId = requiredText(runId, "Structured interaction run ID", 100);
+    const selectedReason = requiredText(reason, "Structured interaction cancellation reason", 1_000);
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const startedRow = database.prepare(`
+        SELECT * FROM activity_events
+        WHERE event_type = 'interaction_guide.run_started'
+          AND subject_type = 'interaction_guide_run' AND subject_id = ?
+        ORDER BY event_seq DESC LIMIT 1
+      `).get(selectedRunId);
+      if (!startedRow) throw new Error(`Structured interaction run ${selectedRunId} does not exist`);
+      const terminal = database.prepare(`
+        SELECT event_type FROM activity_events
+        WHERE subject_type = 'interaction_guide_run' AND subject_id = ?
+          AND event_type IN ('interaction_guide.run_completed', 'interaction_guide.run_cancelled')
+        ORDER BY event_seq DESC LIMIT 1
+      `).get(selectedRunId);
+      if (terminal) throw conflict("This structured-interaction run is already complete or cancelled");
+      const started = JSON.parse(startedRow.payload_json);
+      const guide = database.prepare(
+        "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
+      ).get(started.interactionGuideId);
+      this.ledger.append({
+        type: "interaction_guide.run_cancelled", status: "cancelled", actorType: "tool",
+        actorName: "interaction_guide_run_cancel", turnId: context.requestId,
+        operationId: context.callId, name: "Structured interaction cancelled",
+        content: guide?.name ?? selectedRunId,
+        payload: { interactionGuideId: Number(started.interactionGuideId), reason: selectedReason },
+        subjectType: "interaction_guide_run", subjectId: selectedRunId,
+      });
+      database.exec("COMMIT");
+      return {
+        cancelled: true,
+        run: {
+          id: selectedRunId,
+          interactionGuideId: Number(started.interactionGuideId),
+          guideVersion: Number(started.guideVersion),
+          status: "cancelled",
+          currentStepNumber: null,
+        },
+      };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   create({ name, guideText }, context = {}) {
@@ -115,6 +583,9 @@ export class InteractionGuides {
       if (!beforeRow) throw new Error(`Interaction guide ${selectedId} does not exist`);
       if (Number(beforeRow.version) !== expectedVersion) {
         throw conflict("This interaction guide changed after it was read. Fetch it again before updating it.");
+      }
+      if (this.#activeRun(database, selectedId)) {
+        throw conflict("Finish or cancel the active structured-interaction run before changing its definition");
       }
       const selectedName = name === null
         ? beforeRow.name
@@ -170,6 +641,9 @@ export class InteractionGuides {
       if (!before) throw new Error(`Interaction guide ${selectedId} does not exist`);
       if (Number(before.version) !== expectedVersion) {
         throw conflict("This interaction guide changed after it was read. Fetch it again before archiving it.");
+      }
+      if (this.#activeRun(database, selectedId)) {
+        throw conflict("Finish or cancel the active structured-interaction run before archiving its guide");
       }
       if (before.status === "archived") {
         database.exec("COMMIT");

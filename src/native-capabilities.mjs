@@ -35,8 +35,8 @@ export const nativeCapabilityManifests = [
   },
   {
     id: "interaction-guides", title: "Interaction guides",
-    summary: "Create, inspect, update, and follow user-owned guides for structured interactions.",
-    aliases: ["interaction guide", "guided interaction"], instructionFile: "interaction-guides.md",
+    summary: "Build and run numbered, resumable user-owned scripts for structured interactions.",
+    aliases: ["interaction guide", "guided interaction", "structured conversation", "structured interaction"], instructionFile: "interaction-guides.md",
     readOnlyTools: ["interaction_guide_list", "interaction_guide_get"],
   },
   {

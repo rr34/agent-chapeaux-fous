@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 19,
-    "schemaFingerprint": "f054de35f9cbecea6f78b20a68e6f951ba2a452c98590d44cba5588aa81725cd",
-    "extractedAt": "2026-08-24T14:47:54.132Z"
+    "schemaVersion": 20,
+    "schemaFingerprint": "0d4c2eb1868b564eb3055b6e3468ca93a1e9bd547497bb525997b086c59ec0ac",
+    "extractedAt": "2026-08-27T20:51:00.661Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -9235,6 +9235,430 @@
         }
       },
       "relationships": {}
+    },
+    "interaction_guide_steps": {
+      "mechanics": {
+        "present": true,
+        "kind": "table",
+        "definition": "CREATE TABLE interaction_guide_steps (\n    interaction_guide_step_id INTEGER PRIMARY KEY,\n    interaction_guide_id      INTEGER NOT NULL\n                              REFERENCES interaction_guides(interaction_guide_id)\n                              ON DELETE CASCADE,\n    step_number               INTEGER NOT NULL CHECK (step_number > 0),\n    name                      TEXT\n                              CHECK (name IS NULL OR length(trim(name)) BETWEEN 1 AND 200),\n    opening_text              TEXT NOT NULL\n                              CHECK (length(trim(opening_text)) BETWEEN 1 AND 10000),\n    objective_text            TEXT NOT NULL\n                              CHECK (length(trim(objective_text)) BETWEEN 1 AND 10000),\n    instructions_text         TEXT\n                              CHECK (instructions_text IS NULL OR length(trim(instructions_text)) BETWEEN 1 AND 50000),\n    answers_json              TEXT NOT NULL DEFAULT '{}'\n                              CHECK (\n                                  length(answers_json) <= 100000\n                                  AND json_valid(answers_json)\n                                  AND json_type(answers_json) = 'object'\n                              ),\n    completion_mode           TEXT NOT NULL DEFAULT 'response_valid'\n                              CHECK (completion_mode IN (\n                                  'response_valid', 'user_advances', 'tool_receipt'\n                              )),\n    enabled                   INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),\n    created_at_utc            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc            TEXT,\n    UNIQUE (interaction_guide_id, step_number)\n) STRICT",
+        "indexes": [
+          {
+            "name": "interaction_guide_steps_guide_order",
+            "columns": [
+              "interaction_guide_id",
+              "enabled",
+              "step_number"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          },
+          {
+            "name": "sqlite_autoindex_interaction_guide_steps_1",
+            "columns": [
+              "interaction_guide_id",
+              "step_number"
+            ],
+            "unique": true,
+            "partial": false,
+            "origin": "u"
+          }
+        ]
+      },
+      "semantics": {
+        "purpose": "Stores ordered scripted steps and current answer objects for reusable Agent Slayer interaction guides.",
+        "rowMeaning": "One row defines one numbered step beneath one interaction guide and holds the answers accumulated for that step in the current run.",
+        "sourceOfTruth": true,
+        "derivedFrom": [],
+        "synonyms": [
+          "structured conversation steps",
+          "scripted questions",
+          "interaction prompts"
+        ],
+        "keywords": [
+          "numbered step",
+          "opening question",
+          "answers",
+          "structured interaction"
+        ],
+        "routingWeight": 1,
+        "importantRules": [
+          "The parent interaction_guides.version is the only definition concurrency version and increments when any step definition changes.",
+          "A run remains on its current step until that step's completion mode is satisfied, then advances to the next higher enabled step number.",
+          "Starting a new run clears current answers_json only after prior progress has been preserved in activity_events.",
+          "Generic database reads and writes must not expose or mutate these private rows; use the owning interaction-guide tools."
+        ],
+        "sensitivity": "Contains private scripted questions, instructions, and the user's current answers."
+      },
+      "fields": {
+        "interaction_guide_step_id": {
+          "mechanics": {
+            "present": true,
+            "name": "interaction_guide_step_id",
+            "ordinal": 0,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 1,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable local identifier for one numbered interaction-guide step.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "interaction_guide_id": {
+          "mechanics": {
+            "present": true,
+            "name": "interaction_guide_id",
+            "ordinal": 1,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Identifier of the parent interaction guide that owns this step and its definition version.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "step_number": {
+          "mechanics": {
+            "present": true,
+            "name": "step_number",
+            "ordinal": 2,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Positive user-facing number ordering this step within its guide.",
+            "units": "ordinal number",
+            "format": "positive integer",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Numbers may contain gaps; completion advances to the next higher enabled number rather than assuming current plus one."
+            ],
+            "sensitivity": null
+          }
+        },
+        "name": {
+          "mechanics": {
+            "present": true,
+            "name": "name",
+            "ordinal": 3,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional concise human-facing label for the purpose of this numbered step.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "opening_text": {
+          "mechanics": {
+            "present": true,
+            "name": "opening_text",
+            "ordinal": 4,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Fixed opening text that begins this step every time it becomes current.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Present this text literally rather than asking the model to paraphrase it."
+            ],
+            "sensitivity": null
+          }
+        },
+        "objective_text": {
+          "mechanics": {
+            "present": true,
+            "name": "objective_text",
+            "ordinal": 5,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable description of what this step must accomplish before the run may advance.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "instructions_text": {
+          "mechanics": {
+            "present": true,
+            "name": "instructions_text",
+            "ordinal": 6,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional additional handling instructions that apply while this numbered step is current.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "answers_json": {
+          "mechanics": {
+            "present": true,
+            "name": "answers_json",
+            "ordinal": 7,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'{}'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "JSON object containing answers the user has actually supplied for this step in the current run, keyed by concise stable answer names.",
+            "units": null,
+            "format": "JSON object, at most 100000 characters",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "Merge partial answers without discarding answers already collected in the active run.",
+              "A new run clears this object only after the prior run's progress has been retained in activity_events.",
+              "Answers do not replace business validation or successful receipts from the tools that own destination data."
+            ],
+            "sensitivity": "Contains private user answers that may span any domain covered by the structured interaction."
+          }
+        },
+        "completion_mode": {
+          "mechanics": {
+            "present": true,
+            "name": "completion_mode",
+            "ordinal": 8,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'response_valid'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": [
+              "response_valid",
+              "user_advances",
+              "tool_receipt"
+            ]
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Constrained evidence rule that must be satisfied before this step is recorded complete.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {
+              "response_valid": "At least one answer has been recorded and the step objective has been satisfied.",
+              "user_advances": "The user has explicitly directed the interaction to continue.",
+              "tool_receipt": "A successful same-request tool-result event proves the requested effect."
+            },
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "enabled": {
+          "mechanics": {
+            "present": true,
+            "name": "enabled",
+            "ordinal": 9,
+            "type": "INTEGER",
+            "nullable": false,
+            "default": "1",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Whether new and active runs include this step when selecting the current and next higher numbered step.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {
+              "0": "The definition is retained but skipped by runs.",
+              "1": "The step participates in runs."
+            },
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "created_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "created_at_utc",
+            "ordinal": 10,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp when this numbered interaction-guide step was created.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "updated_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "updated_at_utc",
+            "ordinal": 11,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp of the most recent definition or current-answer update to this step, when one has occurred.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        }
+      },
+      "relationships": {
+        "fk:interaction_guide_id->interaction_guides.interaction_guide_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:interaction_guide_id->interaction_guides.interaction_guide_id",
+            "columns": [
+              "interaction_guide_id"
+            ],
+            "targetObject": "interaction_guides",
+            "targetColumns": [
+              "interaction_guide_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "CASCADE"
+          },
+          "semantics": {
+            "meaning": "Each numbered step belongs to exactly one interaction guide; deleting a guide deletes its child step definitions.",
+            "cardinality": "many interaction_guide_steps to one interaction_guides",
+            "importantRules": [
+              "Definition tools update the parent guide version in the same transaction as a child step change."
+            ]
+          }
+        }
+      }
     },
     "interaction_guides": {
       "mechanics": {

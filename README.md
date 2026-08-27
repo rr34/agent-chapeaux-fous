@@ -264,11 +264,17 @@ capability selector, which controls which exact tool schemas are callable.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
 - `interaction_guide_list`, `interaction_guide_get`,
-  `interaction_guide_create`, `interaction_guide_update`, and
+  `interaction_guide_create`, `interaction_guide_update`,
+  `interaction_guide_step_add`, `interaction_guide_step_update`,
+  `interaction_guide_start`, `interaction_guide_step_answer`,
+  `interaction_guide_run_cancel`, and
   `interaction_guide_archive` manage durable user-owned plans for structured,
-  potentially multi-turn interactions. Guide text is loaded only when an exact
-  guide is requested. A recurring to-do may link to a guide while continuing to
-  own its schedule and recurrence.
+  potentially multi-request interactions. A guide owns one versioned overall
+  brief plus numbered scripted steps. Each step has a fixed opening, objective,
+  handling instructions, JSON answers, and a constrained completion mode.
+  Active runs and prior answers are traced in the ledger so an interruption can
+  resume at the first uncompleted step. A recurring to-do may link to a guide
+  while continuing to own its schedule and recurrence.
 - `database_schema` and paginated `database_read` are a small read-only core
   capability available on every model request, including access to the native
   activity ledger. `database_write` is a separately routed capability, so broad

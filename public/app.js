@@ -99,7 +99,6 @@ const elements = {
   aiUsageRows: document.querySelector("#ai-usage-rows"),
   aiUsageEmpty: document.querySelector("#ai-usage-empty"),
   aiUsageStatus: document.querySelector("#ai-usage-status"),
-  calendarRangeLabel: document.querySelector("#calendar-range-label"),
   calendarDateControl: document.querySelector("#calendar-date-control"),
   calendarWeekday: document.querySelector("#calendar-weekday"),
   calendarMonth: document.querySelector("#calendar-month"),
@@ -1657,14 +1656,13 @@ function queueCalendarSearch() {
 
 function renderCalendar() {
   const { gridStart, gridEnd } = twoWeekCalendarRange(calendarRangeStart);
-  const finalDay = addDays(gridEnd, -1);
   const displayedDate = new Date(selectedCalendarDate);
   elements.calendarWeekday.textContent = `${new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(displayedDate)},`;
   elements.calendarMonth.textContent = new Intl.DateTimeFormat(undefined, { month: "long" }).format(displayedDate);
   elements.calendarDay.textContent = String(displayedDate.getDate());
   elements.calendarYear.textContent = String(displayedDate.getFullYear());
   elements.calendarDateControl.setAttribute("aria-label", formatDisplayDate(displayedDate, { includeTime: false }));
-  elements.calendarRangeLabel.textContent = `Showing ${formatDisplayDate(gridStart, { includeTime: false })} – ${formatDisplayDate(finalDay, { includeTime: false })}`;
+  elements.calendarGrid.setAttribute("aria-label", `Calendar from ${formatDisplayDate(gridStart, { includeTime: false })} through ${formatDisplayDate(addDays(gridEnd, -1), { includeTime: false })}`);
   elements.calendarTimeZone.textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
   elements.calendarGrid.replaceChildren();
   const todayKey = localDateKey(new Date());
@@ -1676,9 +1674,16 @@ function renderCalendar() {
     const due = todosDueOnDay(date);
     const button = node("button", "calendar-day");
     button.type = "button";
+    const showsMonth = localDateKey(date) === localDateKey(gridStart) || date.getDate() === 1;
+    button.classList.toggle("has-month-marker", showsMonth);
     button.classList.toggle("today", localDateKey(date) === todayKey);
     button.classList.toggle("selected", localDateKey(date) === selectedKey);
     button.setAttribute("aria-label", formatDisplayDate(date, { includeTime: false }));
+    if (showsMonth) {
+      const monthMarker = node("span", "calendar-month-marker", new Intl.DateTimeFormat(undefined, { month: "long" }).format(date));
+      monthMarker.setAttribute("aria-hidden", "true");
+      button.append(monthMarker);
+    }
     button.append(node("span", "day-number", String(date.getDate())));
     const items = node("span", "day-items");
     const visible = [

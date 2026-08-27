@@ -58,6 +58,171 @@ test("interaction guides keep list results metadata-only and use versioned updat
   );
 });
 
+test("numbered interaction steps persist answers and resume at the exact active step", async (context) => {
+  const { registry } = harness(context);
+  const created = await registry.execute("interaction_guide_create", {
+    name: "Evening Brief",
+    guide_text: "Build a complete, efficient brief for tonight.",
+  }, { requestId: "brief-build", callId: "create-brief" });
+  const first = await registry.execute("interaction_guide_step_add", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    expected_version: 1,
+    step_number: 1,
+    name: "Outcome",
+    opening_text: "1. What must be accomplished tonight?",
+    objective_text: "Capture one concrete outcome and how success will be recognized.",
+    instructions_text: "Remain on step 1 until the outcome is concrete.",
+    completion_mode: "response_valid",
+    enabled: true,
+  }, { requestId: "brief-build", callId: "add-step-1" });
+  assert.equal(first.guide.version, 2);
+  const second = await registry.execute("interaction_guide_step_add", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    expected_version: 2,
+    step_number: 3,
+    name: "Inputs",
+    opening_text: "3. What information and decisions are already available?",
+    objective_text: "Collect the bounded inputs needed to execute the brief.",
+    instructions_text: null,
+    completion_mode: "response_valid",
+    enabled: true,
+  }, { requestId: "brief-build", callId: "add-step-3" });
+  assert.equal(second.guide.version, 3);
+
+  const fetched = await registry.execute("interaction_guide_get", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+  });
+  assert.deepEqual(fetched.guide.steps.map(({ step_number }) => step_number), [1, 3]);
+  assert.deepEqual(fetched.guide.steps[0].answers_json, {});
+
+  const started = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+  }, { requestId: "brief-run-1", callId: "start-brief" });
+  assert.equal(started.started, true);
+  assert.equal(started.current_step.step_number, 1);
+  const runId = started.run.run_id;
+
+  const partial = await registry.execute("interaction_guide_step_answer", {
+    run_id: runId,
+    step_number: 1,
+    answers: { outcome: "Prepare tomorrow's customer proposal" },
+    step_complete: false,
+    user_confirmed_advance: false,
+    completion_receipt_event_seq: null,
+  }, { requestId: "brief-run-2", callId: "answer-step-1-partial" });
+  assert.equal(partial.current_step.step_number, 1);
+  assert.equal(partial.step.answers_json.outcome, "Prepare tomorrow's customer proposal");
+
+  const resumed = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+  }, { requestId: "brief-run-3", callId: "resume-brief" });
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.run.run_id, runId);
+  assert.equal(resumed.current_step.answers_json.outcome, "Prepare tomorrow's customer proposal");
+  const activeList = await registry.execute("interaction_guide_list", {
+    status: "active", limit: 20,
+  });
+  assert.equal(activeList.guides[0].active_run.run_id, runId);
+  assert.equal(activeList.guides[0].active_run.current_step_number, 1);
+
+  await assert.rejects(
+    registry.execute("interaction_guide_step_update", {
+      interaction_guide_step_id: first.step.interaction_guide_step_id,
+      expected_version: 3,
+      step_number: 1,
+      name: "Changed during run",
+      opening_text: "Changed",
+      objective_text: "Changed",
+      instructions_text: null,
+      completion_mode: "response_valid",
+      enabled: true,
+    }),
+    /active structured-interaction run/,
+  );
+
+  const advanced = await registry.execute("interaction_guide_step_answer", {
+    run_id: runId,
+    step_number: 1,
+    answers: { success: "Proposal is ready for review" },
+    step_complete: true,
+    user_confirmed_advance: false,
+    completion_receipt_event_seq: null,
+  }, { requestId: "brief-run-4", callId: "complete-step-1" });
+  assert.equal(advanced.run.current_step_number, 3);
+  assert.equal(advanced.current_step.opening_text, "3. What information and decisions are already available?");
+
+  const completed = await registry.execute("interaction_guide_step_answer", {
+    run_id: runId,
+    step_number: 3,
+    answers: { inputs: "Customer notes and the existing estimate" },
+    step_complete: true,
+    user_confirmed_advance: false,
+    completion_receipt_event_seq: null,
+  }, { requestId: "brief-run-5", callId: "complete-step-3" });
+  assert.equal(completed.run_complete, true);
+  assert.equal(completed.current_step, null);
+
+  const nextRun = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+  }, { requestId: "brief-run-6", callId: "start-next-brief" });
+  assert.notEqual(nextRun.run.run_id, runId);
+  assert.deepEqual(nextRun.current_step.answers_json, {});
+});
+
+test("an explicitly cancelled run preserves answers and releases its guide for editing", async (context) => {
+  const { registry } = harness(context);
+  const created = await registry.execute("interaction_guide_create", {
+    name: "Cancelable Brief", guide_text: "Collect one answer.",
+  });
+  const added = await registry.execute("interaction_guide_step_add", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    expected_version: 1,
+    step_number: 1,
+    name: "Question",
+    opening_text: "1. What is the answer?",
+    objective_text: "Record one answer.",
+    instructions_text: null,
+    completion_mode: "response_valid",
+    enabled: true,
+  });
+  const started = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: created.guide.interaction_guide_id, name: null, restart: false,
+  });
+  await registry.execute("interaction_guide_step_answer", {
+    run_id: started.run.run_id,
+    step_number: 1,
+    answers: { answer: "Keep this" },
+    step_complete: false,
+    user_confirmed_advance: false,
+    completion_receipt_event_seq: null,
+  });
+  const cancelled = await registry.execute("interaction_guide_run_cancel", {
+    run_id: started.run.run_id,
+    reason: "The user wants to revise the question.",
+  });
+  assert.equal(cancelled.run.status, "cancelled");
+  const updated = await registry.execute("interaction_guide_step_update", {
+    interaction_guide_step_id: added.step.interaction_guide_step_id,
+    expected_version: 2,
+    step_number: 1,
+    name: "Revised question",
+    opening_text: "1. What is the revised answer?",
+    objective_text: "Record one revised answer.",
+    instructions_text: null,
+    completion_mode: "response_valid",
+    enabled: true,
+  });
+  assert.equal(updated.guide.version, 3);
+  assert.equal(updated.step.answers_json.answer, "Keep this");
+});
+
 test("a repeating to-do links to a guide and generated occurrences preserve the link", async (context) => {
   const { store, registry } = harness(context);
   const firstOccurrence = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();

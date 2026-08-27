@@ -68,8 +68,8 @@ export function registerDatabaseTools(
       },
     },
     async execute(argumentsObject, context) {
-      if (argumentsObject.objectName === "interaction_guides") {
-        throw new Error("Use interaction_guide_list for metadata or interaction_guide_get for one explicitly requested guide; generic database reads do not load guide rows");
+      if (["interaction_guides", "interaction_guide_steps"].includes(argumentsObject.objectName)) {
+        throw new Error("Use the focused interaction-guide tools for one explicitly requested guide; generic database reads do not load private guide or answer rows");
       }
       const schemaProjection = projection(schemaSemantics, {
         name: "bounded_database_read",

@@ -147,7 +147,19 @@ test("structured database reads return an exact schema-semantic projection", asy
       limit: 20,
       offset: 0,
     }),
-    /generic database reads do not load guide rows/,
+    /generic database reads do not load private guide or answer rows/,
+  );
+  await assert.rejects(
+    registry.execute("database_read", {
+      objectName: "interaction_guide_steps",
+      columns: ["step_number", "answers_json"],
+      where: {},
+      orderBy: "step_number",
+      orderDirection: "asc",
+      limit: 20,
+      offset: 0,
+    }),
+    /generic database reads do not load private guide or answer rows/,
   );
 });
 
@@ -186,6 +198,8 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "fact_type"), true);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "factType"), false);
   assert.equal(Object.hasOwn(definitions.interaction_guide_update, "guide_text"), true);
+  assert.equal(Object.hasOwn(definitions.interaction_guide_step_add, "opening_text"), true);
+  assert.equal(Object.hasOwn(definitions.interaction_guide_step_answer, "answers"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "starts_at_utc"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "startsAtUtc"), false);
   assert.equal(Object.hasOwn(definitions.contact_import, "entries"), true);
@@ -243,5 +257,22 @@ test("native database-backed tools return stored field names with semantic proje
   assert.match(
     guide.schemaProjection.schemaProjection.schemaObjects.interaction_guides.fields.guide_text.meaning,
     /Complete user-owned plan/,
+  );
+  const step = await registry.execute("interaction_guide_step_add", {
+    interaction_guide_id: guide.guide.interaction_guide_id,
+    expected_version: guide.guide.version,
+    step_number: 1,
+    name: "Outcome",
+    opening_text: "1. What outcome do you need?",
+    objective_text: "Capture the exact desired outcome.",
+    instructions_text: null,
+    completion_mode: "response_valid",
+    enabled: true,
+  }, toolContext);
+  assert.equal(step.step.opening_text, "1. What outcome do you need?");
+  assert.deepEqual(step.step.answers_json, {});
+  assert.match(
+    step.schemaProjection.schemaProjection.schemaObjects.interaction_guide_steps.fields.answers_json.meaning,
+    /answers the user has actually supplied/,
   );
 });

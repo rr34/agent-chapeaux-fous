@@ -254,7 +254,7 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(document, /id="agenda-timeline"/);
   assert.ok(document.indexOf('id="agenda-all-day-list"') < document.indexOf('id="agenda-timeline"'));
   assert.ok(document.indexOf('class="calendar-search-bar') < document.indexOf('class="organizer-heading calendar-range-heading"'));
-  assert.ok(document.indexOf('id="calendar-range-label"') < document.indexOf('class="calendar-range-panel'));
+  assert.doesNotMatch(document, /id="calendar-range-label"/);
   assert.ok(document.indexOf('class="calendar-range-panel') < document.indexOf('class="agenda-panel'));
   assert.match(application, /function twoWeekCalendarRange/);
   assert.match(application, /const gridEnd = addDays\(gridStart, 14\)/);
@@ -267,6 +267,8 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(application, /function agendaTimelineTime/);
   assert.match(application, /events\.filter\(\(\{ isAllDay \}\) => isAllDay\)/);
   assert.match(application, /timedEntries = \[/);
+  assert.match(application, /date\.getDate\(\) === 1/);
+  assert.match(application, /"calendar-month-marker"/);
   assert.match(application, /refreshCalendar/);
   assert.match(application, /refreshTodos/);
   assert.match(application, /refreshContent/);

@@ -5,6 +5,46 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0020: structured-interaction-steps
+-- Split reusable interaction guides into an aggregate brief plus ordered,
+-- independently answerable script steps. Definition edits increment the parent
+-- guide version; answers are current-run state and remain in the child row until
+-- an explicitly requested new run clears them.
+
+CREATE TABLE interaction_guide_steps (
+    interaction_guide_step_id INTEGER PRIMARY KEY,
+    interaction_guide_id      INTEGER NOT NULL
+                              REFERENCES interaction_guides(interaction_guide_id)
+                              ON DELETE CASCADE,
+    step_number               INTEGER NOT NULL CHECK (step_number > 0),
+    name                      TEXT
+                              CHECK (name IS NULL OR length(trim(name)) BETWEEN 1 AND 200),
+    opening_text              TEXT NOT NULL
+                              CHECK (length(trim(opening_text)) BETWEEN 1 AND 10000),
+    objective_text            TEXT NOT NULL
+                              CHECK (length(trim(objective_text)) BETWEEN 1 AND 10000),
+    instructions_text         TEXT
+                              CHECK (instructions_text IS NULL OR length(trim(instructions_text)) BETWEEN 1 AND 50000),
+    answers_json              TEXT NOT NULL DEFAULT '{}'
+                              CHECK (
+                                  length(answers_json) <= 100000
+                                  AND json_valid(answers_json)
+                                  AND json_type(answers_json) = 'object'
+                              ),
+    completion_mode           TEXT NOT NULL DEFAULT 'response_valid'
+                              CHECK (completion_mode IN (
+                                  'response_valid', 'user_advances', 'tool_receipt'
+                              )),
+    enabled                   INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at_utc            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at_utc            TEXT,
+    UNIQUE (interaction_guide_id, step_number)
+) STRICT;
+
+CREATE INDEX interaction_guide_steps_guide_order
+    ON interaction_guide_steps(interaction_guide_id, enabled, step_number);
+-- end migration 0020
+
 -- migration 0019: durable-file-catalog
 -- Give persisted files concise human-facing identity and synchronized full-text
 -- discovery without moving file bytes into SQLite.
