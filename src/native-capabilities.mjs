@@ -46,9 +46,12 @@ export const nativeCapabilityManifests = [
   },
   {
     id: "files", title: "Files",
-    summary: "Find and retrieve durable uploads by stable file ID, and maintain their title and description.",
-    aliases: ["file", "upload", "attachment", "document"], instructionFile: "files.md",
-    readOnlyTools: ["file_get", "file_read", "file_search"],
+    summary: "Find, retrieve, inspect, and safely transform durable text and tabular uploads.",
+    aliases: ["file", "upload", "attachment", "document", "csv", "tsv", "table", "delimited text"], instructionFile: "files.md",
+    attachmentHints: [
+      { extensions: [".csv", ".tsv"], mimeIncludes: ["csv", "tab-separated"] },
+    ],
+    readOnlyTools: ["file_get", "file_read", "file_table_inspect", "file_search"],
   },
   {
     id: "database", title: "Database reads and receipts",

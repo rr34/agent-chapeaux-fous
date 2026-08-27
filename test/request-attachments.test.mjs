@@ -68,6 +68,45 @@ test("UTF-8 CSV attachments are stored and read back with integrity metadata", a
   assert.equal(attachment.sha256, registration.sha256);
 });
 
+test("TSV uploads and generated JSON Lines remain verified readable text artifacts", async (context) => {
+  const mediaRoot = temporaryMedia(context);
+  const registrations = [];
+  const ledger = {
+    registerFile(input) {
+      registrations.push(input);
+      return { fileId: 50 + registrations.length, duplicate: false, storagePath: input.storagePath };
+    },
+  };
+  const tsv = "id\taccount\n1\tAssets:Cash\n";
+  const uploaded = await receiveTextAttachment(uploadRequest(tsv, "text/tab-separated-values"), {
+    filename: "transactions.tsv", mediaRoot, maximumBytes: 4096, ledger,
+    now: new Date("2026-08-17T12:00:00.000Z"), uuid: () => "tsv-id",
+  });
+  assert.equal(registrations[0].description, "TSV with 1 data row. Columns: id, account.");
+  const read = await readTextAttachment({
+    mediaRoot, maximumBytes: 4096,
+    file: {
+      file_id: uploaded.fileId, storage_path: registrations[0].storagePath,
+      original_filename: uploaded.originalFilename, media_kind: "document",
+      mime_type: uploaded.mimeType, sha256: registrations[0].sha256, byte_size: registrations[0].byteSize,
+    },
+  });
+  assert.equal(read.text, tsv);
+
+  const jsonl = '{"id":1}\n';
+  fs.writeFileSync(path.join(mediaRoot, "generated.jsonl"), jsonl);
+  const generated = await readTextAttachment({
+    mediaRoot, maximumBytes: 4096,
+    file: {
+      file_id: 99, storage_path: "media/generated.jsonl", original_filename: "generated.jsonl",
+      media_kind: "document", mime_type: "application/x-ndjson",
+      sha256: (await import("node:crypto")).createHash("sha256").update(jsonl).digest("hex"),
+      byte_size: Buffer.byteLength(jsonl),
+    },
+  });
+  assert.equal(generated.text, jsonl);
+});
+
 test("UTF-8 vCard attachments are stored and returned verbatim for model context", async (context) => {
   const mediaRoot = temporaryMedia(context);
   let registration;

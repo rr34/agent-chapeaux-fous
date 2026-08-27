@@ -2,11 +2,19 @@ import { createHash, randomUUID } from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { parseCsvRows } from "./contact-file-import.mjs";
+import { parseDelimitedRows } from "./tabular-transform.mjs";
 
 const allowedExtensions = new Map([
   [".csv", new Set([
     "text/csv", "application/csv", "text/comma-separated-values",
     "application/vnd.ms-excel", "text/plain", "application/octet-stream",
+  ])],
+  [".tsv", new Set([
+    "text/tab-separated-values", "text/tsv", "text/plain", "application/octet-stream",
+  ])],
+  [".json", new Set(["application/json", "text/json", "text/plain", "application/octet-stream"])],
+  [".jsonl", new Set([
+    "application/x-ndjson", "application/jsonl", "application/json", "text/plain", "application/octet-stream",
   ])],
   [".txt", new Set(["text/plain", "text/csv", "application/octet-stream"])],
   [".vcf", new Set([
@@ -23,8 +31,8 @@ const allowedImageExtensions = new Map([
   [".gif", new Set(["image/gif", "application/octet-stream"])],
 ]);
 
-const supportedAttachmentMessage = "Only text .csv, .txt, and .vcf attachments are supported";
-const supportedRequestAttachmentMessage = "Only JPEG, PNG, WebP, GIF, CSV, TXT, and vCard attachments are supported";
+const supportedAttachmentMessage = "Only text CSV, TSV, JSON, JSON Lines, TXT, and vCard attachments are supported";
+const supportedRequestAttachmentMessage = "Only JPEG, PNG, WebP, GIF, CSV, TSV, JSON, JSON Lines, TXT, and vCard attachments are supported";
 const allowedTextControlBytes = new Set([0x09, 0x0a, 0x0c, 0x0d]);
 
 function inputError(message, statusCode = 400) {
@@ -185,18 +193,19 @@ async function storeAttachment(bytes, {
 }
 
 function documentDescription(extension, text) {
-  if (extension === ".csv") {
+  if ([".csv", ".tsv"].includes(extension)) {
     try {
-      const rows = parseCsvRows(text);
+      const rows = extension === ".csv" ? parseCsvRows(text) : parseDelimitedRows(text, "\t");
       const headers = (rows[0] ?? []).map((value) => String(value).trim()).filter(Boolean);
       const dataRows = rows.slice(1).filter((row) => row.some((value) => String(value).trim())).length;
       const columns = headers.slice(0, 12).join(", ");
       const omitted = Math.max(0, headers.length - 12);
-      return `CSV with ${dataRows} data ${dataRows === 1 ? "row" : "rows"}${columns ? `. Columns: ${columns}${omitted ? `, and ${omitted} more` : ""}.` : "."}`;
+      return `${extension === ".csv" ? "CSV" : "TSV"} with ${dataRows} data ${dataRows === 1 ? "row" : "rows"}${columns ? `. Columns: ${columns}${omitted ? `, and ${omitted} more` : ""}.` : "."}`;
     } catch {
-      return "CSV document.";
+      return `${extension === ".csv" ? "CSV" : "TSV"} document.`;
     }
   }
+  if ([".json", ".jsonl"].includes(extension)) return extension === ".json" ? "JSON document." : "JSON Lines document.";
   if ([".vcf", ".vcard"].includes(extension)) {
     const cards = (text.match(/^BEGIN:VCARD\s*$/gimu) ?? []).length;
     return cards ? `vCard document with ${cards} ${cards === 1 ? "contact" : "contacts"}.` : "vCard document.";
@@ -284,7 +293,7 @@ export async function readTextAttachment({ mediaRoot, file, maximumBytes }) {
   const extension = path.extname(originalFilename).toLowerCase();
   const mimeType = normalizedMimeType(file.mime_type);
   if (!allowedExtensions.get(extension)?.has(mimeType)) {
-    throw new Error("Stored request attachment is not a supported CSV, text, or vCard file");
+    throw new Error("Stored request attachment is not a supported delimited text, JSON, text, or vCard file");
   }
   const bytes = await fsp.readFile(safeMediaPath(mediaRoot, file.storage_path));
   if (bytes.length > maximumBytes) throw new Error("Stored request attachment exceeds the configured limit");

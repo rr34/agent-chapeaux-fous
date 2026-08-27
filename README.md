@@ -74,7 +74,7 @@ people, organizations, and services with tags, birthday, notes, and stacked
 contact methods. Possible duplicates are reviewed and merged explicitly; source records
 remain as inactive history so existing references are preserved. Stored birthdays
 continue to appear on the calendar. Agent requests may include one JPEG, PNG,
-WebP, GIF, CSV, vCard/VCF, or plain-text attachment. Text is decoded as UTF-8,
+WebP, GIF, CSV, TSV, JSON, JSON Lines, vCard/VCF, or plain-text attachment. Text is decoded as UTF-8,
 UTF-16, or Windows-1252. Image originals remain in the existing media store and
 are loaded only while the queued request is processed. OpenAI receives images at
 the configured detail; `original` is the default so small receipt text remains

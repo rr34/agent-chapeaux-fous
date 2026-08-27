@@ -11,6 +11,22 @@ from `next_offset` while `has_more` is true when the user’s objective requires
 the complete contents. Never imply that the whole file was examined after
 reading only one page.
 
+For a CSV, TSV, or other delimited table, prefer `file_table_inspect` over
+reading every record into model context. Inspect returns exact whole-file
+counts, headers, bounded samples, and column profiles. Use those facts plus the
+destination's authoritative JSON Schema to create one declarative mapping.
+Then call `file_table_transform`: application code applies that mapping to the
+complete verified file and saves successful records as durable JSON Lines.
+The model must not reproduce every source record. Use literal delimiter and
+declared conversion operations only; arbitrary code and regular expressions
+are unavailable by design.
+
+Transformation exceptions do not erase successful output. Report the exact
+source, transformed, and exception counts and use the exception artifact for
+targeted repair. A successful transform proves the mapping was applied and any
+provided JSON Schema was checked; it does not prove that a downstream provider
+accepted or imported the generated records.
+
 For a newly uploaded file whose `title_source` is `original_filename`, inspect
 its contents and call `file_update` once with a short descriptive title and a
 plain-language description before the final answer. A deterministic upload

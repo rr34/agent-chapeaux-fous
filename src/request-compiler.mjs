@@ -46,7 +46,7 @@ const capabilityPatterns = new Map([
   ["logs", /\b(?:personal logs?|log entr(?:y|ies)|(?:my|the) logs?|food log|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
   ["interaction-guides", /\b(?:interaction guides?|guided interactions?)\b|\b(?:start|use|update|change|edit|create|make|show|list|archive|schedule).{0,60}\bguide\b/iu],
   ["profile", /\b(?:remember that|remember my|keep on file|profile fact|forget (?:that|my)|my preference|i prefer|i am allergic|my address|my phone|my vehicle|my car|my time ?zone|my\b.{0,80}\b(?:is|are|changed))\b/iu],
-  ["files", /\b(?:file\s*#?\s*\d+|file id|uploaded file|previous upload|past upload|attachment|document|csv|vcard|original filename)\b/iu],
+  ["files", /\b(?:file\s*#?\s*\d+|file id|uploaded file|previous upload|past upload|attachment|document|csv|tsv|tab[ -]separated|json lines?|jsonl|delimited (?:text|file)|original filename)\b/iu],
   ["database", /\b(?:database|db|sqlite|schema|table|ledger|audit trail|tool receipts?|activity events?|stored row|content item|content group|video job|correspondence)\b/iu],
   ["database-write", /(?:\b(?:write|insert|update|delete|remove|import|save|create|change)\b.{0,60}\b(?:database|db|sqlite|table|rows?|content items?|content groups?|video jobs?)\b)|(?:\b(?:database|db|sqlite|table|rows?|content items?|content groups?|video jobs?)\b.{0,60}\b(?:write|insert|update|delete|remove|import|save|create|change)\b)/iu],
   ["history", /\b(?:what did we|what have we|talked about|discussed|previous conversation|prior conversation|conversation history|earlier today|last time|yesterday we|recent exchange)\b/iu],
@@ -72,7 +72,7 @@ const capabilitySummaries = new Map([
   ["logs", "Read, record, and correct personal logs and trackers."],
   ["interaction-guides", "Create, inspect, update, and follow user-owned guides for structured interactions."],
   ["profile", "Read and maintain durable profile facts."],
-  ["files", "Find and retrieve durable uploads by stable file ID, and maintain their title and description."],
+  ["files", "Find, retrieve, inspect, and safely transform durable text and tabular uploads."],
   ["database", "Inspect schema and read supported native SQLite-backed application data, including the durable activity ledger."],
   ["database-write", "Write supported native SQLite-backed application data; read-only database access is already callable."],
   ["history", "Search prior Agent Slayer conversations."],
@@ -140,7 +140,7 @@ function attachmentCapabilities(attachment, grouped = new Map()) {
   if (filename.endsWith(".vcf") || filename.endsWith(".vcard") || mimeType.includes("vcard")) {
     return { capabilities: ["files", "contacts"], uncertain: false };
   }
-  if (filename.endsWith(".csv") || mimeType.includes("csv")) {
+  if (filename.endsWith(".csv") || filename.endsWith(".tsv") || mimeType.includes("csv") || mimeType.includes("tab-separated")) {
     if (/\b(?:email|phone|given_name|family_name|display_name|categories)\b/u.test(preview)) {
       return { capabilities: ["files", "contacts"], uncertain: false };
     }

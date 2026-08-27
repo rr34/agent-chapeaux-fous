@@ -597,7 +597,8 @@ function requestFileMimeType(file) {
   const extension = file.name.toLowerCase().split(".").pop();
   return ({
     jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif",
-    csv: "text/csv", vcf: "text/vcard", txt: "text/plain",
+    csv: "text/csv", tsv: "text/tab-separated-values", json: "application/json",
+    jsonl: "application/x-ndjson", vcf: "text/vcard", txt: "text/plain",
   })[extension] || "application/octet-stream";
 }
 

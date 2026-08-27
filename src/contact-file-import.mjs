@@ -1,45 +1,12 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { parseDelimitedRows } from "./tabular-transform.mjs";
 
 const maximumContacts = 10_000;
 const maximumColumns = 500;
 
 export function parseCsvRows(text) {
-  const rows = [];
-  let row = [];
-  let value = "";
-  let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (quoted) {
-      if (character === '"' && text[index + 1] === '"') {
-        value += '"';
-        index += 1;
-      } else if (character === '"') {
-        quoted = false;
-      } else {
-        value += character;
-      }
-      continue;
-    }
-    if (character === '"' && value === "") quoted = true;
-    else if (character === ",") {
-      row.push(value);
-      value = "";
-    } else if (character === "\n" || character === "\r") {
-      if (character === "\r" && text[index + 1] === "\n") index += 1;
-      row.push(value);
-      rows.push(row);
-      row = [];
-      value = "";
-    } else value += character;
-  }
-  if (quoted) throw new Error("CSV attachment has an unterminated quoted field");
-  if (value !== "" || row.length > 0) {
-    row.push(value);
-    rows.push(row);
-  }
-  return rows;
+  return parseDelimitedRows(text, ",");
 }
 
 function textValue(value) {

@@ -94,6 +94,7 @@ if (store.status.ready) {
     searchCoordinator,
     mediaRoot: config.mediaRoot,
     maximumTextBytes: config.maxTextAttachmentBytes,
+    maximumGeneratedBytes: config.maxRequestAttachmentBytes,
   });
   registerSearchTools(registry, searchCoordinator);
   registerVideoScriptTools(registry, videoScripts);
