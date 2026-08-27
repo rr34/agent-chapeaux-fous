@@ -139,6 +139,32 @@ test("the todo editor builds recurrence without exposing an RRULE input", () => 
   assert.doesNotMatch(document, /Routine RRULE|todo-recurrence-rule/);
 });
 
+test("structured interactions have a dedicated management page without a second execution path", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+
+  assert.match(document, /data-view="interactions"[^>]*>Structured Interactions<\/option>/);
+  assert.match(document, /id="interactions-view"/);
+  assert.match(document, /id="interaction-guide-list"/);
+  assert.match(document, /id="interaction-guide-detail"/);
+  assert.match(document, /id="interaction-guide-dialog"/);
+  assert.match(document, /id="interaction-step-dialog"/);
+  assert.match(document, /id="interaction-step-opening"/);
+  assert.match(document, /id="interaction-step-objective"/);
+  assert.match(document, /id="interaction-step-instructions"/);
+  assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
+  assert.match(application, /function renderInteractionGuideDetail/);
+  assert.match(application, /function openInteractionStepEditor/);
+  assert.match(application, /Start or resume structured interaction guide/);
+  assert.match(application, /api\("\/api\/requests"/);
+  assert.doesNotMatch(application, /interaction-guides\/\$\{guide\.id\}\/start/);
+  assert.match(server, /interactionGuides\.create/);
+  assert.match(server, /interactionGuides\.addStep/);
+  assert.match(server, /interactionGuides\.updateStep/);
+  assert.match(server, /actorType: "user", actorName: "structured_interactions_page"/);
+});
+
 test("the calendar event editor exposes recurrence only after its repeat checkbox", () => {
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");

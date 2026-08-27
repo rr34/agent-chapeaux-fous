@@ -82,6 +82,7 @@ const elements = {
   contentView: document.querySelector("#content-view"),
   contactsView: document.querySelector("#contacts-view"),
   logsView: document.querySelector("#logs-view"),
+  interactionsView: document.querySelector("#interactions-view"),
   aiUsageView: document.querySelector("#ai-usage-view"),
   refreshAiUsage: document.querySelector("#refresh-ai-usage"),
   aiUsageMonthCost: document.querySelector("#ai-usage-month-cost"),
@@ -277,6 +278,34 @@ const elements = {
   logUnit: document.querySelector("#log-unit"),
   logOccurred: document.querySelector("#log-occurred"),
   logFormError: document.querySelector("#log-form-error"),
+  interactionGuideStatus: document.querySelector("#interaction-guide-status"),
+  interactionGuideCount: document.querySelector("#interaction-guide-count"),
+  interactionGuideList: document.querySelector("#interaction-guide-list"),
+  interactionGuideDetail: document.querySelector("#interaction-guide-detail"),
+  interactionGuideStatusMessage: document.querySelector("#interaction-guide-status-message"),
+  refreshInteractionGuides: document.querySelector("#refresh-interaction-guides"),
+  newInteractionGuide: document.querySelector("#new-interaction-guide"),
+  interactionGuideDialog: document.querySelector("#interaction-guide-dialog"),
+  interactionGuideForm: document.querySelector("#interaction-guide-form"),
+  interactionGuideDialogTitle: document.querySelector("#interaction-guide-dialog-title"),
+  interactionGuideId: document.querySelector("#interaction-guide-id"),
+  interactionGuideVersion: document.querySelector("#interaction-guide-version"),
+  interactionGuideName: document.querySelector("#interaction-guide-name"),
+  interactionGuideText: document.querySelector("#interaction-guide-text"),
+  interactionGuideFormError: document.querySelector("#interaction-guide-form-error"),
+  archiveInteractionGuide: document.querySelector("#archive-interaction-guide"),
+  interactionStepDialog: document.querySelector("#interaction-step-dialog"),
+  interactionStepForm: document.querySelector("#interaction-step-form"),
+  interactionStepDialogTitle: document.querySelector("#interaction-step-dialog-title"),
+  interactionStepId: document.querySelector("#interaction-step-id"),
+  interactionStepNumber: document.querySelector("#interaction-step-number"),
+  interactionStepName: document.querySelector("#interaction-step-name"),
+  interactionStepOpening: document.querySelector("#interaction-step-opening"),
+  interactionStepObjective: document.querySelector("#interaction-step-objective"),
+  interactionStepInstructions: document.querySelector("#interaction-step-instructions"),
+  interactionStepCompletionMode: document.querySelector("#interaction-step-completion-mode"),
+  interactionStepEnabled: document.querySelector("#interaction-step-enabled"),
+  interactionStepFormError: document.querySelector("#interaction-step-form-error"),
 };
 
 let accessToken = localStorage.getItem("agent-slayer-token") || "";
@@ -320,6 +349,9 @@ let contactDuplicateReview = { groups: [], hasMore: false };
 const selectedContactIds = new Set();
 let logTrackers = [];
 let logEntries = [];
+let interactionGuideSummaries = [];
+let selectedInteractionGuide = null;
+let interactionGuideLoadSequence = 0;
 let aiUsageData = null;
 let requestImagePreviewUrl = null;
 let storedFiles = [];
@@ -1450,6 +1482,7 @@ function switchView(view) {
   elements.contentView.hidden = view !== "content";
   elements.contactsView.hidden = view !== "contacts";
   elements.logsView.hidden = view !== "logs";
+  elements.interactionsView.hidden = view !== "interactions";
   elements.aiUsageView.hidden = view !== "ai-usage";
   elements.agentViewButton.classList.toggle("active", view === "agent");
   if (view === "agent") {
@@ -1467,6 +1500,7 @@ function switchView(view) {
   if (view === "content") void refreshContent();
   if (view === "contacts") void refreshContacts();
   if (view === "logs") void refreshLogs();
+  if (view === "interactions") void refreshInteractionGuides();
   if (view === "ai-usage") void loadAiUsage();
 }
 
@@ -3610,6 +3644,348 @@ async function saveContact(event) {
   }
 }
 
+const interactionCompletionLabels = {
+  response_valid: "Answers validate",
+  user_advances: "User says continue",
+  tool_receipt: "Successful tool result",
+};
+
+function renderInteractionGuideEmpty(title = "Select a structured interaction", message = "Choose a brief to review its numbered turns, or create a new one.") {
+  const empty = node("div", "interaction-detail-empty");
+  empty.append(
+    node("p", "eyebrow", "Definition"),
+    node("h3", "", title),
+    node("p", "muted", message),
+  );
+  elements.interactionGuideDetail.replaceChildren(empty);
+}
+
+function renderInteractionGuideList() {
+  elements.interactionGuideList.replaceChildren();
+  elements.interactionGuideCount.textContent = `${interactionGuideSummaries.length} ${interactionGuideSummaries.length === 1 ? "brief" : "briefs"}`;
+  if (interactionGuideSummaries.length === 0) {
+    elements.interactionGuideList.append(node("p", "empty interaction-list-empty", "No structured interactions in this view."));
+    return;
+  }
+  for (const guide of interactionGuideSummaries) {
+    const button = node("button", "interaction-guide-list-item");
+    button.type = "button";
+    button.classList.toggle("selected", selectedInteractionGuide?.id === guide.id);
+    if (selectedInteractionGuide?.id === guide.id) button.setAttribute("aria-current", "true");
+    const title = node("strong", "", guide.name);
+    const metadata = node("span", "interaction-guide-list-meta");
+    metadata.textContent = guide.activeRun
+      ? `Turn ${guide.activeRun.currentStepNumber ?? "—"} in progress · version ${guide.version}`
+      : `${guide.status} · version ${guide.version}`;
+    button.append(title, metadata);
+    button.addEventListener("click", () => void loadInteractionGuide(guide.id));
+    elements.interactionGuideList.append(button);
+  }
+}
+
+function renderInteractionGuideDetail() {
+  const guide = selectedInteractionGuide;
+  if (!guide) {
+    renderInteractionGuideEmpty();
+    return;
+  }
+  elements.interactionGuideDetail.replaceChildren();
+  const editable = guide.status === "active" && !guide.activeRun;
+  const header = node("header", "interaction-detail-heading");
+  const identity = node("div", "interaction-detail-identity");
+  identity.append(
+    node("p", "eyebrow", guide.activeRun ? "Conversation in progress" : "Structured interaction brief"),
+    node("h3", "", guide.name),
+    node("p", "interaction-guide-meta", `${guide.status} · version ${guide.version} · ${guide.steps.length} ${guide.steps.length === 1 ? "turn" : "turns"}`),
+  );
+  const actions = node("div", "interaction-detail-actions");
+  if (guide.status === "active") {
+    const start = node("button", "", guide.activeRun ? "Resume in Agent" : "Start in Agent");
+    start.type = "button";
+    start.disabled = !guide.steps.some(({ enabled }) => enabled);
+    if (start.disabled) start.title = "Add and enable at least one turn before starting.";
+    start.addEventListener("click", () => void startInteractionGuide(guide, start));
+    actions.append(start);
+  }
+  const edit = node("button", "secondary", "Edit brief");
+  edit.type = "button";
+  edit.disabled = !editable;
+  if (!editable) edit.title = guide.activeRun ? "Cancel or finish the active conversation before editing." : "Archived briefs cannot be edited.";
+  edit.addEventListener("click", () => openInteractionGuideEditor(guide));
+  actions.append(edit);
+  if (guide.activeRun) {
+    const cancel = node("button", "danger", "Cancel run");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => void cancelInteractionGuideRun(guide, cancel));
+    actions.append(cancel);
+  }
+  header.append(identity, actions);
+
+  const brief = node("section", "interaction-brief");
+  brief.append(node("h4", "", "Conversation brief"), node("p", "", guide.guideText));
+
+  const turns = node("section", "interaction-turns");
+  const turnsHeading = node("header", "interaction-turns-heading");
+  const turnsTitle = node("div");
+  turnsTitle.append(node("p", "eyebrow", "Script"), node("h4", "", "Numbered turns"));
+  const add = node("button", "secondary compact", "Add turn");
+  add.type = "button";
+  add.disabled = !editable;
+  if (!editable) add.title = guide.activeRun ? "Cancel or finish the active conversation before editing." : "Archived briefs cannot be edited.";
+  add.addEventListener("click", () => openInteractionStepEditor());
+  turnsHeading.append(turnsTitle, add);
+  turns.append(turnsHeading);
+  if (guide.steps.length === 0) {
+    turns.append(node("p", "empty", "No numbered turns yet. Add turn 1 to make this brief runnable."));
+  } else {
+    const list = node("div", "interaction-turn-list");
+    for (const step of guide.steps) {
+      const card = node("article", `interaction-turn-card${step.enabled ? "" : " disabled"}`);
+      const stepHeading = node("header", "interaction-turn-heading");
+      const stepIdentity = node("div", "interaction-turn-identity");
+      stepIdentity.append(
+        node("span", "interaction-turn-number", String(step.stepNumber)),
+        node("h5", "", step.name || `Turn ${step.stepNumber}`),
+        node("span", `interaction-turn-state${step.enabled ? "" : " disabled"}`, step.enabled ? interactionCompletionLabels[step.completionMode] : "Disabled"),
+      );
+      const editStep = node("button", "secondary compact", "Edit");
+      editStep.type = "button";
+      editStep.disabled = !editable;
+      editStep.addEventListener("click", () => openInteractionStepEditor(step));
+      stepHeading.append(stepIdentity, editStep);
+
+      const opening = node("div", "interaction-turn-field");
+      opening.append(node("strong", "", "Opening"), node("p", "", step.openingText));
+      const objective = node("div", "interaction-turn-field");
+      objective.append(node("strong", "", "Objective"), node("p", "", step.objectiveText));
+      card.append(stepHeading, opening, objective);
+      if (step.instructionsText) {
+        const instructions = node("details", "interaction-turn-instructions");
+        instructions.append(node("summary", "", "Agent instructions"), node("p", "", step.instructionsText));
+        card.append(instructions);
+      }
+      const answerKeys = Object.keys(step.answers ?? {});
+      if (answerKeys.length) {
+        const answers = node("details", "interaction-turn-answers");
+        const answerJson = node("pre");
+        answerJson.textContent = JSON.stringify(step.answers, null, 2);
+        answers.append(node("summary", "", `${answerKeys.length} recorded ${answerKeys.length === 1 ? "answer" : "answers"}`), answerJson);
+        card.append(answers);
+      }
+      list.append(card);
+    }
+    turns.append(list);
+  }
+  elements.interactionGuideDetail.append(header, brief, turns);
+}
+
+async function loadInteractionGuide(guideId) {
+  const sequence = ++interactionGuideLoadSequence;
+  elements.interactionGuideStatusMessage.textContent = "Loading structured interaction…";
+  try {
+    const body = await api(`/api/interaction-guides/${guideId}`);
+    if (sequence !== interactionGuideLoadSequence) return;
+    selectedInteractionGuide = body.guide;
+    renderInteractionGuideList();
+    renderInteractionGuideDetail();
+    elements.interactionGuideStatusMessage.textContent = "";
+  } catch (error) {
+    if (sequence !== interactionGuideLoadSequence) return;
+    selectedInteractionGuide = null;
+    renderInteractionGuideList();
+    renderInteractionGuideEmpty("Could not load this brief", error.message || "Structured interaction unavailable.");
+    elements.interactionGuideStatusMessage.textContent = error.message || "Structured interaction unavailable.";
+  }
+}
+
+async function refreshInteractionGuides({ selectId = selectedInteractionGuide?.id ?? null } = {}) {
+  elements.refreshInteractionGuides.disabled = true;
+  elements.interactionGuideStatusMessage.textContent = "Loading structured interactions…";
+  try {
+    const status = elements.interactionGuideStatus.value;
+    const body = await api(`/api/interaction-guides?status=${encodeURIComponent(status)}&limit=500`);
+    interactionGuideSummaries = body.guides;
+    const nextId = interactionGuideSummaries.some(({ id }) => id === selectId)
+      ? selectId
+      : interactionGuideSummaries[0]?.id ?? null;
+    if (!nextId) {
+      selectedInteractionGuide = null;
+      renderInteractionGuideList();
+      renderInteractionGuideEmpty();
+      elements.interactionGuideStatusMessage.textContent = "";
+      return;
+    }
+    renderInteractionGuideList();
+    await loadInteractionGuide(nextId);
+  } catch (error) {
+    interactionGuideSummaries = [];
+    selectedInteractionGuide = null;
+    renderInteractionGuideList();
+    renderInteractionGuideEmpty("Structured interactions unavailable", error.message || "Could not load structured interactions.");
+    elements.interactionGuideStatusMessage.textContent = error.message || "Could not load structured interactions.";
+  } finally {
+    elements.refreshInteractionGuides.disabled = false;
+  }
+}
+
+function openInteractionGuideEditor(guide = null) {
+  elements.interactionGuideForm.reset();
+  elements.interactionGuideFormError.textContent = "";
+  elements.interactionGuideDialogTitle.textContent = guide ? "Edit brief" : "New brief";
+  elements.interactionGuideId.value = guide?.id ?? "";
+  elements.interactionGuideVersion.value = guide?.version ?? "";
+  elements.interactionGuideName.value = guide?.name ?? "";
+  elements.interactionGuideText.value = guide?.guideText ?? "";
+  elements.archiveInteractionGuide.hidden = !guide || guide.status !== "active";
+  elements.interactionGuideDialog.showModal();
+  elements.interactionGuideName.focus();
+}
+
+async function saveInteractionGuide(event) {
+  event.preventDefault();
+  elements.interactionGuideFormError.textContent = "";
+  const submit = elements.interactionGuideForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  try {
+    const id = elements.interactionGuideId.value;
+    const payload = {
+      name: elements.interactionGuideName.value,
+      guideText: elements.interactionGuideText.value,
+    };
+    if (id) payload.expectedVersion = Number(elements.interactionGuideVersion.value);
+    const result = await api(id ? `/api/interaction-guides/${id}` : "/api/interaction-guides", {
+      method: id ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    elements.interactionGuideDialog.close();
+    await refreshInteractionGuides({ selectId: result.guide.id });
+    elements.interactionGuideStatusMessage.textContent = id ? "Brief updated." : "Brief created. Add its first numbered turn.";
+  } catch (error) {
+    elements.interactionGuideFormError.textContent = error.message || "Could not save the brief.";
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+async function archiveEditedInteractionGuide() {
+  const id = Number(elements.interactionGuideId.value);
+  if (!id || !window.confirm("Archive this structured interaction brief?")) return;
+  elements.archiveInteractionGuide.disabled = true;
+  elements.interactionGuideFormError.textContent = "";
+  try {
+    await api(`/api/interaction-guides/${id}/archive`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedVersion: Number(elements.interactionGuideVersion.value) }),
+    });
+    elements.interactionGuideDialog.close();
+    await refreshInteractionGuides({ selectId: null });
+    elements.interactionGuideStatusMessage.textContent = "Brief archived.";
+  } catch (error) {
+    elements.interactionGuideFormError.textContent = error.message || "Could not archive the brief.";
+  } finally {
+    elements.archiveInteractionGuide.disabled = false;
+  }
+}
+
+function openInteractionStepEditor(step = null) {
+  const guide = selectedInteractionGuide;
+  if (!guide) return;
+  elements.interactionStepForm.reset();
+  elements.interactionStepFormError.textContent = "";
+  elements.interactionStepDialogTitle.textContent = step ? `Edit turn ${step.stepNumber}` : "New turn";
+  elements.interactionStepId.value = step?.id ?? "";
+  elements.interactionStepNumber.value = step?.stepNumber
+    ?? Math.max(0, ...guide.steps.map(({ stepNumber }) => stepNumber)) + 1;
+  elements.interactionStepName.value = step?.name ?? "";
+  elements.interactionStepOpening.value = step?.openingText ?? "";
+  elements.interactionStepObjective.value = step?.objectiveText ?? "";
+  elements.interactionStepInstructions.value = step?.instructionsText ?? "";
+  elements.interactionStepCompletionMode.value = step?.completionMode ?? "response_valid";
+  elements.interactionStepEnabled.checked = step?.enabled ?? true;
+  elements.interactionStepDialog.showModal();
+  elements.interactionStepNumber.focus();
+}
+
+async function saveInteractionStep(event) {
+  event.preventDefault();
+  const guide = selectedInteractionGuide;
+  if (!guide) return;
+  elements.interactionStepFormError.textContent = "";
+  const submit = elements.interactionStepForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  try {
+    const stepId = elements.interactionStepId.value;
+    const payload = {
+      expectedVersion: guide.version,
+      stepNumber: Number(elements.interactionStepNumber.value),
+      name: elements.interactionStepName.value || null,
+      openingText: elements.interactionStepOpening.value,
+      objectiveText: elements.interactionStepObjective.value,
+      instructionsText: elements.interactionStepInstructions.value || null,
+      completionMode: elements.interactionStepCompletionMode.value,
+      enabled: elements.interactionStepEnabled.checked,
+    };
+    await api(stepId ? `/api/interaction-guide-steps/${stepId}` : `/api/interaction-guides/${guide.id}/steps`, {
+      method: stepId ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    elements.interactionStepDialog.close();
+    await refreshInteractionGuides({ selectId: guide.id });
+    elements.interactionGuideStatusMessage.textContent = stepId ? "Turn updated." : "Turn added.";
+  } catch (error) {
+    elements.interactionStepFormError.textContent = error.message || "Could not save the turn.";
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+async function startInteractionGuide(guide, button) {
+  button.disabled = true;
+  const respondSilently = elements.respondSilently.checked;
+  prepareSpeechOutput(respondSilently);
+  try {
+    const created = await api("/api/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `Start or resume structured interaction guide ${guide.id} ("${guide.name}"). Follow its numbered turns and persist each answer through the guide's structured-interaction tools.`,
+      }),
+    });
+    expectSpokenResponse(created.requestId, respondSilently);
+    elements.status.textContent = `${guide.name} queued.`;
+    switchView("agent");
+    await loadRequests({ force: true });
+  } catch (error) {
+    window.alert(error.message || "Could not start the structured interaction.");
+    button.disabled = false;
+  }
+}
+
+async function cancelInteractionGuideRun(guide, button) {
+  const reason = window.prompt("Why are you cancelling this structured interaction?", "Cancelled from the Structured Interactions page");
+  if (reason === null) return;
+  if (!reason.trim()) {
+    window.alert("A cancellation reason is required.");
+    return;
+  }
+  button.disabled = true;
+  try {
+    await api(`/api/interaction-guide-runs/${encodeURIComponent(guide.activeRun.id)}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    await refreshInteractionGuides({ selectId: guide.id });
+    elements.interactionGuideStatusMessage.textContent = "Conversation run cancelled. The brief can be edited again.";
+  } catch (error) {
+    window.alert(error.message || "Could not cancel the structured interaction.");
+    button.disabled = false;
+  }
+}
+
 async function refreshLogs() {
   try {
     const [trackerBody, entryBody] = await Promise.all([
@@ -4259,6 +4635,15 @@ elements.logGroupFilter.addEventListener("change", () => {
 elements.logTrackerFilter.addEventListener("change", renderLogs);
 elements.logTracker.addEventListener("change", updateLogTrackerEditor);
 elements.logForm.addEventListener("submit", saveLogEntry);
+elements.newInteractionGuide.addEventListener("click", () => openInteractionGuideEditor());
+elements.refreshInteractionGuides.addEventListener("click", () => void refreshInteractionGuides());
+elements.interactionGuideStatus.addEventListener("change", () => {
+  selectedInteractionGuide = null;
+  void refreshInteractionGuides({ selectId: null });
+});
+elements.interactionGuideForm.addEventListener("submit", saveInteractionGuide);
+elements.archiveInteractionGuide.addEventListener("click", () => void archiveEditedInteractionGuide());
+elements.interactionStepForm.addEventListener("submit", saveInteractionStep);
 for (const button of document.querySelectorAll(".dialog-close")) {
   button.addEventListener("click", () => button.closest("dialog")?.close());
 }

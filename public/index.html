@@ -33,6 +33,7 @@
         <option data-view="content" value="content">Content</option>
         <option data-view="contacts" value="contacts">Contacts</option>
         <option data-view="logs" value="logs">Logs</option>
+        <option data-view="interactions" value="interactions">Structured Interactions</option>
         <option data-view="ai-usage" value="ai-usage">AI Usage</option>
       </select>
     </nav>
@@ -312,6 +313,37 @@
         <span id="log-count" class="toolbar-count"></span>
       </div>
       <section id="log-list" class="log-list" aria-live="polite"></section>
+    </section>
+
+    <section id="interactions-view" class="app-view" hidden>
+      <header class="organizer-heading">
+        <div>
+          <p class="eyebrow">Reusable conversation briefs</p>
+          <h2>Structured Interactions</h2>
+        </div>
+        <button id="new-interaction-guide" type="button">New brief</button>
+      </header>
+      <div class="interaction-toolbar organizer-panel">
+        <label for="interaction-guide-status">Show</label>
+        <select id="interaction-guide-status">
+          <option value="active">Active</option>
+          <option value="archived">Archived</option>
+          <option value="all">Everything</option>
+        </select>
+        <button id="refresh-interaction-guides" class="secondary compact" type="button">Refresh</button>
+        <span id="interaction-guide-count" class="toolbar-count"></span>
+      </div>
+      <div class="interaction-workspace">
+        <nav id="interaction-guide-list" class="interaction-guide-list organizer-panel" aria-label="Structured interaction briefs"></nav>
+        <section id="interaction-guide-detail" class="interaction-guide-detail organizer-panel" aria-live="polite">
+          <div class="interaction-detail-empty">
+            <p class="eyebrow">Definition</p>
+            <h3>Select a structured interaction</h3>
+            <p class="muted">Choose a brief to review its numbered turns, or create a new one.</p>
+          </div>
+        </section>
+      </div>
+      <p id="interaction-guide-status-message" class="status" role="status"></p>
     </section>
 
     <section id="ai-usage-view" class="app-view ai-usage-view" hidden>
@@ -660,6 +692,56 @@
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save entry</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="interaction-guide-dialog" class="editor-dialog interaction-guide-dialog">
+    <form id="interaction-guide-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Structured interaction</p><h2 id="interaction-guide-dialog-title">New brief</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <input id="interaction-guide-id" type="hidden">
+      <input id="interaction-guide-version" type="hidden">
+      <label>Name<input id="interaction-guide-name" required maxlength="200" autocomplete="off" placeholder="Evening planning brief"></label>
+      <label>Brief<textarea id="interaction-guide-text" rows="9" required maxlength="50000" placeholder="Describe what this structured conversation should accomplish and what a finished result contains."></textarea></label>
+      <p class="field-hint">The brief applies to the whole conversation. Each numbered turn defines its own opening and objective.</p>
+      <p id="interaction-guide-form-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button id="archive-interaction-guide" class="danger editor-delete" type="button" hidden>Archive brief</button>
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Save brief</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="interaction-step-dialog" class="editor-dialog interaction-step-dialog">
+    <form id="interaction-step-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Numbered turn</p><h2 id="interaction-step-dialog-title">New turn</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <input id="interaction-step-id" type="hidden">
+      <div class="editor-grid">
+        <label>Turn number<input id="interaction-step-number" type="number" min="1" step="1" required></label>
+        <label>Name <span class="field-hint">optional</span><input id="interaction-step-name" maxlength="200" placeholder="Establish the outcome"></label>
+      </div>
+      <label>Opening text<textarea id="interaction-step-opening" rows="4" required maxlength="10000" placeholder="The consistent way this turn begins."></textarea></label>
+      <label>Objective<textarea id="interaction-step-objective" rows="4" required maxlength="10000" placeholder="What this turn must accomplish before it can advance."></textarea></label>
+      <label>Agent instructions <span class="field-hint">optional</span><textarea id="interaction-step-instructions" rows="6" maxlength="50000" placeholder="How to clarify, follow up, or organize the answers during this turn."></textarea></label>
+      <div class="editor-grid">
+        <label>Completion rule<select id="interaction-step-completion-mode">
+          <option value="response_valid">Advance when answers are valid</option>
+          <option value="user_advances">Advance when the user says to continue</option>
+          <option value="tool_receipt">Advance after a successful tool result</option>
+        </select></label>
+        <label class="checkbox-row interaction-step-enabled"><input id="interaction-step-enabled" type="checkbox" checked><span>Turn is enabled</span></label>
+      </div>
+      <p id="interaction-step-form-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Save turn</button>
       </footer>
     </form>
   </dialog>

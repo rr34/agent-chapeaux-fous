@@ -64,9 +64,14 @@ npm start
 Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and
 stores it only in that browser. The same client includes the Agent request
 feed, the calendar, the grouped to-do list, a searchable contacts address book,
-and grouped personal logs with native entry creation. Contacts support people,
-organizations, and services with tags, birthday, notes, and stacked contact
-methods. Possible duplicates are reviewed and merged explicitly; source records
+grouped personal logs with native entry creation, and a dedicated **Structured
+Interactions** screen for maintaining reusable conversation briefs and their
+numbered turns. Starting or resuming a brief from that screen queues a normal
+Agent request, so the conversation still passes through orientation, TurnBrief
+selection, exact tool schemas, and the literal trace. The screen itself is a
+domain-management page, not an additional model-callable tool. Contacts support
+people, organizations, and services with tags, birthday, notes, and stacked
+contact methods. Possible duplicates are reviewed and merged explicitly; source records
 remain as inactive history so existing references are preserved. Stored birthdays
 continue to appear on the calendar. Agent requests may include one JPEG, PNG,
 WebP, GIF, CSV, vCard/VCF, or plain-text attachment. Text is decoded as UTF-8,

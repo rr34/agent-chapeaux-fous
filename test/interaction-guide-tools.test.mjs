@@ -22,6 +22,36 @@ function harness(context) {
   return { store, guides, registry };
 }
 
+test("page-managed guide definitions are recorded as user actions rather than tool calls", (context) => {
+  const { store, guides } = harness(context);
+  const created = guides.create({
+    name: "Page Brief",
+    guideText: "Build this brief from the dedicated management page.",
+  }, { actorType: "user", actorName: "structured_interactions_page" });
+  guides.addStep({
+    guideId: created.guide.id,
+    expectedVersion: created.guide.version,
+    stepNumber: 1,
+    name: "Outcome",
+    openingText: "1. What outcome should this produce?",
+    objectiveText: "Record one concrete outcome.",
+    instructionsText: null,
+    completionMode: "response_valid",
+    enabled: true,
+  }, { actorType: "user", actorName: "structured_interactions_page" });
+
+  const actors = store.requireReady().prepare(`
+    SELECT event_type, actor_type, actor_name
+    FROM activity_events
+    WHERE event_type IN ('interaction_guide.created', 'interaction_guide.step_added')
+    ORDER BY event_seq
+  `).all().map((row) => ({ ...row }));
+  assert.deepEqual(actors, [
+    { event_type: "interaction_guide.created", actor_type: "user", actor_name: "structured_interactions_page" },
+    { event_type: "interaction_guide.step_added", actor_type: "user", actor_name: "structured_interactions_page" },
+  ]);
+});
+
 test("interaction guides keep list results metadata-only and use versioned updates", async (context) => {
   const { registry } = harness(context);
   const created = await registry.execute("interaction_guide_create", {

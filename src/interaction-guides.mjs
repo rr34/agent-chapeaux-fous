@@ -67,6 +67,13 @@ function conflict(message) {
   return Object.assign(new Error(message), { statusCode: 409 });
 }
 
+function ledgerActor(context, toolName) {
+  if (context.actorType === "user") {
+    return { actorType: "user", actorName: context.actorName ?? "web" };
+  }
+  return { actorType: "tool", actorName: toolName };
+}
+
 export class InteractionGuides {
   constructor({ store, ledger }) {
     this.store = store;
@@ -241,8 +248,8 @@ export class InteractionGuides {
       ));
       const step = publicStep(row);
       this.ledger.append({
-        type: "interaction_guide.step_added", status: "complete", actorType: "tool",
-        actorName: "interaction_guide_step_add", turnId: context.requestId,
+        type: "interaction_guide.step_added", status: "complete",
+        ...ledgerActor(context, "interaction_guide_step_add"), turnId: context.requestId,
         operationId: context.callId, name: "Interaction guide step added",
         content: `${guide.name} step ${step.stepNumber}`,
         payload: { guide, step }, subjectType: "interaction_guide", subjectId: String(guide.id),
@@ -295,8 +302,8 @@ export class InteractionGuides {
       ));
       const step = publicStep(row);
       this.ledger.append({
-        type: "interaction_guide.step_updated", status: "complete", actorType: "tool",
-        actorName: "interaction_guide_step_update", turnId: context.requestId,
+        type: "interaction_guide.step_updated", status: "complete",
+        ...ledgerActor(context, "interaction_guide_step_update"), turnId: context.requestId,
         operationId: context.callId, name: "Interaction guide step updated",
         content: `${guide.name} step ${step.stepNumber}`,
         payload: { before: publicStep(before), guide, step },
@@ -333,8 +340,8 @@ export class InteractionGuides {
       }
       if (activeRun) {
         this.ledger.append({
-          type: "interaction_guide.run_cancelled", status: "cancelled", actorType: "tool",
-          actorName: "interaction_guide_start", turnId: context.requestId,
+          type: "interaction_guide.run_cancelled", status: "cancelled",
+          ...ledgerActor(context, "interaction_guide_start"), turnId: context.requestId,
           operationId: context.callId, name: "Structured interaction restarted",
           content: guide.name, payload: { interactionGuideId: guide.id, reason: "restart" },
           subjectType: "interaction_guide_run", subjectId: activeRun.id,
@@ -357,8 +364,8 @@ export class InteractionGuides {
         status: "active", currentStepNumber: Number(current.step_number),
       };
       this.ledger.append({
-        type: "interaction_guide.run_started", status: "processing", actorType: "tool",
-        actorName: "interaction_guide_start", turnId: context.requestId,
+        type: "interaction_guide.run_started", status: "processing",
+        ...ledgerActor(context, "interaction_guide_start"), turnId: context.requestId,
         operationId: context.callId, name: "Structured interaction started",
         content: guide.name,
         payload: {
@@ -446,8 +453,8 @@ export class InteractionGuides {
       `).get(normalizedAnswers.serialized, current.interaction_guide_step_id);
       this.ledger.append({
         type: stepComplete ? "interaction_guide.step_completed" : "interaction_guide.step_progress",
-        status: stepComplete ? "complete" : "processing", actorType: "tool",
-        actorName: "interaction_guide_step_answer", turnId: context.requestId,
+        status: stepComplete ? "complete" : "processing",
+        ...ledgerActor(context, "interaction_guide_step_answer"), turnId: context.requestId,
         operationId: context.callId,
         name: stepComplete ? "Structured interaction step completed" : "Structured interaction answers recorded",
         content: `${guide.name} step ${selectedStepNumber}`,
@@ -464,8 +471,8 @@ export class InteractionGuides {
       const runCompleted = stepComplete && !next;
       if (runCompleted) {
         this.ledger.append({
-          type: "interaction_guide.run_completed", status: "complete", actorType: "tool",
-          actorName: "interaction_guide_step_answer", turnId: context.requestId,
+          type: "interaction_guide.run_completed", status: "complete",
+          ...ledgerActor(context, "interaction_guide_step_answer"), turnId: context.requestId,
           operationId: context.callId, name: "Structured interaction completed",
           content: guide.name,
           payload: { interactionGuideId: Number(guide.interaction_guide_id), guideVersion: Number(guide.version) },
@@ -513,8 +520,8 @@ export class InteractionGuides {
         "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
       ).get(started.interactionGuideId);
       this.ledger.append({
-        type: "interaction_guide.run_cancelled", status: "cancelled", actorType: "tool",
-        actorName: "interaction_guide_run_cancel", turnId: context.requestId,
+        type: "interaction_guide.run_cancelled", status: "cancelled",
+        ...ledgerActor(context, "interaction_guide_run_cancel"), turnId: context.requestId,
         operationId: context.callId, name: "Structured interaction cancelled",
         content: guide?.name ?? selectedRunId,
         payload: { interactionGuideId: Number(started.interactionGuideId), reason: selectedReason },
@@ -554,8 +561,8 @@ export class InteractionGuides {
       `).get(selectedName, selectedText);
       const guide = publicGuide(row);
       this.ledger.append({
-        type: "interaction_guide.created", status: "complete", actorType: "tool",
-        actorName: "interaction_guide_create", turnId: context.requestId,
+        type: "interaction_guide.created", status: "complete",
+        ...ledgerActor(context, "interaction_guide_create"), turnId: context.requestId,
         operationId: context.callId, name: "Interaction guide created",
         content: guide.name, payload: { guide }, subjectType: "interaction_guide",
         subjectId: String(guide.id),
@@ -613,8 +620,8 @@ export class InteractionGuides {
       const before = publicGuide(beforeRow);
       const guide = publicGuide(row);
       this.ledger.append({
-        type: "interaction_guide.updated", status: "complete", actorType: "tool",
-        actorName: "interaction_guide_update", turnId: context.requestId,
+        type: "interaction_guide.updated", status: "complete",
+        ...ledgerActor(context, "interaction_guide_update"), turnId: context.requestId,
         operationId: context.callId, name: "Interaction guide updated",
         content: guide.name, payload: { before, guide }, subjectType: "interaction_guide",
         subjectId: String(guide.id),
@@ -666,8 +673,8 @@ export class InteractionGuides {
       if (!row) throw conflict("This interaction guide changed while it was being archived");
       const guide = publicGuide(row);
       this.ledger.append({
-        type: "interaction_guide.archived", status: "complete", actorType: "tool",
-        actorName: "interaction_guide_archive", turnId: context.requestId,
+        type: "interaction_guide.archived", status: "complete",
+        ...ledgerActor(context, "interaction_guide_archive"), turnId: context.requestId,
         operationId: context.callId, name: "Interaction guide archived",
         content: guide.name, payload: { guide }, subjectType: "interaction_guide",
         subjectId: String(guide.id),

@@ -535,6 +535,61 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/interaction-guides") {
+      sendJson(response, 201, interactionGuides.create(
+        await readJson(request),
+        { actorType: "user", actorName: "structured_interactions_page" },
+      ));
+      return;
+    }
+    const interactionGuideMatch = /^\/api\/interaction-guides\/(\d+)$/.exec(url.pathname);
+    if (request.method === "GET" && interactionGuideMatch) {
+      const guide = interactionGuides.get({ guideId: Number(interactionGuideMatch[1]) });
+      if (!guide) {
+        throw Object.assign(new Error("Interaction guide not found"), { statusCode: 404 });
+      }
+      sendJson(response, 200, { guide });
+      return;
+    }
+    if (request.method === "PATCH" && interactionGuideMatch) {
+      sendJson(response, 200, interactionGuides.update(
+        { ...await readJson(request), guideId: Number(interactionGuideMatch[1]) },
+        { actorType: "user", actorName: "structured_interactions_page" },
+      ));
+      return;
+    }
+    const interactionGuideArchiveMatch = /^\/api\/interaction-guides\/(\d+)\/archive$/.exec(url.pathname);
+    if (request.method === "POST" && interactionGuideArchiveMatch) {
+      sendJson(response, 200, interactionGuides.archive(
+        { ...await readJson(request), guideId: Number(interactionGuideArchiveMatch[1]) },
+        { actorType: "user", actorName: "structured_interactions_page" },
+      ));
+      return;
+    }
+    const interactionGuideStepsMatch = /^\/api\/interaction-guides\/(\d+)\/steps$/.exec(url.pathname);
+    if (request.method === "POST" && interactionGuideStepsMatch) {
+      sendJson(response, 201, interactionGuides.addStep(
+        { ...await readJson(request), guideId: Number(interactionGuideStepsMatch[1]) },
+        { actorType: "user", actorName: "structured_interactions_page" },
+      ));
+      return;
+    }
+    const interactionGuideStepMatch = /^\/api\/interaction-guide-steps\/(\d+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && interactionGuideStepMatch) {
+      sendJson(response, 200, interactionGuides.updateStep(
+        { ...await readJson(request), stepId: Number(interactionGuideStepMatch[1]) },
+        { actorType: "user", actorName: "structured_interactions_page" },
+      ));
+      return;
+    }
+    const interactionGuideRunCancelMatch = /^\/api\/interaction-guide-runs\/([^/]+)\/cancel$/.exec(url.pathname);
+    if (request.method === "POST" && interactionGuideRunCancelMatch) {
+      sendJson(response, 200, interactionGuides.cancelRun(
+        { ...await readJson(request), runId: decodeURIComponent(interactionGuideRunCancelMatch[1]) },
+        { actorType: "user", actorName: "structured_interactions_page" },
+      ));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/todo-groups") {
       sendJson(response, 200, { groups: organizer.listTodoGroups() });
       return;
