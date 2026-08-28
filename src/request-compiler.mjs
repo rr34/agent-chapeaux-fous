@@ -423,7 +423,7 @@ function requestToolsDefinition(tools) {
   if (allowed.length === 0) return null;
   return {
     name: "request_tools",
-    description: "Request exact schemas for one or more additional tools inside the capability families already authorized by the accepted TurnBrief. Use this only when the current exact tools cannot finish the request. Agent Slayer will continue the same execution with earlier receipts preserved; this call does not perform the requested domain action.",
+    description: "Request exact schemas for one or more additional tools inside the capability families selected by the accepted TurnBrief. Use this only when the current exact tools cannot finish the request. Agent Slayer will continue the same execution with earlier receipts preserved; this call does not perform the requested domain action.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

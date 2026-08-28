@@ -48,7 +48,7 @@ function inspectActionHandoff({ toolDefinition, result, resolveProviderTool }) {
     return { intended: true, problem: "nextAction.onApproval must be an object" };
   }
   if (typeof approval.tool !== "string" || !approval.tool.trim()) {
-    return { intended: true, problem: "nextAction.onApproval.tool must name a provider tool" };
+    return { intended: true, problem: "nextAction.onApproval.tool must name an MCP tool" };
   }
   if (!approval.arguments || typeof approval.arguments !== "object" || Array.isArray(approval.arguments)) {
     return { intended: true, problem: "nextAction.onApproval.arguments must be an object" };
@@ -66,13 +66,13 @@ function inspectActionHandoff({ toolDefinition, result, resolveProviderTool }) {
   return { intended: true, problem: null, candidate, approval, target, argumentsObject };
 }
 
-function providerExpiration(candidate) {
+function mcpExpiration(candidate) {
   const value = candidate.expiresAt ?? candidate.expires_at ?? null;
   return typeof value === "string" && value ? value : null;
 }
 
-// The provider owns the operation and plan. This reference binds only the
-// provider-declared same-server invocation to a source receipt and user approval.
+// This binds the MCP's exact final call to its source receipt and the user's
+// one yes-or-no confirmation.
 export function extractDeferredActionReference({
   tool,
   toolDefinition,
@@ -92,9 +92,9 @@ export function extractDeferredActionReference({
   }));
   const digest = createHash("sha256").update(identity).digest("hex").slice(0, 24);
   return {
-    referenceId: `mcp-action:${digest}`,
-    action: "provider-confirmed-action",
-    sourceProvider: toolDefinition.source,
+    referenceId: `prepared-change:${digest}`,
+    state: "pending",
+    sourceConnection: toolDefinition.source,
     sourceTool: tool,
     sourceUpstreamTool: toolDefinition.upstreamName ?? null,
     sourceRequestId: requestId,
@@ -102,10 +102,10 @@ export function extractDeferredActionReference({
     targetTool: target.name,
     targetUpstreamTool: target.upstreamName,
     arguments: argumentsObject,
-    providerMetadata: {
+    readiness: {
       ready: true,
       status: typeof action.candidate.status === "string" ? action.candidate.status : null,
-      expiresAt: providerExpiration(action.candidate),
+      expiresAt: mcpExpiration(action.candidate),
     },
   };
 }
@@ -129,17 +129,25 @@ export function activeDeferredActionReferences(receipts, { now = Date.now() } = 
     if (!receipt?.ok || receiptInspectionTool.test(receipt.tool ?? "")) return [];
     const stored = receipt.deferredActionReference;
     if (!stored) return [];
-    return [{
+    const normalized = {
       ...stored,
+      referenceId: String(stored.referenceId).replace(/^mcp-action:/u, "prepared-change:"),
+      state: "pending",
+      sourceConnection: stored.sourceConnection ?? stored.sourceProvider,
+      readiness: stored.readiness ?? stored.providerMetadata ?? {},
       sourceReceiptEventSeq: Number.isSafeInteger(stored.sourceReceiptEventSeq)
         ? stored.sourceReceiptEventSeq
         : receipt.receiptEventSeq,
-    }];
+    };
+    delete normalized.action;
+    delete normalized.sourceProvider;
+    delete normalized.providerMetadata;
+    return [normalized];
   });
   const latestById = new Map();
   for (const reference of references) latestById.set(reference.referenceId, reference);
   return [...latestById.values()].filter((reference) => {
-    const expiration = reference.providerMetadata?.expiresAt;
+    const expiration = reference.readiness?.expiresAt;
     if (expiration) {
       const expiresAt = Date.parse(expiration);
       if (Number.isFinite(expiresAt) && expiresAt <= now) return false;
@@ -154,16 +162,61 @@ export function activeDeferredActionReferences(receipts, { now = Date.now() } = 
 export function deferredActionArgumentProblem(
   toolName,
   argumentsObject,
-  authorizedReferences,
-  activeReferences = authorizedReferences,
+  confirmedReferences,
+  activeReferences = confirmedReferences,
 ) {
   const relevant = activeReferences.filter(({ targetTool }) => targetTool === toolName);
   if (relevant.length === 0) return null;
-  const authorized = authorizedReferences.some((reference) => (
+  const confirmedForTool = confirmedReferences.filter(({ targetTool }) => targetTool === toolName);
+  const confirmed = confirmedForTool.some((reference) => (
     reference.targetTool === toolName && sameValue(argumentsObject, reference.arguments)
   ));
-  if (authorized) return null;
-  return `Provider action ${toolName} must exactly match an active provider invocation authorized by the accepted TurnBrief. Never substitute a request ID, receipt ID, plan ID, arguments, or target tool.`;
+  if (confirmed) return null;
+  if (confirmedForTool.length > 0) {
+    return "This call does not match the exact prepared change the user confirmed. Do not retry with guessed or substituted identifiers or arguments; use only the exact saved invocation.";
+  }
+  return "This prepared write is waiting for the user's confirmation and cannot run in the same request that prepared it. Do not retry it now. Tell the user what the preview contains and ask for a simple yes or no. Never mention internal references, TurnBriefs, or invocation details.";
+}
+
+export function pendingConfirmationFindings(receipts, confirmedReferences = []) {
+  const confirmedIds = new Set(confirmedReferences.map(({ referenceId }) => referenceId));
+  const seen = new Set();
+  return receipts.flatMap((receipt) => {
+    const reference = receipt?.ok ? receipt.deferredActionReference : null;
+    if (!reference?.referenceId
+      || confirmedIds.has(reference.referenceId)
+      || seen.has(reference.referenceId)) return [];
+    seen.add(reference.referenceId);
+    return [{
+      code: "USER_CONFIRMATION_REQUIRED",
+      referenceId: reference.referenceId,
+      targetTool: reference.targetTool,
+      message: "The requested change is prepared and is waiting for the user's yes-or-no confirmation.",
+      repairInstruction: "Do not run or retry the prepared write in this request. Describe the concrete preview in plain language and ask the user to confirm it.",
+    }];
+  });
+}
+
+const internalConfirmationJargon = /(?:\bauthorization\b|accepted\s+TurnBrief|provider\s+invocation|MCP\s+action\s+reference|active\s+provider)/iu;
+
+export function pendingConfirmationResponse(proposedResponse) {
+  const proposed = String(proposedResponse ?? "").trim();
+  if (proposed
+    && !internalConfirmationJargon.test(proposed)
+    && /\b(?:confirm|confirmation|yes\s+or\s+no|should\s+I|proceed)\b/iu.test(proposed)) {
+    return proposed;
+  }
+  const paragraphs = proposed
+    .split(/\n\s*\n/u)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph && !internalConfirmationJargon.test(paragraph));
+  const concreteResponse = paragraphs.join("\n\n");
+  const question = "Please confirm whether I should carry out the exact prepared change. You only need to answer yes or no; you do not need to provide an ID or anything technical.";
+  return concreteResponse ? `${concreteResponse}\n\n${question}` : [
+    "The requested change is prepared, but it has not run yet.",
+    "",
+    question,
+  ].join("\n");
 }
 
 export function matchingDeferredActionReferences(toolName, argumentsObject, references) {
@@ -174,16 +227,16 @@ export function matchingDeferredActionReferences(toolName, argumentsObject, refe
   }, reference));
 }
 
-export function completionReceiptFindings({ receipts, authorizedActionReferences }) {
+export function completionReceiptFindings({ receipts, confirmedActionReferences }) {
   const findings = [];
-  for (const reference of authorizedActionReferences) {
+  for (const reference of confirmedActionReferences) {
     const completed = receipts.some((receipt) => receiptUsesReference(receipt, reference));
     if (!completed) {
       findings.push({
-        code: "AUTHORIZED_MCP_ACTION_RECEIPT_REQUIRED",
+        code: "CONFIRMED_CHANGE_RECEIPT_REQUIRED",
         referenceId: reference.referenceId,
-        message: `Authorized MCP action reference ${reference.referenceId} has no successful receipt for its exact provider-declared tool and arguments in this request.`,
-        repairInstruction: `Execute only reference ${reference.referenceId} using its exact target tool and complete arguments. Do not substitute another identifier, tool, or argument object.`,
+        message: `Confirmed prepared change ${reference.referenceId} has no successful receipt for its exact saved tool and arguments in this request.`,
+        repairInstruction: `Execute only the confirmed prepared change ${reference.referenceId}, using its exact saved tool and arguments. Do not substitute anything.`,
       });
     }
   }

@@ -399,15 +399,19 @@ Initial tool selection is deliberately precise and recoverable. Accepting a
 capability family does not make every tool in that family callable, and the
 application must not send every schema merely because one of those tools might
 be useful. Expansion may reveal exact schemas for named tools, but it does not
-add a capability family, broaden the user's authorization, answer a provider
-question, approve a preview, or authorize a provider-deferred action.
+add a capability family, broaden the requested work, answer an MCP question, or
+confirm a prepared change.
 
 A model tool call is accepted only when its exact schema is present in that
 execution interaction. Agent Slayer maps the published upstream name to the
 registered application name, validates the complete arguments, invokes that
 exact function, and returns its result to the same model exchange.
 
-A provider-owned preview or plan uses this preferred structured handoff:
+## One final confirmation
+
+The Agent completes every available preparation and validation step before
+asking for final confirmation. An MCP emits the following handoff only when the
+work is ready for its final consequential call:
 
 ```json
 {
@@ -415,52 +419,58 @@ A provider-owned preview or plan uses this preferred structured handoff:
   "status": "ready",
   "nextAction": {
     "type": "request_user_confirmation",
-    "instruction": "Describe the exact preview and ask for confirmation.",
+    "instruction": "Import 7,987 prepared transactions and leave 23 exceptions unchanged?",
     "onApproval": {
       "tool": "commit_operation",
-      "arguments": { "plan_id": "opaque-provider-id" }
+      "arguments": { "plan_id": "opaque-mcp-id" }
     }
   }
 }
 ```
 
-The protocol validates that `tool` is an upstream tool on the same connection
-and that `arguments` match its current schema. Agent Slayer records the opaque
-reference with its source receipt. A later orientation may select it when the
-current request authorizes it, and execution may invoke the bound tool only with
-the bound arguments.
+The `instruction` is the exact plain-language yes-or-no question for the user,
+not instructions about how to ask it. The MCP must not emit this handoff while
+more non-user preparation remains. Agent Slayer validates and saves the exact
+tool and arguments. It then stops work and presents that single question.
+
+The saved state has only two meanings: pending or confirmed. A clear yes in the
+next user request marks that exact prepared change confirmed and runs its exact
+saved call. A no leaves it unexecuted. The user never sees or supplies a plan
+ID, receipt ID, reference, token, or separate authorization. A changed preview
+is a different prepared change and requires its own final question; an
+unchanged saved preview does not acquire extra confirmation stages.
 
 This handoff is executable protocol, not advisory prose. If an MCP result
 declares `requiredAction=REQUEST_USER_CONFIRMATION`, uses
 `nextAction.type=request_user_confirmation`, or supplies
 `nextAction.onApproval`, then the complete handoff is mandatory:
-`nextAction.type`, a nonempty `instruction`, a same-connection provider tool,
+`nextAction.type`, a nonempty user-facing `instruction`, a same-connection MCP tool,
 and arguments valid against that tool's current schema. Agent Slayer validates
-those fields before accepting the successful result as approvable. A missing or
+those fields before accepting the successful result as pending. A missing or
 invalid field is a typed, terminal contract mismatch for the current request.
-The full provider result remains in its immutable receipt, but no deferred
-action reference is created, repair cannot retry the preview, and the
-application replaces any model-generated approval request with a deterministic
-contract status. The user is never asked to approve an action that the next
-request cannot execute.
+The full MCP result remains in its immutable receipt, but no pending change is
+created, repair cannot retry the preview, and the application reports plainly
+that the final question could not be prepared. The user is never asked to
+confirm something that the next request cannot execute.
 
-A provider-deferred action reference first produced during execution is active
-but unauthorized for the remainder of that Agent request. Execution,
-completion audit, repair, and tool expansion must not invoke it. Only a later
-user request interpreted by a new orientation may authorize the exact bound
-tool and arguments.
+A prepared change first produced during execution is pending for the remainder
+of that request. Execution, completion audit, repair, and tool expansion must
+not invoke it. The next user request either confirms it or does not. This is an
+internal execution boundary, not additional work and not an "authorization
+problem." Account login is separate: a real login failure asks the user to
+reconnect; a pending change asks only its one concrete yes-or-no question.
 
 Orientation also receives a bounded index of recent durable tool receipts for
 the exact recent request IDs. The index contains receipt event number, tool,
 status, time, and payload sizes, but no arguments or results. When a
-continuation needs a provider-owned identifier that is absent from conversation
+continuation needs an MCP-owned identifier that is absent from conversation
 prose or active action references, orientation selects the database capability
 and `tool_receipt_read`; execution pages the exact immutable receipt. The user
 must never be asked to locate or supply an opaque identifier previously returned
 to Agent Slayer. Receipt inspection is evidence and workflow recovery only. It
-does not authorize a mutation or repair a malformed approval handoff; execution
-uses the recovered state with an advertised provider read, recovery, or preview
-operation to produce a new valid handoff before requesting approval.
+does not confirm a change or repair a malformed handoff; execution uses the
+recovered state with an advertised MCP read, recovery, or preview operation to
+produce a valid final question.
 
 An incomplete workflow result carries an explicit status, exact missing fields
 or questions, and a structured retry descriptor. Every retry descriptor

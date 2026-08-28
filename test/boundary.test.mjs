@@ -52,7 +52,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(baseInstructions, /original requested outcome and full scope authoritative/);
   assert.match(baseInstructions, /missing information as\s+parameters for the original task/);
   assert.match(baseInstructions, /accepts your offered action,\s+perform it/);
-  assert.match(baseInstructions, /ask\s+for authorization again/);
+  assert.match(baseInstructions, /ask\s+for the same confirmation again/);
   assert.match(baseInstructions, /never\s+repeat an identical failed call/);
   assert.match(baseInstructions, /same error\s+recurs after a relevant correction, stop and report the blocker/);
   assert.match(baseInstructions, /genuinely new validation errors while the tool budget allows/);

@@ -6,22 +6,22 @@ function validBrief() {
   const sourced = { text: "Create the offered reminder.", sourceEventSeqs: [4, 9] };
   return {
     contractVersion: 1,
-    requestType: "authorization",
+    requestType: "confirmation",
     responseMode: "act",
     objective: "Create the offered reminder.",
     summary: "The current request accepts the prior offer.",
     requiredCapabilities: ["todos"],
     requiredTools: ["todo_create"],
-    authorizedActionReferenceIds: [],
+    confirmedActionReferenceIds: [],
     contextRequests: [],
-    authorizedActions: [sourced],
+    requestedActions: [sourced],
     prohibitedActions: [],
     deferredActions: [],
     constraints: [],
     unresolvedQuestions: [],
     completionCriteria: ["A successful creation receipt exists."],
     evidence: [sourced],
-    audit: { required: true, reasons: ["The request authorizes a write."] },
+    audit: { required: true, reasons: ["The request confirms a write."] },
     conversationState: {
       activeObjective: "Create the offered reminder.",
       openCommitments: [sourced],
@@ -38,7 +38,7 @@ test("TurnBrief parsing enforces source references and unique capability selecti
   assert.deepEqual(parseStructuredModelOutput(JSON.stringify(value), schema, "Orientation"), value);
 
   const unsourced = validBrief();
-  unsourced.authorizedActions[0].sourceEventSeqs = [];
+  unsourced.requestedActions[0].sourceEventSeqs = [];
   assert.throws(
     () => parseStructuredModelOutput(JSON.stringify(unsourced), schema, "Orientation"),
     /sourceEventSeqs has too few items/,
@@ -58,19 +58,19 @@ test("TurnBrief parsing enforces source references and unique capability selecti
     /requiredTools\[0\] must be one of/,
   );
 
-  const unauthorizedReference = validBrief();
-  unauthorizedReference.authorizedActionReferenceIds = ["mcp-action:not-visible"];
+  const unconfirmedReference = validBrief();
+  unconfirmedReference.confirmedActionReferenceIds = ["prepared-change:not-visible"];
   assert.throws(
-    () => parseStructuredModelOutput(JSON.stringify(unauthorizedReference), schema, "Orientation"),
-    /authorizedActionReferenceIds has too many items/,
+    () => parseStructuredModelOutput(JSON.stringify(unconfirmedReference), schema, "Orientation"),
+    /confirmedActionReferenceIds has too many items/,
   );
 
-  const referenceSchema = turnBriefSchema(["todos"], ["mcp-action:visible"], [], ["todo_create"]);
-  const authorizedReference = validBrief();
-  authorizedReference.authorizedActionReferenceIds = ["mcp-action:visible"];
+  const referenceSchema = turnBriefSchema(["todos"], ["prepared-change:visible"], [], ["todo_create"]);
+  const confirmedReference = validBrief();
+  confirmedReference.confirmedActionReferenceIds = ["prepared-change:visible"];
   assert.deepEqual(
-    parseStructuredModelOutput(JSON.stringify(authorizedReference), referenceSchema, "Orientation"),
-    authorizedReference,
+    parseStructuredModelOutput(JSON.stringify(confirmedReference), referenceSchema, "Orientation"),
+    confirmedReference,
   );
 
   const contextSchema = turnBriefSchema(

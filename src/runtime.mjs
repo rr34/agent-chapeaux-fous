@@ -6,6 +6,8 @@ import {
   deferredActionArgumentProblem,
   extractDeferredActionReference,
   incompleteReceiptResponse,
+  pendingConfirmationFindings,
+  pendingConfirmationResponse,
 } from "./deferred-actions.mjs";
 import { requestCapabilityCatalog } from "./request-compiler.mjs";
 import {
@@ -156,7 +158,7 @@ export function terminalToolFailureFindings(receipts) {
       code: "TERMINAL_TOOL_CONTRACT_FAILURE",
       tool: receipt.tool,
       message: `${receipt.tool} encountered ${toolFailure.code}; the unchanged operation is terminal for this request.`,
-      repairInstruction: "Do not retry this operation or substitute another transport. Preserve earlier receipts and report the provider or connection change required before retrying.",
+      repairInstruction: "Do not retry this operation or substitute another transport. Preserve earlier receipts and report the MCP or connection change required before retrying.",
       terminalForCurrentRequest: true,
       toolFailure,
     }];
@@ -166,19 +168,19 @@ export function terminalToolFailureFindings(receipts) {
 function terminalToolFailureNotice(findings) {
   const failure = findings[0]?.toolFailure;
   if (!failure) return "";
-  if (failure.step === "provider_action_handoff") {
-    return `Provider status: ${failure.serverName} returned a result requiring confirmation, but its provider-action handoff did not match the MCP contract (${failure.code}). The exact provider result remains stored in its durable receipt. Agent Slayer will not present it as approvable or retry it in this request; retry only after the provider contract is corrected and the integration is refreshed.`;
+  if (failure.step === "final_confirmation_handoff") {
+    return `${failure.serverName} finished the preview but did not return a usable final yes-or-no step. Nothing was changed, and Agent Slayer saved the result instead of retrying. Refresh the integration after ${failure.serverName} is corrected, then try again.`;
   }
   const operation = [failure.method, failure.path].filter(Boolean).join(" ");
   const status = failure.httpStatus == null ? failure.code : `HTTP ${failure.httpStatus}`;
   return [
     `Transfer status: ${failure.serverName} did not honor its advertised artifact-transfer contract`,
     operation ? ` for ${operation}` : "",
-    ` (${status}). The unchanged transfer will not be retried until the integration is refreshed after the provider changes. Earlier successful steps remain recorded.`,
+    ` (${status}). The unchanged transfer will not be retried until the integration is refreshed after the MCP changes. Earlier successful steps remain recorded.`,
   ].join("");
 }
 
-function providerActionHandoffFailure(toolName, toolDefinition) {
+function finalConfirmationHandoffFailure(toolName, toolDefinition) {
   const source = String(toolDefinition?.source ?? "mcp:unknown");
   const serverName = source.startsWith("mcp:") ? source.slice(4) : source;
   const contractFingerprint = createHash("sha256").update(JSON.stringify(canonicalToolArguments({
@@ -190,14 +192,14 @@ function providerActionHandoffFailure(toolName, toolDefinition) {
   return {
     contractVersion: 1,
     kind: "contract_mismatch",
-    code: "MCP_PROVIDER_ACTION_HANDOFF_INVALID",
+    code: "MCP_FINAL_CONFIRMATION_INVALID",
     terminalForCurrentRequest: true,
     retry: "after_provider_contract_correction_and_integration_refresh",
     serverName,
     capabilityId: toolDefinition?.capabilityId ?? `integration:${serverName}`,
     transportId: "mcp-control-plane",
     contractFingerprint,
-    step: "provider_action_handoff",
+    step: "final_confirmation_handoff",
     method: null,
     path: null,
     httpStatus: null,
@@ -568,9 +570,15 @@ export class SlayerRuntime {
       runTimeoutMs: remainingTimeoutMs(),
     });
     const brief = orientation.value;
-    const authorizedActionReferences = activeActionReferences.filter(({ referenceId }) => (
-      brief.authorizedActionReferenceIds.includes(referenceId)
-    ));
+    const confirmedActionReferences = activeActionReferences
+      .filter(({ referenceId }) => brief.confirmedActionReferenceIds.includes(referenceId))
+      .map((reference) => ({ ...reference, state: "confirmed" }));
+    const confirmedReferenceIds = new Set(
+      confirmedActionReferences.map(({ referenceId }) => referenceId),
+    );
+    const pendingTargetTools = new Set(activeActionReferences
+      .filter(({ referenceId }) => !confirmedReferenceIds.has(referenceId))
+      .map(({ targetTool }) => targetTool));
     this.ledger.append({
       type: "turn.brief", status: "complete", actorType: "service",
       actorName: "Turn orienter", channel, turnId: args.requestId,
@@ -659,8 +667,8 @@ export class SlayerRuntime {
       ...args,
       capabilityOverride: executionCapabilities,
       toolOverride: [...new Set([
-        ...brief.requiredTools,
-        ...authorizedActionReferences.map(({ targetTool }) => targetTool),
+        ...brief.requiredTools.filter((toolName) => !pendingTargetTools.has(toolName)),
+        ...confirmedActionReferences.map(({ targetTool }) => targetTool),
       ])],
       runLimits: {
         maxToolCalls: configuredMaxToolCalls,
@@ -668,10 +676,10 @@ export class SlayerRuntime {
       },
       supplementalInstructions: joinedInstructions(
         args.supplementalInstructions,
-        turnBriefInstructions(brief, authorizedActionReferences),
+        turnBriefInstructions(brief, confirmedActionReferences),
       ),
       activeActionReferences,
-      authorizedActionReferences,
+      confirmedActionReferences,
       preparedCapabilityContext,
     };
     const execution = await this.#runExecutorStep(executorArgs, {
@@ -681,10 +689,14 @@ export class SlayerRuntime {
     const receiptFindings = completionReceiptFindings({
       brief,
       receipts: execution.receipts,
-      authorizedActionReferences,
+      confirmedActionReferences,
     });
+    const confirmationFindings = pendingConfirmationFindings(
+      execution.receipts,
+      confirmedActionReferences,
+    );
     const terminalFindings = terminalToolFailureFindings(execution.receipts);
-    const executionFindings = [...receiptFindings, ...terminalFindings];
+    const executionFindings = [...receiptFindings, ...confirmationFindings, ...terminalFindings];
     const auditEffects = auditEffectsForReceipts(execution.receipts, this.registry);
     if (!brief.audit.required && auditEffects.length === 0 && executionFindings.length === 0) {
       const operationId = `${this.modelTransport.id}:${args.requestId}:audit`;
@@ -735,9 +747,19 @@ export class SlayerRuntime {
         payload: { findings: terminalFindings },
         error: terminalFindings.map(({ toolFailure }) => toolFailure.code).join(", "),
       });
-      return terminalFindings.some(({ toolFailure }) => toolFailure.step === "provider_action_handoff")
+      return terminalFindings.some(({ toolFailure }) => toolFailure.step === "final_confirmation_handoff")
         ? notice
         : joinedInstructions(execution.text, notice);
+    }
+    if (confirmationFindings.length > 0) {
+      const response = pendingConfirmationResponse(execution.text);
+      this.ledger.append({
+        type: "confirmation.required", phase: "end", status: "complete", actorType: "service",
+        actorName: "Confirmation gate", channel, turnId: args.requestId,
+        name: "Waiting for user confirmation", content: response,
+        payload: { findings: confirmationFindings },
+      });
+      return response;
     }
     if (audit.value.outcome !== "repair_needed" && executionFindings.length === 0) return execution.text;
 
@@ -757,7 +779,7 @@ export class SlayerRuntime {
         JSON.stringify(audit.value, null, 2),
         "# Application-enforced receipt findings",
         JSON.stringify(executionFindings, null, 2),
-        "Perform only the remaining authorized work. Earlier successful receipts are completed actions and must not be repeated. Return the final user-facing response after repair.",
+        "Perform only the remaining requested work. Earlier successful receipts are completed actions and must not be repeated. Return the final user-facing response after repair.",
       ),
     };
     const repair = await this.#runExecutorStep(repairArgs, {
@@ -768,7 +790,7 @@ export class SlayerRuntime {
     const finalFindings = completionReceiptFindings({
       brief,
       receipts: repair.receipts,
-      authorizedActionReferences,
+      confirmedActionReferences,
     });
     if (finalFindings.length) {
       const response = incompleteReceiptResponse(finalFindings);
@@ -802,7 +824,7 @@ export class SlayerRuntime {
     capabilityOverride = null, workflowStep = null, workflowStepLabel = null, stepIndex = null,
     toolOverride = null,
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
-    activeActionReferences = [], authorizedActionReferences = [],
+    activeActionReferences = [], confirmedActionReferences = [],
     preparedCapabilityContext = null,
   }) {
     const availableTools = this.registry.toolDefinitions();
@@ -1158,7 +1180,7 @@ export class SlayerRuntime {
               const referenceProblem = deferredActionArgumentProblem(
                 name,
                 toolArguments,
-                authorizedActionReferences,
+                confirmedActionReferences,
                 [
                   ...activeActionReferences,
                   ...sameRequestReceipts.flatMap((receipt) => (
@@ -1224,7 +1246,7 @@ export class SlayerRuntime {
             if (name === "request_capabilities") {
               if (capabilityExpansionRounds >= maximumCapabilityExpansionRounds || expansionRequested) {
                 const message = maximumCapabilityExpansionRounds === 0
-                  ? "Capability expansion is not authorized during structured execution; orientation already selected the accepted TurnBrief capabilities and their declared dependent tools"
+                  ? "Capability expansion is unavailable during structured execution; orientation already selected the accepted TurnBrief capabilities and their declared dependent tools"
                   : "The single capability-expansion round is already used or pending; finish with the callable tools or report the evidenced blocker";
                 this.ledger.append({
                   type: "tool.result", phase: "error", status: "error", actorType: "tool",
@@ -1303,8 +1325,8 @@ export class SlayerRuntime {
                 resolveProviderTool,
               });
               if (actionContractProblem) {
-                const message = `${name} returned an invalid provider confirmation handoff: ${actionContractProblem}`;
-                const toolFailure = providerActionHandoffFailure(name, toolDefinition);
+                const message = `${name} did not return a usable final confirmation step: ${actionContractProblem}`;
+                const toolFailure = finalConfirmationHandoffFailure(name, toolDefinition);
                 failedToolAttempts.add(attemptKey);
                 const resultEventId = this.ledger.append({
                   type: "tool.result", phase: "error", status: "error", actorType: "tool",

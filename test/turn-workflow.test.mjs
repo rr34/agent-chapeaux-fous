@@ -43,19 +43,19 @@ function identityResultFilter(overrides = {}) {
   };
 }
 
-function brief({ auditRequired = true, authorizedActionReferenceIds = [] } = {}) {
+function brief({ auditRequired = true, confirmedActionReferenceIds = [] } = {}) {
   const source = { text: "Run the previously offered action.", sourceEventSeqs: [4, 9] };
   return {
     contractVersion: 1,
-    requestType: "authorization",
+    requestType: "confirmation",
     responseMode: "act",
     objective: "Create the reminder that the assistant just offered to create.",
-    summary: "The user authorized the concrete action offered in the prior assistant turn.",
+    summary: "The user confirmed the concrete action offered in the prior assistant turn.",
     requiredCapabilities: ["todos"],
     requiredTools: ["todo_create"],
-    authorizedActionReferenceIds,
+    confirmedActionReferenceIds,
     contextRequests: [],
-    authorizedActions: [source],
+    requestedActions: [source],
     prohibitedActions: [],
     deferredActions: [],
     constraints: [],
@@ -142,7 +142,7 @@ test("a TurnBrief can skip the audit for declared read-only work and the trace s
     summary: "The user asked to read current to-dos.",
     requiredTools: ["todo_list"],
     contextRequests: ["todos.active_groups"],
-    authorizedActions: [],
+    requestedActions: [],
     completionCriteria: ["Report the current to-do list."],
   };
   const modelTransport = transport(async (payload, index) => {
@@ -210,7 +210,7 @@ test("structured execution starts with orientation-selected tools and expands ex
     summary: "Inspect the transaction count and verify the ledger.",
     requiredCapabilities: ["integration:accounting"],
     requiredTools: ["remote_accounting_list_transactions"],
-    authorizedActions: [],
+    requestedActions: [],
     completionCriteria: ["Report the transaction count and current ledger verification."],
   };
   const modelTransport = transport(async (payload, index) => {
@@ -338,7 +338,7 @@ test("a same-execution provider confirmation reference cannot be consumed by too
       "remote_accounting_preview_delete_transactions",
       "remote_accounting_commit_delete_transactions",
     ],
-    authorizedActions: [source],
+    requestedActions: [source],
     prohibitedActions: ["Commit the deletion before the user approves the exact preview."],
     completionCriteria: ["The exact preview is reported and its commit remains unexecuted."],
     evidence: [source],
@@ -358,17 +358,17 @@ test("a same-execution provider confirmation reference cannot be consumed by too
         arguments: preview.result.nextAction.onApproval.arguments,
       });
       assert.equal(forbiddenCommit.ok, false);
-      assert.match(forbiddenCommit.error, /must exactly match an active provider invocation authorized by the accepted TurnBrief/);
+      assert.match(forbiddenCommit.error, /waiting for the user's confirmation/);
       return completed("The preview contains 13 transactions. Please confirm that exact deletion.", 30);
     }
     assert.match(payload.developerInstructions, /remote_accounting_commit_delete_transactions/);
     return completed(JSON.stringify({
       contractVersion: 1,
-      outcome: "complete",
-      summary: "The preview was created and its newly generated commit was not executed.",
+      outcome: "repair_needed",
+      summary: "The requested deletion has not executed.",
       satisfiedCriteria: ["The exact 13-transaction preview is available for confirmation."],
-      remainingActions: ["Wait for explicit user confirmation of this exact preview."],
-      repairInstructions: [],
+      remainingActions: ["Execute the deletion."],
+      repairInstructions: ["Retry the commit."],
     }), 10);
   }, requests);
   const runtime = new SlayerRuntime({
@@ -721,7 +721,7 @@ test("a historical receipt cannot masquerade as a new dry run and repair preserv
     summary: "Dry-run the current account tree.",
     requiredCapabilities: ["database", "integration:accounting"],
     requiredTools: ["tool_receipt_read", "remote_accounting_import_account_tree"],
-    authorizedActions: [{ text: "Dry-run the current import.", sourceEventSeqs: [9] }],
+    requestedActions: [{ text: "Dry-run the current import.", sourceEventSeqs: [9] }],
     completionCriteria: ["A successful direct dry-run receipt exists."],
   };
   const modelTransport = transport(async (payload, index) => {
@@ -902,7 +902,7 @@ test("a terminal tool contract failure is preserved in receipts and deterministi
     summary: "The user requested the prepared accounting-file import.",
     requiredCapabilities: ["integration:accounting"],
     requiredTools: ["remote_accounting_upload_transaction_import_file"],
-    authorizedActions: [source],
+    requestedActions: [source],
     completionCriteria: ["The provider accepts the complete artifact or the exact blocker is reported."],
     evidence: [source],
   };
@@ -1030,7 +1030,7 @@ test("an MCP preview cannot ask for approval without a valid durable action hand
     summary: "Create the Accounting preview and report whether it can be approved.",
     requiredCapabilities: ["integration:accounting"],
     requiredTools: ["remote_accounting_preview_transaction_import_job"],
-    authorizedActions: [source],
+    requestedActions: [source],
     completionCriteria: ["A valid provider confirmation handoff is durably preserved."],
     evidence: [source],
   };
@@ -1043,13 +1043,13 @@ test("an MCP preview cannot ask for approval without a valid durable action hand
         arguments: { import_job_id: previewResult.job.import_job_id },
       });
       assert.equal(result.ok, false);
-      assert.equal(result.toolFailure.code, "MCP_PROVIDER_ACTION_HANDOFF_INVALID");
+      assert.equal(result.toolFailure.code, "MCP_FINAL_CONFIRMATION_INVALID");
       assert.equal(result.toolFailure.terminalForCurrentRequest, true);
       assert.deepEqual(result.result, previewResult);
       return completed("The preview is ready; please approve it.", 50);
     }
     if (index === 2) {
-      assert.match(payload.developerInstructions, /MCP_PROVIDER_ACTION_HANDOFF_INVALID/);
+      assert.match(payload.developerInstructions, /MCP_FINAL_CONFIRMATION_INVALID/);
       return completed(JSON.stringify({
         contractVersion: 1,
         outcome: "repair_needed",
@@ -1079,14 +1079,14 @@ test("an MCP preview cannot ask for approval without a valid durable action hand
 
   assert.equal(requests.length, 3);
   assert.doesNotMatch(result, /please approve/i);
-  assert.match(result, /did not match the MCP contract/);
-  assert.match(result, /exact provider result remains stored in its durable receipt/);
+  assert.match(result, /did not return a usable final yes-or-no step/);
+  assert.match(result, /saved the result instead of retrying/);
   const receipt = ledger.events.find(({ type, name }) => (
     type === "tool.result" && name === "remote_accounting_preview_transaction_import_job"
   ));
   assert.deepEqual(receipt.payload.result, previewResult);
   assert.equal(receipt.payload.deferredActionReference, undefined);
-  assert.equal(receipt.payload.toolFailure.code, "MCP_PROVIDER_ACTION_HANDOFF_INVALID");
+  assert.equal(receipt.payload.toolFailure.code, "MCP_FINAL_CONFIRMATION_INVALID");
   assert.equal(ledger.events.some(({ type }) => type === "tool.retry.blocked"), true);
 });
 
@@ -1196,7 +1196,7 @@ test("a continuation recovers an opaque provider job ID from the receipt index w
     summary: "Use the prior provider receipt instead of asking the user for an opaque identifier.",
     requiredCapabilities: ["database", "integration:accounting"],
     requiredTools: ["tool_receipt_read", "remote_accounting_preview_transaction_import_job"],
-    authorizedActions: [source],
+    requestedActions: [source],
     completionCriteria: ["A fresh valid provider-owned approval reference is preserved."],
     evidence: [source],
   };
@@ -1260,16 +1260,16 @@ test("a continuation recovers an opaque provider job ID from the receipt index w
 test("approval binds execution to the exact active plan and blocks request-id substitution", async () => {
   const requests = [];
   const actionReference = {
-    referenceId: "mcp-action:approved",
-    action: "provider-confirmed-action",
-    sourceProvider: "mcp:accounting",
+    referenceId: "prepared-change:approved",
+    state: "pending",
+    sourceConnection: "mcp:accounting",
     sourceTool: "remote_accounting_import_account_tree",
     sourceRequestId: "request-dry-run",
     sourceReceiptEventSeq: 42,
     targetTool: "remote_accounting_commit_account_tree_import",
     targetUpstreamTool: "commit_account_tree_import",
     arguments: { import_plan_id: "plan-exact-273" },
-    providerMetadata: { ready: true, expiresAt: "2099-01-01T00:00:00.000Z" },
+    readiness: { ready: true, expiresAt: "2099-01-01T00:00:00.000Z" },
   };
   const ledger = fakeLedger({ actionReferences: [actionReference] });
   const commits = [];
@@ -1288,7 +1288,7 @@ test("approval binds execution to the exact active plan and blocks request-id su
     },
   });
   const approvalBrief = {
-    ...brief({ authorizedActionReferenceIds: [actionReference.referenceId] }),
+    ...brief({ confirmedActionReferenceIds: [actionReference.referenceId] }),
     objective: "Commit the exact approved account-tree preview.",
     summary: "The user approved the commit-ready account-tree plan.",
     requiredCapabilities: ["integration:accounting"],
@@ -1302,7 +1302,7 @@ test("approval binds execution to the exact active plan and blocks request-id su
       return completed(JSON.stringify(approvalBrief), 20);
     }
     if (index === 1) {
-      assert.match(payload.developerInstructions, /mcp-action:approved/);
+      assert.match(payload.developerInstructions, /prepared-change:approved/);
       toolResponses.push(await payload.onToolCall({
         callId: "guessed",
         tool: "remote_accounting_commit_account_tree_import",
@@ -1342,7 +1342,7 @@ test("approval binds execution to the exact active plan and blocks request-id su
 
   assert.equal(result, "Committed the exact approved plan.");
   assert.equal(toolResponses[0].ok, false);
-  assert.match(toolResponses[0].error, /Never substitute a request ID/);
+  assert.match(toolResponses[0].error, /does not match the exact prepared change/);
   assert.equal(toolResponses[1].ok, true);
   assert.deepEqual(commits, [{ import_plan_id: "plan-exact-273" }]);
   assert.equal(ledger.events.some(({ type }) => type.startsWith("action.artifact")), false);

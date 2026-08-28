@@ -688,7 +688,7 @@ export class McpToolManager {
     this.registry.register({
       name: modelName,
       title: `Upload file to ${serverName}`,
-      description: `[${serverName}] Upload one complete, verified, persisted file through the MCP's advertised resumable HTTP artifact receiver. Use this for data that originated as a file instead of reading or reproducing its records through the model. The application uses the integration's bearer token, resumes from the provider-confirmed byte offset, and returns an opaque artifact ID. This does not run ${upload.consumerTool.name}; after upload, call that provider tool with its other required arguments and the returned artifact_id. Accepted media types: ${upload.acceptedMediaTypes.join(", ")}. Maximum bytes: ${maximumDescription}.`,
+      description: `[${serverName}] Upload one complete, verified, persisted file through the MCP's advertised resumable HTTP artifact receiver. Use this for data that originated as a file instead of reading or reproducing its records through the model. The application uses the integration's bearer token, resumes from the MCP-confirmed byte offset, and returns an opaque artifact ID. This does not run ${upload.consumerTool.name}; after upload, call that MCP tool with its other required arguments and the returned artifact_id. Accepted media types: ${upload.acceptedMediaTypes.join(", ")}. Maximum bytes: ${maximumDescription}.`,
       parameters: {
         type: "object",
         additionalProperties: false,

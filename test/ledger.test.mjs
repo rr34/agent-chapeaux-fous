@@ -392,16 +392,16 @@ test("MCP deferred actions are derived from receipts and leave the active set af
       payload: {
         result: { status: "ready", summary: { accountsCreated: 273 } },
         deferredActionReference: {
-          referenceId: "mcp-action:ledger-test",
-          action: "provider-confirmed-action",
-          sourceProvider: "mcp:accounting",
+          referenceId: "prepared-change:ledger-test",
+          state: "pending",
+          sourceConnection: "mcp:accounting",
           sourceTool: "remote_accounting_import_account_tree",
           sourceRequestId: "request-dry-run",
           sourceReceiptEventSeq: null,
           targetTool: "remote_accounting_commit_account_tree_import",
           targetUpstreamTool: "commit_account_tree_import",
           arguments: { import_plan_id: "plan-ledger-test" },
-          providerMetadata: { ready: true, status: "ready", expiresAt: "2099-01-01T00:00:00.000Z" },
+          readiness: { ready: true, status: "ready", expiresAt: "2099-01-01T00:00:00.000Z" },
         },
       },
     });

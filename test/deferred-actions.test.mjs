@@ -7,20 +7,22 @@ import {
   deferredActionArgumentProblem,
   extractDeferredActionReference,
   matchingDeferredActionReferences,
+  pendingConfirmationFindings,
+  pendingConfirmationResponse,
 } from "../src/deferred-actions.mjs";
 
 function actionReference(overrides = {}) {
   return {
-    referenceId: "mcp-action:one",
-    action: "provider-confirmed-action",
-    sourceProvider: "mcp:accounting",
+    referenceId: "prepared-change:one",
+    state: "pending",
+    sourceConnection: "mcp:accounting",
     sourceTool: "remote_accounting_import_account_tree",
     sourceRequestId: "request-dry-run",
     sourceReceiptEventSeq: 42,
     targetTool: "remote_accounting_commit_account_tree_import",
     targetUpstreamTool: "commit_account_tree_import",
     arguments: { import_plan_id: "plan-exact-123" },
-    providerMetadata: {
+    readiness: {
       ready: true,
       expiresAt: "2099-01-01T00:00:00.000Z",
     },
@@ -66,11 +68,12 @@ test("an explicit same-provider next action produces an exact invocation referen
     },
   });
 
-  assert.equal(reference.action, "provider-confirmed-action");
+  assert.equal(reference.state, "pending");
+  assert.equal(reference.sourceConnection, "mcp:accounting");
   assert.equal(reference.targetTool, "remote_accounting_commit_account_tree_import");
   assert.deepEqual(reference.arguments, { import_plan_id: "plan-exact-123" });
   assert.equal(reference.sourceReceiptEventSeq, 42);
-  assert.deepEqual(reference.providerMetadata, {
+  assert.deepEqual(reference.readiness, {
     ready: true,
     status: "ready",
     expiresAt: "2099-01-01T00:00:00.000Z",
@@ -148,8 +151,33 @@ test("stored provider references survive unrelated turns and disappear after exa
   assert.deepEqual(activeDeferredActionReferences(executed), []);
 
   const expired = structuredClone(sourceReceipt);
-  expired.deferredActionReference.providerMetadata.expiresAt = "2020-01-01T00:00:00.000Z";
+  expired.deferredActionReference.readiness.expiresAt = "2020-01-01T00:00:00.000Z";
   assert.deepEqual(activeDeferredActionReferences([expired]), []);
+});
+
+test("older saved action references are presented as pending prepared changes", () => {
+  const legacy = actionReference({
+    referenceId: "mcp-action:legacy",
+    sourceConnection: undefined,
+    readiness: undefined,
+    action: "provider-confirmed-action",
+    sourceProvider: "mcp:accounting",
+    providerMetadata: { ready: true, status: "ready", expiresAt: null },
+  });
+  const [normalized] = activeDeferredActionReferences([{
+    receiptEventSeq: 50,
+    requestId: "request-legacy",
+    tool: legacy.sourceTool,
+    arguments: {},
+    ok: true,
+    deferredActionReference: legacy,
+  }]);
+  assert.equal(normalized.referenceId, "prepared-change:legacy");
+  assert.equal(normalized.state, "pending");
+  assert.equal(normalized.sourceConnection, "mcp:accounting");
+  assert.deepEqual(normalized.readiness, { ready: true, status: "ready", expiresAt: null });
+  assert.equal(Object.hasOwn(normalized, "sourceProvider"), false);
+  assert.equal(Object.hasOwn(normalized, "providerMetadata"), false);
 });
 
 test("opaque MCP arguments must match a provider reference selected by the TurnBrief", () => {
@@ -170,12 +198,45 @@ test("opaque MCP arguments must match a provider reference selected by the TurnB
       [reference],
       [reference],
     ),
-    /Never substitute a request ID/,
+    /does not match the exact prepared change/,
   );
   assert.deepEqual(
     matchingDeferredActionReferences(reference.targetTool, reference.arguments, [reference]),
     [reference],
   );
+});
+
+test("new provider confirmations suppress jargon and ask the user for a simple decision", () => {
+  const reference = actionReference();
+  assert.deepEqual(
+    pendingConfirmationFindings([{
+      tool: reference.sourceTool,
+      ok: true,
+      deferredActionReference: reference,
+    }], []),
+    [{
+      code: "USER_CONFIRMATION_REQUIRED",
+      referenceId: reference.referenceId,
+      targetTool: reference.targetTool,
+      message: "The requested change is prepared and is waiting for the user's yes-or-no confirmation.",
+      repairInstruction: "Do not run or retry the prepared write in this request. Describe the concrete preview in plain language and ask the user to confirm it.",
+    }],
+  );
+
+  const response = pendingConfirmationResponse([
+    "It was blocked because there is no active provider authorization.",
+    "",
+    "- 7,987 transactions are prepared",
+    "- 23 exceptions will remain unchanged",
+    "",
+    "The remaining blocker is activation of the provider's commit authorization.",
+  ].join("\n"));
+  assert.doesNotMatch(response, /authorization/iu);
+  assert.match(response, /7,987 transactions/);
+  assert.match(response, /answer yes or no/);
+
+  const alreadyPlain = "The preview contains 13 transactions. Please confirm that exact deletion.";
+  assert.equal(pendingConfirmationResponse(alreadyPlain), alreadyPlain);
 });
 
 test("receipt findings enforce only explicitly authorized MCP action references", () => {
@@ -187,7 +248,7 @@ test("receipt findings enforce only explicitly authorized MCP action references"
   assert.deepEqual(
     completionReceiptFindings({
       receipts: historicalOnly,
-      authorizedActionReferences: [],
+      confirmedActionReferences: [],
     }).map(({ code }) => code),
     [],
   );
@@ -195,8 +256,8 @@ test("receipt findings enforce only explicitly authorized MCP action references"
   assert.deepEqual(
     completionReceiptFindings({
       receipts: historicalOnly,
-      authorizedActionReferences: [reference],
+      confirmedActionReferences: [reference],
     }).map(({ code }) => code),
-    ["AUTHORIZED_MCP_ACTION_RECEIPT_REQUIRED"],
+    ["CONFIRMED_CHANGE_RECEIPT_REQUIRED"],
   );
 });

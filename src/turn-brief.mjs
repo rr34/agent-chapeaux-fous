@@ -36,7 +36,7 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
       requestType: {
         type: "string",
         enum: [
-          "new_objective", "continuation", "authorization", "correction",
+          "new_objective", "continuation", "confirmation", "correction",
           "clarification", "addition", "cancellation", "informational",
         ],
       },
@@ -58,7 +58,7 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
           ? { type: "string", enum: allowedTools }
           : { type: "string" },
       },
-      authorizedActionReferenceIds: {
+      confirmedActionReferenceIds: {
         type: "array",
         maxItems: allowedReferenceIds.length,
         uniqueItems: true,
@@ -74,7 +74,7 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
           ? { type: "string", enum: allowedContextViews }
           : { type: "string" },
       },
-      authorizedActions: { type: "array", maxItems: 20, items: sourcedStatement },
+      requestedActions: { type: "array", maxItems: 20, items: sourcedStatement },
       prohibitedActions: textList(),
       deferredActions: textList(),
       constraints: { type: "array", maxItems: 30, items: sourcedStatement },
@@ -113,7 +113,7 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
     },
     required: [
       "contractVersion", "requestType", "responseMode", "objective", "summary",
-      "requiredCapabilities", "requiredTools", "authorizedActionReferenceIds", "authorizedActions",
+      "requiredCapabilities", "requiredTools", "confirmedActionReferenceIds", "requestedActions",
       "contextRequests",
       "prohibitedActions", "deferredActions",
       "constraints", "unresolvedQuestions", "completionCriteria", "evidence", "audit",
@@ -174,7 +174,7 @@ export function orientationContext({
 }) {
   return [
     "# Orientation source",
-    "Interpret the current user request against these literal application-owned sources. The ledger remains authoritative. The prior rolling state is a replaceable index, not proof; retain or change it only when supported by source event numbers. Never broaden authorization.",
+    "Interpret the current user request against these literal application-owned sources. The ledger remains authoritative. The prior rolling state is a replaceable index, not proof; retain or change it only when supported by source event numbers. Never broaden the requested scope.",
     "",
     "## Current request identity",
     JSON.stringify({ requestId, requestEventSeq }),
@@ -185,12 +185,12 @@ export function orientationContext({
     "## Prior rolling conversation state",
     JSON.stringify(previousState ?? null, null, 2),
     "",
-    "## Active MCP-owned deferred actions",
-    "These references are derived from immutable tool receipts. The MCP owns each operation, its data, readiness, expiration, validation, and execution. Select a reference ID only when the current request authorizes that exact provider operation. Never substitute a request ID or infer an opaque identifier from prose.",
+    "## Prepared changes waiting for confirmation",
+    "These references are derived from immutable tool receipts. Each one is an exact prepared MCP change. Select a reference ID only when the current request clearly confirms that exact change. Never substitute a request ID or infer an opaque identifier from prose.",
     JSON.stringify(deferredActionReferences, null, 2),
     "",
     "## Recent durable tool receipt index",
-    "This bounded index deliberately omits arguments and results. When the current request continues prior tool work and a provider-owned identifier is absent from the conversation or active action references, select the database capability and tool_receipt_read for the relevant receipt instead of asking the user to supply an opaque ID. A historical receipt is evidence, not mutation authorization: use its exact provider state to call an advertised recovery/read/preview operation and regenerate a valid action handoff before requesting approval.",
+    "This bounded index deliberately omits arguments and results. When the current request continues prior tool work and an MCP-owned identifier is absent from the conversation or active action references, select the database capability and tool_receipt_read for the relevant receipt instead of asking the user to supply an opaque ID. A historical receipt is evidence, not confirmation: use the exact saved state with an advertised recovery, read, or preview operation and regenerate a valid final handoff before asking the user.",
     JSON.stringify(recentToolReceipts, null, 2),
     "",
     ...(fallbackCheckpoint ? [
@@ -208,15 +208,18 @@ export function orientationContext({
   ].join("\n");
 }
 
-export function turnBriefInstructions(brief, authorizedActionReferences = []) {
+export function turnBriefInstructions(brief, confirmedActionReferences = []) {
   return [
     "# Accepted TurnBrief",
-    "This source-grounded contract defines the current request. Execute its objective and authorized actions, respect prohibited and deferred actions, and continue until every completion criterion is satisfied or a genuinely new blocker is proven by a tool result or the complete callable-tool snapshot. Do not re-infer a narrower task from the latest sentence alone.",
+    "This source-grounded contract defines the current request. Execute its objective and requested actions, respect prohibited and deferred actions, and continue until every completion criterion is satisfied or a genuinely new blocker is proven by a tool result or the complete callable-tool snapshot. Do not re-infer a narrower task from the latest sentence alone.",
     JSON.stringify(brief, null, 2),
     "",
-    "# Authorized MCP action references",
-    "These references contain only the opaque invocation data returned by an MCP. The MCP remains authoritative for the operation and its lifecycle. Copy an opaque identifier only from an authorized reference; never use a request ID, receipt ID, or guessed value. A historical receipt inspection is evidence only and does not execute the provider action.",
-    JSON.stringify(authorizedActionReferences, null, 2),
+    "# Confirmed prepared changes",
+    "A listed entry is the exact saved MCP call the user confirmed. Copy its opaque values exactly; never use a request ID, receipt ID, or guessed value. A historical receipt is evidence only and does not confirm or execute a change.",
+    JSON.stringify(confirmedActionReferences, null, 2),
+    "",
+    "# User-facing language boundary",
+    "TurnBriefs, saved invocation details, and internal confirmation state are application machinery, never explanations or requests for the user. If a prepared change needs confirmation, describe the actual change and ask for a plain yes or no; never ask the user for an internal identifier or technical object.",
   ].join("\n");
 }
 
@@ -225,7 +228,7 @@ export function auditContext({
 }) {
   return [
     "# Completion audit input",
-    "Compare the accepted TurnBrief with literal tool receipts and the proposed executor response. Mark complete only when the receipts and response prove every requested outcome. Mark repair_needed when safe callable work remains. Mark blocked only for a new evidenced blocker. Do not invent actions or authorization.",
+    "Compare the accepted TurnBrief with literal tool receipts and the proposed executor response. Mark complete only when the receipts and response prove every requested outcome. Mark repair_needed when safe callable work remains. Mark blocked only for a new evidenced blocker. Do not invent actions or confirmation.",
     "",
     "## Accepted TurnBrief",
     JSON.stringify(brief, null, 2),
@@ -252,8 +255,8 @@ export function auditContext({
 export const orientationInstructions = [
   "You are the orientation phase of Chapeaux Fous. Produce only the schema-constrained TurnBrief.",
   "Resolve the exact current request against the supplied recent conversation and rolling state.",
-  "A short approval can authorize a concrete prior offer without repeating its wording. A correction changes only what it explicitly changes. An addition preserves the earlier objective. A question does not authorize a write.",
-  "When approval concerns an MCP-owned deferred operation, select its exact active reference in authorizedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",
+  "A short yes can confirm a concrete prior offer without repeating its wording. A correction changes only what it explicitly changes. An addition preserves the earlier objective. A question does not confirm a write.",
+  "When the user confirms a prepared MCP change, select its exact active reference in confirmedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",
   "Use contextRequests to ask the application for small advertised read-only datasets that execution needs up front, such as existing tag, group, or tracker names and IDs. Do not request unrelated views.",
   "Select every capability family the executor may need. Keep the output concise, source-grounded, and explicit about completion.",
 ].join("\n");
