@@ -539,6 +539,16 @@ test("the agent chat renders chronologically above its composer", () => {
   assert.match(application, /elements\.form\.scrollIntoView\(\{ block: "end" \}\)/);
 });
 
+test("each chat exchange offsets the user request and groups metrics with the response", () => {
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  assert.ok(document.indexOf('class="request-user-turn"') < document.indexOf('class="request-agent-turn"'));
+  assert.match(document, /class="request-user-turn"[\s\S]+class="user-request"[\s\S]+class="request-meta request-user-meta"/);
+  assert.match(document, /class="request-agent-turn"[\s\S]+class="agent-response"[\s\S]+class="response-metrics"[\s\S]+class="request-status"[\s\S]+class="request-elapsed"[\s\S]+class="request-usage"/);
+  assert.match(styles, /\.request-user-turn \{[\s\S]+justify-self: end/);
+  assert.match(styles, /\.request-agent-turn \{[\s\S]+justify-self: start/);
+});
+
 test("clicking a displayed request ID copies the complete request ID", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");

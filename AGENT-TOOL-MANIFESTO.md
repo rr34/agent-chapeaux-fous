@@ -395,6 +395,13 @@ execution with prior receipts preserved. A merely cataloged, deferred,
 disabled, disconnected, unauthorized, or failed tool is never represented as
 callable.
 
+Initial tool selection is deliberately precise and recoverable. Accepting a
+capability family does not make every tool in that family callable, and the
+application must not send every schema merely because one of those tools might
+be useful. Expansion may reveal exact schemas for named tools, but it does not
+add a capability family, broaden the user's authorization, answer a provider
+question, approve a preview, or authorize a provider-deferred action.
+
 A model tool call is accepted only when its exact schema is present in that
 execution interaction. Agent Slayer maps the published upstream name to the
 registered application name, validates the complete arguments, invokes that
@@ -422,6 +429,12 @@ and that `arguments` match its current schema. Agent Slayer records the opaque
 reference with its source receipt. A later orientation may select it when the
 current request authorizes it, and execution may invoke the bound tool only with
 the bound arguments.
+
+A provider-deferred action reference first produced during execution is active
+but unauthorized for the remainder of that Agent request. Execution,
+completion audit, repair, and tool expansion must not invoke it. Only a later
+user request interpreted by a new orientation may authorize the exact bound
+tool and arguments.
 
 An incomplete workflow result carries an explicit status, exact missing fields
 or questions, and a structured retry descriptor. Every retry descriptor
@@ -801,3 +814,8 @@ schemas actually sent, provider-visible request, normalized output, validation
 result, and usage as separate literal trace events. Registry definitions or
 intermediate candidate sets that were not sent are not substituted into an
 event labeled as provider-visible.
+
+Each provider-visible tool-schema event records the exact sent tool names and
+schemas, their count, and their serialized schema byte size. Candidate and
+deferred tool names, counts, or compact summaries may be recorded separately so
+the trace can explain selection without duplicating unsent schemas.

@@ -890,44 +890,51 @@
     <article class="request-entry">
       <hr class="conversation-separator" aria-label="New conversation" hidden>
       <div class="request-card">
-        <div class="request-meta">
-          <button class="request-number" type="button"></button>
-          <span class="request-channel"></span>
-          <span class="request-status"></span>
-          <time></time>
-          <span class="request-elapsed" hidden></span>
-          <span class="request-usage" hidden></span>
-        </div>
-        <p class="user-request"></p>
-        <div class="request-attachment" hidden>
-          <button class="request-file-reference secondary compact" type="button"></button>
-          <span class="request-file-original"></span>
-          <span class="request-file-description"></span>
-          <button class="edit-request-file secondary compact" type="button">Edit details</button>
-        </div>
-        <div class="agent-response" hidden>
-          <span class="agent-response-avatar agent-mascot" role="img"></span>
-          <div class="agent-response-body">
-            <div class="agent-response-markdown"></div>
-            <button class="copy-response secondary compact" type="button">Copy response</button>
+        <div class="request-user-turn" aria-label="User request">
+          <p class="user-request"></p>
+          <div class="request-attachment" hidden>
+            <button class="request-file-reference secondary compact" type="button"></button>
+            <span class="request-file-original"></span>
+            <span class="request-file-description"></span>
+            <button class="edit-request-file secondary compact" type="button">Edit details</button>
+          </div>
+          <div class="request-meta request-user-meta">
+            <button class="request-number" type="button"></button>
+            <span class="request-channel"></span>
+            <time></time>
           </div>
         </div>
-        <p class="request-error" hidden></p>
-        <ol class="request-steps" aria-label="Agent steps" hidden></ol>
-        <div class="request-progress" hidden>
-          <span class="progress-spinner" aria-hidden="true"></span>
-          <div>
-            <strong class="progress-label"></strong>
-            <span class="progress-detail"></span>
+        <div class="request-agent-turn" aria-label="Chapeaux Fous response">
+          <div class="agent-response" hidden>
+            <span class="agent-response-avatar agent-mascot" role="img"></span>
+            <div class="agent-response-body">
+              <div class="agent-response-markdown"></div>
+              <button class="copy-response secondary compact" type="button">Copy response</button>
+            </div>
           </div>
-        </div>
-        <div class="request-actions">
-          <label class="video-script-source-choice" hidden>
-            <input class="video-script-source-checkbox" type="checkbox">
-            <span>Select for video script</span>
-          </label>
-          <button class="download-video secondary compact" type="button" hidden>Download legacy MP4</button>
-          <button class="show-trace secondary compact" type="button">Show exact trace</button>
+          <p class="request-error" hidden></p>
+          <div class="request-progress" hidden>
+            <span class="progress-spinner" aria-hidden="true"></span>
+            <div>
+              <strong class="progress-label"></strong>
+              <span class="progress-detail"></span>
+            </div>
+          </div>
+          <div class="response-metrics" aria-label="Response metrics">
+            <span class="response-metrics-label">Response</span>
+            <span class="request-status"></span>
+            <span class="request-elapsed" hidden></span>
+            <span class="request-usage" hidden></span>
+          </div>
+          <ol class="request-steps" aria-label="Agent steps" hidden></ol>
+          <div class="request-actions">
+            <label class="video-script-source-choice" hidden>
+              <input class="video-script-source-checkbox" type="checkbox">
+              <span>Select for video script</span>
+            </label>
+            <button class="download-video secondary compact" type="button" hidden>Download legacy MP4</button>
+            <button class="show-trace secondary compact" type="button">Show exact trace</button>
+          </div>
         </div>
       </div>
     </article>
