@@ -71,6 +71,7 @@ const elements = {
   token: document.querySelector("#token"),
   agentMascot: document.querySelector("#agent-mascot"),
   agentViewButton: document.querySelector("#agent-view-button"),
+  agentRequestToolbar: document.querySelector("#agent-request-toolbar"),
   composerHatsLink: document.querySelector("#composer-hats-link"),
   viewSelector: document.querySelector("#view-selector"),
   agentView: document.querySelector("#agent-view"),
@@ -1556,6 +1557,7 @@ function switchView(view) {
   elements.logsView.hidden = view !== "logs";
   elements.interactionsView.hidden = view !== "interactions";
   elements.aiUsageView.hidden = view !== "ai-usage";
+  elements.agentRequestToolbar.hidden = view !== "agent";
   elements.agentViewButton.classList.toggle("active", view === "agent");
   if (view === "agent") {
     elements.agentViewButton.setAttribute("aria-current", "page");

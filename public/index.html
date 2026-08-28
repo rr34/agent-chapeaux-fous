@@ -19,59 +19,61 @@
 </head>
 <body>
   <header class="topbar">
-    <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">
-      <span id="agent-mascot" class="agent-mascot agent-mascot-nav" aria-hidden="true"></span>
-      <span>Agent</span>
-    </button>
-    <nav class="app-nav" aria-label="Chapeaux Fous sections">
-      <label class="sr-only" for="view-selector">Screen</label>
-      <select id="view-selector">
-        <option value="">Choose screen…</option>
-        <option data-view="hats" value="hats">Hats</option>
-        <option data-view="calendar" value="calendar">Calendar</option>
-        <option data-view="todos" value="todos">To-Do List</option>
-        <optgroup label="Content">
-          <option data-view="content" value="content">Library</option>
-          <option data-view="video-scripts" value="video-scripts">Video scripts</option>
-        </optgroup>
-        <option data-view="contacts" value="contacts">Contacts</option>
-        <option data-view="logs" value="logs">Logs</option>
-        <option data-view="interactions" value="interactions">Structured Interactions</option>
-        <option data-view="ai-usage" value="ai-usage">AI Usage</option>
-      </select>
-    </nav>
-    <button id="refresh" class="top-refresh" type="button">Refresh</button>
-    <details class="runtime-details">
-      <summary>Info</summary>
-      <div class="runtime-details-panel">
-        <button id="integrations-button" class="integration" type="button">Integrations</button>
-        <button id="usage" class="usage" type="button" title="Open AI token and cost usage">AI usage</button>
-        <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+    <div class="topbar-primary">
+      <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">
+        <span id="agent-mascot" class="agent-mascot agent-mascot-nav" aria-hidden="true"></span>
+        <span>Agent</span>
+      </button>
+      <nav class="app-nav" aria-label="Chapeaux Fous sections">
+        <label class="sr-only" for="view-selector">Screen</label>
+        <select id="view-selector">
+          <option value="">Choose screen…</option>
+          <option data-view="hats" value="hats">Hats</option>
+          <option data-view="calendar" value="calendar">Calendar</option>
+          <option data-view="todos" value="todos">To-Do List</option>
+          <optgroup label="Content">
+            <option data-view="content" value="content">Library</option>
+            <option data-view="video-scripts" value="video-scripts">Video scripts</option>
+          </optgroup>
+          <option data-view="contacts" value="contacts">Contacts</option>
+          <option data-view="logs" value="logs">Logs</option>
+          <option data-view="interactions" value="interactions">Structured Interactions</option>
+          <option data-view="ai-usage" value="ai-usage">AI Usage</option>
+        </select>
+      </nav>
+      <button id="refresh" class="top-refresh" type="button">Refresh</button>
+      <details class="runtime-details">
+        <summary>Info</summary>
+        <div class="runtime-details-panel">
+          <button id="integrations-button" class="integration" type="button">Integrations</button>
+          <button id="usage" class="usage" type="button" title="Open AI token and cost usage">AI usage</button>
+          <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+        </div>
+      </details>
+    </div>
+    <div id="agent-request-toolbar" class="agent-request-toolbar">
+      <div class="agent-request-title">
+        <p class="eyebrow">Chronological</p>
+        <h2 id="requests-heading">Requests</h2>
       </div>
-    </details>
+      <div class="request-heading-actions">
+        <button id="select-video-script-sources" class="secondary compact" type="button">Create video script</button>
+        <label class="request-limit-label" for="request-limit">
+          <span>Show</span>
+          <select id="request-limit">
+            <option value="25" selected>25 requests</option>
+            <option value="50">50 requests</option>
+            <option value="100">100 requests</option>
+          </select>
+        </label>
+        <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
+      </div>
+    </div>
   </header>
 
   <main>
     <div id="agent-view" class="app-view">
     <section class="requests" aria-labelledby="requests-heading">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Chronological</p>
-          <h2 id="requests-heading">Requests</h2>
-        </div>
-        <div class="request-heading-actions">
-          <button id="select-video-script-sources" class="secondary compact" type="button">Create video script</button>
-          <label class="request-limit-label" for="request-limit">
-            <span>Show</span>
-            <select id="request-limit">
-              <option value="25" selected>25 requests</option>
-              <option value="50">50 requests</option>
-              <option value="100">100 requests</option>
-            </select>
-          </label>
-          <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
-        </div>
-      </div>
       <div id="video-script-selection" class="video-script-selection organizer-panel" role="status" aria-live="polite" hidden>
         <div>
           <strong id="video-script-selection-count">No interactions selected</strong>

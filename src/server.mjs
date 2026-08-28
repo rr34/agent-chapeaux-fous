@@ -4,6 +4,7 @@ import fsp from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { loadConfig } from "./config.mjs";
+import { createFileArtifactSource } from "./artifact-source.mjs";
 import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
@@ -73,6 +74,8 @@ const mcp = new McpToolManager({
   userConfigPath: config.mcpUserConfigPath,
   oauthRoot: config.mcpOAuthRoot,
   publicUrl: config.publicUrl,
+  artifactSource: createFileArtifactSource({ ledger, mediaRoot: config.mediaRoot }),
+  ledger,
 });
 const jmap = new JmapClient({
   sessionUrl: config.jmapSessionUrl,

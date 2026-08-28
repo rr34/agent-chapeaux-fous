@@ -458,6 +458,142 @@ output schemas, annotations, tool metadata, result metadata, and
 non-duplicative resource links. Model-visible structured output stays compact;
 runtime and trace retain client-only metadata.
 
+## Large artifacts across the Agent Slayer–MCP boundary
+
+MCP's standard JSON-RPC tool calls remain the control plane. They carry compact
+structured arguments, progress, opaque identifiers, provider results, and
+receipts. They are not the bulk byte-transfer path. Standard MCP resources and
+resource links represent data held by an MCP for a client to read; they do not
+define a universal resumable upload of a client-local file to a remote MCP.
+Client roots may identify local filesystem scope when a client and server can
+actually access the same files, but a `file://` URI is not a remote upload and
+must never be sent to a server that cannot read that filesystem.
+
+Agent Slayer therefore uses one application-level artifact convention layered
+beside MCP Streamable HTTP whenever a remote MCP explicitly opts in. The MCP is
+the control plane and the authenticated HTTP artifact endpoint is the data
+plane. Both use the same server identity and bearer authorization. Artifact
+bytes never pass through the LLM, model tool arguments, model context, or an
+MCP JSON-RPC body.
+
+The boundary is deterministic:
+
+- data originating as an uploaded file is normalized into a durable canonical
+  artifact and transferred by the artifact path, regardless of that file's
+  particular size;
+- a small structured object or batch created directly during an interaction may
+  use an ordinary MCP tool's JSON arguments;
+- unusually large application-created structured data is first persisted as an
+  artifact and then follows the artifact path;
+- UTF-8 JSON Lines (`application/x-ndjson`) is the canonical file encoding for
+  sequences of structured records: one complete JSON object per nonblank line;
+- ordinary `application/json` may represent the same records as one top-level
+  array when an exact provider tool accepts an inline batch; packaging never
+  changes the domain record schema or meaning; and
+- provider-to-agent structured results stay compact. A provider returns a
+  standard MCP resource link for provider-held files when that is sufficient.
+  A large download that needs byte-range resumption uses the same authenticated
+  artifact data-plane principle, with a provider-declared URL, size, media type,
+  digest, and confirmed byte ranges; an arbitrary URL is never inferred from
+  prose or a field name.
+
+An upload-capable provider declares the convention mechanically on the MCP tool
+that will consume the completed artifact. Human-readable server instructions
+may explain the workflow, but they do not activate transport behavior. The
+consumer tool's `_meta` contains:
+
+```json
+{
+  "agent-slayer/artifactUpload": {
+    "contractVersion": 1,
+    "transportId": "transaction_import",
+    "endpointPath": "/mcp/artifacts",
+    "acceptedMediaTypes": ["application/x-ndjson"],
+    "maximumChunkBytes": 1048576,
+    "maximumBytes": 1073741824
+  }
+}
+```
+
+`maximumBytes` may be `null` when the provider enforces its limit during begin.
+`transportId` is unique among one server's advertised artifact consumers.
+The consumer tool must require `artifact_id` as a string. Any additional
+workflow arguments remain entirely provider-owned; for example, Accounting's
+`stage_transaction_import_artifact` also requires `import_job_id`. Agent Slayer
+exposes a single application upload function only when this metadata and the
+consumer schema validate. It does not infer activation or workflow meaning from
+tool names, descriptions, field names, or server prose.
+
+For version 1, Agent Slayer resolves `endpointPath` against the configured MCP
+server origin and refuses a cross-origin endpoint. It captures the exact bearer
+authorization used by that MCP connection once and uses the same value for
+every request in the upload attempt. It verifies the persisted local byte size
+and SHA-256 before sending anything. For JSON Lines it also verifies fatal
+UTF-8 decoding and one JSON object per nonblank line without placing records in
+model context.
+
+The resumable upload sequence is:
+
+1. Begin or recover the durable provider artifact with
+   `POST <endpointPath>`, `Content-Type: application/json`, and this body:
+
+   ```json
+   {
+     "client_request_id": "stable-upload-id",
+     "file_name": "canonical-transactions.jsonl",
+     "media_type": "application/x-ndjson",
+     "byte_size": 5580000,
+     "sha256": "64-lowercase-hexadecimal-characters"
+   }
+   ```
+
+   `client_request_id` is stable for the same provider and whole-file digest.
+   An exact replay returns the same provider artifact rather than creating
+   another logical upload. The JSON response supplies `artifact_id`.
+
+2. Read authoritative progress with
+   `GET <endpointPath>/<artifact_id>`. Its JSON response supplies
+   `artifact_id` and `next_offset`. Offset zero is valid. An offset outside
+   `[0, byte_size]` is rejected.
+
+3. Send raw bytes with
+   `PATCH <endpointPath>/<artifact_id>`, using
+   `Content-Type: application/octet-stream`, `Upload-Offset` equal to the
+   provider-confirmed offset, and `X-Content-SHA256` equal to the lowercase
+   hexadecimal digest of that exact chunk. A chunk never exceeds the smaller of
+   the provider-declared limit and 1 MiB. The response confirms the new offset
+   through `Upload-Offset` or JSON `next_offset`; Agent Slayer accepts progress
+   only when it equals the exact end of the submitted byte range.
+
+4. After every byte is confirmed, call
+   `POST <endpointPath>/<artifact_id>/complete`. Then read the artifact state
+   again. The completion response may be empty; the subsequent `GET` is
+   authoritative. If the progress read already proves the artifact is complete,
+   a replay skips the redundant completion call and still performs final
+   verification. Completion is accepted only when the provider reports the
+   original artifact ID, complete status, media type, byte size, and whole-file
+   SHA-256.
+
+5. Return only the compact artifact descriptor and observed transfer totals to
+   the model. The model may then call the exact provider consumer tool with its
+   already-created logical workflow ID and the returned `artifact_id`.
+
+The provider owns upload persistence, offset truth, chunk replay behavior,
+whole-file verification, expiration, and artifact authorization. An exact
+chunk replay must be idempotent; gaps, conflicting overlaps, invalid hashes,
+and excess bytes are provider errors. A failed Agent Slayer call never claims
+completion. Retrying the same application upload function reuses the stable
+client request ID and resumes from the provider's current offset.
+
+One upload and all internal chunks are one observable application operation.
+The trace records begin, progress reads, byte ranges, chunk hashes, completion,
+and the protocol fields used for final verification literally. Arbitrary HTTP
+response fields, bearer tokens, and artifact bytes are not copied into transfer
+trace events. Successful transfer proves only that the provider durably
+received the verified artifact. Parsing, grouping, validation, deduplication,
+exception handling, preview, approval, and commit remain owned and proven by
+later MCP tools.
+
 # 6. Search engine data protocol
 
 The search engine data protocol standardizes everything entering and leaving

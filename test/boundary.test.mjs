@@ -530,6 +530,8 @@ test("the agent chat renders chronologically above its composer", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.ok(document.indexOf('<section class="requests"') < document.indexOf('<section class="composer"'));
+  assert.ok(document.indexOf('id="agent-request-toolbar"') < document.indexOf("<main>"));
+  assert.match(application, /elements\.agentRequestToolbar\.hidden = view !== "agent"/);
   assert.match(application, /const chronologicalRequests = \[\.\.\.body\.requests\]\.reverse\(\)/);
   assert.match(application, /chronologicalRequests\.forEach\(\(request, index\) =>/);
   assert.match(application, /renderAgentMascot\(elements\.agentMascot, body\.requests\[0\]\?\.explicitHats\)/);

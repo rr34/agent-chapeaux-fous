@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,14 +7,214 @@ import test from "node:test";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { FileOAuthClientProvider } from "../src/mcp-oauth.mjs";
 import { SlayerRuntime } from "../src/runtime.mjs";
-import { McpToolManager, mcpResultDetails, remoteToolName } from "../src/tools/mcp-tools.mjs";
-import { ToolRegistry } from "../src/tools/registry.mjs";
+import {
+  artifactUploadMetadataKey, McpToolManager, mcpResultDetails, remoteToolName,
+} from "../src/tools/mcp-tools.mjs";
+import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
 
 test("remote application tools use provider-neutral names", () => {
   const name = remoteToolName("weather", "openmeteo_search_locations");
   assert.equal(name, "remote_weather_openmeteo_search_locations");
   assert.equal(name.startsWith("mcp__"), false);
   assert.match(name, /^[A-Za-z][A-Za-z0-9_-]{0,63}$/);
+});
+
+test("an advertised HTTP artifact receiver becomes one resumable file-upload application tool", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    accounting: {
+      enabled: true,
+      url: "https://accounting.example.test/mcp",
+      headers: { Authorization: "Bearer accounting-token" },
+    },
+  }));
+  const data = Buffer.from('{"id":1}\n{"id":2}\n', "utf8");
+  const digest = createHash("sha256").update(data).digest("hex");
+  let received = Buffer.from(data.subarray(0, 4));
+  let closeCount = 0;
+  let completed = false;
+  const requests = [];
+  const events = [];
+  const inputSchema = (fields) => ({
+    type: "object",
+    additionalProperties: false,
+    properties: Object.fromEntries(fields.map((field) => [field, { type: "string" }])),
+    required: fields,
+  });
+  const tools = [
+    {
+      name: "stage_transaction_import_artifact", description: "Stage an uploaded transaction artifact.",
+      inputSchema: inputSchema(["import_job_id", "artifact_id"]),
+      _meta: {
+        [artifactUploadMetadataKey]: {
+          contractVersion: 1,
+          transportId: "transaction_import",
+          endpointPath: "/mcp/artifacts",
+          acceptedMediaTypes: ["application/x-ndjson"],
+          maximumChunkBytes: 8,
+          maximumBytes: 1000,
+        },
+      },
+    },
+  ];
+  const fakeClient = {
+    async connect() {},
+    async listTools() { return { tools }; },
+    async callTool() { throw new Error("The upload wrapper must not call the consumer MCP tool"); },
+    async close() {},
+  };
+  const fetchFn = async (input, options = {}) => {
+    const url = new URL(input);
+    requests.push({
+      method: options.method, path: url.pathname,
+      authorization: options.headers?.Authorization,
+      contentType: options.headers?.["Content-Type"],
+      uploadOffset: options.headers?.["Upload-Offset"],
+      chunkDigest: options.headers?.["X-Content-SHA256"],
+    });
+    assert.equal(options.headers.Authorization, "Bearer accounting-token");
+    if (options.method === "POST" && url.pathname === "/mcp/artifacts") {
+      const body = JSON.parse(options.body);
+      assert.deepEqual(body, {
+        client_request_id: `agent-slayer:${digest}`,
+        file_name: "records.jsonl",
+        media_type: "application/x-ndjson",
+        byte_size: data.length,
+        sha256: digest,
+      });
+      return new Response(JSON.stringify({ artifact_id: "artifact-1", unexpected_echo: data.toString("utf8") }), {
+        status: 201, headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (options.method === "GET" && url.pathname === "/mcp/artifacts/artifact-1") {
+      return Response.json(completed ? {
+        artifact_id: "artifact-1", status: "complete", next_offset: data.length,
+        file_name: "records.jsonl", media_type: "application/x-ndjson",
+        byte_size: data.length, sha256: digest,
+      } : { artifact_id: "artifact-1", status: "receiving", next_offset: received.length });
+    }
+    if (options.method === "PATCH" && url.pathname === "/mcp/artifacts/artifact-1") {
+      assert.equal(Number(options.headers["Upload-Offset"]), received.length);
+      const chunk = Buffer.from(options.body);
+      assert.equal(options.headers["Content-Type"], "application/octet-stream");
+      assert.equal(options.headers["X-Content-SHA256"], createHash("sha256").update(chunk).digest("hex"));
+      assert.deepEqual(chunk, data.subarray(received.length, received.length + chunk.length));
+      received = Buffer.concat([received, chunk]);
+      return new Response(null, { status: 204, headers: { "Upload-Offset": String(received.length) } });
+    }
+    if (options.method === "POST" && url.pathname === "/mcp/artifacts/artifact-1/complete") {
+      assert.deepEqual(received, data);
+      completed = true;
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`Unexpected artifact request ${options.method} ${url.pathname}`);
+  };
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => fakeClient,
+    transportFactory: () => ({ async close() {} }),
+    fetchFn,
+    artifactSource: {
+      async open(fileId) {
+        assert.equal(fileId, 218);
+        return {
+          descriptor: {
+            file: { file_id: 218 },
+            fileId: 218,
+            filename: "records.jsonl",
+            mimeType: "application/x-ndjson",
+            byteSize: data.length,
+            sha256: digest,
+            jsonLineRecordCount: 2,
+          },
+          async read(offset, maximumBytes) { return data.subarray(offset, offset + maximumBytes); },
+          async close() { closeCount += 1; },
+        };
+      },
+    },
+    ledger: { append(event) { events.push(event); } },
+  });
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+  const wrapperName = "remote_accounting_upload_transaction_import_file";
+  assert.deepEqual(registry.list().map(({ name }) => name).sort(), [
+    "remote_accounting_stage_transaction_import_artifact", wrapperName,
+  ]);
+  const definition = registry.toolDefinitions().find(({ name }) => name === wrapperName);
+  assert.deepEqual(definition.inputSchema.required, ["file_id"]);
+  assert.equal(definition.annotations.idempotentHint, true);
+  assert.equal(definition.annotations.openWorldHint, true);
+  assert.deepEqual(manager.health().accounting.artifactUploads, [
+    { transportId: "transaction_import", tool: wrapperName },
+  ]);
+  assert.deepEqual(manager.health().accounting.artifactUploadProblems, []);
+
+  const first = await registry.execute(wrapperName, { file_id: 218 }, {
+    requestId: "request-1", callId: "call-1", channel: "web",
+  });
+  assert.equal(first.artifact.artifact_id, "artifact-1");
+  assert.equal(first.transfer.resumed_from_offset, 4);
+  assert.equal(first.transfer.chunks_sent, 2);
+  assert.equal(first.transfer.bytes_sent_this_call, data.length - 4);
+  assert.equal(schemaProblem(first, definition.outputSchema, "result"), null);
+  assert.equal(closeCount, 1);
+  assert.equal(new Set(requests.map(({ authorization }) => authorization)).size, 1);
+  assert.equal(JSON.stringify(events).includes("accounting-token"), false);
+  assert.equal(JSON.stringify(events).includes(data.toString("utf8")), false);
+  assert.deepEqual(events.map(({ type, status }) => [type, status]), [
+    ["mcp.artifact.begin", "complete"],
+    ["mcp.artifact.resume", "complete"],
+    ["mcp.artifact.chunk", "complete"],
+    ["mcp.artifact.chunk", "complete"],
+    ["mcp.artifact.complete", "complete"],
+    ["mcp.artifact.verify", "complete"],
+  ]);
+
+  const replay = await registry.execute(wrapperName, { file_id: 218 });
+  assert.equal(replay.transfer.resumed_from_offset, data.length);
+  assert.equal(replay.transfer.chunks_sent, 0);
+  assert.equal(replay.transfer.bytes_sent_this_call, 0);
+  assert.equal(closeCount, 2);
+  assert.equal(requests.filter(({ method, path: requestPath }) => (
+    method === "POST" && requestPath.endsWith("/complete")
+  )).length, 1);
+  await manager.close();
+});
+
+test("invalid advertised artifact upload metadata does not create an application upload tool", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    storage: { enabled: true, url: "https://storage.example.test/mcp" },
+  }));
+  const manager = new McpToolManager({
+    configPath,
+    artifactSource: { async open() { throw new Error("not called"); } },
+    clientFactory: () => ({
+      async connect() {},
+      async listTools() {
+        return { tools: [{
+          name: "consume_file",
+          inputSchema: { type: "object", properties: { artifact_id: { type: "string" } }, required: [] },
+          _meta: { [artifactUploadMetadataKey]: {
+            contractVersion: 1, transportId: "files", endpointPath: "/mcp/artifacts",
+            acceptedMediaTypes: ["*/*"], maximumChunkBytes: 2 * 1024 * 1024,
+          } },
+        }] };
+      },
+      async close() {},
+    }),
+    transportFactory: () => ({ async close() {} }),
+  });
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+  assert.deepEqual(registry.list().map(({ name }) => name), ["remote_storage_consume_file"]);
+  assert.match(manager.health().storage.artifactUploadProblems.join(" "), /artifact_id/);
+  assert.match(manager.health().storage.artifactUploadProblems.join(" "), /maximumChunkBytes/);
+  await manager.close();
 });
 
 test("MCP identity, contracts, metadata, and supplemental resources survive adaptation", async (context) => {

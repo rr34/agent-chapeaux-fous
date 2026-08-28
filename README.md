@@ -367,6 +367,18 @@ protocol translation. Provider-owned tools are not the application tool path.
 Missing or failed integrations are visible in `/health`; they are never
 silently represented as available.
 
+An MCP can opt into application-managed persisted-file transfer by publishing
+the versioned `agent-slayer/artifactUpload` metadata contract defined under
+“Large artifacts across the Agent Slayer–MCP boundary” in
+[`AGENT-TOOL-MANIFESTO.md`](AGENT-TOOL-MANIFESTO.md). Agent Slayer then exposes
+one exact resumable file-upload function beside the provider's artifact consumer
+tool. The application verifies local UTF-8 packaging, size, and SHA-256; sends
+raw chunks of no more than 1 MiB through the provider's same-origin HTTP
+artifact endpoint with the same bearer authorization; resumes from the
+provider-confirmed byte offset; and verifies the completed provider artifact.
+File contents never enter model context. Transfer does not infer or execute the
+provider's domain workflow; the MCP consumer tool owns that later operation.
+
 MCP integrations with an `oauth` block use the standard MCP authorization-code
 flow with OAuth discovery, dynamic client registration, PKCE, and refresh
 tokens. Set `SLAYER_PUBLIC_URL` to the origin where a browser can reach Agent

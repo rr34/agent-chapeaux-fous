@@ -190,3 +190,11 @@ that builds the exact model request, records its context and tools, runs the
 provider-neutral transport, dispatches requested tools through the registry,
 returns each result to the same model exchange, and accepts the final response.
 It is not a plugin.
+
+**52. MCP artifact transfer** — The provider-opted-in application function that
+verifies one persisted Agent Slayer file and relays its bytes through a remote
+MCP's advertised same-origin, bearer-authenticated HTTP artifact endpoint. MCP
+tool calls remain the compact control plane; raw resumable HTTP is the bulk data
+plane. The provider owns upload state and the opaque resulting artifact.
+Transfer proves byte receipt only; it does not infer provider workflow meaning
+or prove that a later domain import was validated or committed.

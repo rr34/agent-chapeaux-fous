@@ -27,6 +27,20 @@ targeted repair. A successful transform proves the mapping was applied and any
 provided JSON Schema was checked; it does not prove that a downstream provider
 accepted or imported the generated records.
 
+When data originated as an uploaded file, keep the resulting canonical artifact
+as the transfer authority. If the selected MCP advertises a resumable file
+transfer tool, call that tool with the canonical file ID. Do not page through a
+JSON Lines artifact or reproduce its records in ordinary tool arguments. The
+application verifies and streams the persisted bytes, while the MCP owns the
+upload checkpoint and returns an opaque artifact ID. Then follow only the MCP's
+published tool schema for attaching or consuming that artifact. A successful
+file transfer proves byte-for-byte receipt by the MCP; it does not prove that a
+domain import was validated, previewed, or committed.
+
+Records created directly in conversation may continue through ordinary JSON
+tools. File-origin records use the artifact path even when the particular file
+is small, so provenance, checksums, retries, and resumption remain consistent.
+
 For a newly uploaded file whose `title_source` is `original_filename`, inspect
 its contents and call `file_update` once with a short descriptive title and a
 plain-language description before the final answer. A deterministic upload

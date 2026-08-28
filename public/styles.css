@@ -44,20 +44,30 @@ button { touch-action: manipulation; }
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: .45rem;
-  flex-wrap: nowrap;
+  display: grid;
+  gap: .65rem;
   padding:
     calc(1rem + env(safe-area-inset-top, 0px))
     max(1rem, env(safe-area-inset-right, 0px), calc((100vw - 920px) / 2))
-    1rem
+    .75rem
     max(1rem, env(safe-area-inset-left, 0px), calc((100vw - 920px) / 2));
   background: rgba(12, 14, 16, .88);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(14px);
 }
+
+.topbar-primary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: .45rem;
+  flex-wrap: nowrap;
+}
+
+.agent-request-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-top: .6rem; border-top: 1px solid var(--line); }
+.agent-request-toolbar[hidden] { display: none; }
+.agent-request-title { flex: 0 0 auto; }
+.agent-request-title h2 { margin: 0; }
 
 h1, h2, p { margin-top: 0; }
 h1, h2, h3, h4, h5, h6, strong, b { font-weight: 500; }
@@ -837,6 +847,9 @@ dialog h2, dialog p { margin-bottom: 0; }
       .8rem
       max(.7rem, env(safe-area-inset-left, 0px));
   }
+  .agent-request-toolbar { align-items: stretch; flex-direction: column; gap: .45rem; }
+  .agent-request-title { display: flex; align-items: baseline; gap: .5rem; }
+  .agent-request-title .eyebrow { margin: 0; }
   .app-nav-agent { padding-right: .55rem; }
   .top-refresh, .runtime-details > summary { padding-inline: .5rem; }
   .composer-actions { align-items: stretch; flex-direction: column; }
@@ -853,7 +866,7 @@ dialog h2, dialog p { margin-bottom: 0; }
   main { padding: .7rem; }
   .composer, .requests { border-radius: 13px; }
   .section-heading { align-items: flex-start; }
-  .request-heading-actions { align-items: flex-end; flex-direction: column-reverse; }
+  .request-heading-actions { justify-content: flex-start; }
   .trace-panel { inset: 0; width: 100%; border-radius: 0; }
   .button-row { align-items: stretch; flex-direction: column; }
   .calendar-search-bar { align-items: flex-start; }
