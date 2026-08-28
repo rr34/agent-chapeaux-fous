@@ -38,7 +38,7 @@ function callableToolsFingerprint(tools) {
 
 function callableToolCatalog(tools) {
   return tools
-    .filter(({ name }) => name !== "request_capabilities")
+    .filter(({ name }) => !["request_capabilities", "request_tools"].includes(name))
     .map(({ name, title, description, source, upstreamName, capabilityId, annotations }) => ({
       name,
       title: title ?? null,
@@ -68,9 +68,89 @@ function toolAttemptKey(name, args) {
   return `${name}\n${JSON.stringify(canonicalToolArguments(args))}`;
 }
 
+const toolFailureKinds = new Set([
+  "authentication_failure",
+  "contract_mismatch",
+  "provider_rejection",
+  "provider_state_conflict",
+  "transient_provider_failure",
+  "transport_failure",
+]);
+
+function boundedFailureString(value, maximumLength = 2048) {
+  return typeof value === "string" && value.length > 0 && value.length <= maximumLength
+    ? value
+    : null;
+}
+
+function normalizedToolFailure(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || value.contractVersion !== 1
+    || !toolFailureKinds.has(value.kind)
+    || !/^[A-Z][A-Z0-9_]{2,127}$/.test(value.code ?? "")
+    || typeof value.terminalForCurrentRequest !== "boolean") {
+    return null;
+  }
+  const requiredStrings = [
+    "retry", "serverName", "capabilityId", "transportId", "contractFingerprint", "step",
+  ];
+  if (requiredStrings.some((field) => boundedFailureString(value[field]) === null)) return null;
+  if (!/^[0-9a-f]{64}$/.test(value.contractFingerprint)) return null;
+  const method = value.method == null ? null : boundedFailureString(value.method, 32);
+  const requestPath = value.path == null ? null : boundedFailureString(value.path);
+  const httpStatus = value.httpStatus == null ? null : Number(value.httpStatus);
+  if ((value.method != null && method === null)
+    || (value.path != null && requestPath === null)
+    || (httpStatus !== null && (!Number.isSafeInteger(httpStatus) || httpStatus < 100 || httpStatus > 599))) {
+    return null;
+  }
+  return {
+    contractVersion: 1,
+    kind: value.kind,
+    code: value.code,
+    terminalForCurrentRequest: value.terminalForCurrentRequest,
+    retry: value.retry,
+    serverName: value.serverName,
+    capabilityId: value.capabilityId,
+    transportId: value.transportId,
+    contractFingerprint: value.contractFingerprint,
+    step: value.step,
+    method,
+    path: requestPath,
+    httpStatus,
+  };
+}
+
+export function terminalToolFailureFindings(receipts) {
+  return receipts.flatMap((receipt) => {
+    const toolFailure = normalizedToolFailure(receipt?.toolFailure);
+    if (!toolFailure?.terminalForCurrentRequest) return [];
+    return [{
+      code: "TERMINAL_TOOL_CONTRACT_FAILURE",
+      tool: receipt.tool,
+      message: `${receipt.tool} encountered ${toolFailure.code}; the unchanged operation is terminal for this request.`,
+      repairInstruction: "Do not retry this operation or substitute another transport. Preserve earlier receipts and report the provider or connection change required before retrying.",
+      terminalForCurrentRequest: true,
+      toolFailure,
+    }];
+  });
+}
+
+function terminalToolFailureNotice(findings) {
+  const failure = findings[0]?.toolFailure;
+  if (!failure) return "";
+  const operation = [failure.method, failure.path].filter(Boolean).join(" ");
+  const status = failure.httpStatus == null ? failure.code : `HTTP ${failure.httpStatus}`;
+  return [
+    `Transfer status: ${failure.serverName} did not honor its advertised artifact-transfer contract`,
+    operation ? ` for ${operation}` : "",
+    ` (${status}). The unchanged transfer will not be retried until the integration is refreshed after the provider changes. Earlier successful steps remain recorded.`,
+  ].join("");
+}
+
 export function auditEffectsForReceipts(receipts, registry) {
   return receipts.flatMap((receipt) => {
-    if (!receipt?.ok || receipt.tool === "request_capabilities") return [];
+    if (!receipt?.ok || ["request_capabilities", "request_tools"].includes(receipt.tool)) return [];
     const annotations = registry.get(receipt.tool)?.annotations;
     if (annotations?.readOnlyHint === true) return [];
     return [{
@@ -399,6 +479,7 @@ export class SlayerRuntime {
       catalog.map(({ capability }) => capability),
       activeActionReferences.map(({ referenceId }) => referenceId),
       catalog.flatMap(({ contextViews = [] }) => contextViews.map(({ id }) => id)),
+      catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
     );
     const orientation = await this.#runStructuredStep({
       requestId: args.requestId,
@@ -518,6 +599,10 @@ export class SlayerRuntime {
     const executorArgs = {
       ...args,
       capabilityOverride: executionCapabilities,
+      toolOverride: [...new Set([
+        ...brief.requiredTools,
+        ...authorizedActionReferences.map(({ targetTool }) => targetTool),
+      ])],
       runLimits: {
         maxToolCalls: configuredMaxToolCalls,
         timeoutMs: remainingTimeoutMs(),
@@ -534,11 +619,13 @@ export class SlayerRuntime {
       step: "execution", label: "Execute request", stepIndex: 3,
       effort: args.effort || this.config.reasoningEffort,
     });
-    const executionFindings = completionReceiptFindings({
+    const receiptFindings = completionReceiptFindings({
       brief,
       receipts: execution.receipts,
       authorizedActionReferences,
     });
+    const terminalFindings = terminalToolFailureFindings(execution.receipts);
+    const executionFindings = [...receiptFindings, ...terminalFindings];
     const auditEffects = auditEffectsForReceipts(execution.receipts, this.registry);
     if (!brief.audit.required && auditEffects.length === 0 && executionFindings.length === 0) {
       const operationId = `${this.modelTransport.id}:${args.requestId}:audit`;
@@ -580,6 +667,17 @@ export class SlayerRuntime {
       outputSchema: completionAuditSchema,
       runTimeoutMs: remainingTimeoutMs(),
     });
+    if (terminalFindings.length > 0) {
+      const notice = terminalToolFailureNotice(terminalFindings);
+      this.ledger.append({
+        type: "tool.retry.blocked", phase: "error", status: "error", actorType: "service",
+        actorName: "Tool contract guard", channel, turnId: args.requestId,
+        name: "Repair retry blocked", content: notice,
+        payload: { findings: terminalFindings },
+        error: terminalFindings.map(({ toolFailure }) => toolFailure.code).join(", "),
+      });
+      return joinedInstructions(execution.text, notice);
+    }
     if (audit.value.outcome !== "repair_needed" && executionFindings.length === 0) return execution.text;
 
     const remainingToolCalls = configuredMaxToolCalls === null
@@ -587,6 +685,7 @@ export class SlayerRuntime {
       : Math.max(0, configuredMaxToolCalls - execution.toolCallCount);
     const repairArgs = {
       ...executorArgs,
+      toolOverride: execution.selectedToolNames,
       runLimits: {
         maxToolCalls: remainingToolCalls,
         timeoutMs: remainingTimeoutMs(),
@@ -640,6 +739,7 @@ export class SlayerRuntime {
     requestId, requestEventId, text, channel = "web", attachment = null, runLimits = null,
     model = null, effort = null, supplementalInstructions = "",
     capabilityOverride = null, workflowStep = null, workflowStepLabel = null, stepIndex = null,
+    toolOverride = null,
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
     activeActionReferences = [], authorizedActionReferences = [],
     preparedCapabilityContext = null,
@@ -665,7 +765,9 @@ export class SlayerRuntime {
           recentConversation,
           previousCapabilities: priorConversation.capabilities,
           capabilityOverride,
+          toolOverride,
           allowCapabilityExpansion: !workflowStep,
+          allowToolExpansion: Array.isArray(toolOverride),
         })
       : {
           tools: availableTools,
@@ -713,6 +815,11 @@ export class SlayerRuntime {
     // expansion can never turn into open-ended capability fishing.
     const maximumCapabilityExpansionRounds = workflowStep ? 0 : 1;
     let capabilityExpansionRounds = 0;
+    const maximumToolExpansionRounds = Array.isArray(toolOverride)
+      ? Math.max(0, this.config.maxToolExpansionRounds ?? 2)
+      : 0;
+    let toolExpansionRounds = 0;
+    const selectedToolNames = new Set(toolOverride ?? []);
     let attempt = 0;
     let result;
     const sameRequestReceipts = [...initialReceipts];
@@ -883,10 +990,11 @@ export class SlayerRuntime {
           capabilities: compilation.capabilities,
           explicitHats: compilation.explicitHats ?? [],
           deferredCapabilities: compilation.deferredCapabilities ?? [],
+          deferredTools: compilation.deferredTools ?? [],
           capabilityCatalog: compilation.capabilityCatalog ?? [],
           dependentTools: compilation.dependentTools ?? [],
           selectionReasons: compilation.reasons,
-          tools,
+          tools: providerCallableTools,
         },
       });
       const operationId = `${this.modelTransport.id}:${requestId}:${workflowStep ?? "model"}:${attempt}`;
@@ -901,6 +1009,7 @@ export class SlayerRuntime {
       });
 
       const requestedCapabilities = new Set();
+      const requestedTools = new Set();
       let expansionRequested = false;
       try {
         result = await this.modelTransport.runTurn({
@@ -944,8 +1053,8 @@ export class SlayerRuntime {
               });
               return { ok: false, error: message };
             }
-            if (expansionRequested && name !== "request_capabilities") {
-              const message = "Capability expansion is pending; no other tool is callable in this model turn";
+            if (expansionRequested && !["request_capabilities", "request_tools"].includes(name)) {
+              const message = "Tool expansion is pending; no other tool is callable in this model turn";
               this.ledger.append({
                 type: "tool.result", phase: "error", status: "error", actorType: "tool",
                 actorName: name, channel, turnId: requestId, operationId: callId, name,
@@ -989,7 +1098,13 @@ export class SlayerRuntime {
                 name,
                 toolArguments,
                 authorizedActionReferences,
-                activeActionReferences,
+                [
+                  ...activeActionReferences,
+                  ...sameRequestReceipts.flatMap((receipt) => (
+                    receipt?.deferredActionReference ? [receipt.deferredActionReference] : []
+                  )),
+                  ...generatedActionReferences,
+                ],
               );
               if (referenceProblem) {
                 sameRequestReceipts.push({ tool: name, arguments: toolArguments, ok: false, error: referenceProblem });
@@ -1000,6 +1115,50 @@ export class SlayerRuntime {
                 });
                 return { ok: false, error: referenceProblem };
               }
+            }
+            if (name === "request_tools") {
+              if (toolExpansionRounds >= maximumToolExpansionRounds || expansionRequested) {
+                const message = maximumToolExpansionRounds === 0
+                  ? "Tool expansion is not available for this execution"
+                  : "The bounded tool-expansion rounds are exhausted or one expansion is already pending; finish with the callable tools or report the evidenced blocker";
+                this.ledger.append({
+                  type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                  actorName: name, channel, turnId: requestId, operationId: callId, name,
+                  payload: { callId, name }, error: message,
+                });
+                return { ok: false, error: message };
+              }
+              const allowed = new Set((compilation.deferredTools ?? []).map(({ name: toolName }) => toolName));
+              const requested = Array.isArray(args.tools)
+                ? [...new Set(args.tools.filter((toolName) => allowed.has(toolName)))]
+                : [];
+              if (requested.length === 0) {
+                const message = "request_tools requires at least one tool from the visible deferred tool catalog";
+                this.ledger.append({
+                  type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                  actorName: name, channel, turnId: requestId, operationId: callId, name,
+                  payload: { callId, name }, error: message,
+                });
+                return { ok: false, error: message };
+              }
+              expansionRequested = true;
+              for (const toolName of requested) requestedTools.add(toolName);
+              const toolResult = {
+                requested_tools: requested,
+                continuation: "Agent Slayer will continue this same execution with the exact requested tool schemas and earlier receipts. Do not claim the user's task is complete yet.",
+              };
+              this.ledger.append({
+                type: "tools.expansion.requested", status: "complete", actorType: "model",
+                actorName: selectedModel, channel, turnId: requestId, operationId: callId,
+                name: "Additional exact tools requested", content: requested.join(", "),
+                payload: { callId, tools: requested, capabilities: compilation.capabilities },
+              });
+              this.ledger.append({
+                type: "tool.result", phase: "end", status: "complete", actorType: "tool",
+                actorName: name, channel, turnId: requestId, operationId: callId, name,
+                payload: { callId, name, result: toolResult },
+              });
+              return { ok: true, result: toolResult };
             }
             if (name === "request_capabilities") {
               if (capabilityExpansionRounds >= maximumCapabilityExpansionRounds || expansionRequested) {
@@ -1205,18 +1364,20 @@ export class SlayerRuntime {
               return { ok: true, result: inline.deliveredResult };
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
+              const toolFailure = normalizedToolFailure(error?.toolFailure);
               failedToolAttempts.add(attemptKey);
               sameRequestReceipts.push({
                 tool: name, arguments: toolArguments,
                 ...(filterRequest ? { resultFilter: filterRequest } : {}),
                 ok: false, error: message,
+                ...(toolFailure ? { toolFailure } : {}),
               });
               this.ledger.append({
                 type: "tool.result", phase: "error", status: "error", actorType: "tool",
                 actorName: name, channel, turnId: requestId, operationId: callId, name,
-                payload: { callId, name }, error: message,
+                payload: { callId, name, ...(toolFailure ? { toolFailure } : {}) }, error: message,
               });
-              return { ok: false, error: message };
+              return { ok: false, error: message, ...(toolFailure ? { toolFailure } : {}) };
             }
           },
         });
@@ -1233,7 +1394,9 @@ export class SlayerRuntime {
       this.ledger.append({
         type: "model.response", phase: "end", status: "complete", actorType: "model",
         actorName: selectedModel, channel, turnId: requestId, operationId,
-        name: requestedCapabilities.size > 0 ? "Model requested additional tools" : "Model response",
+        name: requestedCapabilities.size > 0 || requestedTools.size > 0
+          ? "Model requested additional tools"
+          : "Model response",
         payload: {
           workflowStep, workflowStepLabel, stepIndex,
           attempt,
@@ -1255,19 +1418,35 @@ export class SlayerRuntime {
         },
       });
 
-      if (requestedCapabilities.size === 0) break;
-      if (!this.requestCompiler) throw new Error("Capability expansion requires the request compiler");
-      capabilityExpansionRounds += 1;
+      if (requestedCapabilities.size === 0 && requestedTools.size === 0) break;
+      if (!this.requestCompiler) throw new Error("Tool expansion requires the request compiler");
       conversationId = null;
-      compilation = await this.requestCompiler.compile({
-        tools: availableTools,
-        text,
-        attachment,
-        recentConversation,
-        previousCapabilities: priorConversation.capabilities,
-        capabilityOverride: [...new Set([...compilation.capabilities, ...requestedCapabilities])],
-        allowCapabilityExpansion: capabilityExpansionRounds < maximumCapabilityExpansionRounds,
-      });
+      if (requestedTools.size > 0) {
+        toolExpansionRounds += 1;
+        for (const toolName of requestedTools) selectedToolNames.add(toolName);
+        compilation = await this.requestCompiler.compile({
+          tools: availableTools,
+          text,
+          attachment,
+          recentConversation,
+          previousCapabilities: priorConversation.capabilities,
+          capabilityOverride: compilation.capabilities,
+          toolOverride: [...selectedToolNames],
+          allowCapabilityExpansion: false,
+          allowToolExpansion: toolExpansionRounds < maximumToolExpansionRounds,
+        });
+      } else {
+        capabilityExpansionRounds += 1;
+        compilation = await this.requestCompiler.compile({
+          tools: availableTools,
+          text,
+          attachment,
+          recentConversation,
+          previousCapabilities: priorConversation.capabilities,
+          capabilityOverride: [...new Set([...compilation.capabilities, ...requestedCapabilities])],
+          allowCapabilityExpansion: capabilityExpansionRounds < maximumCapabilityExpansionRounds,
+        });
+      }
     }
 
     const finalConversationId = result.conversationId ?? result.threadId;
@@ -1292,6 +1471,7 @@ export class SlayerRuntime {
       actionReferences: generatedActionReferences,
       toolCallCount: totalToolCallCount,
       capabilities: compilation.capabilities,
+      selectedToolNames: [...selectedToolNames],
       callableToolCatalog: callableToolCatalog(compilation.tools),
       conversationId: finalConversationId,
     };

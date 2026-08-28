@@ -11,9 +11,10 @@ The complete request path is:
 
 ```text
 web or voice input
-  -> orientation call with the exact request, bounded source context, and capability catalog
+  -> orientation call with the exact request, bounded source context, and compact capability/tool catalog
   -> strict, source-referenced TurnBrief plus rolling conversation state
-  -> execution call with the accepted TurnBrief and exact selected tool schemas
+  -> execution call with the accepted TurnBrief and exact initial tool schemas
+  -> optional exact-tool expansion inside accepted capability families, preserving receipts
   -> local or MCP tool execution, with results returned to that same model exchange
   -> conditional receipt-based completion audit
   -> optional receipt-aware repair within the remaining turn-wide budget
@@ -112,9 +113,10 @@ defaults come from `SLAYER_AI_*_COST_PER_MILLION`.
 Each workflow phase is an explicit model interaction. Agent Slayer supplies
 bounded application-owned context and the accepted TurnBrief instead of relying
 on an opaque provider thread to remember what a short follow-up meant. If an
-execution call requests an additional cataloged capability, its continuation
-receives the exact schemas, the original request, and bounded receipts for tools
-already used in that request.
+execution call requests an additional cataloged tool inside an accepted
+capability family, its continuation receives that exact schema, the original
+request, and bounded receipts for tools already used in that request. Legacy
+direct execution may also request one additional cataloged capability.
 
 Agent Slayer stores a compact, source-referenced rolling conversation state
 after orientation. This state is an index, not authority: each new orienter also
@@ -152,29 +154,33 @@ system.
 Agent Slayer owns request and context compilation in application code.
 Orientation receives the exact request, verified attachment context, exact
 recent ledger entries, prior rolling state, explicit hats, and an organized
-catalog of every connected capability family. It emits a strict `TurnBrief`
+catalog of every connected capability family with compact provider-published
+tool summaries but no callable schemas. It emits a strict `TurnBrief`
 that classifies continuations, authorizations, corrections, additions, and new
 objectives; identifies authorized and prohibited actions; selects required
-capabilities; and defines concrete completion criteria. Source-grounded fields
-carry ledger event numbers. This lets “go ahead and do that” preserve a specific
-prior offer without hoping the executor infers the same continuity.
+capabilities and the smallest likely initial tool set; and defines concrete
+completion criteria. Source-grounded fields carry ledger event numbers. This
+lets “go ahead and do that” preserve a specific prior offer without hoping the
+executor infers the same continuity.
 
 Execution is compiled from the accepted TurnBrief. It receives the exact schemas
-for selected capability families plus versioned guidance from
+for the selected initial tools plus versioned guidance from
 `config/instructions/`; `config/system-prompt.md` contains only universal
-behavior. Read-only profile, file, schema, and ledger access remains present
-when available, while mutation access remains separately selected. A newly
-registered local tool that has not yet been assigned to a capability still
-forces the conservative full fallback so additions cannot silently disappear.
+behavior. A bounded `request_tools` call can add exact schemas for omitted tools
+inside the accepted capability families while preserving same-request receipts.
+A newly registered local tool that has not yet been assigned to a capability
+still forces the conservative full fallback so additions cannot silently
+disappear.
 
 The selected tool list is enforcement, not a hint: a model call outside the
 current interaction's callable set is rejected before the application function
 can run. Orientation and audit have no callable domain tools. Cataloged
 capabilities become callable only after their exact schemas are present in an
 execution interaction or continuation.
-The trace records the selection reasons, selected versus available counts,
-serialized schema bytes, instruction character counts, and whether schemas were
-sent with a new thread or retained on a resumed thread.
+The trace records the selection reasons, selected versus available counts, the
+exact provider-facing schemas and serialized bytes actually sent, instruction
+character counts, and whether schemas were sent with a new thread or retained
+on a resumed thread.
 
 ## Model usage
 
@@ -378,6 +384,10 @@ artifact endpoint with the same bearer authorization; resumes from the
 provider-confirmed byte offset; and verifies the completed provider artifact.
 File contents never enter model context. Transfer does not infer or execute the
 provider's domain workflow; the MCP consumer tool owns that later operation.
+Required artifact routes or methods that contradict the advertised contract
+are recorded as typed terminal failures. Agent Slayer does not let completion
+repair retry that unchanged transfer, and it permits another attempt only after
+a successful integration refresh rediscovers the provider tools.
 
 MCP integrations with an `oauth` block use the standard MCP authorization-code
 flow with OAuth discovery, dynamic client registration, PKCE, and refresh

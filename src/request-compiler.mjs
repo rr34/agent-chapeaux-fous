@@ -326,6 +326,23 @@ function capabilitySummary(capability, tools) {
   return capabilitySummaries.get(capability) ?? `${capability} application capability.`;
 }
 
+function compactToolSummary(tool, maximumCharacters = 320) {
+  const value = String(tool.description ?? tool.title ?? tool.name).replace(/\s+/gu, " ").trim();
+  if (value.length <= maximumCharacters) return value;
+  const prefix = value.slice(0, maximumCharacters - 1);
+  const boundary = prefix.lastIndexOf(" ");
+  return `${prefix.slice(0, boundary >= maximumCharacters * 0.7 ? boundary : prefix.length)}…`;
+}
+
+function toolCatalogEntry(tool) {
+  return {
+    name: tool.name,
+    title: tool.title ?? null,
+    summary: compactToolSummary(tool),
+    annotations: tool.annotations ?? null,
+  };
+}
+
 export function requestCapabilityCatalog(tools) {
   const grouped = new Map();
   for (const tool of tools) {
@@ -342,6 +359,7 @@ export function requestCapabilityCatalog(tools) {
       summary: capabilitySummary(capability, entries),
       toolCount: entries.length,
       representativeTools: entries.slice(0, 5).map(({ name }) => name),
+      tools: entries.map(toolCatalogEntry),
       contextViews: entries.find(({ capability: manifest }) => manifest)?.capability?.contextViews ?? [],
     }));
 }
@@ -400,6 +418,54 @@ function overrideSelection(tools, capabilities) {
   };
 }
 
+function requestToolsDefinition(tools) {
+  const allowed = tools.map(({ name }) => name).sort();
+  if (allowed.length === 0) return null;
+  return {
+    name: "request_tools",
+    description: "Request exact schemas for one or more additional tools inside the capability families already authorized by the accepted TurnBrief. Use this only when the current exact tools cannot finish the request. Agent Slayer will continue the same execution with earlier receipts preserved; this call does not perform the requested domain action.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        tools: {
+          type: "array",
+          minItems: 1,
+          maxItems: Math.min(8, allowed.length),
+          uniqueItems: true,
+          items: { type: "string", enum: allowed },
+        },
+      },
+      required: ["tools"],
+    },
+    strict: true,
+    source: "local",
+    upstreamName: null,
+  };
+}
+
+function exactToolOverrideSelection(tools, capabilities, requestedToolNames) {
+  const capabilitySelection = overrideSelection(tools, capabilities);
+  const allowedByName = new Map(capabilitySelection.tools.map((tool) => [tool.name, tool]));
+  const requested = [...new Set(requestedToolNames)];
+  const unavailable = requested.filter((name) => !allowedByName.has(name));
+  if (unavailable.length) {
+    throw new Error(`Tool override is outside the selected capabilities or unavailable: ${unavailable.join(", ")}`);
+  }
+  const requestedSet = new Set([...requested, ...capabilitySelection.dependentTools]);
+  const selectedTools = capabilitySelection.tools.filter(({ name }) => requestedSet.has(name));
+  const deferredTools = capabilitySelection.tools.filter(({ name }) => !requestedSet.has(name));
+  return {
+    ...capabilitySelection,
+    tools: selectedTools,
+    reasons: [
+      ...capabilitySelection.reasons,
+      ...requested.map((name) => `${name}:turn-brief-tool`),
+    ],
+    deferredTools,
+  };
+}
+
 function explicitHatInstructions(explicitHats, groupedTools) {
   if (explicitHats.length === 0) return "";
   const lines = [
@@ -453,7 +519,10 @@ export class RequestCompiler {
   async compile(input) {
     const explicitHats = this.hatCatalog?.explicitHats(input.text) ?? [];
     const expanding = Array.isArray(input.capabilityOverride);
-    const selection = expanding
+    const exactToolSelection = expanding && Array.isArray(input.toolOverride);
+    const selection = exactToolSelection
+      ? exactToolOverrideSelection(input.tools, input.capabilityOverride, input.toolOverride)
+      : expanding
       ? overrideSelection(input.tools, input.capabilityOverride)
       : selectRequestCapabilities({ ...input, explicitHats });
     const grouped = new Map();
@@ -475,6 +544,10 @@ export class RequestCompiler {
         ))
         .sort();
     const requestCapabilities = capabilityRequestDefinition(deferredCapabilities);
+    const deferredTools = exactToolSelection ? selection.deferredTools : [];
+    const requestTools = input.allowToolExpansion === true
+      ? requestToolsDefinition(deferredTools)
+      : null;
     const fragments = (await Promise.all(selection.capabilities.map(async (capability) => ({
       capability,
       text: await this.#instruction(capability, grouped.get(capability) ?? []),
@@ -489,13 +562,28 @@ export class RequestCompiler {
           ...deferredCapabilities.map((capability) => `- ${capability}: ${capabilitySummary(capability, grouped.get(capability) ?? [])}`),
         ].join("\n")
       : "";
+    const toolCatalog = deferredTools.length
+      ? [
+          "# Additional tools inside the accepted capability families",
+          "These provider-published tools are not currently callable because their exact schemas were intentionally deferred. If execution evidence shows that one is needed, call `request_tools`; Agent Slayer will continue this same execution with only those additional exact schemas and prior receipts.",
+          ...deferredTools.map((tool) => (
+            `- ${tool.name}${tool.title ? ` (${tool.title})` : ""}: ${compactToolSummary(tool)}`
+            + (tool.annotations ? ` Effects: ${JSON.stringify(tool.annotations)}.` : "")
+          )),
+        ].join("\n")
+      : "";
     return {
       ...selection,
-      tools: requestCapabilities ? [...selection.tools, requestCapabilities] : selection.tools,
+      tools: [
+        ...selection.tools,
+        ...(requestTools ? [requestTools] : []),
+        ...(requestCapabilities ? [requestCapabilities] : []),
+      ],
       instructions: [
         explicitHatInstructions(explicitHats, grouped),
         ambiguousHatInstructions(selection, this.hatCatalog),
         guidance,
+        toolCatalog,
         catalog,
       ].filter(Boolean).join("\n\n"),
       explicitHats: explicitHats.map(({ id, label, icon, capability, spokenAs, index }) => ({
@@ -504,6 +592,7 @@ export class RequestCompiler {
       })),
       instructionCapabilities: fragments.map(({ capability }) => capability),
       deferredCapabilities,
+      deferredTools: deferredTools.map(toolCatalogEntry),
       capabilityCatalog: deferredCapabilities.map((capability) => ({
         capability,
         toolCount: grouped.get(capability)?.length ?? 0,

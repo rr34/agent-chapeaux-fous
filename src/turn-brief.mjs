@@ -23,10 +23,11 @@ const sourcedStatement = {
   required: ["text", "sourceEventSeqs"],
 };
 
-export function turnBriefSchema(capabilities, actionReferenceIds = [], contextViewIds = []) {
+export function turnBriefSchema(capabilities, actionReferenceIds = [], contextViewIds = [], toolNames = []) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
   const allowedReferenceIds = [...new Set(actionReferenceIds)].sort();
   const allowedContextViews = [...new Set(contextViewIds)].sort();
+  const allowedTools = [...new Set(toolNames)].sort();
   return {
     type: "object",
     additionalProperties: false,
@@ -47,6 +48,15 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
         maxItems: Math.max(1, allowedCapabilities.length),
         uniqueItems: true,
         items: { type: "string", enum: allowedCapabilities },
+      },
+      requiredTools: {
+        type: "array",
+        maxItems: allowedTools.length,
+        uniqueItems: true,
+        description: "Smallest initial set of advertised tools likely to complete the objective. Execution may request additional tools only from the accepted capability families.",
+        items: allowedTools.length
+          ? { type: "string", enum: allowedTools }
+          : { type: "string" },
       },
       authorizedActionReferenceIds: {
         type: "array",
@@ -103,7 +113,7 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
     },
     required: [
       "contractVersion", "requestType", "responseMode", "objective", "summary",
-      "requiredCapabilities", "authorizedActionReferenceIds", "authorizedActions",
+      "requiredCapabilities", "requiredTools", "authorizedActionReferenceIds", "authorizedActions",
       "contextRequests",
       "prohibitedActions", "deferredActions",
       "constraints", "unresolvedQuestions", "completionCriteria", "evidence", "audit",
@@ -188,6 +198,7 @@ export function orientationContext({
     "",
     "## Connected capability families",
     JSON.stringify(capabilityCatalog, null, 2),
+    "Each capability entry includes a compact catalog of its provider-published tools without their input schemas. Select the smallest initial tool set likely to complete the request in `requiredTools`. It is acceptable to omit a tool that later evidence may require because execution can request additional tools inside the accepted capability families. Never select a tool outside `requiredCapabilities`.",
     "Context views are small read-only datasets that the application can prepare after orientation and before execution. Request only views that materially help execution resolve existing names, identifiers, or categories. They are not writes and do not replace domain tools.",
   ].join("\n");
 }

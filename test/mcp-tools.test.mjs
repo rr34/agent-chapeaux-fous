@@ -183,6 +183,151 @@ test("an advertised HTTP artifact receiver becomes one resumable file-upload app
   await manager.close();
 });
 
+test("an advertised artifact route returning 405 is terminal until a successful integration refresh", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    accounting: {
+      enabled: true,
+      url: "https://accounting.example.test/mcp",
+      headers: { Authorization: "Bearer accounting-token" },
+    },
+  }));
+  const tools = [{
+    name: "stage_transaction_import_artifact",
+    description: "Stage an uploaded transaction artifact.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { artifact_id: { type: "string" } }, required: ["artifact_id"],
+    },
+    _meta: { [artifactUploadMetadataKey]: {
+      contractVersion: 1,
+      transportId: "transaction_import",
+      endpointPath: "/mcp/artifacts",
+      acceptedMediaTypes: ["application/x-ndjson"],
+      maximumChunkBytes: 1024,
+    } },
+  }];
+  let fetchCount = 0;
+  let openCount = 0;
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => ({
+      async connect() {},
+      async listTools() { return { tools }; },
+      async close() {},
+    }),
+    transportFactory: () => ({ async close() {} }),
+    fetchFn: async () => {
+      fetchCount += 1;
+      return new Response("Method Not Allowed", { status: 405 });
+    },
+    artifactSource: {
+      async open() {
+        openCount += 1;
+        return {
+          descriptor: {
+            file: { file_id: 218 }, fileId: 218, filename: "records.jsonl",
+            mimeType: "application/x-ndjson", byteSize: 3,
+            sha256: createHash("sha256").update("{}\n").digest("hex"),
+          },
+          async read() { return Buffer.from("{}\n"); },
+          async close() {},
+        };
+      },
+    },
+  });
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+  const wrapperName = "remote_accounting_upload_transaction_import_file";
+
+  const firstFailure = await rejectedError(
+    registry.execute(wrapperName, { file_id: 218 }),
+  );
+  assert.equal(firstFailure.toolFailure.kind, "contract_mismatch");
+  assert.equal(firstFailure.toolFailure.code, "MCP_ARTIFACT_REQUIRED_METHOD_NOT_SUPPORTED");
+  assert.equal(firstFailure.toolFailure.terminalForCurrentRequest, true);
+  assert.equal(firstFailure.toolFailure.method, "POST");
+  assert.equal(firstFailure.toolFailure.path, "/mcp/artifacts");
+  assert.equal(firstFailure.toolFailure.httpStatus, 405);
+  assert.match(firstFailure.toolFailure.contractFingerprint, /^[0-9a-f]{64}$/);
+
+  const blockedFailure = await rejectedError(
+    registry.execute(wrapperName, { file_id: 218 }),
+  );
+  assert.equal(blockedFailure.toolFailure.code, "MCP_ARTIFACT_CONTRACT_BLOCKED_UNTIL_REFRESH");
+  assert.equal(fetchCount, 1);
+  assert.equal(openCount, 1);
+  assert.equal(manager.health().accounting.artifactContractFailures.length, 1);
+
+  assert.equal((await manager.refreshTools()).accounting.refreshed, true);
+  assert.deepEqual(manager.health().accounting.artifactContractFailures, []);
+  const afterRefreshFailure = await rejectedError(
+    registry.execute(wrapperName, { file_id: 218 }),
+  );
+  assert.equal(afterRefreshFailure.toolFailure.code, "MCP_ARTIFACT_REQUIRED_METHOD_NOT_SUPPORTED");
+  assert.equal(fetchCount, 2);
+  assert.equal(openCount, 2);
+  await manager.close();
+});
+
+test("artifact authentication and transient HTTP failures remain distinguishable and retryable", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    storage: {
+      enabled: true,
+      url: "https://storage.example.test/mcp",
+      headers: { Authorization: "Bearer storage-token" },
+    },
+  }));
+  const tools = [{
+    name: "consume_file",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { artifact_id: { type: "string" } }, required: ["artifact_id"],
+    },
+    _meta: { [artifactUploadMetadataKey]: {
+      contractVersion: 1, transportId: "files", endpointPath: "/mcp/artifacts",
+      acceptedMediaTypes: ["application/x-ndjson"], maximumChunkBytes: 1024,
+    } },
+  }];
+  const statuses = [401, 503];
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => ({
+      async connect() {}, async listTools() { return { tools }; }, async close() {},
+    }),
+    transportFactory: () => ({ async close() {} }),
+    fetchFn: async () => new Response(null, { status: statuses.shift() }),
+    artifactSource: {
+      async open() {
+        return {
+          descriptor: {
+            file: { file_id: 9 }, fileId: 9, filename: "records.jsonl",
+            mimeType: "application/x-ndjson", byteSize: 3,
+            sha256: createHash("sha256").update("{}\n").digest("hex"),
+          },
+          async read() { return Buffer.from("{}\n"); }, async close() {},
+        };
+      },
+    },
+  });
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+  const wrapperName = "remote_storage_upload_files_file";
+  const authentication = await rejectedError(registry.execute(wrapperName, { file_id: 9 }));
+  assert.equal(authentication.toolFailure.kind, "authentication_failure");
+  assert.equal(authentication.toolFailure.terminalForCurrentRequest, false);
+  const transient = await rejectedError(registry.execute(wrapperName, { file_id: 9 }));
+  assert.equal(transient.toolFailure.kind, "transient_provider_failure");
+  assert.equal(transient.toolFailure.terminalForCurrentRequest, false);
+  assert.deepEqual(manager.health().storage.artifactContractFailures, []);
+  await manager.close();
+});
+
 test("invalid advertised artifact upload metadata does not create an application upload tool", async (context) => {
   const temporary = temporaryDirectory();
   context.after(temporary.cleanup);
@@ -358,6 +503,15 @@ test("MCP identity, contracts, metadata, and supplemental resources survive adap
 function temporaryDirectory() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agent-slayer-oauth-test-"));
   return { directory, cleanup: () => fs.rmSync(directory, { recursive: true, force: true }) };
+}
+
+async function rejectedError(promise) {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected promise to reject");
 }
 
 test("OAuth credentials persist privately and preserve rotated refresh tokens", async (context) => {

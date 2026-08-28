@@ -197,4 +197,6 @@ MCP's advertised same-origin, bearer-authenticated HTTP artifact endpoint. MCP
 tool calls remain the compact control plane; raw resumable HTTP is the bulk data
 plane. The provider owns upload state and the opaque resulting artifact.
 Transfer proves byte receipt only; it does not infer provider workflow meaning
-or prove that a later domain import was validated or committed.
+or prove that a later domain import was validated or committed. The adapter
+classifies failures against the advertised contract and blocks unchanged
+terminal contract mismatches until successful integration rediscovery.

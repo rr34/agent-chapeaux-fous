@@ -13,7 +13,7 @@ The LLM receives:
 - the exact user request when that interaction needs it;
 - bounded, source-referenced context selected for that objective;
 - an exact output schema for a structured interaction;
-- a concise catalog when it must select capability families; and
+- a concise catalog when it must select capability families or initial tools;
 - exact callable tool schemas only when it may call those tools.
 
 The LLM produces:
@@ -52,12 +52,13 @@ For every request, the structure:
 1. preserves the user's exact request;
 2. constructs bounded, source-referenced conversation context;
 3. gives orientation the strict TurnBrief output schema;
-4. gives orientation an organized catalog of connected capability families;
+4. gives orientation an organized catalog of connected capability families and
+   their compact provider-published tool summaries, without callable schemas;
 5. validates the TurnBrief;
 6. reads only the named, bounded, read-only context views selected in the
    TurnBrief;
 7. gives execution the accepted TurnBrief, prepared context, and every exact
-   callable schema;
+   callable schema for the initial tools selected by orientation;
 8. invokes the exact application function named by a valid model tool call;
 9. returns each tool result to the same model exchange; and
 10. accepts a final answer only after the required completion checks.
@@ -148,11 +149,13 @@ interprets the human-readable field meanings when evaluating the evidence.
 Agent Slayer uses a structured loop derived from the military OODA loop:
 
 1. **Orient** — preserve the exact request, gather and filter bounded context,
-   select capability families, request required context views, describe the
-   intended outcome, and declare completion and audit needs in the TurnBrief.
+   select capability families and the smallest likely initial tool set, request
+   required context views, describe the intended outcome, and declare
+   completion and audit needs in the TurnBrief.
 2. **Execute** — receive the accepted TurnBrief and prepared context, expose
-   exact callable schemas, invoke tools, and return every result to the same
-   model exchange.
+   exact callable schemas for the selected tools, invoke tools, return every
+   result to the same model exchange, and request exact additional tools inside
+   the accepted capability families when observed evidence requires them.
 3. **Audit** — compare the observed outcome with the request, TurnBrief,
    deterministic findings, effect annotations, and trustworthy receipts.
 4. **Repair** — correct a concrete audited gap within the user's authorization
@@ -382,8 +385,13 @@ The protocol carries:
 - effect receipts; and
 - opaque provider-owned workflow references.
 
-Orientation receives a bounded capability catalog. Execution receives full
-guidance and exact schemas only for selected capabilities. A merely cataloged,
+Orientation receives a bounded capability catalog containing compact
+provider-published tool summaries but no callable schemas. It selects the
+smallest likely initial tool set inside its accepted capability families.
+Execution receives full guidance and exact schemas only for those selected
+tools. It may make a bounded request for additional exact tools only inside the
+accepted capability families; the application then continues the same
+execution with prior receipts preserved. A merely cataloged, deferred,
 disabled, disconnected, unauthorized, or failed tool is never represented as
 callable.
 
@@ -594,6 +602,30 @@ received the verified artifact. Parsing, grouping, validation, deduplication,
 exception handling, preview, approval, and commit remain owned and proven by
 later MCP tools.
 
+Artifact transport failures are classified by application code against the
+exact advertised contract, not by model judgment or provider prose. A required
+artifact operation returning HTTP 404, 405, 415, or 501 is a contract mismatch.
+A successful HTTP response with a missing or invalid artifact ID, offset,
+status, media type, size, or digest is also a contract mismatch. HTTP 401 and
+403 are authentication failures; 408, 425, 429, other 5xx responses, and
+network failures are retryable transport or provider failures; 409 is a
+provider state conflict; remaining 4xx responses are provider rejections.
+
+Every classified failure carries a bounded structured descriptor in the tool
+result, trace event, and durable receipt: classification, stable code, server,
+capability, transport ID, advertised-contract fingerprint, upload step, HTTP
+method, path, status, whether it is terminal for the current request, and the
+condition under which retry is valid. A contract mismatch is terminal for the
+unchanged request. The runtime still performs the conditional completion audit
+but mechanically suppresses repair from retrying or substituting a transport,
+preserves earlier successful receipts, and appends a direct user-visible status
+explaining the failed operation and required integration refresh. The adapter
+remembers the failure by server, transport ID, and contract fingerprint across
+later requests. Only a successful MCP reconnection and tool rediscovery clears
+that block and permits one new attempt against the newly observed integration;
+another mismatch blocks it again. Prompt instructions are not the enforcement
+mechanism.
+
 # 6. Search engine data protocol
 
 The search engine data protocol standardizes everything entering and leaving
@@ -764,5 +796,8 @@ The versioned implementation schema is authoritative. Its basic shape is:
 }
 ```
 
-The protocol records the exact typed input, provider-visible request, normalized
-output, validation result, and usage as separate literal trace events.
+The protocol records the exact typed input, exact provider-visible callable
+schemas actually sent, provider-visible request, normalized output, validation
+result, and usage as separate literal trace events. Registry definitions or
+intermediate candidate sets that were not sent are not substituted into an
+event labeled as provider-visible.

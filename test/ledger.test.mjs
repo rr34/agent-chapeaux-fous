@@ -257,6 +257,39 @@ test("context usage, intent checkpoints, and exact tool receipts remain recovera
     const envelope = JSON.parse(chunks.join(""));
     assert.deepEqual(envelope.call.arguments, { query: "important records" });
     assert.equal(envelope.outcome.result.importantDetail, "preserved");
+
+    const failure = {
+      contractVersion: 1,
+      kind: "contract_mismatch",
+      code: "MCP_ARTIFACT_REQUIRED_METHOD_NOT_SUPPORTED",
+      terminalForCurrentRequest: true,
+      retry: "after_provider_or_connection_change",
+      serverName: "accounting",
+      capabilityId: "integration:accounting",
+      transportId: "transaction_import",
+      contractFingerprint: "b".repeat(64),
+      step: "begin",
+      method: "POST",
+      path: "/mcp/artifacts",
+      httpStatus: 405,
+    };
+    ledger.append({
+      type: "tool.call", phase: "start", status: "processing", turnId: first.requestId,
+      operationId: "failed-upload", name: "upload_file",
+      payload: { callId: "failed-upload", arguments: { file_id: 218 } },
+    });
+    const failedReceiptId = ledger.append({
+      type: "tool.result", phase: "error", status: "error", turnId: first.requestId,
+      operationId: "failed-upload", name: "upload_file",
+      payload: { callId: "failed-upload", toolFailure: failure },
+      error: "accounting artifact begin returned HTTP 405",
+    });
+    const failedEnvelope = JSON.parse(ledger.toolReceiptRead({
+      receiptEventSeq: ledger.eventSequence(failedReceiptId),
+      maxCharacters: 32 * 1024,
+    }).chunk);
+    assert.equal(failedEnvelope.outcome.ok, false);
+    assert.deepEqual(failedEnvelope.outcome.toolFailure, failure);
   } finally {
     store.close();
     temporary.cleanup();

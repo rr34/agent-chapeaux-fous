@@ -52,6 +52,7 @@ function brief({ auditRequired = true, authorizedActionReferenceIds = [] } = {})
     objective: "Create the reminder that the assistant just offered to create.",
     summary: "The user authorized the concrete action offered in the prior assistant turn.",
     requiredCapabilities: ["todos"],
+    requiredTools: ["todo_create"],
     authorizedActionReferenceIds,
     contextRequests: [],
     authorizedActions: [source],
@@ -134,6 +135,7 @@ test("a TurnBrief can skip the audit for declared read-only work and the trace s
     responseMode: "answer",
     objective: "List the current to-dos.",
     summary: "The user asked to read current to-dos.",
+    requiredTools: ["todo_list"],
     contextRequests: ["todos.active_groups"],
     authorizedActions: [],
     completionCriteria: ["Report the current to-do list."],
@@ -171,6 +173,216 @@ test("a TurnBrief can skip the audit for declared read-only work and the trace s
   ));
   assert.equal(skipped.name, "Audit skipped");
   assert.match(skipped.content, /declared read-only effects/);
+});
+
+test("structured execution starts with orientation-selected tools and expands exactly within the accepted capability", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  let listCalls = 0;
+  let verifyCalls = 0;
+  registry.register({
+    name: "remote_accounting_list_transactions",
+    description: "List the current owner-scoped accounting transactions.",
+    source: "mcp:accounting",
+    annotations: { readOnlyHint: true },
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { listCalls += 1; return { transactionCount: 13 }; },
+  });
+  registry.register({
+    name: "remote_accounting_verify_ledger",
+    description: "Verify current accounting ledger invariants after inspecting transactions.",
+    source: "mcp:accounting",
+    annotations: { readOnlyHint: true },
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { verifyCalls += 1; return { valid: true }; },
+  });
+  const accountingBrief = {
+    ...brief({ auditRequired: false }),
+    requestType: "informational",
+    responseMode: "answer",
+    objective: "Count the accounting transactions and verify the ledger.",
+    summary: "Inspect the transaction count and verify the ledger.",
+    requiredCapabilities: ["integration:accounting"],
+    requiredTools: ["remote_accounting_list_transactions"],
+    authorizedActions: [],
+    completionCriteria: ["Report the transaction count and current ledger verification."],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      assert.match(payload.developerInstructions, /remote_accounting_verify_ledger/);
+      assert.doesNotMatch(payload.developerInstructions, /"inputSchema"/);
+      return completed(JSON.stringify(accountingBrief), 20);
+    }
+    if (index === 1) {
+      assert.deepEqual(payload.tools.map(({ name }) => name), [
+        "remote_accounting_list_transactions",
+        "request_tools",
+      ]);
+      const listed = await payload.onToolCall({
+        callId: "list-transactions",
+        tool: "remote_accounting_list_transactions",
+        arguments: { result_filter: identityResultFilter() },
+      });
+      assert.equal(listed.ok, true);
+      const expansion = await payload.onToolCall({
+        callId: "request-ledger-verification",
+        tool: "request_tools",
+        arguments: { tools: ["remote_accounting_verify_ledger"] },
+      });
+      assert.equal(expansion.ok, true);
+      return completed("Continuing with ledger verification.", 30);
+    }
+    assert.deepEqual(payload.tools.map(({ name }) => name), [
+      "remote_accounting_list_transactions",
+      "remote_accounting_verify_ledger",
+    ]);
+    assert.match(payload.developerInstructions, /Earlier tool receipts from this same user request/);
+    assert.match(payload.developerInstructions, /"transactionCount":13/);
+    const verified = await payload.onToolCall({
+      callId: "verify-ledger",
+      tool: "remote_accounting_verify_ledger",
+      arguments: { result_filter: identityResultFilter() },
+    });
+    assert.equal(verified.ok, true);
+    return completed("There are 13 transactions and the ledger is valid.", 30);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-accounting-verify",
+    requestEventId: "event-current",
+    text: "How many accounting transactions are there, and is the ledger valid?",
+  }), "There are 13 transactions and the ledger is valid.");
+  assert.equal(requests.length, 3);
+  assert.equal(listCalls, 1);
+  assert.equal(verifyCalls, 1);
+  const expansions = ledger.events.filter(({ type }) => type === "tools.expansion.requested");
+  assert.deepEqual(expansions[0].payload.tools, ["remote_accounting_verify_ledger"]);
+  assert.equal(
+    ledger.events.some(({ type, name }) => type === "agent.step" && name === "Audit skipped"),
+    true,
+  );
+});
+
+test("a same-execution provider confirmation reference cannot be consumed by tool selection or repair", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  let commits = 0;
+  registry.register({
+    name: "remote_accounting_preview_delete_transactions",
+    upstreamName: "preview_delete_transactions",
+    description: "Preview an exact transaction deletion and request user confirmation.",
+    source: "mcp:accounting",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { scope: { type: "string", const: "all" } }, required: ["scope"],
+    },
+    async execute() {
+      return {
+        contractVersion: 1,
+        status: "ready",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        summary: { transactionCount: 13 },
+        nextAction: {
+          type: "request_user_confirmation",
+          instruction: "Ask the user to confirm deletion of exactly 13 transactions.",
+          onApproval: {
+            tool: "commit_delete_transactions",
+            arguments: { deletion_plan_id: "plan-13", preview_digest: `sha256:${"a".repeat(64)}` },
+          },
+        },
+      };
+    },
+  });
+  registry.register({
+    name: "remote_accounting_commit_delete_transactions",
+    upstreamName: "commit_delete_transactions",
+    description: "Commit only an exact preview explicitly approved by the user.",
+    source: "mcp:accounting",
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        deletion_plan_id: { type: "string" },
+        preview_digest: { type: "string" },
+      },
+      required: ["deletion_plan_id", "preview_digest"],
+    },
+    async execute() { commits += 1; return { status: "committed" }; },
+  });
+  const source = { text: "Preview deletion and show me the exact confirmation.", sourceEventSeqs: [9] };
+  const previewBrief = {
+    ...brief({ auditRequired: false }),
+    requestType: "new_objective",
+    responseMode: "clarify",
+    objective: "Preview deletion of all current accounting transactions and request confirmation.",
+    summary: "Create the exact provider preview without committing it.",
+    requiredCapabilities: ["integration:accounting"],
+    requiredTools: [
+      "remote_accounting_preview_delete_transactions",
+      "remote_accounting_commit_delete_transactions",
+    ],
+    authorizedActions: [source],
+    prohibitedActions: ["Commit the deletion before the user approves the exact preview."],
+    completionCriteria: ["The exact preview is reported and its commit remains unexecuted."],
+    evidence: [source],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(previewBrief), 20);
+    if (index === 1) {
+      const preview = await payload.onToolCall({
+        callId: "preview-delete",
+        tool: "remote_accounting_preview_delete_transactions",
+        arguments: { scope: "all" },
+      });
+      assert.equal(preview.ok, true);
+      const forbiddenCommit = await payload.onToolCall({
+        callId: "same-execution-commit",
+        tool: "remote_accounting_commit_delete_transactions",
+        arguments: preview.result.nextAction.onApproval.arguments,
+      });
+      assert.equal(forbiddenCommit.ok, false);
+      assert.match(forbiddenCommit.error, /must exactly match an active provider invocation authorized by the accepted TurnBrief/);
+      return completed("The preview contains 13 transactions. Please confirm that exact deletion.", 30);
+    }
+    assert.match(payload.developerInstructions, /remote_accounting_commit_delete_transactions/);
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "The preview was created and its newly generated commit was not executed.",
+      satisfiedCriteria: ["The exact 13-transaction preview is available for confirmation."],
+      remainingActions: ["Wait for explicit user confirmation of this exact preview."],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-delete-preview",
+    requestEventId: "event-current",
+    text: "Preview deleting all transactions and show me what I need to confirm.",
+  }), "The preview contains 13 transactions. Please confirm that exact deletion.");
+  assert.equal(commits, 0);
+  assert.equal(requests.length, 3);
 });
 
 function contextBuilder() {
@@ -361,6 +573,7 @@ test("structured execution cannot fish in unrelated capabilities when an MCP ope
     objective: "Delete the 13 confirmed accounting transactions.",
     summary: "The user confirmed deletion of the reviewed accounting transactions.",
     requiredCapabilities: ["integration:accounting"],
+    requiredTools: ["remote_accounting_list_transactions"],
     completionCriteria: ["A successful accounting transaction-deletion receipt exists."],
   };
   const blockedResponse = "No supported accounting transaction-deletion operation is callable.";
@@ -502,6 +715,7 @@ test("a historical receipt cannot masquerade as a new dry run and repair preserv
     objective: "Perform a new dry run of the account-tree import.",
     summary: "Dry-run the current account tree.",
     requiredCapabilities: ["database", "integration:accounting"],
+    requiredTools: ["tool_receipt_read", "remote_accounting_import_account_tree"],
     authorizedActions: [{ text: "Dry-run the current import.", sourceEventSeqs: [9] }],
     completionCriteria: ["A successful direct dry-run receipt exists."],
   };
@@ -589,6 +803,7 @@ test("provider-guided missing inputs survive repair instead of being replaced by
     objective: "Run the provider's current validation preview.",
     summary: "Validate the current provider input.",
     requiredCapabilities: ["database", "integration:accounting"],
+    requiredTools: ["tool_receipt_read", "remote_accounting_provider_preview"],
     completionCriteria: ["Report the current provider result or its exact missing inputs."],
   };
   const missingInputResponse = "I need the five unit scales required by the provider before I can run its current preview.";
@@ -630,6 +845,117 @@ test("provider-guided missing inputs survive repair instead of being replaced by
   assert.equal(ledger.events.some(({ type }) => type === "completion.guard"), false);
 });
 
+test("a terminal tool contract failure is preserved in receipts and deterministically suppresses repair", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registry.registerCapability({
+    id: "integration:accounting",
+    title: "Accounting",
+    summary: "Accounting MCP integration.",
+    aliases: ["accounting"],
+    source: "mcp:accounting",
+  });
+  const toolFailure = {
+    contractVersion: 1,
+    kind: "contract_mismatch",
+    code: "MCP_ARTIFACT_REQUIRED_METHOD_NOT_SUPPORTED",
+    terminalForCurrentRequest: true,
+    retry: "after_provider_or_connection_change",
+    serverName: "accounting",
+    capabilityId: "integration:accounting",
+    transportId: "transaction_import",
+    contractFingerprint: "a".repeat(64),
+    step: "begin",
+    method: "POST",
+    path: "/mcp/artifacts",
+    httpStatus: 405,
+  };
+  registry.register({
+    name: "remote_accounting_upload_transaction_import_file",
+    description: "Upload the canonical transaction file through Accounting's advertised artifact transport.",
+    source: "mcp:accounting",
+    capabilityId: "integration:accounting",
+    annotations: {
+      readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true,
+    },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { file_id: { type: "integer" } }, required: ["file_id"],
+    },
+    async execute() {
+      const error = new Error("accounting artifact begin returned HTTP 405");
+      error.toolFailure = toolFailure;
+      throw error;
+    },
+  });
+  const source = { text: "Import the prepared transaction file.", sourceEventSeqs: [9] };
+  const importBrief = {
+    ...brief(),
+    requestType: "new_objective",
+    objective: "Import the prepared transaction file into Accounting.",
+    summary: "The user requested the prepared accounting-file import.",
+    requiredCapabilities: ["integration:accounting"],
+    requiredTools: ["remote_accounting_upload_transaction_import_file"],
+    authorizedActions: [source],
+    completionCriteria: ["The provider accepts the complete artifact or the exact blocker is reported."],
+    evidence: [source],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(importBrief), 20);
+    if (index === 1) {
+      const result = await payload.onToolCall({
+        callId: "upload-call",
+        tool: "remote_accounting_upload_transaction_import_file",
+        arguments: { file_id: 218 },
+      });
+      assert.equal(result.ok, false);
+      assert.deepEqual(result.toolFailure, toolFailure);
+      return completed("The Accounting upload could not start.", 50);
+    }
+    if (index === 2) {
+      assert.match(payload.developerInstructions, /TERMINAL_TOOL_CONTRACT_FAILURE/);
+      assert.match(payload.developerInstructions, /MCP_ARTIFACT_REQUIRED_METHOD_NOT_SUPPORTED/);
+      return completed(JSON.stringify({
+        contractVersion: 1,
+        outcome: "repair_needed",
+        summary: "The artifact still needs to be uploaded.",
+        satisfiedCriteria: [],
+        remainingActions: ["Retry the artifact upload."],
+        repairInstructions: ["Retry the same upload operation."],
+      }), 10);
+    }
+    throw new Error("A terminal contract mismatch must not enter repair");
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  const result = await runtime.run({
+    requestId: "request-accounting-import",
+    requestEventId: "event-current",
+    text: "Import the prepared transaction file.",
+  });
+
+  assert.equal(requests.length, 3);
+  assert.match(result, /The Accounting upload could not start/);
+  assert.match(result, /POST \/mcp\/artifacts/);
+  assert.match(result, /HTTP 405/);
+  assert.match(result, /will not be retried until the integration is refreshed/);
+  const failedReceipt = ledger.events.find(({ type, name }) => (
+    type === "tool.result" && name === "remote_accounting_upload_transaction_import_file"
+  ));
+  assert.deepEqual(failedReceipt.payload.toolFailure, toolFailure);
+  const retryGuard = ledger.events.find(({ type }) => type === "tool.retry.blocked");
+  assert.equal(retryGuard.payload.findings[0].toolFailure.code, toolFailure.code);
+});
+
 test("approval binds execution to the exact active plan and blocks request-id substitution", async () => {
   const requests = [];
   const actionReference = {
@@ -665,6 +991,7 @@ test("approval binds execution to the exact active plan and blocks request-id su
     objective: "Commit the exact approved account-tree preview.",
     summary: "The user approved the commit-ready account-tree plan.",
     requiredCapabilities: ["integration:accounting"],
+    requiredTools: ["remote_accounting_commit_account_tree_import"],
     completionCriteria: ["A successful receipt for the authorized MCP action exists."],
   };
   const toolResponses = [];

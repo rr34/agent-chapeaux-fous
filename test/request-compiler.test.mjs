@@ -85,6 +85,54 @@ test("the orienter receives one organized catalog of every connected capability 
     catalog.find(({ capability }) => capability === "email").representativeTools,
     ["email_search", "email_send"],
   );
+  assert.deepEqual(
+    catalog.find(({ capability }) => capability === "email").tools.map(({ name }) => name),
+    ["email_search", "email_send"],
+  );
+  assert.equal(
+    catalog.find(({ capability }) => capability === "email").tools[0].inputSchema,
+    undefined,
+  );
+});
+
+test("a TurnBrief tool override starts narrow and advertises exact in-capability expansion", async () => {
+  const compiler = new RequestCompiler();
+  const accountingTools = [
+    tool("remote_accounting_preview_delete_transactions", "mcp:accounting"),
+    tool("remote_accounting_get_transaction_delete_plan", "mcp:accounting"),
+    tool("remote_accounting_commit_delete_transactions", "mcp:accounting"),
+  ];
+  const compiled = await compiler.compile({
+    tools: accountingTools,
+    text: "Delete the reviewed transactions.",
+    recentConversation: [],
+    previousCapabilities: [],
+    capabilityOverride: ["integration:accounting"],
+    toolOverride: ["remote_accounting_preview_delete_transactions"],
+    allowCapabilityExpansion: false,
+    allowToolExpansion: true,
+  });
+
+  assert.deepEqual(names(compiled), [
+    "remote_accounting_preview_delete_transactions",
+    "request_tools",
+  ]);
+  assert.deepEqual(
+    compiled.deferredTools.map(({ name }) => name),
+    [
+      "remote_accounting_get_transaction_delete_plan",
+      "remote_accounting_commit_delete_transactions",
+    ],
+  );
+  assert.deepEqual(
+    compiled.tools.find(({ name }) => name === "request_tools")
+      .inputSchema.properties.tools.items.enum,
+    [
+      "remote_accounting_commit_delete_transactions",
+      "remote_accounting_get_transaction_delete_plan",
+    ],
+  );
+  assert.match(compiled.instructions, /exact schemas were intentionally deferred/);
 });
 
 test("durable file retrieval remains callable on a terse later request", async () => {

@@ -183,6 +183,70 @@ test("the first model turn contains the exact request, context, and callable too
   assert.equal(toolExecutionContext.attachment, attachment);
 });
 
+test("tools.sent records the exact provider-facing callable schemas instead of registry definitions", async () => {
+  const events = [];
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "echo_value",
+    title: "Echo value",
+    description: "Return the supplied value.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { value: { type: "string" } }, required: ["value"],
+    },
+    outputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { value: { type: "string" }, traceOnlyDetail: { type: "string" } },
+      required: ["value"],
+    },
+    async execute({ value }) { return { value }; },
+  });
+  const providerTools = [{
+    type: "function",
+    name: "echo_value",
+    description: "Return the supplied value.",
+    parameters: registry.get("echo_value").parameters,
+    strict: true,
+  }];
+  const runtime = new SlayerRuntime({
+    modelTransport: {
+      id: "provider-shaping-transport",
+      displayName: "Provider shaping test",
+      describeRequest(payload) {
+        return {
+          model: payload.model,
+          callableTools: structuredClone(providerTools),
+          toolDelivery: "sent in every test call",
+        };
+      },
+      async runTurn() { return completedTurn({ text: "No call needed." }); },
+    },
+    registry,
+    contextBuilder: {
+      async build() {
+        return {
+          text: "bounded", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: { append(event) { events.push(event); } },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+
+  assert.equal(await runtime.run({
+    requestId: "provider-tools-trace",
+    requestEventId: "provider-tools-trace-event",
+    text: "Answer without calling anything.",
+  }), "No call needed.");
+  const toolsEvent = events.find(({ type }) => type === "tools.sent");
+  assert.deepEqual(toolsEvent.payload.tools, providerTools);
+  assert.equal(toolsEvent.payload.schemaBytes, Buffer.byteLength(JSON.stringify(providerTools)));
+  assert.equal(JSON.stringify(toolsEvent.payload.tools).includes("traceOnlyDetail"), false);
+});
+
 test("a declared read cannot execute without a valid result-filter boundary", async () => {
   let executions = 0;
   let rejected;

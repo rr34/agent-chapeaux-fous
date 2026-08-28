@@ -53,8 +53,91 @@ export function remoteToolName(serverName, toolName) {
 
 export const artifactUploadMetadataKey = "agent-slayer/artifactUpload";
 const artifactUploadContractVersion = 1;
+const artifactFailureContractVersion = 1;
 const maximumArtifactChunkBytes = 1024 * 1024;
 const maximumArtifactResponseBytes = 1024 * 1024;
+
+function artifactFailureKey(serverName, upload) {
+  return `${serverName}\n${upload.transportId}\n${upload.contractFingerprint}`;
+}
+
+function artifactFailureDetails({
+  kind, code, terminalForCurrentRequest, retry, serverName, upload, step,
+  method = null, path: requestPath = null, httpStatus = null,
+}) {
+  return {
+    contractVersion: artifactFailureContractVersion,
+    kind,
+    code,
+    terminalForCurrentRequest,
+    retry,
+    serverName,
+    capabilityId: `integration:${serverName}`,
+    transportId: upload.transportId,
+    contractFingerprint: upload.contractFingerprint,
+    step,
+    method,
+    path: requestPath,
+    httpStatus,
+  };
+}
+
+function artifactTransferError(message, toolFailure) {
+  const error = new Error(message);
+  Object.defineProperty(error, "toolFailure", {
+    value: Object.freeze(structuredClone(toolFailure)),
+    enumerable: true,
+  });
+  return error;
+}
+
+function artifactHttpFailure(serverName, upload, step, request, httpStatus) {
+  let kind = "provider_rejection";
+  let code = "MCP_ARTIFACT_PROVIDER_REJECTED_REQUEST";
+  let retry = "after_corrected_request_or_provider_guidance";
+  let terminalForCurrentRequest = false;
+  if ([404, 405, 415, 501].includes(httpStatus)) {
+    kind = "contract_mismatch";
+    terminalForCurrentRequest = true;
+    retry = "after_provider_or_connection_change";
+    code = ({
+      404: "MCP_ARTIFACT_REQUIRED_ENDPOINT_NOT_FOUND",
+      405: "MCP_ARTIFACT_REQUIRED_METHOD_NOT_SUPPORTED",
+      415: "MCP_ARTIFACT_ADVERTISED_MEDIA_TYPE_REJECTED",
+      501: "MCP_ARTIFACT_REQUIRED_OPERATION_NOT_IMPLEMENTED",
+    })[httpStatus];
+  } else if ([401, 403].includes(httpStatus)) {
+    kind = "authentication_failure";
+    code = "MCP_ARTIFACT_AUTHENTICATION_FAILED";
+    retry = "after_reauthentication";
+  } else if ([408, 425, 429].includes(httpStatus) || httpStatus >= 500) {
+    kind = "transient_provider_failure";
+    code = "MCP_ARTIFACT_PROVIDER_TEMPORARILY_UNAVAILABLE";
+    retry = "resume_with_same_artifact_after_provider_recovery";
+  } else if (httpStatus === 409) {
+    kind = "provider_state_conflict";
+    code = "MCP_ARTIFACT_PROVIDER_STATE_CONFLICT";
+    retry = "follow_provider_guidance_or_refresh_state";
+  }
+  return artifactFailureDetails({
+    kind, code, terminalForCurrentRequest, retry, serverName, upload, step,
+    method: request.method, path: request.path, httpStatus,
+  });
+}
+
+function artifactContractFailure(serverName, upload, step, code, message, request = {}) {
+  return artifactTransferError(message, artifactFailureDetails({
+    kind: "contract_mismatch",
+    code,
+    terminalForCurrentRequest: true,
+    retry: "after_provider_or_connection_change",
+    serverName,
+    upload,
+    step,
+    method: request.method ?? null,
+    path: request.path ?? null,
+  }));
+}
 
 const artifactUploadOutputSchema = {
   type: "object",
@@ -159,13 +242,24 @@ function discoverArtifactUploads(tools) {
     if (toolProblems.length) {
       problems.push(`${tool.name}: ${toolProblems.join(", ")}`);
     } else {
+      const normalizedMediaTypes = acceptedMediaTypes.map((value) => value.trim().toLowerCase());
+      const contractFingerprint = createHash("sha256").update(JSON.stringify({
+        contractVersion,
+        consumerTool: tool.name,
+        transportId,
+        endpointPath,
+        acceptedMediaTypes: normalizedMediaTypes,
+        maximumChunkBytes,
+        maximumBytes,
+      })).digest("hex");
       available.push({
         consumerTool: tool,
         transportId,
         endpointPath,
-        acceptedMediaTypes: acceptedMediaTypes.map((value) => value.trim().toLowerCase()),
+        acceptedMediaTypes: normalizedMediaTypes,
         maximumChunkBytes,
         maximumBytes,
+        contractFingerprint,
       });
     }
   }
@@ -375,6 +469,7 @@ export class McpToolManager {
     this.oauthProviders = new Map();
     this.registeredTools = new Set();
     this.serverTools = new Map();
+    this.artifactContractFailures = new Map();
     this.states = {};
     this.servers = {};
     this.userServers = {};
@@ -511,6 +606,9 @@ export class McpToolManager {
         client, transport, headers, provider, serverUrl: new URL(server.url),
       });
       const artifactUploads = this.replaceServerTools(serverName, tools);
+      for (const key of this.artifactContractFailures.keys()) {
+        if (key.startsWith(`${serverName}\n`)) this.artifactContractFailures.delete(key);
+      }
       this.states[serverName] = {
         ready: true,
         required: server.required === true,
@@ -644,43 +742,126 @@ export class McpToolManager {
     });
   }
 
-  async artifactAuthorization(serverName) {
+  async artifactAuthorization(serverName, upload) {
     const connection = this.connections.get(serverName);
     if (!connection) throw new Error(`${serverName} is not connected`);
     const configured = Object.entries(connection.headers ?? {})
       .find(([name]) => name.toLowerCase() === "authorization")?.[1];
     if (configured) {
-      if (!/^Bearer\s+\S+/i.test(configured)) throw new Error(`${serverName} artifact upload requires bearer authorization`);
+      if (!/^Bearer\s+\S+/i.test(configured)) {
+        throw artifactTransferError(
+          `${serverName} artifact upload requires bearer authorization`,
+          artifactFailureDetails({
+            kind: "authentication_failure",
+            code: "MCP_ARTIFACT_BEARER_TOKEN_REQUIRED",
+            terminalForCurrentRequest: false,
+            retry: "after_reauthentication",
+            serverName,
+            upload,
+            step: "authorization",
+          }),
+        );
+      }
       return configured;
     }
     const tokens = await connection.provider?.tokens?.();
     if (tokens?.access_token) return `Bearer ${tokens.access_token}`;
-    throw new Error(`${serverName} artifact upload requires the integration's bearer token`);
+    throw artifactTransferError(
+      `${serverName} artifact upload requires the integration's bearer token`,
+      artifactFailureDetails({
+        kind: "authentication_failure",
+        code: "MCP_ARTIFACT_BEARER_TOKEN_REQUIRED",
+        terminalForCurrentRequest: false,
+        retry: "after_reauthentication",
+        serverName,
+        upload,
+        step: "authorization",
+      }),
+    );
   }
 
-  async artifactHttp(serverName, role, url, options, context, fileId, traceRequest, { optionalJson = false } = {}) {
+  async artifactHttp(serverName, upload, role, url, options, context, fileId, traceRequest, { optionalJson = false } = {}) {
     const fetchFn = this.fetchFn ?? globalThis.fetch;
+    let response;
     try {
-      const response = await fetchFn(url, { redirect: "error", ...options });
-      const result = await jsonResponse(response, `${serverName} artifact ${role}`, { optional: optionalJson });
-      this.appendArtifactEvent(serverName, role, "MCP artifact HTTP", "complete", context, fileId, {
-        request: traceRequest,
-        response: {
-          status: response.status,
-          uploadOffset: response.headers.get("upload-offset"),
-          body: artifactStateTrace(result),
-        },
-      });
-      return { response, result };
+      response = await fetchFn(url, { redirect: "error", ...options });
     } catch (error) {
+      const toolFailure = artifactFailureDetails({
+        kind: "transport_failure",
+        code: "MCP_ARTIFACT_TRANSPORT_UNAVAILABLE",
+        terminalForCurrentRequest: false,
+        retry: "resume_with_same_artifact_after_connection_recovery",
+        serverName,
+        upload,
+        step: role,
+        method: traceRequest.method,
+        path: traceRequest.path,
+      });
       this.appendArtifactEvent(serverName, role, "MCP artifact HTTP", "error", context, fileId, {
         request: traceRequest,
-      }, error instanceof Error ? error.message : String(error));
-      throw error;
+        toolFailure,
+      }, `${serverName} artifact ${role} transport failed`);
+      throw artifactTransferError(`${serverName} artifact ${role} transport failed`, toolFailure);
     }
+    if (!response.ok) {
+      await boundedResponseText(response, `${serverName} artifact ${role}`).catch(() => "");
+      const toolFailure = artifactHttpFailure(serverName, upload, role, traceRequest, response.status);
+      const message = `${serverName} artifact ${role} returned HTTP ${response.status}`;
+      this.appendArtifactEvent(serverName, role, "MCP artifact HTTP", "error", context, fileId, {
+        request: traceRequest,
+        response: { status: response.status, uploadOffset: response.headers.get("upload-offset") },
+        toolFailure,
+      }, message);
+      throw artifactTransferError(message, toolFailure);
+    }
+    let result;
+    try {
+      result = await jsonResponse(response, `${serverName} artifact ${role}`, { optional: optionalJson });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const toolFailure = artifactFailureDetails({
+        kind: "contract_mismatch",
+        code: "MCP_ARTIFACT_INVALID_RESPONSE",
+        terminalForCurrentRequest: true,
+        retry: "after_provider_or_connection_change",
+        serverName,
+        upload,
+        step: role,
+        method: traceRequest.method,
+        path: traceRequest.path,
+        httpStatus: response.status,
+      });
+      this.appendArtifactEvent(serverName, role, "MCP artifact HTTP", "error", context, fileId, {
+        request: traceRequest,
+        response: { status: response.status, uploadOffset: response.headers.get("upload-offset") },
+        toolFailure,
+      }, message);
+      throw artifactTransferError(message, toolFailure);
+    }
+    this.appendArtifactEvent(serverName, role, "MCP artifact HTTP", "complete", context, fileId, {
+      request: traceRequest,
+      response: {
+        status: response.status,
+        uploadOffset: response.headers.get("upload-offset"),
+        body: artifactStateTrace(result),
+      },
+    });
+    return { response, result };
   }
 
   async uploadArtifact(serverName, upload, fileId, context = {}) {
+    const failureKey = artifactFailureKey(serverName, upload);
+    const rememberedFailure = this.artifactContractFailures.get(failureKey);
+    if (rememberedFailure) {
+      const toolFailure = {
+        ...rememberedFailure,
+        code: "MCP_ARTIFACT_CONTRACT_BLOCKED_UNTIL_REFRESH",
+      };
+      throw artifactTransferError(
+        `${serverName} artifact transfer remains blocked until the integration is refreshed after a provider change`,
+        toolFailure,
+      );
+    }
     const opened = await this.artifactSource.open(fileId);
     try {
       const { descriptor } = opened;
@@ -692,7 +873,7 @@ export class McpToolManager {
       }
       const connection = this.connections.get(serverName);
       if (!connection) throw new Error(`${serverName} is not connected`);
-      const authorization = await this.artifactAuthorization(serverName);
+      const authorization = await this.artifactAuthorization(serverName, upload);
       const endpoint = new URL(upload.endpointPath, connection.serverUrl.origin);
       if (endpoint.origin !== connection.serverUrl.origin) {
         throw new Error(`${serverName} artifact endpoint must use the MCP server origin`);
@@ -705,25 +886,39 @@ export class McpToolManager {
         byte_size: descriptor.byteSize,
         sha256: descriptor.sha256,
       };
-      const begin = await this.artifactHttp(serverName, "begin", endpoint, {
+      const beginRequest = { method: "POST", path: endpoint.pathname, body: beginBody };
+      const begin = await this.artifactHttp(serverName, upload, "begin", endpoint, {
         method: "POST",
         headers: { Authorization: authorization, "Content-Type": "application/json" },
         body: JSON.stringify(beginBody),
-      }, context, fileId, {
-        method: "POST", path: endpoint.pathname, body: beginBody,
-      });
-      const artifactId = requiredString(begin.result.artifact_id, "artifact begin artifact_id");
+      }, context, fileId, beginRequest);
+      let artifactId;
+      try {
+        artifactId = requiredString(begin.result.artifact_id, "artifact begin artifact_id");
+      } catch (error) {
+        throw artifactContractFailure(
+          serverName, upload, "begin", "MCP_ARTIFACT_INVALID_ARTIFACT_ID",
+          error instanceof Error ? error.message : String(error), beginRequest,
+        );
+      }
       const artifactUrl = new URL(`${upload.endpointPath.replace(/\/$/, "")}/${encodeURIComponent(artifactId)}`, connection.serverUrl.origin);
-      const resume = await this.artifactHttp(serverName, "resume", artifactUrl, {
+      const resumeRequest = { method: "GET", path: artifactUrl.pathname };
+      const resume = await this.artifactHttp(serverName, upload, "resume", artifactUrl, {
         method: "GET",
         headers: { Authorization: authorization },
-      }, context, fileId, { method: "GET", path: artifactUrl.pathname });
+      }, context, fileId, resumeRequest);
       if (resume.result.artifact_id !== artifactId) {
-        throw new Error(`${serverName} artifact resume did not report the expected artifact_id`);
+        throw artifactContractFailure(
+          serverName, upload, "resume", "MCP_ARTIFACT_IDENTITY_MISMATCH",
+          `${serverName} artifact resume did not report the expected artifact_id`, resumeRequest,
+        );
       }
       const nextOffset = Number(resume.result.next_offset);
       if (!Number.isSafeInteger(nextOffset) || nextOffset < 0 || nextOffset > descriptor.byteSize) {
-        throw new Error(`${serverName} artifact resume returned an invalid next_offset`);
+        throw artifactContractFailure(
+          serverName, upload, "resume", "MCP_ARTIFACT_INVALID_OFFSET",
+          `${serverName} artifact resume returned an invalid next_offset`, resumeRequest,
+        );
       }
       const chunkSize = Math.min(upload.maximumChunkBytes, maximumArtifactChunkBytes);
       const resumedFromOffset = nextOffset;
@@ -734,7 +929,14 @@ export class McpToolManager {
         const bytes = await opened.read(offset, chunkSize);
         if (bytes.length === 0) throw new Error(`File ${fileId} ended before transfer completed`);
         const chunkDigest = createHash("sha256").update(bytes).digest("hex");
-        const chunk = await this.artifactHttp(serverName, "chunk", artifactUrl, {
+        const chunkRequest = {
+          method: "PATCH",
+          path: artifactUrl.pathname,
+          offset,
+          byte_size: bytes.length,
+          chunk_sha256: chunkDigest,
+        };
+        const chunk = await this.artifactHttp(serverName, upload, "chunk", artifactUrl, {
           method: "PATCH",
           headers: {
             Authorization: authorization,
@@ -743,17 +945,14 @@ export class McpToolManager {
             "X-Content-SHA256": chunkDigest,
           },
           body: bytes,
-        }, context, fileId, {
-          method: "PATCH",
-          path: artifactUrl.pathname,
-          offset,
-          byte_size: bytes.length,
-          chunk_sha256: chunkDigest,
-        }, { optionalJson: true });
+        }, context, fileId, chunkRequest, { optionalJson: true });
         const confirmedOffset = Number(chunk.response.headers.get("upload-offset") ?? chunk.result.next_offset);
         const expectedOffset = offset + bytes.length;
         if (!Number.isSafeInteger(confirmedOffset) || confirmedOffset !== expectedOffset) {
-          throw new Error(`${serverName} artifact upload did not confirm the exact byte range`);
+          throw artifactContractFailure(
+            serverName, upload, "chunk", "MCP_ARTIFACT_OFFSET_CONFIRMATION_MISMATCH",
+            `${serverName} artifact upload did not confirm the exact byte range`, chunkRequest,
+          );
         }
         offset = confirmedOffset;
         chunksSent += 1;
@@ -762,34 +961,61 @@ export class McpToolManager {
       const alreadyComplete = offset === descriptor.byteSize && artifactStatusComplete(resume.result.status);
       if (!alreadyComplete) {
         const completeUrl = new URL(`${artifactUrl.pathname}/complete`, connection.serverUrl.origin);
-        await this.artifactHttp(serverName, "complete", completeUrl, {
+        await this.artifactHttp(serverName, upload, "complete", completeUrl, {
           method: "POST",
           headers: { Authorization: authorization },
         }, context, fileId, { method: "POST", path: completeUrl.pathname }, { optionalJson: true });
       }
-      const finalState = await this.artifactHttp(serverName, "verify", artifactUrl, {
+      const verifyRequest = { method: "GET", path: artifactUrl.pathname };
+      const finalState = await this.artifactHttp(serverName, upload, "verify", artifactUrl, {
         method: "GET",
         headers: { Authorization: authorization },
-      }, context, fileId, { method: "GET", path: artifactUrl.pathname });
+      }, context, fileId, verifyRequest);
       const finish = finalState.result;
       if (finish.artifact_id !== artifactId) {
-        throw new Error(`${serverName} artifact completion did not report the expected artifact_id`);
+        throw artifactContractFailure(
+          serverName, upload, "verify", "MCP_ARTIFACT_IDENTITY_MISMATCH",
+          `${serverName} artifact completion did not report the expected artifact_id`, verifyRequest,
+        );
       }
       if (!artifactStatusComplete(finish.status)) {
-        throw new Error(`${serverName} artifact completion did not report a terminal complete status`);
+        throw artifactContractFailure(
+          serverName, upload, "verify", "MCP_ARTIFACT_INCOMPLETE_FINAL_STATUS",
+          `${serverName} artifact completion did not report a terminal complete status`, verifyRequest,
+        );
       }
       if (Number(finish.next_offset) !== descriptor.byteSize) {
-        throw new Error(`${serverName} artifact completion did not confirm the complete byte range`);
+        throw artifactContractFailure(
+          serverName, upload, "verify", "MCP_ARTIFACT_FINAL_OFFSET_MISMATCH",
+          `${serverName} artifact completion did not confirm the complete byte range`, verifyRequest,
+        );
       }
-      const providerDigest = normalizedSha256(finish.sha256, `${serverName} artifact completion sha256`);
+      let providerDigest;
+      try {
+        providerDigest = normalizedSha256(finish.sha256, `${serverName} artifact completion sha256`);
+      } catch (error) {
+        throw artifactContractFailure(
+          serverName, upload, "verify", "MCP_ARTIFACT_INVALID_FINAL_DIGEST",
+          error instanceof Error ? error.message : String(error), verifyRequest,
+        );
+      }
       if (providerDigest !== descriptor.sha256) {
-        throw new Error(`${serverName} artifact completion returned a checksum that does not match file ${fileId}`);
+        throw artifactContractFailure(
+          serverName, upload, "verify", "MCP_ARTIFACT_FINAL_DIGEST_MISMATCH",
+          `${serverName} artifact completion returned a checksum that does not match file ${fileId}`, verifyRequest,
+        );
       }
       if (Number(finish.byte_size) !== descriptor.byteSize) {
-        throw new Error(`${serverName} artifact completion returned a byte size that does not match file ${fileId}`);
+        throw artifactContractFailure(
+          serverName, upload, "verify", "MCP_ARTIFACT_FINAL_SIZE_MISMATCH",
+          `${serverName} artifact completion returned a byte size that does not match file ${fileId}`, verifyRequest,
+        );
       }
       if (String(finish.media_type ?? finish.mime_type ?? "").toLowerCase() !== descriptor.mimeType) {
-        throw new Error(`${serverName} artifact completion returned a media type that does not match file ${fileId}`);
+        throw artifactContractFailure(
+          serverName, upload, "verify", "MCP_ARTIFACT_FINAL_MEDIA_TYPE_MISMATCH",
+          `${serverName} artifact completion returned a media type that does not match file ${fileId}`, verifyRequest,
+        );
       }
       return {
         contractVersion: artifactUploadContractVersion,
@@ -816,6 +1042,11 @@ export class McpToolManager {
           total_bytes: descriptor.byteSize,
         },
       };
+    } catch (error) {
+      if (error?.toolFailure?.kind === "contract_mismatch") {
+        this.artifactContractFailures.set(failureKey, structuredClone(error.toolFailure));
+      }
+      throw error;
     } finally {
       await opened.close().catch(() => {});
     }
@@ -1016,7 +1247,19 @@ export class McpToolManager {
   }
 
   health() {
-    return this.states;
+    const failuresByServer = new Map();
+    for (const failure of this.artifactContractFailures.values()) {
+      const failures = failuresByServer.get(failure.serverName) ?? [];
+      failures.push(failure);
+      failuresByServer.set(failure.serverName, failures);
+    }
+    return Object.fromEntries(Object.entries(this.states).map(([serverName, state]) => [
+      serverName,
+      {
+        ...state,
+        artifactContractFailures: failuresByServer.get(serverName) ?? [],
+      },
+    ]));
   }
 
   async close() {

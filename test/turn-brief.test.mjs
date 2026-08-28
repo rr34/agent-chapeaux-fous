@@ -11,6 +11,7 @@ function validBrief() {
     objective: "Create the offered reminder.",
     summary: "The current request accepts the prior offer.",
     requiredCapabilities: ["todos"],
+    requiredTools: ["todo_create"],
     authorizedActionReferenceIds: [],
     contextRequests: [],
     authorizedActions: [sourced],
@@ -32,7 +33,7 @@ function validBrief() {
 }
 
 test("TurnBrief parsing enforces source references and unique capability selection", () => {
-  const schema = turnBriefSchema(["todos", "calendar"]);
+  const schema = turnBriefSchema(["todos", "calendar"], [], [], ["todo_create"]);
   const value = validBrief();
   assert.deepEqual(parseStructuredModelOutput(JSON.stringify(value), schema, "Orientation"), value);
 
@@ -50,6 +51,13 @@ test("TurnBrief parsing enforces source references and unique capability selecti
     /requiredCapabilities must contain unique items/,
   );
 
+  const unavailableTool = validBrief();
+  unavailableTool.requiredTools = ["calendar_event_create"];
+  assert.throws(
+    () => parseStructuredModelOutput(JSON.stringify(unavailableTool), schema, "Orientation"),
+    /requiredTools\[0\] must be one of/,
+  );
+
   const unauthorizedReference = validBrief();
   unauthorizedReference.authorizedActionReferenceIds = ["mcp-action:not-visible"];
   assert.throws(
@@ -57,7 +65,7 @@ test("TurnBrief parsing enforces source references and unique capability selecti
     /authorizedActionReferenceIds has too many items/,
   );
 
-  const referenceSchema = turnBriefSchema(["todos"], ["mcp-action:visible"]);
+  const referenceSchema = turnBriefSchema(["todos"], ["mcp-action:visible"], [], ["todo_create"]);
   const authorizedReference = validBrief();
   authorizedReference.authorizedActionReferenceIds = ["mcp-action:visible"];
   assert.deepEqual(
@@ -69,6 +77,7 @@ test("TurnBrief parsing enforces source references and unique capability selecti
     ["todos", "contacts"],
     [],
     ["todos.active_groups", "contacts.active_tags"],
+    ["todo_create"],
   );
   const contextual = validBrief();
   contextual.contextRequests = ["todos.active_groups"];

@@ -93,6 +93,7 @@ function receiptEnvelope(resultEvent, callPayload = {}) {
       status: resultEvent.status,
       result: resultEvent.payload?.result ?? null,
       error: resultEvent.error ?? null,
+      toolFailure: resultEvent.payload?.toolFailure ?? null,
     },
   };
 }
