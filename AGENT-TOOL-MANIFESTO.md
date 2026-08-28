@@ -430,11 +430,37 @@ reference with its source receipt. A later orientation may select it when the
 current request authorizes it, and execution may invoke the bound tool only with
 the bound arguments.
 
+This handoff is executable protocol, not advisory prose. If an MCP result
+declares `requiredAction=REQUEST_USER_CONFIRMATION`, uses
+`nextAction.type=request_user_confirmation`, or supplies
+`nextAction.onApproval`, then the complete handoff is mandatory:
+`nextAction.type`, a nonempty `instruction`, a same-connection provider tool,
+and arguments valid against that tool's current schema. Agent Slayer validates
+those fields before accepting the successful result as approvable. A missing or
+invalid field is a typed, terminal contract mismatch for the current request.
+The full provider result remains in its immutable receipt, but no deferred
+action reference is created, repair cannot retry the preview, and the
+application replaces any model-generated approval request with a deterministic
+contract status. The user is never asked to approve an action that the next
+request cannot execute.
+
 A provider-deferred action reference first produced during execution is active
 but unauthorized for the remainder of that Agent request. Execution,
 completion audit, repair, and tool expansion must not invoke it. Only a later
 user request interpreted by a new orientation may authorize the exact bound
 tool and arguments.
+
+Orientation also receives a bounded index of recent durable tool receipts for
+the exact recent request IDs. The index contains receipt event number, tool,
+status, time, and payload sizes, but no arguments or results. When a
+continuation needs a provider-owned identifier that is absent from conversation
+prose or active action references, orientation selects the database capability
+and `tool_receipt_read`; execution pages the exact immutable receipt. The user
+must never be asked to locate or supply an opaque identifier previously returned
+to Agent Slayer. Receipt inspection is evidence and workflow recovery only. It
+does not authorize a mutation or repair a malformed approval handoff; execution
+uses the recovered state with an advertised provider read, recovery, or preview
+operation to produce a new valid handoff before requesting approval.
 
 An incomplete workflow result carries an explicit status, exact missing fields
 or questions, and a structured retry descriptor. Every retry descriptor

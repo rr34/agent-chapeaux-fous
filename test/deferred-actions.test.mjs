@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   activeDeferredActionReferences,
   completionReceiptFindings,
+  deferredActionContractProblem,
   deferredActionArgumentProblem,
   extractDeferredActionReference,
   matchingDeferredActionReferences,
@@ -45,6 +46,7 @@ test("an explicit same-provider next action produces an exact invocation referen
       preview: { deliberately: "provider-owned" },
       nextAction: {
         type: "request_user_confirmation",
+        instruction: "Present the preview and ask the user to approve it.",
         onApproval: {
           tool: "commit_account_tree_import",
           arguments: { import_plan_id: "plan-exact-123" },
@@ -76,6 +78,38 @@ test("an explicit same-provider next action produces an exact invocation referen
   assert.equal(Object.hasOwn(reference, "summary"), false);
   assert.equal(Object.hasOwn(reference, "previewDigest"), false);
   assert.equal(Object.hasOwn(reference, "status"), false);
+});
+
+test("a provider confirmation request with an incomplete handoff is a deterministic contract problem", () => {
+  const input = {
+    toolDefinition: { source: "mcp:accounting", upstreamName: "preview_transaction_import_job" },
+    result: {
+      contractVersion: 1,
+      status: "success",
+      job: {
+        requiredAction: "REQUEST_USER_CONFIRMATION",
+        nextAction: {
+          onApproval: {
+            tool: "commit_transaction_import_job",
+            arguments: { import_job_id: "job-1", preview_digest: `sha256:${"a".repeat(64)}` },
+          },
+        },
+      },
+    },
+    resolveProviderTool() {
+      throw new Error("A handoff without its required type must fail before target resolution");
+    },
+  };
+
+  assert.equal(
+    deferredActionContractProblem(input),
+    "nextAction.type must be request_user_confirmation",
+  );
+  assert.equal(extractDeferredActionReference({
+    ...input,
+    tool: "remote_accounting_preview_transaction_import_job",
+    requestId: "request-preview",
+  }), null);
 });
 
 test("stored provider references survive unrelated turns and disappear after exact execution or expiration", () => {

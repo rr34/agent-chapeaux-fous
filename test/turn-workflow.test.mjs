@@ -73,7 +73,7 @@ function brief({ auditRequired = true, authorizedActionReferenceIds = [] } = {})
   };
 }
 
-function fakeLedger({ actionReferences = [] } = {}) {
+function fakeLedger({ actionReferences = [], toolReceipts = [] } = {}) {
   const events = [];
   const sequences = new Map([["event-current", 9]]);
   let nextSequence = 10;
@@ -90,6 +90,11 @@ function fakeLedger({ actionReferences = [] } = {}) {
     conversationBoundaryEventSeq() { return 0; },
     latestConversationState() { return null; },
     activeDeferredActionReferences() { return structuredClone(actionReferences); },
+    toolReceiptList({ requestId, limit = 20 }) {
+      const receipts = toolReceipts.filter((receipt) => requestId == null || receipt.requestId === requestId)
+        .slice(0, limit);
+      return { count: receipts.length, hasMore: false, nextBeforeEventSeq: null, receipts: structuredClone(receipts) };
+    },
     recentConversation() {
       return [
         {
@@ -954,6 +959,302 @@ test("a terminal tool contract failure is preserved in receipts and deterministi
   assert.deepEqual(failedReceipt.payload.toolFailure, toolFailure);
   const retryGuard = ledger.events.find(({ type }) => type === "tool.retry.blocked");
   assert.equal(retryGuard.payload.findings[0].toolFailure.code, toolFailure.code);
+});
+
+test("an MCP preview cannot ask for approval without a valid durable action handoff", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registry.registerCapability({
+    id: "integration:accounting",
+    title: "Accounting",
+    summary: "Accounting MCP integration.",
+    aliases: ["accounting"],
+    source: "mcp:accounting",
+  });
+  const previewResult = {
+    contractVersion: 1,
+    status: "success",
+    job: {
+      import_job_id: "2a54bf58-b967-4f9e-a54d-d4f0c8402a99",
+      preview_digest: `sha256:${"c".repeat(64)}`,
+      ready_to_commit: true,
+      requiredAction: "REQUEST_USER_CONFIRMATION",
+      nextAction: {
+        onApproval: {
+          tool: "commit_transaction_import_job",
+          arguments: {
+            import_job_id: "2a54bf58-b967-4f9e-a54d-d4f0c8402a99",
+            preview_digest: `sha256:${"c".repeat(64)}`,
+          },
+        },
+      },
+    },
+  };
+  registry.register({
+    name: "remote_accounting_preview_transaction_import_job",
+    description: "Create the final provider-owned transaction import preview.",
+    source: "mcp:accounting",
+    upstreamName: "preview_transaction_import_job",
+    capabilityId: "integration:accounting",
+    annotations: {
+      readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { import_job_id: { type: "string" } }, required: ["import_job_id"],
+    },
+    outputSchema: { type: "object" },
+    async execute() { return structuredClone(previewResult); },
+  });
+  registry.register({
+    name: "remote_accounting_commit_transaction_import_job",
+    description: "Commit one exact transaction import preview.",
+    source: "mcp:accounting",
+    upstreamName: "commit_transaction_import_job",
+    capabilityId: "integration:accounting",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        import_job_id: { type: "string" }, preview_digest: { type: "string" },
+      },
+      required: ["import_job_id", "preview_digest"],
+    },
+    async execute() { throw new Error("The malformed preview must never become callable approval"); },
+  });
+  const source = { text: "Prepare the final transaction import preview.", sourceEventSeqs: [9] };
+  const previewBrief = {
+    ...brief(),
+    requestType: "new_objective",
+    objective: "Prepare the final transaction import preview.",
+    summary: "Create the Accounting preview and report whether it can be approved.",
+    requiredCapabilities: ["integration:accounting"],
+    requiredTools: ["remote_accounting_preview_transaction_import_job"],
+    authorizedActions: [source],
+    completionCriteria: ["A valid provider confirmation handoff is durably preserved."],
+    evidence: [source],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(previewBrief), 20);
+    if (index === 1) {
+      const result = await payload.onToolCall({
+        callId: "preview-call",
+        tool: "remote_accounting_preview_transaction_import_job",
+        arguments: { import_job_id: previewResult.job.import_job_id },
+      });
+      assert.equal(result.ok, false);
+      assert.equal(result.toolFailure.code, "MCP_PROVIDER_ACTION_HANDOFF_INVALID");
+      assert.equal(result.toolFailure.terminalForCurrentRequest, true);
+      assert.deepEqual(result.result, previewResult);
+      return completed("The preview is ready; please approve it.", 50);
+    }
+    if (index === 2) {
+      assert.match(payload.developerInstructions, /MCP_PROVIDER_ACTION_HANDOFF_INVALID/);
+      return completed(JSON.stringify({
+        contractVersion: 1,
+        outcome: "repair_needed",
+        summary: "The preview result requested confirmation.",
+        satisfiedCriteria: [],
+        remainingActions: ["Ask the user to approve it."],
+        repairInstructions: ["Present the preview for approval."],
+      }), 10);
+    }
+    throw new Error("A malformed provider action handoff must not enter repair");
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  const result = await runtime.run({
+    requestId: "request-preview",
+    requestEventId: "event-current",
+    text: "Prepare the final transaction import preview.",
+  });
+
+  assert.equal(requests.length, 3);
+  assert.doesNotMatch(result, /please approve/i);
+  assert.match(result, /did not match the MCP contract/);
+  assert.match(result, /exact provider result remains stored in its durable receipt/);
+  const receipt = ledger.events.find(({ type, name }) => (
+    type === "tool.result" && name === "remote_accounting_preview_transaction_import_job"
+  ));
+  assert.deepEqual(receipt.payload.result, previewResult);
+  assert.equal(receipt.payload.deferredActionReference, undefined);
+  assert.equal(receipt.payload.toolFailure.code, "MCP_PROVIDER_ACTION_HANDOFF_INVALID");
+  assert.equal(ledger.events.some(({ type }) => type === "tool.retry.blocked"), true);
+});
+
+test("a continuation recovers an opaque provider job ID from the receipt index without asking the user", async () => {
+  const requests = [];
+  const priorJobId = "2a54bf58-b967-4f9e-a54d-d4f0c8402a99";
+  const priorReceiptEventSeq = 42;
+  const ledger = fakeLedger({
+    toolReceipts: [{
+      receiptEventSeq: priorReceiptEventSeq,
+      requestId: "request-prior",
+      occurredAtUtc: "2026-08-28T02:46:50.000Z",
+      tool: "remote_accounting_preview_transaction_import_job",
+      status: "complete",
+      ok: true,
+      resultCharacters: 1200,
+      argumentCharacters: 56,
+      error: null,
+    }],
+  });
+  const registry = new ToolRegistry();
+  registry.registerCapability({
+    id: "database", title: "Database", summary: "Read durable tool receipts.", source: "local",
+  });
+  registry.registerCapability({
+    id: "integration:accounting", title: "Accounting", summary: "Accounting MCP integration.",
+    aliases: ["accounting"], source: "mcp:accounting",
+  });
+  registry.register({
+    name: "tool_receipt_read",
+    description: "Page an exact durable tool receipt.",
+    capabilityId: "database",
+    annotations: { readOnlyHint: true },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { receiptEventSeq: { type: "integer" } }, required: ["receiptEventSeq"],
+    },
+    async execute({ receiptEventSeq }) {
+      assert.equal(receiptEventSeq, priorReceiptEventSeq);
+      return {
+        chunk: JSON.stringify({
+          outcome: {
+            ok: true,
+            result: {
+              status: "success",
+              job: { import_job_id: priorJobId, preview_digest: `sha256:${"d".repeat(64)}` },
+            },
+          },
+        }),
+      };
+    },
+  });
+  const recoveredPreview = {
+    contractVersion: 1,
+    status: "success",
+    job: {
+      import_job_id: priorJobId,
+      preview_digest: `sha256:${"e".repeat(64)}`,
+      ready_to_commit: true,
+      requiredAction: "REQUEST_USER_CONFIRMATION",
+      nextAction: {
+        type: "request_user_confirmation",
+        instruction: "Ask the user to approve this exact recovered preview.",
+        onApproval: {
+          tool: "commit_transaction_import_job",
+          arguments: { import_job_id: priorJobId, preview_digest: `sha256:${"e".repeat(64)}` },
+        },
+      },
+    },
+  };
+  registry.register({
+    name: "remote_accounting_preview_transaction_import_job",
+    description: "Regenerate the final durable preview for an existing import job.",
+    source: "mcp:accounting",
+    upstreamName: "preview_transaction_import_job",
+    capabilityId: "integration:accounting",
+    annotations: {
+      readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { import_job_id: { type: "string" } }, required: ["import_job_id"],
+    },
+    async execute({ import_job_id }) {
+      assert.equal(import_job_id, priorJobId);
+      return structuredClone(recoveredPreview);
+    },
+  });
+  registry.register({
+    name: "remote_accounting_commit_transaction_import_job",
+    description: "Commit the exact approved recovered preview.",
+    source: "mcp:accounting",
+    upstreamName: "commit_transaction_import_job",
+    capabilityId: "integration:accounting",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { import_job_id: { type: "string" }, preview_digest: { type: "string" } },
+      required: ["import_job_id", "preview_digest"],
+    },
+    async execute() { throw new Error("Approval belongs to the next user request"); },
+  });
+  const source = { text: "Resume the existing Accounting import without asking me for its ID.", sourceEventSeqs: [9] };
+  const recoveryBrief = {
+    ...brief(),
+    requestType: "continuation",
+    objective: "Recover the existing import job and regenerate its final preview.",
+    summary: "Use the prior provider receipt instead of asking the user for an opaque identifier.",
+    requiredCapabilities: ["database", "integration:accounting"],
+    requiredTools: ["tool_receipt_read", "remote_accounting_preview_transaction_import_job"],
+    authorizedActions: [source],
+    completionCriteria: ["A fresh valid provider-owned approval reference is preserved."],
+    evidence: [source],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      assert.match(payload.developerInstructions, /Recent durable tool receipt index/);
+      assert.match(payload.developerInstructions, new RegExp(`"receiptEventSeq": ${priorReceiptEventSeq}`));
+      assert.match(payload.developerInstructions, /instead of asking the user to supply an opaque ID/);
+      return completed(JSON.stringify(recoveryBrief), 20);
+    }
+    if (index === 1) {
+      const receipt = await payload.onToolCall({
+        callId: "read-prior-preview",
+        tool: "tool_receipt_read",
+        arguments: { receiptEventSeq: priorReceiptEventSeq, result_filter: identityResultFilter() },
+      });
+      assert.equal(receipt.ok, true);
+      const preview = await payload.onToolCall({
+        callId: "recover-preview",
+        tool: "remote_accounting_preview_transaction_import_job",
+        arguments: { import_job_id: priorJobId },
+      });
+      assert.equal(preview.ok, true);
+      return completed("I recovered the existing job and regenerated its preview. Please approve this exact preview.", 50);
+    }
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "The recovered preview produced a valid provider-owned approval reference.",
+      satisfiedCriteria: ["The user was not asked for an opaque identifier."],
+      remainingActions: [],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  const result = await runtime.run({
+    requestId: "request-recover-import",
+    requestEventId: "event-current",
+    text: "Resume the existing Accounting import without asking me for its ID.",
+  });
+
+  assert.match(result, /recovered the existing job/);
+  const previewReceipt = ledger.events.find(({ type, name }) => (
+    type === "tool.result" && name === "remote_accounting_preview_transaction_import_job"
+  ));
+  assert.equal(previewReceipt.payload.deferredActionReference.targetTool,
+    "remote_accounting_commit_transaction_import_job");
+  assert.deepEqual(previewReceipt.payload.deferredActionReference.arguments,
+    recoveredPreview.job.nextAction.onApproval.arguments);
 });
 
 test("approval binds execution to the exact active plan and blocks request-id substitution", async () => {

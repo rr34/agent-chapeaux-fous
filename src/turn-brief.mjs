@@ -169,6 +169,7 @@ export function orientationContext({
   fallbackCheckpoint,
   capabilityCatalog,
   deferredActionReferences = [],
+  recentToolReceipts = [],
   explicitHats = [],
 }) {
   return [
@@ -187,6 +188,10 @@ export function orientationContext({
     "## Active MCP-owned deferred actions",
     "These references are derived from immutable tool receipts. The MCP owns each operation, its data, readiness, expiration, validation, and execution. Select a reference ID only when the current request authorizes that exact provider operation. Never substitute a request ID or infer an opaque identifier from prose.",
     JSON.stringify(deferredActionReferences, null, 2),
+    "",
+    "## Recent durable tool receipt index",
+    "This bounded index deliberately omits arguments and results. When the current request continues prior tool work and a provider-owned identifier is absent from the conversation or active action references, select the database capability and tool_receipt_read for the relevant receipt instead of asking the user to supply an opaque ID. A historical receipt is evidence, not mutation authorization: use its exact provider state to call an advertised recovery/read/preview operation and regenerate a valid action handoff before requesting approval.",
+    JSON.stringify(recentToolReceipts, null, 2),
     "",
     ...(fallbackCheckpoint ? [
       "## Bounded fallback checkpoint",

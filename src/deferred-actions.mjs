@@ -13,27 +13,57 @@ function sameValue(left, right) {
   return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 }
 
-function actionCandidate(result) {
+function actionCandidates(result) {
   if (!result || typeof result !== "object" || Array.isArray(result)) return null;
-  const candidates = [
+  return [
     result,
     ...Object.values(result).filter((value) => value && typeof value === "object" && !Array.isArray(value)),
   ];
-  for (const candidate of candidates) {
-    const nextAction = candidate.nextAction;
-    const approval = nextAction?.onApproval;
-    if (
-      nextAction?.type === "request_user_confirmation"
-      && typeof approval?.tool === "string"
-      && approval.tool.trim()
-      && approval.arguments
-      && typeof approval.arguments === "object"
-      && !Array.isArray(approval.arguments)
-    ) {
-      return { candidate, approval };
-    }
+}
+
+function confirmationCandidate(result) {
+  return actionCandidates(result)?.find((candidate) => (
+    candidate.requiredAction === "REQUEST_USER_CONFIRMATION"
+    || candidate.nextAction?.type === "request_user_confirmation"
+    || candidate.nextAction?.onApproval != null
+  )) ?? null;
+}
+
+function inspectActionHandoff({ toolDefinition, result, resolveProviderTool }) {
+  if (!toolDefinition?.source?.startsWith("mcp:")) return { intended: false };
+  const candidate = confirmationCandidate(result);
+  if (!candidate) return { intended: false };
+  const nextAction = candidate.nextAction;
+  if (!nextAction || typeof nextAction !== "object" || Array.isArray(nextAction)) {
+    return { intended: true, problem: "requiredAction=REQUEST_USER_CONFIRMATION requires a nextAction object" };
   }
-  return null;
+  if (nextAction.type !== "request_user_confirmation") {
+    return { intended: true, problem: "nextAction.type must be request_user_confirmation" };
+  }
+  if (typeof nextAction.instruction !== "string" || !nextAction.instruction.trim()) {
+    return { intended: true, problem: "nextAction.instruction must be a nonempty string" };
+  }
+  const approval = nextAction.onApproval;
+  if (!approval || typeof approval !== "object" || Array.isArray(approval)) {
+    return { intended: true, problem: "nextAction.onApproval must be an object" };
+  }
+  if (typeof approval.tool !== "string" || !approval.tool.trim()) {
+    return { intended: true, problem: "nextAction.onApproval.tool must name a provider tool" };
+  }
+  if (!approval.arguments || typeof approval.arguments !== "object" || Array.isArray(approval.arguments)) {
+    return { intended: true, problem: "nextAction.onApproval.arguments must be an object" };
+  }
+  const upstreamName = approval.tool.trim();
+  const target = resolveProviderTool?.(upstreamName);
+  if (!target || target.source !== toolDefinition.source || target.upstreamName !== upstreamName) {
+    return { intended: true, problem: "nextAction.onApproval.tool must resolve to a current tool on the same MCP connection" };
+  }
+  const argumentsObject = structuredClone(approval.arguments);
+  const problem = schemaProblem(argumentsObject, target.parameters ?? { type: "object" });
+  if (problem) {
+    return { intended: true, problem: `nextAction.onApproval.arguments do not match the target schema: ${problem}` };
+  }
+  return { intended: true, problem: null, candidate, approval, target, argumentsObject };
 }
 
 function providerExpiration(candidate) {
@@ -51,16 +81,9 @@ export function extractDeferredActionReference({
   receiptEventSeq = null,
   resolveProviderTool,
 }) {
-  if (!toolDefinition?.source?.startsWith("mcp:")) return null;
-  const action = actionCandidate(result);
-  if (!action) return null;
-  const target = resolveProviderTool?.(action.approval.tool.trim());
-  if (!target || target.source !== toolDefinition.source || target.upstreamName !== action.approval.tool.trim()) {
-    return null;
-  }
-  const argumentsObject = structuredClone(action.approval.arguments);
-  const problem = schemaProblem(argumentsObject, target.parameters ?? { type: "object" });
-  if (problem) return null;
+  const action = inspectActionHandoff({ toolDefinition, result, resolveProviderTool });
+  if (!action.intended || action.problem) return null;
+  const { target, argumentsObject } = action;
   const identity = JSON.stringify(canonical({
     source: toolDefinition.source,
     sourceTool: tool,
@@ -85,6 +108,11 @@ export function extractDeferredActionReference({
       expiresAt: providerExpiration(action.candidate),
     },
   };
+}
+
+export function deferredActionContractProblem({ toolDefinition, result, resolveProviderTool }) {
+  const action = inspectActionHandoff({ toolDefinition, result, resolveProviderTool });
+  return action.intended ? action.problem : null;
 }
 
 function receiptUsesReference(receipt, reference) {

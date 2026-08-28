@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import {
   completionReceiptFindings,
+  deferredActionContractProblem,
   deferredActionArgumentProblem,
   extractDeferredActionReference,
   incompleteReceiptResponse,
@@ -66,6 +67,32 @@ function canonicalToolArguments(value) {
 
 function toolAttemptKey(name, args) {
   return `${name}\n${JSON.stringify(canonicalToolArguments(args))}`;
+}
+
+function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 24) {
+  if (typeof ledger?.toolReceiptList !== "function") return [];
+  const requestIds = [...new Set(
+    [...recentConversation].reverse().map(({ requestId }) => requestId).filter(Boolean),
+  )];
+  const receipts = [];
+  for (const requestId of requestIds) {
+    const page = ledger.toolReceiptList({ requestId, limit: Math.min(8, maximumReceipts) });
+    for (const receipt of page.receipts ?? []) {
+      receipts.push({
+        receiptEventSeq: receipt.receiptEventSeq,
+        requestId: receipt.requestId,
+        occurredAtUtc: receipt.occurredAtUtc,
+        tool: receipt.tool,
+        status: receipt.status,
+        ok: receipt.ok,
+        resultCharacters: receipt.resultCharacters,
+        argumentCharacters: receipt.argumentCharacters,
+        error: typeof receipt.error === "string" ? receipt.error.slice(0, 1000) : null,
+      });
+      if (receipts.length >= maximumReceipts) return receipts;
+    }
+  }
+  return receipts;
 }
 
 const toolFailureKinds = new Set([
@@ -139,6 +166,9 @@ export function terminalToolFailureFindings(receipts) {
 function terminalToolFailureNotice(findings) {
   const failure = findings[0]?.toolFailure;
   if (!failure) return "";
+  if (failure.step === "provider_action_handoff") {
+    return `Provider status: ${failure.serverName} returned a result requiring confirmation, but its provider-action handoff did not match the MCP contract (${failure.code}). The exact provider result remains stored in its durable receipt. Agent Slayer will not present it as approvable or retry it in this request; retry only after the provider contract is corrected and the integration is refreshed.`;
+  }
   const operation = [failure.method, failure.path].filter(Boolean).join(" ");
   const status = failure.httpStatus == null ? failure.code : `HTTP ${failure.httpStatus}`;
   return [
@@ -146,6 +176,33 @@ function terminalToolFailureNotice(findings) {
     operation ? ` for ${operation}` : "",
     ` (${status}). The unchanged transfer will not be retried until the integration is refreshed after the provider changes. Earlier successful steps remain recorded.`,
   ].join("");
+}
+
+function providerActionHandoffFailure(toolName, toolDefinition) {
+  const source = String(toolDefinition?.source ?? "mcp:unknown");
+  const serverName = source.startsWith("mcp:") ? source.slice(4) : source;
+  const contractFingerprint = createHash("sha256").update(JSON.stringify(canonicalToolArguments({
+    source,
+    upstreamName: toolDefinition?.upstreamName ?? null,
+    parameters: toolDefinition?.parameters ?? null,
+    outputSchema: toolDefinition?.outputSchema ?? null,
+  }))).digest("hex");
+  return {
+    contractVersion: 1,
+    kind: "contract_mismatch",
+    code: "MCP_PROVIDER_ACTION_HANDOFF_INVALID",
+    terminalForCurrentRequest: true,
+    retry: "after_provider_contract_correction_and_integration_refresh",
+    serverName,
+    capabilityId: toolDefinition?.capabilityId ?? `integration:${serverName}`,
+    transportId: "mcp-control-plane",
+    contractFingerprint,
+    step: "provider_action_handoff",
+    method: null,
+    path: null,
+    httpStatus: null,
+    sourceTool: toolName,
+  };
 }
 
 export function auditEffectsForReceipts(receipts, registry) {
@@ -454,6 +511,7 @@ export class SlayerRuntime {
     const activeActionReferences = typeof this.ledger.activeDeferredActionReferences === "function"
       ? this.ledger.activeDeferredActionReferences({ afterEventSeq: boundaryEventSeq })
       : [];
+    const recentToolReceipts = recentToolReceiptIndex(this.ledger, recentConversation);
     const fallbackCheckpoint = !previousState
       && recentConversation.length >= 10
       && typeof this.ledger.conversationCheckpoint === "function"
@@ -500,6 +558,7 @@ export class SlayerRuntime {
           fallbackCheckpoint,
           capabilityCatalog: catalog,
           deferredActionReferences: activeActionReferences,
+          recentToolReceipts,
           explicitHats: routing.explicitHats,
         }),
         args.supplementalInstructions,
@@ -676,7 +735,9 @@ export class SlayerRuntime {
         payload: { findings: terminalFindings },
         error: terminalFindings.map(({ toolFailure }) => toolFailure.code).join(", "),
       });
-      return joinedInstructions(execution.text, notice);
+      return terminalFindings.some(({ toolFailure }) => toolFailure.step === "provider_action_handoff")
+        ? notice
+        : joinedInstructions(execution.text, notice);
     }
     if (audit.value.outcome !== "repair_needed" && executionFindings.length === 0) return execution.text;
 
@@ -1225,16 +1286,55 @@ export class SlayerRuntime {
               });
               const toolDefinition = this.registry.get(name);
               const providerResult = mcpResultDetails(toolResult);
+              const resolveProviderTool = (upstreamName) => this.registry.resolveUpstreamTool(
+                toolDefinition?.source,
+                upstreamName,
+              );
               const deferredActionReference = providerResult?.isError ? null : extractDeferredActionReference({
                 tool: name,
                 toolDefinition,
                 result: toolResult,
                 requestId,
-                resolveProviderTool: (upstreamName) => this.registry.resolveUpstreamTool(
-                  toolDefinition?.source,
-                  upstreamName,
-                ),
+                resolveProviderTool,
               });
+              const actionContractProblem = providerResult?.isError ? null : deferredActionContractProblem({
+                toolDefinition,
+                result: toolResult,
+                resolveProviderTool,
+              });
+              if (actionContractProblem) {
+                const message = `${name} returned an invalid provider confirmation handoff: ${actionContractProblem}`;
+                const toolFailure = providerActionHandoffFailure(name, toolDefinition);
+                failedToolAttempts.add(attemptKey);
+                const resultEventId = this.ledger.append({
+                  type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                  actorName: name, channel, turnId: requestId, operationId: callId, name,
+                  payload: {
+                    callId, name, result: toolResult,
+                    ...(providerResult ? { providerResult } : {}),
+                    toolFailure,
+                  },
+                  error: message,
+                });
+                const receiptEventSeq = typeof this.ledger.eventSequence === "function"
+                  ? this.ledger.eventSequence(resultEventId)
+                  : null;
+                const inline = inlineToolResult(toolResult, {
+                  tool: name,
+                  receiptEventSeq,
+                  maximumCharacters: this.config.maxInlineToolResultCharacters ?? 32 * 1024,
+                });
+                sameRequestReceipts.push({
+                  tool: name,
+                  arguments: toolArguments,
+                  ok: false,
+                  result: inline.deliveredResult,
+                  error: message,
+                  toolFailure,
+                  receiptEventSeq,
+                });
+                return { ok: false, error: message, result: inline.deliveredResult, toolFailure };
+              }
               if (providerResult?.isError) {
                 const message = providerToolError(name, toolResult);
                 failedToolAttempts.add(attemptKey);

@@ -130,7 +130,14 @@ Deferred operations returned by an MCP remain owned by that MCP. Agent Slayer
 does not copy their plans, payloads, readiness state, or lifecycle into a native
 table or artifact event. It derives a small opaque action reference from the
 existing immutable tool receipt so a later approval can select the exact
-provider identifier; the MCP still validates and executes the operation.
+provider identifier; the MCP still validates and executes the operation. A
+provider result that requests confirmation without a complete, schema-valid
+same-provider action handoff is recorded as a terminal contract failure instead
+of being presented for approval. Its exact result remains recoverable from the
+receipt. Each orientation receives a bounded index of recent receipts without
+their payloads, allowing execution to page a relevant exact receipt and recover
+provider-owned workflow state rather than asking the user for an opaque ID.
+Recovered evidence still cannot substitute for explicit mutation approval.
 
 The default model is `gpt-5.6-terra`; change `SLAYER_MODEL` explicitly if
 desired.
