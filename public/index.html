@@ -19,61 +19,55 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="topbar-primary">
-      <button id="agent-view-button" class="secondary app-nav-agent active" type="button" aria-current="page">
-        <span id="agent-mascot" class="agent-mascot agent-mascot-nav" aria-hidden="true"></span>
-        <span>Agent</span>
-      </button>
-      <nav class="app-nav" aria-label="Chapeaux Fous sections">
-        <label class="sr-only" for="view-selector">Screen</label>
-        <select id="view-selector">
-          <option value="">Choose screen…</option>
-          <option data-view="hats" value="hats">Hats</option>
-          <option data-view="calendar" value="calendar">Calendar</option>
-          <option data-view="todos" value="todos">To-Do List</option>
-          <optgroup label="Content">
-            <option data-view="content" value="content">Library</option>
-            <option data-view="video-scripts" value="video-scripts">Video scripts</option>
-          </optgroup>
-          <option data-view="contacts" value="contacts">Contacts</option>
-          <option data-view="logs" value="logs">Logs</option>
-          <option data-view="interactions" value="interactions">Structured Interactions</option>
-          <option data-view="ai-usage" value="ai-usage">AI Usage</option>
-        </select>
-      </nav>
-      <button id="refresh" class="top-refresh" type="button">Refresh</button>
-      <details class="runtime-details">
-        <summary>Info</summary>
-        <div class="runtime-details-panel">
-          <button id="integrations-button" class="integration" type="button">Integrations</button>
-          <button id="usage" class="usage" type="button" title="Open AI token and cost usage">AI usage</button>
-          <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+    <nav class="topbar-nav" aria-label="Chapeaux Fous sections">
+      <div class="topbar-links">
+        <button id="agent-view-button" class="top-nav-button active" data-view="agent" type="button" aria-current="page">
+          <span id="agent-mascot" class="agent-mascot agent-mascot-nav" aria-hidden="true"></span>
+          <span>Agent</span>
+        </button>
+        <button class="top-nav-button" data-view="hats" type="button">Hats</button>
+        <button class="top-nav-button" data-view="calendar" type="button">Calendar</button>
+        <button class="top-nav-button" data-view="todos" type="button">To-Do List</button>
+        <button class="top-nav-button" data-view="content" type="button">Library</button>
+        <button class="top-nav-button" data-view="video-scripts" type="button">Video Scripts</button>
+        <button class="top-nav-button" data-view="contacts" type="button">Contacts</button>
+        <button class="top-nav-button" data-view="logs" type="button">Logs</button>
+        <button class="top-nav-button" data-view="interactions" type="button">Structured Interactions</button>
+        <button id="ai-usage-nav" class="top-nav-button" data-view="ai-usage" type="button">AI Usage</button>
+      </div>
+      <details id="settings-menu" class="settings-menu">
+        <summary>Settings</summary>
+        <div class="settings-panel">
+          <section class="settings-group" aria-labelledby="request-settings-heading">
+            <div>
+              <p class="eyebrow">Chronological</p>
+              <strong id="request-settings-heading">Requests</strong>
+            </div>
+            <button id="select-video-script-sources" class="secondary compact" type="button">Create video script</button>
+            <label class="request-limit-label" for="request-limit">
+              <span>Show</span>
+              <select id="request-limit">
+                <option value="25" selected>25 requests</option>
+                <option value="50">50 requests</option>
+                <option value="100">100 requests</option>
+              </select>
+            </label>
+          </section>
+          <section class="settings-group" aria-label="Application settings">
+            <strong>Application</strong>
+            <button id="refresh" class="top-refresh" type="button">Refresh tools</button>
+            <button id="integrations-button" class="integration" type="button">Integrations</button>
+            <button id="usage" class="usage" type="button" title="Open AI token and cost usage">AI usage</button>
+            <button id="runtime" class="runtime" type="button" title="Click to copy health diagnostics">loading</button>
+          </section>
         </div>
       </details>
-    </div>
-    <div id="agent-request-toolbar" class="agent-request-toolbar">
-      <div class="agent-request-title">
-        <p class="eyebrow">Chronological</p>
-        <h2 id="requests-heading">Requests</h2>
-      </div>
-      <div class="request-heading-actions">
-        <button id="select-video-script-sources" class="secondary compact" type="button">Create video script</button>
-        <label class="request-limit-label" for="request-limit">
-          <span>Show</span>
-          <select id="request-limit">
-            <option value="25" selected>25 requests</option>
-            <option value="50">50 requests</option>
-            <option value="100">100 requests</option>
-          </select>
-        </label>
-        <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
-      </div>
-    </div>
+    </nav>
   </header>
 
   <main>
     <div id="agent-view" class="app-view">
-    <section class="requests" aria-labelledby="requests-heading">
+    <section class="requests" aria-label="Chronological requests">
       <div id="video-script-selection" class="video-script-selection organizer-panel" role="status" aria-live="polite" hidden>
         <div>
           <strong id="video-script-selection-count">No interactions selected</strong>
@@ -88,44 +82,6 @@
       <p id="empty" class="empty">No Chapeaux Fous requests yet.</p>
     </section>
 
-    <section class="composer" aria-labelledby="request-heading">
-      <h2 id="request-heading" class="sr-only">New request</h2>
-      <div class="voice-recorder">
-        <button id="record" class="record-button" type="button" aria-label="Start recording">
-          <span class="record-core" aria-hidden="true"></span>
-        </button>
-        <p id="record-label" class="record-label" aria-live="polite">Tap to record</p>
-        <p id="record-timer" class="record-timer">00:00</p>
-        <button id="cancel-recording" class="secondary compact cancel-recording" type="button" hidden>Cancel recording</button>
-      </div>
-      <form id="request-form">
-        <textarea id="request-text" rows="4" placeholder="Tell Chapeaux Fous what to do…" required></textarea>
-        <button id="composer-hats-link" class="text-button composer-hats-link" type="button">Which hat should I use?</button>
-        <div class="composer-actions">
-          <div class="request-attachment-control">
-            <label class="attachment-button" for="request-file">Attach image or file</label>
-            <input id="request-file" class="sr-only" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.csv,.tsv,.json,.jsonl,.vcf,.txt,image/jpeg,image/png,image/webp,image/gif,text/csv,text/tab-separated-values,application/json,application/x-ndjson,text/vcard,text/x-vcard,text/plain">
-            <span id="request-file-label" class="request-file-label" hidden></span>
-            <img id="request-image-preview" class="request-image-preview" alt="Selected request image preview" hidden>
-            <select id="request-existing-file" class="request-existing-file" aria-label="Use a previously uploaded file">
-              <option value="">Previously uploaded file…</option>
-            </select>
-            <button id="edit-selected-file" class="secondary compact" type="button" hidden>Edit details</button>
-            <button id="remove-request-file" class="secondary compact" type="button" hidden>Remove</button>
-          </div>
-          <div class="request-run-controls">
-            <label class="checkbox-row respond-silently-control" for="respond-silently">
-              <input id="respond-silently" type="checkbox">
-              <span>Respond silently</span>
-            </label>
-            <span id="run-limits-summary" class="run-limits-summary" hidden></span>
-            <button id="run-limits-button" class="secondary" type="button">Run limits</button>
-            <button id="send" type="submit">Send</button>
-          </div>
-        </div>
-      </form>
-      <p id="composer-status" class="status" role="status"></p>
-    </section>
     </div>
 
     <section id="hats-view" class="app-view hats-view" hidden>
@@ -450,6 +406,52 @@
       <div id="trace-events" class="trace-events"></div>
     </section>
   </main>
+
+  <section id="chat-composer" class="composer" aria-labelledby="request-heading">
+    <h2 id="request-heading" class="sr-only">New request</h2>
+    <form id="request-form">
+      <div class="composer-input-row">
+        <textarea id="request-text" rows="2" placeholder="Tell Chapeaux Fous what to do…" required></textarea>
+        <div class="voice-recorder">
+          <button id="record" class="record-button" type="button" aria-label="Start recording" title="Record a voice request">
+            <span class="record-core" aria-hidden="true"></span>
+          </button>
+        </div>
+        <button id="send" class="composer-send" type="submit">Send</button>
+      </div>
+      <div class="composer-actions">
+        <div class="request-attachment-control">
+          <label class="attachment-button compact-control" for="request-file">Attach</label>
+          <input id="request-file" class="sr-only" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.csv,.tsv,.json,.jsonl,.vcf,.txt,image/jpeg,image/png,image/webp,image/gif,text/csv,text/tab-separated-values,application/json,application/x-ndjson,text/vcard,text/x-vcard,text/plain">
+          <span id="request-file-label" class="request-file-label" hidden></span>
+          <img id="request-image-preview" class="request-image-preview" alt="Selected request image preview" hidden>
+          <select id="request-existing-file" class="request-existing-file" aria-label="Use a previously uploaded file">
+            <option value="">Previous file…</option>
+          </select>
+          <button id="edit-selected-file" class="secondary compact" type="button" hidden>Edit details</button>
+          <button id="remove-request-file" class="secondary compact" type="button" hidden>Remove</button>
+          <button id="composer-hats-link" class="text-button composer-hats-link" type="button">Choose a hat</button>
+        </div>
+        <div class="request-run-controls">
+          <label class="checkbox-row respond-silently-control" for="respond-silently">
+            <input id="respond-silently" type="checkbox">
+            <span>Respond silently</span>
+          </label>
+          <span id="run-limits-summary" class="run-limits-summary" hidden></span>
+          <button id="run-limits-button" class="secondary compact" type="button">Run limits</button>
+          <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
+        </div>
+      </div>
+    </form>
+    <div class="composer-feedback">
+      <p id="composer-status" class="status" role="status"></p>
+      <div class="recording-status" aria-live="polite">
+        <span id="record-label" class="record-label">Tap microphone to record</span>
+        <span id="record-timer" class="record-timer">00:00</span>
+        <button id="cancel-recording" class="secondary compact cancel-recording" type="button" hidden>Cancel recording</button>
+      </div>
+    </div>
+  </section>
 
   <dialog id="integrations-dialog">
     <div class="dialog-heading">

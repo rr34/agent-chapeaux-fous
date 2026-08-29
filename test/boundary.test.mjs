@@ -144,7 +144,7 @@ test("structured interactions have a dedicated management page without a second 
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
 
-  assert.match(document, /data-view="interactions"[^>]*>Structured Interactions<\/option>/);
+  assert.match(document, /data-view="interactions"[^>]*>Structured Interactions<\/button>/);
   assert.match(document, /id="interactions-view"/);
   assert.match(document, /id="interaction-guide-list"/);
   assert.match(document, /id="interaction-guide-detail"/);
@@ -252,11 +252,12 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(document, /data-view="calendar"/);
   assert.match(document, /data-view="todos"/);
   assert.match(document, /id="agent-view-button"[^>]*>[\s\S]*?<span>Agent<\/span>[\s\S]*?<\/button>/);
-  assert.match(document, /id="view-selector"/);
-  assert.doesNotMatch(document, /<option[^>]+value="agent"/);
-  assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="view-selector"'));
-  assert.ok(document.indexOf('id="view-selector"') < document.indexOf('id="refresh"'));
-  assert.ok(document.indexOf('id="refresh"') < document.indexOf('<summary>Info</summary>'));
+  assert.doesNotMatch(document, /id="view-selector"/);
+  for (const view of ["agent", "hats", "calendar", "todos", "content", "video-scripts", "contacts", "logs", "interactions", "ai-usage"]) {
+    assert.match(document, new RegExp(`<button[^>]+data-view="${view}"`));
+  }
+  assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="settings-menu"'));
+  assert.match(document, /id="settings-menu"[\s\S]+<summary>Settings<\/summary>[\s\S]+id="refresh"/);
   assert.match(application, /Git commit: \$\{commit\}/);
   assert.match(application, /refresh\.addEventListener\("click", async \(\) =>/);
   assert.match(application, /api\("\/api\/integrations\/mcp\/refresh", \{ method: "POST" \}\)/);
@@ -298,7 +299,7 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(application, /refreshCalendar/);
   assert.match(application, /refreshTodos/);
   assert.match(application, /refreshContent/);
-  assert.match(application, /agentViewButton\.addEventListener\("click", \(\) => switchView\("agent"\)\)/);
+  assert.match(application, /for \(const button of elements\.navButtons\)[\s\S]+switchView\(button\.dataset\.view\)/);
   assert.match(application, /renderContent/);
   assert.match(application, /elements\.contentDelete\.hidden = !item/);
   assert.match(application, /elements\.contentDelete\.addEventListener\("click"/);
@@ -529,14 +530,25 @@ test("the request feed loads at least twenty-five entries by default and offers 
 test("the agent chat renders chronologically above its composer", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  assert.ok(document.indexOf('<section class="requests"') < document.indexOf('<section class="composer"'));
-  assert.ok(document.indexOf('id="agent-request-toolbar"') < document.indexOf("<main>"));
-  assert.match(application, /elements\.agentRequestToolbar\.hidden = view !== "agent"/);
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  assert.ok(document.indexOf('<section class="requests"') < document.indexOf('id="chat-composer"'));
+  assert.ok(document.indexOf("</main>") < document.indexOf('id="chat-composer"'));
+  assert.match(styles, /\.composer \{[\s\S]+position: fixed;[\s\S]+bottom: 0/);
   assert.match(application, /const chronologicalRequests = \[\.\.\.body\.requests\]\.reverse\(\)/);
   assert.match(application, /chronologicalRequests\.forEach\(\(request, index\) =>/);
   assert.match(application, /renderAgentMascot\(elements\.agentMascot, body\.requests\[0\]\?\.explicitHats\)/);
   assert.match(application, /wasFollowingLatest/);
-  assert.match(application, /elements\.form\.scrollIntoView\(\{ block: "end" \}\)/);
+  assert.match(application, /elements\.list\.lastElementChild\?\.scrollIntoView\(\{ block: "end" \}\)/);
+});
+
+test("the persistent composer uses a compact microphone beside the text box", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  assert.match(document, /class="composer-input-row"[\s\S]+id="request-text"[\s\S]+id="record"[\s\S]+id="send"/);
+  assert.match(document, /id="new-conversation"[\s\S]*<\/section>\s*<dialog id="integrations-dialog"/);
+  assert.match(styles, /\.record-button \{[\s\S]+width: 46px;[\s\S]+height: 46px/);
+  assert.match(application, /new ResizeObserver\(updateComposerHeight\)\.observe\(elements\.composer\)/);
 });
 
 test("each chat exchange offsets the user request and groups metrics with the response", () => {

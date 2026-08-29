@@ -8,6 +8,7 @@ import {
 import { markdownToSpeech, renderMarkdown } from "./markdown.js";
 
 const elements = {
+  composer: document.querySelector("#chat-composer"),
   form: document.querySelector("#request-form"),
   text: document.querySelector("#request-text"),
   send: document.querySelector("#send"),
@@ -70,10 +71,9 @@ const elements = {
   tokenForm: document.querySelector("#token-form"),
   token: document.querySelector("#token"),
   agentMascot: document.querySelector("#agent-mascot"),
-  agentViewButton: document.querySelector("#agent-view-button"),
-  agentRequestToolbar: document.querySelector("#agent-request-toolbar"),
+  navButtons: document.querySelectorAll(".top-nav-button[data-view]"),
+  settingsMenu: document.querySelector("#settings-menu"),
   composerHatsLink: document.querySelector("#composer-hats-link"),
-  viewSelector: document.querySelector("#view-selector"),
   agentView: document.querySelector("#agent-view"),
   hatsView: document.querySelector("#hats-view"),
   hatsTitle: document.querySelector("#hats-title"),
@@ -378,6 +378,22 @@ const aiPricingStorageKey = "agent-slayer-ai-pricing";
 const activeUtterances = new Set();
 const pendingSpokenRequestIds = loadPendingSpokenRequestIds();
 elements.respondSilently.checked = loadResponseSilencePreference();
+
+function updateComposerHeight() {
+  document.documentElement.style.setProperty("--composer-height", `${elements.composer.offsetHeight}px`);
+}
+
+function resizeRequestText() {
+  elements.text.style.height = "0";
+  const minimum = Number.parseFloat(getComputedStyle(elements.text).minHeight) || 46;
+  elements.text.style.height = `${Math.min(128, Math.max(minimum, elements.text.scrollHeight))}px`;
+}
+
+if ("ResizeObserver" in window) {
+  new ResizeObserver(updateComposerHeight).observe(elements.composer);
+} else {
+  window.addEventListener("resize", updateComposerHeight);
+}
 
 function loadResponseSilencePreference() {
   try { return localStorage.getItem(responseSilenceStorageKey) === "true"; } catch { return false; }
@@ -1330,7 +1346,7 @@ async function loadRequests({ force = false } = {}) {
   const transcriptChangedHeight = elements.list.offsetHeight !== previousListHeight;
   if (activeView === "agent" && chronologicalRequests.length > 0
       && wasFollowingLatest && (initialLoad || transcriptChangedHeight)) {
-    requestAnimationFrame(() => elements.form.scrollIntoView({ block: "end" }));
+    requestAnimationFrame(() => elements.list.lastElementChild?.scrollIntoView({ block: "end" }));
   }
 }
 
@@ -1557,14 +1573,11 @@ function switchView(view) {
   elements.logsView.hidden = view !== "logs";
   elements.interactionsView.hidden = view !== "interactions";
   elements.aiUsageView.hidden = view !== "ai-usage";
-  elements.agentRequestToolbar.hidden = view !== "agent";
-  elements.agentViewButton.classList.toggle("active", view === "agent");
-  if (view === "agent") {
-    elements.agentViewButton.setAttribute("aria-current", "page");
-    elements.viewSelector.value = "";
-  } else {
-    elements.agentViewButton.removeAttribute("aria-current");
-    elements.viewSelector.value = view;
+  for (const button of elements.navButtons) {
+    const selected = button.dataset.view === view;
+    button.classList.toggle("active", selected);
+    if (selected) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
   }
   if (view === "hats") {
     void refreshHats();
@@ -4372,6 +4385,7 @@ elements.form.addEventListener("submit", async (event) => {
     });
     expectSpokenResponse(created.requestId, respondSilently);
     elements.text.value = "";
+    resizeRequestText();
     elements.requestFile.value = "";
     elements.requestExistingFile.value = "";
     updateRequestFileSelection();
@@ -4382,6 +4396,7 @@ elements.form.addEventListener("submit", async (event) => {
       : selectedStoredFile
         ? `Queued with file #${primaryFileId} — ${selectedStoredFile.title || selectedStoredFile.originalFilename}.`
       : "Queued.";
+    switchView("agent");
     await Promise.all([loadRequests({ force: true }), loadFiles()]);
   } catch (error) {
     elements.status.textContent = error.message;
@@ -4396,6 +4411,7 @@ elements.text.addEventListener("keydown", (event) => {
   event.preventDefault();
   if (!elements.send.disabled) elements.form.requestSubmit();
 });
+elements.text.addEventListener("input", resizeRequestText);
 elements.requestFile.addEventListener("change", () => {
   if (elements.requestFile.files?.length) elements.requestExistingFile.value = "";
   updateRequestFileSelection();
@@ -4469,6 +4485,7 @@ elements.record.addEventListener("click", async () => {
         const created = await api("/api/voice", { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
         expectSpokenResponse(created.requestId, recordingRespondSilently);
         elements.status.textContent = "Voice request queued.";
+        switchView("agent");
         await loadRequests({ force: true });
       } catch (error) {
         elements.status.textContent = error.message;
@@ -4603,7 +4620,10 @@ elements.integrationList.addEventListener("click", async (event) => {
   }
 });
 elements.runtime.addEventListener("click", (event) => copyText(JSON.stringify(lastHealth, null, 2), event.currentTarget));
-elements.usage.addEventListener("click", () => switchView("ai-usage"));
+elements.usage.addEventListener("click", () => {
+  elements.settingsMenu.open = false;
+  switchView("ai-usage");
+});
 elements.refreshAiUsage.addEventListener("click", () => void loadAiUsage());
 elements.aiPricingForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -4633,11 +4653,18 @@ elements.tokenForm.addEventListener("submit", () => {
   localStorage.setItem("agent-slayer-token", accessToken);
   setTimeout(() => Promise.allSettled([loadHealth(), loadRequests({ force: true })]), 0);
 });
-elements.agentViewButton.addEventListener("click", () => switchView("agent"));
-elements.composerHatsLink.addEventListener("click", () => switchView("hats"));
-elements.viewSelector.addEventListener("change", () => {
-  if (elements.viewSelector.value) switchView(elements.viewSelector.value);
+for (const button of elements.navButtons) {
+  button.addEventListener("click", () => {
+    elements.settingsMenu.open = false;
+    switchView(button.dataset.view);
+  });
+}
+document.addEventListener("click", (event) => {
+  if (elements.settingsMenu.open && !elements.settingsMenu.contains(event.target)) {
+    elements.settingsMenu.open = false;
+  }
 });
+elements.composerHatsLink.addEventListener("click", () => switchView("hats"));
 elements.previousWeeks.addEventListener("click", () => {
   selectedCalendarDate = addDays(selectedCalendarDate, -14);
   calendarRangeStart = startOfWeek(selectedCalendarDate);
@@ -4763,6 +4790,8 @@ elements.contentDelete.addEventListener("click", () => void deleteEditedContent(
 elements.refreshVideoScripts.addEventListener("click", () => void refreshVideoScripts());
 elements.videoScriptStatusFilter.addEventListener("change", () => void refreshVideoScripts());
 elements.selectVideoScriptSources.addEventListener("click", () => {
+  elements.settingsMenu.open = false;
+  switchView("agent");
   if (selectingVideoScriptSources) cancelVideoScriptSelection();
   else beginVideoScriptSelection();
 });
@@ -4815,6 +4844,8 @@ for (const button of document.querySelectorAll(".dialog-close")) {
 }
 
 renderAgentMascot(elements.agentMascot);
+updateComposerHeight();
+resizeRequestText();
 if (!accessToken) elements.tokenDialog.showModal();
 if (new URLSearchParams(window.location.search).get("oauth") === "connected") {
   elements.status.textContent = "MCP OAuth connected.";

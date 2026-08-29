@@ -316,12 +316,48 @@ Each MCP publishes a capability manifest containing:
 Each tool publishes:
 
 - a stable machine name and concise title;
-- a description stating when to use it and what its result proves;
+- a human-authored selection summary of no more than 400 characters;
+- validated selection action and effect classifications;
+- a complete execution description stating how and when to use it and what its
+  result proves;
 - an exact input schema;
 - an output schema for structured output;
 - truthful read-only, destructive, idempotent, and open-world annotations;
 - structured result and error states; and
 - server-enforced validation for every business invariant.
+
+The selection summary is a distinct routing contract, not a clipped execution
+description. In one or two concise sentences it states the concrete outcome,
+the situation in which the tool should be selected, and any distinction from the closest easily confused tool. It omits
+argument-level procedure unless that procedure determines which tool is
+appropriate. It must be sufficient for a model to select probable tools from a
+catalog while the complete description and schema remain deferred.
+
+Every cataloged selection summary ends with a compact, standardized suffix
+generated from the tool's validated metadata, for example `Actions: READ.` or
+`Actions: CREATE, READ, UPDATE. Effects: MUTATING.` The allowed action classes
+are `CREATE`, `READ`, `UPDATE`, `DELETE`, and `EXECUTE`; `EXECUTE` covers sends,
+commits, provider operations, and other consequential actions that CRUD does
+not describe accurately. Multiple classes are allowed when the tool genuinely
+performs more than one kind of operation. Effect classifications distinguish at
+least read-only, mutating, destructive, and external effects and remain
+consistent with the tool's published annotations. The suffix counts toward the
+400-character limit.
+
+The suffix is generated rather than hand-authored so routing prose cannot drift
+from the machine-readable contract. Action classes describe the logical result
+owned by the tool, not incidental implementation details such as internal SQL
+statements. They inform selection but do not grant authorization or weaken any
+approval, validation, or provider-owned workflow boundary.
+
+Every native tool and externally owned MCP tool must supply this concise
+selection summary through its owned definition or explicit source-referenced
+catalog metadata. Registration and discovery validate that it is present and
+no longer than 400 characters. They must never create a selection summary by
+silently truncating a verbose description; a missing or overlong summary is
+reported explicitly for correction at the owning boundary. Application-owned
+selection metadata never replaces, rewrites, or broadens a provider-published
+description, schema, authorization boundary, or workflow meaning.
 
 Native calendar, contact, to-do, log, email, profile, file, guide, search, and
 video tools use the same domain services as their HTTP and UI adapters. Generic
@@ -377,7 +413,8 @@ The protocol carries:
 - connection and server identity;
 - server instructions;
 - capability manifests and context-view definitions;
-- tool names, titles, descriptions, input schemas, and output schemas;
+- tool names, titles, concise selection summaries, complete execution
+  descriptions, input schemas, and output schemas;
 - annotations and tool metadata;
 - calls with exact argument objects;
 - structured results, errors, and retry descriptors;
@@ -385,15 +422,15 @@ The protocol carries:
 - effect receipts; and
 - opaque provider-owned workflow references.
 
-Orientation receives a bounded capability catalog containing compact
-provider-published tool summaries but no callable schemas. It selects the
-smallest likely initial tool set inside its accepted capability families.
-Execution receives full guidance and exact schemas only for those selected
-tools. It may make a bounded request for additional exact tools only inside the
-accepted capability families; the application then continues the same
-execution with prior receipts preserved. A merely cataloged, deferred,
-disabled, disconnected, unauthorized, or failed tool is never represented as
-callable.
+Orientation receives a bounded capability catalog containing each candidate
+tool's complete, validated selection summary but no callable schema or clipped
+execution description. It selects the smallest likely initial tool set inside
+its accepted capability families. Execution receives full guidance, complete
+execution descriptions, and exact schemas only for those selected tools. It may
+make a bounded request for additional exact tools only inside the accepted
+capability families; the application then continues the same execution with
+prior receipts preserved. A merely cataloged, deferred, disabled, disconnected,
+unauthorized, or failed tool is never represented as callable.
 
 Initial tool selection is deliberately precise and recoverable. Accepting a
 capability family does not make every tool in that family callable, and the
