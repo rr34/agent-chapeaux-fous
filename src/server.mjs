@@ -43,6 +43,7 @@ import { registerProfileFactTools } from "./tools/profile-fact-tools.mjs";
 import { registerSearchTools } from "./tools/search-tools.mjs";
 import { registerTodoTools } from "./tools/todo-tools.mjs";
 import { registerWebPageTools } from "./tools/web-page-tools.mjs";
+import { registerAgentSelfTools } from "./tools/agent-self-tools.mjs";
 import { registerVideoScriptTools } from "./tools/video-script-tools.mjs";
 import { VideoScripts } from "./video-scripts.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
@@ -114,6 +115,12 @@ await jmap.initialize();
 if (jmap.health().ready) {
   registerJmapEmailTools(registry, jmap);
 }
+registerAgentSelfTools(registry, {
+  runtimeIdentity: identity,
+  config,
+  modelTransport,
+  integrationHealth: () => ({ ...mcp.health(), email: jmap.health() }),
+});
 const contextBuilder = new ContextBuilder({
   ledger,
   profileFacts,
@@ -639,6 +646,14 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "PATCH" && interactionGuideStepMatch) {
       sendJson(response, 200, interactionGuides.updateStep(
         { ...await readJson(request), stepId: Number(interactionGuideStepMatch[1]) },
+        { actorType: "user", actorName: "structured_interactions_page" },
+      ));
+      return;
+    }
+    const interactionGuideStepMoveMatch = /^\/api\/interaction-guide-steps\/(\d+)\/move$/.exec(url.pathname);
+    if (request.method === "POST" && interactionGuideStepMoveMatch) {
+      sendJson(response, 200, interactionGuides.moveStep(
+        { ...await readJson(request), stepId: Number(interactionGuideStepMoveMatch[1]) },
         { actorType: "user", actorName: "structured_interactions_page" },
       ));
       return;

@@ -1,0 +1,83 @@
+{
+  "contractVersion": 1,
+  "capturedAtUtc": "2026-08-30T23:18:49Z",
+  "observerHost": "unicornslayer",
+  "purpose": "Observe the public IP route to a website on the same recorded HostWinds VPS as Chapeaux Fous. This is not a capture of a private Tailscale session.",
+  "target": {
+    "host": "timev3technology.com",
+    "ipv4": "23.254.144.125",
+    "ipv6": null,
+    "reverseDns": "hwsrv-1263600.hostwindsdns.com",
+    "serverMapIdentity": "hwsrv-1263600"
+  },
+  "commands": [
+    "dig timev3technology.com A +short",
+    "dig timev3technology.com AAAA +short",
+    "dig -x 23.254.144.125 +short",
+    "tracepath -n -m 24 timev3technology.com",
+    "mtr --report --report-cycles 5 --show-ips --aslookup --no-dns timev3technology.com"
+  ],
+  "tracepath": {
+    "reachedHop": 17,
+    "pathMtu": 1280,
+    "finalProbeRoundTripMs": 66.197
+  },
+  "mtr": {
+    "reportCycles": 5,
+    "destinationLossPercent": 0,
+    "destinationAverageRoundTripMs": 39,
+    "hops": [
+      { "hop": 1, "asn": null, "address": "192.168.64.1", "averageRoundTripMs": 4.2, "lossPercent": 0 },
+      { "hop": 2, "asn": null, "address": "192.168.1.1", "averageRoundTripMs": 7.7, "lossPercent": 0 },
+      { "hop": 3, "asn": null, "address": "142.254.149.165", "averageRoundTripMs": 9.4, "lossPercent": 0 },
+      { "hop": 4, "asn": 10796, "address": "24.164.99.136", "averageRoundTripMs": 25, "lossPercent": 0 },
+      { "hop": 5, "asn": 10796, "address": "24.164.112.48", "averageRoundTripMs": 9.2, "lossPercent": 0 },
+      { "hop": 6, "asn": 10796, "address": "24.164.112.50", "averageRoundTripMs": 7.6, "lossPercent": 0 },
+      { "hop": 7, "asn": 10796, "address": "65.29.17.196", "averageRoundTripMs": 7.1, "lossPercent": 0 },
+      { "hop": 8, "asn": 14065, "address": "71.74.44.32", "averageRoundTripMs": 19.2, "lossPercent": 0 },
+      { "hop": 9, "asn": 7843, "address": "66.109.0.228", "averageRoundTripMs": 20.4, "lossPercent": 0 },
+      { "hop": 10, "asn": 7843, "address": "66.109.5.225", "averageRoundTripMs": 18.1, "lossPercent": 0 },
+      { "hop": 11, "asn": null, "address": null, "averageRoundTripMs": null, "lossPercent": 100 },
+      { "hop": 12, "asn": null, "address": null, "averageRoundTripMs": null, "lossPercent": 100 },
+      { "hop": 13, "asn": null, "address": null, "averageRoundTripMs": null, "lossPercent": 100 },
+      { "hop": 14, "asn": 6461, "address": "64.125.27.12", "averageRoundTripMs": 39.5, "lossPercent": 0 },
+      { "hop": 15, "asn": 6461, "address": "64.125.26.55", "averageRoundTripMs": 38.7, "lossPercent": 0 },
+      { "hop": 16, "asn": 6461, "address": "208.185.7.230", "averageRoundTripMs": 43.6, "lossPercent": 0 },
+      { "hop": 17, "asn": 54290, "address": "23.254.144.125", "averageRoundTripMs": 39, "lossPercent": 0 }
+    ]
+  },
+  "autonomousSystems": [
+    { "asn": 10796, "name": "TWC-10796-MIDWEST", "organization": "Charter Communications Inc" },
+    { "asn": 14065, "name": "TWC-14065-COUDERSPORT", "organization": "Charter Communications Inc" },
+    { "asn": 7843, "name": "TWC-7843-BB", "organization": "Charter Communications Inc" },
+    { "asn": 6461, "name": "ZAYO-6461", "organization": "Zayo Bandwidth" },
+    { "asn": 54290, "name": "HOSTWINDS", "organization": "HostPapa" }
+  ],
+  "registration": {
+    "source": "https://rdap.arin.net/registry/ip/23.254.144.125",
+    "networkName": "HOSTWINDS-17-6",
+    "prefix": "23.254.128.0/17",
+    "registrant": "HostPapa"
+  },
+  "geolocation": {
+    "bestAvailable": {
+      "source": "https://geofeeds.oniaas.io/geofeeds.csv",
+      "prefix": "23.254.128.0/17",
+      "city": "Seattle",
+      "region": "Washington",
+      "country": "US",
+      "meaning": "Provider-published best-effort network location, not proof of a building or rack."
+    },
+    "conflictingThirdPartyObservations": [
+      { "provider": "ipinfo.io unauthenticated response", "city": "Dallas", "region": "Texas" },
+      { "provider": "ipapi.co unauthenticated response", "city": "Buffalo", "region": "New York" }
+    ]
+  },
+  "limitations": [
+    "The observed route is time-specific and can change with BGP, congestion, policy, or source network.",
+    "Traceroute-style tools expose only routers that answer probes; a silent hop is not necessarily packet loss.",
+    "Round-trip measurements include the return path, which can differ from the forward path.",
+    "Router interface addresses and IP geolocation do not reveal exact cables, buildings, or racks.",
+    "The public route to a co-hosted website is not the private WireGuard route used by Tailscale Serve."
+  ]
+}

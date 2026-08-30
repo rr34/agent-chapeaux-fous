@@ -320,6 +320,13 @@ const elements = {
   interactionStepCompletionMode: document.querySelector("#interaction-step-completion-mode"),
   interactionStepEnabled: document.querySelector("#interaction-step-enabled"),
   interactionStepFormError: document.querySelector("#interaction-step-form-error"),
+  interactionStepMoveDialog: document.querySelector("#interaction-step-move-dialog"),
+  interactionStepMoveForm: document.querySelector("#interaction-step-move-form"),
+  interactionStepMoveId: document.querySelector("#interaction-step-move-id"),
+  interactionStepMoveSourceVersion: document.querySelector("#interaction-step-move-source-version"),
+  interactionStepMoveOpening: document.querySelector("#interaction-step-move-opening"),
+  interactionStepMoveTarget: document.querySelector("#interaction-step-move-target"),
+  interactionStepMoveError: document.querySelector("#interaction-step-move-error"),
 };
 
 let accessToken = localStorage.getItem("agent-slayer-token") || "";
@@ -4130,7 +4137,23 @@ function renderInteractionGuideDetail() {
       editStep.type = "button";
       editStep.disabled = !editable;
       editStep.addEventListener("click", () => openInteractionStepEditor(step));
-      stepHeading.append(stepIdentity, editStep);
+      const moveStep = node("button", "secondary compact", "Move");
+      moveStep.type = "button";
+      const moveTargets = interactionGuideSummaries.filter((candidate) => (
+        candidate.id !== guide.id && candidate.status === "active" && !candidate.activeRun
+      ));
+      moveStep.disabled = !editable || moveTargets.length === 0;
+      if (!editable) {
+        moveStep.title = guide.activeRun
+          ? "Cancel or finish the active briefing before moving an exchange."
+          : "Archived briefings cannot be changed.";
+      } else if (moveTargets.length === 0) {
+        moveStep.title = "Create another briefing, or finish its active run, before moving this exchange.";
+      }
+      moveStep.addEventListener("click", () => openInteractionStepMoveEditor(step));
+      const stepActions = node("div", "interaction-detail-actions");
+      stepActions.append(editStep, moveStep);
+      stepHeading.append(stepIdentity, stepActions);
 
       card.append(stepHeading);
       if (step.instructionsText) {
@@ -4305,6 +4328,55 @@ async function saveInteractionStep(event) {
     elements.interactionGuideStatusMessage.textContent = stepId ? "Exchange updated." : "Exchange added.";
   } catch (error) {
     elements.interactionStepFormError.textContent = error.message || "Could not save the exchange.";
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+function openInteractionStepMoveEditor(step) {
+  const sourceGuide = selectedInteractionGuide;
+  if (!sourceGuide) return;
+  const targets = interactionGuideSummaries.filter((candidate) => (
+    candidate.id !== sourceGuide.id && candidate.status === "active" && !candidate.activeRun
+  ));
+  if (targets.length === 0) return;
+  elements.interactionStepMoveForm.reset();
+  elements.interactionStepMoveError.textContent = "";
+  elements.interactionStepMoveId.value = String(step.id);
+  elements.interactionStepMoveSourceVersion.value = String(sourceGuide.version);
+  elements.interactionStepMoveOpening.textContent = `“${step.openingText}”`;
+  elements.interactionStepMoveTarget.replaceChildren();
+  for (const target of targets) {
+    const option = node("option", "", target.name);
+    option.value = String(target.id);
+    option.dataset.version = String(target.version);
+    elements.interactionStepMoveTarget.append(option);
+  }
+  elements.interactionStepMoveDialog.showModal();
+  elements.interactionStepMoveTarget.focus();
+}
+
+async function moveInteractionStep(event) {
+  event.preventDefault();
+  elements.interactionStepMoveError.textContent = "";
+  const submit = elements.interactionStepMoveForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  const selectedOption = elements.interactionStepMoveTarget.selectedOptions[0];
+  try {
+    const result = await api(`/api/interaction-guide-steps/${elements.interactionStepMoveId.value}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expectedSourceVersion: Number(elements.interactionStepMoveSourceVersion.value),
+        targetGuideId: Number(elements.interactionStepMoveTarget.value),
+        expectedTargetVersion: Number(selectedOption?.dataset.version),
+      }),
+    });
+    elements.interactionStepMoveDialog.close();
+    await refreshInteractionGuides({ selectId: result.targetGuide.id });
+    elements.interactionGuideStatusMessage.textContent = `Exchange moved to ${result.targetGuide.name} as exchange ${result.step.stepNumber}.`;
+  } catch (error) {
+    elements.interactionStepMoveError.textContent = error.message || "Could not move the exchange.";
   } finally {
     submit.disabled = false;
   }
@@ -5037,6 +5109,7 @@ elements.interactionGuideStatus.addEventListener("change", () => {
 elements.interactionGuideForm.addEventListener("submit", saveInteractionGuide);
 elements.archiveInteractionGuide.addEventListener("click", () => void archiveEditedInteractionGuide());
 elements.interactionStepForm.addEventListener("submit", saveInteractionStep);
+elements.interactionStepMoveForm.addEventListener("submit", moveInteractionStep);
 for (const button of document.querySelectorAll(".dialog-close")) {
   button.addEventListener("click", () => button.closest("dialog")?.close());
 }

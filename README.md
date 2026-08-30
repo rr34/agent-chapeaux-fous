@@ -284,6 +284,7 @@ capability selector, which controls which exact tool schemas are callable.
 - `interaction_guide_list`, `interaction_guide_get`,
   `interaction_guide_create`, `interaction_guide_update`,
   `interaction_guide_step_add`, `interaction_guide_step_update`,
+  `interaction_guide_step_move`,
   `interaction_guide_start`, `interaction_guide_step_answer`,
   `interaction_guide_run_cancel`, and
   `interaction_guide_archive` manage durable user-owned briefings for
@@ -293,7 +294,9 @@ capability selector, which controls which exact tool schemas are callable.
   constrained completion mode. Current progress supports exact interruption
   and resumption; immutable run and answer history remains in the ledger. A
   recurring to-do may link to a briefing while continuing to own its schedule and
-  recurrence. Each successfully completed request exposes a save action that
+  recurrence. An exchange can move to one other briefing without shared
+  ownership; it is appended there while prior run history remains in the ledger.
+  Each successfully completed request exposes **Make this exchange repeatable**, which
   queues a normal traced agent turn to generalize that exact exchange into a
   new briefing and its minimal numbered exchanges; the resulting receipt links back to
   the source request and opens the created briefing from the original request card.

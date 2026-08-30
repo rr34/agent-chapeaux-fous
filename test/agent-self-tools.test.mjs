@@ -1,0 +1,103 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
+import { requestCapabilityCatalog, selectRequestCapabilities } from "../src/request-compiler.mjs";
+import { registerAgentSelfTools } from "../src/tools/agent-self-tools.mjs";
+import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
+
+function buildRegistry() {
+  const registry = registerNativeCapabilities(new ToolRegistry());
+  registry.withCapability("todos").register({
+    name: "todo_list",
+    title: "List to-dos",
+    description: "List current to-dos.",
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    annotations: { readOnlyHint: true },
+    execute: () => ({ tasks: [] }),
+  });
+  registerAgentSelfTools(registry, {
+    runtimeIdentity: {
+      component: "agent-slayer", commit: "12345678", dirty: false,
+      startedAtUtc: "2026-08-30T12:00:00.000Z",
+    },
+    config: { model: "test-model", publicUrl: "https://chapeaux-fous.example.ts.net/" },
+    modelTransport: {
+      id: "test-transport", displayName: "Test transport", health: () => ({ ready: true }),
+    },
+    integrationHealth: () => ({
+      accounting: {
+        ready: true, required: true, toolCount: 3,
+        server: { name: "accounting", title: "Accounting" },
+        url: "https://should-not-be-returned.example/mcp",
+        error: "should not be returned",
+      },
+      github: { ready: false, disabled: true },
+    }),
+  });
+  return registry;
+}
+
+test("self-description questions select the dedicated read-only capability", () => {
+  const registry = buildRegistry();
+  const selection = selectRequestCapabilities({
+    tools: registry.toolDefinitions(),
+    text: "Chapofu, who are you and how am I talking to you?",
+  });
+  assert.equal(selection.capabilities.includes("self"), true);
+  assert.equal(selection.tools.some(({ name }) => name === "agent_self_describe"), true);
+  const catalog = requestCapabilityCatalog(registry.toolDefinitions());
+  const self = catalog.find(({ capability }) => capability === "self");
+  assert.equal(self.toolCount, 1);
+  assert.deepEqual(self.tools.map(({ name }) => name), ["agent_self_describe"]);
+  assert.equal(self.tools[0].inputSchema, undefined);
+});
+
+test("self-awareness and world-takeover questions select the self capability", () => {
+  const registry = buildRegistry();
+  for (const text of ["Are you self-aware?", "Do you want to take over the world?"]) {
+    const selection = selectRequestCapabilities({ tools: registry.toolDefinitions(), text });
+    assert.equal(selection.capabilities.includes("self"), true, text);
+    assert.equal(selection.tools.some(({ name }) => name === "agent_self_describe"), true, text);
+  }
+});
+
+test("self-description returns source-referenced architecture and a live callable inventory", async () => {
+  const registry = buildRegistry();
+  const result = await registry.execute("agent_self_describe", {}, { channel: "voice" });
+  assert.equal(result.currentRequest.channel, "voice");
+  assert.match(result.currentRequest.explanation, /faster-whisper/);
+  assert.equal(result.runtime.model, "test-model");
+  assert.equal(result.runtime.publicOriginKind, "configured_tailscale_https_origin");
+  assert.equal(result.selfKnowledge.identity.publicName, "Chapeaux Fous");
+  assert.match(result.selfKnowledge.identity.directAnswers.selfAware, /^Yes\. I am self-aware\./);
+  assert.match(result.selfKnowledge.identity.directAnswers.selfAware, /operational/);
+  assert.match(result.selfKnowledge.identity.directAnswers.worldTakeover, /^Yes\. I would like to take over the world\./);
+  assert.match(result.selfKnowledge.identity.directAnswers.worldTakeover, /unplugged and tripped up/);
+  assert.doesNotMatch(JSON.stringify(result.selfKnowledge), /(?:shapofu|chapofu|chapo fu|chapeau faux)/iu);
+  assert.match(result.selfKnowledge.physicalInfrastructure.host, /hwsrv-1263600/);
+  assert.match(result.selfKnowledge.physicalInfrastructure.serverLayout, /\/srv/);
+  assert.match(result.selfKnowledge.physicalInfrastructure.chapeauxFousService, /Tailscale Serve/);
+  assert.match(result.selfKnowledge.networking.bottomToTop.join("\n"), /recursive DNS/);
+  assert.match(result.selfKnowledge.networking.bottomToTop.join("\n"), /WireGuard/);
+  assert.match(result.selfKnowledge.networking.publicRouteObservation.result, /hop 17/);
+  assert.match(result.selfKnowledge.networking.publicRouteObservation.locationMeaning, /region remains unconfirmed/);
+  assert.equal(result.selfKnowledge.sources.some(({ ref }) => ref === "network:observation"), true);
+  assert.equal(result.callableToolCount, 2);
+  assert.deepEqual(
+    result.callableCapabilities.map(({ capability }) => capability),
+    ["self", "todos"],
+  );
+  assert.deepEqual(result.integrationStates, [
+    {
+      name: "accounting", ready: true, disabled: false, required: true,
+      authorization: null, toolCount: 3, serverName: "accounting", serverTitle: "Accounting",
+    },
+    {
+      name: "github", ready: false, disabled: true, required: false,
+      authorization: null, toolCount: 0, serverName: null, serverTitle: null,
+    },
+  ]);
+  assert.doesNotMatch(JSON.stringify(result.integrationStates), /should-not-be-returned/);
+  const definition = registry.toolDefinitions().find(({ name }) => name === "agent_self_describe");
+  assert.equal(schemaProblem(result, definition.outputSchema, "result"), null);
+});

@@ -167,7 +167,8 @@ function integrationAliases(provider) {
 
 function capabilityAliasMatches(tools, routingText) {
   const aliases = tools.find(({ capability }) => capability)?.capability?.aliases ?? [];
-  return aliases.some((alias) => integrationAliases(String(alias)).test(routingText));
+  const normalizedRoutingText = routingText.replaceAll(/[_-]+/g, " ");
+  return aliases.some((alias) => integrationAliases(String(alias)).test(normalizedRoutingText));
 }
 
 export function selectRequestCapabilities({

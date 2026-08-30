@@ -200,3 +200,12 @@ Transfer proves byte receipt only; it does not infer provider workflow meaning
 or prove that a later domain import was validated or committed. The adapter
 classifies failures against the advertised contract and blocks unchanged
 terminal contract mismatches until successful integration rediscovery.
+
+**53. Chapeaux Fous self-knowledge service** — The native read-only capability
+that returns a source-referenced description of Chapeaux Fous's identity,
+request and voice path, deployment boundaries, current runtime, connected
+integrations, and live callable-tool inventory. It provides operational
+self-knowledge, not a claim of human consciousness. Its Tailscale description
+documents private publication infrastructure while preserving that the
+application itself can observe a request channel but cannot prove which network
+proxy carried an individual request.

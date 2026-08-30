@@ -83,6 +83,90 @@ test("interaction guides keep list results metadata-only and use versioned updat
   );
 });
 
+test("one exchange moves between briefings without a schema change or shared ownership", async (context) => {
+  const { registry } = harness(context);
+  const source = await registry.execute("interaction_guide_create", { name: "Source Briefing" });
+  const target = await registry.execute("interaction_guide_create", { name: "Target Briefing" });
+  const targetFirst = await registry.execute("interaction_guide_step_add", {
+    interaction_guide_id: target.guide.interaction_guide_id,
+    expected_version: 1,
+    step_number: 1,
+    opening_text: "What is already here?",
+    instructions_text: null,
+    completion_mode: "response_valid",
+    enabled: true,
+  });
+  const sourceStep = await registry.execute("interaction_guide_step_add", {
+    interaction_guide_id: source.guide.interaction_guide_id,
+    expected_version: 1,
+    step_number: 4,
+    opening_text: "What should move?",
+    instructions_text: "Collect the answer before moving this reusable exchange.",
+    completion_mode: "response_valid",
+    enabled: true,
+  });
+  const started = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: source.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+  });
+  await registry.execute("interaction_guide_step_answer", {
+    run_id: started.run.run_id,
+    step_number: 4,
+    answers: { answer: "Prior run state" },
+    step_complete: true,
+    user_confirmed_advance: false,
+    completion_receipt_event_seq: null,
+  });
+
+  const moved = await registry.execute("interaction_guide_step_move", {
+    interaction_guide_step_id: sourceStep.step.interaction_guide_step_id,
+    expected_source_version: sourceStep.guide.version,
+    target_interaction_guide_id: target.guide.interaction_guide_id,
+    expected_target_version: targetFirst.guide.version,
+  }, { requestId: "move-exchange", callId: "move-exchange-call" });
+
+  assert.equal(moved.moved, true);
+  assert.equal(moved.source_guide.version, 3);
+  assert.equal(moved.target_guide.version, 3);
+  assert.equal(moved.step.interaction_guide_id, target.guide.interaction_guide_id);
+  assert.equal(moved.step.step_number, 2);
+  assert.deepEqual(moved.step.answers_json, {});
+  assert.equal(moved.step.progress_state, "pending");
+  const fetchedSource = await registry.execute("interaction_guide_get", {
+    interaction_guide_id: source.guide.interaction_guide_id, name: null,
+  });
+  const fetchedTarget = await registry.execute("interaction_guide_get", {
+    interaction_guide_id: target.guide.interaction_guide_id, name: null,
+  });
+  assert.deepEqual(fetchedSource.guide.steps, []);
+  assert.deepEqual(fetchedTarget.guide.steps.map(({ step_number }) => step_number), [1, 2]);
+
+  const extraSourceStep = await registry.execute("interaction_guide_step_add", {
+    interaction_guide_id: source.guide.interaction_guide_id,
+    expected_version: moved.source_guide.version,
+    step_number: 1,
+    opening_text: "This exchange must stay put while the destination is running.",
+    instructions_text: null,
+    completion_mode: "response_valid",
+    enabled: true,
+  });
+  await registry.execute("interaction_guide_start", {
+    interaction_guide_id: target.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+  });
+  await assert.rejects(
+    registry.execute("interaction_guide_step_move", {
+      interaction_guide_step_id: extraSourceStep.step.interaction_guide_step_id,
+      expected_source_version: extraSourceStep.guide.version,
+      target_interaction_guide_id: target.guide.interaction_guide_id,
+      expected_target_version: moved.target_guide.version,
+    }),
+    /active briefing/,
+  );
+});
+
 test("numbered interaction steps persist answers and resume at the exact active step", async (context) => {
   const { registry } = harness(context);
   const created = await registry.execute("interaction_guide_create", {
@@ -164,7 +248,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
       completion_mode: "response_valid",
       enabled: true,
     }),
-    /active structured-interaction run/,
+    /active briefing/,
   );
 
   const advanced = await registry.execute("interaction_guide_step_answer", {

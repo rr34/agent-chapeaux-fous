@@ -135,7 +135,7 @@ export class InteractionGuides {
     }
     const activeRun = this.#activeRun(database, selectedId);
     if (activeRun) {
-      throw conflict("Finish or cancel the active structured-interaction run before changing its definition");
+      throw conflict("Finish or cancel the active briefing before changing its definition");
     }
     return guide;
   }
@@ -302,6 +302,64 @@ export class InteractionGuides {
       });
       database.exec("COMMIT");
       return { updated: true, guide, step };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  moveStep({
+    stepId, expectedSourceVersion, targetGuideId, expectedTargetVersion,
+  }, context = {}) {
+    const selectedStepId = identifier(stepId, "Briefing exchange ID");
+    const selectedTargetGuideId = identifier(targetGuideId, "Destination briefing ID");
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const before = database.prepare(
+        "SELECT * FROM interaction_guide_steps WHERE interaction_guide_step_id = ?",
+      ).get(selectedStepId);
+      if (!before) throw new Error(`Briefing exchange ${selectedStepId} does not exist`);
+      const sourceGuideId = Number(before.interaction_guide_id);
+      if (sourceGuideId === selectedTargetGuideId) {
+        throw conflict("The exchange is already in that briefing");
+      }
+      const sourceBefore = this.#guideForDefinitionEdit(
+        database, sourceGuideId, expectedSourceVersion,
+      );
+      const targetBefore = this.#guideForDefinitionEdit(
+        database, selectedTargetGuideId, expectedTargetVersion,
+      );
+      const targetStepNumber = Number(database.prepare(`
+        SELECT COALESCE(MAX(step_number), 0) + 1 AS step_number
+        FROM interaction_guide_steps
+        WHERE interaction_guide_id = ?
+      `).get(selectedTargetGuideId).step_number);
+      const row = database.prepare(`
+        UPDATE interaction_guide_steps
+        SET interaction_guide_id = ?, step_number = ?, answers_json = '{}',
+            progress_state = 'pending',
+            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE interaction_guide_step_id = ?
+        RETURNING *
+      `).get(selectedTargetGuideId, targetStepNumber, selectedStepId);
+      const sourceGuide = publicGuide(this.#bumpGuideVersion(
+        database, sourceBefore.interaction_guide_id, expectedSourceVersion,
+      ));
+      const targetGuide = publicGuide(this.#bumpGuideVersion(
+        database, targetBefore.interaction_guide_id, expectedTargetVersion,
+      ));
+      const step = publicStep(row);
+      this.ledger.append({
+        type: "interaction_guide.step_moved", status: "complete",
+        ...ledgerActor(context, "interaction_guide_step_move"), turnId: context.requestId,
+        operationId: context.callId, name: "Briefing exchange moved",
+        content: `${sourceGuide.name} → ${targetGuide.name}, exchange ${step.stepNumber}`,
+        payload: { before: publicStep(before), sourceGuide, targetGuide, step },
+        subjectType: "interaction_guide", subjectId: String(targetGuide.id),
+      });
+      database.exec("COMMIT");
+      return { moved: true, sourceGuide, targetGuide, step };
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;

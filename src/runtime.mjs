@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import { canonicalizeAgentName } from "./agent-name.mjs";
 import {
   completionReceiptFindings,
   deferredActionContractProblem,
@@ -812,10 +813,10 @@ export class SlayerRuntime {
       && this.requestCompiler
       && !Array.isArray(args.capabilityOverride)
     ) {
-      return this.#runWorkflow(args);
+      return canonicalizeAgentName(await this.#runWorkflow(args));
     }
     const execution = await this.#runExecutor(args);
-    return execution.text;
+    return canonicalizeAgentName(execution.text);
   }
 
   async #runExecutor({

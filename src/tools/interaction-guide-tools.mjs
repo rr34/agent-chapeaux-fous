@@ -199,6 +199,39 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
   });
 
   registry.register({
+    name: "interaction_guide_step_move",
+    description: "Move one exchange from its current briefing into one different active briefing. Read both briefings first and supply both current versions. The exchange is appended after the destination's existing exchanges; current answers and progress reset while ledger history remains.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        interaction_guide_step_id: { type: "integer", minimum: 1 },
+        expected_source_version: { type: "integer", minimum: 1 },
+        target_interaction_guide_id: { type: "integer", minimum: 1 },
+        expected_target_version: { type: "integer", minimum: 1 },
+      },
+      required: [
+        "interaction_guide_step_id", "expected_source_version",
+        "target_interaction_guide_id", "expected_target_version",
+      ],
+    },
+    async execute(argumentsObject, context) {
+      const result = interactionGuides.moveStep({
+        stepId: argumentsObject.interaction_guide_step_id,
+        expectedSourceVersion: argumentsObject.expected_source_version,
+        targetGuideId: argumentsObject.target_interaction_guide_id,
+        expectedTargetVersion: argumentsObject.expected_target_version,
+      }, context);
+      return stepResult(schemaSemantics, context, {
+        moved: result.moved,
+        source_guide: databaseGuide(result.sourceGuide),
+        target_guide: databaseGuide(result.targetGuide),
+        step: databaseStep(result.step),
+      }, "interaction_guide_step_move", "Return the moved exchange and both newly versioned briefings");
+    },
+  });
+
+  registry.register({
     name: "interaction_guide_start",
     description: "Start or resume one exact briefing. An unfinished run resumes its active exchange. Set restart true only when the user explicitly asks to discard that run and begin again; a new run resets exchange progress and answers after preserving prior progress in the ledger.",
     parameters: {

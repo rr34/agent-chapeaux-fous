@@ -46,6 +46,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.doesNotMatch(baseInstructions, /personal to-dos|native JMAP|contact_dedupe_clear/);
   assert.ok(baseInstructions.length < 4000, `universal prompt grew to ${baseInstructions.length} characters`);
   assert.match(baseInstructions, /You are Chapeaux Fous/);
+  assert.match(baseInstructions, /your only self-name/);
   assert.match(baseInstructions, /Never infer or\s+announce a hat the user did not speak/);
   assert.match(baseInstructions, /inspect its metadata, visible structure,\s+headers, and relevant records/);
   assert.match(baseInstructions, /never ask the user to\s+identify information plainly visible in the attachment/);
@@ -156,6 +157,8 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(document, /id="interaction-guide-detail"/);
   assert.match(document, /id="interaction-guide-dialog"/);
   assert.match(document, /id="interaction-step-dialog"/);
+  assert.match(document, /id="interaction-step-move-dialog"/);
+  assert.match(document, /id="interaction-step-move-target"/);
   assert.match(document, /id="interaction-step-opening"/);
   assert.match(document, /id="interaction-step-instructions"/);
   assert.doesNotMatch(document, /id="interaction-guide-text"|id="interaction-step-name"|id="interaction-step-objective"/);
@@ -165,6 +168,8 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
   assert.match(application, /function renderInteractionGuideDetail/);
   assert.match(application, /function openInteractionStepEditor/);
+  assert.match(application, /function openInteractionStepMoveEditor/);
+  assert.match(application, /function moveInteractionStep/);
   assert.match(application, /Start or resume briefing/);
   assert.match(application, /function saveAsStructuredInteraction/);
   assert.match(application, /structuredGenerationStatuses/);
@@ -173,6 +178,7 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(server, /interactionGuides\.create/);
   assert.match(server, /interactionGuides\.addStep/);
   assert.match(server, /interactionGuides\.updateStep/);
+  assert.match(server, /interactionGuides\.moveStep/);
   assert.match(server, /structuredInteractionGenerationPrompt/);
   assert.match(server, /requestKind: "structured_interaction_generation"/);
   assert.match(server, /actorType: "user", actorName: "structured_interactions_page"/);

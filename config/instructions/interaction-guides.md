@@ -22,6 +22,14 @@ Use the user's requested number; do not invent transition numbers or store a
 next-step pointer. The application remains on the current step until completion
 and then selects the next higher enabled number.
 
+When the user asks to move an exchange to another briefing, fetch both exact
+briefings and call `interaction_guide_step_move` with both current versions.
+Moving changes the exchange's single parent; it never copies or shares the
+exchange. The owning service appends it after the destination's existing
+exchanges, resets current-run answers and progress, increments both briefing
+versions, and preserves prior history in the ledger. Neither briefing may have
+an active run.
+
 `opening_text` is the fixed opening shown whenever its exchange becomes current.
 Preserve it literally instead of asking the model to paraphrase it.
 `instructions_text` states what the step must accomplish, how to handle the
