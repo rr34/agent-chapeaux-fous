@@ -103,6 +103,7 @@ test("base instructions stay universal while capability fragments retain domain 
 test("the client exposes a live user manual generated from the explicit hat catalog", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
   const hatsSvg = fs.readFileSync(path.join(root, "public", "hats.svg"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   const catalog = JSON.parse(fs.readFileSync(path.join(root, "config", "hats.json"), "utf8"));
@@ -115,6 +116,11 @@ test("the client exposes a live user manual generated from the explicit hat cata
   assert.match(application, /async function refreshHats/);
   assert.match(application, /function renderAgentMascot/);
   assert.match(application, /function hatSvg\(hat\)/);
+  assert.doesNotMatch(application, /hats\.svg#hat-/);
+  assert.match(application, /text\.textContent = label/);
+  assert.match(application, /svg\.append\(crown, brim, text\)/);
+  assert.match(styles, /\.agent-hat-shape \{ fill: var\(--accent\); stroke: #ffffff/);
+  assert.match(styles, /\.agent-hat-label \{ fill: #ffffff/);
   assert.doesNotMatch(application, /hats\.svg#agent-head|function mascotSvg/);
   assert.doesNotMatch(hatsSvg, /id="agent-head"/);
   assert.match(application, /target\.hidden = explicitHats\.length === 0/);
@@ -253,7 +259,7 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(document, /data-view="todos"/);
   assert.match(document, /id="agent-view-button"[^>]*>[\s\S]*?<span>Agent<\/span>[\s\S]*?<\/button>/);
   assert.doesNotMatch(document, /id="view-selector"/);
-  for (const view of ["agent", "hats", "calendar", "todos", "content", "video-scripts", "contacts", "logs", "interactions", "ai-usage"]) {
+  for (const view of ["agent", "hats", "calendar", "todos", "content", "video-scripts", "files", "contacts", "logs", "interactions", "ai-usage"]) {
     assert.match(document, new RegExp(`<button[^>]+data-view="${view}"`));
   }
   assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="settings-menu"'));
@@ -538,7 +544,33 @@ test("the agent chat renders chronologically above its composer", () => {
   assert.match(application, /chronologicalRequests\.forEach\(\(request, index\) =>/);
   assert.match(application, /renderAgentMascot\(elements\.agentMascot, body\.requests\[0\]\?\.explicitHats\)/);
   assert.match(application, /wasFollowingLatest/);
-  assert.match(application, /elements\.list\.lastElementChild\?\.scrollIntoView\(\{ block: "end" \}\)/);
+  assert.match(application, /function scrollChatToLatest\(\)/);
+  assert.match(application, /latestRequest\.scrollIntoView\(\{ block: "end" \}\)/);
+  assert.match(application, /history\.scrollRestoration = "manual"/);
+  assert.match(application, /window\.addEventListener\("load", scrollChatToLatest/);
+  assert.match(application, /loadRequests\(\{ force: true, followLatest: true \}\)/);
+});
+
+test("the chat uses the TLOM light and olive-slate palette", () => {
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  assert.match(styles, /color-scheme: light/);
+  assert.match(styles, /--background: #ffffff/);
+  assert.match(styles, /--panel-raised: #c9d3bf/);
+  assert.match(styles, /--line: #c9d3bf/);
+  assert.match(styles, /--muted: #6e7b61/);
+  assert.match(styles, /--accent: #4e5b43/);
+  assert.match(styles, /--brand-mid: #6e7b61/);
+  assert.match(styles, /--brand-light: #c9d3bf/);
+  assert.match(styles, /\.request-user-turn \{[\s\S]+background: var\(--brand-mid\)/);
+  assert.match(styles, /\.request-agent-turn \{[\s\S]+background: var\(--accent\)/);
+});
+
+test("the top navigation uses two rows while retaining narrow-screen overflow", () => {
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  assert.match(styles, /\.topbar-links \{[\s\S]+grid-template-columns: repeat\(6, max-content\)/);
+  assert.match(styles, /\.topbar-links \{[\s\S]+grid-template-rows: repeat\(2, minmax\(36px, auto\)\)/);
+  assert.match(styles, /\.topbar-links \{[\s\S]+overflow-x: auto/);
+  assert.match(styles, /\.settings-menu > summary \{ height: 100%/);
 });
 
 test("the persistent composer uses a compact microphone beside the text box", () => {
@@ -549,6 +581,18 @@ test("the persistent composer uses a compact microphone beside the text box", ()
   assert.match(document, /id="new-conversation"[\s\S]*<\/section>\s*<dialog id="integrations-dialog"/);
   assert.match(styles, /\.record-button \{[\s\S]+width: 46px;[\s\S]+height: 46px/);
   assert.match(application, /new ResizeObserver\(updateComposerHeight\)\.observe\(elements\.composer\)/);
+});
+
+test("file controls live on the Files screen instead of the two-row composer", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const filesView = document.slice(document.indexOf('id="files-view"'), document.indexOf('id="contacts-view"'));
+  const composer = document.slice(document.indexOf('id="chat-composer"'), document.indexOf('id="integrations-dialog"'));
+  assert.match(filesView, /id="request-file"[\s\S]+id="request-existing-file"[\s\S]+id="file-list"/);
+  assert.doesNotMatch(composer, /id="request-file"|id="request-existing-file"/);
+  assert.match(composer, /class="composer-input-row"[\s\S]+class="composer-actions"/);
+  assert.match(application, /elements\.filesView\.hidden = view !== "files"/);
+  assert.match(application, /if \(view === "files"\) void loadFiles\(\)/);
 });
 
 test("each chat exchange offsets the user request and groups metrics with the response", () => {

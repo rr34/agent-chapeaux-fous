@@ -87,6 +87,11 @@ const elements = {
   todosView: document.querySelector("#todos-view"),
   contentView: document.querySelector("#content-view"),
   videoScriptsView: document.querySelector("#video-scripts-view"),
+  filesView: document.querySelector("#files-view"),
+  refreshFiles: document.querySelector("#refresh-files"),
+  fileList: document.querySelector("#file-list"),
+  fileEmpty: document.querySelector("#file-empty"),
+  fileSelectionStatus: document.querySelector("#file-selection-status"),
   contactsView: document.querySelector("#contacts-view"),
   logsView: document.querySelector("#logs-view"),
   interactionsView: document.querySelector("#interactions-view"),
@@ -496,11 +501,24 @@ function hatSvg(hat) {
   svg.setAttribute("class", "agent-hat-svg");
   svg.setAttribute("viewBox", "0 0 128 72");
   svg.setAttribute("aria-hidden", "true");
-  const artwork = document.createElementNS(svgNamespace, "use");
-  artwork.setAttribute("href", `/hats.svg#hat-${hat.icon || hat.id}`);
-  artwork.setAttribute("width", "128");
-  artwork.setAttribute("height", "128");
-  svg.append(artwork);
+  const crown = document.createElementNS(svgNamespace, "path");
+  crown.setAttribute("class", "agent-hat-shape");
+  crown.setAttribute("d", "M30 46 38 17Q64 5 90 17L98 46Z");
+  const brim = document.createElementNS(svgNamespace, "path");
+  brim.setAttribute("class", "agent-hat-shape");
+  brim.setAttribute("d", "M16 48Q64 39 112 48 103 62 64 62 25 62 16 48Z");
+  const label = String(hat.label || hat.id).trim();
+  const text = document.createElementNS(svgNamespace, "text");
+  text.setAttribute("class", "agent-hat-label");
+  text.setAttribute("x", "64");
+  text.setAttribute("y", "37");
+  text.setAttribute("font-size", label.length > 9 ? "12" : label.length > 7 ? "13" : label.length > 5 ? "15" : "17");
+  if (label.length > 7) {
+    text.setAttribute("textLength", "54");
+    text.setAttribute("lengthAdjust", "spacingAndGlyphs");
+  }
+  text.textContent = label;
+  svg.append(crown, brim, text);
   return svg;
 }
 
@@ -549,6 +567,54 @@ function updateRequestFileSelection() {
     requestImagePreviewUrl = URL.createObjectURL(file);
     elements.requestImagePreview.src = requestImagePreviewUrl;
   }
+  const stored = storedFiles.find(({ fileId }) => fileId === existingFileId);
+  elements.fileSelectionStatus.textContent = file
+    ? `${file.name} will be uploaded and attached to the next request.`
+    : stored
+      ? `File #${stored.fileId} — ${stored.title} will be attached to the next request.`
+      : "No file selected for the next request.";
+  renderFileLibrary();
+}
+
+function renderFileLibrary() {
+  elements.fileList.replaceChildren();
+  const selectedFileId = Number(elements.requestExistingFile.value) || null;
+  for (const file of storedFiles) {
+    const card = node("article", "file-card organizer-panel");
+    card.classList.toggle("selected", file.fileId === selectedFileId);
+    const heading = node("div", "file-card-heading");
+    heading.append(
+      node("strong", "", file.title),
+      node("span", "file-card-id", `File #${file.fileId}`),
+    );
+    const metadata = [
+      file.originalFilename && file.originalFilename !== file.title ? file.originalFilename : null,
+      file.mediaKind || null,
+      Number.isFinite(file.byteSize) ? formatFileSize(file.byteSize) : null,
+    ].filter(Boolean).join(" · ");
+    const actions = node("div", "file-card-actions");
+    const use = node(
+      "button", file.fileId === selectedFileId ? "compact" : "secondary compact",
+      file.fileId === selectedFileId ? "Selected for next request" : "Use with next request",
+    );
+    use.type = "button";
+    use.disabled = file.fileId === selectedFileId;
+    use.addEventListener("click", () => {
+      elements.requestFile.value = "";
+      elements.requestExistingFile.value = String(file.fileId);
+      updateRequestFileSelection();
+    });
+    const edit = node("button", "secondary compact", "Edit details");
+    edit.type = "button";
+    edit.addEventListener("click", () => void openFileEditor(file.fileId));
+    actions.append(use, edit);
+    card.append(heading);
+    if (metadata) card.append(node("p", "file-card-meta", metadata));
+    if (file.description) card.append(node("p", "file-card-description", file.description));
+    card.append(actions);
+    elements.fileList.append(card);
+  }
+  elements.fileEmpty.hidden = storedFiles.length > 0;
 }
 
 function renderStoredFileOptions() {
@@ -1316,12 +1382,27 @@ function requestNode(request, index) {
   return node;
 }
 
-async function loadRequests({ force = false } = {}) {
+function scrollChatToLatest() {
+  requestAnimationFrame(() => {
+    if (activeView !== "agent") return;
+    const latestRequest = elements.list.lastElementChild;
+    if (!latestRequest) return;
+    latestRequest.scrollIntoView({ block: "end" });
+    requestAnimationFrame(() => {
+      if (activeView === "agent" && latestRequest.isConnected) {
+        latestRequest.scrollIntoView({ block: "end" });
+      }
+    });
+  });
+}
+
+async function loadRequests({ force = false, followLatest = false } = {}) {
   if (!force && selectionTouchesRequests()) return;
   const initialLoad = requestNodes.size === 0;
   const previousListHeight = elements.list.offsetHeight;
   const previousPageHeight = document.documentElement.scrollHeight;
-  const wasFollowingLatest = initialLoad
+  const wasFollowingLatest = followLatest
+    || initialLoad
     || window.scrollY + window.innerHeight >= previousPageHeight - 160;
   const limit = Number(elements.requestLimit.value) || 25;
   const body = await api(`/api/requests?limit=${limit}`);
@@ -1345,8 +1426,8 @@ async function loadRequests({ force = false } = {}) {
   speakCompletedResponses(body.requests);
   const transcriptChangedHeight = elements.list.offsetHeight !== previousListHeight;
   if (activeView === "agent" && chronologicalRequests.length > 0
-      && wasFollowingLatest && (initialLoad || transcriptChangedHeight)) {
-    requestAnimationFrame(() => elements.list.lastElementChild?.scrollIntoView({ block: "end" }));
+      && wasFollowingLatest && (followLatest || initialLoad || transcriptChangedHeight)) {
+    scrollChatToLatest();
   }
 }
 
@@ -1561,6 +1642,7 @@ function calendarEventCopyText(calendarEvent) {
 }
 
 function switchView(view) {
+  const previousView = activeView;
   if (view !== "calendar" && calendarSchedulingTodo) cancelCalendarScheduling({ render: false });
   activeView = view;
   elements.agentView.hidden = view !== "agent";
@@ -1569,6 +1651,7 @@ function switchView(view) {
   elements.todosView.hidden = view !== "todos";
   elements.contentView.hidden = view !== "content";
   elements.videoScriptsView.hidden = view !== "video-scripts";
+  elements.filesView.hidden = view !== "files";
   elements.contactsView.hidden = view !== "contacts";
   elements.logsView.hidden = view !== "logs";
   elements.interactionsView.hidden = view !== "interactions";
@@ -1586,10 +1669,12 @@ function switchView(view) {
   if (view === "todos") void refreshTodos();
   if (view === "content") void refreshContent();
   if (view === "video-scripts") void refreshVideoScripts();
+  if (view === "files") void loadFiles();
   if (view === "contacts") void refreshContacts();
   if (view === "logs") void refreshLogs();
   if (view === "interactions") void refreshInteractionGuides();
   if (view === "ai-usage") void loadAiUsage();
+  if (view === "agent" && previousView !== "agent") scrollChatToLatest();
 }
 
 function renderHats(body) {
@@ -2800,7 +2885,7 @@ async function startTodoInteractionGuide(todo, button) {
     expectSpokenResponse(created.requestId, respondSilently);
     elements.status.textContent = `${todo.interactionGuideName} queued.`;
     switchView("agent");
-    await loadRequests({ force: true });
+    await loadRequests({ force: true, followLatest: true });
   } catch (error) {
     window.alert(error.message || "Could not start the interaction guide.");
     button.disabled = false;
@@ -4128,7 +4213,7 @@ async function startInteractionGuide(guide, button) {
     expectSpokenResponse(created.requestId, respondSilently);
     elements.status.textContent = `${guide.name} queued.`;
     switchView("agent");
-    await loadRequests({ force: true });
+    await loadRequests({ force: true, followLatest: true });
   } catch (error) {
     window.alert(error.message || "Could not start the structured interaction.");
     button.disabled = false;
@@ -4397,7 +4482,7 @@ elements.form.addEventListener("submit", async (event) => {
         ? `Queued with file #${primaryFileId} — ${selectedStoredFile.title || selectedStoredFile.originalFilename}.`
       : "Queued.";
     switchView("agent");
-    await Promise.all([loadRequests({ force: true }), loadFiles()]);
+    await Promise.all([loadRequests({ force: true, followLatest: true }), loadFiles()]);
   } catch (error) {
     elements.status.textContent = error.message;
   } finally {
@@ -4486,7 +4571,7 @@ elements.record.addEventListener("click", async () => {
         expectSpokenResponse(created.requestId, recordingRespondSilently);
         elements.status.textContent = "Voice request queued.";
         switchView("agent");
-        await loadRequests({ force: true });
+        await loadRequests({ force: true, followLatest: true });
       } catch (error) {
         elements.status.textContent = error.message;
       } finally {
@@ -4789,6 +4874,7 @@ elements.contentForm.addEventListener("submit", saveContent);
 elements.contentDelete.addEventListener("click", () => void deleteEditedContent());
 elements.refreshVideoScripts.addEventListener("click", () => void refreshVideoScripts());
 elements.videoScriptStatusFilter.addEventListener("change", () => void refreshVideoScripts());
+elements.refreshFiles.addEventListener("click", () => void loadFiles());
 elements.selectVideoScriptSources.addEventListener("click", () => {
   elements.settingsMenu.open = false;
   switchView("agent");
@@ -4846,6 +4932,8 @@ for (const button of document.querySelectorAll(".dialog-close")) {
 renderAgentMascot(elements.agentMascot);
 updateComposerHeight();
 resizeRequestText();
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+window.addEventListener("load", scrollChatToLatest, { once: true });
 if (!accessToken) elements.tokenDialog.showModal();
 if (new URLSearchParams(window.location.search).get("oauth") === "connected") {
   elements.status.textContent = "MCP OAuth connected.";

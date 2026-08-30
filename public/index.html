@@ -30,6 +30,7 @@
         <button class="top-nav-button" data-view="todos" type="button">To-Do List</button>
         <button class="top-nav-button" data-view="content" type="button">Library</button>
         <button class="top-nav-button" data-view="video-scripts" type="button">Video Scripts</button>
+        <button class="top-nav-button" data-view="files" type="button">Files</button>
         <button class="top-nav-button" data-view="contacts" type="button">Contacts</button>
         <button class="top-nav-button" data-view="logs" type="button">Logs</button>
         <button class="top-nav-button" data-view="interactions" type="button">Structured Interactions</button>
@@ -265,6 +266,37 @@
       <p id="video-script-empty" class="empty">No video scripts in this view.</p>
     </section>
 
+    <section id="files-view" class="app-view" hidden>
+      <header class="organizer-heading">
+        <div>
+          <p class="eyebrow">Stored uploads</p>
+          <h2>Files</h2>
+        </div>
+        <button id="refresh-files" class="secondary" type="button">Refresh files</button>
+      </header>
+      <section class="file-library-toolbar organizer-panel" aria-labelledby="next-request-file-heading">
+        <div>
+          <p class="eyebrow">Next request</p>
+          <h3 id="next-request-file-heading">Attach a file</h3>
+          <p class="muted">Choose a new upload or one stored below. It will be attached when you send your next request.</p>
+        </div>
+        <div class="file-picker-controls">
+          <label class="attachment-button" for="request-file">Choose new file</label>
+          <input id="request-file" class="sr-only" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.csv,.tsv,.json,.jsonl,.vcf,.txt,image/jpeg,image/png,image/webp,image/gif,text/csv,text/tab-separated-values,application/json,application/x-ndjson,text/vcard,text/x-vcard,text/plain">
+          <span id="request-file-label" class="request-file-label" hidden></span>
+          <img id="request-image-preview" class="request-image-preview" alt="Selected request image preview" hidden>
+          <select id="request-existing-file" class="request-existing-file" aria-label="Use a previously uploaded file">
+            <option value="">Previously uploaded file…</option>
+          </select>
+          <button id="edit-selected-file" class="secondary compact" type="button" hidden>Edit details</button>
+          <button id="remove-request-file" class="secondary compact" type="button" hidden>Clear attachment</button>
+        </div>
+        <p id="file-selection-status" class="status" role="status"></p>
+      </section>
+      <section id="file-list" class="file-list" aria-live="polite"></section>
+      <p id="file-empty" class="empty">No stored files yet.</p>
+    </section>
+
     <section id="contacts-view" class="app-view" hidden>
       <header class="organizer-heading">
         <div>
@@ -420,19 +452,8 @@
         <button id="send" class="composer-send" type="submit">Send</button>
       </div>
       <div class="composer-actions">
-        <div class="request-attachment-control">
-          <label class="attachment-button compact-control" for="request-file">Attach</label>
-          <input id="request-file" class="sr-only" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.csv,.tsv,.json,.jsonl,.vcf,.txt,image/jpeg,image/png,image/webp,image/gif,text/csv,text/tab-separated-values,application/json,application/x-ndjson,text/vcard,text/x-vcard,text/plain">
-          <span id="request-file-label" class="request-file-label" hidden></span>
-          <img id="request-image-preview" class="request-image-preview" alt="Selected request image preview" hidden>
-          <select id="request-existing-file" class="request-existing-file" aria-label="Use a previously uploaded file">
-            <option value="">Previous file…</option>
-          </select>
-          <button id="edit-selected-file" class="secondary compact" type="button" hidden>Edit details</button>
-          <button id="remove-request-file" class="secondary compact" type="button" hidden>Remove</button>
-          <button id="composer-hats-link" class="text-button composer-hats-link" type="button">Choose a hat</button>
-        </div>
         <div class="request-run-controls">
+          <button id="composer-hats-link" class="text-button composer-hats-link" type="button">Choose a hat</button>
           <label class="checkbox-row respond-silently-control" for="respond-silently">
             <input id="respond-silently" type="checkbox">
             <span>Respond silently</span>
@@ -441,16 +462,16 @@
           <button id="run-limits-button" class="secondary compact" type="button">Run limits</button>
           <button id="new-conversation" class="secondary compact" type="button">New conversation</button>
         </div>
+        <div class="composer-feedback">
+          <p id="composer-status" class="status" role="status"></p>
+          <div class="recording-status" aria-live="polite">
+            <span id="record-label" class="record-label">Tap microphone to record</span>
+            <span id="record-timer" class="record-timer">00:00</span>
+            <button id="cancel-recording" class="secondary compact cancel-recording" type="button" hidden>Cancel recording</button>
+          </div>
+        </div>
       </div>
     </form>
-    <div class="composer-feedback">
-      <p id="composer-status" class="status" role="status"></p>
-      <div class="recording-status" aria-live="polite">
-        <span id="record-label" class="record-label">Tap microphone to record</span>
-        <span id="record-timer" class="record-timer">00:00</span>
-        <button id="cancel-recording" class="secondary compact cancel-recording" type="button" hidden>Cancel recording</button>
-      </div>
-    </div>
   </section>
 
   <dialog id="integrations-dialog">
