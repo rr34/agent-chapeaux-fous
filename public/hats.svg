@@ -40,7 +40,7 @@
     <circle cx="60" cy="33" r="2" fill="#c94b51"/><circle cx="69" cy="33" r="2" fill="#c94b51"/>
   </symbol>
 
-  <symbol id="hat-landlord" viewBox="0 0 128 128">
+  <symbol id="hat-property-manager" viewBox="0 0 128 128">
     <path d="M31 47c1-22 14-36 33-36s32 14 33 36Z" fill="#f07831" stroke="#111315" stroke-width="6" stroke-linejoin="round"/>
     <path d="M22 48h84v13H22Z" fill="#c74f1f" stroke="#111315" stroke-width="6" stroke-linejoin="round"/>
     <path d="M64 12v35M43 19v28M85 19v28" fill="none" stroke="#ffb46c" stroke-width="5"/>

@@ -26,6 +26,11 @@ test("the versioned hat catalog recognizes only explicitly spoken hats in their 
     catalog.explicitHats("Chapeaux Fous, as my weatherman, will it freeze tonight?").map(({ id }) => id),
     ["weatherman"],
   );
+  assert.deepEqual(
+    catalog.explicitHats("Chapeaux Fous, as my property manager, add a roof inspection task.").map(({ id }) => id),
+    ["property-manager"],
+  );
+  assert.deepEqual(catalog.explicitHats("As my landlord, add a roof inspection task."), []);
 });
 
 test("the public manual derives availability and backing tools from the callable registry", async () => {
@@ -37,13 +42,13 @@ test("the public manual derives availability and backing tools from the callable
 
   const email = manual.hats.find(({ id }) => id === "email");
   const weatherman = manual.hats.find(({ id }) => id === "weatherman");
-  const landlord = manual.hats.find(({ id }) => id === "landlord");
+  const propertyManager = manual.hats.find(({ id }) => id === "property-manager");
   assert.equal(email.available, true);
   assert.equal(email.icon, "email");
   assert.deepEqual(email.tools.map(({ name }) => name), ["email_search"]);
   assert.equal(weatherman.available, true);
   assert.deepEqual(weatherman.tools.map(({ name }) => name), ["remote_weather_forecast"]);
-  assert.equal(landlord.available, false);
+  assert.equal(propertyManager.available, false);
 });
 
 test("hat definitions reject aliases assigned to multiple hats", () => {

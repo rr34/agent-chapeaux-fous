@@ -550,13 +550,13 @@ test("multiple explicit hats remain ordered and receive exact schemas in the fir
   assert.ok(compiled.instructions.indexOf("1. contacts") < compiled.instructions.indexOf("2. email"));
 });
 
-test("landlord and weatherman hats map to their connected integration capabilities", async () => {
+test("property-manager and weatherman hats map to their connected integration capabilities", async () => {
   const compiler = new RequestCompiler({ hatCatalog });
-  const landlord = await compiler.compile({ tools, text: "As my landlord, add a roof inspection task." });
+  const propertyManager = await compiler.compile({ tools, text: "As my property manager, add a roof inspection task." });
   const weather = await compiler.compile({ tools, text: "As my weatherman, will it freeze tonight?" });
 
-  assert.equal(names(landlord).includes("remote_tlom_query_data"), true);
-  assert.deepEqual(landlord.explicitHats.map(({ id }) => id), ["landlord"]);
+  assert.equal(names(propertyManager).includes("remote_tlom_query_data"), true);
+  assert.deepEqual(propertyManager.explicitHats.map(({ id }) => id), ["property-manager"]);
   assert.equal(names(weather).includes("remote_weather_forecast"), true);
   assert.deepEqual(weather.explicitHats.map(({ id }) => id), ["weatherman"]);
 });

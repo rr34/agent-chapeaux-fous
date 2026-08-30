@@ -27,7 +27,7 @@
         </button>
         <button class="top-nav-button" data-view="hats" type="button">Hats</button>
         <button class="top-nav-button" data-view="calendar" type="button">Calendar</button>
-        <button class="top-nav-button" data-view="todos" type="button">To-Do List</button>
+        <button class="top-nav-button" data-view="todos" type="button">To do and habits</button>
         <button class="top-nav-button" data-view="content" type="button">Library</button>
         <button class="top-nav-button" data-view="video-scripts" type="button">Video Scripts</button>
         <button class="top-nav-button" data-view="files" type="button">Files</button>
@@ -36,10 +36,20 @@
         <button class="top-nav-button" data-view="interactions" type="button">Briefings</button>
         <button id="ai-usage-nav" class="top-nav-button" data-view="ai-usage" type="button">AI Usage</button>
       </div>
-      <button id="select-video-script-sources" class="top-nav-button create-video-button" type="button">Create video</button>
       <details id="settings-menu" class="settings-menu">
-        <summary>Settings</summary>
+        <summary aria-label="Menu" title="Menu">
+          <span class="menu-icon" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+          <span class="sr-only">Menu</span>
+        </summary>
         <div class="settings-panel">
+          <section class="settings-group" aria-label="Video creation">
+            <strong>Video</strong>
+            <button id="select-video-script-sources" class="create-video-button" type="button">Create video</button>
+          </section>
           <section class="settings-group" aria-labelledby="request-settings-heading">
             <div>
               <p class="eyebrow">Chronological</p>
@@ -194,7 +204,7 @@
       <header class="organizer-heading">
         <div>
           <p class="eyebrow">Personal commitments</p>
-          <h2>To-Do List</h2>
+          <h2>To do and habits</h2>
         </div>
         <button id="new-todo" type="button">New todo</button>
       </header>
@@ -951,7 +961,7 @@
               <span>Select for video</span>
             </label>
             <button class="download-video secondary compact" type="button" hidden>Download legacy MP4</button>
-            <button class="save-structured-interaction secondary compact" type="button" hidden>Create briefing from exchange</button>
+            <button class="save-structured-interaction secondary compact" type="button" hidden>Make this exchange repeatable</button>
             <button class="show-trace secondary compact" type="button">Show exact trace</button>
           </div>
         </div>

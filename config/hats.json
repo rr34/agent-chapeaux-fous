@@ -54,13 +54,13 @@
       "example": "Chapeaux Fous, as my calendar, add a dentist appointment Tuesday at 14:00."
     },
     {
-      "id": "landlord",
-      "label": "landlord",
-      "icon": "landlord",
+      "id": "property-manager",
+      "label": "property manager",
+      "icon": "property-manager",
       "aliases": ["real estate", "tlom"],
       "capability": "integration:tlom",
       "description": "Work with properties, buildings, projects, and property tasks.",
-      "example": "Chapeaux Fous, as my landlord, add a roof inspection task."
+      "example": "Chapeaux Fous, as my property manager, add a roof inspection task."
     },
     {
       "id": "weatherman",

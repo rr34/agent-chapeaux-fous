@@ -159,7 +159,7 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(document, /id="interaction-step-opening"/);
   assert.match(document, /id="interaction-step-instructions"/);
   assert.doesNotMatch(document, /id="interaction-guide-text"|id="interaction-step-name"|id="interaction-step-objective"/);
-  assert.match(document, /class="save-structured-interaction secondary compact"[^>]*>Create briefing from exchange<\/button>/);
+  assert.match(document, /class="save-structured-interaction secondary compact"[^>]*>Make this exchange repeatable<\/button>/);
   assert.match(document, />Briefing exchange<\/p>/);
   assert.match(document, /<label>Opening<textarea/);
   assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
@@ -264,13 +264,16 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /data-view="calendar"/);
   assert.match(document, /data-view="todos"/);
+  assert.match(document, /data-view="todos"[^>]*>To do and habits<\/button>/);
+  assert.match(document, /<h2>To do and habits<\/h2>/);
   assert.match(document, /id="agent-view-button"[^>]*>[\s\S]*?<span>Agent<\/span>[\s\S]*?<\/button>/);
   assert.doesNotMatch(document, /id="view-selector"/);
   for (const view of ["agent", "hats", "calendar", "todos", "content", "video-scripts", "files", "contacts", "logs", "interactions", "ai-usage"]) {
     assert.match(document, new RegExp(`<button[^>]+data-view="${view}"`));
   }
   assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="settings-menu"'));
-  assert.match(document, /id="settings-menu"[\s\S]+<summary>Settings<\/summary>[\s\S]+id="refresh"/);
+  assert.match(document, /id="settings-menu"[\s\S]+<summary aria-label="Menu" title="Menu">[\s\S]+class="menu-icon"[\s\S]+id="select-video-script-sources"[\s\S]+id="refresh"/);
+  assert.doesNotMatch(document, /<\/div>\s*<button id="select-video-script-sources" class="top-nav-button/);
   assert.match(application, /Git commit: \$\{commit\}/);
   assert.match(application, /refresh\.addEventListener\("click", async \(\) =>/);
   assert.match(application, /api\("\/api\/integrations\/mcp\/refresh", \{ method: "POST" \}\)/);
@@ -578,7 +581,9 @@ test("the top navigation uses two rows while retaining narrow-screen overflow", 
   assert.match(styles, /\.topbar-links \{[\s\S]+grid-template-rows: repeat\(2, minmax\(36px, auto\)\)/);
   assert.match(styles, /\.topbar-links \{[\s\S]+justify-content: safe center/);
   assert.match(styles, /\.topbar-links \{[\s\S]+overflow-x: auto/);
-  assert.match(styles, /\.settings-menu > summary \{ height: 100%/);
+  assert.match(styles, /\.topbar-nav \{[\s\S]+grid-template-columns: minmax\(0, 1fr\) auto/);
+  assert.match(styles, /\.settings-menu \{[\s\S]+place-self: center/);
+  assert.match(styles, /\.menu-icon > span \{ height: 2px/);
 });
 
 test("the persistent composer uses a compact microphone beside the text box", () => {

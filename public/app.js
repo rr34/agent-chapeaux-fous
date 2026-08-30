@@ -1417,7 +1417,7 @@ function requestNode(request, index, structuredGenerationStatus = null) {
       ? "Creating briefing…"
       : generationStatus === "error"
         ? "Retry briefing creation"
-        : "Create briefing from exchange";
+        : "Make this exchange repeatable";
   if (structuredGenerationStatus?.guideId) {
     structuredButton.dataset.guideId = String(structuredGenerationStatus.guideId);
   } else {
@@ -2506,7 +2506,7 @@ async function refreshTodos() {
       : "";
     renderTodos();
   } catch (error) {
-    elements.todoList.replaceChildren(node("p", "empty", error.message || "To-Do List unavailable."));
+    elements.todoList.replaceChildren(node("p", "empty", error.message || "To do and habits unavailable."));
   }
 }
 

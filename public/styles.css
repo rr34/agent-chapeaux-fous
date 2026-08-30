@@ -52,7 +52,8 @@ button { touch-action: manipulation; }
 }
 
 .topbar-nav {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   gap: .3rem;
   min-width: 0;
@@ -86,12 +87,21 @@ button { touch-action: manipulation; }
 .top-nav-button:hover, .settings-menu > summary:hover { color: var(--text); background: var(--panel-raised); }
 .top-nav-button.active { color: #ffffff; background: var(--accent); border-color: var(--accent); }
 .top-nav-button.active:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
-.create-video-button { align-self: stretch; color: #fff; background: var(--accent); border-color: var(--accent); }
+.create-video-button { color: #fff; background: var(--accent); border-color: var(--accent); }
 .create-video-button:hover { color: #fff; background: var(--accent-dark); border-color: var(--accent-dark); }
-.settings-menu { position: relative; align-self: stretch; flex: 0 0 auto; }
-.settings-menu > summary { height: 100%; gap: .35rem; cursor: pointer; list-style: none; user-select: none; }
+.settings-menu { position: relative; place-self: center; }
+.settings-menu > summary {
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: .45rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
 .settings-menu > summary::-webkit-details-marker { display: none; }
-.settings-menu > summary::after { content: "⚙"; font-size: .85rem; }
+.menu-icon { display: grid; gap: 3px; width: 18px; }
+.menu-icon > span { height: 2px; background: currentColor; border-radius: 999px; }
 .settings-menu[open] > summary { color: var(--text); background: var(--panel-raised); border-color: var(--line); }
 .settings-panel {
   position: absolute;
@@ -921,6 +931,7 @@ dialog h2, dialog p { margin-bottom: 0; }
   .topbar { padding: calc(.35rem + env(safe-area-inset-top, 0px)) .35rem .35rem; }
   .topbar-links { grid-template-rows: repeat(2, minmax(34px, auto)); }
   .top-nav-button, .settings-menu > summary { min-height: 34px; padding: .35rem .55rem; font-size: .72rem; }
+  .settings-menu > summary { width: 34px; height: 34px; }
   .settings-panel { right: 0; }
   .composer { padding-inline: .55rem; border-radius: 13px 13px 0 0; }
   .composer-input-row { grid-template-columns: minmax(0, 1fr) 42px auto; gap: .35rem; }
