@@ -274,6 +274,15 @@ test("starting a linked guide selects guide and to-do capabilities", async () =>
   assert.ok(scheduled.reasons.includes("todos:interaction-guide-schedule"));
 });
 
+test("user-facing briefing language selects the internal interaction-guide capability", () => {
+  const selection = selectRequestCapabilities({
+    tools,
+    text: 'Start my "Morning Check-in" briefing.',
+  });
+  assert.equal(selection.capabilities.includes("interaction-guides"), true);
+  assert.equal(names(selection).includes("interaction_guide_get"), true);
+});
+
 test("a terse answer to a guide question retains the guided interaction capabilities", () => {
   const extendedTools = [...tools, tool("todo_interaction_guide_set")];
   const selection = selectRequestCapabilities({

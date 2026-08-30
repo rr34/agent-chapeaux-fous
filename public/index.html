@@ -33,7 +33,7 @@
         <button class="top-nav-button" data-view="files" type="button">Files</button>
         <button class="top-nav-button" data-view="contacts" type="button">Contacts</button>
         <button class="top-nav-button" data-view="logs" type="button">Logs</button>
-        <button class="top-nav-button" data-view="interactions" type="button">Structured Interactions</button>
+        <button class="top-nav-button" data-view="interactions" type="button">Briefings</button>
         <button id="ai-usage-nav" class="top-nav-button" data-view="ai-usage" type="button">AI Usage</button>
       </div>
       <button id="select-video-script-sources" class="top-nav-button create-video-button" type="button">Create video</button>
@@ -344,10 +344,10 @@
     <section id="interactions-view" class="app-view" hidden>
       <header class="organizer-heading">
         <div>
-          <p class="eyebrow">Reusable conversation briefs</p>
-          <h2>Structured Interactions</h2>
+          <p class="eyebrow">Reusable agent-led conversations</p>
+          <h2>Briefings</h2>
         </div>
-        <button id="new-interaction-guide" type="button">New brief</button>
+        <button id="new-interaction-guide" type="button">New briefing</button>
       </header>
       <div class="interaction-toolbar organizer-panel">
         <label for="interaction-guide-status">Show</label>
@@ -360,12 +360,12 @@
         <span id="interaction-guide-count" class="toolbar-count"></span>
       </div>
       <div class="interaction-workspace">
-        <nav id="interaction-guide-list" class="interaction-guide-list organizer-panel" aria-label="Structured interaction briefs"></nav>
+        <nav id="interaction-guide-list" class="interaction-guide-list organizer-panel" aria-label="Briefings"></nav>
         <section id="interaction-guide-detail" class="interaction-guide-detail organizer-panel" aria-live="polite">
           <div class="interaction-detail-empty">
             <p class="eyebrow">Definition</p>
-            <h3>Select a structured interaction</h3>
-            <p class="muted">Choose a brief to review its numbered turns, or create a new one.</p>
+            <h3>Select a briefing</h3>
+            <p class="muted">Choose a briefing to review its exchanges, or create a new one.</p>
           </div>
         </section>
       </div>
@@ -663,9 +663,9 @@
             <label id="todo-repeat-count-label" hidden>Occurrences<input id="todo-repeat-count" type="number" min="1" max="9999" step="1" value="10"></label>
             <label id="todo-repeat-until-label" hidden>Last date<input id="todo-repeat-until" type="date"></label>
           </div>
-          <label>Interaction guide
-            <select id="todo-interaction-guide"><option value="">No guide</option></select>
-            <span class="field-hint">Starting the task opens this guide; the task still owns the repeat schedule.</span>
+          <label>Briefing
+            <select id="todo-interaction-guide"><option value="">No briefing</option></select>
+            <span class="field-hint">Starting the task opens this briefing; the task still owns the repeat schedule.</span>
           </label>
           <p id="todo-repeat-summary" class="recurrence-summary"></p>
           <p class="recurrence-hint">The scheduled date and time is the first occurrence.</p>
@@ -760,18 +760,18 @@
   <dialog id="interaction-guide-dialog" class="editor-dialog interaction-guide-dialog">
     <form id="interaction-guide-form" method="dialog">
       <header class="dialog-heading">
-        <div><p class="eyebrow">Structured interaction</p><h2 id="interaction-guide-dialog-title">New brief</h2></div>
+        <div><p class="eyebrow">Agent-led conversation</p><h2 id="interaction-guide-dialog-title">New briefing</h2></div>
         <button class="secondary compact dialog-close" type="button">Close</button>
       </header>
       <input id="interaction-guide-id" type="hidden">
       <input id="interaction-guide-version" type="hidden">
-      <label>Name<input id="interaction-guide-name" required maxlength="200" autocomplete="off" placeholder="Evening planning brief"></label>
-      <p class="field-hint">The complete interaction is defined by its numbered turns.</p>
+      <label>Name<input id="interaction-guide-name" required maxlength="200" autocomplete="off" placeholder="Evening planning briefing"></label>
+      <p class="field-hint">A briefing is an ordered series of exchanges initiated by the agent.</p>
       <p id="interaction-guide-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
-        <button id="archive-interaction-guide" class="danger editor-delete" type="button" hidden>Archive brief</button>
+        <button id="archive-interaction-guide" class="danger editor-delete" type="button" hidden>Archive briefing</button>
         <button class="secondary dialog-close" type="button">Cancel</button>
-        <button type="submit">Save brief</button>
+        <button type="submit">Save briefing</button>
       </footer>
     </form>
   </dialog>
@@ -779,25 +779,25 @@
   <dialog id="interaction-step-dialog" class="editor-dialog interaction-step-dialog">
     <form id="interaction-step-form" method="dialog">
       <header class="dialog-heading">
-        <div><p class="eyebrow">Numbered turn</p><h2 id="interaction-step-dialog-title">New turn</h2></div>
+        <div><p class="eyebrow">Briefing exchange</p><h2 id="interaction-step-dialog-title">New exchange</h2></div>
         <button class="secondary compact dialog-close" type="button">Close</button>
       </header>
       <input id="interaction-step-id" type="hidden">
-      <label>Turn number<input id="interaction-step-number" type="number" min="1" step="1" required></label>
-      <label>Opening text<textarea id="interaction-step-opening" rows="4" required maxlength="10000" placeholder="The consistent way this turn begins."></textarea></label>
-      <label>Agent instructions <span class="field-hint">optional</span><textarea id="interaction-step-instructions" rows="8" maxlength="50000" placeholder="How to collect answers, when the turn is complete, and which tools place the information in its destination."></textarea></label>
+      <label>Exchange number<input id="interaction-step-number" type="number" min="1" step="1" required></label>
+      <label>Opening<textarea id="interaction-step-opening" rows="4" required maxlength="10000" placeholder="What the agent says to begin this exchange."></textarea></label>
+      <label>Agent instructions <span class="field-hint">optional</span><textarea id="interaction-step-instructions" rows="8" maxlength="50000" placeholder="How to handle the exchange, when it is complete, and which tools place the information in its destination."></textarea></label>
       <div class="editor-grid">
         <label>Completion rule<select id="interaction-step-completion-mode">
           <option value="response_valid">Advance when answers are valid</option>
           <option value="user_advances">Advance when the user says to continue</option>
           <option value="tool_receipt">Advance after a successful tool result</option>
         </select></label>
-        <label class="checkbox-row interaction-step-enabled"><input id="interaction-step-enabled" type="checkbox" checked><span>Turn is enabled</span></label>
+        <label class="checkbox-row interaction-step-enabled"><input id="interaction-step-enabled" type="checkbox" checked><span>Exchange is enabled</span></label>
       </div>
       <p id="interaction-step-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>
-        <button type="submit">Save turn</button>
+        <button type="submit">Save exchange</button>
       </footer>
     </form>
   </dialog>
@@ -951,7 +951,7 @@
               <span>Select for video</span>
             </label>
             <button class="download-video secondary compact" type="button" hidden>Download legacy MP4</button>
-            <button class="save-structured-interaction secondary compact" type="button" hidden>Save as structured interaction</button>
+            <button class="save-structured-interaction secondary compact" type="button" hidden>Create briefing from exchange</button>
             <button class="show-trace secondary compact" type="button">Show exact trace</button>
           </div>
         </div>

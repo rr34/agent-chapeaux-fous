@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 const guideStatuses = new Set(["active", "archived"]);
 const completionModes = new Set(["response_valid", "user_advances", "tool_receipt"]);
 
-function identifier(value, label = "Interaction guide ID") {
+function identifier(value, label = "Briefing ID") {
   const result = Number(value);
   if (!Number.isSafeInteger(result) || result < 1) throw new Error(`${label} must be a positive integer`);
   return result;
@@ -80,10 +80,10 @@ export class InteractionGuides {
 
   list({ status = "active", limit = 200 } = {}) {
     if (status !== "all" && !guideStatuses.has(status)) {
-      throw new Error(`Unknown interaction guide status: ${status}`);
+      throw new Error(`Unknown briefing status: ${status}`);
     }
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
-      throw new Error("Interaction guide limit must be an integer from 1 through 500");
+      throw new Error("Briefing limit must be an integer from 1 through 500");
     }
     const rows = this.store.requireReady().prepare(`
       SELECT interaction_guide_id, name, status, version, created_at_utc, updated_at_utc
@@ -123,15 +123,15 @@ export class InteractionGuides {
   #guideForDefinitionEdit(database, guideId, expectedVersion) {
     const selectedId = identifier(guideId);
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
-      throw new Error("Expected interaction guide version must be a positive integer");
+      throw new Error("Expected briefing version must be a positive integer");
     }
     const guide = database.prepare(
       "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
     ).get(selectedId);
-    if (!guide) throw new Error(`Interaction guide ${selectedId} does not exist`);
-    if (guide.status !== "active") throw conflict("Archived interaction guides cannot be changed");
+    if (!guide) throw new Error(`Briefing ${selectedId} does not exist`);
+    if (guide.status !== "active") throw conflict("Archived briefings cannot be changed");
     if (Number(guide.version) !== expectedVersion) {
-      throw conflict("This interaction guide changed after it was read. Fetch it again before updating it.");
+      throw conflict("This briefing changed after it was read. Fetch it again before updating it.");
     }
     const activeRun = this.#activeRun(database, selectedId);
     if (activeRun) {
@@ -148,7 +148,7 @@ export class InteractionGuides {
       WHERE interaction_guide_id = ? AND version = ?
       RETURNING *
     `).get(guideId, expectedVersion);
-    if (!guide) throw conflict("This interaction guide changed while its steps were being updated");
+    if (!guide) throw conflict("This briefing changed while its exchanges were being updated");
     return guide;
   }
 
@@ -186,7 +186,7 @@ export class InteractionGuides {
     const hasId = guideId !== null && guideId !== undefined;
     const selectedName = name == null ? null : String(name).trim();
     if (hasId === Boolean(selectedName)) {
-      throw new Error("Supply exactly one of interaction guide ID or name");
+      throw new Error("Supply exactly one briefing ID or name");
     }
     const row = hasId
       ? this.store.requireReady().prepare(
@@ -215,12 +215,12 @@ export class InteractionGuides {
     guideId, expectedVersion, stepNumber, openingText,
     instructionsText = null, completionMode = "response_valid", enabled = true,
   }, context = {}) {
-    const selectedStepNumber = identifier(stepNumber, "Interaction guide step number");
+    const selectedStepNumber = identifier(stepNumber, "Briefing exchange number");
     if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
     if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
     const values = {
-      openingText: requiredText(openingText, "Interaction guide step opening text", 10_000),
-      instructionsText: optionalText(instructionsText, "Interaction guide step instructions", 50_000),
+      openingText: requiredText(openingText, "Briefing exchange opening", 10_000),
+      instructionsText: optionalText(instructionsText, "Briefing exchange instructions", 50_000),
     };
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
@@ -243,8 +243,8 @@ export class InteractionGuides {
       this.ledger.append({
         type: "interaction_guide.step_added", status: "complete",
         ...ledgerActor(context, "interaction_guide_step_add"), turnId: context.requestId,
-        operationId: context.callId, name: "Interaction guide step added",
-        content: `${guide.name} step ${step.stepNumber}`,
+        operationId: context.callId, name: "Briefing exchange added",
+        content: `${guide.name} exchange ${step.stepNumber}`,
         payload: { guide, step }, subjectType: "interaction_guide", subjectId: String(guide.id),
       });
       database.exec("COMMIT");
@@ -259,13 +259,13 @@ export class InteractionGuides {
     stepId, expectedVersion, stepNumber, openingText,
     instructionsText, completionMode, enabled,
   }, context = {}) {
-    const selectedStepId = identifier(stepId, "Interaction guide step ID");
-    const selectedStepNumber = identifier(stepNumber, "Interaction guide step number");
+    const selectedStepId = identifier(stepId, "Briefing exchange ID");
+    const selectedStepNumber = identifier(stepNumber, "Briefing exchange number");
     if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
     if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
     const values = {
-      openingText: requiredText(openingText, "Interaction guide step opening text", 10_000),
-      instructionsText: optionalText(instructionsText, "Interaction guide step instructions", 50_000),
+      openingText: requiredText(openingText, "Briefing exchange opening", 10_000),
+      instructionsText: optionalText(instructionsText, "Briefing exchange instructions", 50_000),
     };
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
@@ -273,7 +273,7 @@ export class InteractionGuides {
       const before = database.prepare(
         "SELECT * FROM interaction_guide_steps WHERE interaction_guide_step_id = ?",
       ).get(selectedStepId);
-      if (!before) throw new Error(`Interaction guide step ${selectedStepId} does not exist`);
+      if (!before) throw new Error(`Briefing exchange ${selectedStepId} does not exist`);
       const guideBefore = this.#guideForDefinitionEdit(
         database, before.interaction_guide_id, expectedVersion,
       );
@@ -295,8 +295,8 @@ export class InteractionGuides {
       this.ledger.append({
         type: "interaction_guide.step_updated", status: "complete",
         ...ledgerActor(context, "interaction_guide_step_update"), turnId: context.requestId,
-        operationId: context.callId, name: "Interaction guide step updated",
-        content: `${guide.name} step ${step.stepNumber}`,
+        operationId: context.callId, name: "Briefing exchange updated",
+        content: `${guide.name} exchange ${step.stepNumber}`,
         payload: { before: publicStep(before), guide, step },
         subjectType: "interaction_guide", subjectId: String(guide.id),
       });
@@ -311,15 +311,15 @@ export class InteractionGuides {
   begin({ guideId = null, name = null, restart = false } = {}, context = {}) {
     if (typeof restart !== "boolean") throw new Error("Restart must be true or false");
     const guide = this.get({ guideId, name });
-    if (!guide) throw new Error("Interaction guide not found");
-    if (guide.status !== "active") throw conflict("Archived interaction guides cannot be started");
+    if (!guide) throw new Error("Briefing not found");
+    if (guide.status !== "active") throw conflict("Archived briefings cannot be started");
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
     try {
       const activeRun = this.#activeRun(database, guide.id);
       if (activeRun && !restart) {
         if (Number(activeRun.guideVersion) !== guide.version) {
-          throw conflict("The active run uses a different guide version and must be restarted");
+          throw conflict("The active briefing uses a different version and must be restarted");
         }
         const current = this.#currentRunStep(database, activeRun.id, guide.id);
         database.exec("COMMIT");
@@ -333,13 +333,13 @@ export class InteractionGuides {
         this.ledger.append({
           type: "interaction_guide.run_cancelled", status: "cancelled",
           ...ledgerActor(context, "interaction_guide_start"), turnId: context.requestId,
-          operationId: context.callId, name: "Structured interaction restarted",
+          operationId: context.callId, name: "Briefing restarted",
           content: guide.name, payload: { interactionGuideId: guide.id, reason: "restart" },
           subjectType: "interaction_guide_run", subjectId: activeRun.id,
         });
       }
       const enabledSteps = this.#steps(database, guide.id, { enabledOnly: true });
-      if (!enabledSteps.length) throw conflict("This interaction guide has no enabled steps");
+      if (!enabledSteps.length) throw conflict("This briefing has no enabled exchanges");
       database.prepare(`
         UPDATE interaction_guide_steps
         SET answers_json = '{}', progress_state = 'pending',
@@ -361,7 +361,7 @@ export class InteractionGuides {
       this.ledger.append({
         type: "interaction_guide.run_started", status: "processing",
         ...ledgerActor(context, "interaction_guide_start"), turnId: context.requestId,
-        operationId: context.callId, name: "Structured interaction started",
+        operationId: context.callId, name: "Briefing started",
         content: guide.name,
         payload: {
           interactionGuideId: guide.id, guideVersion: guide.version,
@@ -396,8 +396,8 @@ export class InteractionGuides {
     runId, stepNumber, answers, stepComplete,
     userConfirmedAdvance = false, completionReceiptEventSeq = null,
   }, context = {}) {
-    const selectedRunId = requiredText(runId, "Structured interaction run ID", 100);
-    const selectedStepNumber = identifier(stepNumber, "Interaction guide step number");
+    const selectedRunId = requiredText(runId, "Briefing run ID", 100);
+    const selectedStepNumber = identifier(stepNumber, "Briefing exchange number");
     if (typeof stepComplete !== "boolean") throw new Error("Step complete must be true or false");
     if (typeof userConfirmedAdvance !== "boolean") throw new Error("User confirmed advance must be true or false");
     const suppliedAnswers = answersObject(answers).value;
@@ -410,7 +410,7 @@ export class InteractionGuides {
           AND subject_type = 'interaction_guide_run' AND subject_id = ?
         ORDER BY event_seq DESC LIMIT 1
       `).get(selectedRunId);
-      if (!startedRow) throw new Error(`Structured interaction run ${selectedRunId} does not exist`);
+      if (!startedRow) throw new Error(`Briefing run ${selectedRunId} does not exist`);
       const terminal = database.prepare(`
         SELECT event_type FROM activity_events
         WHERE subject_type = 'interaction_guide_run' AND subject_id = ?
@@ -423,7 +423,7 @@ export class InteractionGuides {
         "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
       ).get(started.interactionGuideId);
       if (!guide || Number(guide.version) !== Number(started.guideVersion)) {
-        throw conflict("The guide definition changed after this run started; restart it before continuing");
+        throw conflict("The briefing definition changed after this run started; restart it before continuing");
       }
       const current = this.#currentRunStep(database, selectedRunId, guide.interaction_guide_id);
       if (!current) throw conflict("This structured-interaction run has no remaining enabled step");
@@ -434,15 +434,15 @@ export class InteractionGuides {
       const mergedAnswers = { ...beforeAnswers, ...suppliedAnswers };
       const normalizedAnswers = answersObject(mergedAnswers);
       if (stepComplete && current.completion_mode === "response_valid" && Object.keys(mergedAnswers).length === 0) {
-        throw conflict("A response-valid step needs at least one recorded answer before completion");
+        throw conflict("A response-valid exchange needs at least one recorded answer before completion");
       }
       if (stepComplete && current.completion_mode === "user_advances" && !userConfirmedAdvance) {
-        throw conflict("This step advances only after the user explicitly says to continue");
+        throw conflict("This exchange advances only after the user explicitly says to continue");
       }
       let completionReceipt = null;
       if (stepComplete && current.completion_mode === "tool_receipt") {
         if (!Number.isSafeInteger(completionReceiptEventSeq) || completionReceiptEventSeq < 1) {
-          throw conflict("This step needs the successful tool-result event number that proves completion");
+          throw conflict("This exchange needs the successful tool-result event number that proves completion");
         }
         completionReceipt = database.prepare(`
           SELECT event_seq, event_id, event_type, status, name, turn_id
@@ -468,8 +468,8 @@ export class InteractionGuides {
         status: stepComplete ? "complete" : "processing",
         ...ledgerActor(context, "interaction_guide_step_answer"), turnId: context.requestId,
         operationId: context.callId,
-        name: stepComplete ? "Structured interaction step completed" : "Structured interaction answers recorded",
-        content: `${guide.name} step ${selectedStepNumber}`,
+        name: stepComplete ? "Briefing exchange completed" : "Briefing answers recorded",
+        content: `${guide.name} exchange ${selectedStepNumber}`,
         payload: {
           interactionGuideId: Number(guide.interaction_guide_id), stepNumber: selectedStepNumber,
           answers: mergedAnswers, completionMode: current.completion_mode,
@@ -495,7 +495,7 @@ export class InteractionGuides {
         this.ledger.append({
           type: "interaction_guide.run_completed", status: "complete",
           ...ledgerActor(context, "interaction_guide_step_answer"), turnId: context.requestId,
-          operationId: context.callId, name: "Structured interaction completed",
+          operationId: context.callId, name: "Briefing completed",
           content: guide.name,
           payload: { interactionGuideId: Number(guide.interaction_guide_id), guideVersion: Number(guide.version) },
           subjectType: "interaction_guide_run", subjectId: selectedRunId,
@@ -518,8 +518,8 @@ export class InteractionGuides {
   }
 
   cancelRun({ runId, reason }, context = {}) {
-    const selectedRunId = requiredText(runId, "Structured interaction run ID", 100);
-    const selectedReason = requiredText(reason, "Structured interaction cancellation reason", 1_000);
+    const selectedRunId = requiredText(runId, "Briefing run ID", 100);
+    const selectedReason = requiredText(reason, "Briefing cancellation reason", 1_000);
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
     try {
@@ -529,7 +529,7 @@ export class InteractionGuides {
           AND subject_type = 'interaction_guide_run' AND subject_id = ?
         ORDER BY event_seq DESC LIMIT 1
       `).get(selectedRunId);
-      if (!startedRow) throw new Error(`Structured interaction run ${selectedRunId} does not exist`);
+      if (!startedRow) throw new Error(`Briefing run ${selectedRunId} does not exist`);
       const terminal = database.prepare(`
         SELECT event_type FROM activity_events
         WHERE subject_type = 'interaction_guide_run' AND subject_id = ?
@@ -544,7 +544,7 @@ export class InteractionGuides {
       this.ledger.append({
         type: "interaction_guide.run_cancelled", status: "cancelled",
         ...ledgerActor(context, "interaction_guide_run_cancel"), turnId: context.requestId,
-        operationId: context.callId, name: "Structured interaction cancelled",
+        operationId: context.callId, name: "Briefing cancelled",
         content: guide?.name ?? selectedRunId,
         payload: { interactionGuideId: Number(started.interactionGuideId), reason: selectedReason },
         subjectType: "interaction_guide_run", subjectId: selectedRunId,
@@ -573,14 +573,14 @@ export class InteractionGuides {
   }
 
   create({ name }, context = {}) {
-    const selectedName = requiredText(name, "Interaction guide name", 200);
+    const selectedName = requiredText(name, "Briefing name", 200);
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
     try {
       const existing = database.prepare(
         "SELECT * FROM interaction_guides WHERE name = ? COLLATE NOCASE",
       ).get(selectedName);
-      if (existing) throw conflict(`An interaction guide named "${selectedName}" already exists`);
+      if (existing) throw conflict(`A briefing named "${selectedName}" already exists`);
       const row = database.prepare(`
         INSERT INTO interaction_guides (name)
         VALUES (?)
@@ -590,7 +590,7 @@ export class InteractionGuides {
       this.ledger.append({
         type: "interaction_guide.created", status: "complete",
         ...ledgerActor(context, "interaction_guide_create"), turnId: context.requestId,
-        operationId: context.callId, name: "Interaction guide created",
+        operationId: context.callId, name: "Briefing created",
         content: guide.name, payload: { guide }, subjectType: "interaction_guide",
         subjectId: String(guide.id),
       });
@@ -605,7 +605,7 @@ export class InteractionGuides {
   update({ guideId, expectedVersion, name }, context = {}) {
     const selectedId = identifier(guideId);
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
-      throw new Error("Expected interaction guide version must be a positive integer");
+      throw new Error("Expected briefing version must be a positive integer");
     }
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
@@ -613,14 +613,14 @@ export class InteractionGuides {
       const beforeRow = database.prepare(
         "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
       ).get(selectedId);
-      if (!beforeRow) throw new Error(`Interaction guide ${selectedId} does not exist`);
+      if (!beforeRow) throw new Error(`Briefing ${selectedId} does not exist`);
       if (Number(beforeRow.version) !== expectedVersion) {
-        throw conflict("This interaction guide changed after it was read. Fetch it again before updating it.");
+        throw conflict("This briefing changed after it was read. Fetch it again before updating it.");
       }
       if (this.#activeRun(database, selectedId)) {
         throw conflict("Finish or cancel the active structured-interaction run before changing its definition");
       }
-      const selectedName = requiredText(name, "Interaction guide name", 200);
+      const selectedName = requiredText(name, "Briefing name", 200);
       if (selectedName === beforeRow.name) {
         database.exec("COMMIT");
         return { updated: false, unchanged: true, guide: publicGuide(beforeRow) };
@@ -629,7 +629,7 @@ export class InteractionGuides {
         SELECT interaction_guide_id FROM interaction_guides
         WHERE name = ? COLLATE NOCASE AND interaction_guide_id <> ?
       `).get(selectedName, selectedId);
-      if (duplicate) throw conflict(`An interaction guide named "${selectedName}" already exists`);
+      if (duplicate) throw conflict(`A briefing named "${selectedName}" already exists`);
       const row = database.prepare(`
         UPDATE interaction_guides
         SET name = ?, version = version + 1,
@@ -637,13 +637,13 @@ export class InteractionGuides {
         WHERE interaction_guide_id = ? AND version = ?
         RETURNING *
       `).get(selectedName, selectedId, expectedVersion);
-      if (!row) throw conflict("This interaction guide changed while it was being updated");
+      if (!row) throw conflict("This briefing changed while it was being updated");
       const before = publicGuide(beforeRow);
       const guide = publicGuide(row);
       this.ledger.append({
         type: "interaction_guide.updated", status: "complete",
         ...ledgerActor(context, "interaction_guide_update"), turnId: context.requestId,
-        operationId: context.callId, name: "Interaction guide updated",
+        operationId: context.callId, name: "Briefing updated",
         content: guide.name, payload: { before, guide }, subjectType: "interaction_guide",
         subjectId: String(guide.id),
       });
@@ -658,7 +658,7 @@ export class InteractionGuides {
   archive({ guideId, expectedVersion }, context = {}) {
     const selectedId = identifier(guideId);
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
-      throw new Error("Expected interaction guide version must be a positive integer");
+      throw new Error("Expected briefing version must be a positive integer");
     }
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
@@ -666,12 +666,12 @@ export class InteractionGuides {
       const before = database.prepare(
         "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
       ).get(selectedId);
-      if (!before) throw new Error(`Interaction guide ${selectedId} does not exist`);
+      if (!before) throw new Error(`Briefing ${selectedId} does not exist`);
       if (Number(before.version) !== expectedVersion) {
-        throw conflict("This interaction guide changed after it was read. Fetch it again before archiving it.");
+        throw conflict("This briefing changed after it was read. Fetch it again before archiving it.");
       }
       if (this.#activeRun(database, selectedId)) {
-        throw conflict("Finish or cancel the active structured-interaction run before archiving its guide");
+        throw conflict("Finish or cancel the active briefing before archiving it");
       }
       if (before.status === "archived") {
         database.exec("COMMIT");
@@ -682,7 +682,7 @@ export class InteractionGuides {
         WHERE interaction_guide_id = ? AND disabled_at_utc IS NULL
       `).get(selectedId);
       if (Number(linked.count) > 0) {
-        throw conflict("Disable or unlink the active repeating to-dos that use this interaction guide before archiving it");
+        throw conflict("Disable or unlink the active repeating to-dos that use this briefing before archiving it");
       }
       const row = database.prepare(`
         UPDATE interaction_guides
@@ -691,12 +691,12 @@ export class InteractionGuides {
         WHERE interaction_guide_id = ? AND version = ?
         RETURNING *
       `).get(selectedId, expectedVersion);
-      if (!row) throw conflict("This interaction guide changed while it was being archived");
+      if (!row) throw conflict("This briefing changed while it was being archived");
       const guide = publicGuide(row);
       this.ledger.append({
         type: "interaction_guide.archived", status: "complete",
         ...ledgerActor(context, "interaction_guide_archive"), turnId: context.requestId,
-        operationId: context.callId, name: "Interaction guide archived",
+        operationId: context.callId, name: "Briefing archived",
         content: guide.name, payload: { guide }, subjectType: "interaction_guide",
         subjectId: String(guide.id),
       });

@@ -607,7 +607,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && interactionGuideMatch) {
       const guide = interactionGuides.get({ guideId: Number(interactionGuideMatch[1]) });
       if (!guide) {
-        throw Object.assign(new Error("Interaction guide not found"), { statusCode: 404 });
+        throw Object.assign(new Error("Briefing not found"), { statusCode: 404 });
       }
       sendJson(response, 200, { guide });
       return;

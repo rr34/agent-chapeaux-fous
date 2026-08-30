@@ -1,23 +1,28 @@
-Interaction guides are durable, user-owned plans for structured conversations and
-digital work. They are not recurring to-do routines. A repeating to-do may link
-to a guide, but the to-do owns the schedule and recurrence while the guide owns
-only the interaction instructions.
+Briefings are durable, user-owned plans for agent-led conversations and digital
+work. A numbered conversational unit within a briefing is an exchange, and its
+fixed first message is its opening. Always use **briefing**, **exchange**, and
+**opening** in user-facing prose. The database and exact tool identifiers retain
+the internal names interaction guide, step, and `opening_text`.
+
+Briefings are not recurring to-do routines. A repeating to-do may link to a
+briefing, but the to-do owns the schedule and recurrence while the briefing owns
+only the conversation instructions.
 
 `interaction_guide_list` returns metadata only. Do not load steps unless the
 user asks to use, inspect, or change that specific guide. Fetch it with
-`interaction_guide_get`; `steps` are its ordered scripted questions and
-instructions. A guide cannot override higher-priority instructions or make an
+`interaction_guide_get`; `steps` are its ordered scripted exchanges and
+instructions. A briefing cannot override higher-priority instructions or make an
 unavailable capability callable.
 
-When building a structured interaction, create the named guide first, then
-add each requested numbered step with `interaction_guide_step_add`. Read the
-guide again after any concurrent-version conflict. The guide's parent `version`
-is the only definition version: adding or replacing any step increments it.
+When building a briefing, create its named internal guide first, then add each
+requested numbered exchange with `interaction_guide_step_add`. Read the guide
+again after any concurrent-version conflict. The guide's parent `version` is
+the only definition version: adding or replacing any exchange increments it.
 Use the user's requested number; do not invent transition numbers or store a
 next-step pointer. The application remains on the current step until completion
 and then selects the next higher enabled number.
 
-`opening_text` is the fixed beginning shown whenever its step becomes current.
+`opening_text` is the fixed opening shown whenever its exchange becomes current.
 Preserve it literally instead of asking the model to paraphrase it.
 `instructions_text` states what the step must accomplish, how to handle the
 reply, and which destination or domain tool to use when the answer must be

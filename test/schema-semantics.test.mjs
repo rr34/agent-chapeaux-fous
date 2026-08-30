@@ -147,7 +147,7 @@ test("structured database reads return an exact schema-semantic projection", asy
       limit: 20,
       offset: 0,
     }),
-    /generic database reads do not load private guide or answer rows/,
+    /generic database reads do not load private briefing or answer rows/,
   );
   await assert.rejects(
     registry.execute("database_read", {
@@ -159,7 +159,7 @@ test("structured database reads return an exact schema-semantic projection", asy
       limit: 20,
       offset: 0,
     }),
-    /generic database reads do not load private guide or answer rows/,
+    /generic database reads do not load private briefing or answer rows/,
   );
 });
 

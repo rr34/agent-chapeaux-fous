@@ -34,9 +34,9 @@ export const nativeCapabilityManifests = [
     readOnlyTools: ["log_list", "tracker_list"],
   },
   {
-    id: "interaction-guides", title: "Interaction guides",
-    summary: "Build and run numbered, resumable user-owned scripts for structured interactions.",
-    aliases: ["interaction guide", "guided interaction", "structured conversation", "structured interaction"], instructionFile: "interaction-guides.md",
+    id: "interaction-guides", title: "Briefings",
+    summary: "Build and conduct resumable, agent-led briefings made of ordered exchanges and openings.",
+    aliases: ["briefing", "exchange", "opening", "interaction guide", "guided interaction", "structured conversation", "structured interaction"], instructionFile: "interaction-guides.md",
     readOnlyTools: ["interaction_guide_list", "interaction_guide_get"],
   },
   {

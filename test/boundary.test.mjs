@@ -145,12 +145,12 @@ test("the todo editor builds recurrence without exposing an RRULE input", () => 
   assert.doesNotMatch(document, /Routine RRULE|todo-recurrence-rule/);
 });
 
-test("structured interactions have a dedicated management page without a second execution path", () => {
+test("briefings have a dedicated management page without a second execution path", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
 
-  assert.match(document, /data-view="interactions"[^>]*>Structured Interactions<\/button>/);
+  assert.match(document, /data-view="interactions"[^>]*>Briefings<\/button>/);
   assert.match(document, /id="interactions-view"/);
   assert.match(document, /id="interaction-guide-list"/);
   assert.match(document, /id="interaction-guide-detail"/);
@@ -159,11 +159,13 @@ test("structured interactions have a dedicated management page without a second 
   assert.match(document, /id="interaction-step-opening"/);
   assert.match(document, /id="interaction-step-instructions"/);
   assert.doesNotMatch(document, /id="interaction-guide-text"|id="interaction-step-name"|id="interaction-step-objective"/);
-  assert.match(document, /class="save-structured-interaction secondary compact"[^>]*>Save as structured interaction<\/button>/);
+  assert.match(document, /class="save-structured-interaction secondary compact"[^>]*>Create briefing from exchange<\/button>/);
+  assert.match(document, />Briefing exchange<\/p>/);
+  assert.match(document, /<label>Opening<textarea/);
   assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
   assert.match(application, /function renderInteractionGuideDetail/);
   assert.match(application, /function openInteractionStepEditor/);
-  assert.match(application, /Start or resume structured interaction guide/);
+  assert.match(application, /Start or resume briefing/);
   assert.match(application, /function saveAsStructuredInteraction/);
   assert.match(application, /structuredGenerationStatuses/);
   assert.match(application, /api\("\/api\/requests"/);

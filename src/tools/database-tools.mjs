@@ -69,7 +69,7 @@ export function registerDatabaseTools(
     },
     async execute(argumentsObject, context) {
       if (["interaction_guides", "interaction_guide_steps"].includes(argumentsObject.objectName)) {
-        throw new Error("Use the focused interaction-guide tools for one explicitly requested guide; generic database reads do not load private guide or answer rows");
+        throw new Error("Use the focused briefing tools for one explicitly requested briefing; generic database reads do not load private briefing or answer rows");
       }
       const schemaProjection = projection(schemaSemantics, {
         name: "bounded_database_read",

@@ -1291,10 +1291,10 @@ async function saveAsStructuredInteraction(requestId, button) {
     });
     pendingRunLimits = null;
     updateRunLimitsSummary();
-    elements.status.textContent = `Structured-interaction request ${created.requestId.slice(0, 8)} queued from request ${requestId.slice(0, 8)}.`;
+    elements.status.textContent = `Briefing creation request ${created.requestId.slice(0, 8)} queued from exchange ${requestId.slice(0, 8)}.`;
     await loadRequests({ force: true, followLatest: true });
   } catch (error) {
-    elements.status.textContent = error.message || "Could not create the structured interaction.";
+    elements.status.textContent = error.message || "Could not create the briefing.";
     button.textContent = original;
     button.disabled = false;
   }
@@ -1412,12 +1412,12 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   const generationStatus = structuredGenerationStatus?.status ?? null;
   structuredButton.disabled = generationStatus === "queued" || generationStatus === "processing";
   structuredButton.textContent = generationStatus === "complete"
-    ? "Open structured interaction"
+    ? "Open briefing"
     : generationStatus === "queued" || generationStatus === "processing"
-      ? "Creating structured interaction…"
+      ? "Creating briefing…"
       : generationStatus === "error"
-        ? "Retry as structured interaction"
-        : "Save as structured interaction";
+        ? "Retry briefing creation"
+        : "Create briefing from exchange";
   if (structuredGenerationStatus?.guideId) {
     structuredButton.dataset.guideId = String(structuredGenerationStatus.guideId);
   } else {
@@ -2095,7 +2095,7 @@ function agendaTodoItem(todo, timing) {
     item.append(button);
     if (todo.interactionGuideId != null && todo.interactionGuideStatus === "active"
         && ["todo", "ai_suggested"].includes(todo.status)) {
-      const startGuide = node("button", "secondary compact agenda-event-copy", "Start guide");
+      const startGuide = node("button", "secondary compact agenda-event-copy", "Start briefing");
       startGuide.type = "button";
       startGuide.addEventListener("click", () => void startTodoInteractionGuide(todo, startGuide));
       item.append(startGuide);
@@ -2692,7 +2692,7 @@ function renderTodos() {
         metadata.append(node(
           "span",
           "todo-pill",
-          `guide: ${todo.interactionGuideName ?? `#${todo.interactionGuideId}`}`,
+          `briefing: ${todo.interactionGuideName ?? `#${todo.interactionGuideId}`}`,
         ));
       }
       body.append(metadata);
@@ -2721,7 +2721,7 @@ function renderTodos() {
       edit.addEventListener("click", () => openTodoEditor(todo));
       if (todo.interactionGuideId != null && todo.interactionGuideStatus === "active"
           && ["todo", "ai_suggested"].includes(todo.status)) {
-        const startGuide = node("button", "secondary compact", "Start guide");
+        const startGuide = node("button", "secondary compact", "Start briefing");
         startGuide.type = "button";
         startGuide.addEventListener("click", () => void startTodoInteractionGuide(todo, startGuide));
         actions.append(startGuide);
@@ -2912,7 +2912,7 @@ function populateTodoContactEditor(todo = null) {
 }
 
 function populateTodoGuideEditor(todo = null) {
-  elements.todoInteractionGuide.replaceChildren(node("option", "", "No guide"));
+  elements.todoInteractionGuide.replaceChildren(node("option", "", "No briefing"));
   elements.todoInteractionGuide.firstElementChild.value = "";
   for (const guide of todoGuides) {
     const option = node("option", "", guide.name);
@@ -2923,7 +2923,7 @@ function populateTodoGuideEditor(todo = null) {
       && !todoGuides.some(({ id }) => id === todo.interactionGuideId)) {
     const option = node(
       "option", "",
-      `${todo.interactionGuideName ?? `Guide #${todo.interactionGuideId}`} (${todo.interactionGuideStatus ?? "unavailable"})`,
+      `${todo.interactionGuideName ?? `Briefing #${todo.interactionGuideId}`} (${todo.interactionGuideStatus ?? "unavailable"})`,
     );
     option.value = String(todo.interactionGuideId);
     elements.todoInteractionGuide.append(option);
@@ -2942,7 +2942,7 @@ async function startTodoInteractionGuide(todo, button) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text: `Start interaction guide ${todo.interactionGuideId} ("${todo.interactionGuideName}") associated with to-do ${todo.id}.`,
+        text: `Start briefing ${todo.interactionGuideId} ("${todo.interactionGuideName}") associated with to-do ${todo.id}. Follow its ordered exchanges and use each opening exactly.`,
       }),
     });
     expectSpokenResponse(created.requestId, respondSilently);
@@ -2950,7 +2950,7 @@ async function startTodoInteractionGuide(todo, button) {
     switchView("agent");
     await loadRequests({ force: true, followLatest: true });
   } catch (error) {
-    window.alert(error.message || "Could not start the interaction guide.");
+    window.alert(error.message || "Could not start the briefing.");
     button.disabled = false;
   }
 }
@@ -4025,7 +4025,7 @@ const interactionProgressLabels = {
   completed: "Completed",
 };
 
-function renderInteractionGuideEmpty(title = "Select a structured interaction", message = "Choose a brief to review its numbered turns, or create a new one.") {
+function renderInteractionGuideEmpty(title = "Select a briefing", message = "Choose a briefing to review its exchanges, or create a new one.") {
   const empty = node("div", "interaction-detail-empty");
   empty.append(
     node("p", "eyebrow", "Definition"),
@@ -4037,9 +4037,9 @@ function renderInteractionGuideEmpty(title = "Select a structured interaction", 
 
 function renderInteractionGuideList() {
   elements.interactionGuideList.replaceChildren();
-  elements.interactionGuideCount.textContent = `${interactionGuideSummaries.length} ${interactionGuideSummaries.length === 1 ? "brief" : "briefs"}`;
+  elements.interactionGuideCount.textContent = `${interactionGuideSummaries.length} ${interactionGuideSummaries.length === 1 ? "briefing" : "briefings"}`;
   if (interactionGuideSummaries.length === 0) {
-    elements.interactionGuideList.append(node("p", "empty interaction-list-empty", "No structured interactions in this view."));
+    elements.interactionGuideList.append(node("p", "empty interaction-list-empty", "No briefings in this view."));
     return;
   }
   for (const guide of interactionGuideSummaries) {
@@ -4050,7 +4050,7 @@ function renderInteractionGuideList() {
     const title = node("strong", "", guide.name);
     const metadata = node("span", "interaction-guide-list-meta");
     metadata.textContent = guide.activeRun
-      ? `Turn ${guide.activeRun.currentStepNumber ?? "—"} in progress · version ${guide.version}`
+      ? `Exchange ${guide.activeRun.currentStepNumber ?? "—"} in progress · version ${guide.version}`
       : `${guide.status} · version ${guide.version}`;
     button.append(title, metadata);
     button.addEventListener("click", () => void loadInteractionGuide(guide.id));
@@ -4069,27 +4069,27 @@ function renderInteractionGuideDetail() {
   const header = node("header", "interaction-detail-heading");
   const identity = node("div", "interaction-detail-identity");
   identity.append(
-    node("p", "eyebrow", guide.activeRun ? "Conversation in progress" : "Structured interaction brief"),
+    node("p", "eyebrow", guide.activeRun ? "Briefing in progress" : "Agent-led briefing"),
     node("h3", "", guide.name),
-    node("p", "interaction-guide-meta", `${guide.status} · version ${guide.version} · ${guide.steps.length} ${guide.steps.length === 1 ? "turn" : "turns"}`),
+    node("p", "interaction-guide-meta", `${guide.status} · version ${guide.version} · ${guide.steps.length} ${guide.steps.length === 1 ? "exchange" : "exchanges"}`),
   );
   const actions = node("div", "interaction-detail-actions");
   if (guide.status === "active") {
     const start = node("button", "", guide.activeRun ? "Resume in Agent" : "Start in Agent");
     start.type = "button";
     start.disabled = !guide.steps.some(({ enabled }) => enabled);
-    if (start.disabled) start.title = "Add and enable at least one turn before starting.";
+    if (start.disabled) start.title = "Add and enable at least one exchange before starting.";
     start.addEventListener("click", () => void startInteractionGuide(guide, start));
     actions.append(start);
   }
-  const edit = node("button", "secondary", "Edit brief");
+  const edit = node("button", "secondary", "Edit briefing");
   edit.type = "button";
   edit.disabled = !editable;
-  if (!editable) edit.title = guide.activeRun ? "Cancel or finish the active conversation before editing." : "Archived briefs cannot be edited.";
+  if (!editable) edit.title = guide.activeRun ? "Cancel or finish the active briefing before editing." : "Archived briefings cannot be edited.";
   edit.addEventListener("click", () => openInteractionGuideEditor(guide));
   actions.append(edit);
   if (guide.activeRun) {
-    const cancel = node("button", "danger", "Cancel run");
+    const cancel = node("button", "danger", "Cancel briefing");
     cancel.type = "button";
     cancel.addEventListener("click", () => void cancelInteractionGuideRun(guide, cancel));
     actions.append(cancel);
@@ -4099,16 +4099,16 @@ function renderInteractionGuideDetail() {
   const turns = node("section", "interaction-turns");
   const turnsHeading = node("header", "interaction-turns-heading");
   const turnsTitle = node("div");
-  turnsTitle.append(node("p", "eyebrow", "Script"), node("h4", "", "Numbered turns"));
-  const add = node("button", "secondary compact", "Add turn");
+  turnsTitle.append(node("p", "eyebrow", "Conversation structure"), node("h4", "", "Exchanges"));
+  const add = node("button", "secondary compact", "Add exchange");
   add.type = "button";
   add.disabled = !editable;
-  if (!editable) add.title = guide.activeRun ? "Cancel or finish the active conversation before editing." : "Archived briefs cannot be edited.";
+  if (!editable) add.title = guide.activeRun ? "Cancel or finish the active briefing before editing." : "Archived briefings cannot be edited.";
   add.addEventListener("click", () => openInteractionStepEditor());
   turnsHeading.append(turnsTitle, add);
   turns.append(turnsHeading);
   if (guide.steps.length === 0) {
-    turns.append(node("p", "empty", "No numbered turns yet. Add turn 1 to make this brief runnable."));
+    turns.append(node("p", "empty", "No exchanges yet. Add exchange 1 to make this briefing runnable."));
   } else {
     const list = node("div", "interaction-turn-list");
     for (const step of guide.steps) {
@@ -4155,7 +4155,7 @@ function renderInteractionGuideDetail() {
 
 async function loadInteractionGuide(guideId) {
   const sequence = ++interactionGuideLoadSequence;
-  elements.interactionGuideStatusMessage.textContent = "Loading structured interaction…";
+  elements.interactionGuideStatusMessage.textContent = "Loading briefing…";
   try {
     const body = await api(`/api/interaction-guides/${guideId}`);
     if (sequence !== interactionGuideLoadSequence) return;
@@ -4167,14 +4167,14 @@ async function loadInteractionGuide(guideId) {
     if (sequence !== interactionGuideLoadSequence) return;
     selectedInteractionGuide = null;
     renderInteractionGuideList();
-    renderInteractionGuideEmpty("Could not load this brief", error.message || "Structured interaction unavailable.");
-    elements.interactionGuideStatusMessage.textContent = error.message || "Structured interaction unavailable.";
+    renderInteractionGuideEmpty("Could not load this briefing", error.message || "Briefing unavailable.");
+    elements.interactionGuideStatusMessage.textContent = error.message || "Briefing unavailable.";
   }
 }
 
 async function refreshInteractionGuides({ selectId = selectedInteractionGuide?.id ?? null } = {}) {
   elements.refreshInteractionGuides.disabled = true;
-  elements.interactionGuideStatusMessage.textContent = "Loading structured interactions…";
+  elements.interactionGuideStatusMessage.textContent = "Loading briefings…";
   try {
     const status = elements.interactionGuideStatus.value;
     const body = await api(`/api/interaction-guides?status=${encodeURIComponent(status)}&limit=500`);
@@ -4195,8 +4195,8 @@ async function refreshInteractionGuides({ selectId = selectedInteractionGuide?.i
     interactionGuideSummaries = [];
     selectedInteractionGuide = null;
     renderInteractionGuideList();
-    renderInteractionGuideEmpty("Structured interactions unavailable", error.message || "Could not load structured interactions.");
-    elements.interactionGuideStatusMessage.textContent = error.message || "Could not load structured interactions.";
+    renderInteractionGuideEmpty("Briefings unavailable", error.message || "Could not load briefings.");
+    elements.interactionGuideStatusMessage.textContent = error.message || "Could not load briefings.";
   } finally {
     elements.refreshInteractionGuides.disabled = false;
   }
@@ -4205,7 +4205,7 @@ async function refreshInteractionGuides({ selectId = selectedInteractionGuide?.i
 function openInteractionGuideEditor(guide = null) {
   elements.interactionGuideForm.reset();
   elements.interactionGuideFormError.textContent = "";
-  elements.interactionGuideDialogTitle.textContent = guide ? "Edit brief" : "New brief";
+  elements.interactionGuideDialogTitle.textContent = guide ? "Edit briefing" : "New briefing";
   elements.interactionGuideId.value = guide?.id ?? "";
   elements.interactionGuideVersion.value = guide?.version ?? "";
   elements.interactionGuideName.value = guide?.name ?? "";
@@ -4232,9 +4232,9 @@ async function saveInteractionGuide(event) {
     });
     elements.interactionGuideDialog.close();
     await refreshInteractionGuides({ selectId: result.guide.id });
-    elements.interactionGuideStatusMessage.textContent = id ? "Brief updated." : "Brief created. Add its first numbered turn.";
+    elements.interactionGuideStatusMessage.textContent = id ? "Briefing updated." : "Briefing created. Add its first exchange.";
   } catch (error) {
-    elements.interactionGuideFormError.textContent = error.message || "Could not save the brief.";
+    elements.interactionGuideFormError.textContent = error.message || "Could not save the briefing.";
   } finally {
     submit.disabled = false;
   }
@@ -4242,7 +4242,7 @@ async function saveInteractionGuide(event) {
 
 async function archiveEditedInteractionGuide() {
   const id = Number(elements.interactionGuideId.value);
-  if (!id || !window.confirm("Archive this structured interaction brief?")) return;
+  if (!id || !window.confirm("Archive this briefing?")) return;
   elements.archiveInteractionGuide.disabled = true;
   elements.interactionGuideFormError.textContent = "";
   try {
@@ -4253,9 +4253,9 @@ async function archiveEditedInteractionGuide() {
     });
     elements.interactionGuideDialog.close();
     await refreshInteractionGuides({ selectId: null });
-    elements.interactionGuideStatusMessage.textContent = "Brief archived.";
+    elements.interactionGuideStatusMessage.textContent = "Briefing archived.";
   } catch (error) {
-    elements.interactionGuideFormError.textContent = error.message || "Could not archive the brief.";
+    elements.interactionGuideFormError.textContent = error.message || "Could not archive the briefing.";
   } finally {
     elements.archiveInteractionGuide.disabled = false;
   }
@@ -4266,7 +4266,7 @@ function openInteractionStepEditor(step = null) {
   if (!guide) return;
   elements.interactionStepForm.reset();
   elements.interactionStepFormError.textContent = "";
-  elements.interactionStepDialogTitle.textContent = step ? `Edit turn ${step.stepNumber}` : "New turn";
+  elements.interactionStepDialogTitle.textContent = step ? `Edit exchange ${step.stepNumber}` : "New exchange";
   elements.interactionStepId.value = step?.id ?? "";
   elements.interactionStepNumber.value = step?.stepNumber
     ?? Math.max(0, ...guide.steps.map(({ stepNumber }) => stepNumber)) + 1;
@@ -4302,9 +4302,9 @@ async function saveInteractionStep(event) {
     });
     elements.interactionStepDialog.close();
     await refreshInteractionGuides({ selectId: guide.id });
-    elements.interactionGuideStatusMessage.textContent = stepId ? "Turn updated." : "Turn added.";
+    elements.interactionGuideStatusMessage.textContent = stepId ? "Exchange updated." : "Exchange added.";
   } catch (error) {
-    elements.interactionStepFormError.textContent = error.message || "Could not save the turn.";
+    elements.interactionStepFormError.textContent = error.message || "Could not save the exchange.";
   } finally {
     submit.disabled = false;
   }
@@ -4319,7 +4319,7 @@ async function startInteractionGuide(guide, button) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text: `Start or resume structured interaction guide ${guide.id} ("${guide.name}"). Follow its numbered turns and persist each answer through the guide's structured-interaction tools.`,
+        text: `Start or resume briefing ${guide.id} ("${guide.name}"). Follow its ordered exchanges and persist each answer through the internal interaction-guide tools. Use the user-facing terms briefing, exchange, and opening.`,
       }),
     });
     expectSpokenResponse(created.requestId, respondSilently);
@@ -4327,13 +4327,13 @@ async function startInteractionGuide(guide, button) {
     switchView("agent");
     await loadRequests({ force: true, followLatest: true });
   } catch (error) {
-    window.alert(error.message || "Could not start the structured interaction.");
+    window.alert(error.message || "Could not start the briefing.");
     button.disabled = false;
   }
 }
 
 async function cancelInteractionGuideRun(guide, button) {
-  const reason = window.prompt("Why are you cancelling this structured interaction?", "Cancelled from the Structured Interactions page");
+  const reason = window.prompt("Why are you cancelling this briefing?", "Cancelled from the Briefings page");
   if (reason === null) return;
   if (!reason.trim()) {
     window.alert("A cancellation reason is required.");
@@ -4347,9 +4347,9 @@ async function cancelInteractionGuideRun(guide, button) {
       body: JSON.stringify({ reason }),
     });
     await refreshInteractionGuides({ selectId: guide.id });
-    elements.interactionGuideStatusMessage.textContent = "Conversation run cancelled. The brief can be edited again.";
+    elements.interactionGuideStatusMessage.textContent = "Briefing cancelled. It can be edited again.";
   } catch (error) {
-    window.alert(error.message || "Could not cancel the structured interaction.");
+    window.alert(error.message || "Could not cancel the briefing.");
     button.disabled = false;
   }
 }

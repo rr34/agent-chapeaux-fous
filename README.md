@@ -65,9 +65,9 @@ npm start
 Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and
 stores it only in that browser. The same client includes the Agent request
 feed, the calendar, the grouped to-do list, a searchable contacts address book,
-grouped personal logs with native entry creation, and a dedicated **Structured
-Interactions** screen for maintaining reusable conversation briefs and their
-numbered turns. Starting or resuming a brief from that screen queues a normal
+grouped personal logs with native entry creation, and a dedicated **Briefings**
+screen for maintaining reusable, agent-led conversations and their numbered
+exchanges. Starting or resuming a briefing from that screen queues a normal
 Agent request, so the conversation still passes through orientation, TurnBrief
 selection, exact tool schemas, and the literal trace. The screen itself is a
 domain-management page, not an additional model-callable tool. Contacts support
@@ -286,17 +286,17 @@ capability selector, which controls which exact tool schemas are callable.
   `interaction_guide_step_add`, `interaction_guide_step_update`,
   `interaction_guide_start`, `interaction_guide_step_answer`,
   `interaction_guide_run_cancel`, and
-  `interaction_guide_archive` manage durable user-owned plans for structured,
-  potentially multi-request interactions. A guide is a named, versioned
-  container for numbered scripted steps. Each step has a fixed opening, agent
+  `interaction_guide_archive` manage durable user-owned briefings for
+  potentially multi-request conversations. A briefing is a named, versioned
+  container for numbered exchanges. Each exchange has a fixed opening, agent
   instructions, JSON answers, explicit pending/active/completed progress, and a
   constrained completion mode. Current progress supports exact interruption
   and resumption; immutable run and answer history remains in the ledger. A
-  recurring to-do may link to a guide while continuing to own its schedule and
+  recurring to-do may link to a briefing while continuing to own its schedule and
   recurrence. Each successfully completed request exposes a save action that
   queues a normal traced agent turn to generalize that exact exchange into a
-  new guide and its minimal numbered steps; the resulting receipt links back to
-  the source request and opens the created guide from the original request card.
+  new briefing and its minimal numbered exchanges; the resulting receipt links back to
+  the source request and opens the created briefing from the original request card.
 - `database_schema` and paginated `database_read` are a small read-only core
   capability available on every model request, including access to the native
   activity ledger. `database_write` is a separately routed capability, so broad

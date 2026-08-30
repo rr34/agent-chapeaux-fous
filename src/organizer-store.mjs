@@ -2435,7 +2435,7 @@ export class OrganizerStore {
       recurrenceTimeZone: timeZone(input?.recurrenceTimeZone) ?? defaultCalendarTimeZone,
       interactionGuideId: input?.interactionGuideId == null
         ? null
-        : identifier(input.interactionGuideId, "interaction guide id"),
+        : identifier(input.interactionGuideId, "briefing id"),
     };
     const groupId = todo.groupId ?? this.database.prepare(
       "SELECT todo_group_id FROM todo_groups WHERE name = 'Inbox' COLLATE NOCASE",
@@ -2450,13 +2450,13 @@ export class OrganizerStore {
       throw new OrganizerInputError("A routine requires a scheduled date and time.");
     }
     if (todo.interactionGuideId !== null && !todo.recurrenceRule) {
-      throw new OrganizerInputError("An interaction guide can be linked only to a repeating to-do.");
+      throw new OrganizerInputError("A briefing can be linked only to a repeating to-do.");
     }
     if (todo.interactionGuideId !== null && !this.database.prepare(`
       SELECT 1 FROM interaction_guides
       WHERE interaction_guide_id = ? AND status = 'active'
     `).get(todo.interactionGuideId)) {
-      throw new OrganizerInputError("Active interaction guide not found.", 404);
+      throw new OrganizerInputError("Active briefing not found.", 404);
     }
     if (todo.isAllDay && !todo.scheduledAtUtc) {
       throw new OrganizerInputError("An all-day to-do requires a scheduled date.");
@@ -2698,9 +2698,9 @@ export class OrganizerStore {
       ? before.interactionGuideId
       : (input.interactionGuideId == null
         ? null
-        : identifier(input.interactionGuideId, "interaction guide id"));
+        : identifier(input.interactionGuideId, "briefing id"));
     if (!requestedRecurrenceRule && input.interactionGuideId != null) {
-      throw new OrganizerInputError("An interaction guide can be linked only to a repeating to-do.");
+      throw new OrganizerInputError("A briefing can be linked only to a repeating to-do.");
     }
     const after = {
       ...before,
@@ -2745,13 +2745,13 @@ export class OrganizerStore {
       throw new OrganizerInputError("A routine requires a scheduled date and time.");
     }
     if (after.interactionGuideId !== null && !after.recurrenceRule) {
-      throw new OrganizerInputError("An interaction guide can be linked only to a repeating to-do.");
+      throw new OrganizerInputError("A briefing can be linked only to a repeating to-do.");
     }
     if (after.interactionGuideId !== null && !this.database.prepare(`
       SELECT 1 FROM interaction_guides
       WHERE interaction_guide_id = ? AND status = 'active'
     `).get(after.interactionGuideId)) {
-      throw new OrganizerInputError("Active interaction guide not found.", 404);
+      throw new OrganizerInputError("Active briefing not found.", 404);
     }
     if (after.recurrenceRule) {
       try {

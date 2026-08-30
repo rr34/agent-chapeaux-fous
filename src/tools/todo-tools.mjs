@@ -337,7 +337,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal to-do item, optionally at an exact 1-based position in its group's manual sort order, associated with the exact contact it concerns, or with an all-day schedule or structured recurrence. A recurring to-do may link to one active interaction guide by exact ID; the to-do owns recurrence and the guide supplies only the interaction plan. Position 1 puts the new task at the top. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
+    description: "Add one native personal to-do item, optionally at an exact 1-based position in its group's manual sort order, associated with the exact contact it concerns, or with an all-day schedule or structured recurrence. A recurring to-do may link to one active briefing by exact ID; the to-do owns recurrence and the briefing supplies only the conversation plan. Position 1 puts the new task at the top. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -378,7 +378,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         SELECT 1 FROM interaction_guides
         WHERE interaction_guide_id = ? AND status = 'active'
       `).get(interactionGuideId)) {
-        throw new Error(`Active interaction guide ${interactionGuideId} does not exist`);
+        throw new Error(`Active briefing ${interactionGuideId} does not exist`);
       }
       const recurrenceRule = recurrence ? buildTodoRecurrenceRule(recurrence) : null;
       const recurrenceTimeZone = recurrence ? validateTimeZone(recurrence.time_zone) : null;
@@ -707,7 +707,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_interaction_guide_set",
-    description: "Link or unlink one exact active interaction guide on an existing repeating native to-do without changing its recurrence. The to-do remains the owner of the schedule and recurrence. Set interaction_guide_id to null to remove the link.",
+    description: "Link or unlink one exact active briefing on an existing repeating native to-do without changing recurrence. The to-do owns its schedule and recurrence. Set interaction_guide_id to null to remove the briefing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -722,13 +722,13 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       const before = taskWithContext(database, taskId);
       if (!before) throw new Error(`To-do ${taskId} does not exist`);
       if (before.todo_routine_id == null || !before.routine_recurrence_rule) {
-        throw new Error("An interaction guide can be linked only to a repeating to-do");
+        throw new Error("A briefing can be linked only to a repeating to-do");
       }
       if (interactionGuideId !== null && !database.prepare(`
         SELECT 1 FROM interaction_guides
         WHERE interaction_guide_id = ? AND status = 'active'
       `).get(interactionGuideId)) {
-        throw new Error(`Active interaction guide ${interactionGuideId} does not exist`);
+        throw new Error(`Active briefing ${interactionGuideId} does not exist`);
       }
       if ((before.interaction_guide_id ?? null) === interactionGuideId) {
         return todoResult(schemaSemantics, context, {
@@ -737,7 +737,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           task: databaseTask(before),
         }, {
           name: "todo_interaction_guide_set",
-          purpose: "Return the unchanged repeating personal task and its interaction-guide link.",
+          purpose: "Return the unchanged repeating personal task and its briefing link.",
         });
       }
       const updatedAt = new Date().toISOString();
@@ -756,8 +756,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           actorType: "tool", actorName: "todo_interaction_guide_set",
           turnId: context.requestId, operationId: context.callId,
           name: interactionGuideId === null
-            ? "Interaction guide unlinked from repeating to-do"
-            : "Interaction guide linked to repeating to-do",
+            ? "Briefing unlinked from repeating to-do"
+            : "Briefing linked to repeating to-do",
           content: task.text,
           payload: { before: databaseTask(before), task },
           subjectType: "personal_task", subjectId: String(taskId),
@@ -768,7 +768,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           task,
         }, {
           name: "todo_interaction_guide_set",
-          purpose: "Return the repeating personal task after linking or unlinking its interaction guide.",
+          purpose: "Return the repeating personal task after linking or unlinking its briefing.",
         });
         database.exec("COMMIT");
         return result;
@@ -781,7 +781,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_recurrence_set",
-    description: "Add, change, or remove recurrence for an existing native to-do and optionally link or unlink one active interaction guide by exact ID. Use structured recurrence fields; never compose RRULE syntax. The task must already have scheduled_at_utc before recurrence can be enabled. Set enabled=false and recurrence=null to make the current task one-time and disable future occurrences.",
+    description: "Add, change, or remove recurrence for an existing native to-do and optionally link or unlink one active briefing by exact ID. Use structured recurrence fields; never compose RRULE syntax. Recurrence requires scheduled_at_utc. Set enabled=false and recurrence=null to make the task one-time.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -817,7 +817,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       if (enabled && !recurrence) throw new Error("recurrence is required when enabled is true");
       if (enabled && !before.scheduled_at_utc) throw new Error("Schedule the to-do before enabling recurrence");
       if (!enabled && requestedInteractionGuideId != null) {
-        throw new Error("An interaction guide can be linked only while recurrence is enabled");
+        throw new Error("A briefing can be linked only while recurrence is enabled");
       }
       const interactionGuideId = enabled
         ? (requestedInteractionGuideId === undefined
@@ -828,7 +828,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         SELECT 1 FROM interaction_guides
         WHERE interaction_guide_id = ? AND status = 'active'
       `).get(interactionGuideId)) {
-        throw new Error(`Active interaction guide ${interactionGuideId} does not exist`);
+        throw new Error(`Active briefing ${interactionGuideId} does not exist`);
       }
       const recurrenceRule = enabled ? buildTodoRecurrenceRule(recurrence) : null;
       const recurrenceTimeZone = enabled ? validateTimeZone(recurrence.time_zone) : null;

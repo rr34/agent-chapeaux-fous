@@ -80,7 +80,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
   registry = registry.withCapability?.("interaction-guides") ?? registry;
   registry.register({
     name: "interaction_guide_list",
-    description: "List interaction-guide metadata without loading its numbered steps. Use this to discover the exact guide ID and name before fetching, editing, scheduling, or starting one.",
+    description: "List briefing metadata without loading its numbered exchanges. Use this to discover the exact internal guide ID and briefing name before fetching, editing, scheduling, or starting one.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -95,7 +95,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
       return guideResult(schemaSemantics, context, {
         ...result,
         guides: result.guides.map(databaseGuide),
-      }, "interaction_guide_list", "List interaction-guide metadata without loading numbered steps", [
+      }, "interaction_guide_list", "List briefing metadata without loading numbered exchanges", [
         "interaction_guide_id", "name", "status", "version", "created_at_utc", "updated_at_utc",
       ]);
     },
@@ -103,7 +103,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_get",
-    description: "Fetch one exact interaction guide, including its complete numbered steps, current answers, and progress states. Call this only when the user asks to use, inspect, or change that guide. Supply exactly one ID or name.",
+    description: "Fetch one exact briefing, including all numbered exchanges, current answers, and progress states. Call this only when the user asks to use, inspect, or change that briefing. Supply exactly one internal guide ID or name.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -115,16 +115,16 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
     },
     async execute({ interaction_guide_id: guideId, name }, context) {
       const guide = interactionGuides.get({ guideId, name });
-      if (!guide) throw new Error("Interaction guide not found");
+      if (!guide) throw new Error("Briefing not found");
       return guideResult(schemaSemantics, context, { guide: databaseGuide(guide) },
-        "interaction_guide_get", "Return one complete interaction guide and all numbered steps",
+        "interaction_guide_get", "Return one complete briefing and all numbered exchanges",
         interactionGuideFields, true);
     },
   });
 
   registry.register({
     name: "interaction_guide_step_add",
-    description: "Add one numbered scripted step to an interaction guide after reading its current version. The parent guide version is the concurrency boundary and increments on success. answers_json starts as an empty object.",
+    description: "Add one numbered exchange to a briefing after reading its current version. The parent internal guide version is the concurrency boundary and increments on success. answers_json starts as an empty object.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -156,13 +156,13 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
       }, context);
       return stepResult(schemaSemantics, context, {
         created: result.created, guide: databaseGuide(result.guide), step: databaseStep(result.step),
-      }, "interaction_guide_step_add", "Return the newly added numbered interaction step and new parent version");
+      }, "interaction_guide_step_add", "Return the newly added numbered exchange and new parent version");
     },
   });
 
   registry.register({
     name: "interaction_guide_step_update",
-    description: "Replace the complete definition of one numbered interaction step after fetching the guide. Supply the parent guide's current version; successful definition changes increment only that parent version. This does not change answers_json.",
+    description: "Replace the complete definition of one numbered exchange after fetching its briefing. Supply the parent internal guide's current version; successful changes increment only that version. This does not change answers_json.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -194,13 +194,13 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
       }, context);
       return stepResult(schemaSemantics, context, {
         updated: result.updated, guide: databaseGuide(result.guide), step: databaseStep(result.step),
-      }, "interaction_guide_step_update", "Return the replaced numbered interaction step and new parent version");
+      }, "interaction_guide_step_update", "Return the replaced numbered exchange and new parent version");
     },
   });
 
   registry.register({
     name: "interaction_guide_start",
-    description: "Start or resume one exact structured interaction. An unfinished run resumes its active step. Set restart true only when the user explicitly asks to discard that active run and begin again; a new run resets step progress and current answers after preserving prior progress in the ledger.",
+    description: "Start or resume one exact briefing. An unfinished run resumes its active exchange. Set restart true only when the user explicitly asks to discard that run and begin again; a new run resets exchange progress and answers after preserving prior progress in the ledger.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -225,13 +225,13 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         },
         guide: databaseGuide(result.guide),
         current_step: databaseStep(result.currentStep),
-      }, "interaction_guide_start", "Return the durable run identity and exact current numbered step");
+      }, "interaction_guide_start", "Return the durable run identity and exact current numbered exchange");
     },
   });
 
   registry.register({
     name: "interaction_guide_step_answer",
-    description: "Merge the user's answers into answers_json for the exact active numbered step. Keep step_complete false while required answers remain. Completion advances automatically to the next higher enabled step; the result supplies that next step's fixed opening text. Completion modes enforce recorded answers, explicit user advancement, or a successful same-request tool receipt.",
+    description: "Merge the user's answers into answers_json for the active numbered exchange. Keep step_complete false while required answers remain. Completion advances to the next enabled exchange and returns its fixed opening. Modes enforce answers, user advancement, or a same-request tool receipt.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -270,13 +270,13 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         },
         step: databaseStep(result.step),
         current_step: databaseStep(result.currentStep),
-      }, "interaction_guide_step_answer", "Return saved answers and the exact current or next numbered step");
+      }, "interaction_guide_step_answer", "Return saved answers and the exact current or next numbered exchange");
     },
   });
 
   registry.register({
     name: "interaction_guide_run_cancel",
-    description: "Cancel one exact active structured-interaction run, reset its current step progress and answers, and retain its complete prior state in ledger history. Use only when the user explicitly abandons that run or needs to edit the guide definition before starting again.",
+    description: "Cancel one exact active briefing, reset its current exchange progress and answers, and retain its prior state in ledger history. Use only when the user explicitly abandons it or needs to edit the briefing before starting again.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -297,13 +297,13 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
           status: result.run.status,
           current_step_number: result.run.currentStepNumber,
         },
-      }, "interaction_guide_run_cancel", "Return the terminal status of the exact cancelled structured-interaction run");
+      }, "interaction_guide_run_cancel", "Return the terminal status of the exact cancelled briefing");
     },
   });
 
   registry.register({
     name: "interaction_guide_create",
-    description: "Create one named durable, user-owned interaction guide. Add its complete user-visible openings and agent instructions as numbered steps before starting it.",
+    description: "Create one named durable, user-owned briefing. Add its user-visible openings and agent instructions as numbered exchanges before starting it.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -317,13 +317,13 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
       return guideResult(schemaSemantics, context, {
         created: result.created,
         guide: databaseGuide(result.guide),
-      }, "interaction_guide_create", "Return the newly created interaction guide");
+      }, "interaction_guide_create", "Return the newly created briefing");
     },
   });
 
   registry.register({
     name: "interaction_guide_update",
-    description: "Rename one exact interaction guide after reading it. Supply its current version for conflict protection. Complete interaction content remains owned by its numbered steps.",
+    description: "Rename one exact briefing after reading it. Supply its current internal guide version for conflict protection. Its conversation content remains owned by its numbered exchanges.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -340,13 +340,13 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         updated: result.updated,
         unchanged: result.unchanged,
         guide: databaseGuide(result.guide),
-      }, "interaction_guide_update", "Return the versioned interaction guide after applying explicit changes");
+      }, "interaction_guide_update", "Return the versioned briefing after applying explicit changes");
     },
   });
 
   registry.register({
     name: "interaction_guide_archive",
-    description: "Archive one exact interaction guide after reading it. Supply its current version. Archival is rejected while an enabled repeating to-do links to the guide.",
+    description: "Archive one exact briefing after reading it. Supply its current internal guide version. Archival is rejected while an enabled repeating to-do links to the briefing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -362,7 +362,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         archived: result.archived,
         already_archived: result.alreadyArchived,
         guide: databaseGuide(result.guide),
-      }, "interaction_guide_archive", "Return the archived interaction guide");
+      }, "interaction_guide_archive", "Return the archived briefing");
     },
   });
 }
