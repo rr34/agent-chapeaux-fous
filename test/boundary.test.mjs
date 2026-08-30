@@ -157,8 +157,8 @@ test("structured interactions have a dedicated management page without a second 
   assert.match(document, /id="interaction-guide-dialog"/);
   assert.match(document, /id="interaction-step-dialog"/);
   assert.match(document, /id="interaction-step-opening"/);
-  assert.match(document, /id="interaction-step-objective"/);
   assert.match(document, /id="interaction-step-instructions"/);
+  assert.doesNotMatch(document, /id="interaction-guide-text"|id="interaction-step-name"|id="interaction-step-objective"/);
   assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
   assert.match(application, /function renderInteractionGuideDetail/);
   assert.match(application, /function openInteractionStepEditor/);
@@ -569,6 +569,7 @@ test("the top navigation uses two rows while retaining narrow-screen overflow", 
   const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
   assert.match(styles, /\.topbar-links \{[\s\S]+grid-template-columns: repeat\(6, max-content\)/);
   assert.match(styles, /\.topbar-links \{[\s\S]+grid-template-rows: repeat\(2, minmax\(36px, auto\)\)/);
+  assert.match(styles, /\.topbar-links \{[\s\S]+justify-content: safe center/);
   assert.match(styles, /\.topbar-links \{[\s\S]+overflow-x: auto/);
   assert.match(styles, /\.settings-menu > summary \{ height: 100%/);
 });

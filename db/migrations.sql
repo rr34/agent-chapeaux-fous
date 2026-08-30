@@ -5,6 +5,77 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0022: minimal-structured-interaction-state
+-- Keep the guide as a named versioned container. Each ordered step owns only
+-- its user-visible opening, agent instructions, current answers, and explicit
+-- current-run progress. Immutable run history remains in activity_events.
+
+ALTER TABLE interaction_guides DROP COLUMN guide_text;
+
+ALTER TABLE interaction_guide_steps DROP COLUMN name;
+ALTER TABLE interaction_guide_steps DROP COLUMN objective_text;
+ALTER TABLE interaction_guide_steps
+ADD COLUMN progress_state TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (progress_state IN ('pending', 'active', 'completed'));
+
+UPDATE interaction_guide_steps AS step
+SET progress_state = 'completed'
+WHERE EXISTS (
+  SELECT 1
+  FROM activity_events AS started
+  JOIN activity_events AS completed
+    ON completed.subject_type = 'interaction_guide_run'
+   AND completed.subject_id = started.subject_id
+   AND completed.event_type = 'interaction_guide.step_completed'
+  WHERE started.event_type = 'interaction_guide.run_started'
+    AND started.subject_type = 'interaction_guide_run'
+    AND json_extract(started.payload_json, '$.interactionGuideId') = step.interaction_guide_id
+    AND json_extract(completed.payload_json, '$.stepNumber') = step.step_number
+    AND NOT EXISTS (
+      SELECT 1
+      FROM activity_events AS terminal
+      WHERE terminal.subject_type = 'interaction_guide_run'
+        AND terminal.subject_id = started.subject_id
+        AND terminal.event_type IN (
+          'interaction_guide.run_completed', 'interaction_guide.run_cancelled'
+        )
+    )
+);
+
+UPDATE interaction_guide_steps AS step
+SET progress_state = 'active'
+WHERE step.enabled = 1
+  AND step.progress_state = 'pending'
+  AND step.interaction_guide_step_id = (
+    SELECT candidate.interaction_guide_step_id
+    FROM interaction_guide_steps AS candidate
+    WHERE candidate.interaction_guide_id = step.interaction_guide_id
+      AND candidate.enabled = 1
+      AND candidate.progress_state = 'pending'
+    ORDER BY candidate.step_number, candidate.interaction_guide_step_id
+    LIMIT 1
+  )
+  AND EXISTS (
+    SELECT 1
+    FROM activity_events AS started
+    WHERE started.event_type = 'interaction_guide.run_started'
+      AND started.subject_type = 'interaction_guide_run'
+      AND json_extract(started.payload_json, '$.interactionGuideId') = step.interaction_guide_id
+      AND NOT EXISTS (
+        SELECT 1
+        FROM activity_events AS terminal
+        WHERE terminal.subject_type = 'interaction_guide_run'
+          AND terminal.subject_id = started.subject_id
+          AND terminal.event_type IN (
+            'interaction_guide.run_completed', 'interaction_guide.run_cancelled'
+          )
+      )
+  );
+
+CREATE INDEX interaction_guide_steps_guide_progress
+ON interaction_guide_steps(interaction_guide_id, progress_state, enabled, step_number);
+-- end migration 0022
+
 -- migration 0021: multi-interaction-video-scripts
 -- Preserve portable, generator-ready video scripts as first-class content
 -- production artifacts. Each script may be grounded in several exact Agent

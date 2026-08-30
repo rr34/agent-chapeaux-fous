@@ -308,7 +308,6 @@ const elements = {
   interactionGuideId: document.querySelector("#interaction-guide-id"),
   interactionGuideVersion: document.querySelector("#interaction-guide-version"),
   interactionGuideName: document.querySelector("#interaction-guide-name"),
-  interactionGuideText: document.querySelector("#interaction-guide-text"),
   interactionGuideFormError: document.querySelector("#interaction-guide-form-error"),
   archiveInteractionGuide: document.querySelector("#archive-interaction-guide"),
   interactionStepDialog: document.querySelector("#interaction-step-dialog"),
@@ -316,9 +315,7 @@ const elements = {
   interactionStepDialogTitle: document.querySelector("#interaction-step-dialog-title"),
   interactionStepId: document.querySelector("#interaction-step-id"),
   interactionStepNumber: document.querySelector("#interaction-step-number"),
-  interactionStepName: document.querySelector("#interaction-step-name"),
   interactionStepOpening: document.querySelector("#interaction-step-opening"),
-  interactionStepObjective: document.querySelector("#interaction-step-objective"),
   interactionStepInstructions: document.querySelector("#interaction-step-instructions"),
   interactionStepCompletionMode: document.querySelector("#interaction-step-completion-mode"),
   interactionStepEnabled: document.querySelector("#interaction-step-enabled"),
@@ -3906,6 +3903,12 @@ const interactionCompletionLabels = {
   tool_receipt: "Successful tool result",
 };
 
+const interactionProgressLabels = {
+  pending: "Pending",
+  active: "In progress",
+  completed: "Completed",
+};
+
 function renderInteractionGuideEmpty(title = "Select a structured interaction", message = "Choose a brief to review its numbered turns, or create a new one.") {
   const empty = node("div", "interaction-detail-empty");
   empty.append(
@@ -3977,9 +3980,6 @@ function renderInteractionGuideDetail() {
   }
   header.append(identity, actions);
 
-  const brief = node("section", "interaction-brief");
-  brief.append(node("h4", "", "Conversation brief"), node("p", "", guide.guideText));
-
   const turns = node("section", "interaction-turns");
   const turnsHeading = node("header", "interaction-turns-heading");
   const turnsTitle = node("div");
@@ -4001,8 +4001,14 @@ function renderInteractionGuideDetail() {
       const stepIdentity = node("div", "interaction-turn-identity");
       stepIdentity.append(
         node("span", "interaction-turn-number", String(step.stepNumber)),
-        node("h5", "", step.name || `Turn ${step.stepNumber}`),
-        node("span", `interaction-turn-state${step.enabled ? "" : " disabled"}`, step.enabled ? interactionCompletionLabels[step.completionMode] : "Disabled"),
+        node("h5", "", step.openingText),
+        node(
+          "span",
+          `interaction-turn-state${step.enabled ? "" : " disabled"}`,
+          step.enabled
+            ? `${interactionProgressLabels[step.progressState] ?? step.progressState} · ${interactionCompletionLabels[step.completionMode]}`
+            : "Disabled",
+        ),
       );
       const editStep = node("button", "secondary compact", "Edit");
       editStep.type = "button";
@@ -4010,11 +4016,7 @@ function renderInteractionGuideDetail() {
       editStep.addEventListener("click", () => openInteractionStepEditor(step));
       stepHeading.append(stepIdentity, editStep);
 
-      const opening = node("div", "interaction-turn-field");
-      opening.append(node("strong", "", "Opening"), node("p", "", step.openingText));
-      const objective = node("div", "interaction-turn-field");
-      objective.append(node("strong", "", "Objective"), node("p", "", step.objectiveText));
-      card.append(stepHeading, opening, objective);
+      card.append(stepHeading);
       if (step.instructionsText) {
         const instructions = node("details", "interaction-turn-instructions");
         instructions.append(node("summary", "", "Agent instructions"), node("p", "", step.instructionsText));
@@ -4032,7 +4034,7 @@ function renderInteractionGuideDetail() {
     }
     turns.append(list);
   }
-  elements.interactionGuideDetail.append(header, brief, turns);
+  elements.interactionGuideDetail.append(header, turns);
 }
 
 async function loadInteractionGuide(guideId) {
@@ -4091,7 +4093,6 @@ function openInteractionGuideEditor(guide = null) {
   elements.interactionGuideId.value = guide?.id ?? "";
   elements.interactionGuideVersion.value = guide?.version ?? "";
   elements.interactionGuideName.value = guide?.name ?? "";
-  elements.interactionGuideText.value = guide?.guideText ?? "";
   elements.archiveInteractionGuide.hidden = !guide || guide.status !== "active";
   elements.interactionGuideDialog.showModal();
   elements.interactionGuideName.focus();
@@ -4106,7 +4107,6 @@ async function saveInteractionGuide(event) {
     const id = elements.interactionGuideId.value;
     const payload = {
       name: elements.interactionGuideName.value,
-      guideText: elements.interactionGuideText.value,
     };
     if (id) payload.expectedVersion = Number(elements.interactionGuideVersion.value);
     const result = await api(id ? `/api/interaction-guides/${id}` : "/api/interaction-guides", {
@@ -4154,9 +4154,7 @@ function openInteractionStepEditor(step = null) {
   elements.interactionStepId.value = step?.id ?? "";
   elements.interactionStepNumber.value = step?.stepNumber
     ?? Math.max(0, ...guide.steps.map(({ stepNumber }) => stepNumber)) + 1;
-  elements.interactionStepName.value = step?.name ?? "";
   elements.interactionStepOpening.value = step?.openingText ?? "";
-  elements.interactionStepObjective.value = step?.objectiveText ?? "";
   elements.interactionStepInstructions.value = step?.instructionsText ?? "";
   elements.interactionStepCompletionMode.value = step?.completionMode ?? "response_valid";
   elements.interactionStepEnabled.checked = step?.enabled ?? true;
@@ -4176,9 +4174,7 @@ async function saveInteractionStep(event) {
     const payload = {
       expectedVersion: guide.version,
       stepNumber: Number(elements.interactionStepNumber.value),
-      name: elements.interactionStepName.value || null,
       openingText: elements.interactionStepOpening.value,
-      objectiveText: elements.interactionStepObjective.value,
       instructionsText: elements.interactionStepInstructions.value || null,
       completionMode: elements.interactionStepCompletionMode.value,
       enabled: elements.interactionStepEnabled.checked,

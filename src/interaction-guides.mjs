@@ -36,11 +36,10 @@ function publicStep(row) {
     id: Number(row.interaction_guide_step_id),
     guideId: Number(row.interaction_guide_id),
     stepNumber: Number(row.step_number),
-    name: row.name,
     openingText: row.opening_text,
-    objectiveText: row.objective_text,
     instructionsText: row.instructions_text,
     answers: JSON.parse(row.answers_json),
+    progressState: row.progress_state,
     completionMode: row.completion_mode,
     enabled: Boolean(row.enabled),
     createdAtUtc: row.created_at_utc,
@@ -48,12 +47,11 @@ function publicStep(row) {
   };
 }
 
-function publicGuide(row, { includeText = true, steps = null, activeRun = null } = {}) {
+function publicGuide(row, { steps = null, activeRun = null } = {}) {
   if (!row) return null;
   return {
     id: Number(row.interaction_guide_id),
     name: row.name,
-    ...(includeText ? { guideText: row.guide_text } : {}),
     status: row.status,
     version: Number(row.version),
     createdAtUtc: row.created_at_utc,
@@ -175,16 +173,13 @@ export class InteractionGuides {
     return { id: row.subject_id, ...JSON.parse(row.payload_json) };
   }
 
-  #currentRunStep(database, runId, guideId) {
-    const completed = new Set(database.prepare(`
-      SELECT json_extract(payload_json, '$.stepNumber') AS step_number
-      FROM activity_events
-      WHERE subject_type = 'interaction_guide_run'
-        AND subject_id = ?
-        AND event_type = 'interaction_guide.step_completed'
-    `).all(runId).map(({ step_number: stepNumber }) => Number(stepNumber)));
-    return this.#steps(database, guideId, { enabledOnly: true })
-      .find((row) => !completed.has(Number(row.step_number))) ?? null;
+  #currentRunStep(database, _runId, guideId) {
+    return database.prepare(`
+      SELECT * FROM interaction_guide_steps
+      WHERE interaction_guide_id = ? AND enabled = 1 AND progress_state = 'active'
+      ORDER BY step_number, interaction_guide_step_id
+      LIMIT 1
+    `).get(guideId) ?? null;
   }
 
   get({ guideId = null, name = null } = {}) {
@@ -217,16 +212,14 @@ export class InteractionGuides {
   }
 
   addStep({
-    guideId, expectedVersion, stepNumber, name = null, openingText,
-    objectiveText, instructionsText = null, completionMode = "response_valid", enabled = true,
+    guideId, expectedVersion, stepNumber, openingText,
+    instructionsText = null, completionMode = "response_valid", enabled = true,
   }, context = {}) {
     const selectedStepNumber = identifier(stepNumber, "Interaction guide step number");
     if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
     if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
     const values = {
-      name: optionalText(name, "Interaction guide step name", 200),
       openingText: requiredText(openingText, "Interaction guide step opening text", 10_000),
-      objectiveText: requiredText(objectiveText, "Interaction guide step objective text", 10_000),
       instructionsText: optionalText(instructionsText, "Interaction guide step instructions", 50_000),
     };
     const database = this.store.requireReady();
@@ -235,13 +228,13 @@ export class InteractionGuides {
       const guideBefore = this.#guideForDefinitionEdit(database, guideId, expectedVersion);
       const row = database.prepare(`
         INSERT INTO interaction_guide_steps (
-          interaction_guide_id, step_number, name, opening_text, objective_text,
-          instructions_text, completion_mode, enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          interaction_guide_id, step_number, opening_text, instructions_text,
+          completion_mode, enabled
+        ) VALUES (?, ?, ?, ?, ?, ?)
         RETURNING *
       `).get(
-        guideBefore.interaction_guide_id, selectedStepNumber, values.name, values.openingText,
-        values.objectiveText, values.instructionsText, completionMode, enabled ? 1 : 0,
+        guideBefore.interaction_guide_id, selectedStepNumber, values.openingText,
+        values.instructionsText, completionMode, enabled ? 1 : 0,
       );
       const guide = publicGuide(this.#bumpGuideVersion(
         database, guideBefore.interaction_guide_id, expectedVersion,
@@ -263,7 +256,7 @@ export class InteractionGuides {
   }
 
   updateStep({
-    stepId, expectedVersion, stepNumber, name, openingText, objectiveText,
+    stepId, expectedVersion, stepNumber, openingText,
     instructionsText, completionMode, enabled,
   }, context = {}) {
     const selectedStepId = identifier(stepId, "Interaction guide step ID");
@@ -271,9 +264,7 @@ export class InteractionGuides {
     if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
     if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
     const values = {
-      name: optionalText(name, "Interaction guide step name", 200),
       openingText: requiredText(openingText, "Interaction guide step opening text", 10_000),
-      objectiveText: requiredText(objectiveText, "Interaction guide step objective text", 10_000),
       instructionsText: optionalText(instructionsText, "Interaction guide step instructions", 50_000),
     };
     const database = this.store.requireReady();
@@ -288,14 +279,14 @@ export class InteractionGuides {
       );
       const row = database.prepare(`
         UPDATE interaction_guide_steps
-        SET step_number = ?, name = ?, opening_text = ?, objective_text = ?,
-            instructions_text = ?, completion_mode = ?, enabled = ?,
+        SET step_number = ?, opening_text = ?, instructions_text = ?,
+            completion_mode = ?, enabled = ?,
             updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE interaction_guide_step_id = ?
         RETURNING *
       `).get(
-        selectedStepNumber, values.name, values.openingText, values.objectiveText,
-        values.instructionsText, completionMode, enabled ? 1 : 0, selectedStepId,
+        selectedStepNumber, values.openingText, values.instructionsText,
+        completionMode, enabled ? 1 : 0, selectedStepId,
       );
       const guide = publicGuide(this.#bumpGuideVersion(
         database, guideBefore.interaction_guide_id, expectedVersion,
@@ -351,13 +342,17 @@ export class InteractionGuides {
       if (!enabledSteps.length) throw conflict("This interaction guide has no enabled steps");
       database.prepare(`
         UPDATE interaction_guide_steps
-        SET answers_json = '{}', updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE interaction_guide_id = ? AND answers_json <> '{}'
+        SET answers_json = '{}', progress_state = 'pending',
+            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE interaction_guide_id = ?
       `).run(guide.id);
       const runId = randomUUID();
       const current = database.prepare(`
-        SELECT * FROM interaction_guide_steps
+        UPDATE interaction_guide_steps
+        SET progress_state = 'active',
+            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE interaction_guide_step_id = ?
+        RETURNING *
       `).get(enabledSteps[0].interaction_guide_step_id);
       const run = {
         id: runId, interactionGuideId: guide.id, guideVersion: guide.version,
@@ -370,13 +365,25 @@ export class InteractionGuides {
         content: guide.name,
         payload: {
           interactionGuideId: guide.id, guideVersion: guide.version,
-          stepSnapshot: enabledSteps.map((row) => publicStep({ ...row, answers_json: "{}" })),
+          stepSnapshot: enabledSteps.map((row, index) => publicStep({
+            ...row,
+            answers_json: "{}",
+            progress_state: index === 0 ? "active" : "pending",
+          })),
         },
         subjectType: "interaction_guide_run", subjectId: runId,
       });
       database.exec("COMMIT");
       return {
-        started: true, resumed: false, run, guide: { ...guide, steps: guide.steps.map((step) => ({ ...step, answers: {} })) },
+        started: true, resumed: false, run,
+        guide: {
+          ...guide,
+          steps: guide.steps.map((step) => ({
+            ...step,
+            answers: {},
+            progressState: step.id === Number(current.interaction_guide_step_id) ? "active" : "pending",
+          })),
+        },
         currentStep: publicStep(current),
       };
     } catch (error) {
@@ -447,10 +454,15 @@ export class InteractionGuides {
       }
       const saved = database.prepare(`
         UPDATE interaction_guide_steps
-        SET answers_json = ?, updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        SET answers_json = ?, progress_state = ?,
+            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE interaction_guide_step_id = ?
         RETURNING *
-      `).get(normalizedAnswers.serialized, current.interaction_guide_step_id);
+      `).get(
+        normalizedAnswers.serialized,
+        stepComplete ? "completed" : "active",
+        current.interaction_guide_step_id,
+      );
       this.ledger.append({
         type: stepComplete ? "interaction_guide.step_completed" : "interaction_guide.step_progress",
         status: stepComplete ? "complete" : "processing",
@@ -465,9 +477,19 @@ export class InteractionGuides {
         },
         subjectType: "interaction_guide_run", subjectId: selectedRunId,
       });
-      const next = stepComplete
-        ? this.#currentRunStep(database, selectedRunId, guide.interaction_guide_id)
-        : saved;
+      const nextPending = stepComplete ? database.prepare(`
+        SELECT * FROM interaction_guide_steps
+        WHERE interaction_guide_id = ? AND enabled = 1 AND progress_state = 'pending'
+        ORDER BY step_number, interaction_guide_step_id
+        LIMIT 1
+      `).get(guide.interaction_guide_id) : null;
+      const next = nextPending ? database.prepare(`
+        UPDATE interaction_guide_steps
+        SET progress_state = 'active',
+            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE interaction_guide_step_id = ?
+        RETURNING *
+      `).get(nextPending.interaction_guide_step_id) : (stepComplete ? null : saved);
       const runCompleted = stepComplete && !next;
       if (runCompleted) {
         this.ledger.append({
@@ -527,6 +549,12 @@ export class InteractionGuides {
         payload: { interactionGuideId: Number(started.interactionGuideId), reason: selectedReason },
         subjectType: "interaction_guide_run", subjectId: selectedRunId,
       });
+      database.prepare(`
+        UPDATE interaction_guide_steps
+        SET answers_json = '{}', progress_state = 'pending',
+            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE interaction_guide_id = ?
+      `).run(Number(started.interactionGuideId));
       database.exec("COMMIT");
       return {
         cancelled: true,
@@ -544,9 +572,8 @@ export class InteractionGuides {
     }
   }
 
-  create({ name, guideText }, context = {}) {
+  create({ name }, context = {}) {
     const selectedName = requiredText(name, "Interaction guide name", 200);
-    const selectedText = requiredText(guideText, "Interaction guide text", 50_000);
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
     try {
@@ -555,10 +582,10 @@ export class InteractionGuides {
       ).get(selectedName);
       if (existing) throw conflict(`An interaction guide named "${selectedName}" already exists`);
       const row = database.prepare(`
-        INSERT INTO interaction_guides (name, guide_text)
-        VALUES (?, ?)
+        INSERT INTO interaction_guides (name)
+        VALUES (?)
         RETURNING *
-      `).get(selectedName, selectedText);
+      `).get(selectedName);
       const guide = publicGuide(row);
       this.ledger.append({
         type: "interaction_guide.created", status: "complete",
@@ -575,12 +602,11 @@ export class InteractionGuides {
     }
   }
 
-  update({ guideId, expectedVersion, name = null, guideText = null }, context = {}) {
+  update({ guideId, expectedVersion, name }, context = {}) {
     const selectedId = identifier(guideId);
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
       throw new Error("Expected interaction guide version must be a positive integer");
     }
-    if (name === null && guideText === null) throw new Error("No interaction guide changes were supplied");
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
     try {
@@ -594,13 +620,8 @@ export class InteractionGuides {
       if (this.#activeRun(database, selectedId)) {
         throw conflict("Finish or cancel the active structured-interaction run before changing its definition");
       }
-      const selectedName = name === null
-        ? beforeRow.name
-        : requiredText(name, "Interaction guide name", 200);
-      const selectedText = guideText === null
-        ? beforeRow.guide_text
-        : requiredText(guideText, "Interaction guide text", 50_000);
-      if (selectedName === beforeRow.name && selectedText === beforeRow.guide_text) {
+      const selectedName = requiredText(name, "Interaction guide name", 200);
+      if (selectedName === beforeRow.name) {
         database.exec("COMMIT");
         return { updated: false, unchanged: true, guide: publicGuide(beforeRow) };
       }
@@ -611,11 +632,11 @@ export class InteractionGuides {
       if (duplicate) throw conflict(`An interaction guide named "${selectedName}" already exists`);
       const row = database.prepare(`
         UPDATE interaction_guides
-        SET name = ?, guide_text = ?, version = version + 1,
+        SET name = ?, version = version + 1,
             updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE interaction_guide_id = ? AND version = ?
         RETURNING *
-      `).get(selectedName, selectedText, selectedId, expectedVersion);
+      `).get(selectedName, selectedId, expectedVersion);
       if (!row) throw conflict("This interaction guide changed while it was being updated");
       const before = publicGuide(beforeRow);
       const guide = publicGuide(row);

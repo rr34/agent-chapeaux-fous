@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 21,
-    "schemaFingerprint": "4876c113c0c328c4e21387fd83c398b9feb47a8435fa8ea7cb67d9ac65c57daa",
-    "extractedAt": "2026-08-27T22:19:34.090Z"
+    "schemaVersion": 22,
+    "schemaFingerprint": "1a7aca1cdc10952e62aa010627327c4d82331e450ec81938aa178ce08304312e",
+    "extractedAt": "2026-08-30T19:46:42.669Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -9240,12 +9240,24 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE interaction_guide_steps (\n    interaction_guide_step_id INTEGER PRIMARY KEY,\n    interaction_guide_id      INTEGER NOT NULL\n                              REFERENCES interaction_guides(interaction_guide_id)\n                              ON DELETE CASCADE,\n    step_number               INTEGER NOT NULL CHECK (step_number > 0),\n    name                      TEXT\n                              CHECK (name IS NULL OR length(trim(name)) BETWEEN 1 AND 200),\n    opening_text              TEXT NOT NULL\n                              CHECK (length(trim(opening_text)) BETWEEN 1 AND 10000),\n    objective_text            TEXT NOT NULL\n                              CHECK (length(trim(objective_text)) BETWEEN 1 AND 10000),\n    instructions_text         TEXT\n                              CHECK (instructions_text IS NULL OR length(trim(instructions_text)) BETWEEN 1 AND 50000),\n    answers_json              TEXT NOT NULL DEFAULT '{}'\n                              CHECK (\n                                  length(answers_json) <= 100000\n                                  AND json_valid(answers_json)\n                                  AND json_type(answers_json) = 'object'\n                              ),\n    completion_mode           TEXT NOT NULL DEFAULT 'response_valid'\n                              CHECK (completion_mode IN (\n                                  'response_valid', 'user_advances', 'tool_receipt'\n                              )),\n    enabled                   INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),\n    created_at_utc            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc            TEXT,\n    UNIQUE (interaction_guide_id, step_number)\n) STRICT",
+        "definition": "CREATE TABLE interaction_guide_steps (\n    interaction_guide_step_id INTEGER PRIMARY KEY,\n    interaction_guide_id      INTEGER NOT NULL\n                              REFERENCES interaction_guides(interaction_guide_id)\n                              ON DELETE CASCADE,\n    step_number               INTEGER NOT NULL CHECK (step_number > 0),\n    opening_text              TEXT NOT NULL\n                              CHECK (length(trim(opening_text)) BETWEEN 1 AND 10000),\n    instructions_text         TEXT\n                              CHECK (instructions_text IS NULL OR length(trim(instructions_text)) BETWEEN 1 AND 50000),\n    answers_json              TEXT NOT NULL DEFAULT '{}'\n                              CHECK (\n                                  length(answers_json) <= 100000\n                                  AND json_valid(answers_json)\n                                  AND json_type(answers_json) = 'object'\n                              ),\n    completion_mode           TEXT NOT NULL DEFAULT 'response_valid'\n                              CHECK (completion_mode IN (\n                                  'response_valid', 'user_advances', 'tool_receipt'\n                              )),\n    enabled                   INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),\n    created_at_utc            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc            TEXT, progress_state TEXT NOT NULL DEFAULT 'pending'\n                    CHECK (progress_state IN ('pending', 'active', 'completed')),\n    UNIQUE (interaction_guide_id, step_number)\n) STRICT",
         "indexes": [
           {
             "name": "interaction_guide_steps_guide_order",
             "columns": [
               "interaction_guide_id",
+              "enabled",
+              "step_number"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          },
+          {
+            "name": "interaction_guide_steps_guide_progress",
+            "columns": [
+              "interaction_guide_id",
+              "progress_state",
               "enabled",
               "step_number"
             ],
@@ -9266,8 +9278,8 @@
         ]
       },
       "semantics": {
-        "purpose": "Stores ordered scripted steps and current answer objects for reusable Agent Slayer interaction guides.",
-        "rowMeaning": "One row defines one numbered step beneath one interaction guide and holds the answers accumulated for that step in the current run.",
+        "purpose": "Stores the ordered openings, agent instructions, current answers, and resumable progress for reusable Agent Slayer interaction guides.",
+        "rowMeaning": "One row is one complete numbered interaction step and its mutable current-run state.",
         "sourceOfTruth": true,
         "derivedFrom": [],
         "synonyms": [
@@ -9285,7 +9297,7 @@
         "importantRules": [
           "The parent interaction_guides.version is the only definition concurrency version and increments when any step definition changes.",
           "A run remains on its current step until that step's completion mode is satisfied, then advances to the next higher enabled step number.",
-          "Starting a new run clears current answers_json only after prior progress has been preserved in activity_events.",
+          "Starting a new run resets answers_json and progress_state only after prior progress has been preserved in activity_events.",
           "Generic database reads and writes must not expose or mutate these private rows; use the owning interaction-guide tools."
         ],
         "sensitivity": "Contains private scripted questions, instructions, and the user's current answers."
@@ -9374,38 +9386,11 @@
             "sensitivity": null
           }
         },
-        "name": {
-          "mechanics": {
-            "present": true,
-            "name": "name",
-            "ordinal": 3,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Optional concise human-facing label for the purpose of this numbered step.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
         "opening_text": {
           "mechanics": {
             "present": true,
             "name": "opening_text",
-            "ordinal": 4,
+            "ordinal": 3,
             "type": "TEXT",
             "nullable": false,
             "default": null,
@@ -9430,38 +9415,11 @@
             "sensitivity": null
           }
         },
-        "objective_text": {
-          "mechanics": {
-            "present": true,
-            "name": "objective_text",
-            "ordinal": 5,
-            "type": "TEXT",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Stable description of what this step must accomplish before the run may advance.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
         "instructions_text": {
           "mechanics": {
             "present": true,
             "name": "instructions_text",
-            "ordinal": 6,
+            "ordinal": 4,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -9472,7 +9430,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Optional additional handling instructions that apply while this numbered step is current.",
+            "meaning": "Optional agent instructions describing what this step must accomplish, how to handle its reply, and any destination or domain tool required to commit the answer.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -9488,7 +9446,7 @@
           "mechanics": {
             "present": true,
             "name": "answers_json",
-            "ordinal": 7,
+            "ordinal": 5,
             "type": "TEXT",
             "nullable": false,
             "default": "'{}'",
@@ -9519,7 +9477,7 @@
           "mechanics": {
             "present": true,
             "name": "completion_mode",
-            "ordinal": 8,
+            "ordinal": 6,
             "type": "TEXT",
             "nullable": false,
             "default": "'response_valid'",
@@ -9538,7 +9496,7 @@
             "units": null,
             "format": null,
             "allowedValueMeanings": {
-              "response_valid": "At least one answer has been recorded and the step objective has been satisfied.",
+              "response_valid": "At least one answer has been recorded and the step instructions have been satisfied.",
               "user_advances": "The user has explicitly directed the interaction to continue.",
               "tool_receipt": "A successful same-request tool-result event proves the requested effect."
             },
@@ -9554,7 +9512,7 @@
           "mechanics": {
             "present": true,
             "name": "enabled",
-            "ordinal": 9,
+            "ordinal": 7,
             "type": "INTEGER",
             "nullable": false,
             "default": "1",
@@ -9584,7 +9542,7 @@
           "mechanics": {
             "present": true,
             "name": "created_at_utc",
-            "ordinal": 10,
+            "ordinal": 8,
             "type": "TEXT",
             "nullable": false,
             "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
@@ -9611,7 +9569,7 @@
           "mechanics": {
             "present": true,
             "name": "updated_at_utc",
-            "ordinal": 11,
+            "ordinal": 9,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -9625,6 +9583,101 @@
             "meaning": "UTC timestamp of the most recent definition or current-answer update to this step, when one has occurred.",
             "units": null,
             "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "progress_state": {
+          "mechanics": {
+            "present": true,
+            "name": "progress_state",
+            "ordinal": 10,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'pending'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": [
+              "pending",
+              "active",
+              "completed"
+            ]
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Current-run progress for this step, used to resume an interrupted structured interaction at exactly one active step.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {
+              "pending": "The current run has not yet completed this step.",
+              "active": "This is the current step to present or continue.",
+              "completed": "The current run completed this step and advanced beyond it."
+            },
+            "synonyms": [],
+            "keywords": [
+              "resume state",
+              "step progress"
+            ],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "The interaction-guide service owns transitions; definition tools do not write this field directly.",
+              "A new run or explicit cancellation resets current progress only after immutable history is retained in activity_events."
+            ],
+            "sensitivity": null
+          }
+        },
+        "name": {
+          "mechanics": {
+            "present": false,
+            "name": "name",
+            "ordinal": 3,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional concise human-facing label for the purpose of this numbered step.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "objective_text": {
+          "mechanics": {
+            "present": false,
+            "name": "objective_text",
+            "ordinal": 5,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Stable description of what this step must accomplish before the run may advance.",
+            "units": null,
+            "format": null,
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -9664,7 +9717,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE interaction_guides (\n    interaction_guide_id INTEGER PRIMARY KEY,\n    name                 TEXT NOT NULL COLLATE NOCASE UNIQUE\n                         CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    guide_text           TEXT NOT NULL\n                         CHECK (length(trim(guide_text)) BETWEEN 1 AND 50000),\n    status               TEXT NOT NULL DEFAULT 'active'\n                         CHECK (status IN ('active', 'archived')),\n    version              INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    created_at_utc       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc       TEXT\n) STRICT",
+        "definition": "CREATE TABLE interaction_guides (\n    interaction_guide_id INTEGER PRIMARY KEY,\n    name                 TEXT NOT NULL COLLATE NOCASE UNIQUE\n                         CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    status               TEXT NOT NULL DEFAULT 'active'\n                         CHECK (status IN ('active', 'archived')),\n    version              INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    created_at_utc       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc       TEXT\n) STRICT",
         "indexes": [
           {
             "name": "interaction_guides_status_name",
@@ -9689,8 +9742,8 @@
         ]
       },
       "semantics": {
-        "purpose": "Stores durable user-owned guides that describe how Agent Slayer should conduct explicitly requested structured interactions.",
-        "rowMeaning": "One row represents one named interaction guide and its current complete instruction text.",
+        "purpose": "Stores named, versioned containers for durable user-owned structured interactions.",
+        "rowMeaning": "One row represents one named interaction guide whose complete interaction content is defined by its numbered steps.",
         "sourceOfTruth": true,
         "derivedFrom": [],
         "synonyms": [
@@ -9708,7 +9761,7 @@
         ],
         "routingWeight": 1,
         "importantRules": [
-          "Guide text is loaded only when the user explicitly asks to use, inspect, or change that exact guide.",
+          "Numbered steps are loaded only when the user explicitly asks to use, inspect, or change that exact guide.",
           "A guide describes an interaction but does not own a schedule or recurrence.",
           "A repeating to-do may reference a guide through todo_routines.interaction_guide_id."
         ],
@@ -9771,41 +9824,11 @@
             "sensitivity": null
           }
         },
-        "guide_text": {
-          "mechanics": {
-            "present": true,
-            "name": "guide_text",
-            "ordinal": 2,
-            "type": "TEXT",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Complete user-owned plan for conducting the structured interaction; it may contain ordinary text or Markdown-style formatting.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [
-              "This is database text, not a filesystem Markdown document.",
-              "Transient answers and daily results do not belong here unless the user explicitly changes the guide itself."
-            ],
-            "sensitivity": "May contain private questions, preferences, and instructions for personal planning or reflection."
-          }
-        },
         "status": {
           "mechanics": {
             "present": true,
             "name": "status",
-            "ordinal": 3,
+            "ordinal": 2,
             "type": "TEXT",
             "nullable": false,
             "default": "'active'",
@@ -9838,7 +9861,7 @@
           "mechanics": {
             "present": true,
             "name": "version",
-            "ordinal": 4,
+            "ordinal": 3,
             "type": "INTEGER",
             "nullable": false,
             "default": "1",
@@ -9867,7 +9890,7 @@
           "mechanics": {
             "present": true,
             "name": "created_at_utc",
-            "ordinal": 5,
+            "ordinal": 4,
             "type": "TEXT",
             "nullable": false,
             "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
@@ -9894,7 +9917,7 @@
           "mechanics": {
             "present": true,
             "name": "updated_at_utc",
-            "ordinal": 6,
+            "ordinal": 5,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -9915,6 +9938,36 @@
             "examples": [],
             "importantRules": [],
             "sensitivity": null
+          }
+        },
+        "guide_text": {
+          "mechanics": {
+            "present": false,
+            "name": "guide_text",
+            "ordinal": 2,
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Complete user-owned plan for conducting the structured interaction; it may contain ordinary text or Markdown-style formatting.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [
+              "This is database text, not a filesystem Markdown document.",
+              "Transient answers and daily results do not belong here unless the user explicitly changes the guide itself."
+            ],
+            "sensitivity": "May contain private questions, preferences, and instructions for personal planning or reflection."
           }
         }
       },

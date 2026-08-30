@@ -287,12 +287,13 @@ capability selector, which controls which exact tool schemas are callable.
   `interaction_guide_start`, `interaction_guide_step_answer`,
   `interaction_guide_run_cancel`, and
   `interaction_guide_archive` manage durable user-owned plans for structured,
-  potentially multi-request interactions. A guide owns one versioned overall
-  brief plus numbered scripted steps. Each step has a fixed opening, objective,
-  handling instructions, JSON answers, and a constrained completion mode.
-  Active runs and prior answers are traced in the ledger so an interruption can
-  resume at the first uncompleted step. A recurring to-do may link to a guide
-  while continuing to own its schedule and recurrence.
+  potentially multi-request interactions. A guide is a named, versioned
+  container for numbered scripted steps. Each step has a fixed opening, agent
+  instructions, JSON answers, explicit pending/active/completed progress, and a
+  constrained completion mode. Current progress supports exact interruption
+  and resumption; immutable run and answer history remains in the ledger. A
+  recurring to-do may link to a guide while continuing to own its schedule and
+  recurrence.
 - `database_schema` and paginated `database_read` are a small read-only core
   capability available on every model request, including access to the native
   activity ledger. `database_write` is a separately routed capability, so broad

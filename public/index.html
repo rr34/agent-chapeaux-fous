@@ -766,8 +766,7 @@
       <input id="interaction-guide-id" type="hidden">
       <input id="interaction-guide-version" type="hidden">
       <label>Name<input id="interaction-guide-name" required maxlength="200" autocomplete="off" placeholder="Evening planning brief"></label>
-      <label>Brief<textarea id="interaction-guide-text" rows="9" required maxlength="50000" placeholder="Describe what this structured conversation should accomplish and what a finished result contains."></textarea></label>
-      <p class="field-hint">The brief applies to the whole conversation. Each numbered turn defines its own opening and objective.</p>
+      <p class="field-hint">The complete interaction is defined by its numbered turns.</p>
       <p id="interaction-guide-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
         <button id="archive-interaction-guide" class="danger editor-delete" type="button" hidden>Archive brief</button>
@@ -784,13 +783,9 @@
         <button class="secondary compact dialog-close" type="button">Close</button>
       </header>
       <input id="interaction-step-id" type="hidden">
-      <div class="editor-grid">
-        <label>Turn number<input id="interaction-step-number" type="number" min="1" step="1" required></label>
-        <label>Name <span class="field-hint">optional</span><input id="interaction-step-name" maxlength="200" placeholder="Establish the outcome"></label>
-      </div>
+      <label>Turn number<input id="interaction-step-number" type="number" min="1" step="1" required></label>
       <label>Opening text<textarea id="interaction-step-opening" rows="4" required maxlength="10000" placeholder="The consistent way this turn begins."></textarea></label>
-      <label>Objective<textarea id="interaction-step-objective" rows="4" required maxlength="10000" placeholder="What this turn must accomplish before it can advance."></textarea></label>
-      <label>Agent instructions <span class="field-hint">optional</span><textarea id="interaction-step-instructions" rows="6" maxlength="50000" placeholder="How to clarify, follow up, or organize the answers during this turn."></textarea></label>
+      <label>Agent instructions <span class="field-hint">optional</span><textarea id="interaction-step-instructions" rows="8" maxlength="50000" placeholder="How to collect answers, when the turn is complete, and which tools place the information in its destination."></textarea></label>
       <div class="editor-grid">
         <label>Completion rule<select id="interaction-step-completion-mode">
           <option value="response_valid">Advance when answers are valid</option>

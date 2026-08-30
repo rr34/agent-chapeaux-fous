@@ -140,7 +140,7 @@ test("structured database reads return an exact schema-semantic projection", asy
   await assert.rejects(
     registry.execute("database_read", {
       objectName: "interaction_guides",
-      columns: ["name", "guide_text"],
+      columns: ["name"],
       where: {},
       orderBy: "name",
       orderDirection: "asc",
@@ -197,7 +197,7 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.log_update, "log_entry_id"), true);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "fact_type"), true);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "factType"), false);
-  assert.equal(Object.hasOwn(definitions.interaction_guide_update, "guide_text"), true);
+  assert.equal(Object.hasOwn(definitions.interaction_guide_update, "guide_text"), false);
   assert.equal(Object.hasOwn(definitions.interaction_guide_step_add, "opening_text"), true);
   assert.equal(Object.hasOwn(definitions.interaction_guide_step_answer, "answers"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "starts_at_utc"), true);
@@ -251,28 +251,30 @@ test("native database-backed tools return stored field names with semantic proje
 
   const guide = await registry.execute("interaction_guide_create", {
     name: "Morning Check-in",
-    guide_text: "Ask what matters today.",
   }, toolContext);
   assert.equal(guide.guide.name, "Morning Check-in");
   assert.match(
-    guide.schemaProjection.schemaProjection.schemaObjects.interaction_guides.fields.guide_text.meaning,
-    /Complete user-owned plan/,
+    guide.schemaProjection.schemaProjection.schemaObjects.interaction_guides.fields.name.meaning,
+    /User-facing unique name/,
   );
   const step = await registry.execute("interaction_guide_step_add", {
     interaction_guide_id: guide.guide.interaction_guide_id,
     expected_version: guide.guide.version,
     step_number: 1,
-    name: "Outcome",
     opening_text: "1. What outcome do you need?",
-    objective_text: "Capture the exact desired outcome.",
-    instructions_text: null,
+    instructions_text: "Capture the exact desired outcome.",
     completion_mode: "response_valid",
     enabled: true,
   }, toolContext);
   assert.equal(step.step.opening_text, "1. What outcome do you need?");
   assert.deepEqual(step.step.answers_json, {});
+  assert.equal(step.step.progress_state, "pending");
   assert.match(
     step.schemaProjection.schemaProjection.schemaObjects.interaction_guide_steps.fields.answers_json.meaning,
     /answers the user has actually supplied/,
+  );
+  assert.match(
+    step.schemaProjection.schemaProjection.schemaObjects.interaction_guide_steps.fields.progress_state.meaning,
+    /resume an interrupted structured interaction/,
   );
 });

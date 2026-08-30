@@ -1,13 +1,13 @@
 import { withSchemaProjection } from "./schema-result.mjs";
 
 const interactionGuideFields = [
-  "interaction_guide_id", "name", "guide_text", "status", "version",
+  "interaction_guide_id", "name", "status", "version",
   "created_at_utc", "updated_at_utc",
 ];
 
 const interactionGuideStepFields = [
-  "interaction_guide_step_id", "interaction_guide_id", "step_number", "name",
-  "opening_text", "objective_text", "instructions_text", "answers_json",
+  "interaction_guide_step_id", "interaction_guide_id", "step_number",
+  "opening_text", "instructions_text", "answers_json", "progress_state",
   "completion_mode", "enabled", "created_at_utc", "updated_at_utc",
 ];
 
@@ -17,11 +17,10 @@ function databaseStep(step) {
     interaction_guide_step_id: step.id,
     interaction_guide_id: step.guideId,
     step_number: step.stepNumber,
-    name: step.name,
     opening_text: step.openingText,
-    objective_text: step.objectiveText,
     instructions_text: step.instructionsText,
     answers_json: step.answers,
+    progress_state: step.progressState,
     completion_mode: step.completionMode,
     enabled: step.enabled,
     created_at_utc: step.createdAtUtc,
@@ -34,7 +33,6 @@ function databaseGuide(guide) {
   return {
     interaction_guide_id: guide.id,
     name: guide.name,
-    ...(Object.hasOwn(guide, "guideText") ? { guide_text: guide.guideText } : {}),
     status: guide.status,
     version: guide.version,
     created_at_utc: guide.createdAtUtc,
@@ -82,7 +80,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
   registry = registry.withCapability?.("interaction-guides") ?? registry;
   registry.register({
     name: "interaction_guide_list",
-    description: "List interaction-guide metadata without loading any guide text. Use this to discover the exact guide ID and name before fetching, editing, scheduling, or starting one.",
+    description: "List interaction-guide metadata without loading its numbered steps. Use this to discover the exact guide ID and name before fetching, editing, scheduling, or starting one.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -97,7 +95,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
       return guideResult(schemaSemantics, context, {
         ...result,
         guides: result.guides.map(databaseGuide),
-      }, "interaction_guide_list", "List interaction-guide metadata without loading guide text", [
+      }, "interaction_guide_list", "List interaction-guide metadata without loading numbered steps", [
         "interaction_guide_id", "name", "status", "version", "created_at_utc", "updated_at_utc",
       ]);
     },
@@ -105,7 +103,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_get",
-    description: "Fetch one exact interaction guide, including its complete guide text. Call this only when the user asks to use, inspect, or change that guide. Supply exactly one ID or name.",
+    description: "Fetch one exact interaction guide, including its complete numbered steps, current answers, and progress states. Call this only when the user asks to use, inspect, or change that guide. Supply exactly one ID or name.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -134,9 +132,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         interaction_guide_id: { type: "integer", minimum: 1 },
         expected_version: { type: "integer", minimum: 1 },
         step_number: { type: "integer", minimum: 1 },
-        name: { type: ["string", "null"], minLength: 1, maxLength: 200 },
         opening_text: { type: "string", minLength: 1, maxLength: 10_000 },
-        objective_text: { type: "string", minLength: 1, maxLength: 10_000 },
         instructions_text: { type: ["string", "null"], minLength: 1, maxLength: 50_000 },
         completion_mode: {
           type: "string", enum: ["response_valid", "user_advances", "tool_receipt"],
@@ -144,8 +140,8 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         enabled: { type: "boolean" },
       },
       required: [
-        "interaction_guide_id", "expected_version", "step_number", "name",
-        "opening_text", "objective_text", "instructions_text", "completion_mode", "enabled",
+        "interaction_guide_id", "expected_version", "step_number",
+        "opening_text", "instructions_text", "completion_mode", "enabled",
       ],
     },
     async execute(argumentsObject, context) {
@@ -153,9 +149,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         guideId: argumentsObject.interaction_guide_id,
         expectedVersion: argumentsObject.expected_version,
         stepNumber: argumentsObject.step_number,
-        name: argumentsObject.name,
         openingText: argumentsObject.opening_text,
-        objectiveText: argumentsObject.objective_text,
         instructionsText: argumentsObject.instructions_text,
         completionMode: argumentsObject.completion_mode,
         enabled: argumentsObject.enabled,
@@ -176,9 +170,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         interaction_guide_step_id: { type: "integer", minimum: 1 },
         expected_version: { type: "integer", minimum: 1 },
         step_number: { type: "integer", minimum: 1 },
-        name: { type: ["string", "null"], minLength: 1, maxLength: 200 },
         opening_text: { type: "string", minLength: 1, maxLength: 10_000 },
-        objective_text: { type: "string", minLength: 1, maxLength: 10_000 },
         instructions_text: { type: ["string", "null"], minLength: 1, maxLength: 50_000 },
         completion_mode: {
           type: "string", enum: ["response_valid", "user_advances", "tool_receipt"],
@@ -186,8 +178,8 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         enabled: { type: "boolean" },
       },
       required: [
-        "interaction_guide_step_id", "expected_version", "step_number", "name",
-        "opening_text", "objective_text", "instructions_text", "completion_mode", "enabled",
+        "interaction_guide_step_id", "expected_version", "step_number",
+        "opening_text", "instructions_text", "completion_mode", "enabled",
       ],
     },
     async execute(argumentsObject, context) {
@@ -195,9 +187,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         stepId: argumentsObject.interaction_guide_step_id,
         expectedVersion: argumentsObject.expected_version,
         stepNumber: argumentsObject.step_number,
-        name: argumentsObject.name,
         openingText: argumentsObject.opening_text,
-        objectiveText: argumentsObject.objective_text,
         instructionsText: argumentsObject.instructions_text,
         completionMode: argumentsObject.completion_mode,
         enabled: argumentsObject.enabled,
@@ -210,7 +200,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_start",
-    description: "Start or resume one exact structured interaction. An unfinished run resumes at its first uncompleted enabled step. Set restart true only when the user explicitly asks to discard that active run and begin again; a new run clears current answers_json after preserving prior progress in the ledger.",
+    description: "Start or resume one exact structured interaction. An unfinished run resumes its active step. Set restart true only when the user explicitly asks to discard that active run and begin again; a new run resets step progress and current answers after preserving prior progress in the ledger.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -286,7 +276,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_run_cancel",
-    description: "Cancel one exact active structured-interaction run while retaining its current answers and complete ledger history. Use only when the user explicitly abandons that run or needs to edit the guide definition before starting again.",
+    description: "Cancel one exact active structured-interaction run, reset its current step progress and answers, and retain its complete prior state in ledger history. Use only when the user explicitly abandons that run or needs to edit the guide definition before starting again.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -313,18 +303,17 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_create",
-    description: "Create one durable, user-owned interaction guide. guide_text is the complete flexible plan for a possibly multi-turn interaction and may use Markdown-style headings and lists.",
+    description: "Create one named durable, user-owned interaction guide. Add its complete user-visible openings and agent instructions as numbered steps before starting it.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         name: { type: "string", minLength: 1, maxLength: 200 },
-        guide_text: { type: "string", minLength: 1, maxLength: 50_000 },
       },
-      required: ["name", "guide_text"],
+      required: ["name"],
     },
-    async execute({ name, guide_text: guideText }, context) {
-      const result = interactionGuides.create({ name, guideText }, context);
+    async execute({ name }, context) {
+      const result = interactionGuides.create({ name }, context);
       return guideResult(schemaSemantics, context, {
         created: result.created,
         guide: databaseGuide(result.guide),
@@ -334,20 +323,19 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_update",
-    description: "Update one exact interaction guide after reading it. Supply its current version for conflict protection. A null name or guide_text preserves that field; at least one field must be non-null.",
+    description: "Rename one exact interaction guide after reading it. Supply its current version for conflict protection. Complete interaction content remains owned by its numbered steps.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         interaction_guide_id: { type: "integer", minimum: 1 },
         expected_version: { type: "integer", minimum: 1 },
-        name: { type: ["string", "null"], minLength: 1, maxLength: 200 },
-        guide_text: { type: ["string", "null"], minLength: 1, maxLength: 50_000 },
+        name: { type: "string", minLength: 1, maxLength: 200 },
       },
-      required: ["interaction_guide_id", "expected_version", "name", "guide_text"],
+      required: ["interaction_guide_id", "expected_version", "name"],
     },
-    async execute({ interaction_guide_id: guideId, expected_version: expectedVersion, name, guide_text: guideText }, context) {
-      const result = interactionGuides.update({ guideId, expectedVersion, name, guideText }, context);
+    async execute({ interaction_guide_id: guideId, expected_version: expectedVersion, name }, context) {
+      const result = interactionGuides.update({ guideId, expectedVersion, name }, context);
       return guideResult(schemaSemantics, context, {
         updated: result.updated,
         unchanged: result.unchanged,

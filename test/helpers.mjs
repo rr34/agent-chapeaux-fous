@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 21, 'Agent Slayer test database');
+    VALUES (1, 22, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -219,7 +219,6 @@ export function temporaryDatabase() {
     CREATE TABLE interaction_guides (
       interaction_guide_id INTEGER PRIMARY KEY,
       name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK (length(trim(name)) BETWEEN 1 AND 200),
-      guide_text TEXT NOT NULL CHECK (length(trim(guide_text)) BETWEEN 1 AND 50000),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
       version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -232,9 +231,7 @@ export function temporaryDatabase() {
       interaction_guide_id INTEGER NOT NULL
         REFERENCES interaction_guides(interaction_guide_id) ON DELETE CASCADE,
       step_number INTEGER NOT NULL CHECK (step_number > 0),
-      name TEXT CHECK (name IS NULL OR length(trim(name)) BETWEEN 1 AND 200),
       opening_text TEXT NOT NULL CHECK (length(trim(opening_text)) BETWEEN 1 AND 10000),
-      objective_text TEXT NOT NULL CHECK (length(trim(objective_text)) BETWEEN 1 AND 10000),
       instructions_text TEXT
         CHECK (instructions_text IS NULL OR length(trim(instructions_text)) BETWEEN 1 AND 50000),
       answers_json TEXT NOT NULL DEFAULT '{}'
@@ -248,10 +245,14 @@ export function temporaryDatabase() {
       enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT,
+      progress_state TEXT NOT NULL DEFAULT 'pending'
+        CHECK (progress_state IN ('pending', 'active', 'completed')),
       UNIQUE (interaction_guide_id, step_number)
     ) STRICT;
     CREATE INDEX interaction_guide_steps_guide_order
       ON interaction_guide_steps(interaction_guide_id, enabled, step_number);
+    CREATE INDEX interaction_guide_steps_guide_progress
+      ON interaction_guide_steps(interaction_guide_id, progress_state, enabled, step_number);
     CREATE TABLE todo_routines (
       todo_routine_id INTEGER PRIMARY KEY,
       todo_group_id INTEGER NOT NULL REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
