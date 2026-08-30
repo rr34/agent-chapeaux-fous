@@ -80,7 +80,7 @@ export const nativeCapabilityManifests = [
     ],
   },
   {
-    id: "video", title: "AI-video scripts", summary: "Create portable AI-video-generator scripts from explicitly selected interactions.",
+    id: "video", title: "Video scripts and productions", summary: "Create grounded scripts and script-driven Agent-interface MP4 productions from explicitly selected interactions.",
     aliases: ["video", "video script", "script"], instructionFile: "video.md",
   },
   {

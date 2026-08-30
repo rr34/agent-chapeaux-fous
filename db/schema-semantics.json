@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 22,
-    "schemaFingerprint": "1a7aca1cdc10952e62aa010627327c4d82331e450ec81938aa178ce08304312e",
-    "extractedAt": "2026-08-30T19:46:42.669Z"
+    "schemaVersion": 23,
+    "schemaFingerprint": "faa70b52b5cc7ec020d333360c6c89e23998666e0c9b419a689eac8dfce6ff35",
+    "extractedAt": "2026-08-30T21:21:26.063Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -16557,11 +16557,32 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE video_jobs (\n    video_job_id        INTEGER PRIMARY KEY,\n    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    source_turn_id      TEXT,\n    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,\n    renderer            TEXT NOT NULL DEFAULT 'remotion'\n                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),\n    template            TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'queued'\n                        CHECK (status IN (\n                            'queued', 'preparing', 'rendering',\n                            'complete', 'error', 'cancelled'\n                        )),\n    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),\n    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    started_at_utc      TEXT,\n    completed_at_utc    TEXT,\n    updated_at_utc      TEXT,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL\n) STRICT",
-        "indexes": []
+        "definition": "CREATE TABLE video_jobs (\n    video_job_id        INTEGER PRIMARY KEY,\n    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    source_turn_id      TEXT,\n    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,\n    renderer            TEXT NOT NULL DEFAULT 'remotion'\n                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),\n    template            TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'queued'\n                        CHECK (status IN (\n                            'queued', 'preparing', 'rendering',\n                            'complete', 'error', 'cancelled'\n                        )),\n    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),\n    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    started_at_utc      TEXT,\n    completed_at_utc    TEXT,\n    updated_at_utc      TEXT,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL\n, video_script_id INTEGER\n             REFERENCES video_scripts(video_script_id) ON DELETE SET NULL) STRICT",
+        "indexes": [
+          {
+            "name": "video_jobs_one_active_script",
+            "columns": [
+              "video_script_id"
+            ],
+            "unique": true,
+            "partial": true,
+            "origin": "c"
+          },
+          {
+            "name": "video_jobs_script_created",
+            "columns": [
+              "video_script_id",
+              "created_at_utc",
+              "video_job_id"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "c"
+          }
+        ]
       },
       "semantics": {
-        "purpose": "Tracks the reproducible execution state of an explicitly requested video render after its durable personal task and template have been established.",
+        "purpose": "Tracks background execution attempts for script-driven video productions and any retained legacy render jobs.",
         "rowMeaning": "One row represents one attempt to render one video using one renderer, template, input package, and eventual output or error.",
         "sourceOfTruth": true,
         "derivedFrom": [],
@@ -16578,7 +16599,8 @@
         ],
         "routingWeight": 0.5,
         "importantRules": [
-          "A video job is subordinate execution state and never replaces the originating personal_tasks record.",
+          "A script-driven video job is subordinate execution state and never replaces its authoritative video_scripts record.",
+          "At most one queued, preparing, or rendering job may exist for one linked script.",
           "Every meaningful state transition should also be observable in activity_events."
         ],
         "sensitivity": "May contain private source interactions, render inputs, output paths, and errors."
@@ -16626,7 +16648,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Ledger event containing the interaction selected as source material for the video.",
+            "meaning": "Ledger request event whose accepted tool call initiated this render job, when known.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -16810,7 +16832,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Complete structured input package needed to reproduce the template render.",
+            "meaning": "Bounded job contract and identifiers needed to resolve the authoritative script and ordered sources for this render attempt.",
             "units": null,
             "format": "JSON object encoded as text",
             "allowedValueMeanings": {},
@@ -17013,6 +17035,33 @@
             "sensitivity": null
           }
         },
+        "video_script_id": {
+          "mechanics": {
+            "present": true,
+            "name": "video_script_id",
+            "ordinal": 15,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Durable production script whose scene plan this background render job executes, when this is a script-driven job.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
         "personal_todo_item_id": {
           "mechanics": {
             "present": false,
@@ -17103,9 +17152,11 @@
             "onDelete": "SET NULL"
           },
           "semantics": {
-            "meaning": null,
-            "cardinality": null,
-            "importantRules": []
+            "meaning": "Connects a background render attempt to the exact durable video script it executes.",
+            "cardinality": "Each script-driven render job references zero or one script; one script may retain multiple completed or failed attempts but only one active attempt.",
+            "importantRules": [
+              "Deleting a script preserves historical render-job state and clears this reference."
+            ]
           }
         },
         "fk:request_event_id->activity_events.event_id": {
@@ -17128,6 +17179,26 @@
             "importantRules": [
               "Deleting the referenced row preserves this row and clears the reference."
             ]
+          }
+        },
+        "fk:video_script_id->video_scripts.video_script_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:video_script_id->video_scripts.video_script_id",
+            "columns": [
+              "video_script_id"
+            ],
+            "targetObject": "video_scripts",
+            "targetColumns": [
+              "video_script_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "SET NULL"
+          },
+          "semantics": {
+            "meaning": null,
+            "cardinality": null,
+            "importantRules": []
           }
         },
         "fk:personal_todo_item_id->personal_todo_items.personal_todo_item_id": {
@@ -17372,7 +17443,7 @@
         ]
       },
       "semantics": {
-        "purpose": "Stores reusable, copy-ready production scripts for external AI video generators, grounded in explicitly selected Agent Slayer interactions.",
+        "purpose": "Stores reusable, copy-ready production scripts grounded in explicitly selected Agent interactions for external generators and the built-in Agent-interface renderer.",
         "rowMeaning": "One row is one versioned portable video-script draft with a structured production plan and deterministic human-readable export.",
         "sourceOfTruth": true,
         "derivedFrom": [],
@@ -17389,7 +17460,7 @@
         ],
         "routingWeight": 0.8,
         "importantRules": [
-          "A script is a content-production artifact, not an MP4 render job.",
+          "A script is the authoritative content-production plan; MP4 execution state belongs to linked video_jobs rows.",
           "Creation is idempotent for the exact Agent Slayer request event recorded in created_by_event_id.",
           "Source interactions are authoritative and are preserved separately in video_script_sources."
         ],

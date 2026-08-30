@@ -24,6 +24,8 @@ import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
 import { SchemaSemantics } from "./schema-semantics.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
+import { OpenAISpeechService } from "./openai-speech.mjs";
+import { VideoRenderWorker } from "./video-render-worker.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
 import { registerFileTools } from "./tools/file-tools.mjs";
 import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
@@ -52,6 +54,7 @@ const organizer = store.status.ready ? new OrganizerStore(config.databasePath) :
 const profileFacts = new ProfileFacts({ store, ledger });
 const interactionGuides = new InteractionGuides({ store, ledger });
 const videoScripts = store.status.ready ? new VideoScripts({ store, ledger }) : null;
+let videoRenderWorker = null;
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
 const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
@@ -100,7 +103,9 @@ if (store.status.ready) {
     maximumGeneratedBytes: config.maxRequestAttachmentBytes,
   });
   registerSearchTools(registry, searchCoordinator);
-  registerVideoScriptTools(registry, videoScripts);
+  registerVideoScriptTools(registry, videoScripts, {
+    onRenderQueued: () => videoRenderWorker?.notify(),
+  });
   registerEmailReceiptTools(registry, ledger);
 }
 await mcp.initialize(registry);
@@ -126,6 +131,29 @@ const transcriber = new WhisperTranscriber({
   workerPath: config.whisperWorkerPath,
   timeoutMs: config.whisperTimeoutMs,
 });
+const speech = new OpenAISpeechService({
+  apiKey: config.openAIApiKey,
+  baseUrl: config.openAIBaseUrl,
+  model: config.ttsModel,
+  voice: config.ttsAgentVoice,
+  instructions: config.ttsAgentInstructions,
+  timeoutMs: config.ttsTimeoutMs,
+});
+if (videoScripts) {
+  videoRenderWorker = new VideoRenderWorker({
+    videoScripts,
+    ledger,
+    transcriber,
+    speech,
+    agentVoice: config.ttsAgentVoice,
+    agentInstructions: config.ttsAgentInstructions,
+    userVoice: config.ttsUserVoice,
+    userInstructions: config.ttsUserInstructions,
+    mediaRoot: config.mediaRoot,
+    outputRoot: config.videoOutputRoot,
+    browserExecutable: config.remotionBrowserExecutable,
+  });
+}
 const queue = new RequestQueue({
   ledger,
   runtime,
@@ -687,6 +715,31 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 202, { ...created, sourceRequestIds });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/video-productions/generate") {
+      const body = await readJson(request);
+      const sources = videoScripts.validateSelection(body.sourceRequestIds);
+      const sourceRequestIds = sources.map(({ requestId }) => requestId);
+      const runLimits = normalizeRunLimits(body.runLimits);
+      const created = ledger.createRequest({
+        text: [
+          "Create one source-grounded video production from every selected interaction below.",
+          "First create the complete portable script. Then atomically queue its built-in Agent-interface MP4 using server-side narration and original request audio when the selected interaction has a saved recording.",
+          "Use the selected interactions in chronological order, preserve factual outcomes, omit secrets and unrelated private details, and call video_production_create exactly once.",
+          ...sourceRequestIds.map((id, index) => `${index + 1}. Source interaction ${id}`),
+        ].join("\n"),
+        channel: "web",
+        runLimits,
+        metadata: {
+          requestKind: "video_production",
+          sourceRequestIds,
+          model: config.videoModel,
+          effort: config.videoReasoningEffort,
+        },
+      });
+      queue.notify();
+      sendJson(response, 202, { ...created, sourceRequestIds });
+      return;
+    }
     const videoScriptMatch = /^\/api\/video-scripts\/(\d+)$/.exec(url.pathname);
     if (request.method === "GET" && videoScriptMatch) {
       const script = videoScripts.get(videoScriptMatch[1]);
@@ -698,6 +751,15 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const videoScriptArchiveMatch = /^\/api\/video-scripts\/(\d+)\/archive$/.exec(url.pathname);
+    const videoScriptRenderMatch = /^\/api\/video-scripts\/(\d+)\/render$/.exec(url.pathname);
+    if (request.method === "POST" && videoScriptRenderMatch) {
+      const result = videoScripts.queueRender(videoScriptRenderMatch[1], {
+        actorType: "user", actorName: "web", channel: "web",
+      });
+      if (result.queued) videoRenderWorker?.notify();
+      sendJson(response, result.queued ? 202 : 200, result);
+      return;
+    }
     if (request.method === "POST" && videoScriptArchiveMatch) {
       const body = await readJson(request);
       sendJson(response, 200, videoScripts.archive(
@@ -855,10 +917,12 @@ const server = http.createServer(async (request, response) => {
 server.listen(config.port, config.host, () => {
   console.log(`[agent-slayer] ${identity.commit || "uncommitted"}${identity.dirty ? "-dirty" : ""} listening on http://${config.host}:${config.port}`);
   if (store.status.ready && mcp.ready() && !jmap.requiredProblem()) queue.notify();
+  videoRenderWorker?.start();
 });
 
 async function shutdown() {
   server.close();
+  await videoRenderWorker?.stop();
   transcriber.close();
   await modelTransport.close();
   await mcp.close();

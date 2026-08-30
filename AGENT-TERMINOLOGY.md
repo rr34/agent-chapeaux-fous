@@ -62,9 +62,9 @@ original microphone recording for upload.
 web client** to **48. Voice-ingestion service**. TLS or private-network
 publication is supplied by deployment infrastructure.
 
-**17. Agent speech-generation service** — A possible future server-side speech
-component. The current product instead turns final responses into speech in the
-web client through browser-native speech synthesis.
+**17. Agent speech-generation service** — The OpenAI Platform speech service
+used server-side for disclosed AI narration in video productions. Ordinary live
+Agent responses still use browser-native speech synthesis in the web client.
 
 **18. Phone audio player** — The current web client automatically speaks each
 completed response submitted by that browser unless Respond silently was
@@ -91,19 +91,19 @@ elapsed-time and current-stage display.
 **24. TimeV3 MCP server** — A possible controlled TimeV3 tool boundary. It is
 retained in the vocabulary but is not currently configured.
 
-**25. Video-script service** — The native domain that packages explicitly
-selected completed interactions into a versioned, portable production script
-for an external AI video generator.
+**25. Video-production service** — The native domain that packages explicitly
+selected completed interactions into a versioned portable script and, when
+requested, atomically queues its linked background MP4 job.
 
-**26. Legacy video-rendering appendix** — The retained, unregistered Remotion
-implementation and historical MP4 download path. It is not callable by the
-agent and does not run in the request queue.
+**26. Built-in video-render worker** — The single-concurrency background
+service that prepares original request audio or disclosed AI narration, then
+renders the script's designed Agent-interface reproduction through Remotion.
 
 **27. Portable video-script contract** — The versioned production brief,
-generator prompt, scene plan, grounding references, continuity requirements,
-and negative constraints stored for one AI-video script.
+generator prompt, grounded scene plan, optional built-in render scene types,
+continuity requirements, and negative constraints stored for one script.
 
-**28. Selected-interaction script context** — The bounded, chronologically
+**28. Selected-interaction production context** — The bounded, chronologically
 ordered, source-referenced request and response evidence prepared only after
 orientation selects the advertised video context view.
 

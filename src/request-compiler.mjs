@@ -77,7 +77,7 @@ const capabilitySummaries = new Map([
   ["database-write", "Write supported native SQLite-backed application data; read-only database access is already callable."],
   ["history", "Search prior Agent Slayer conversations."],
   ["email", "Read, draft, send, organize, and clean up email."],
-  ["video", "Create portable AI-video-generator scripts from explicitly selected interactions."],
+  ["video", "Create source-grounded video scripts and queue script-driven Agent-interface MP4 productions from explicitly selected interactions."],
   ["search", "Search across calendar, contacts, durable uploads, and conversation history with compact normalized results."],
 ]);
 

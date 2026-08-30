@@ -399,7 +399,7 @@ export class Ledger {
     const requestKind = request.payload?.requestKind ?? null;
     const sourceFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
     const scriptSelectable = terminal?.status === "complete"
-      && !["interaction_video", "video_script"].includes(requestKind);
+      && !["interaction_video", "video_script", "video_production"].includes(requestKind);
     const ownRenderedVideo = requestKind === "interaction_video"
       ? [...events].reverse().find((event) => event.type === "video.render.completed")
       : null;
@@ -787,7 +787,7 @@ export class Ledger {
     return received.map((request) => this.#requestDetails(request));
   }
 
-  interactionVideoSource(requestId) {
+  interactionReplaySource(requestId) {
     const requestRow = this.store.requireReady().prepare(`
       SELECT * FROM activity_events
       WHERE turn_id = ? AND event_type IN (${placeholders(receivedEventTypes)})
@@ -798,10 +798,8 @@ export class Ledger {
     const events = this.trace(requestId);
     const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
     if (!terminal) throw Object.assign(new Error("Wait for the source interaction to finish before making its video"), { statusCode: 409 });
-    const audioFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
-    if (!audioFile || audioFile.media_kind !== "audio") {
-      throw Object.assign(new Error("A video requires a voice interaction with saved source audio"), { statusCode: 409 });
-    }
+    const candidateAudioFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
+    const audioFile = candidateAudioFile?.media_kind === "audio" ? candidateAudioFile : null;
     const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
     return {
@@ -814,6 +812,14 @@ export class Ledger {
       audioFile,
       events,
     };
+  }
+
+  interactionVideoSource(requestId) {
+    const source = this.interactionReplaySource(requestId);
+    if (!source.audioFile) {
+      throw Object.assign(new Error("A video requires a voice interaction with saved source audio"), { statusCode: 409 });
+    }
+    return source;
   }
 
   videoForSourceRequest(sourceRequestId) {

@@ -6,7 +6,7 @@ import { renderMedia, selectComposition } from "@remotion/renderer";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const entryPoint = path.join(directory, "remotion", "index.jsx");
-const compositionId = "slayer-interaction";
+const compositionId = "scripted-agent-ui-story";
 let bundlePromise;
 
 function bundleLocation() {
@@ -14,7 +14,7 @@ function bundleLocation() {
   return bundlePromise;
 }
 
-export async function renderInteractionVideo({ input, outputLocation, browserExecutable = null }) {
+export async function renderScriptedInteractionVideo({ input, outputLocation, browserExecutable = null }) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Video input must be an object");
   const output = path.resolve(String(outputLocation || ""));
   if (!output.toLowerCase().endsWith(".mp4")) throw new Error("Video output must be an MP4 path");
@@ -42,4 +42,44 @@ export async function renderInteractionVideo({ input, outputLocation, browserExe
     width: composition.width,
     height: composition.height,
   };
+}
+
+// Preserve the historical single-interaction entry point as a small adapter;
+// the active server path always supplies the full script-driven scene contract.
+export async function renderInteractionVideo(options) {
+  const legacy = options?.input;
+  if (Array.isArray(legacy?.scenes)) return renderScriptedInteractionVideo(options);
+  const audioSeconds = Math.max(1, (Number(legacy?.audioEndMs) - Number(legacy?.audioStartMs)) / 1000 || 4);
+  const input = {
+    title: legacy?.title || "A real agent interaction",
+    sourceCount: 1,
+    scenes: [
+      {
+        sceneNumber: 1, renderSceneType: "intro", heading: legacy?.title,
+        onScreenText: "A real request, its processing, and the resulting response.", durationSeconds: 3,
+      },
+      {
+        sceneNumber: 2, renderSceneType: "request", requestText: legacy?.normalizedTranscript,
+        sourceReference: "Selected interaction", authenticAudio: true,
+        audioDataUrl: legacy?.audioDataUrl, audioStartMs: legacy?.audioStartMs,
+        audioEndMs: legacy?.audioEndMs, captionCues: legacy?.captionCues,
+        rawWords: legacy?.rawWords, durationSeconds: audioSeconds + 1,
+      },
+      {
+        sceneNumber: 3, renderSceneType: "activity", activity: legacy?.activity || [],
+        onScreenText: "The recorded Agent trace", durationSeconds: 5,
+      },
+      {
+        sceneNumber: 4, renderSceneType: "response",
+        responseText: (legacy?.responseHighlights || []).join(" "),
+        highlights: legacy?.responseHighlights || [], durationSeconds: 7,
+      },
+      {
+        sceneNumber: 5, renderSceneType: "outro", heading: "The interaction, made visible",
+        durationSeconds: 3,
+      },
+    ],
+    render: legacy?.render || { fps: 30, width: 1080, height: 1920 },
+  };
+  return renderScriptedInteractionVideo({ ...options, input });
 }

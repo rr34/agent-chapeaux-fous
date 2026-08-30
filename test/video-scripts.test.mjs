@@ -31,6 +31,7 @@ function plan(sourceRequestIds) {
         sceneNumber: 1,
         durationSeconds: 20,
         sourceRequestIds: [sourceRequestIds[0]],
+        renderSceneType: "request",
         visualPrompt: "A close view of the first request becoming a completed response.",
         voiceover: "The first interaction established the plan.",
         onScreenText: ["Start with exact context"],
@@ -42,6 +43,7 @@ function plan(sourceRequestIds) {
         sceneNumber: 2,
         durationSeconds: 25,
         sourceRequestIds,
+        renderSceneType: "response",
         visualPrompt: "The two interactions align into one chronological production outline.",
         voiceover: "The second interaction turns that context into a reusable result.",
         onScreenText: ["Ground every scene"],
@@ -157,6 +159,74 @@ test("video-script creation rejects sources outside the request-bound selection"
     /outside the selected source set/,
   );
   assert.equal(videoScripts.list().count, 0);
+});
+
+test("one production tool call persists its script and queues one linked background render", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const videoScripts = new VideoScripts({ store, ledger });
+  const first = completeInteraction(ledger, "Plan the release.", "The release plan is ready.");
+  const second = completeInteraction(ledger, "Make the checklist.", "The checklist is ready.");
+  const generation = ledger.createRequest({
+    text: "Create the selected video production.",
+    metadata: { requestKind: "video_production", sourceRequestIds: [first.requestId, second.requestId] },
+  });
+  let notifications = 0;
+  const registry = registerNativeCapabilities(new ToolRegistry());
+  registerVideoScriptTools(registry, videoScripts, { onRenderQueued: () => { notifications += 1; } });
+  const productionPlan = plan([first.requestId, second.requestId]);
+  productionPlan.scenes[1].sourceRequestIds = [second.requestId];
+
+  await assert.rejects(
+    () => registry.execute("video_script_create", productionPlan, {
+      requestId: generation.requestId,
+      requestEventId: generation.eventId,
+      callId: "wrong-production-tool",
+      channel: "web",
+    }),
+    /must use video_production_create/,
+  );
+
+  const created = await registry.execute(
+    "video_production_create",
+    productionPlan,
+    {
+      requestId: generation.requestId,
+      requestEventId: generation.eventId,
+      callId: "production-call",
+      channel: "web",
+    },
+  );
+
+  assert.equal(created.created, true);
+  assert.equal(created.renderQueued, true);
+  assert.equal(created.render.status, "queued");
+  assert.equal(notifications, 1);
+  const row = store.requireReady().prepare(
+    "SELECT video_script_id, status, template FROM video_jobs WHERE video_job_id = ?",
+  ).get(created.render.id);
+  assert.deepEqual(
+    { videoScriptId: Number(row.video_script_id), status: row.status, template: row.template },
+    { videoScriptId: created.videoScript.id, status: "queued", template: "agent-ui-story" },
+  );
+
+  const replayed = await registry.execute(
+    "video_production_create",
+    productionPlan,
+    {
+      requestId: generation.requestId,
+      requestEventId: generation.eventId,
+      callId: "production-replay",
+      channel: "web",
+    },
+  );
+  assert.equal(replayed.unchanged, true);
+  assert.equal(replayed.render.id, created.render.id);
+  assert.equal(notifications, 1);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM video_jobs").get().count, 1);
 });
 
 test("video-script selection rejects failed interactions", (context) => {

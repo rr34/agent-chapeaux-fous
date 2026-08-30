@@ -446,15 +446,36 @@ pre-model enrichment or change which tools are supplied.
 
 ## Video
 
-The `video/` directory preserves the former Remotion interaction-video
-implementation for historical reference and manual experimentation. Agent
-Slayer does not register its render tool, load this renderer during server
-startup, or invoke it from the request queue.
+The Agent view can select one through eight completed interactions and start a
+single video production. The normal Agent turn first creates a portable,
+source-grounded script; `video_production_create` then atomically persists that
+script and queues its linked `video_jobs` row. Script creation follows the
+ordinary orientation, bounded-context, exact-tool-schema, and receipt rules.
 
-The active product path creates portable, source-grounded AI-video scripts
-through `src/video-scripts.mjs` and leaves video generation to an external AI
-video generator. Existing stored MP4 files remain downloadable through the
-historical read-only endpoint.
+A single-concurrency background worker prepares the production after the Agent
+turn finishes. Request scenes use the original saved recording when one exists;
+otherwise, the typed request is spoken in a feminine voice with a subtle French
+accent. Agent dialogue and narration use a masculine, standard-American voice.
+Server-generated speech is explicitly disclosed as AI-generated in both the
+Video Scripts page and the finished video. The
+Remotion composition is a designed reproduction of the actual Agent interface—
+request card, processing steps, tool activity, response, and timing—not a claim
+that the product captured a screen recording.
+
+The **Video Scripts** page remains the durable home for the portable script and
+external-generator prompt. It also shows the linked background state, polls
+while work is active, downloads completed MP4s, and can retry failed renders.
+Rendering is deliberately outside the FIFO Agent request queue so a long MP4
+does not block ordinary requests; interrupted `preparing` or `rendering` jobs
+return to `queued` when the server starts.
+
+Video production uses `SLAYER_VIDEO_OUTPUT_ROOT`, `SLAYER_TTS_MODEL`,
+`SLAYER_TTS_AGENT_VOICE`, `SLAYER_TTS_AGENT_INSTRUCTIONS`,
+`SLAYER_TTS_USER_VOICE`, `SLAYER_TTS_USER_INSTRUCTIONS`, and
+`SLAYER_TTS_TIMEOUT_MS`. The legacy `SLAYER_TTS_VOICE` and
+`SLAYER_TTS_INSTRUCTIONS` names remain Agent-role fallbacks.
+`REMOTION_BROWSER_EXECUTABLE` may select an installed Chromium executable.
+`OPENAI_API_KEY` is required when a queued production reaches narration.
 
 ## Voice transcription
 
@@ -470,9 +491,9 @@ The original recording is stored before transcription begins.
 
 Responses to new typed and recorded requests are spoken by default through the
 web browser's native speech synthesis. **Respond silently** suppresses speech
-for that request and persists as a browser-local preference. Speech generation
-therefore occurs on the client device; Agent Slayer does not currently run a
-server-side TTS engine. Written responses render GitHub-flavored Markdown after
+for that request and persists as a browser-local preference. This live-response
+speech remains on the client device; the server-side speech service is reserved
+for disclosed video narration. Written responses render GitHub-flavored Markdown after
 HTML sanitization. Before speech playback, Markdown structure and formatting
 punctuation are converted into natural pauses and spoken labels; code blocks are
 left visible and summarized rather than read punctuation by punctuation.

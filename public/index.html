@@ -36,6 +36,7 @@
         <button class="top-nav-button" data-view="interactions" type="button">Structured Interactions</button>
         <button id="ai-usage-nav" class="top-nav-button" data-view="ai-usage" type="button">AI Usage</button>
       </div>
+      <button id="select-video-script-sources" class="top-nav-button create-video-button" type="button">Create video</button>
       <details id="settings-menu" class="settings-menu">
         <summary>Settings</summary>
         <div class="settings-panel">
@@ -44,7 +45,6 @@
               <p class="eyebrow">Chronological</p>
               <strong id="request-settings-heading">Requests</strong>
             </div>
-            <button id="select-video-script-sources" class="secondary compact" type="button">Create video script</button>
             <label class="request-limit-label" for="request-limit">
               <span>Show</span>
               <select id="request-limit">
@@ -72,11 +72,11 @@
       <div id="video-script-selection" class="video-script-selection organizer-panel" role="status" aria-live="polite" hidden>
         <div>
           <strong id="video-script-selection-count">No interactions selected</strong>
-          <span>Select up to 8 completed interactions. The script will use them in chronological order.</span>
+          <span>Select up to 8 completed interactions. One action creates the script and queues its MP4.</span>
         </div>
         <div class="video-script-selection-actions">
           <button id="cancel-video-script-selection" class="secondary compact" type="button">Cancel</button>
-          <button id="generate-video-script" class="compact" type="button" disabled>Generate script</button>
+          <button id="generate-video-script" class="compact" type="button" disabled>Create script + MP4</button>
         </div>
       </div>
       <div id="request-list" class="request-list"></div>
@@ -249,7 +249,7 @@
         <div>
           <p class="eyebrow">Content production</p>
           <h2>Video scripts</h2>
-          <p class="muted">Portable, copy-ready production plans grounded in selected Agent interactions.</p>
+          <p class="muted">Portable production plans and background-rendered Agent-interface MP4s grounded in selected interactions.</p>
         </div>
         <button id="refresh-video-scripts" class="secondary" type="button">Refresh</button>
       </header>
@@ -948,7 +948,7 @@
           <div class="request-actions">
             <label class="video-script-source-choice" hidden>
               <input class="video-script-source-checkbox" type="checkbox">
-              <span>Select for video script</span>
+              <span>Select for video</span>
             </label>
             <button class="download-video secondary compact" type="button" hidden>Download legacy MP4</button>
             <button class="show-trace secondary compact" type="button">Show exact trace</button>

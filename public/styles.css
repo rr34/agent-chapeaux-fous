@@ -86,6 +86,8 @@ button { touch-action: manipulation; }
 .top-nav-button:hover, .settings-menu > summary:hover { color: var(--text); background: var(--panel-raised); }
 .top-nav-button.active { color: #ffffff; background: var(--accent); border-color: var(--accent); }
 .top-nav-button.active:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+.create-video-button { align-self: stretch; color: #fff; background: var(--accent); border-color: var(--accent); }
+.create-video-button:hover { color: #fff; background: var(--accent-dark); border-color: var(--accent-dark); }
 .settings-menu { position: relative; align-self: stretch; flex: 0 0 auto; }
 .settings-menu > summary { height: 100%; gap: .35rem; cursor: pointer; list-style: none; user-select: none; }
 .settings-menu > summary::-webkit-details-marker { display: none; }
@@ -530,6 +532,11 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .video-script-card h3 { margin: 0; font-size: 1.08rem; }
 .video-script-meta, .video-script-sources { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; color: var(--muted); font-size: .72rem; }
 .video-script-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+.video-production-status { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .8rem; margin-top: .8rem; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-raised); font-size: .76rem; }
+.video-production-status span { color: var(--muted); overflow-wrap: anywhere; }
+.video-production-status strong { color: var(--accent); }
+.video-production-error { border-color: var(--bad); }
+.video-production-error strong { color: var(--bad); }
 .video-script-document { margin-top: .85rem; border-top: 1px solid var(--line); }
 .video-script-document summary { padding-top: .8rem; cursor: pointer; color: var(--accent); }
 .video-script-markdown { max-height: 70dvh; margin-top: .8rem; padding: .9rem; overflow: auto; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 9px; line-height: 1.5; user-select: text; }

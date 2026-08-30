@@ -8,6 +8,7 @@ const terminalTypes = [
 const responseTypes = ["assistant.response", "agent.turn.end"];
 const scriptStatuses = new Set(["draft", "archived", "all"]);
 const aspectRatios = new Set(["9:16", "16:9", "1:1", "4:5"]);
+const renderSceneTypes = new Set(["intro", "request", "activity", "response", "outro"]);
 
 function placeholders(values) {
   return values.map(() => "?").join(", ");
@@ -102,6 +103,8 @@ function scriptMarkdown(plan) {
       "",
       `**Grounded in:** ${scene.sourceRequestIds.map((id) => `request ${id}`).join(", ")}`,
       "",
+      `**Built-in render scene:** ${scene.renderSceneType ?? "Not specified."}`,
+      "",
       `**Visual prompt:** ${scene.visualPrompt}`,
       "",
       `**Voiceover/dialogue:** ${scene.voiceover ?? "None."}`,
@@ -139,7 +142,25 @@ function publicSource(row) {
   };
 }
 
-function publicScript(row, sources = []) {
+function publicRender(row) {
+  if (!row) return null;
+  const outputFileId = row.output_file_id == null ? null : Number(row.output_file_id);
+  return {
+    id: Number(row.video_job_id),
+    status: row.status,
+    renderer: row.renderer,
+    template: row.template,
+    outputFileId,
+    downloadUrl: outputFileId == null ? null : `/api/videos/${outputFileId}/download`,
+    error: row.error_text,
+    createdAtUtc: row.created_at_utc,
+    startedAtUtc: row.started_at_utc,
+    completedAtUtc: row.completed_at_utc,
+    updatedAtUtc: row.updated_at_utc,
+  };
+}
+
+function publicScript(row, sources = [], render = null) {
   if (!row) return null;
   return {
     id: Number(row.video_script_id),
@@ -149,6 +170,7 @@ function publicScript(row, sources = []) {
     plan: parseJson(row.script_json),
     scriptText: row.script_text,
     sources: sources.map(publicSource),
+    render: publicRender(render),
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
     archivedAtUtc: row.archived_at_utc,
@@ -185,7 +207,7 @@ export class VideoScripts {
     const database = this.store.requireReady();
     for (const row of rows) {
       const sourceKind = parseJson(row.payload_json).requestKind ?? null;
-      if (["video_script", "interaction_video"].includes(sourceKind)) {
+      if (["video_script", "video_production", "interaction_video"].includes(sourceKind)) {
         throw Object.assign(
           new Error(`Interaction ${row.turn_id} is production workflow state, not source material`),
           { statusCode: 409 },
@@ -215,7 +237,7 @@ export class VideoScripts {
       ORDER BY event_seq LIMIT 1
     `).get(generationRequestId, ...requestTypes);
     const payload = parseJson(row?.payload_json);
-    if (payload.requestKind !== "video_script") {
+    if (!["video_script", "video_production"].includes(payload.requestKind)) {
       throw new Error("This request is not bound to a video-script source selection");
     }
     return this.#sourceRows(payload.sourceRequestIds);
@@ -279,12 +301,12 @@ export class VideoScripts {
     });
     return {
       text: [
-        "The user explicitly selected the following completed interactions for one portable AI-video script.",
+        "The user explicitly selected the following completed interactions for one grounded AI-video script or combined production.",
         "Use every selected interaction, preserve their chronology, ground claims in this evidence, omit secrets and unrelated private details, and do not invent outcomes.",
         JSON.stringify(sources, null, 2),
       ].join("\n\n"),
       data: { sources },
-      heading: "Selected source interactions for the AI-video script",
+      heading: "Selected source interactions for the AI-video production",
     };
   }
 
@@ -300,12 +322,20 @@ export class VideoScripts {
     `).all(scriptId);
   }
 
+  #latestRender(scriptId) {
+    return this.store.requireReady().prepare(`
+      SELECT * FROM video_jobs
+      WHERE video_script_id = ?
+      ORDER BY video_job_id DESC LIMIT 1
+    `).get(scriptId);
+  }
+
   get(scriptId) {
     const id = positiveInteger(scriptId, "Video script ID");
     const row = this.store.requireReady().prepare(
       "SELECT * FROM video_scripts WHERE video_script_id = ?",
     ).get(id);
-    return publicScript(row, row ? this.#scriptSources(id) : []);
+    return publicScript(row, row ? this.#scriptSources(id) : [], row ? this.#latestRender(id) : null);
   }
 
   list({ status = "draft", limit = 200 } = {}) {
@@ -318,13 +348,51 @@ export class VideoScripts {
       ORDER BY COALESCE(updated_at_utc, created_at_utc) DESC, video_script_id DESC
       LIMIT ?
     `).all(...(status === "all" ? [boundedLimit] : [status, boundedLimit]));
-    const scripts = rows.map((row) => publicScript(row, this.#scriptSources(Number(row.video_script_id))));
+    const scripts = rows.map((row) => {
+      const id = Number(row.video_script_id);
+      return publicScript(row, this.#scriptSources(id), this.#latestRender(id));
+    });
     return { status, count: scripts.length, scripts };
   }
 
-  create(input, context = {}) {
+  #insertRenderJob(scriptId, sourceIds, context = {}) {
+    const result = this.store.requireReady().prepare(`
+      INSERT INTO video_jobs (
+        request_event_id, source_turn_id, renderer, template, status, input_json, video_script_id
+      ) VALUES (?, ?, 'remotion', 'agent-ui-story', 'queued', ?, ?)
+    `).run(
+      context.requestEventId ?? null,
+      sourceIds[0] ?? null,
+      JSON.stringify({ contractVersion: 1, videoScriptId: scriptId, sourceRequestIds: sourceIds }),
+      scriptId,
+    );
+    const jobId = Number(result.lastInsertRowid);
+    this.ledger.append({
+      type: "video.render.queued", status: "queued", actorType: context.actorType ?? "tool",
+      actorName: context.actorName ?? "video_production_create", channel: context.channel ?? "web",
+      turnId: context.requestId ?? null, operationId: context.callId ?? null,
+      name: "Scripted interaction video queued",
+      payload: { videoJobId: jobId, videoScriptId: scriptId, sourceRequestIds: sourceIds },
+      subjectType: "video_job", subjectId: String(jobId),
+    });
+    return jobId;
+  }
+
+  create(input, context = {}, { queueRender = false } = {}) {
     if (!context.requestId || !context.requestEventId) {
       throw new Error("Video script creation requires the bound Agent Slayer request");
+    }
+    const generationRow = this.store.requireReady().prepare(`
+      SELECT payload_json FROM activity_events
+      WHERE turn_id = ? AND event_type IN (${placeholders(requestTypes)})
+      ORDER BY event_seq LIMIT 1
+    `).get(context.requestId, ...requestTypes);
+    const generationKind = parseJson(generationRow?.payload_json).requestKind;
+    if (generationKind === "video_production" && !queueRender) {
+      throw new Error("A video-production request must use video_production_create");
+    }
+    if (generationKind === "video_script" && queueRender) {
+      throw new Error("A script-only request must use video_script_create");
     }
     const selectedRows = this.selectionForGenerationRequest(context.requestId);
     const canonicalIds = selectedRows.map(({ turn_id: turnId }) => turnId);
@@ -342,6 +410,9 @@ export class VideoScripts {
         sceneNumber: positiveInteger(scene.sceneNumber, `Scene ${index + 1} number`, { maximum: 40 }),
         durationSeconds: positiveInteger(scene.durationSeconds, `Scene ${index + 1} duration`, { maximum: 120 }),
         sourceRequestIds: sceneSources,
+        renderSceneType: scene.renderSceneType == null
+          ? null
+          : requiredText(scene.renderSceneType, `Scene ${index + 1} built-in render scene`, 40),
         visualPrompt: requiredText(scene.visualPrompt, `Scene ${index + 1} visual prompt`, 5_000),
         voiceover: optionalText(scene.voiceover, `Scene ${index + 1} voiceover`, 3_000),
         onScreenText: boundedArray(scene.onScreenText, `Scene ${index + 1} on-screen text`, { maximum: 10 })
@@ -351,6 +422,17 @@ export class VideoScripts {
         transition: optionalText(scene.transition, `Scene ${index + 1} transition`, 1_000),
       };
     });
+    if (scenes.some(({ renderSceneType }) => renderSceneType !== null && !renderSceneTypes.has(renderSceneType))) {
+      throw new Error("Built-in render scenes must be intro, request, activity, response, or outro");
+    }
+    if (queueRender && scenes.some(({ renderSceneType, voiceover }) => !renderSceneType || !voiceover)) {
+      throw new Error("Every production scene requires a built-in render scene and server narration");
+    }
+    if (queueRender && scenes.some(({ renderSceneType, sourceRequestIds: ids }) => (
+      ["request", "response"].includes(renderSceneType) && ids.length !== 1
+    ))) {
+      throw new Error("Every production request or response scene must reference exactly one interaction");
+    }
     if (scenes.some(({ sceneNumber }, index) => sceneNumber !== index + 1)) {
       throw new Error("Scene numbers must be consecutive and match scene order");
     }
@@ -361,6 +443,12 @@ export class VideoScripts {
     const usedSourceIds = new Set(scenes.flatMap(({ sourceRequestIds: ids }) => ids));
     if (canonicalIds.some((id) => !usedSourceIds.has(id))) {
       throw new Error("Every selected interaction must ground at least one scene");
+    }
+    const visiblyReplayedIds = new Set(scenes
+      .filter(({ renderSceneType }) => ["request", "response"].includes(renderSceneType))
+      .flatMap(({ sourceRequestIds: ids }) => ids));
+    if (queueRender && canonicalIds.some((id) => !visiblyReplayedIds.has(id))) {
+      throw new Error("Every selected interaction needs a request or response scene in the built-in production");
     }
     if (!aspectRatios.has(input.aspectRatio)) throw new Error(`Unknown aspect ratio: ${input.aspectRatio}`);
     const plan = {
@@ -388,7 +476,10 @@ export class VideoScripts {
     const existing = database.prepare(
       "SELECT video_script_id FROM video_scripts WHERE created_by_event_id = ?",
     ).get(context.requestEventId);
-    if (existing) return { created: false, unchanged: true, script: this.get(existing.video_script_id) };
+    if (existing) {
+      const script = this.get(existing.video_script_id);
+      return { created: false, unchanged: true, script, renderQueued: false, render: script.render };
+    }
     database.exec("BEGIN IMMEDIATE");
     try {
       const result = database.prepare(`
@@ -402,21 +493,149 @@ export class VideoScripts {
         VALUES (?, ?, ?)
       `);
       selectedRows.forEach((row, index) => insertSource.run(scriptId, row.request_event_id, index + 1));
-      const script = this.get(scriptId);
       this.ledger.append({
         type: "video_script.created", status: "complete", actorType: "tool",
-        actorName: "video_script_create", channel: context.channel,
+        actorName: context.actorName ?? "video_script_create", channel: context.channel,
         turnId: context.requestId, operationId: context.callId,
         name: "AI-video script created", content: plan.title,
         payload: { videoScriptId: scriptId, sourceRequestIds: canonicalIds, schemaVersion: 1 },
         subjectType: "video_script", subjectId: String(scriptId),
       });
+      const renderJobId = queueRender ? this.#insertRenderJob(scriptId, canonicalIds, context) : null;
       database.exec("COMMIT");
-      return { created: true, unchanged: false, script };
+      const script = this.get(scriptId);
+      return {
+        created: true,
+        unchanged: false,
+        script,
+        renderQueued: renderJobId !== null,
+        render: script.render,
+      };
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  queueRender(scriptId, context = {}) {
+    const id = positiveInteger(scriptId, "Video script ID");
+    const script = this.get(id);
+    if (!script) throw Object.assign(new Error("Video script not found"), { statusCode: 404 });
+    if (script.plan.scenes.some(({ renderSceneType, voiceover }) => !renderSceneType || !voiceover)) {
+      throw Object.assign(
+        new Error("This script does not contain the built-in render scene and narration contract"),
+        { statusCode: 409 },
+      );
+    }
+    if (script.render && ["queued", "preparing", "rendering"].includes(script.render.status)) {
+      return { queued: false, existing: true, script };
+    }
+    if (script.render?.status === "complete") {
+      return { queued: false, existing: true, script };
+    }
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#insertRenderJob(id, script.sources.map(({ requestId: sourceId }) => sourceId), {
+        ...context,
+        actorType: context.actorType ?? "user",
+        actorName: context.actorName ?? "web",
+      });
+      database.exec("COMMIT");
+      return { queued: true, existing: false, script: this.get(id) };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  recoverInterruptedRenderJobs() {
+    return this.store.requireReady().prepare(`
+      UPDATE video_jobs
+      SET status = 'queued', started_at_utc = NULL, updated_at_utc = ?,
+          error_text = 'Recovered after the prior render worker stopped'
+      WHERE status IN ('preparing', 'rendering')
+        AND video_script_id IS NOT NULL
+        AND renderer = 'remotion'
+        AND template = 'agent-ui-story'
+      RETURNING video_job_id
+    `).all(new Date().toISOString()).map(({ video_job_id: id }) => Number(id));
+  }
+
+  claimNextRenderJob() {
+    const database = this.store.requireReady();
+    const now = new Date().toISOString();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const row = database.prepare(`
+        UPDATE video_jobs
+        SET status = 'preparing', started_at_utc = COALESCE(started_at_utc, ?),
+            updated_at_utc = ?, error_text = NULL
+        WHERE video_job_id = (
+          SELECT video_job_id FROM video_jobs
+          WHERE status = 'queued'
+            AND video_script_id IS NOT NULL
+            AND renderer = 'remotion'
+            AND template = 'agent-ui-story'
+          ORDER BY video_job_id LIMIT 1
+        ) AND status = 'queued'
+        RETURNING *
+      `).get(now, now);
+      database.exec("COMMIT");
+      return row ? { ...publicRender(row), videoScriptId: Number(row.video_script_id) } : null;
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  markRenderRunning(jobId) {
+    const id = positiveInteger(jobId, "Video job ID");
+    const now = new Date().toISOString();
+    const row = this.store.requireReady().prepare(`
+      UPDATE video_jobs SET status = 'rendering', updated_at_utc = ?
+      WHERE video_job_id = ? AND status = 'preparing' RETURNING *
+    `).get(now, id);
+    if (!row) throw new Error("Video job is no longer preparing");
+    return publicRender(row);
+  }
+
+  completeRender(jobId, outputFileId, details = {}) {
+    const id = positiveInteger(jobId, "Video job ID");
+    const fileId = positiveInteger(outputFileId, "Rendered file ID");
+    const now = new Date().toISOString();
+    const row = this.store.requireReady().prepare(`
+      UPDATE video_jobs
+      SET status = 'complete', output_file_id = ?, error_text = NULL,
+          completed_at_utc = ?, updated_at_utc = ?
+      WHERE video_job_id = ? AND status = 'rendering' RETURNING *
+    `).get(fileId, now, now, id);
+    if (!row) throw new Error("Video job is no longer rendering");
+    this.ledger.append({
+      type: "video.render.completed", phase: "end", status: "complete", actorType: "service",
+      actorName: "Remotion", name: "Scripted interaction video rendered",
+      payload: { videoJobId: id, videoScriptId: Number(row.video_script_id), fileId, ...details },
+      primaryFileId: fileId, subjectType: "video_job", subjectId: String(id),
+    });
+    return publicRender(row);
+  }
+
+  failRender(jobId, error) {
+    const id = positiveInteger(jobId, "Video job ID");
+    const message = error instanceof Error ? error.message : String(error);
+    const now = new Date().toISOString();
+    const row = this.store.requireReady().prepare(`
+      UPDATE video_jobs
+      SET status = 'error', error_text = ?, completed_at_utc = ?, updated_at_utc = ?
+      WHERE video_job_id = ? AND status IN ('preparing', 'rendering') RETURNING *
+    `).get(message.slice(0, 20_000), now, now, id);
+    if (row) this.ledger.append({
+      type: "video.render.error", phase: "error", status: "error", actorType: "service",
+      actorName: "Remotion", name: "Scripted interaction video failed", error: message,
+      payload: { videoJobId: id, videoScriptId: Number(row.video_script_id) },
+      subjectType: "video_job", subjectId: String(id),
+    });
+    return publicRender(row);
   }
 
   archive(scriptId, expectedVersion, context = {}) {

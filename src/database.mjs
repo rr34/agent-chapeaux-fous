@@ -32,6 +32,11 @@ export const requiredDatabaseShape = {
     "created_by_event_id", "created_at_utc", "updated_at_utc", "archived_at_utc", "version",
   ],
   video_script_sources: ["video_script_id", "request_event_id", "source_order"],
+  video_jobs: [
+    "video_job_id", "request_event_id", "source_turn_id", "content_id", "renderer",
+    "template", "status", "input_json", "output_file_id", "error_text", "created_at_utc",
+    "started_at_utc", "completed_at_utc", "updated_at_utc", "personal_task_id", "video_script_id",
+  ],
   calendar_events: [
     "calendar_event_id", "title", "description", "location_text", "starts_at_utc",
     "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule",

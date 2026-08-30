@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 22, 'Agent Slayer test database');
+    VALUES (1, 23, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -194,6 +194,31 @@ export function temporaryDatabase() {
       ON video_scripts(status, created_at_utc DESC, video_script_id DESC);
     CREATE INDEX video_script_sources_request
       ON video_script_sources(request_event_id, video_script_id);
+    CREATE TABLE video_jobs (
+      video_job_id INTEGER PRIMARY KEY,
+      request_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
+      source_turn_id TEXT,
+      content_id INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,
+      renderer TEXT NOT NULL DEFAULT 'remotion'
+        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),
+      template TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'preparing', 'rendering', 'complete', 'error', 'cancelled')),
+      input_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),
+      output_file_id INTEGER REFERENCES files(file_id) ON DELETE SET NULL,
+      error_text TEXT,
+      created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      started_at_utc TEXT,
+      completed_at_utc TEXT,
+      updated_at_utc TEXT,
+      personal_task_id INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL,
+      video_script_id INTEGER REFERENCES video_scripts(video_script_id) ON DELETE SET NULL
+    ) STRICT;
+    CREATE INDEX video_jobs_script_created
+      ON video_jobs(video_script_id, created_at_utc DESC, video_job_id DESC);
+    CREATE UNIQUE INDEX video_jobs_one_active_script
+      ON video_jobs(video_script_id)
+      WHERE video_script_id IS NOT NULL AND status IN ('queued', 'preparing', 'rendering');
     CREATE TABLE calendar_events (
       calendar_event_id INTEGER PRIMARY KEY,
       ical_uid TEXT,

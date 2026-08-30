@@ -72,6 +72,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("email_send")), "email");
   assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
   assert.equal(capabilityForTool(tool("video_script_create")), "video");
+  assert.equal(capabilityForTool(tool("video_production_create")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
   assert.equal(capabilityForTool(tool("file_read")), "files");
 });
@@ -163,6 +164,15 @@ test("an explicit interaction-video request selects the script creator", () => {
   assert.equal(names(selection).includes("video_script_create"), true);
   assert.equal(selection.capabilities.includes("video"), true);
   assert.equal(selection.fallbackAll, false);
+});
+
+test("an explicit one-button production request selects the combined production tool", () => {
+  const selection = selectRequestCapabilities({
+    tools: [...tools, tool("video_script_create"), tool("video_production_create")],
+    text: "Create the script and produce its video from these interactions.",
+  });
+  assert.equal(names(selection).includes("video_production_create"), true);
+  assert.equal(selection.capabilities.includes("video"), true);
 });
 
 test("an application capability override ignores unrelated prior-conversation routing", async () => {

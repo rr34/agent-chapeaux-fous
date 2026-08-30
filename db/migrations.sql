@@ -5,6 +5,24 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0023: scripted-video-production-jobs
+-- Link application-owned background render jobs to the exact durable script
+-- they execute. The script's ordered source join remains authoritative; the
+-- job owns only preparation, rendering, output, and retry state.
+
+ALTER TABLE video_jobs
+ADD COLUMN video_script_id INTEGER
+             REFERENCES video_scripts(video_script_id) ON DELETE SET NULL;
+
+CREATE INDEX video_jobs_script_created
+    ON video_jobs(video_script_id, created_at_utc DESC, video_job_id DESC);
+
+CREATE UNIQUE INDEX video_jobs_one_active_script
+    ON video_jobs(video_script_id)
+    WHERE video_script_id IS NOT NULL
+      AND status IN ('queued', 'preparing', 'rendering');
+-- end migration 0023
+
 -- migration 0022: minimal-structured-interaction-state
 -- Keep the guide as a named versioned container. Each ordered step owns only
 -- its user-visible opening, agent instructions, current answers, and explicit

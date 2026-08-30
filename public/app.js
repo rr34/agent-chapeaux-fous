@@ -355,6 +355,7 @@ let contentItems = [];
 let contentGroups = [];
 let contentSearchTimer = null;
 let videoScripts = [];
+let videoScriptRefreshTimer = null;
 let selectingVideoScriptSources = false;
 const selectedVideoScriptRequestIds = new Set();
 let loadedTodoRecurrenceTimeZone = null;
@@ -1173,7 +1174,7 @@ function updateVideoScriptSelection() {
   elements.videoScriptSelection.hidden = !selectingVideoScriptSources;
   elements.selectVideoScriptSources.textContent = selectingVideoScriptSources
     ? "Selecting interactions…"
-    : "Create video script";
+    : "Create video";
   elements.videoScriptSelectionCount.textContent = count
     ? `${count} ${count === 1 ? "interaction" : "interactions"} selected`
     : "No interactions selected";
@@ -1192,6 +1193,7 @@ function updateVideoScriptSelection() {
 }
 
 function beginVideoScriptSelection() {
+  if (activeView !== "agent") switchView("agent");
   selectingVideoScriptSources = true;
   updateVideoScriptSelection();
 }
@@ -1205,7 +1207,7 @@ function cancelVideoScriptSelection() {
 function toggleVideoScriptSource(requestId, checked, checkbox) {
   if (checked && selectedVideoScriptRequestIds.size >= 8) {
     checkbox.checked = false;
-    window.alert("Choose no more than 8 interactions for one video script.");
+    window.alert("Choose no more than 8 interactions for one video.");
     return;
   }
   if (checked) selectedVideoScriptRequestIds.add(requestId);
@@ -1217,9 +1219,9 @@ async function generateSelectedVideoScript() {
   if (selectedVideoScriptRequestIds.size === 0) return;
   elements.generateVideoScript.disabled = true;
   const original = elements.generateVideoScript.textContent;
-  elements.generateVideoScript.textContent = "Queueing script…";
+  elements.generateVideoScript.textContent = "Creating production…";
   try {
-    const created = await api("/api/video-scripts/generate", {
+    const created = await api("/api/video-productions/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1230,10 +1232,10 @@ async function generateSelectedVideoScript() {
     pendingRunLimits = null;
     updateRunLimitsSummary();
     cancelVideoScriptSelection();
-    elements.status.textContent = `Video-script request ${created.requestId.slice(0, 8)} queued. The completed draft will appear under Content → Video scripts.`;
+    elements.status.textContent = `Video production ${created.requestId.slice(0, 8)} queued. Its script and background MP4 status will appear under Video Scripts.`;
     await loadRequests({ force: true });
   } catch (error) {
-    elements.status.textContent = error.message || "Could not queue the video-script request.";
+    elements.status.textContent = error.message || "Could not queue the video production.";
   } finally {
     elements.generateVideoScript.textContent = original;
     elements.generateVideoScript.disabled = selectedVideoScriptRequestIds.size === 0;
@@ -1640,6 +1642,10 @@ function calendarEventCopyText(calendarEvent) {
 
 function switchView(view) {
   const previousView = activeView;
+  if (view !== "video-scripts" && videoScriptRefreshTimer) {
+    clearTimeout(videoScriptRefreshTimer);
+    videoScriptRefreshTimer = null;
+  }
   if (view !== "calendar" && calendarSchedulingTodo) cancelCalendarScheduling({ render: false });
   activeView = view;
   elements.agentView.hidden = view !== "agent";
@@ -3161,12 +3167,21 @@ function renderContent() {
 }
 
 async function refreshVideoScripts() {
+  if (videoScriptRefreshTimer) {
+    clearTimeout(videoScriptRefreshTimer);
+    videoScriptRefreshTimer = null;
+  }
   elements.videoScriptList.replaceChildren(node("p", "empty", "Loading video scripts…"));
   elements.videoScriptEmpty.hidden = true;
   try {
     const body = await api(`/api/video-scripts?status=${encodeURIComponent(elements.videoScriptStatusFilter.value)}&limit=500`);
     videoScripts = body.scripts;
     renderVideoScripts();
+    if (activeView === "video-scripts" && videoScripts.some(({ render }) => (
+      ["queued", "preparing", "rendering"].includes(render?.status)
+    ))) {
+      videoScriptRefreshTimer = setTimeout(() => void refreshVideoScripts(), 3000);
+    }
   } catch (error) {
     elements.videoScriptList.replaceChildren(node("p", "empty", error.message || "Video scripts unavailable."));
     elements.videoScriptCount.textContent = "";
@@ -3211,6 +3226,17 @@ function renderVideoScripts() {
     copyPrompt.type = "button";
     copyPrompt.addEventListener("click", () => copyText(script.plan.generatorPrompt, copyPrompt));
     actions.append(copy, copyPrompt);
+    if (script.render?.status === "complete" && script.render.outputFileId) {
+      const download = node("button", "compact", "Download MP4");
+      download.type = "button";
+      download.addEventListener("click", () => void downloadInteractionVideo(script.render.outputFileId, download));
+      actions.prepend(download);
+    } else if (script.render?.status === "error") {
+      const retry = node("button", "compact", "Retry MP4");
+      retry.type = "button";
+      retry.addEventListener("click", () => void retryVideoRender(script, retry));
+      actions.prepend(retry);
+    }
     if (script.status === "draft") {
       const archive = node("button", "secondary compact", "Archive");
       archive.type = "button";
@@ -3222,8 +3248,38 @@ function renderVideoScripts() {
     const documentBody = node("div", "agent-response-markdown video-script-markdown");
     renderMarkdown(documentBody, script.scriptText);
     document.append(node("summary", "", "Open complete script"), documentBody);
-    card.append(heading, document);
+    if (script.render) {
+      const production = node("div", `video-production-status video-production-${script.render.status}`);
+      const label = {
+        queued: "MP4 queued", preparing: "Preparing narration", rendering: "Rendering MP4",
+        complete: "MP4 ready", error: "MP4 failed",
+      }[script.render.status] || `MP4 ${script.render.status}`;
+      production.append(node("strong", "", label));
+      if (["queued", "preparing", "rendering"].includes(script.render.status)) {
+        production.append(node("span", "", "This production continues in the background. Any AI-generated narration is disclosed."));
+      } else if (script.render.status === "complete") {
+        production.append(node("span", "", "Any AI-generated narration is disclosed in the MP4. Original saved request audio is used where available."));
+      } else if (script.render.error) {
+        production.append(node("span", "", script.render.error));
+      }
+      card.append(heading, production, document);
+    } else {
+      card.append(heading, document);
+    }
     elements.videoScriptList.append(card);
+  }
+}
+
+async function retryVideoRender(script, button) {
+  button.disabled = true;
+  button.textContent = "Queueing…";
+  try {
+    await api(`/api/video-scripts/${script.id}/render`, { method: "POST" });
+    await refreshVideoScripts();
+  } catch (error) {
+    window.alert(error.message || "Could not retry the MP4 render.");
+    button.disabled = false;
+    button.textContent = "Retry MP4";
   }
 }
 

@@ -142,5 +142,15 @@ export function loadConfig(environment = process.env) {
     videoModel: environment.SLAYER_VIDEO_MODEL?.trim() || "gpt-5.6-sol",
     videoReasoningEffort: environment.SLAYER_VIDEO_REASONING_EFFORT?.trim() || "high",
     remotionBrowserExecutable: environment.REMOTION_BROWSER_EXECUTABLE?.trim() || null,
+    ttsModel: environment.SLAYER_TTS_MODEL?.trim() || "gpt-4o-mini-tts",
+    ttsAgentVoice: environment.SLAYER_TTS_AGENT_VOICE?.trim()
+      || environment.SLAYER_TTS_VOICE?.trim() || "cedar",
+    ttsUserVoice: environment.SLAYER_TTS_USER_VOICE?.trim() || "coral",
+    ttsAgentInstructions: environment.SLAYER_TTS_AGENT_INSTRUCTIONS?.trim()
+      || environment.SLAYER_TTS_INSTRUCTIONS?.trim()
+      || "Speak as a man in standard American English. Sound warm, precise, confident, and natural at a documentary pace. Do not add words.",
+    ttsUserInstructions: environment.SLAYER_TTS_USER_INSTRUCTIONS?.trim()
+      || "Speak as a woman in English with a natural, refined French accent. Keep the accent subtle and consistent, with a warm, intelligent delivery; never exaggerate or caricature it. Do not add words.",
+    ttsTimeoutMs: positiveInteger(environment.SLAYER_TTS_TIMEOUT_MS, 2 * 60 * 1000),
   };
 }
