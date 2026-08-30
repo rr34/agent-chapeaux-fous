@@ -293,7 +293,10 @@ capability selector, which controls which exact tool schemas are callable.
   constrained completion mode. Current progress supports exact interruption
   and resumption; immutable run and answer history remains in the ledger. A
   recurring to-do may link to a guide while continuing to own its schedule and
-  recurrence.
+  recurrence. Each successfully completed request exposes a save action that
+  queues a normal traced agent turn to generalize that exact exchange into a
+  new guide and its minimal numbered steps; the resulting receipt links back to
+  the source request and opens the created guide from the original request card.
 - `database_schema` and paginated `database_read` are a small read-only core
   capability available on every model request, including access to the native
   activity ledger. `database_write` is a separately routed capability, so broad

@@ -159,15 +159,20 @@ test("structured interactions have a dedicated management page without a second 
   assert.match(document, /id="interaction-step-opening"/);
   assert.match(document, /id="interaction-step-instructions"/);
   assert.doesNotMatch(document, /id="interaction-guide-text"|id="interaction-step-name"|id="interaction-step-objective"/);
+  assert.match(document, /class="save-structured-interaction secondary compact"[^>]*>Save as structured interaction<\/button>/);
   assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
   assert.match(application, /function renderInteractionGuideDetail/);
   assert.match(application, /function openInteractionStepEditor/);
   assert.match(application, /Start or resume structured interaction guide/);
+  assert.match(application, /function saveAsStructuredInteraction/);
+  assert.match(application, /structuredGenerationStatuses/);
   assert.match(application, /api\("\/api\/requests"/);
   assert.doesNotMatch(application, /interaction-guides\/\$\{guide\.id\}\/start/);
   assert.match(server, /interactionGuides\.create/);
   assert.match(server, /interactionGuides\.addStep/);
   assert.match(server, /interactionGuides\.updateStep/);
+  assert.match(server, /structuredInteractionGenerationPrompt/);
+  assert.match(server, /requestKind: "structured_interaction_generation"/);
   assert.match(server, /actorType: "user", actorName: "structured_interactions_page"/);
 });
 

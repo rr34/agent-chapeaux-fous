@@ -1279,7 +1279,28 @@ async function downloadInteractionVideo(fileId, button) {
   }
 }
 
-function requestNode(request, index) {
+async function saveAsStructuredInteraction(requestId, button) {
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "Creating…";
+  try {
+    const created = await api(`/api/requests/${encodeURIComponent(requestId)}/structured-interaction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runLimits: pendingRunLimits }),
+    });
+    pendingRunLimits = null;
+    updateRunLimitsSummary();
+    elements.status.textContent = `Structured-interaction request ${created.requestId.slice(0, 8)} queued from request ${requestId.slice(0, 8)}.`;
+    await loadRequests({ force: true, followLatest: true });
+  } catch (error) {
+    elements.status.textContent = error.message || "Could not create the structured interaction.";
+    button.textContent = original;
+    button.disabled = false;
+  }
+}
+
+function requestNode(request, index, structuredGenerationStatus = null) {
   let node = requestNodes.get(request.requestId);
   if (!node) {
     node = elements.template.content.firstElementChild.cloneNode(true);
@@ -1291,6 +1312,15 @@ function requestNode(request, index) {
       copyText(node.querySelector(".agent-response-markdown").dataset.markdown || "", event.currentTarget);
     });
     node.querySelector(".show-trace").addEventListener("click", () => showTrace(request.requestId));
+    node.querySelector(".save-structured-interaction").addEventListener("click", (event) => {
+      const guideId = Number(event.currentTarget.dataset.guideId);
+      if (Number.isSafeInteger(guideId) && guideId > 0) {
+        switchView("interactions");
+        void refreshInteractionGuides({ selectId: guideId });
+        return;
+      }
+      void saveAsStructuredInteraction(request.requestId, event.currentTarget);
+    });
     node.querySelector(".video-script-source-checkbox").addEventListener("change", (event) => {
       toggleVideoScriptSource(request.requestId, event.currentTarget.checked, event.currentTarget);
     });
@@ -1377,6 +1407,22 @@ function requestNode(request, index) {
     "video-script-selected",
     selectedVideoScriptRequestIds.has(request.requestId),
   );
+  const structuredButton = node.querySelector(".save-structured-interaction");
+  structuredButton.hidden = !request.structuredInteractionSelectable;
+  const generationStatus = structuredGenerationStatus?.status ?? null;
+  structuredButton.disabled = generationStatus === "queued" || generationStatus === "processing";
+  structuredButton.textContent = generationStatus === "complete"
+    ? "Open structured interaction"
+    : generationStatus === "queued" || generationStatus === "processing"
+      ? "Creating structured interaction…"
+      : generationStatus === "error"
+        ? "Retry as structured interaction"
+        : "Save as structured interaction";
+  if (structuredGenerationStatus?.guideId) {
+    structuredButton.dataset.guideId = String(structuredGenerationStatus.guideId);
+  } else {
+    delete structuredButton.dataset.guideId;
+  }
   node.style.order = index;
   return node;
 }
@@ -1407,9 +1453,23 @@ async function loadRequests({ force = false, followLatest = false } = {}) {
   const body = await api(`/api/requests?limit=${limit}`);
   const seen = new Set();
   const chronologicalRequests = [...body.requests].reverse();
+  const structuredGenerationStatuses = new Map(
+    [...body.requests].reverse()
+      .filter(({ requestKind, sourceRequestId }) => (
+        requestKind === "structured_interaction_generation" && sourceRequestId
+      ))
+      .map(({
+        sourceRequestId, structuredInteractionGenerationStatus, structuredInteractionGuideId,
+      }) => (
+        [sourceRequestId, {
+          status: structuredInteractionGenerationStatus,
+          guideId: structuredInteractionGuideId ?? null,
+        }]
+      )),
+  );
   chronologicalRequests.forEach((request, index) => {
     seen.add(request.requestId);
-    const node = requestNode(request, index);
+    const node = requestNode(request, index, structuredGenerationStatuses.get(request.requestId) ?? null);
     if (!node.isConnected) elements.list.append(node);
   });
   for (const [id, node] of requestNodes) {

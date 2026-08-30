@@ -70,6 +70,10 @@ const terminalEventTypes = [
   "voice.transcription.error",
 ];
 
+const generatedRequestKinds = new Set([
+  "interaction_video", "video_script", "video_production", "structured_interaction_generation",
+]);
+
 function placeholders(values) {
   return values.map(() => "?").join(", ");
 }
@@ -397,9 +401,29 @@ export class Ledger {
     const explicitHats = compiled?.payload.capabilitySelection.explicitHats ?? [];
     const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
     const requestKind = request.payload?.requestKind ?? null;
+    const structuredGuideCreation = requestKind === "structured_interaction_generation"
+      ? [...events].reverse().find((event) => event.type === "tool.result"
+        && event.status === "complete" && event.name === "interaction_guide_create")
+      : null;
+    const structuredGuideStep = requestKind === "structured_interaction_generation"
+      ? events.find((event) => event.type === "tool.result"
+        && event.status === "complete" && event.name === "interaction_guide_step_add")
+      : null;
+    const structuredInteractionGuideId = Number(
+      structuredGuideCreation?.payload?.result?.guide?.interaction_guide_id
+      ?? structuredGuideCreation?.payload?.result?.guide?.id,
+    );
+    const structuredInteractionGenerationStatus = requestKind === "structured_interaction_generation"
+      ? terminal
+        ? structuredGuideCreation && structuredGuideStep
+          ? "complete"
+          : "error"
+        : status
+      : null;
     const sourceFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
-    const scriptSelectable = terminal?.status === "complete"
-      && !["interaction_video", "video_script", "video_production"].includes(requestKind);
+    const sourceInteractionSelectable = terminal?.status === "complete"
+      && Boolean(response?.content)
+      && !generatedRequestKinds.has(requestKind);
     const ownRenderedVideo = requestKind === "interaction_video"
       ? [...events].reverse().find((event) => event.type === "video.render.completed")
       : null;
@@ -430,7 +454,15 @@ export class Ledger {
       ...(sourceFile ? { attachment: publicFile(sourceFile) } : {}),
       ...(explicitHats.length ? { explicitHats } : {}),
       ...(requestKind ? { requestKind } : {}),
-      ...(scriptSelectable ? { scriptSelectable: true } : {}),
+      ...(request.payload?.sourceRequestId ? { sourceRequestId: request.payload.sourceRequestId } : {}),
+      ...(structuredInteractionGenerationStatus ? { structuredInteractionGenerationStatus } : {}),
+      ...(Number.isSafeInteger(structuredInteractionGuideId) && structuredInteractionGuideId > 0
+        ? { structuredInteractionGuideId }
+        : {}),
+      ...(sourceInteractionSelectable ? {
+        scriptSelectable: true,
+        structuredInteractionSelectable: true,
+      } : {}),
       ...(video ? { video } : {}),
       ...(events.some((event) => event.type === "conversation.started")
         ? { conversationStarted: true }
@@ -808,7 +840,9 @@ export class Ledger {
       submittedAtMs: request.occurredAtMs,
       rawTranscript: transcript?.content || request.content || "",
       response: response?.content || terminal.content || terminal.error || "",
+      status: terminal.status,
       error: terminal.status === "error" ? (terminal.error || terminal.content || null) : null,
+      requestKind: request.payload?.requestKind ?? null,
       audioFile,
       events,
     };

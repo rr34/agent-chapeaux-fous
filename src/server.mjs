@@ -23,6 +23,7 @@ import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
 import { SchemaSemantics } from "./schema-semantics.mjs";
+import { structuredInteractionGenerationPrompt } from "./structured-interaction-generation.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { OpenAISpeechService } from "./openai-speech.mjs";
 import { VideoRenderWorker } from "./video-render-worker.mjs";
@@ -171,6 +172,7 @@ const staticFiles = new Map([
   ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
   ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],
   ["/service-worker.js", ["service-worker.js", "text/javascript; charset=utf-8"]],
+  ["/favicon.png", ["favicon.png", "image/png"]],
   ["/icon.svg", ["icon.svg", "image/svg+xml"]],
   ["/hats.svg", ["hats.svg", "image/svg+xml"]],
   ["/vendor/dompurify.js", [path.join(config.repositoryRoot, "node_modules", "dompurify", "dist", "purify.es.mjs"), "text/javascript; charset=utf-8"]],
@@ -399,6 +401,38 @@ const server = http.createServer(async (request, response) => {
           model: config.model,
         },
       });
+      return;
+    }
+    const structuredInteractionGenerationMatch = /^\/api\/requests\/([0-9a-f][0-9a-f-]{7,35})\/structured-interaction$/.exec(url.pathname);
+    if (request.method === "POST" && structuredInteractionGenerationMatch) {
+      const resolved = ledger.resolveRequestId(structuredInteractionGenerationMatch[1]);
+      if (resolved.status === "missing") {
+        sendJson(response, 404, { error: `No request matches ${structuredInteractionGenerationMatch[1]}` });
+        return;
+      }
+      if (resolved.status === "ambiguous") {
+        sendJson(response, 409, { error: `More than one request matches ${structuredInteractionGenerationMatch[1]}` });
+        return;
+      }
+      if (resolved.status === "invalid") {
+        sendJson(response, 400, { error: "Request ID must be an 8-36 character hexadecimal UUID or prefix" });
+        return;
+      }
+      const body = await readJson(request);
+      const source = ledger.interactionReplaySource(resolved.requestId);
+      const text = structuredInteractionGenerationPrompt(source);
+      const runLimits = normalizeRunLimits(body.runLimits);
+      const created = ledger.createRequest({
+        text,
+        channel: "web",
+        runLimits,
+        metadata: {
+          requestKind: "structured_interaction_generation",
+          sourceRequestId: source.requestId,
+        },
+      });
+      queue.notify();
+      sendJson(response, 202, { ...created, sourceRequestId: source.requestId });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/conversation/reset") {
