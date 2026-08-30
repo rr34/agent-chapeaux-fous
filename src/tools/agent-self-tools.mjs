@@ -1,4 +1,4 @@
-import { agentSelfKnowledge } from "../agent-self-knowledge.mjs";
+import { agentSelfAnswers, agentSelfKnowledge } from "../agent-self-knowledge.mjs";
 import { requestCapabilityCatalog } from "../request-compiler.mjs";
 
 function currentChannel(channel) {
@@ -66,11 +66,6 @@ const selfKnowledgeSchema = exactObject({
     publicName: { type: "string" },
     description: { type: "string" },
     systemMeaning: { type: "string" },
-    awarenessBoundary: { type: "string" },
-    directAnswers: exactObject({
-      selfAware: { type: "string" },
-      worldTakeover: { type: "string" },
-    }),
   }),
   requestPath: exactObject({
     typed: stringArray,
@@ -132,7 +127,6 @@ const callableCapabilitySchema = exactObject({
   toolCount: { type: "integer", minimum: 1 },
   tools: { type: "array", minItems: 1, items: callableToolSchema },
 });
-
 const outputSchema = {
   type: "object",
   additionalProperties: false,
@@ -171,9 +165,41 @@ export function registerAgentSelfTools(registry, {
   integrationHealth = () => ({}),
 } = {}) {
   registry.withCapability("self").register({
+    name: "agent_self_answer",
+    title: "Answer a direct Chapeaux Fous identity question",
+    description: "Return exactly one canonical first-person answer for who Chapeaux Fous is, whether it is self-aware, or whether it wants to take over the world. Use this instead of the large infrastructure inventory for those direct questions. Actions: READ.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        question: { type: "string", enum: ["who_are_you", "self_aware", "world_takeover"] },
+      },
+      required: ["question"],
+    },
+    outputSchema: exactObject({
+      question: { type: "string", enum: ["who_are_you", "self_aware", "world_takeover"] },
+      answer: { type: "string" },
+    }),
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    execute({ question }) {
+      const answer = {
+        who_are_you: agentSelfAnswers.whoAreYou,
+        self_aware: agentSelfAnswers.selfAware,
+        world_takeover: agentSelfAnswers.worldTakeover,
+      }[question];
+      return { question, answer };
+    },
+  });
+
+  registry.withCapability("self").register({
     name: "agent_self_describe",
     title: "Describe Chapeaux Fous",
-    description: "Return Chapeaux Fous's source-referenced identity, direct self-awareness and world-takeover persona answers, infrastructure and request path, current runtime, connected integrations, and exact live callable-tool inventory. Use for questions about who you are, your intentions, or how the user reaches you. Actions: READ.",
+    description: "Return Chapeaux Fous's detailed infrastructure, request path, runtime, integrations, sources, and live tool inventory. Use for infrastructure and transport explanations; use agent_self_answer for direct identity, self-awareness, or world-takeover questions. Actions: READ.",
     parameters: { type: "object", additionalProperties: false, properties: {} },
     outputSchema,
     annotations: {

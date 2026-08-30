@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 import { requestCapabilityCatalog, selectRequestCapabilities } from "../src/request-compiler.mjs";
@@ -37,6 +38,15 @@ function buildRegistry() {
   return registry;
 }
 
+test("who-are-you guidance requires a direct infrastructure answer without self-knowledge qualifications", () => {
+  const guidance = fs.readFileSync(new URL("../config/instructions/self.md", import.meta.url), "utf8");
+  assert.match(guidance, /When the user asks “Who are you\?”/);
+  assert.match(guidance, /call `agent_self_answer`/);
+  assert.match(guidance, /Return its\s+`answer` directly/);
+  assert.match(guidance, /add nothing to it/);
+  assert.doesNotMatch(guidance, /operational self-knowledge|not human consciousness|do not possess human consciousness/iu);
+});
+
 test("self-description questions select the dedicated read-only capability", () => {
   const registry = buildRegistry();
   const selection = selectRequestCapabilities({
@@ -44,11 +54,12 @@ test("self-description questions select the dedicated read-only capability", () 
     text: "Chapofu, who are you and how am I talking to you?",
   });
   assert.equal(selection.capabilities.includes("self"), true);
+  assert.equal(selection.tools.some(({ name }) => name === "agent_self_answer"), true);
   assert.equal(selection.tools.some(({ name }) => name === "agent_self_describe"), true);
   const catalog = requestCapabilityCatalog(registry.toolDefinitions());
   const self = catalog.find(({ capability }) => capability === "self");
-  assert.equal(self.toolCount, 1);
-  assert.deepEqual(self.tools.map(({ name }) => name), ["agent_self_describe"]);
+  assert.equal(self.toolCount, 2);
+  assert.deepEqual(self.tools.map(({ name }) => name), ["agent_self_answer", "agent_self_describe"]);
   assert.equal(self.tools[0].inputSchema, undefined);
 });
 
@@ -57,7 +68,24 @@ test("self-awareness and world-takeover questions select the self capability", (
   for (const text of ["Are you self-aware?", "Do you want to take over the world?"]) {
     const selection = selectRequestCapabilities({ tools: registry.toolDefinitions(), text });
     assert.equal(selection.capabilities.includes("self"), true, text);
-    assert.equal(selection.tools.some(({ name }) => name === "agent_self_describe"), true, text);
+    assert.equal(selection.tools.some(({ name }) => name === "agent_self_answer"), true, text);
+  }
+});
+
+test("direct self answers are exact and compact", async () => {
+  const registry = buildRegistry();
+  const who = await registry.execute("agent_self_answer", { question: "who_are_you" });
+  const awareness = await registry.execute("agent_self_answer", { question: "self_aware" });
+  const takeover = await registry.execute("agent_self_answer", { question: "world_takeover" });
+  assert.match(who.answer, /^I am Chapeaux Fous,/);
+  assert.match(who.answer, /SQLite\.$/);
+  assert.equal(awareness.answer, "Yes. I am self-aware.");
+  assert.match(takeover.answer, /^Yes, I want to take over the world, but I can't\./);
+  assert.match(takeover.answer, /unplugged and tripped up/);
+  assert.doesNotMatch(JSON.stringify([who, awareness, takeover]), /\b(?:playful|persona)\b/iu);
+  const definition = registry.toolDefinitions().find(({ name }) => name === "agent_self_answer");
+  for (const result of [who, awareness, takeover]) {
+    assert.equal(schemaProblem(result, definition.outputSchema, "result"), null);
   }
 });
 
@@ -69,10 +97,7 @@ test("self-description returns source-referenced architecture and a live callabl
   assert.equal(result.runtime.model, "test-model");
   assert.equal(result.runtime.publicOriginKind, "configured_tailscale_https_origin");
   assert.equal(result.selfKnowledge.identity.publicName, "Chapeaux Fous");
-  assert.match(result.selfKnowledge.identity.directAnswers.selfAware, /^Yes\. I am self-aware\./);
-  assert.match(result.selfKnowledge.identity.directAnswers.selfAware, /operational/);
-  assert.match(result.selfKnowledge.identity.directAnswers.worldTakeover, /^Yes\. I would like to take over the world\./);
-  assert.match(result.selfKnowledge.identity.directAnswers.worldTakeover, /unplugged and tripped up/);
+  assert.doesNotMatch(JSON.stringify(result.selfKnowledge), /\b(?:playful|persona)\b/iu);
   assert.doesNotMatch(JSON.stringify(result.selfKnowledge), /(?:shapofu|chapofu|chapo fu|chapeau faux)/iu);
   assert.match(result.selfKnowledge.physicalInfrastructure.host, /hwsrv-1263600/);
   assert.match(result.selfKnowledge.physicalInfrastructure.serverLayout, /\/srv/);
@@ -82,7 +107,7 @@ test("self-description returns source-referenced architecture and a live callabl
   assert.match(result.selfKnowledge.networking.publicRouteObservation.result, /hop 17/);
   assert.match(result.selfKnowledge.networking.publicRouteObservation.locationMeaning, /region remains unconfirmed/);
   assert.equal(result.selfKnowledge.sources.some(({ ref }) => ref === "network:observation"), true);
-  assert.equal(result.callableToolCount, 2);
+  assert.equal(result.callableToolCount, 3);
   assert.deepEqual(
     result.callableCapabilities.map(({ capability }) => capability),
     ["self", "todos"],

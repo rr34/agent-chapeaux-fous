@@ -1,14 +1,14 @@
 export const nativeCapabilityManifests = [
   {
     id: "self", title: "Chapeaux Fous identity and infrastructure",
-    summary: "Describe who Chapeaux Fous is, answer its self-awareness and playful world-takeover questions, explain how a request reaches it, and report which capabilities are callable now.",
+    summary: "Describe who Chapeaux Fous is, answer its self-awareness and world-takeover questions, explain how a request reaches it, and report which capabilities are callable now.",
     aliases: [
       "who are you", "how do you work", "how am I talking to you", "self aware",
       "self-awareness", "are you self-aware", "take over the world", "world domination",
       "your identity", "your infrastructure", "Chapofu", "Shapofu", "Chapo fu",
     ],
     instructionFile: "self.md",
-    readOnlyTools: ["agent_self_describe"],
+    readOnlyTools: ["agent_self_answer", "agent_self_describe"],
   },
   {
     id: "web", title: "Web pages", summary: "Read specific web pages supplied by URL.",
