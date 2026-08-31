@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
-import { ToolRegistry } from "../src/tools/registry.mjs";
+import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { localDateUtcBounds } from "../src/todo-schedule-operations.mjs";
@@ -183,6 +183,56 @@ test("native todo tools place new and existing tasks at exact 1-based positions"
     position: 1,
   });
   assert.equal(unchanged.changed, false);
+});
+
+test("routine_add creates one reusable template and ensures Routine atomically", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+  const definition = registry.toolDefinitions().find(({ name }) => name === "routine_add");
+  assert.ok(definition);
+  assert.equal(definition.title, "Add a reusable routine");
+  assert.equal(definition.annotations.readOnlyHint, false);
+  assert.equal(definition.annotations.idempotentHint, false);
+  assert.deepEqual(definition.inputSchema.required, [
+    "text", "related_contact_id", "interaction_guide_id", "scheduled_at_utc",
+    "is_all_day", "duration_minutes", "due_at_utc", "recurrence",
+  ]);
+
+  const result = await registry.execute("routine_add", {
+    text: "First Friday review",
+    related_contact_id: null,
+    interaction_guide_id: null,
+    scheduled_at_utc: "2026-09-04T13:00:00.000Z",
+    is_all_day: false,
+    duration_minutes: 90,
+    due_at_utc: null,
+    recurrence: {
+      frequency: "MONTHLY", interval: 1, weekdays: [], month: null, month_day: null,
+      ordinal_weekday: { ordinal: 1, weekday: "FR" }, count: null,
+      until_date: null, time_zone: "UTC",
+    },
+  }, { requestId: "routine-tool-request", callId: "routine-tool-call" });
+  assert.equal(schemaProblem(result, definition.outputSchema), null);
+  assert.equal(result.routine_group.name, "Routine");
+  assert.equal(result.routine_group.created, true);
+  assert.equal(result.template.duration_minutes, 90);
+  assert.equal(result.template.recurrence_rule, "FREQ=MONTHLY;INTERVAL=1;BYDAY=FR;BYSETPOS=1");
+  assert.deepEqual(result.next_occurrences, [
+    "2026-09-04T13:00:00.000Z",
+    "2026-10-02T13:00:00.000Z",
+    "2026-11-06T13:00:00.000Z",
+  ]);
+  assert.equal(store.requireReady().prepare(`
+    SELECT COUNT(*) AS count FROM todo_groups WHERE name = 'Routine' COLLATE NOCASE
+  `).get().count, 1);
+  assert.equal(store.requireReady().prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'personal_routine.created' AND actor_name = 'routine_add'
+  `).get().count, 1);
 });
 
 test("sequenced groups backfill tasks and assign the next number through native tools", async (context) => {

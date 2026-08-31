@@ -1,7 +1,7 @@
 import {
   archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupSequenceMode,
 } from "../todo-group-operations.mjs";
-import { generateNextRoutineTask } from "../organizer-store.mjs";
+import { generateNextRoutineTask, OrganizerStore } from "../organizer-store.mjs";
 import { localDateUtcBounds, moveOverdueTodosToToday } from "../todo-schedule-operations.mjs";
 import {
   buildTodoRecurrenceRule, todoRecurrenceSchema, validateTimeZone,
@@ -65,6 +65,50 @@ const todoRoutineFields = [
   "todo_routine_id", "recurrence_rule", "time_zone", "interaction_guide_id",
 ];
 const interactionGuideFields = ["interaction_guide_id", "name", "status", "version"];
+
+const routineAddOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    created: { type: "boolean", const: true },
+    routine_group: {
+      type: "object", additionalProperties: false,
+      properties: {
+        todo_group_id: { type: "integer", minimum: 1 },
+        name: { type: "string", const: "Routine" },
+        created: { type: "boolean" },
+        reactivated: { type: "boolean" },
+      },
+      required: ["todo_group_id", "name", "created", "reactivated"],
+    },
+    template: {
+      type: "object", additionalProperties: false,
+      properties: {
+        personal_task_id: { type: "integer", minimum: 1 },
+        todo_routine_id: { type: "integer", minimum: 1 },
+        text: { type: "string" },
+        scheduled_at_utc: { type: "string" },
+        is_all_day: { type: "integer", enum: [0, 1] },
+        duration_minutes: { type: ["integer", "null"], minimum: 1 },
+        due_at_utc: { type: ["string", "null"] },
+        recurrence_rule: { type: "string" },
+        time_zone: { type: "string" },
+        related_contact_id: { type: ["integer", "null"], minimum: 1 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+      },
+      required: [
+        "personal_task_id", "todo_routine_id", "text", "scheduled_at_utc",
+        "is_all_day", "duration_minutes", "due_at_utc", "recurrence_rule",
+        "time_zone", "related_contact_id", "interaction_guide_id",
+      ],
+    },
+    next_occurrences: {
+      type: "array", maxItems: 3, items: { type: "string" },
+    },
+    schemaProjection: { type: ["object", "null"] },
+  },
+  required: ["created", "routine_group", "template", "next_occurrences", "schemaProjection"],
+};
 
 const todoGroupProjection = {
   schemaObjects: ["todo_groups"],
@@ -333,6 +377,112 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         name: "todo_list",
         purpose: "List personal tasks together with their to-do group and optional routine fields.",
       });
+    },
+  });
+
+  registry.register({
+    name: "routine_add",
+    title: "Add a reusable routine",
+    description: "Create one reusable Routine template backed by a repeating native to-do. Use this instead of todo_add when the user is defining a standing routine or habit: it atomically ensures the reserved Routine group, requires structured recurrence, and returns the saved template with its next three hypothetical occurrences. It creates no calendar event and publishes no real to-do occurrences.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        text: { type: "string", minLength: 1, maxLength: 10000 },
+        related_contact_id: { type: ["integer", "null"], minimum: 1 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+        scheduled_at_utc: {
+          type: "string", minLength: 1,
+          description: "First scheduled occurrence as an ISO 8601 timestamp.",
+        },
+        is_all_day: { type: "boolean" },
+        duration_minutes: {
+          type: ["integer", "null"], minimum: 1,
+          description: "Planned work duration from the scheduled start; null for all-day routines.",
+        },
+        due_at_utc: {
+          type: ["string", "null"],
+          description: "Optional deadline for the first occurrence, separate from planned duration.",
+        },
+        recurrence: { ...todoRecurrenceSchema, type: "object" },
+      },
+      required: [
+        "text", "related_contact_id", "interaction_guide_id", "scheduled_at_utc",
+        "is_all_day", "duration_minutes", "due_at_utc", "recurrence",
+      ],
+    },
+    outputSchema: routineAddOutputSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+    metadata: {
+      "agent-slayer/selection": {
+        summary: "Create one reusable Routine template when the user defines a standing routine or habit. Unlike todo_add, this always targets the reserved Routine group and requires recurrence.",
+        actionClasses: ["CREATE"],
+        effectClassifications: ["MUTATING"],
+      },
+    },
+    async execute({
+      text, related_contact_id: relatedContactId,
+      interaction_guide_id: interactionGuideId,
+      scheduled_at_utc: scheduledAtUtc, is_all_day: isAllDay,
+      duration_minutes: durationMinutes, due_at_utc: dueAtUtc, recurrence,
+    }, context) {
+      const recurrenceRule = buildTodoRecurrenceRule(recurrence);
+      const recurrenceTimeZone = validateTimeZone(recurrence.time_zone);
+      const organizer = new OrganizerStore(store.filename);
+      try {
+        const result = organizer.createRoutine({
+          text,
+          relatedContactId,
+          interactionGuideId,
+          scheduledAtUtc,
+          isAllDay,
+          durationMinutes,
+          dueAtUtc,
+          recurrenceRule,
+          recurrenceTimeZone,
+        }, {
+          requestId: context.requestId,
+          callId: context.callId,
+          actorType: "tool",
+          actorName: "routine_add",
+          source: "agent-slayer",
+          channel: "model_tool",
+        });
+        const template = {
+          personal_task_id: result.template.id,
+          todo_routine_id: result.template.routineId,
+          text: result.template.text,
+          scheduled_at_utc: result.template.scheduledAtUtc,
+          is_all_day: result.template.isAllDay ? 1 : 0,
+          duration_minutes: result.template.durationMinutes,
+          due_at_utc: result.template.dueAtUtc,
+          recurrence_rule: result.template.recurrenceRule,
+          time_zone: result.template.recurrenceTimeZone,
+          related_contact_id: result.template.relatedContactId,
+          interaction_guide_id: result.template.interactionGuideId,
+        };
+        return todoResult(schemaSemantics, context, {
+          created: true,
+          routine_group: {
+            todo_group_id: result.group.id,
+            name: result.group.name,
+            created: result.groupCreated,
+            reactivated: result.groupReactivated,
+          },
+          template,
+          next_occurrences: result.nextOccurrences,
+        }, {
+          name: "routine_add",
+          purpose: "Return the reusable Routine template created atomically in the reserved Routine group and its next hypothetical occurrences.",
+        });
+      } finally {
+        organizer.close();
+      }
     },
   });
 

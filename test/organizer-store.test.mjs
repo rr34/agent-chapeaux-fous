@@ -586,6 +586,61 @@ test("reserved routine templates preview and publish as idempotent one-time todo
   }
 });
 
+test("agent routine creation atomically ensures the reserved group", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    organizer.database.exec(`
+      CREATE TRIGGER reject_test_routine_task
+      BEFORE INSERT ON personal_tasks
+      WHEN NEW.text = 'Force rollback'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced routine task failure');
+      END;
+    `);
+    assert.throws(() => organizer.createRoutine({
+      text: "Force rollback",
+      scheduledAtUtc: "2026-09-04T13:00:00.000Z",
+      recurrenceRule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=FR",
+      recurrenceTimeZone: "UTC",
+    }), /forced routine task failure/);
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM todo_groups WHERE name = 'Routine' COLLATE NOCASE
+    `).get().count, 0);
+    assert.equal(organizer.database.prepare("SELECT COUNT(*) AS count FROM todo_routines").get().count, 0);
+
+    const created = organizer.createRoutine({
+      text: "Friday planning",
+      scheduledAtUtc: "2026-09-04T13:00:00.000Z",
+      durationMinutes: 45,
+      dueAtUtc: "2026-09-04T18:00:00.000Z",
+      recurrenceRule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=FR",
+      recurrenceTimeZone: "UTC",
+    }, { requestId: "routine-request", callId: "routine-call" });
+    assert.equal(created.group.name, "Routine");
+    assert.equal(created.groupCreated, true);
+    assert.equal(created.template.durationMinutes, 45);
+    assert.deepEqual(created.nextOccurrences, [
+      "2026-09-04T13:00:00.000Z",
+      "2026-09-11T13:00:00.000Z",
+      "2026-09-18T13:00:00.000Z",
+    ]);
+    const receipt = organizer.database.prepare(`
+      SELECT actor_type, actor_name, turn_id, operation_id
+      FROM activity_events WHERE event_type = 'personal_routine.created'
+    `).get();
+    assert.deepEqual({ ...receipt }, {
+      actor_type: "tool",
+      actor_name: "routine_add",
+      turn_id: "routine-request",
+      operation_id: "routine-call",
+    });
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("overdue active todos move onto the requested local day as one batch", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

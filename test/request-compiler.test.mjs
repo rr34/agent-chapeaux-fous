@@ -391,6 +391,23 @@ test("common plural request words select their focused tool families", () => {
   }
 });
 
+test("routine and habit requests select the dedicated reusable-routine tool", () => {
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, {}, {}, null);
+  for (const text of ["Add a Friday planning routine.", "Create a weekly exercise habit."]) {
+    const selection = selectRequestCapabilities({ tools: registry.toolDefinitions(), text });
+    assert.equal(selection.capabilities.includes("todos"), true, text);
+    assert.equal(names(selection).includes("routine_add"), true, text);
+    assert.equal(selection.fallbackAll, false, text);
+  }
+  const routineCatalog = requestCapabilityCatalog(registry.toolDefinitions())
+    .find(({ capability }) => capability === "todos")
+    .tools.find(({ name }) => name === "routine_add");
+  assert.match(routineCatalog.summary, /Unlike todo_add/);
+  assert.match(routineCatalog.summary, /Actions: CREATE\. Effects: MUTATING\.$/);
+  assert.equal(routineCatalog.summary.length <= 400, true);
+});
+
 test("a request to correct records in the logs selects the personal-log capability directly", () => {
   const registry = new ToolRegistry();
   registerLogTools(registry, {}, {}, null);

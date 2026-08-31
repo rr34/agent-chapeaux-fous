@@ -34,8 +34,8 @@ export const nativeCapabilityManifests = [
     readOnlyTools: ["contact_search", "contact_lookup_batch", "contact_duplicate_list"],
   },
   {
-    id: "todos", title: "To-dos", summary: "Read and manage native personal to-do items and groups.",
-    aliases: ["todo", "to-do", "task", "reminder", "chore"], instructionFile: "todos.md",
+    id: "todos", title: "To-dos and routines", summary: "Read and manage native personal to-do items, reusable routines, and groups.",
+    aliases: ["todo", "to-do", "task", "reminder", "chore", "routine", "habit"], instructionFile: "todos.md",
     readOnlyTools: ["todo_group_list", "todo_list"],
   },
   {

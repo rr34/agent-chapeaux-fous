@@ -43,7 +43,7 @@ const capabilityPatterns = new Map([
   ["web", /https?:\/\/|\b(?:web ?page|website|url|link)\b/iu],
   ["calendar", /\b(?:calendar|schedule|agenda|appointment|meeting|event|birthday|invite)\b/iu],
   ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b/iu],
-  ["todos", /\b(?:to[ -]?do|todo|task|remind(?:er)?|chore|overdue)\b/iu],
+  ["todos", /\b(?:to[ -]?do|todo|task|remind(?:er)?|chore|overdue|routines?|habits?)\b/iu],
   ["logs", /\b(?:personal logs?|log entr(?:y|ies)|(?:my|the) logs?|food log|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
   ["interaction-guides", /\b(?:briefings?|interaction guides?|guided interactions?)\b|\b(?:start|use|update|change|edit|create|make|show|list|archive|schedule).{0,60}\bguide\b/iu],
   ["profile", /\b(?:remember that|remember my|keep on file|profile fact|forget (?:that|my)|my preference|i prefer|i am allergic|my address|my phone|my vehicle|my car|my time ?zone|my\b.{0,80}\b(?:is|are|changed))\b/iu],
@@ -69,7 +69,7 @@ const capabilitySummaries = new Map([
   ["web", "Read specific web pages supplied by URL."],
   ["calendar", "Read and manage calendar events and schedules."],
   ["contacts", "Search, import, tag, and merge contacts."],
-  ["todos", "Read and manage native personal to-do items and groups."],
+  ["todos", "Read and manage native personal to-do items, reusable routines, and groups."],
   ["logs", "Read, record, and correct personal logs and trackers."],
   ["interaction-guides", "Create, inspect, update, and conduct user-owned briefings and their ordered exchanges."],
   ["profile", "Read and maintain durable profile facts."],
@@ -336,11 +336,34 @@ function compactToolSummary(tool, maximumCharacters = 320) {
   return `${prefix.slice(0, boundary >= maximumCharacters * 0.7 ? boundary : prefix.length)}…`;
 }
 
+function ownedToolSelectionSummary(tool) {
+  const selection = tool.metadata?.["agent-slayer/selection"];
+  if (selection == null) return null;
+  const summary = String(selection.summary ?? "").replace(/\s+/gu, " ").trim();
+  const actions = selection.actionClasses;
+  const effects = selection.effectClassifications;
+  const validActions = new Set(["CREATE", "READ", "UPDATE", "DELETE", "EXECUTE"]);
+  const validEffects = new Set(["READ-ONLY", "MUTATING", "DESTRUCTIVE", "EXTERNAL"]);
+  if (!summary) throw new Error(`${tool.name} selection summary is required`);
+  if (!Array.isArray(actions) || actions.length === 0 || actions.some((value) => !validActions.has(value))) {
+    throw new Error(`${tool.name} selection action classes are invalid`);
+  }
+  if (!Array.isArray(effects) || effects.length === 0 || effects.some((value) => !validEffects.has(value))) {
+    throw new Error(`${tool.name} selection effect classifications are invalid`);
+  }
+  if (effects.includes("READ-ONLY") !== (tool.annotations?.readOnlyHint === true)) {
+    throw new Error(`${tool.name} selection effects conflict with its read-only annotation`);
+  }
+  const complete = `${summary} Actions: ${actions.join(", ")}. Effects: ${effects.join(", ")}.`;
+  if (complete.length > 400) throw new Error(`${tool.name} selection summary exceeds 400 characters`);
+  return complete;
+}
+
 function toolCatalogEntry(tool) {
   return {
     name: tool.name,
     title: tool.title ?? null,
-    summary: compactToolSummary(tool),
+    summary: ownedToolSelectionSummary(tool) ?? compactToolSummary(tool),
     annotations: tool.annotations ?? null,
   };
 }

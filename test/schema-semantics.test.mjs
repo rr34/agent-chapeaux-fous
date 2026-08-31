@@ -192,6 +192,8 @@ test("native database-backed tools return stored field names with semantic proje
   );
   assert.equal(Object.hasOwn(definitions.todo_add, "scheduled_at_utc"), true);
   assert.equal(Object.hasOwn(definitions.todo_add, "scheduledAtUtc"), false);
+  assert.equal(Object.hasOwn(definitions.routine_add, "recurrence"), true);
+  assert.equal(Object.hasOwn(definitions.routine_add, "group"), false);
   assert.equal(Object.hasOwn(definitions.log_add, "content_text"), true);
   assert.equal(Object.hasOwn(definitions.log_add, "content"), false);
   assert.equal(Object.hasOwn(definitions.log_update, "log_entry_id"), true);

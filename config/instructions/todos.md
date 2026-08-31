@@ -10,6 +10,15 @@ write RRULE syntax. When a to-do is assigned to a calendar day without an exact
 time, set `is_all_day=true` and represent that date as local midnight; use a
 timed schedule only when the user supplies or requests a time.
 
+When the user asks to establish a routine, habit, or other reusable hypothetical
+schedule, use `routine_add`, not `todo_add`. `routine_add` atomically ensures the
+reserved Routine group and creates one repeating to-do template; it does not
+create a calendar event or publish real to-do occurrences. Supply the first
+scheduled occurrence and structured recurrence, and keep `due_at_utc` as an
+independent deadline rather than calculating it from `duration_minutes`. The
+returned next occurrences are a preview of the template, not actual scheduled
+to-dos.
+
 A repeating to-do may link to one active interaction guide by exact ID. The
 to-do owns its schedule and recurrence; the guide supplies only the structured
 interaction offered by each task occurrence. Use `todo_interaction_guide_set`
