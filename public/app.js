@@ -36,6 +36,8 @@ const elements = {
   runTimeUnlimited: document.querySelector("#run-time-unlimited"),
   runLimitsDefaults: document.querySelector("#run-limits-defaults"),
   record: document.querySelector("#record"),
+  recordMeter: document.querySelector("#record-meter"),
+  recordingStatus: document.querySelector("#recording-status"),
   cancelRecording: document.querySelector("#cancel-recording"),
   recordLabel: document.querySelector("#record-label"),
   recordTimer: document.querySelector("#record-timer"),
@@ -347,6 +349,12 @@ let recordingStartedAt = null;
 let recordingTimer = null;
 let recordingRespondSilently = false;
 let recordingCancelled = false;
+let recordingAudioContext = null;
+let recordingAudioSource = null;
+let recordingAnalyser = null;
+let recordingLevelData = null;
+let recordingMeterFrame = null;
+let recordingLevel = 0;
 let pendingRunLimits = null;
 let activeView = "agent";
 let calendarRangeStart = startOfWeek(new Date());
@@ -1020,6 +1028,58 @@ function formatTime(milliseconds) {
 function formatClock(milliseconds) {
   const totalSeconds = Math.floor(Math.max(0, Number(milliseconds) || 0) / 1000);
   return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+function stopRecordingMeter() {
+  if (recordingMeterFrame !== null) cancelAnimationFrame(recordingMeterFrame);
+  recordingMeterFrame = null;
+  recordingAudioSource?.disconnect();
+  recordingAudioSource = null;
+  recordingAnalyser = null;
+  recordingLevelData = null;
+  recordingLevel = 0;
+  for (const bar of elements.recordMeter.children) bar.style.removeProperty("transform");
+  const audioContext = recordingAudioContext;
+  recordingAudioContext = null;
+  if (audioContext && audioContext.state !== "closed") void audioContext.close().catch(() => {});
+}
+
+function updateRecordingMeter() {
+  if (!recordingAnalyser || !recordingLevelData || recorder?.state !== "recording") return;
+  recordingAnalyser.getByteTimeDomainData(recordingLevelData);
+  let sumOfSquares = 0;
+  for (const sample of recordingLevelData) {
+    const centered = (sample - 128) / 128;
+    sumOfSquares += centered * centered;
+  }
+  const rms = Math.sqrt(sumOfSquares / recordingLevelData.length);
+  const measuredLevel = Math.min(1, Math.max(0, (rms - .01) * 9));
+  recordingLevel = Math.max(measuredLevel, recordingLevel * .78);
+  const barWeights = [.58, .82, 1, .76, .52];
+  Array.from(elements.recordMeter.children).forEach((bar, index) => {
+    const height = Math.max(.14, Math.min(1, recordingLevel * barWeights[index]));
+    bar.style.transform = `scaleY(${height.toFixed(2)})`;
+  });
+  recordingMeterFrame = requestAnimationFrame(updateRecordingMeter);
+}
+
+function startRecordingMeter(stream) {
+  stopRecordingMeter();
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  try {
+    recordingAudioContext = new AudioContext();
+    recordingAnalyser = recordingAudioContext.createAnalyser();
+    recordingAnalyser.fftSize = 256;
+    recordingAnalyser.smoothingTimeConstant = .65;
+    recordingLevelData = new Uint8Array(recordingAnalyser.fftSize);
+    recordingAudioSource = recordingAudioContext.createMediaStreamSource(stream);
+    recordingAudioSource.connect(recordingAnalyser);
+    if (recordingAudioContext.state === "suspended") void recordingAudioContext.resume().catch(() => {});
+    updateRecordingMeter();
+  } catch {
+    stopRecordingMeter();
+  }
 }
 
 function formatDuration(milliseconds) {
@@ -4921,12 +4981,15 @@ elements.record.addEventListener("click", async () => {
     recordingRespondSilently = elements.respondSilently.checked;
     prepareSpeechOutput(recordingRespondSilently);
     clearInterval(recordingTimer);
+    stopRecordingMeter();
     recorder.stop();
     elements.record.disabled = true;
     elements.cancelRecording.hidden = true;
     elements.respondSilently.disabled = true;
     elements.record.classList.remove("recording");
+    elements.recordingStatus.classList.remove("active");
     elements.record.setAttribute("aria-label", "Saving recording");
+    elements.record.title = "Saving recording";
     elements.recordLabel.textContent = "Saving recording…";
     return;
   }
@@ -4939,6 +5002,7 @@ elements.record.addEventListener("click", async () => {
     recorder = new MediaRecorder(recordingStream);
     recorder.addEventListener("dataavailable", (event) => { if (event.data.size) recordingChunks.push(event.data); });
     recorder.addEventListener("stop", async () => {
+      stopRecordingMeter();
       recordingStream?.getTracks().forEach((track) => track.stop());
       if (recordingCancelled) {
         recordingChunks = [];
@@ -4952,8 +5016,10 @@ elements.record.addEventListener("click", async () => {
         elements.cancelRecording.hidden = true;
         elements.respondSilently.disabled = false;
         elements.record.classList.remove("recording");
+        elements.recordingStatus.classList.remove("active");
         elements.record.setAttribute("aria-label", "Start recording");
-        elements.recordLabel.textContent = "Tap to record";
+        elements.record.title = "Record a voice request";
+        elements.recordLabel.textContent = "Tap microphone to record";
         elements.recordTimer.textContent = "00:00";
         elements.status.textContent = "Recording cancelled.";
         return;
@@ -4979,30 +5045,39 @@ elements.record.addEventListener("click", async () => {
         elements.cancelRecording.hidden = true;
         elements.respondSilently.disabled = false;
         elements.record.classList.remove("recording");
+        elements.recordingStatus.classList.remove("active");
         elements.record.setAttribute("aria-label", "Start recording");
-        elements.recordLabel.textContent = "Tap to record";
+        elements.record.title = "Record a voice request";
+        elements.recordLabel.textContent = "Tap microphone to record";
         elements.recordTimer.textContent = "00:00";
       }
     });
     recorder.start(1000);
     recordingStartedAt = Date.now();
     elements.record.classList.add("recording");
+    elements.recordingStatus.classList.add("active");
     elements.cancelRecording.hidden = false;
-    elements.record.setAttribute("aria-label", "Stop and queue recording");
-    elements.recordLabel.textContent = "Tap to queue";
+    elements.record.setAttribute("aria-label", "Send recording");
+    elements.record.title = "Send recording";
+    elements.recordLabel.textContent = "Recording · tap to send";
     elements.recordTimer.textContent = "00:00";
+    startRecordingMeter(recordingStream);
     recordingTimer = setInterval(() => {
       elements.recordTimer.textContent = formatClock(Date.now() - recordingStartedAt);
     }, 250);
-    elements.status.textContent = "Recording…";
+    elements.status.textContent = "";
   } catch (error) {
     recordingStream?.getTracks().forEach((track) => track.stop());
     recordingStream = null;
     recorder = null;
     recordingCancelled = false;
+    stopRecordingMeter();
     elements.record.classList.remove("recording");
+    elements.recordingStatus.classList.remove("active");
     elements.cancelRecording.hidden = true;
-    elements.recordLabel.textContent = "Tap to record";
+    elements.record.setAttribute("aria-label", "Start recording");
+    elements.record.title = "Record a voice request";
+    elements.recordLabel.textContent = "Tap microphone to record";
     elements.recordTimer.textContent = "00:00";
     elements.status.textContent = error.message;
   }
@@ -5012,10 +5087,13 @@ elements.cancelRecording.addEventListener("click", () => {
   if (recorder?.state !== "recording") return;
   recordingCancelled = true;
   clearInterval(recordingTimer);
+  stopRecordingMeter();
   elements.record.disabled = true;
   elements.cancelRecording.disabled = true;
   elements.record.classList.remove("recording");
+  elements.recordingStatus.classList.remove("active");
   elements.record.setAttribute("aria-label", "Cancelling recording");
+  elements.record.title = "Cancelling recording";
   elements.recordLabel.textContent = "Cancelling…";
   recorder.stop();
 });

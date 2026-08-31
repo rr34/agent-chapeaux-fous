@@ -240,21 +240,29 @@ section { margin-bottom: 1rem; }
 .record-button:hover { background: linear-gradient(145deg, #3c312a, #1c1714); }
 .record-button:focus-visible { outline: 3px solid rgba(255, 91, 53, .55); outline-offset: 4px; }
 .record-button:disabled { filter: grayscale(1); opacity: .45; }
-.record-core {
-  width: 20px;
+.record-microphone { width: 23px; height: 23px; fill: #ff5b35; }
+.record-meter { display: none; align-items: center; justify-content: center; width: 28px; height: 24px; gap: 2px; }
+.record-meter span {
+  width: 3px;
   height: 20px;
-  border-radius: 50%;
-  background: #ff5b35;
-  transition: 160ms ease;
+  background: #fff7f2;
+  border-radius: 999px;
+  transform: scaleY(.14);
+  transition: transform 70ms linear;
 }
-.record-button.recording { animation: record-pulse 1.6s infinite; }
-.record-button.recording .record-core { width: 18px; height: 18px; border-radius: 5px; }
+.record-button.recording { background: #d83a20; animation: record-pulse 1.6s infinite; }
+.record-button.recording:hover { background: #bf301a; }
+.record-button.recording .record-microphone { display: none; }
+.record-button.recording .record-meter { display: flex; }
 @keyframes record-pulse {
   50% { box-shadow: 0 0 0 8px rgba(255, 91, 53, .1); }
 }
 .record-label { color: var(--muted); font-size: .72rem; }
 .record-timer { color: var(--muted); font-size: .72rem; font-variant-numeric: tabular-nums; }
-.cancel-recording { min-height: 26px; }
+.recording-status.active .record-label, .recording-status.active .record-timer { color: #b32c17; font-weight: 600; }
+.cancel-recording { display: inline-flex; align-items: center; gap: .25rem; min-height: 28px; padding: .25rem .5rem; }
+.cancel-recording > span:first-child { font-size: 1.05rem; line-height: .8; }
+.cancel-recording[hidden] { display: none; }
 .composer-feedback { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; min-width: 0; min-height: 1.3rem; }
 .composer-feedback .status { min-width: 0; margin: 0; overflow: hidden; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .composer-feedback .status:empty { display: none; }
@@ -988,7 +996,7 @@ dialog h2, dialog p { margin-bottom: 0; }
   .request-run-controls { justify-content: flex-start; width: 100%; }
   .respond-silently-control { margin-right: auto; }
   .run-limits-summary { order: 3; width: 100%; text-align: left; }
-  .recording-status .record-label { display: none; }
+  .recording-status:not(.active) .record-label { display: none; }
   .run-limit-fieldset { grid-template-columns: 1fr; }
   main { padding: .7rem .7rem calc(var(--composer-height, 14rem) + .7rem); }
   .requests { border-radius: 13px; }
