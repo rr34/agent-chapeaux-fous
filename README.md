@@ -53,6 +53,12 @@ only for hats the user explicitly spoke; it does not place the hats on a
 character. With several spoken hats, it shows the first at full size and the
 others as companion badges.
 
+The same catalog also grounds chat answers about how to interact with Chapeaux
+Fous and how the hats system works. The focused read-only self-knowledge tool
+returns the manual rules, invocation form, examples, and registry-derived live
+availability as facts; the model answers the user's particular question in
+natural language rather than returning a canned help response.
+
 ## First local run
 
 Requirements: Node.js 22.5 or newer, an OpenAI API project/key with API billing,

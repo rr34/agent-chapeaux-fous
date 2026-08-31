@@ -202,9 +202,11 @@ classifies failures against the advertised contract and blocks unchanged
 terminal contract mismatches until successful integration rediscovery.
 
 **53. Chapeaux Fous self-knowledge service** — The native read-only capability
-that returns a source-referenced description of Chapeaux Fous's identity,
-request and voice path, deployment boundaries, current runtime, connected
-integrations, and live callable-tool inventory. It provides operational
+that returns source-referenced facts about Chapeaux Fous's identity and name,
+interaction and hats system, request and voice path, deployment boundaries,
+current runtime, connected integrations, and live callable-tool inventory. Its
+hats facts come from the same versioned catalog as the web manual and derive
+current availability from the live registry. It provides operational
 self-knowledge, not a claim of human consciousness. Its Tailscale description
 documents private publication infrastructure while preserving that the
 application itself can observe a request channel but cannot prove which network

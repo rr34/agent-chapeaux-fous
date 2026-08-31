@@ -1112,7 +1112,13 @@
           </div>
           <ol class="request-steps" aria-label="Agent steps" hidden></ol>
           <div class="request-actions">
-            <button class="reply-to-exchange reference-in-agent secondary compact" type="button" hidden title="Reply with a reference to this exchange">↖ Reply</button>
+            <button class="reply-to-exchange reference-in-agent secondary compact" type="button" hidden title="Reply with a reference to this exchange">
+              <svg class="reply-reference-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 19c0-4.4-3.6-8-8-8H4"></path>
+                <path d="m9 6-5 5 5 5"></path>
+              </svg>
+              <span>Reply</span>
+            </button>
             <label class="video-script-source-choice" hidden>
               <input class="video-script-source-checkbox" type="checkbox">
               <span>Select for video</span>

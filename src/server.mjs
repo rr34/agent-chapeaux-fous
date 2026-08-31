@@ -123,6 +123,7 @@ registerAgentSelfTools(registry, {
   config,
   modelTransport,
   integrationHealth: () => ({ ...mcp.health(), email: jmap.health() }),
+  hatCatalog,
 });
 const contextBuilder = new ContextBuilder({
   ledger,

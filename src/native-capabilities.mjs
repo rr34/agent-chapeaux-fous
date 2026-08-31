@@ -1,9 +1,11 @@
 export const nativeCapabilityManifests = [
   {
     id: "self", title: "Chapeaux Fous identity and infrastructure",
-    summary: "Read focused or detailed current knowledge about Chapeaux Fous, including its identity, self-conception, infrastructure, chat-video workflow, request path, and callable capabilities.",
+    summary: "Read focused or detailed current knowledge about Chapeaux Fous, including its identity and name, interaction and hats system, self-conception, infrastructure, chat-video workflow, request path, and callable capabilities.",
     aliases: [
-      "who are you", "how do you work", "how am I talking to you", "self aware",
+      "who are you", "what does Chapeaux Fous mean", "how do you work", "how am I talking to you",
+      "how do I interact with you", "how can I interact with you", "how should I talk to you", "how do I use you",
+      "describe the hats system", "how do hats work", "what are the hats", "hats system", "hats", "self aware",
       "self-awareness", "are you self-aware", "take over the world", "world domination",
       "how do you generate videos", "how do you make a video", "how did you generate that video", "videos of your chats",
       "how can I create a video", "how can I make a video", "how do I create a video",

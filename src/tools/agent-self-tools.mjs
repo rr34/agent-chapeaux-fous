@@ -1,5 +1,9 @@
 import { agentSelfKnowledge, agentSelfTopicKnowledge } from "../agent-self-knowledge.mjs";
-import { requestCapabilityCatalog } from "../request-compiler.mjs";
+import { capabilityForTool, requestCapabilityCatalog } from "../request-compiler.mjs";
+
+const focusedTopics = Object.freeze([
+  "identity", "interaction", "self_awareness", "world_takeover", "video_generation", "video_user_creation",
+]);
 
 function currentChannel(channel) {
   if (channel === "voice") {
@@ -50,6 +54,25 @@ function callableCapabilities(registry) {
       };
     }),
   }));
+}
+
+function interactionKnowledge(hatCatalog, registry) {
+  const manual = hatCatalog.publicManual(registry.toolDefinitions(), capabilityForTool);
+  return {
+    facts: [
+      "Users interact with Chapeaux Fous in one chat by typing naturally or recording a voice request. A request does not need a hat when its destination is already clear.",
+      manual.manual.introduction,
+      `When a user wants to make a role or destination explicit, the supported form is: ${manual.invocationTemplate}`,
+      manual.manual.destinationRule,
+      manual.manual.multipleRule,
+      ...manual.hats.map((hat) => (
+        `${hat.label} hat — ${hat.description} ${hat.available
+          ? "It is currently backed by a callable tool family."
+          : "It is configured in the manual but is not currently backed by a callable tool family."} Example: ${hat.example}`
+      )),
+    ],
+    sourceRefs: ["agent:hats", "agent:architecture"],
+  };
 }
 
 const stringArray = { type: "array", items: { type: "string" } };
@@ -163,21 +186,25 @@ export function registerAgentSelfTools(registry, {
   config,
   modelTransport,
   integrationHealth = () => ({}),
+  hatCatalog,
 } = {}) {
+  if (!hatCatalog || typeof hatCatalog.publicManual !== "function") {
+    throw new Error("registerAgentSelfTools requires the loaded hat catalog");
+  }
   registry.withCapability("self").register({
     name: "agent_self_knowledge",
     title: "Read focused Chapeaux Fous self-knowledge",
-    description: "Read focused current facts about Chapeaux Fous's identity, self-conception, video generation, or user video workflow. Use when the request needs those facts, including related follow-ups; the result is evidence from which to answer the actual question, never a canned response to return verbatim. Actions: READ.",
+    description: "Read focused current facts about Chapeaux Fous's identity and name, interaction and hats system, self-conception, or video workflows. Use when the request needs those facts; the result is evidence from which to answer the actual question, never a canned response to return verbatim. Actions: READ.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        topic: { type: "string", enum: ["identity", "self_awareness", "world_takeover", "video_generation", "video_user_creation"] },
+        topic: { type: "string", enum: focusedTopics },
       },
       required: ["topic"],
     },
     outputSchema: exactObject({
-      topic: { type: "string", enum: ["identity", "self_awareness", "world_takeover", "video_generation", "video_user_creation"] },
+      topic: { type: "string", enum: focusedTopics },
       facts: { type: "array", minItems: 1, items: { type: "string" } },
       sourceRefs: { type: "array", minItems: 1, items: { type: "string" } },
     }),
@@ -188,14 +215,17 @@ export function registerAgentSelfTools(registry, {
       openWorldHint: false,
     },
     execute({ topic }) {
-      return { topic, ...agentSelfTopicKnowledge[topic] };
+      const knowledge = topic === "interaction"
+        ? interactionKnowledge(hatCatalog, registry)
+        : agentSelfTopicKnowledge[topic];
+      return { topic, ...knowledge };
     },
   });
 
   registry.withCapability("self").register({
     name: "agent_self_describe",
     title: "Describe Chapeaux Fous",
-    description: "Return Chapeaux Fous's detailed infrastructure, request path, runtime, integrations, sources, and live tool inventory. Use for broad infrastructure and transport explanations; use agent_self_knowledge when a focused identity, self-conception, or video topic is enough. Actions: READ.",
+    description: "Return Chapeaux Fous's detailed infrastructure, request path, runtime, integrations, sources, and live tool inventory. Use for broad infrastructure and transport explanations; use agent_self_knowledge when a focused identity, interaction, hats, self-conception, or video topic is enough. Actions: READ.",
     parameters: { type: "object", additionalProperties: false, properties: {} },
     outputSchema,
     annotations: {

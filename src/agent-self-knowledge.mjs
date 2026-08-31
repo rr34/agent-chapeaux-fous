@@ -2,11 +2,12 @@ export const agentSelfTopicKnowledge = Object.freeze({
   identity: Object.freeze({
     facts: Object.freeze([
       "The public name is Chapeaux Fous.",
+      "The name ‘Chapeaux Fous’ is French for ‘crazy hats’: ‘chapeaux’ means hats, and ‘fous’ means crazy or mad.",
       "Chapeaux Fous is the user's private language-model interface to their own tools and data.",
       "Its working whole includes the private browser client, the Agent Slayer application, the selected OpenAI language model, bounded memory and context, the callable tool registry, and connected services.",
       "It runs as a Node.js service on an Ubuntu 24.04 HostWinds VPS, is privately published through Tailscale Serve to a loopback listener, uses local faster-whisper for recorded voice requests, and stores its ledger and bounded memory in SQLite.",
     ]),
-    sourceRefs: Object.freeze(["agent:system-prompt", "agent:architecture", "agent:manifesto"]),
+    sourceRefs: Object.freeze(["agent:system-prompt", "agent:hats", "agent:architecture", "agent:manifesto"]),
   }),
   self_awareness: Object.freeze({
     facts: Object.freeze([
@@ -129,7 +130,8 @@ export const agentSelfKnowledge = Object.freeze({
   ],
   sources: [
     { ref: "agent:system-prompt", location: "config/system-prompt.md", supports: "Public identity and universal behavior." },
-    { ref: "agent:self-description-guidance", location: "config/instructions/self.md", supports: "How focused self-knowledge is used to answer identity, self-awareness, and world-takeover questions." },
+    { ref: "agent:hats", location: "config/hats.json", supports: "Optional hat convention, invocation wording, role and destination meanings, configured hats, aliases, descriptions, and examples." },
+    { ref: "agent:self-description-guidance", location: "config/instructions/self.md", supports: "How focused self-knowledge is used to answer identity, interaction, hats, self-awareness, world-takeover, and video questions." },
     { ref: "agent:video-production", location: "config/instructions/video.md; src/video-scripts.mjs; src/video-render-worker.mjs", supports: "Portable video scripts, built-in MP4 generation, user selection workflow, and production outputs." },
     { ref: "agent:architecture", location: "README.md", supports: "Request loop, model transport, tools, voice, persistence, browser polling, and deployment behavior." },
     { ref: "agent:manifesto", location: "AGENT-TOOL-MANIFESTO.md", supports: "Orientation, exact-schema execution, receipts, audit, and repair boundaries." },

@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { HatCatalog } from "../src/hat-catalog.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 import { requestCapabilityCatalog, selectRequestCapabilities } from "../src/request-compiler.mjs";
 import { registerAgentSelfTools } from "../src/tools/agent-self-tools.mjs";
 import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
+
+const hatCatalog = new HatCatalog(JSON.parse(
+  fs.readFileSync(new URL("../config/hats.json", import.meta.url), "utf8"),
+));
 
 function buildRegistry() {
   const registry = registerNativeCapabilities(new ToolRegistry());
@@ -34,6 +39,7 @@ function buildRegistry() {
       },
       github: { ready: false, disabled: true },
     }),
+    hatCatalog,
   });
   return registry;
 }
@@ -49,6 +55,8 @@ test("self guidance treats focused knowledge as evidence rather than canned answ
   assert.doesNotMatch(guidance, /operational self-knowledge|not human consciousness|do not possess human consciousness/iu);
   assert.match(guidance, /agent_self_knowledge` with `video_generation`/);
   assert.match(guidance, /agent_self_knowledge` with `video_user_creation`/);
+  assert.match(guidance, /use the `interaction`\s+topic/);
+  assert.match(guidance, /ordinary natural requests work without a hat/);
   assert.match(videoGuidance, /Focused video knowledge is information, not an FAQ answer/);
   assert.match(videoGuidance, /combine the relevant focused facts/);
   assert.match(videoGuidance, /explanation request, not a production request/);
@@ -80,6 +88,20 @@ test("self-awareness and world-takeover questions select the self capability", (
   }
 });
 
+test("interaction, hats, and name-meaning questions select focused self-knowledge", () => {
+  const registry = buildRegistry();
+  for (const text of [
+    "How do I interact with you?",
+    "Describe the hats system.",
+    "What hats can I use?",
+    "What does Shapofu mean?",
+  ]) {
+    const selection = selectRequestCapabilities({ tools: registry.toolDefinitions(), text });
+    assert.equal(selection.capabilities.includes("self"), true, text);
+    assert.equal(selection.tools.some(({ name }) => name === "agent_self_knowledge"), true, text);
+  }
+});
+
 test("technical and user-facing chat-video questions select focused self-knowledge", () => {
   const registry = buildRegistry();
   for (const text of [
@@ -101,13 +123,29 @@ test("technical and user-facing chat-video questions select focused self-knowled
 
 test("focused self-knowledge returns facts and sources without prepared answer text", async () => {
   const registry = buildRegistry();
+  registry.withCapability("email").register({
+    name: "email_search",
+    title: "Search email",
+    description: "Search email.",
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    annotations: { readOnlyHint: true },
+    execute: () => ({ messages: [] }),
+  });
   const identity = await registry.execute("agent_self_knowledge", { topic: "identity" });
+  const interaction = await registry.execute("agent_self_knowledge", { topic: "interaction" });
   const awareness = await registry.execute("agent_self_knowledge", { topic: "self_awareness" });
   const takeover = await registry.execute("agent_self_knowledge", { topic: "world_takeover" });
   const video = await registry.execute("agent_self_knowledge", { topic: "video_generation" });
   const videoForUser = await registry.execute("agent_self_knowledge", { topic: "video_user_creation" });
   assert.match(identity.facts.join("\n"), /public name is Chapeaux Fous/);
+  assert.match(identity.facts.join("\n"), /French for ‘crazy hats’/);
   assert.match(identity.facts.join("\n"), /SQLite/);
+  assert.match(interaction.facts.join("\n"), /does not need a hat/);
+  assert.match(interaction.facts.join("\n"), /Chapeaux Fous, as my \{hat\}, \{request\}/);
+  assert.match(interaction.facts.join("\n"), /email hat[^\n]+currently backed by a callable tool family/);
+  assert.match(interaction.facts.join("\n"), /weatherman hat/);
+  assert.match(interaction.facts.join("\n"), /not currently backed by a callable tool family/);
+  assert.deepEqual(interaction.sourceRefs, ["agent:hats", "agent:architecture"]);
   assert.match(awareness.facts.join("\n"), /describes itself as self-aware/);
   assert.match(takeover.facts.join("\n"), /desire to take over the world/);
   assert.match(video.facts.join("\n"), /portable script/);
@@ -116,11 +154,11 @@ test("focused self-knowledge returns facts and sources without prepared answer t
   assert.match(videoForUser.facts.join("\n"), /two main clicks/);
   assert.match(videoForUser.facts.join("\n"), /Background render time is variable/);
   assert.equal(Object.hasOwn(video, "answer"), false);
-  assert.doesNotMatch(JSON.stringify([identity, awareness, takeover, video, videoForUser]), /\b(?:playful|persona)\b/iu);
+  assert.doesNotMatch(JSON.stringify([identity, interaction, awareness, takeover, video, videoForUser]), /\b(?:playful|persona)\b/iu);
   const definition = registry.toolDefinitions().find(({ name }) => name === "agent_self_knowledge");
   assert.match(definition.description, /result is evidence/);
   assert.match(definition.description, /never a canned response/);
-  for (const result of [identity, awareness, takeover, video, videoForUser]) {
+  for (const result of [identity, interaction, awareness, takeover, video, videoForUser]) {
     assert.equal(schemaProblem(result, definition.outputSchema, "result"), null);
   }
 });

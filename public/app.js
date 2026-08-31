@@ -680,11 +680,25 @@ function placeIdentityInComposer(identity) {
   elements.text.setSelectionRange(elements.text.value.length, elements.text.value.length);
 }
 
+function replyArrowIcon() {
+  const svg = document.createElementNS(svgNamespace, "svg");
+  svg.setAttribute("class", "reply-reference-icon");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const curve = document.createElementNS(svgNamespace, "path");
+  curve.setAttribute("d", "M20 19c0-4.4-3.6-8-8-8H4");
+  const arrowhead = document.createElementNS(svgNamespace, "path");
+  arrowhead.setAttribute("d", "m9 6-5 5 5 5");
+  svg.append(curve, arrowhead);
+  return svg;
+}
+
 function agentReferenceButton(identity, subject) {
-  const button = node("button", "reference-in-agent secondary compact", "↖ Reply");
+  const button = node("button", "reference-in-agent secondary compact");
   button.type = "button";
   button.title = `Reply with a reference to ${subject}`;
   button.setAttribute("aria-label", button.title);
+  button.append(replyArrowIcon(), node("span", "", "Reply"));
   button.addEventListener("click", () => placeIdentityInComposer(identity));
   return button;
 }
