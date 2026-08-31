@@ -44,10 +44,10 @@ test("an interaction video uses saved audio, records render events, and register
     async render({ input, outputLocation }) {
       assert.match(input.audioDataUrl, /^data:audio\/webm;base64,/);
       assert.equal(input.render.width, 1080);
-      assert.equal(input.render.height, 1920);
+      assert.equal(input.render.height, 1620);
       await fs.mkdir(path.dirname(outputLocation), { recursive: true });
       await fs.writeFile(outputLocation, Buffer.from("fake mp4"));
-      return { outputLocation, durationSeconds: 30, width: 1080, height: 1920 };
+      return { outputLocation, durationSeconds: 30, width: 1080, height: 1620 };
     },
   });
   const result = await service.renderInteraction({
@@ -78,7 +78,7 @@ test("an interaction video uses saved audio, records render events, and register
   assert.equal(videoFile.media_kind, "video");
   assert.equal(videoFile.duration_ms, 30_000);
   assert.equal(videoFile.width, 1080);
-  assert.equal(videoFile.height, 1920);
+  assert.equal(videoFile.height, 1620);
   assert.deepEqual(
     ledger.trace(videoRequest.requestId).filter(({ type }) => type.startsWith("video.render.")).map(({ type }) => type),
     ["video.render.started", "video.render.completed"],

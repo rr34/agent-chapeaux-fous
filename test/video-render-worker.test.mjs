@@ -47,26 +47,34 @@ test("the background worker preserves recordings and assigns distinct user and A
     title: "The release plan",
     concept: "Show the exact interaction.",
     audience: "The Agent's audience",
-    durationSeconds: 18,
-    aspectRatio: "9:16",
+    durationSeconds: 24,
+    aspectRatio: "2:3",
     visualStyle: "Faithful Agent interface",
     generatorPrompt: "Reproduce the supplied interaction without invention.",
     scenes: [
       {
         sceneNumber: 1, durationSeconds: 6, sourceRequestIds: [sourceRequest.requestId],
-        renderSceneType: "request", visualPrompt: "The request card", voiceover: "The user made the request.",
+        renderSceneType: "request", visualPrompt: "The request card", voiceover: "Make the release plan.",
         onScreenText: ["The request"], cameraMotion: null, audioNotes: null, transition: null,
       },
       {
-        sceneNumber: 2, durationSeconds: 6, sourceRequestIds: [typedRequest.requestId],
-        renderSceneType: "request", visualPrompt: "The typed request card",
-        voiceover: "The user asked for a summary.", onScreenText: ["Summarize the plan"],
+        sceneNumber: 2, durationSeconds: 6, sourceRequestIds: [sourceRequest.requestId],
+        renderSceneType: "response", visualPrompt: "The first response bubble",
+        voiceover: "The release plan is ready.", onScreenText: ["The release plan is ready."],
         cameraMotion: null, audioNotes: null, transition: null,
       },
       {
         sceneNumber: 3, durationSeconds: 6, sourceRequestIds: [typedRequest.requestId],
-        renderSceneType: "response", visualPrompt: "The response card", voiceover: "The Agent completed the plan.",
-        onScreenText: ["The plan is ready"], cameraMotion: null, audioNotes: null, transition: null,
+        renderSceneType: "request", visualPrompt: "The typed request card",
+        voiceover: "Summarize the release plan.", onScreenText: ["Summarize the release plan."],
+        cameraMotion: null, audioNotes: null, transition: null,
+      },
+      {
+        sceneNumber: 4, durationSeconds: 6, sourceRequestIds: [typedRequest.requestId],
+        renderSceneType: "response", visualPrompt: "The response card",
+        voiceover: "The release plan has three phases.",
+        onScreenText: ["The release plan has three phases."],
+        cameraMotion: null, audioNotes: null, transition: null,
       },
     ],
     continuityNotes: [],
@@ -115,28 +123,39 @@ test("the background worker preserves recordings and assigns distinct user and A
     },
     async render({ input, outputLocation }) {
       renderedInput = input;
+      assert.deepEqual(input.render, { fps: 30, width: 1080, height: 1620 });
       await fs.mkdir(path.dirname(outputLocation), { recursive: true });
       await fs.writeFile(outputLocation, Buffer.from("scripted mp4"));
-      return { durationSeconds: 14, width: 1080, height: 1920 };
+      return { durationSeconds: 14, width: 1080, height: 1620 };
     },
   });
 
   await worker.drain();
 
   assert.deepEqual(speechCalls.map(({ text, options }) => ({ text, voice: options.voice })), [
+    { text: "The release plan is ready.", voice: "cedar" },
     { text: "Summarize the release plan.", voice: "coral" },
-    { text: "The Agent completed the plan.", voice: "cedar" },
+    { text: "The release plan has three phases.", voice: "cedar" },
   ]);
-  assert.match(speechCalls[0].options.instructions, /woman.+French accent/iu);
-  assert.match(speechCalls[1].options.instructions, /man.+standard American/iu);
+  assert.match(speechCalls[0].options.instructions, /man.+standard American/iu);
+  assert.match(speechCalls[1].options.instructions, /woman.+French accent/iu);
+  assert.match(speechCalls[1].options.instructions, /brisk.+playful/iu);
+  assert.match(speechCalls[2].options.instructions, /man.+standard American/iu);
+  assert.deepEqual(
+    renderedInput.scenes.map(({ renderSceneType }) => renderSceneType),
+    ["request", "response", "request", "response"],
+  );
+  assert.equal(renderedInput.scenes.some((scene) => "activity" in scene), false);
   assert.equal(renderedInput.scenes[0].renderSceneType, "request");
   assert.equal(renderedInput.scenes[0].authenticAudio, true);
   assert.match(renderedInput.scenes[0].audioDataUrl, /^data:audio\/webm;base64,/);
-  assert.equal(renderedInput.scenes[1].renderSceneType, "request");
+  assert.equal(renderedInput.scenes[1].renderSceneType, "response");
   assert.equal(renderedInput.scenes[1].aiNarration, true);
-  assert.equal(renderedInput.scenes[2].renderSceneType, "response");
+  assert.equal(renderedInput.scenes[2].renderSceneType, "request");
   assert.equal(renderedInput.scenes[2].aiNarration, true);
-  assert.equal(renderedInput.disclosure, "Includes AI-generated narration");
+  assert.equal(renderedInput.scenes[3].renderSceneType, "response");
+  assert.equal(renderedInput.scenes[3].aiNarration, true);
+  assert.equal(renderedInput.disclosure, "Includes AI-generated voices");
   const finished = videoScripts.get(production.script.id);
   assert.equal(finished.render.status, "complete");
   assert.ok(finished.render.outputFileId);

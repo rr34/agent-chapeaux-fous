@@ -55,31 +55,19 @@ export async function renderInteractionVideo(options) {
     sourceCount: 1,
     scenes: [
       {
-        sceneNumber: 1, renderSceneType: "intro", heading: legacy?.title,
-        onScreenText: "A real request, its processing, and the resulting response.", durationSeconds: 3,
-      },
-      {
-        sceneNumber: 2, renderSceneType: "request", requestText: legacy?.normalizedTranscript,
-        sourceReference: "Selected interaction", authenticAudio: true,
+        sceneNumber: 1, renderSceneType: "request", requestText: legacy?.normalizedTranscript,
+        authenticAudio: true,
         audioDataUrl: legacy?.audioDataUrl, audioStartMs: legacy?.audioStartMs,
         audioEndMs: legacy?.audioEndMs, captionCues: legacy?.captionCues,
-        rawWords: legacy?.rawWords, durationSeconds: audioSeconds + 1,
+        rawWords: legacy?.rawWords, durationSeconds: audioSeconds,
       },
       {
-        sceneNumber: 3, renderSceneType: "activity", activity: legacy?.activity || [],
-        onScreenText: "The recorded Agent trace", durationSeconds: 5,
-      },
-      {
-        sceneNumber: 4, renderSceneType: "response",
+        sceneNumber: 2, renderSceneType: "response",
         responseText: (legacy?.responseHighlights || []).join(" "),
-        highlights: legacy?.responseHighlights || [], durationSeconds: 7,
-      },
-      {
-        sceneNumber: 5, renderSceneType: "outro", heading: "The interaction, made visible",
-        durationSeconds: 3,
+        durationSeconds: Math.max(3, legacy?.responseHighlights?.length * 1.5 || 3),
       },
     ],
-    render: legacy?.render || { fps: 30, width: 1080, height: 1920 },
+    render: legacy?.render || { fps: 30, width: 1080, height: 1620 },
   };
   return renderScriptedInteractionVideo({ ...options, input });
 }

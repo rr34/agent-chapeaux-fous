@@ -148,9 +148,9 @@ export function loadConfig(environment = process.env) {
     ttsUserVoice: environment.SLAYER_TTS_USER_VOICE?.trim() || "coral",
     ttsAgentInstructions: environment.SLAYER_TTS_AGENT_INSTRUCTIONS?.trim()
       || environment.SLAYER_TTS_INSTRUCTIONS?.trim()
-      || "Speak as a man in standard American English. Sound warm, precise, confident, and natural at a documentary pace. Do not add words.",
+      || "Speak as a man in standard American English. Use a brisk, lively pace with playful confidence, genuine feeling, and polished self-promotional energy. This is a fun product highlight, not a tutorial or documentary. Keep it natural rather than theatrical. Do not add, omit, or rewrite words.",
     ttsUserInstructions: environment.SLAYER_TTS_USER_INSTRUCTIONS?.trim()
-      || "Speak as a woman in English with a natural, refined French accent. Keep the accent subtle and consistent, with a warm, intelligent delivery; never exaggerate or caricature it. Do not add words.",
+      || "Speak as a woman in English with a clearly noticeable, consistent French accent. Use a brisk, playful, expressive pace with warmth, feeling, and confident self-promotional energy. Make the accent stronger while keeping it natural and never caricatured. This is not a tutorial. Do not add, omit, or rewrite words.",
     ttsTimeoutMs: positiveInteger(environment.SLAYER_TTS_TIMEOUT_MS, 2 * 60 * 1000),
   };
 }

@@ -57,6 +57,38 @@ function plan(sourceRequestIds) {
   };
 }
 
+function productionPlan(sourceRequestIds) {
+  const dialogue = [
+    ["Plan the release.", "The release plan is ready."],
+    ["Make the checklist.", "The checklist is ready."],
+  ];
+  const scenes = sourceRequestIds.flatMap((sourceId, sourceIndex) => dialogue[sourceIndex].map((text, partIndex) => ({
+    sceneNumber: sourceIndex * 2 + partIndex + 1,
+    durationSeconds: 5,
+    sourceRequestIds: [sourceId],
+    renderSceneType: partIndex === 0 ? "request" : "response",
+    visualPrompt: partIndex === 0 ? "Show the exact user chat bubble." : "Show the exact Agent chat bubble.",
+    voiceover: text,
+    onScreenText: [text],
+    cameraMotion: null,
+    audioNotes: null,
+    transition: null,
+  })));
+  return {
+    sourceRequestIds,
+    title: "A grounded multi-interaction story",
+    concept: "Show the actual conversation as one brisk, playful Agent chat.",
+    audience: "People evaluating personal AI assistants",
+    durationSeconds: scenes.reduce((total, scene) => total + scene.durationSeconds, 0),
+    aspectRatio: "2:3",
+    visualStyle: "One continuous 1080x1620 Agent chat with no explanatory scenes.",
+    generatorPrompt: "Create a playful promotional video using only the supplied request-response chat pairs.",
+    scenes,
+    continuityNotes: ["Keep every prior chat bubble in the continuous conversation."],
+    negativeConstraints: ["Do not add trace, processing, tutorial, intro, outro, or explanatory content."],
+  };
+}
+
 test("video scripts persist one ordered source join for every selected interaction", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
@@ -177,11 +209,20 @@ test("one production tool call persists its script and queues one linked backgro
   let notifications = 0;
   const registry = registerNativeCapabilities(new ToolRegistry());
   registerVideoScriptTools(registry, videoScripts, { onRenderQueued: () => { notifications += 1; } });
-  const productionPlan = plan([first.requestId, second.requestId]);
-  productionPlan.scenes[1].sourceRequestIds = [second.requestId];
+  const production = productionPlan([first.requestId, second.requestId]);
+
+  assert.throws(
+    () => videoScripts.create({ ...production, aspectRatio: "9:16" }, {
+      requestId: generation.requestId,
+      requestEventId: generation.eventId,
+      callId: "wrong-production-format",
+      channel: "web",
+    }, { queueRender: true }),
+    /1080x1620/,
+  );
 
   await assert.rejects(
-    () => registry.execute("video_script_create", productionPlan, {
+    () => registry.execute("video_script_create", production, {
       requestId: generation.requestId,
       requestEventId: generation.eventId,
       callId: "wrong-production-tool",
@@ -192,7 +233,7 @@ test("one production tool call persists its script and queues one linked backgro
 
   const created = await registry.execute(
     "video_production_create",
-    productionPlan,
+    production,
     {
       requestId: generation.requestId,
       requestEventId: generation.eventId,
@@ -205,6 +246,7 @@ test("one production tool call persists its script and queues one linked backgro
   assert.equal(created.renderQueued, true);
   assert.equal(created.render.status, "queued");
   assert.equal(notifications, 1);
+  assert.equal(videoScripts.get(created.videoScript.id).plan.aspectRatio, "2:3");
   const row = store.requireReady().prepare(
     "SELECT video_script_id, status, template FROM video_jobs WHERE video_job_id = ?",
   ).get(created.render.id);
@@ -215,7 +257,7 @@ test("one production tool call persists its script and queues one linked backgro
 
   const replayed = await registry.execute(
     "video_production_create",
-    productionPlan,
+    production,
     {
       requestId: generation.requestId,
       requestEventId: generation.eventId,

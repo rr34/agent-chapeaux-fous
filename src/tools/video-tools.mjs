@@ -2,7 +2,7 @@ export function registerVideoTools(registry, videoService) {
   registry = registry.withCapability?.("video") ?? registry;
   registry.register({
     name: "video_render_interaction",
-    description: "Render and store one downloadable 1080x1920 MP4 from the source interaction bound to this request. Use the saved authentic audio and exact activity trace; supply the editorial hook, normalized captions, one contiguous audio range, and response highlights.",
+    description: "Render and store one downloadable 1080x1620 MP4 from the source interaction bound to this request. Use the saved authentic audio and exact activity trace; supply the editorial hook, normalized captions, one contiguous audio range, and response highlights.",
     parameters: {
       type: "object",
       additionalProperties: false,

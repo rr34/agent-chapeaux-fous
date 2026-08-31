@@ -276,6 +276,8 @@ test("video creation is an explicit select-then-create workflow", () => {
   assert.match(application, /Create video from \$\{count\}/);
   assert.match(application, /if \(selectingVideoScriptSources\) showVideoScriptSelection\(\);/);
   assert.doesNotMatch(application, /if \(selectingVideoScriptSources\) cancelVideoScriptSelection\(\);/);
+  assert.match(application, /refreshVideoScripts\.addEventListener\("click", \(\) => void refreshVideoScripts\(\)\)/);
+  assert.doesNotMatch(application, /videoScriptRefreshTimer/);
   assert.match(stylesheet, /\.video-script-source-choice\[hidden\]\s*\{\s*display:\s*none;/);
   assert.match(stylesheet, /\.video-script-selection\[hidden\]\s*\{\s*display:\s*none;/);
 });

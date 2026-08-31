@@ -459,14 +459,17 @@ script and queues its linked `video_jobs` row. Script creation follows the
 ordinary orientation, bounded-context, exact-tool-schema, and receipt rules.
 
 A single-concurrency background worker prepares the production after the Agent
-turn finishes. Request scenes use the original saved recording when one exists;
-otherwise, the typed request is spoken in a feminine voice with a subtle French
-accent. Agent dialogue and narration use a masculine, standard-American voice.
+turn finishes. The 1080x1620 MP4 is one continuous chat showing only the actual
+request and actual response for each selected interaction; trace, processing,
+activity, intros, outros, and explanatory narration are omitted. Request scenes
+use the original saved recording when one exists; otherwise, the typed request
+is spoken in a feminine voice with a stronger natural French accent. Agent
+responses use a masculine, standard-American voice. Both generated roles use a
+brisk, playful, expressive self-promotional delivery rather than a tutorial tone.
 Server-generated speech is explicitly disclosed as AI-generated in both the
-Video Scripts page and the finished video. The
-Remotion composition is a designed reproduction of the actual Agent interface—
-request card, processing steps, tool activity, response, and timing—not a claim
-that the product captured a screen recording.
+Video Scripts page and the finished video. The Remotion composition is a
+designed reproduction of the actual Agent chat bubbles—not a claim that the
+product captured a screen recording.
 
 The **Video Scripts** page remains the durable home for the portable script and
 external-generator prompt. It also shows the linked background state, polls

@@ -772,8 +772,9 @@ const server = http.createServer(async (request, response) => {
       const created = ledger.createRequest({
         text: [
           "Create one source-grounded video production from every selected interaction below.",
-          "First create the complete portable script. Then atomically queue its built-in Agent-interface MP4 using server-side narration and original request audio when the selected interaction has a saved recording.",
-          "Use the selected interactions in chronological order, preserve factual outcomes, omit secrets and unrelated private details, and call video_production_create exactly once.",
+          "First create the complete portable script. Then atomically queue its 1080x1620 built-in Agent-interface MP4 using server-side speech and original request audio when the selected interaction has a saved recording.",
+          "Make it one continuous chat containing only the exact request followed by the exact Agent response for each selected interaction. Do not include intro, outro, activity, trace, processing, tutorial, summary, or explanatory scenes.",
+          "Use the selected interactions in chronological order, keep the tone brisk and playfully self-promotional, omit secrets and unrelated private details, and call video_production_create exactly once.",
           ...sourceRequestIds.map((id, index) => `${index + 1}. Source interaction ${id}`),
         ].join("\n"),
         channel: "web",

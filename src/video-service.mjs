@@ -115,7 +115,7 @@ export class VideoService {
       audioDataUrl,
       responseHighlights,
       activity: actualActivity(source),
-      render: { width: 1080, height: 1920, fps: 30, durationSeconds },
+      render: { width: 1080, height: 1620, fps: 30, durationSeconds },
     };
     this.ledger.append({
       type: "video.render.started", phase: "start", status: "processing", actorType: "service",

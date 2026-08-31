@@ -362,7 +362,6 @@ let contentItems = [];
 let contentGroups = [];
 let contentSearchTimer = null;
 let videoScripts = [];
-let videoScriptRefreshTimer = null;
 let selectingVideoScriptSources = false;
 const selectedVideoScriptRequestIds = new Set();
 let loadedTodoRecurrenceTimeZone = null;
@@ -1240,7 +1239,7 @@ async function generateSelectedVideoScript() {
   elements.generateVideoScript.disabled = true;
   elements.generateVideoScript.textContent = "Creating video…";
   try {
-    const created = await api("/api/video-productions/generate", {
+    await api("/api/video-productions/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1251,7 +1250,6 @@ async function generateSelectedVideoScript() {
     pendingRunLimits = null;
     updateRunLimitsSummary();
     cancelVideoScriptSelection();
-    elements.status.textContent = `Video production ${created.requestId.slice(0, 8)} queued. Its script and background MP4 status will appear under Video Scripts.`;
     await loadRequests({ force: true });
   } catch (error) {
     elements.status.textContent = error.message || "Could not queue the video production.";
@@ -1720,10 +1718,6 @@ function calendarEventCopyText(calendarEvent) {
 
 function switchView(view) {
   const previousView = activeView;
-  if (view !== "video-scripts" && videoScriptRefreshTimer) {
-    clearTimeout(videoScriptRefreshTimer);
-    videoScriptRefreshTimer = null;
-  }
   if (view !== "calendar" && calendarSchedulingTodo) cancelCalendarScheduling({ render: false });
   activeView = view;
   elements.agentView.hidden = view !== "agent";
@@ -3245,21 +3239,12 @@ function renderContent() {
 }
 
 async function refreshVideoScripts() {
-  if (videoScriptRefreshTimer) {
-    clearTimeout(videoScriptRefreshTimer);
-    videoScriptRefreshTimer = null;
-  }
   elements.videoScriptList.replaceChildren(node("p", "empty", "Loading video scripts…"));
   elements.videoScriptEmpty.hidden = true;
   try {
     const body = await api(`/api/video-scripts?status=${encodeURIComponent(elements.videoScriptStatusFilter.value)}&limit=500`);
     videoScripts = body.scripts;
     renderVideoScripts();
-    if (activeView === "video-scripts" && videoScripts.some(({ render }) => (
-      ["queued", "preparing", "rendering"].includes(render?.status)
-    ))) {
-      videoScriptRefreshTimer = setTimeout(() => void refreshVideoScripts(), 3000);
-    }
   } catch (error) {
     elements.videoScriptList.replaceChildren(node("p", "empty", error.message || "Video scripts unavailable."));
     elements.videoScriptCount.textContent = "";

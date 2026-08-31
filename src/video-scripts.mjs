@@ -7,7 +7,7 @@ const terminalTypes = [
 ];
 const responseTypes = ["assistant.response", "agent.turn.end"];
 const scriptStatuses = new Set(["draft", "archived", "all"]);
-const aspectRatios = new Set(["9:16", "16:9", "1:1", "4:5"]);
+const aspectRatios = new Set(["9:16", "16:9", "1:1", "4:5", "2:3"]);
 const renderSceneTypes = new Set(["intro", "request", "activity", "response", "outro"]);
 
 function placeholders(values) {
@@ -432,6 +432,26 @@ export class VideoScripts {
       ["request", "response"].includes(renderSceneType) && ids.length !== 1
     ))) {
       throw new Error("Every production request or response scene must reference exactly one interaction");
+    }
+    if (queueRender) {
+      if (input.aspectRatio !== "2:3") {
+        throw new Error("Built-in productions must use the 1080x1620 (2:3) format");
+      }
+      if (scenes.length !== canonicalIds.length * 2) {
+        throw new Error("A production requires exactly one request and one response scene per interaction");
+      }
+      canonicalIds.forEach((sourceId, sourceIndex) => {
+        const requestScene = scenes[sourceIndex * 2];
+        const responseScene = scenes[sourceIndex * 2 + 1];
+        if (requestScene.renderSceneType !== "request"
+            || responseScene.renderSceneType !== "response"
+            || requestScene.sourceRequestIds.length !== 1
+            || responseScene.sourceRequestIds.length !== 1
+            || requestScene.sourceRequestIds[0] !== sourceId
+            || responseScene.sourceRequestIds[0] !== sourceId) {
+          throw new Error("Production scenes must be chronological request-response pairs for every selected interaction");
+        }
+      });
     }
     if (scenes.some(({ sceneNumber }, index) => sceneNumber !== index + 1)) {
       throw new Error("Scene numbers must be consecutive and match scene order");

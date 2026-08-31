@@ -27,58 +27,10 @@ function boundedText(value, maximum, fallback = "") {
 
 function narrationSeconds(text) {
   const words = boundedText(text, 10_000).split(/\s+/u).filter(Boolean).length;
-  return Math.max(3, Math.ceil(words / 2) + 2);
+  return Math.max(2, Math.ceil(words / 2.75) + 1);
 }
 
-function renderDimensions(aspectRatio) {
-  if (aspectRatio === "16:9") return { width: 1920, height: 1080 };
-  if (aspectRatio === "1:1") return { width: 1080, height: 1080 };
-  if (aspectRatio === "4:5") return { width: 1080, height: 1350 };
-  return { width: 1080, height: 1920 };
-}
-
-function activityItems(source) {
-  const originMs = Number(source.events[0]?.occurredAtMs) || 0;
-  const useful = source.events.filter(({ type }) => [
-    "transcription.complete", "context.prepared", "model.request", "tool.call", "tool.result",
-    "assistant.response", "request.error",
-  ].includes(type));
-  const items = [];
-  for (const event of useful) {
-    let label = "Agent";
-    let detail = "Processed the request";
-    if (event.type === "transcription.complete") {
-      label = "Transcription";
-      detail = "Converted the saved recording into text";
-    } else if (event.type === "context.prepared") {
-      label = "Context";
-      detail = "Prepared the bounded context selected during orientation";
-    } else if (event.type === "model.request") {
-      label = "Model";
-      detail = "Sent the accepted brief and exact callable schemas";
-    } else if (event.type === "tool.call") {
-      label = "Tool call";
-      detail = `Ran ${event.name || "an application tool"}`;
-    } else if (event.type === "tool.result") {
-      label = event.status === "error" ? "Tool error" : "Tool result";
-      detail = `${event.name || "Application tool"} ${event.status === "error" ? "returned an error" : "completed"}`;
-    } else if (event.type === "assistant.response") {
-      label = "Response";
-      detail = "Prepared the final response";
-    } else if (event.type === "request.error") {
-      label = "Request error";
-      detail = "Recorded the observable failure";
-    }
-    if (!items.some((item) => item.label === label && item.detail === detail)) {
-      items.push({
-        label,
-        detail,
-        atMs: Math.max(0, (Number(event.occurredAtMs) || originMs) - originMs),
-      });
-    }
-  }
-  return items.slice(0, 6).length ? items.slice(0, 6) : [{ label: "Agent", detail: "Processed the request" }];
-}
+const productionRender = Object.freeze({ width: 1080, height: 1620 });
 
 function captionCues(words, maximumMs) {
   const usable = words.filter((word) => word.startMs < maximumMs && word.endMs > 0);
@@ -101,9 +53,9 @@ export class VideoRenderWorker {
     transcriber,
     speech,
     agentVoice = "cedar",
-    agentInstructions = "Speak as a man in standard American English with a warm, precise, natural delivery. Do not add words.",
+    agentInstructions = "Speak as a man in standard American English at a brisk, playful pace with feeling and self-promotional energy. Do not add, omit, or rewrite words.",
     userVoice = "coral",
-    userInstructions = "Speak as a woman in English with a natural, subtle French accent and a warm delivery. Do not add words.",
+    userInstructions = "Speak as a woman in English with a clearly noticeable French accent at a brisk, playful pace with feeling and self-promotional energy. Keep it natural, not caricatured. Do not add, omit, or rewrite words.",
     mediaRoot,
     outputRoot,
     browserExecutable = null,
@@ -243,56 +195,53 @@ export class VideoRenderWorker {
   async #prepare(job) {
     const script = this.videoScripts.get(job.videoScriptId);
     if (!script) throw new Error(`Video script ${job.videoScriptId} was not found`);
-    const sources = new Map(script.sources.map(({ requestId }) => {
-      const source = this.ledger.interactionReplaySource(requestId);
-      return [requestId, source];
-    }));
     const scenes = [];
     let usesAiNarration = false;
-    for (const scene of script.plan.scenes) {
-      const sceneSources = scene.sourceRequestIds.map((id) => sources.get(id)).filter(Boolean);
-      const source = sceneSources[0];
-      if (!source || sceneSources.length !== scene.sourceRequestIds.length) {
-        throw new Error(`Scene ${scene.sceneNumber} has no retained source interaction`);
-      }
-      const useAuthenticAudio = scene.renderSceneType === "request" && source.audioFile;
-      const speakerRole = scene.renderSceneType === "request" ? "user" : "agent";
-      const narrationText = speakerRole === "user"
-        ? boundedText(source.rawTranscript, 4_096, "Voice request")
-        : scene.voiceover;
-      const audio = useAuthenticAudio
-        ? await this.#sourceAudio(source, job, scene)
-        : await this.#narrationAudio(narrationText, job, scene, speakerRole);
-      usesAiNarration ||= Boolean(audio.aiNarration);
+    for (const { requestId } of script.sources) {
+      const source = this.ledger.interactionReplaySource(requestId);
+      const requestText = boundedText(source.rawTranscript, 4_096, "Voice request");
+      const responseText = boundedText(source.response, 4_096, "No response was recorded.");
+      const requestScene = { sceneNumber: scenes.length + 1 };
+      const requestAudio = source.audioFile
+        ? await this.#sourceAudio(source, job, requestScene)
+        : await this.#narrationAudio(requestText, job, requestScene, "user");
+      usesAiNarration ||= Boolean(requestAudio.aiNarration);
       scenes.push({
-        sceneNumber: scene.sceneNumber,
-        renderSceneType: scene.renderSceneType,
-        durationSeconds: Math.min(120, Math.max(scene.durationSeconds, audio.durationSeconds)),
-        sourceRequestIds: scene.sourceRequestIds,
-        requestId: source.requestId,
-        sourceReference: sceneSources.map(({ requestId }) => `Request ${requestId.slice(0, 8)}`).join(" · "),
-        requestText: boundedText(source.rawTranscript, 1_200, "Voice request"),
-        responseText: boundedText(source.response, 2_400, "No response was recorded."),
-        activity: (scene.renderSceneType === "activity"
-          ? sceneSources.flatMap(activityItems).slice(0, 6)
-          : activityItems(source)),
-        heading: scene.renderSceneType === "intro" ? script.title : null,
-        highlights: scene.renderSceneType === "response" ? scene.onScreenText : [],
-        onScreenText: scene.onScreenText.join(" · "),
-        voiceover: scene.voiceover,
-        authenticAudio: Boolean(audio.authenticRequestAudio),
-        ...audio,
+        sceneNumber: requestScene.sceneNumber,
+        renderSceneType: "request",
+        durationSeconds: requestAudio.durationSeconds,
+        sourceRequestIds: [requestId],
+        requestId,
+        requestText,
+        responseText,
+        authenticAudio: Boolean(requestAudio.authenticRequestAudio),
+        ...requestAudio,
+      });
+
+      const responseScene = { sceneNumber: scenes.length + 1 };
+      const responseAudio = await this.#narrationAudio(responseText, job, responseScene, "agent");
+      usesAiNarration ||= Boolean(responseAudio.aiNarration);
+      scenes.push({
+        sceneNumber: responseScene.sceneNumber,
+        renderSceneType: "response",
+        durationSeconds: responseAudio.durationSeconds,
+        sourceRequestIds: [requestId],
+        requestId,
+        requestText,
+        responseText,
+        authenticAudio: false,
+        ...responseAudio,
       });
     }
     return {
       title: script.title,
       concept: script.plan.concept,
-      aspectRatio: script.plan.aspectRatio,
+      aspectRatio: "2:3",
       scenes,
       sourceCount: script.sources.length,
       usesAiNarration,
-      disclosure: usesAiNarration ? "Includes AI-generated narration" : null,
-      render: { fps: 30, ...renderDimensions(script.plan.aspectRatio) },
+      disclosure: usesAiNarration ? "Includes AI-generated voices" : null,
+      render: { fps: 30, ...productionRender },
     };
   }
 

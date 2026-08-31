@@ -36,12 +36,17 @@ function parameters({ production = false } = {}) {
     },
     renderSceneType: production
       ? {
-          type: "string", enum: ["intro", "request", "activity", "response", "outro"],
-          description: "Built-in Agent-interface scene. Request and response scenes must each reference exactly one interaction; every selected interaction must appear in at least one of them.",
+          type: "string", enum: ["request", "response"],
+          description: "One message in the continuous built-in chat. Supply exactly one request scene followed by one response scene for each selected interaction, in source order.",
         }
       : { type: ["string", "null"], enum: ["intro", "request", "activity", "response", "outro", null] },
     visualPrompt: { type: "string", minLength: 1, maxLength: 5000 },
-    voiceover: production ? { type: "string", minLength: 1, maxLength: 3000 } : optionalText(3000),
+    voiceover: production
+      ? {
+          type: "string", minLength: 1, maxLength: 3000,
+          description: "Exact request text for a request scene or exact final Agent response for a response scene. Do not add narration or explanatory copy.",
+        }
+      : optionalText(3000),
     onScreenText: {
       type: "array", maxItems: 10,
       items: { type: "string", minLength: 1, maxLength: 500 },
@@ -66,7 +71,12 @@ function parameters({ production = false } = {}) {
         type: "integer", minimum: 5, maximum: 600,
         description: "Total target duration in seconds; must equal the sum of every scene duration.",
       },
-      aspectRatio: { type: "string", enum: ["9:16", "16:9", "1:1", "4:5"] },
+      aspectRatio: production
+        ? {
+            type: "string", enum: ["2:3"],
+            description: "The built-in MP4 is exactly 1080x1620 pixels.",
+          }
+        : { type: "string", enum: ["9:16", "16:9", "1:1", "4:5", "2:3"] },
       visualStyle: { type: "string", minLength: 1, maxLength: 3000 },
       generatorPrompt: {
         type: "string", minLength: 1, maxLength: 20000,
@@ -133,7 +143,7 @@ export function registerVideoScriptTools(registry, videoScripts, { onRenderQueue
   capabilityRegistry.register({
     name: "video_production_create",
     title: "Create a script and queue its MP4",
-    description: "Persist one grounded script from every explicitly selected interaction and atomically queue a background Remotion MP4 that follows its built-in scene types and server narration. This proves the script and render job exist, not that rendering has finished.",
+    description: "Persist one grounded script from every explicitly selected interaction and atomically queue a 1080x1620 Remotion MP4. The video is one continuous chat containing only each exact request and exact Agent response, with no trace, activity, tutorial narration, intro, or outro. This proves the script and render job exist, not that rendering has finished.",
     parameters: parameters({ production: true }),
     outputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },

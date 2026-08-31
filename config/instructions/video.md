@@ -7,15 +7,16 @@ The user explicitly selected completed interactions for either a portable script
 - Ground every scene in one or more selected request IDs. Preserve actual outcomes and do not invent actions, quotations, demonstrations, tool use, or results.
 - Remove secrets and unrelated private material. Include personal details only when essential to the requested story and present in the selected evidence.
 - Produce a cohesive production brief, consolidated external-generator prompt, and scene-by-scene plan.
-- Keep request, processing/tool activity, and response scenes visually faithful to the Agent interface. This is a designed reproduction, not a claimed screen recording.
+- Keep the request and response visually faithful to one continuous Agent chat. This is a designed reproduction, not a claimed screen recording.
 
 For a request whose kind is `video_production`:
 
 - Call `video_production_create` exactly once with the complete script. Do not call `video_script_create` too.
-- Give every scene a `renderSceneType` of `intro`, `request`, `activity`, `response`, or `outro`, and non-empty server-narration text.
-- Build a coherent chronological sequence. Use request scenes for the user's actual requests, activity scenes for actual processing/tool events, response scenes for actual answers, and intro/outro only for grounded framing.
-- Make each request or response scene reference exactly one selected interaction. Represent every selected interaction in at least one request or response scene; activity and framing scenes may reference several sources.
-- The background renderer uses original saved request audio when an interaction was recorded. A typed request is spoken in the configured feminine voice with a subtle French accent. Agent dialogue and narration use the configured masculine, standard-American voice. Generated speech is disclosed in the finished video.
+- Set `aspectRatio` to `2:3`; the built-in MP4 is exactly 1080x1620 pixels.
+- Create exactly two chronological scenes for each selected interaction: its `request` followed immediately by its `response`. Do not create intro, outro, activity, processing, trace, tutorial, summary, or explanatory scenes.
+- Each scene references exactly one interaction. Its `voiceover` is the actual request or actual final response, not narration about it. The built-in renderer independently resolves those exact source messages and does not display trace activity or scene commentary.
+- Treat the tone as brisk, playful self-promotion that shows what the Agent did, never as a tutorial explaining how it worked.
+- The background renderer uses original saved request audio when an interaction was recorded. A typed request is spoken in the configured feminine voice with a stronger natural French accent. Agent responses use the configured masculine, standard-American voice. Generated speech is disclosed in the finished video.
 - The tool result proves the script and render job were persisted and queued. Do not claim the MP4 is finished until its job reports `complete`.
 
 For a request for the script alone:
