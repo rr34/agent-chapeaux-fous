@@ -16,12 +16,38 @@ const outputSchema = {
     render: {
       type: ["object", "null"],
       properties: {
-        id: { type: "integer" }, status: { type: "string" }, outputFileId: { type: ["integer", "null"] },
+        id: { type: "integer" }, status: { type: "string" },
+        outputFileId: { type: ["integer", "null"] }, contentId: { type: ["integer", "null"] },
         downloadUrl: { type: ["string", "null"] }, error: { type: ["string", "null"] },
       },
     },
   },
   required: ["created", "unchanged", "renderQueued", "videoScript", "render"],
+};
+
+const contentOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    created: { type: "boolean" },
+    unchanged: { type: "boolean" },
+    content: {
+      type: "object", additionalProperties: false,
+      properties: {
+        id: { type: "integer" }, groupId: { type: "integer" }, groupName: { type: "string" },
+        sequence: { type: "integer" }, title: { type: "string" }, primaryFileId: { type: "integer" },
+      },
+      required: ["id", "groupId", "groupName", "sequence", "title", "primaryFileId"],
+    },
+    video: {
+      type: "object", additionalProperties: false,
+      properties: {
+        scriptId: { type: "integer" }, jobId: { type: "integer" }, fileId: { type: "integer" },
+      },
+      required: ["scriptId", "jobId", "fileId"],
+    },
+  },
+  required: ["created", "unchanged", "content", "video"],
 };
 
 function parameters() {
@@ -63,7 +89,9 @@ function compactResult(result) {
   };
 }
 
-export function registerVideoScriptTools(registry, videoScripts, { onRenderQueued = () => {} } = {}) {
+export function registerVideoScriptTools(
+  registry, videoScripts, { videoContent = null, onRenderQueued = () => {} } = {},
+) {
   const capabilityRegistry = registry.withCapability?.("video") ?? registry;
   capabilityRegistry.register({
     name: "video_script_create",
@@ -74,6 +102,43 @@ export function registerVideoScriptTools(registry, videoScripts, { onRenderQueue
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     execute(args, context) {
       return compactResult(videoScripts.create(args, { ...context, actorName: "video_script_create" }));
+    },
+  });
+
+  if (videoContent) capabilityRegistry.register({
+    name: "video_content_add",
+    title: "Add a completed video to a content sequence",
+    description: "Add one referenced, completed Agent-interface MP4 to exactly one existing content-library group. The application uses the rendered file, appends the next sequence number atomically, stores the script as its transcript, links the video job to the content item, and returns the durable result. Exact replay is unchanged. Do not call this until the user has selected or named the destination group.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        videoScriptId: { type: "integer", minimum: 1, description: "The referenced generated video script ID." },
+        groupId: { type: "integer", minimum: 1, description: "The exact active destination content-group ID." },
+      },
+      required: ["videoScriptId", "groupId"],
+    },
+    outputSchema: contentOutputSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    execute(args, context) {
+      const result = videoContent.add(args, { ...context, actorName: "video_content_add" });
+      return {
+        created: result.created,
+        unchanged: result.unchanged,
+        content: {
+          id: result.content.id,
+          groupId: result.content.groupId,
+          groupName: result.content.groupName,
+          sequence: result.content.sequence,
+          title: result.content.title,
+          primaryFileId: result.content.primaryFileId,
+        },
+        video: {
+          scriptId: result.script.id,
+          jobId: result.script.render.id,
+          fileId: result.script.render.outputFileId,
+        },
+      };
     },
   });
 
@@ -98,6 +163,23 @@ export function registerVideoScriptTools(registry, videoScripts, { onRenderQueue
     maximumItems: 8,
     execute(context) {
       return videoScripts.selectedInteractionContext(context.requestId);
+    },
+  });
+
+  if (videoContent) registry.registerContextView("video", {
+    id: "video.content_groups",
+    title: "Active content-library groups",
+    description: "The bounded active destination groups available when the user wants to add an already-completed generated video to a content sequence.",
+    maximumItems: 200,
+    execute() {
+      const groups = videoContent.listGroups().slice(0, 200);
+      return {
+        data: { groups },
+        text: [
+          "Active content-library groups:",
+          ...groups.map((group) => `- ${group.name} [content_group_id=${group.id}]`),
+        ].join("\n"),
+      };
     },
   });
 }

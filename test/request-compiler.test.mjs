@@ -73,8 +73,23 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
   assert.equal(capabilityForTool(tool("video_script_create")), "video");
   assert.equal(capabilityForTool(tool("video_production_create")), "video");
+  assert.equal(capabilityForTool(tool("video_content_add")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
   assert.equal(capabilityForTool(tool("file_read")), "files");
+});
+
+test("a referenced generated video can select the focused content-sequence operation", () => {
+  const selection = selectRequestCapabilities({
+    tools: [...tools, tool("video_content_add")],
+    text: [
+      "In reference to:",
+      "Generated video ‘A useful generated video’: video_script_id 42, output_file_id 77.",
+      "Add this video to my content sequence.",
+    ].join("\n"),
+  });
+  assert.equal(selection.capabilities.includes("video"), true);
+  assert.equal(names(selection).includes("video_content_add"), true);
+  assert.equal(selection.fallbackAll, false);
 });
 
 test("the orienter receives one organized catalog of every connected capability family", () => {

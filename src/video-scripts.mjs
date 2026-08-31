@@ -138,6 +138,7 @@ function publicRender(row) {
   const outputFileId = row.output_file_id == null ? null : Number(row.output_file_id);
   return {
     id: Number(row.video_job_id),
+    contentId: row.content_id == null ? null : Number(row.content_id),
     status: row.status,
     renderer: row.renderer,
     template: row.template,
@@ -562,6 +563,54 @@ export class VideoScripts {
       primaryFileId: fileId, subjectType: "video_job", subjectId: String(id),
     });
     return publicRender(row);
+  }
+
+  linkContent(scriptId, contentId, context = {}) {
+    const id = positiveInteger(scriptId, "Video script ID");
+    const linkedContentId = positiveInteger(contentId, "Content ID");
+    const current = this.get(id);
+    if (!current) throw Object.assign(new Error("Video script not found"), { statusCode: 404 });
+    if (current.render?.status !== "complete" || !current.render.outputFileId) {
+      throw Object.assign(new Error("The MP4 must finish rendering before it can be added to content"), { statusCode: 409 });
+    }
+    if (current.render.contentId === linkedContentId) {
+      return { linked: false, unchanged: true, script: current };
+    }
+    if (current.render.contentId !== null) {
+      throw Object.assign(new Error("This video is already linked to a content item"), { statusCode: 409 });
+    }
+    const database = this.store.requireReady();
+    const now = new Date().toISOString();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const row = database.prepare(`
+        UPDATE video_jobs SET content_id = ?, updated_at_utc = ?
+        WHERE video_job_id = ? AND video_script_id = ?
+          AND status = 'complete' AND output_file_id IS NOT NULL AND content_id IS NULL
+        RETURNING *
+      `).get(linkedContentId, now, current.render.id, id);
+      if (!row) throw Object.assign(
+        new Error("This video changed before it could be linked to content. Refresh and try again."),
+        { statusCode: 409 },
+      );
+      this.ledger.append({
+        type: "video.content.linked", status: "complete",
+        actorType: context.actorType ?? "user", actorName: context.actorName ?? "web",
+        channel: context.channel ?? "web", turnId: context.requestId ?? null,
+        name: "Rendered video linked to content",
+        payload: {
+          videoScriptId: id, videoJobId: Number(row.video_job_id),
+          contentId: linkedContentId, fileId: Number(row.output_file_id),
+        },
+        primaryFileId: Number(row.output_file_id),
+        subjectType: "video_job", subjectId: String(row.video_job_id),
+      });
+      database.exec("COMMIT");
+      return { linked: true, unchanged: false, script: this.get(id) };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   failRender(jobId, error) {

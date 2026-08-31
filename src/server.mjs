@@ -46,6 +46,7 @@ import { registerWebPageTools } from "./tools/web-page-tools.mjs";
 import { registerAgentSelfTools } from "./tools/agent-self-tools.mjs";
 import { registerVideoScriptTools } from "./tools/video-script-tools.mjs";
 import { VideoScripts } from "./video-scripts.mjs";
+import { VideoContent } from "./video-content.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
 
 const config = loadConfig();
@@ -56,6 +57,7 @@ const organizer = store.status.ready ? new OrganizerStore(config.databasePath) :
 const profileFacts = new ProfileFacts({ store, ledger });
 const interactionGuides = new InteractionGuides({ store, ledger });
 const videoScripts = store.status.ready ? new VideoScripts({ store, ledger }) : null;
+const videoContent = store.status.ready ? new VideoContent({ videoScripts, organizer }) : null;
 let videoRenderWorker = null;
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
@@ -106,6 +108,7 @@ if (store.status.ready) {
   });
   registerSearchTools(registry, searchCoordinator);
   registerVideoScriptTools(registry, videoScripts, {
+    videoContent,
     onRenderQueued: () => videoRenderWorker?.notify(),
   });
   registerEmailReceiptTools(registry, ledger);
@@ -808,6 +811,7 @@ const server = http.createServer(async (request, response) => {
     }
     const videoScriptArchiveMatch = /^\/api\/video-scripts\/(\d+)\/archive$/.exec(url.pathname);
     const videoScriptRenderMatch = /^\/api\/video-scripts\/(\d+)\/render$/.exec(url.pathname);
+    const videoScriptContentMatch = /^\/api\/video-scripts\/(\d+)\/content$/.exec(url.pathname);
     if (request.method === "POST" && videoScriptRenderMatch) {
       const result = videoScripts.queueRender(videoScriptRenderMatch[1], {
         actorType: "user", actorName: "web", channel: "web",
@@ -823,6 +827,18 @@ const server = http.createServer(async (request, response) => {
         body.version,
         { actorType: "user", actorName: "web", channel: "web" },
       ));
+      return;
+    }
+    if (request.method === "POST" && videoScriptContentMatch) {
+      const body = await readJson(request);
+      const result = videoContent.add({
+        videoScriptId: videoScriptContentMatch[1], groupId: body.groupId,
+      }, {
+        actorType: "user", actorName: "web", channel: "web",
+      });
+      sendJson(response, result.created ? 201 : 200, {
+        ...result,
+      });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/content-groups") {

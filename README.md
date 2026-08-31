@@ -508,6 +508,13 @@ below the bubble viewport.
 The **Video Scripts** page remains the durable home for the portable script and
 external-generator prompt. It also shows the linked background state, polls
 while work is active, downloads completed MP4s, and can retry failed renders.
+Once an MP4 is complete, its title is a clickable stable reference that places
+the video script, render job, and output-file IDs in the Agent composer. The
+same card's **Add this video to content sequence** action lists active content
+groups and appends the video with the next sequence number in the selected
+group. The UI and Agent-callable `video_content_add` operation share the same
+idempotent application workflow: the content item owns the rendered file and
+exact script, while the video job records the resulting content item.
 Rendering is deliberately outside the FIFO Agent request queue so a long MP4
 does not block ordinary requests; interrupted `preparing` or `rendering` jobs
 return to `queued` when the server starts.

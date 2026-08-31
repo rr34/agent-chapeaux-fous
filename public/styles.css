@@ -563,6 +563,9 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .video-script-card { padding: 1rem; }
 .video-script-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }
 .video-script-card h3 { margin: 0; font-size: 1.08rem; }
+.video-script-title-reference { min-height: 0; padding: 0; color: var(--text); background: transparent; border: 0; border-radius: 0; font: inherit; text-align: left; text-decoration: underline; text-decoration-color: var(--brand-mid); text-underline-offset: 3px; cursor: copy; }
+.video-script-title-reference:hover { color: var(--accent); background: transparent; }
+.video-script-title-reference:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .video-script-meta, .video-script-sources { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; color: var(--muted); font-size: .72rem; }
 .video-script-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
 .video-production-status { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .8rem; margin-top: .8rem; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-raised); font-size: .76rem; }
@@ -575,6 +578,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .video-script-markdown { max-height: 70dvh; margin-top: .8rem; padding: .9rem; overflow: auto; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 9px; line-height: 1.5; user-select: text; }
 .video-script-markdown > :first-child { margin-top: 0; }
 .video-script-markdown > :last-child { margin-bottom: 0; }
+.video-content-title { margin: 0; font-weight: 600; }
 
 .contact-inactive-toggle { gap: .4rem; white-space: nowrap; }
 .contact-list { overflow-x: auto; }
@@ -713,6 +717,8 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .event-date-time-inputs:has(.event-time-input[hidden]) { grid-template-columns: 1fr; }
 .event-duration { min-height: 1.2em; margin: -.35rem 0 0; color: var(--muted); font-size: .78rem; }
 .todo-group-editor, .todo-scheduled-editor, .content-group-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .5rem; }
+.content-group-dialog { width: min(520px, calc(100% - 1.5rem)); }
+.content-group-sequence-help { margin: 0; font-size: .78rem; line-height: 1.45; }
 #todo-contact { width: 100%; }
 .content-dialog { width: min(760px, calc(100% - 1.5rem)); }
 .contact-method-editor { margin: 0; padding: .8rem; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; }

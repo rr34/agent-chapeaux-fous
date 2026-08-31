@@ -223,8 +223,14 @@ const elements = {
   contentGroupFilter: document.querySelector("#content-group-filter"),
   contentCount: document.querySelector("#content-count"),
   contentList: document.querySelector("#content-list"),
-  newContent: document.querySelector("#new-content"),
   newContentGroup: document.querySelector("#new-content-group"),
+  contentGroupDialog: document.querySelector("#content-group-dialog"),
+  contentGroupForm: document.querySelector("#content-group-form"),
+  contentGroupDialogTitle: document.querySelector("#content-group-dialog-title"),
+  contentGroupId: document.querySelector("#content-group-id"),
+  contentGroupName: document.querySelector("#content-group-name"),
+  contentGroupFormError: document.querySelector("#content-group-form-error"),
+  contentGroupArchive: document.querySelector("#content-group-archive"),
   contentDialog: document.querySelector("#content-dialog"),
   contentForm: document.querySelector("#content-form"),
   contentDialogTitle: document.querySelector("#content-dialog-title"),
@@ -248,6 +254,11 @@ const elements = {
   videoScriptCount: document.querySelector("#video-script-count"),
   videoScriptList: document.querySelector("#video-script-list"),
   videoScriptEmpty: document.querySelector("#video-script-empty"),
+  videoContentDialog: document.querySelector("#video-content-dialog"),
+  videoContentForm: document.querySelector("#video-content-form"),
+  videoContentTitle: document.querySelector("#video-content-title"),
+  videoContentGroup: document.querySelector("#video-content-group"),
+  videoContentError: document.querySelector("#video-content-error"),
   contactSearch: document.querySelector("#contact-search"),
   contactTagFilter: document.querySelector("#contact-tag-filter"),
   contactRenameTag: document.querySelector("#contact-rename-tag"),
@@ -359,6 +370,7 @@ let contentItems = [];
 let contentGroups = [];
 let contentSearchTimer = null;
 let videoScripts = [];
+let videoAddingToContent = null;
 let selectingVideoScriptSources = false;
 const selectedVideoScriptRequestIds = new Set();
 let loadedTodoRecurrenceTimeZone = null;
@@ -563,6 +575,19 @@ function fileIdentity(file) {
       title: file.title,
       original_filename: file.originalFilename,
       media_kind: file.mediaKind,
+    }, null, 2),
+  ].join("\n");
+}
+
+function videoIdentity(script) {
+  return [
+    `Generated video “${script.title}”:`,
+    JSON.stringify({
+      video_script_id: script.id,
+      video_job_id: script.render?.id ?? null,
+      output_file_id: script.render?.outputFileId ?? null,
+      content_id: script.render?.contentId ?? null,
+      title: script.title,
     }, null, 2),
   ].join("\n");
 }
@@ -3225,14 +3250,10 @@ function renderContent() {
     const heading = node("header", "content-group-heading");
     const title = node("div", "content-group-heading-title");
     title.append(node("h3", "", group.name));
-    if (group.id !== 1) {
-      const rename = node("button", "secondary compact", "Rename");
-      const archive = node("button", "secondary compact", "Archive group");
-      rename.type = archive.type = "button";
-      rename.addEventListener("click", () => void renameContentGroup(group.id, group.name));
-      archive.addEventListener("click", () => void archiveContentGroup(group.id, group.name));
-      title.append(rename, archive);
-    }
+    const editGroup = node("button", "secondary compact", "Edit group");
+    editGroup.type = "button";
+    editGroup.addEventListener("click", () => openContentGroupEditor(group.id));
+    title.append(editGroup);
     const top = node("button", "secondary compact", "⇈");
     const up = node("button", "secondary compact", "↑");
     const down = node("button", "secondary compact", "↓");
@@ -3333,7 +3354,17 @@ function renderVideoScripts() {
     const card = node("article", "video-script-card organizer-panel");
     const heading = node("div", "video-script-card-heading");
     const identity = node("div", "video-script-card-identity");
-    identity.append(node("h3", "", script.title));
+    const title = node("h3");
+    if (script.render?.status === "complete" && script.render.outputFileId) {
+      const reference = node("button", "video-script-title-reference", script.title);
+      reference.type = "button";
+      reference.title = "Reference this generated video in the Agent composer";
+      reference.addEventListener("click", () => placeIdentityInComposer(videoIdentity(script)));
+      title.append(reference);
+    } else {
+      title.textContent = script.title;
+    }
+    identity.append(title);
     const meta = node("div", "video-script-meta");
     meta.append(
       node("span", "todo-pill", script.status),
@@ -3368,6 +3399,17 @@ function renderVideoScripts() {
       download.type = "button";
       download.addEventListener("click", () => void downloadInteractionVideo(script.render.outputFileId, download));
       actions.prepend(download);
+      const addToContent = node(
+        "button",
+        "secondary compact",
+        script.render.contentId ? "Added to content sequence" : "Add this video to content sequence",
+      );
+      addToContent.type = "button";
+      addToContent.disabled = Boolean(script.render.contentId);
+      if (!script.render.contentId) {
+        addToContent.addEventListener("click", () => void openVideoContentDialog(script));
+      }
+      actions.append(addToContent);
     } else if (script.render?.status === "error") {
       const retry = node("button", "compact", "Retry MP4");
       retry.type = "button";
@@ -3404,6 +3446,53 @@ function renderVideoScripts() {
       card.append(heading, document);
     }
     elements.videoScriptList.append(card);
+  }
+}
+
+async function openVideoContentDialog(script) {
+  videoAddingToContent = script;
+  elements.videoContentError.textContent = "";
+  elements.videoContentTitle.textContent = script.title;
+  elements.videoContentGroup.replaceChildren(new Option("Loading groups…", ""));
+  elements.videoContentDialog.showModal();
+  try {
+    const body = await api("/api/content-groups");
+    const groups = body.groups ?? [];
+    elements.videoContentGroup.replaceChildren();
+    for (const group of groups) {
+      elements.videoContentGroup.append(new Option(group.name, String(group.id)));
+    }
+    if (groups.length === 0) throw new Error("Create a content group before adding this video.");
+    elements.videoContentGroup.value = String(
+      groups.some(({ id }) => String(id) === elements.contentGroupFilter.value)
+        ? elements.contentGroupFilter.value
+        : groups[0].id,
+    );
+    elements.videoContentGroup.focus();
+  } catch (error) {
+    elements.videoContentError.textContent = error.message || "Could not load content groups.";
+  }
+}
+
+async function addVideoToContentSequence(event) {
+  event.preventDefault();
+  if (!videoAddingToContent) return;
+  const submit = elements.videoContentForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  elements.videoContentError.textContent = "";
+  try {
+    await api(`/api/video-scripts/${videoAddingToContent.id}/content`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupId: Number(elements.videoContentGroup.value) }),
+    });
+    elements.videoContentDialog.close();
+    videoAddingToContent = null;
+    await refreshVideoScripts();
+  } catch (error) {
+    elements.videoContentError.textContent = error.message || "Could not add this video to content.";
+  } finally {
+    submit.disabled = false;
   }
 }
 
@@ -3565,26 +3654,72 @@ async function createContentGroup({ selectFilter = true } = {}) {
   }
 }
 
-async function renameContentGroup(groupId, currentName) {
-  const name = window.prompt("New name for this content group:", currentName)?.trim();
-  if (!name || name === currentName) return;
+function openContentGroupEditor(groupId) {
+  const group = contentGroups.find(({ id }) => id === groupId);
+  if (!group || group.archivedAtUtc) return;
+  const isGeneral = group.id === 1;
+  elements.contentGroupForm.reset();
+  elements.contentGroupFormError.textContent = "";
+  elements.contentGroupDialogTitle.textContent = `Edit ${group.name}`;
+  elements.contentGroupId.value = String(group.id);
+  elements.contentGroupName.value = group.name;
+  elements.contentGroupName.readOnly = isGeneral;
+  elements.contentGroupArchive.hidden = isGeneral;
+  elements.contentGroupDialog.showModal();
+  (isGeneral ? elements.contentGroupDialog.querySelector(".dialog-close") : elements.contentGroupName).focus();
+}
+
+async function saveContentGroup(event) {
+  event.preventDefault();
+  elements.contentGroupFormError.textContent = "";
+  const groupId = Number(elements.contentGroupId.value);
+  const group = contentGroups.find(({ id }) => id === groupId);
+  if (!group) {
+    elements.contentGroupFormError.textContent = "This content group is no longer available.";
+    return;
+  }
+  const name = elements.contentGroupName.value.trim();
+  if (!name) {
+    elements.contentGroupFormError.textContent = "A group name is required.";
+    elements.contentGroupName.focus();
+    return;
+  }
+  if (name === group.name) {
+    elements.contentGroupDialog.close();
+    return;
+  }
+  const submit = elements.contentGroupForm.querySelector('[type="submit"]');
+  submit.disabled = true;
   try {
     await api(`/api/content-groups/${groupId}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
     });
+    elements.status.textContent = `${group.name} was renamed to ${name}.`;
+    elements.contentGroupDialog.close();
     await refreshContent();
   } catch (error) {
-    window.alert(error.message || "Could not rename the content group.");
+    elements.contentGroupFormError.textContent = error.message || "Could not rename the content group.";
+  } finally {
+    submit.disabled = false;
   }
 }
 
-async function archiveContentGroup(groupId, groupName) {
-  if (!window.confirm(`Archive the empty ${groupName} content group?`)) return;
+async function archiveEditedContentGroup() {
+  const groupId = Number(elements.contentGroupId.value);
+  const group = contentGroups.find(({ id }) => id === groupId);
+  if (!group || group.id === 1) return;
+  if (!window.confirm(`Archive the empty ${group.name} content group?`)) return;
+  elements.contentGroupFormError.textContent = "";
+  elements.contentGroupArchive.disabled = true;
   try {
     await api(`/api/content-groups/${groupId}/archive`, { method: "POST" });
+    elements.status.textContent = `${group.name} was archived.`;
+    elements.contentGroupDialog.close();
     await refreshContent();
   } catch (error) {
-    window.alert(error.message || "Could not archive the content group.");
+    elements.contentGroupFormError.textContent = error.message || "Could not archive the content group.";
+  } finally {
+    elements.contentGroupArchive.disabled = false;
   }
 }
 
@@ -5117,11 +5252,9 @@ elements.todoScheduled.addEventListener("change", () => {
   updateTodoRecurrenceEditor();
   updateTodoClearScheduledVisibility();
 });
-elements.newContent.addEventListener("click", async () => {
-  if (contentGroups.length === 0) await refreshContent();
-  openContentEditor();
-});
 elements.newContentGroup.addEventListener("click", () => void createContentGroup());
+elements.contentGroupForm.addEventListener("submit", saveContentGroup);
+elements.contentGroupArchive.addEventListener("click", () => void archiveEditedContentGroup());
 elements.contentNewGroup.addEventListener("click", async () => {
   const group = await createContentGroup({ selectFilter: false });
   if (group) populateContentGroupEditor(group.id);
@@ -5133,6 +5266,7 @@ elements.contentForm.addEventListener("submit", saveContent);
 elements.contentDelete.addEventListener("click", () => void deleteEditedContent());
 elements.refreshVideoScripts.addEventListener("click", () => void refreshVideoScripts());
 elements.videoScriptStatusFilter.addEventListener("change", () => void refreshVideoScripts());
+elements.videoContentForm.addEventListener("submit", addVideoToContentSequence);
 elements.refreshFiles.addEventListener("click", () => void loadFiles());
 elements.selectVideoScriptSources.addEventListener("click", () => {
   elements.settingsMenu.open = false;

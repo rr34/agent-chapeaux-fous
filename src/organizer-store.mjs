@@ -557,6 +557,7 @@ function publicContent(row) {
     contentHost: row.content_host,
     contentStatus: row.content_status,
     contentUrl: row.content_url,
+    primaryFileId: row.primary_file_id == null ? null : Number(row.primary_file_id),
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
     version: row.updated_at_utc ?? row.created_at_utc,
@@ -1972,6 +1973,83 @@ export class OrganizerStore {
         .run(eventId, id);
       this.database.exec("COMMIT");
       return this.getContent(id);
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("content_items.content_group_id, content_items.sequence")) {
+        throw new OrganizerInputError("That sequence is already used in this content group.", 409);
+      }
+      throw error;
+    }
+  }
+
+  addRenderedVideoToContentSequence(input) {
+    const item = {
+      groupId: identifier(input?.groupId, "content group id"),
+      primaryFileId: identifier(input?.primaryFileId, "video file id"),
+      title: requiredText(input?.title, "title", 10_000),
+      transcript: optionalText(input?.transcript, "transcript", 1_000_000),
+      description: optionalText(input?.description, "description", 1_000_000),
+      publishedAtUtc: isoDateTime(input?.publishedAtUtc ?? new Date().toISOString(), "publishedAtUtc", { required: true }),
+    };
+    const now = new Date().toISOString();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const group = this.database.prepare(
+        "SELECT * FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
+      ).get(item.groupId);
+      if (!group) throw new OrganizerInputError("Content group not found.", 404);
+      const file = this.database.prepare(
+        "SELECT file_id, media_kind FROM files WHERE file_id = ?",
+      ).get(item.primaryFileId);
+      if (!file || file.media_kind !== "video") {
+        throw new OrganizerInputError("The completed video file was not found.", 404);
+      }
+      const existing = this.database.prepare(`
+        SELECT content_id, content_group_id, sequence FROM content_items
+        WHERE primary_file_id = ?
+        ORDER BY content_id LIMIT 1
+      `).get(item.primaryFileId);
+      if (existing) {
+        const content = this.getContent(existing.content_id);
+        if (Number(existing.content_group_id) !== item.groupId || existing.sequence == null) {
+          throw new OrganizerInputError(
+            `This video is already stored as content in ${content.groupName}. Move that existing content item instead.`,
+            409,
+          );
+        }
+        this.database.exec("COMMIT");
+        return { created: false, unchanged: true, content };
+      }
+      const sequence = Number(this.database.prepare(`
+        SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence
+        FROM content_items WHERE content_group_id = ?
+      `).get(item.groupId).sequence);
+      const result = this.database.prepare(`
+        INSERT INTO content_items (
+          content_group_id, sequence, content_type, title, transcript, description,
+          published_at_utc, content_host, content_status, content_url,
+          primary_file_id, created_at_utc
+        ) VALUES (?, ?, 'video_ad', ?, ?, ?, ?, 'none', 'active', NULL, ?, ?)
+      `).run(
+        item.groupId, sequence, item.title, item.transcript, item.description,
+        item.publishedAtUtc, item.primaryFileId, now,
+      );
+      const id = Number(result.lastInsertRowid);
+      const created = this.getContent(id);
+      const eventId = this.#activity({
+        eventType: "content.video_added", status: "complete",
+        name: "Rendered video added to content sequence",
+        subjectType: "content_item", subjectId: id,
+        contentText: `${group.name} #${sequence}: ${created.title}`,
+        payload: {
+          contentId: id, groupId: item.groupId, sequence,
+          primaryFileId: item.primaryFileId,
+        },
+      });
+      this.database.prepare("UPDATE content_items SET source_event_id = ? WHERE content_id = ?")
+        .run(eventId, id);
+      this.database.exec("COMMIT");
+      return { created: true, unchanged: false, content: this.getContent(id) };
     } catch (error) {
       this.database.exec("ROLLBACK");
       if (String(error?.message).includes("content_items.content_group_id, content_items.sequence")) {

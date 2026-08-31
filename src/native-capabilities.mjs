@@ -94,8 +94,8 @@ export const nativeCapabilityManifests = [
     ],
   },
   {
-    id: "video", title: "Video scripts and productions", summary: "Create grounded scripts and script-driven Agent-interface MP4 productions from explicitly selected interactions.",
-    aliases: ["video", "video script", "script"], instructionFile: "video.md",
+    id: "video", title: "Video scripts and productions", summary: "Create grounded scripts and Agent-interface MP4 productions from selected interactions, or add a completed generated video to a content-library sequence.",
+    aliases: ["video", "video script", "script", "add video to content", "content sequence"], instructionFile: "video.md",
   },
   {
     id: "search", title: "Global search",

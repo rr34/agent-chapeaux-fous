@@ -281,6 +281,7 @@ test("video creation is an explicit select-then-create workflow", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const stylesheet = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /id="select-video-script-sources"[^>]*>Create video<\/button>/);
   assert.match(document, /id="video-script-selection"[^>]+hidden/);
   const composerIndex = document.indexOf('id="chat-composer"');
@@ -304,6 +305,14 @@ test("video creation is an explicit select-then-create workflow", () => {
   assert.match(stylesheet, /\.video-script-source-choice\[hidden\]\s*\{\s*display:\s*none;/);
   assert.match(stylesheet, /\.video-script-selection\[hidden\]\s*\{\s*display:\s*none;/);
   assert.match(stylesheet, /\.composer-video-script-selection\s*\{[\s\S]+margin: 0 0 \.7rem;/);
+  assert.match(document, /id="video-content-dialog"[\s\S]+Add this video to content sequence/);
+  assert.match(document, /id="video-content-group"/);
+  assert.match(application, /function videoIdentity\(script\)/);
+  assert.match(application, /video-script-title-reference/);
+  assert.match(application, /Add this video to content sequence/);
+  assert.match(application, /\/api\/video-scripts\/\$\{videoAddingToContent\.id\}\/content/);
+  assert.match(stylesheet, /\.video-script-title-reference/);
+  assert.match(server, /videoScriptContentMatch/);
 });
 
 test("the interaction video retains the complete chat history as it scrolls", () => {
@@ -391,6 +400,17 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(application, /elements\.contentDelete\.addEventListener\("click"/);
   assert.doesNotMatch(application, /node\("button", "danger compact", "Delete"\)/);
   assert.match(application, /safeContentUrl/);
+  assert.match(document, /id="content-group-dialog"/);
+  assert.match(document, /id="content-group-name"/);
+  assert.match(document, /id="content-group-archive"[^>]*>Archive group<\/button>/);
+  assert.match(document, /Every content group supports optional sequence numbers/);
+  assert.doesNotMatch(document, /id="new-content"/);
+  assert.match(application, /function openContentGroupEditor/);
+  assert.match(application, /title\.append\(editGroup\)/);
+  assert.match(application, /add\.addEventListener\("click", \(\) => openContentEditor\(null, group\.id\)\)/);
+  assert.doesNotMatch(application, /openContentEditor\(\);/);
+  assert.match(application, /elements\.contentGroupForm\.addEventListener\("submit", saveContentGroup\)/);
+  assert.match(application, /function archiveEditedContentGroup/);
   assert.match(application, /refreshLogs/);
   assert.match(application, /todo-group-heading/);
   assert.match(application, /todo-group-sequence-marker/);

@@ -224,7 +224,6 @@
           <p class="eyebrow">Grouped action content</p>
           <h2>Content</h2>
         </div>
-        <button id="new-content" type="button">New content</button>
       </header>
       <div class="content-toolbar organizer-panel">
         <label class="content-search">Search<input id="content-search" type="search" placeholder="Title, description, transcript…"></label>
@@ -693,6 +692,24 @@
     </form>
   </dialog>
 
+  <dialog id="content-group-dialog" class="editor-dialog content-group-dialog">
+    <form id="content-group-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Content Library</p><h2 id="content-group-dialog-title">Edit group</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <input id="content-group-id" type="hidden">
+      <label>Group name<input id="content-group-name" required maxlength="200"></label>
+      <p class="field-hint content-group-sequence-help">Every content group supports optional sequence numbers. Edit an individual content item to set or remove its sequence number.</p>
+      <p id="content-group-form-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button id="content-group-archive" class="danger editor-delete" type="button">Archive group</button>
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Save changes</button>
+      </footer>
+    </form>
+  </dialog>
+
   <dialog id="content-dialog" class="editor-dialog content-dialog">
     <form id="content-form" method="dialog">
       <header class="dialog-heading">
@@ -741,6 +758,23 @@
         <button id="content-delete" class="danger editor-delete" type="button" hidden>Delete content</button>
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save content</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="video-content-dialog" class="editor-dialog video-content-dialog">
+    <form id="video-content-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Generated video</p><h2>Add to content sequence</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <p id="video-content-title" class="video-content-title"></p>
+      <p class="muted">Choose the content-library group where this completed MP4 should be appended. It will receive the next sequence number in that group.</p>
+      <label>Content group<select id="video-content-group" required></select></label>
+      <p id="video-content-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Add this video to content sequence</button>
       </footer>
     </form>
   </dialog>

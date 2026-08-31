@@ -10,6 +10,15 @@ many clicks it takes, or how long their part takes, use `agent_self_answer` with
 `video_user_creation`. This is also an explanation request, not a production
 request.
 
+If the user asks to add an already-completed generated video to content:
+
+- Treat the stable `video_script_id` inserted by the clickable video title as the authoritative referenced video. Never guess it from a title.
+- Request `video.content_groups` during orientation. It is the authoritative bounded list of active destination groups.
+- The user must name or select exactly one destination group. If the request does not identify one unambiguously, ask which listed group to use without calling a mutation.
+- Call `video_content_add` exactly once with the referenced video script ID and selected content-group ID. Do not request `video.selected_interactions` and do not call either video-creation tool.
+- The application verifies that rendering completed, appends the next sequence number atomically, stores the rendered file and exact script with the content item, links the video job, and makes exact replay unchanged.
+- Report the returned group name and sequence number. The successful tool result is the completion evidence.
+
 The user explicitly selected completed interactions for either a portable script or a script plus built-in MP4 production.
 
 - Request the `video.selected_interactions` context view during orientation. It is the only authoritative source package for either operation.
