@@ -650,6 +650,13 @@ const server = http.createServer(async (request, response) => {
       ));
       return;
     }
+    if (request.method === "DELETE" && interactionGuideStepMatch) {
+      sendJson(response, 200, interactionGuides.deleteStep(
+        { ...await readJson(request), stepId: Number(interactionGuideStepMatch[1]) },
+        { actorType: "user", actorName: "structured_interactions_page" },
+      ));
+      return;
+    }
     const interactionGuideStepMoveMatch = /^\/api\/interaction-guide-steps\/(\d+)\/move$/.exec(url.pathname);
     if (request.method === "POST" && interactionGuideStepMoveMatch) {
       sendJson(response, 200, interactionGuides.moveStep(

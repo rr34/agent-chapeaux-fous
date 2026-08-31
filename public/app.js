@@ -60,6 +60,7 @@ const elements = {
   cancelVideoScriptSelection: document.querySelector("#cancel-video-script-selection"),
   generateVideoScript: document.querySelector("#generate-video-script"),
   list: document.querySelector("#request-list"),
+  scrollLatest: document.querySelector("#scroll-latest"),
   empty: document.querySelector("#empty"),
   template: document.querySelector("#request-template"),
   tracePanel: document.querySelector("#trace-panel"),
@@ -322,6 +323,7 @@ const elements = {
   interactionStepCompletionMode: document.querySelector("#interaction-step-completion-mode"),
   interactionStepEnabled: document.querySelector("#interaction-step-enabled"),
   interactionStepFormError: document.querySelector("#interaction-step-form-error"),
+  deleteInteractionStep: document.querySelector("#delete-interaction-step"),
 };
 
 let accessToken = localStorage.getItem("agent-slayer-token") || "";
@@ -381,10 +383,12 @@ const responseSilenceStorageKey = "agent-slayer-respond-silently";
 const aiPricingStorageKey = "agent-slayer-ai-pricing";
 const activeUtterances = new Set();
 const pendingSpokenRequestIds = loadPendingSpokenRequestIds();
+let scrollLatestUpdateFrame = null;
 elements.respondSilently.checked = loadResponseSilencePreference();
 
 function updateComposerHeight() {
   document.documentElement.style.setProperty("--composer-height", `${elements.composer.offsetHeight}px`);
+  scheduleScrollLatestButtonUpdate();
 }
 
 function resizeRequestText() {
@@ -550,6 +554,28 @@ function formatFileSize(bytes) {
   return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
 }
 
+function fileIdentity(file) {
+  return [
+    `File #${file.fileId}:`,
+    JSON.stringify({
+      file_id: file.fileId,
+      title: file.title,
+      original_filename: file.originalFilename,
+      media_kind: file.mediaKind,
+    }, null, 2),
+  ].join("\n");
+}
+
+function placeIdentityInComposer(identity) {
+  const reference = `In reference to:\n${identity}`;
+  const existingText = elements.text.value;
+  elements.text.value = existingText ? `${reference}\n\n${existingText}` : `${reference}\n\n`;
+  resizeRequestText();
+  switchView("agent");
+  elements.text.focus();
+  elements.text.setSelectionRange(elements.text.value.length, elements.text.value.length);
+}
+
 function updateRequestFileSelection() {
   const file = elements.requestFile.files?.[0] ?? null;
   const existingFileId = Number(elements.requestExistingFile.value) || null;
@@ -592,17 +618,9 @@ function renderFileLibrary() {
       Number.isFinite(file.byteSize) ? formatFileSize(file.byteSize) : null,
     ].filter(Boolean).join(" · ");
     const actions = node("div", "file-card-actions");
-    const use = node(
-      "button", file.fileId === selectedFileId ? "compact" : "secondary compact",
-      file.fileId === selectedFileId ? "Selected for next request" : "Use with next request",
-    );
+    const use = node("button", "secondary compact", "Use file in Agent");
     use.type = "button";
-    use.disabled = file.fileId === selectedFileId;
-    use.addEventListener("click", () => {
-      elements.requestFile.value = "";
-      elements.requestExistingFile.value = String(file.fileId);
-      updateRequestFileSelection();
-    });
+    use.addEventListener("click", () => placeIdentityInComposer(fileIdentity(file)));
     const edit = node("button", "secondary compact", "Edit details");
     edit.type = "button";
     edit.addEventListener("click", () => void openFileEditor(file.fileId));
@@ -1439,15 +1457,32 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   return node;
 }
 
-function scrollChatToLatest() {
+function updateScrollLatestButton() {
+  const distanceFromBottom = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
+  elements.scrollLatest.hidden = activeView !== "agent"
+    || !elements.list.lastElementChild
+    || distanceFromBottom <= 4;
+}
+
+function scheduleScrollLatestButtonUpdate() {
+  if (scrollLatestUpdateFrame !== null) return;
+  scrollLatestUpdateFrame = requestAnimationFrame(() => {
+    scrollLatestUpdateFrame = null;
+    updateScrollLatestButton();
+  });
+}
+
+function scrollChatToLatest({ behavior = "auto" } = {}) {
   requestAnimationFrame(() => {
     if (activeView !== "agent") return;
     const latestRequest = elements.list.lastElementChild;
     if (!latestRequest) return;
-    latestRequest.scrollIntoView({ block: "end" });
+    latestRequest.scrollIntoView({ block: "end", behavior });
+    if (behavior !== "auto") return;
     requestAnimationFrame(() => {
       if (activeView === "agent" && latestRequest.isConnected) {
-        latestRequest.scrollIntoView({ block: "end" });
+        latestRequest.scrollIntoView({ block: "end", behavior: "auto" });
+        scheduleScrollLatestButtonUpdate();
       }
     });
   });
@@ -1500,6 +1535,7 @@ async function loadRequests({ force = false, followLatest = false } = {}) {
       && wasFollowingLatest && (followLatest || initialLoad || transcriptChangedHeight)) {
     scrollChatToLatest();
   }
+  scheduleScrollLatestButtonUpdate();
 }
 
 function traceLabel(event, index) {
@@ -1746,6 +1782,7 @@ function switchView(view) {
   if (view === "interactions") void refreshInteractionGuides();
   if (view === "ai-usage") void loadAiUsage();
   if (view === "agent" && previousView !== "agent") scrollChatToLatest();
+  scheduleScrollLatestButtonUpdate();
 }
 
 function renderHats(body) {
@@ -4059,7 +4096,7 @@ function renderInteractionGuideList() {
 
 function interactionStepIdentity(guide, step) {
   return [
-    "Briefing exchange reference:",
+    "Briefing exchange:",
     JSON.stringify({
       briefing_name: guide.name,
       interaction_guide_id: guide.id,
@@ -4087,7 +4124,7 @@ function renderInteractionGuideDetail() {
   );
   const actions = node("div", "interaction-detail-actions");
   if (guide.status === "active") {
-    const start = node("button", "", guide.activeRun ? "Resume in Agent" : "Start in Agent");
+    const start = node("button", "", guide.activeRun ? "Resume this briefing" : "Start this briefing");
     start.type = "button";
     start.disabled = !guide.steps.some(({ enabled }) => enabled);
     if (start.disabled) start.title = "Add and enable at least one exchange before starting.";
@@ -4127,9 +4164,16 @@ function renderInteractionGuideDetail() {
       const card = node("article", `interaction-turn-card${step.enabled ? "" : " disabled"}`);
       const stepHeading = node("header", "interaction-turn-heading");
       const stepIdentity = node("div", "interaction-turn-identity");
+      const openingReference = node("button", "interaction-turn-opening-reference", step.openingText);
+      openingReference.type = "button";
+      openingReference.title = "Use this exchange in Agent";
+      openingReference.setAttribute("aria-label", `Use exchange ${step.stepNumber} in Agent: ${step.openingText}`);
+      openingReference.addEventListener("click", () => placeIdentityInComposer(
+        interactionStepIdentity(guide, step),
+      ));
       stepIdentity.append(
         node("span", "interaction-turn-number", String(step.stepNumber)),
-        node("h5", "", step.openingText),
+        openingReference,
         node(
           "span",
           `interaction-turn-state${step.enabled ? "" : " disabled"}`,
@@ -4142,13 +4186,8 @@ function renderInteractionGuideDetail() {
       editStep.type = "button";
       editStep.disabled = !editable;
       editStep.addEventListener("click", () => openInteractionStepEditor(step));
-      const copyIdentity = node("button", "secondary compact", "Copy exchange identity");
-      copyIdentity.type = "button";
-      copyIdentity.addEventListener("click", (event) => void copyText(
-        interactionStepIdentity(guide, step), event.currentTarget,
-      ));
       const stepActions = node("div", "interaction-detail-actions");
-      stepActions.append(copyIdentity, editStep);
+      stepActions.append(editStep);
       stepHeading.append(stepIdentity, stepActions);
 
       card.append(stepHeading);
@@ -4282,6 +4321,7 @@ function openInteractionStepEditor(step = null) {
   elements.interactionStepFormError.textContent = "";
   elements.interactionStepDialogTitle.textContent = step ? `Edit exchange ${step.stepNumber}` : "New exchange";
   elements.interactionStepId.value = step?.id ?? "";
+  elements.deleteInteractionStep.hidden = !step;
   const guideOptions = new Map([[guide.id, guide]]);
   for (const candidate of interactionGuideSummaries) {
     if (candidate.status === "active" && !candidate.activeRun) guideOptions.set(candidate.id, candidate);
@@ -4348,6 +4388,31 @@ async function saveInteractionStep(event) {
     elements.interactionStepFormError.textContent = error.message || "Could not save the exchange.";
   } finally {
     submit.disabled = false;
+  }
+}
+
+async function deleteEditedInteractionStep() {
+  const guide = selectedInteractionGuide;
+  const stepId = Number(elements.interactionStepId.value);
+  if (!guide || !stepId) return;
+  const stepNumber = guide.steps.find(({ id }) => id === stepId)?.stepNumber
+    ?? Number(elements.interactionStepNumber.value);
+  if (!window.confirm(`Delete exchange ${stepNumber} from “${guide.name}”? This cannot be undone.`)) return;
+  elements.deleteInteractionStep.disabled = true;
+  elements.interactionStepFormError.textContent = "";
+  try {
+    await api(`/api/interaction-guide-steps/${stepId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedVersion: guide.version }),
+    });
+    elements.interactionStepDialog.close();
+    await refreshInteractionGuides({ selectId: guide.id });
+    elements.interactionGuideStatusMessage.textContent = `Exchange ${stepNumber} deleted.`;
+  } catch (error) {
+    elements.interactionStepFormError.textContent = error.message || "Could not delete the exchange.";
+  } finally {
+    elements.deleteInteractionStep.disabled = false;
   }
 }
 
@@ -5077,6 +5142,7 @@ elements.interactionGuideStatus.addEventListener("change", () => {
 elements.interactionGuideForm.addEventListener("submit", saveInteractionGuide);
 elements.archiveInteractionGuide.addEventListener("click", () => void archiveEditedInteractionGuide());
 elements.interactionStepForm.addEventListener("submit", saveInteractionStep);
+elements.deleteInteractionStep.addEventListener("click", () => void deleteEditedInteractionStep());
 for (const button of document.querySelectorAll(".dialog-close")) {
   button.addEventListener("click", () => button.closest("dialog")?.close());
 }
@@ -5085,7 +5151,10 @@ renderAgentMascot(elements.agentMascot);
 updateComposerHeight();
 resizeRequestText();
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";
-window.addEventListener("load", scrollChatToLatest, { once: true });
+window.addEventListener("load", () => scrollChatToLatest(), { once: true });
+window.addEventListener("scroll", scheduleScrollLatestButtonUpdate, { passive: true });
+window.addEventListener("resize", scheduleScrollLatestButtonUpdate);
+elements.scrollLatest.addEventListener("click", () => scrollChatToLatest({ behavior: "smooth" }));
 if (!accessToken) elements.tokenDialog.showModal();
 if (new URLSearchParams(window.location.search).get("oauth") === "connected") {
   elements.status.textContent = "MCP OAuth connected.";

@@ -439,6 +439,10 @@
     </section>
   </main>
 
+  <button id="scroll-latest" class="scroll-latest" type="button" aria-label="Scroll to the most recent chat" title="Scroll to the most recent chat" hidden>
+    <span aria-hidden="true">↓</span>
+  </button>
+
   <section id="chat-composer" class="composer" aria-labelledby="request-heading">
     <div id="video-script-selection" class="video-script-selection composer-video-script-selection" role="status" aria-live="polite" hidden>
       <div>
@@ -808,6 +812,7 @@
       </div>
       <p id="interaction-step-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
+        <button id="delete-interaction-step" class="danger editor-delete" type="button" hidden>Delete exchange</button>
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save exchange</button>
       </footer>

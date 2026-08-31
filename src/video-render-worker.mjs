@@ -22,7 +22,7 @@ function relativeMediaPath(mediaRoot, filename) {
 
 const maximumMessageCharacters = 20_000;
 const maximumProductionCharacters = 60_000;
-const generatedSpeechPlaybackRate = 1.2;
+const generatedSpeechPlaybackRate = 1.3;
 
 function exactText(value, label, fallback = "") {
   const text = String(value ?? "").trim() || fallback;

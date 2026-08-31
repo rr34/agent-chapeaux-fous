@@ -335,6 +335,40 @@ export class InteractionGuides {
     }
   }
 
+  deleteStep({ stepId, expectedVersion }, context = {}) {
+    const selectedStepId = identifier(stepId, "Briefing exchange ID");
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const before = database.prepare(
+        "SELECT * FROM interaction_guide_steps WHERE interaction_guide_step_id = ?",
+      ).get(selectedStepId);
+      if (!before) throw new Error(`Briefing exchange ${selectedStepId} does not exist`);
+      const guideBefore = this.#guideForDefinitionEdit(
+        database, before.interaction_guide_id, expectedVersion,
+      );
+      database.prepare(
+        "DELETE FROM interaction_guide_steps WHERE interaction_guide_step_id = ?",
+      ).run(selectedStepId);
+      const guide = publicGuide(this.#bumpGuideVersion(
+        database, guideBefore.interaction_guide_id, expectedVersion,
+      ));
+      const step = publicStep(before);
+      this.ledger.append({
+        type: "interaction_guide.step_deleted", status: "complete",
+        ...ledgerActor(context, "interaction_guide_step_delete"), turnId: context.requestId,
+        operationId: context.callId, name: "Briefing exchange deleted",
+        content: `${guide.name} exchange ${step.stepNumber}`,
+        payload: { guide, step }, subjectType: "interaction_guide", subjectId: String(guide.id),
+      });
+      database.exec("COMMIT");
+      return { deleted: true, guide, step };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   moveStep({
     stepId, expectedSourceVersion, targetGuideId, expectedTargetVersion,
   }, context = {}) {

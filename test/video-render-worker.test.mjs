@@ -171,7 +171,7 @@ test("the background worker preserves recordings and assigns distinct user and A
   assert.match(renderedInput.scenes[0].audioDataUrl, /^data:audio\/webm;base64,/);
   assert.equal(renderedInput.scenes[1].renderSceneType, "response");
   assert.equal(renderedInput.scenes[1].aiNarration, true);
-  assert.equal(renderedInput.scenes[1].playbackRate, 1.2);
+  assert.equal(renderedInput.scenes[1].playbackRate, 1.3);
   assert.equal(renderedInput.scenes[1].rawWords.length, 3);
   assert.equal(renderedInput.scenes[2].renderSceneType, "request");
   assert.equal(renderedInput.scenes[2].aiNarration, true);

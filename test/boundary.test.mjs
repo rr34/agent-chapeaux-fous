@@ -158,6 +158,7 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(document, /id="interaction-guide-dialog"/);
   assert.match(document, /id="interaction-step-dialog"/);
   assert.match(document, /id="interaction-step-guide"/);
+  assert.match(document, /id="delete-interaction-step"[^>]*class="danger editor-delete"[^>]*>Delete exchange<\/button>/);
   assert.doesNotMatch(document, /id="interaction-step-move-dialog"|id="interaction-step-move-target"/);
   assert.match(document, /id="interaction-step-opening"/);
   assert.match(document, /id="interaction-step-instructions"/);
@@ -169,8 +170,16 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(application, /function renderInteractionGuideDetail/);
   assert.match(application, /function openInteractionStepEditor/);
   assert.match(application, /function interactionStepIdentity/);
-  assert.match(application, /Copy exchange identity/);
   assert.match(application, /interaction_guide_step_id: step\.id/);
+  assert.match(application, /interaction-turn-opening-reference/);
+  assert.match(application, /Use this exchange in Agent/);
+  assert.match(application, /placeIdentityInComposer\(\s*interactionStepIdentity\(guide, step\)/);
+  assert.match(application, /function deleteEditedInteractionStep/);
+  assert.match(application, /method: "DELETE"/);
+  assert.match(application, /Resume this briefing/);
+  assert.match(application, /Start this briefing/);
+  assert.doesNotMatch(application, /Resume in Agent|Start in Agent/);
+  assert.doesNotMatch(application, /node\("button", "secondary compact", "Copy exchange identity"\)/);
   assert.doesNotMatch(application, /function openInteractionStepMoveEditor|function moveInteractionStep/);
   assert.doesNotMatch(application, /interaction-turn-instructions|"Agent instructions"/);
   assert.match(application, /Start or resume briefing/);
@@ -181,6 +190,7 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(server, /interactionGuides\.create/);
   assert.match(server, /interactionGuides\.addStep/);
   assert.match(server, /interactionGuides\.updateStep/);
+  assert.match(server, /interactionGuides\.deleteStep/);
   assert.match(server, /interactionGuides\.moveStep/);
   assert.match(server, /structuredInteractionGenerationPrompt/);
   assert.match(server, /requestKind: "structured_interaction_generation"/);
@@ -539,6 +549,14 @@ test("the request composer accepts one image or text attachment and exposes mete
   assert.match(application, /\/api\/request-files\?filename=/);
   assert.match(application, /Uploaded \$\{uploaded\.originalFilename\} as file #\$\{uploaded\.fileId\}/);
   assert.match(application, /\/api\/files\?limit=200/);
+  assert.match(application, /function fileIdentity\(file\)/);
+  assert.match(application, /`File #\$\{file\.fileId\}:`/);
+  assert.match(application, /function placeIdentityInComposer\(identity\)/);
+  assert.match(application, /`In reference to:\\n\$\{identity\}`/);
+  assert.match(application, /existingText \? `\$\{reference\}\\n\\n\$\{existingText\}` : `\$\{reference\}\\n\\n`/);
+  assert.match(application, /Use file in Agent/);
+  assert.match(application, /placeIdentityInComposer\(fileIdentity\(file\)\)/);
+  assert.doesNotMatch(application, /Use with next request|Selected for next request/);
   assert.match(application, /request\.attachment/);
   assert.match(application, /jpg: "image\/jpeg"/);
   assert.match(application, /\/api\/ai-usage\?limit=10000/);
@@ -614,11 +632,23 @@ test("the agent chat renders chronologically above its composer", () => {
   assert.match(application, /chronologicalRequests\.forEach\(\(request, index\) =>/);
   assert.match(application, /renderAgentMascot\(elements\.agentMascot, body\.requests\[0\]\?\.explicitHats\)/);
   assert.match(application, /wasFollowingLatest/);
-  assert.match(application, /function scrollChatToLatest\(\)/);
-  assert.match(application, /latestRequest\.scrollIntoView\(\{ block: "end" \}\)/);
+  assert.match(application, /function scrollChatToLatest\(\{ behavior = "auto" \} = \{\}\)/);
+  assert.match(application, /latestRequest\.scrollIntoView\(\{ block: "end", behavior \}\)/);
   assert.match(application, /history\.scrollRestoration = "manual"/);
-  assert.match(application, /window\.addEventListener\("load", scrollChatToLatest/);
+  assert.match(application, /window\.addEventListener\("load", \(\) => scrollChatToLatest\(\)/);
   assert.match(application, /loadRequests\(\{ force: true, followLatest: true \}\)/);
+});
+
+test("the chat offers a floating return-to-latest control when scrolled up", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  assert.match(document, /id="scroll-latest"[^>]+aria-label="Scroll to the most recent chat"[^>]+hidden/);
+  assert.match(styles, /\.scroll-latest \{[\s\S]+position: fixed;[\s\S]+bottom: calc\(var\(--composer-height, 11rem\) \+ \.7rem\)/);
+  assert.match(styles, /\.scroll-latest\[hidden\] \{ display: none; \}/);
+  assert.match(application, /const distanceFromBottom = document\.documentElement\.scrollHeight - \(window\.scrollY \+ window\.innerHeight\)/);
+  assert.match(application, /window\.addEventListener\("scroll", scheduleScrollLatestButtonUpdate, \{ passive: true \}\)/);
+  assert.match(application, /elements\.scrollLatest\.addEventListener\("click", \(\) => scrollChatToLatest\(\{ behavior: "smooth" \}\)\)/);
 });
 
 test("the chat uses the TLOM light and olive-slate palette", () => {

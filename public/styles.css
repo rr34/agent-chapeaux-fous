@@ -183,6 +183,29 @@ section { margin-bottom: 1rem; }
 }
 .requests { background: transparent; border: 0; box-shadow: none; }
 
+.scroll-latest {
+  position: fixed;
+  bottom: calc(var(--composer-height, 11rem) + .7rem);
+  left: 50%;
+  z-index: 13;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  color: #ffffff;
+  background: var(--accent);
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 5px 18px rgba(17, 24, 39, .24);
+  transform: translateX(-50%);
+}
+.scroll-latest[hidden] { display: none; }
+.scroll-latest:hover { background: var(--brand-mid); transform: translateX(-50%) translateY(-2px); }
+.scroll-latest:focus-visible { outline: 3px solid var(--brand-light); outline-offset: 2px; }
+.scroll-latest span { font-size: 1.35rem; line-height: 1; transform: translateY(-1px); }
+
 .composer {
   position: fixed;
   right: 0;
@@ -642,7 +665,8 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .interaction-turn-card.disabled { opacity: .62; }
 .interaction-turn-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
 .interaction-turn-identity { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; min-width: 0; }
-.interaction-turn-identity h5 { margin: 0; overflow-wrap: anywhere; font-size: .95rem; }
+.interaction-turn-opening-reference { min-height: 0; margin: 0; padding: 0; overflow-wrap: anywhere; color: var(--text); background: transparent; border: 0; border-radius: 0; font-size: .95rem; text-align: left; cursor: pointer; }
+.interaction-turn-opening-reference:hover { color: var(--accent); background: transparent; text-decoration: underline; }
 .interaction-turn-number { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; flex: 0 0 auto; color: white; background: var(--accent); border-radius: 50%; font-size: .78rem; }
 .interaction-turn-state { padding: 3px 7px; color: var(--accent); background: var(--brand-light); border-radius: 999px; font-size: .65rem; }
 .interaction-turn-state.disabled { color: var(--warn); background: rgba(240, 189, 79, .1); }

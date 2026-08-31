@@ -481,7 +481,7 @@ fast, loose, mischievous conversational delivery rather than an announcer,
 tutorial, corporate-demo, audiobook, or sales-presentation tone. The default
 cast is Shimmer for typed user dialogue and Verse for Agent responses. Both
 generated roles are prompted for an extremely fast delivery with minimal dead
-air and are played at 1.2x speed in the MP4. Each generated track is passed
+air and are played at 1.3x speed in the MP4. Each generated track is passed
 through local faster-whisper for word timestamps, allowing the active word in
 the visible request or response to highlight in sync with the speech. New chat
 bubbles spring upward from below and briefly overshoot into place while the

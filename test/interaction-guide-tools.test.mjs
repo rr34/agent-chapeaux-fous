@@ -110,6 +110,46 @@ test("the page atomically edits an exchange and changes its briefing", (context)
   });
 });
 
+test("the page deletes one exact exchange with version protection and a literal receipt", (context) => {
+  const { store, guides } = harness(context);
+  const created = guides.create({ name: "Editable briefing" });
+  const added = guides.addStep({
+    guideId: created.guide.id,
+    expectedVersion: created.guide.version,
+    stepNumber: 3,
+    openingText: "Delete this opening?",
+    instructionsText: "This entire exchange should be removable.",
+    completionMode: "response_valid",
+    enabled: true,
+  });
+
+  const result = guides.deleteStep({
+    stepId: added.step.id,
+    expectedVersion: added.guide.version,
+  }, { actorType: "user", actorName: "structured_interactions_page" });
+
+  assert.equal(result.deleted, true);
+  assert.equal(result.guide.version, 3);
+  assert.equal(result.step.id, added.step.id);
+  assert.deepEqual(guides.get({ guideId: created.guide.id }).steps, []);
+  const event = store.requireReady().prepare(`
+    SELECT event_type, actor_type, actor_name, subject_id
+    FROM activity_events
+    WHERE event_type = 'interaction_guide.step_deleted'
+    ORDER BY event_seq DESC LIMIT 1
+  `).get();
+  assert.deepEqual({ ...event }, {
+    event_type: "interaction_guide.step_deleted",
+    actor_type: "user",
+    actor_name: "structured_interactions_page",
+    subject_id: String(created.guide.id),
+  });
+  assert.throws(() => guides.deleteStep({
+    stepId: added.step.id,
+    expectedVersion: added.guide.version,
+  }), /does not exist/);
+});
+
 test("interaction guides keep list results metadata-only and use versioned updates", async (context) => {
   const { registry } = harness(context);
   const created = await registry.execute("interaction_guide_create", {
