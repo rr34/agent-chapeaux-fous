@@ -523,15 +523,17 @@ test("a repeating to-do links to a guide and generated occurrences preserve the 
   );
 
   const completed = await registry.execute("todo_update", {
-    personal_task_id: createdTodo.task.personal_task_id,
-    text: null,
-    group: null,
-    status: "complete",
-    scheduled_at_utc: null,
-    due_at_utc: null,
+    updates: [{
+      personal_task_id: createdTodo.task.personal_task_id,
+      text: null,
+      group: null,
+      status: "complete",
+      scheduled_at_utc: null,
+      due_at_utc: null,
+    }],
   }, { requestId: "guide-todo", callId: "complete-todo" });
-  assert.equal(completed.generated_task.todo_routines.interaction_guide_id, guideId);
-  assert.equal(completed.generated_task.interaction_guides.name, "Evening Reflection");
+  assert.equal(completed.items[0].generated_task.todo_routines.interaction_guide_id, guideId);
+  assert.equal(completed.items[0].generated_task.interaction_guides.name, "Evening Reflection");
   assert.equal(store.requireReady().prepare(`
     SELECT interaction_guide_id FROM todo_routines WHERE todo_routine_id = ?
   `).get(createdTodo.task.todo_routine_id).interaction_guide_id, guideId);

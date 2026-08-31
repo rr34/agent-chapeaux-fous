@@ -785,7 +785,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_duplicate_list",
-    description: "List paginated groups of active contacts that may be duplicates. Candidates either share an exact normalized display name, or each different-name match shares both a normalized name word of at least two characters and an exact email address or phone number. Partial-name matches are review-only and are never handled by contact_dedupe_clear. This is a read-only review operation. Use compact detail and pages of about 50 groups for bulk work; use full only when complete notes and timestamps are necessary. Each candidate includes expected_version for contact_merge or contact_merge_batch. Same-name evidence alone can be ambiguous. Continue with next_offset while has_more is true.",
+    description: "List paginated groups of active contacts that may be duplicates. Candidates either share an exact normalized display name, or each different-name match shares both a normalized name word and an exact email address or phone number. Partial-name matches are review-only and are never handled by contact_dedupe_clear. Use compact detail and pages of about 50 groups for bulk work; use full only when complete notes and timestamps are necessary. Each candidate includes the expected_version required by contact_merge. Same-name evidence alone can be ambiguous. Continue with next_offset while has_more is true.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -827,34 +827,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_merge",
-    description: "Merge 1 through 20 reviewed source contacts into one retained contact. Use contact_duplicate_list first and pass its exact expected_version values. The operation atomically combines unique methods and tags, preserves useful notes and missing identity fields, retains source records as inactive history, records the merge, and rejects stale or invalid candidates. Never merge merely because names match when the remaining details are ambiguous.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        ...mergeOperationProperties,
-      },
-      required: ["keep_contact_id", "keep_expected_version", "merge_contacts"],
-    },
-    async execute(argumentsObject, context) {
-      const merged = organizer.mergeContacts(
-        organizerMergeInput(argumentsObject),
-        contactToolActivity(context, "contact_merge"),
-      );
-      const result = {
-        kept_contact: contactFromDatabase(store.requireReady(), merged.contact.id),
-        merged_contact_ids: merged.mergedContactIds,
-      };
-      return contactResult(schemaSemantics, context, result, {
-        name: "contact_merge",
-        purpose: "Return the retained contact after an atomic reviewed merge and identify the source contacts retained as inactive history.",
-      });
-    },
-  });
-
-  registry.register({
-    name: "contact_merge_batch",
-    description: "Atomically apply 1 through 100 independently reviewed contact merge groups in one tool call. Build each group from current contact_duplicate_list candidates and exact expected_version values. The entire batch is validated before changes; a stale version, missing contact, repeated contact across groups, or invalid merge rolls back every group. Each successful group combines unique methods, tags, notes, and missing identity fields while retaining source records as inactive history.",
+    description: "Atomically apply 1 through 100 independently reviewed contact merge groups. A one-group request uses the same merges array. Build every group from current contact_duplicate_list candidates and exact expected_version values. One stale version, missing contact, repeated contact across groups, or invalid merge rolls back the complete call. Successful groups combine unique methods, tags, notes, and missing identity fields while retaining source records as inactive history. Never merge merely because names match when the remaining details are ambiguous.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -874,7 +847,7 @@ export function registerContactTools(
     async execute({ merges }, context) {
       const batch = organizer.mergeContactBatch(
         merges.map(organizerMergeInput),
-        contactToolActivity(context, "contact_merge_batch"),
+        contactToolActivity(context, "contact_merge"),
       );
       const result = {
         merged_group_count: batch.mergedGroupCount,
@@ -885,8 +858,8 @@ export function registerContactTools(
         })),
       };
       return contactResult(schemaSemantics, context, result, {
-        name: "contact_merge_batch",
-        purpose: "Return a bounded receipt for an atomic batch of reviewed contact merges.",
+        name: "contact_merge",
+        purpose: "Return compact retained and source contact IDs after an atomic batch of reviewed merges.",
       });
     },
   });

@@ -63,6 +63,9 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(baseInstructions, /compare the outcome the user requested with what the tool results actually\s+prove/);
   assert.match(baseInstructions, /If a safe, relevant tool action remains, continue/);
   assert.match(instructions, /personal to-dos/);
+  assert.match(instructions, /one `todo_update` call/);
+  assert.match(instructions, /one through 500/);
+  assert.match(instructions, /Do not spend one model tool call per task/);
   assert.match(instructions, /call\s+`history_range`/);
   assert.match(instructions, /date and\s+topic are filtered in one lookup/);
   assert.match(instructions, /stored SQLite field names/);
@@ -81,8 +84,8 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /max_groups=500/);
   assert.match(instructions, /do not start by manually merging an arbitrary small batch/);
   assert.match(instructions, /contact_merge/);
-  assert.match(instructions, /contact_merge_batch/);
-  assert.match(instructions, /batch is atomic/);
+  assert.match(instructions, /same\s+`contact_merge\.merges` array for one group or many/);
+  assert.match(instructions, /call is atomic/);
   assert.match(instructions, /profile_fact_set/);
   assert.match(instructions, /Do not store IDs, mappings, precision\s+values, quantities/);
   assert.match(instructions, /Pass operational values to the owning domain tool instead/);

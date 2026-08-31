@@ -233,6 +233,8 @@ capability selector, which controls which exact tool schemas are callable.
   the group on terminal task history. Recurrence is supplied as structured,
   human concepts and stored internally as RRULE. New and existing tasks can be
   placed at an exact 1-based manual sort position, including position 1.
+  `todo_update` applies one through 500 independently identified changes in one
+  atomic call, using the same array schema for a singular update.
 - `calendar_event_search`, `calendar_event_list`, `calendar_event_add`, `calendar_event_update`, and
   `calendar_event_recurrence_set` provide the native model-facing calendar
   path. Event records retain exact `calendar_events` column names and compiler
@@ -271,10 +273,9 @@ capability selector, which controls which exact tool schemas are callable.
   `contact_lookup_batch` resolves up to 500 names at once and
   `contact_tag_add_batch` applies one tag to as many as 10,000 contacts in one
   atomic, replay-safe call rather than consuming one model tool call per row.
-  `contact_merge` performs one version-checked merge, while
-  `contact_merge_batch` atomically applies up to 100 AI-reviewed merge groups in
-  one call. Both combine contact details while retaining source records as
-  inactive history. Compact duplicate pages let one agent request review and
+  `contact_merge` atomically applies one through 100 AI-reviewed merge groups
+  through the same bounded array, combining contact details while retaining
+  source records as inactive history. Compact duplicate pages let one agent request review and
   resolve hundreds of groups without spending one tool call per merge.
   `contact_dedupe_clear` handles up to 500 conservative source-aware groups per
   call when names match and exact email or phone evidence connects records from

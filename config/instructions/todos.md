@@ -31,6 +31,13 @@ When the user specifies a position while creating a to-do, pass that 1-based
 group. Manual position changes preserve stable sequence numbers; those numbers
 remain the primary display order in groups with automatic sequencing enabled.
 
+Use one `todo_update` call for every independently identified task covered by
+the same user request. Its bounded `updates` array accepts one through 500
+possibly different changes and applies the complete collection atomically; a
+one-task request is a one-item array. Do not spend one model tool call per task.
+One duplicate ID, missing task, invalid contact, invalid group, or invalid
+resulting schedule rejects the whole batch without retaining earlier updates.
+
 For a daily review, use `todo_list.completed_on_date` to read tasks completed on
 one local date and `todo_list.scheduled_on_date` to read tasks scheduled on one
 local date. Always supply the applicable IANA `time_zone`. These select tasks by

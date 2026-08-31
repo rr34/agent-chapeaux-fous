@@ -62,7 +62,7 @@ function names(selection) {
 
 test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("calendar_event_list")), "calendar");
-  assert.equal(capabilityForTool(tool("contact_merge_batch")), "contacts");
+  assert.equal(capabilityForTool(tool("contact_merge")), "contacts");
   assert.equal(capabilityForTool(tool("todo_add")), "todos");
   assert.equal(capabilityForTool(tool("tracker_update")), "logs");
   assert.equal(capabilityForTool(tool("log_update")), "logs");

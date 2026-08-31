@@ -41,14 +41,14 @@ malformed, conflicting-birthday, and other ambiguous cases untouched. Then use
 `contact_duplicate_list` with compact detail, paginate while `has_more` is true
 in pages of about 50 to 200 groups, inspect the remaining candidates and
 evidence, and send up to 100 confident decisions at a time to
-`contact_merge_batch`. Refresh the duplicate list after applying reviewed pages
+`contact_merge`. Refresh the duplicate list after applying reviewed pages
 because successful merges change later offsets. Different full names appear
 together only when they share both a normalized name word and an exact email or
 phone; treat these partial-name matches as review-only. An exact shared name
-alone is not enough when the remaining details are ambiguous. Use
-`contact_merge` for one group or `contact_merge_batch` for many only with exact
-IDs and expected versions from the review. A batch is atomic: one stale or
-invalid group rolls back all groups in that call. Merges keep one active
+alone is not enough when the remaining details are ambiguous. Use the same
+`contact_merge.merges` array for one group or many, only with exact IDs and
+expected versions from the review. The call is atomic: one stale or invalid
+group rolls back all groups. Merges keep one active
 contact, combine unique methods, tags, notes, and missing identity fields, and
 retain source records as inactive history. Continue the bulk task while the
 callable-tool budget remains; report any groups skipped because evidence was

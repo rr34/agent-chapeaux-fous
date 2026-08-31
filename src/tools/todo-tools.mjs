@@ -224,6 +224,121 @@ function todoResult(schemaSemantics, context, result, {
 
 const optionalText = { type: ["string", "null"] };
 
+const todoUpdateProperties = {
+  personal_task_id: { type: "integer", minimum: 1 },
+  text: optionalText,
+  group: optionalText,
+  related_contact_id: { type: ["integer", "null"], minimum: 1 },
+  status: { type: ["string", "null"], enum: [...todoStatuses, null] },
+  scheduled_at_utc: optionalText,
+  is_all_day: { type: ["boolean", "null"] },
+  duration_minutes: { type: ["integer", "null"], minimum: 1 },
+  due_at_utc: optionalText,
+};
+
+const todoUpdateRequired = [
+  "personal_task_id", "text", "group", "status", "scheduled_at_utc", "due_at_utc",
+];
+
+function prepareTodoUpdate(database, input, { completedAtUtc, updatedAtUtc }) {
+  const taskId = input.personal_task_id;
+  const beforeRow = taskWithContext(database, taskId);
+  if (!beforeRow) throw new Error(`To-do ${taskId} does not exist`);
+  const before = databaseTask(beforeRow);
+  const values = {};
+  let targetGroupName = before.todo_groups.name;
+  if (input.text !== null) values.text = input.text.trim();
+  if (input.group !== null) {
+    const group = requireGroup(database, input.group);
+    values.todo_group_id = group.todo_group_id;
+    targetGroupName = group.name;
+  }
+  if (input.related_contact_id !== undefined) {
+    if (input.related_contact_id !== null && !database.prepare(`
+      SELECT 1 FROM contacts WHERE contact_id = ?
+    `).get(input.related_contact_id)) {
+      throw new Error(`Related contact ${input.related_contact_id} does not exist`);
+    }
+    values.related_contact_id = input.related_contact_id;
+  }
+  if (input.status !== null) {
+    values.status = input.status;
+    values.completed_at_utc = input.status === "complete" ? completedAtUtc : null;
+  }
+  if (input.scheduled_at_utc !== null) {
+    values.scheduled_at_utc = input.scheduled_at_utc || null;
+  }
+  if (input.is_all_day !== null && input.is_all_day !== undefined) {
+    values.is_all_day = input.is_all_day ? 1 : 0;
+  }
+  if (input.duration_minutes !== undefined) {
+    if (input.duration_minutes !== null
+      && (!Number.isSafeInteger(input.duration_minutes) || input.duration_minutes < 1)) {
+      throw new Error("duration_minutes must be a positive whole number or null");
+    }
+    values.duration_minutes = input.duration_minutes;
+  }
+  if (input.due_at_utc !== null) values.due_at_utc = input.due_at_utc || null;
+  if (Object.keys(values).length === 0) throw new Error(`No changes were supplied for to-do ${taskId}`);
+
+  const prospective = { ...beforeRow, ...values };
+  if (prospective.is_all_day && !prospective.scheduled_at_utc) {
+    throw new Error(`An all-day to-do requires scheduled_at_utc (to-do ${taskId})`);
+  }
+  if (prospective.duration_minutes !== null
+    && (!prospective.scheduled_at_utc || prospective.is_all_day)) {
+    throw new Error(`duration_minutes requires a scheduled to-do with an exact time (to-do ${taskId})`);
+  }
+  if (targetGroupName.toLowerCase() === routineGroupName.toLowerCase()
+    && (prospective.todo_routine_id == null || !["todo", "ai_suggested"].includes(prospective.status))) {
+    throw new Error("Routine entries must remain active repeating templates; publish them to create completable to-dos.");
+  }
+  values.updated_at_utc = updatedAtUtc;
+  return { taskId, before, beforeRow, values };
+}
+
+function applyTodoUpdate(database, ledger, context, plan) {
+  const assignments = Object.keys(plan.values).map((column) => `"${column}" = ?`).join(", ");
+  database.prepare(`UPDATE personal_tasks SET ${assignments} WHERE personal_task_id = ?`)
+    .run(...Object.values(plan.values), plan.taskId);
+  const current = taskWithContext(database, plan.taskId);
+  if (current.todo_routine_id) {
+    database.prepare(`
+      UPDATE todo_routines
+      SET todo_group_id = ?, text = ?, first_scheduled_at_utc = ?, first_due_at_utc = ?,
+          is_all_day = ?, updated_at_utc = ?
+      WHERE todo_routine_id = ?
+    `).run(
+      current.todo_group_id, current.text, current.scheduled_at_utc, current.due_at_utc,
+      current.is_all_day, plan.values.updated_at_utc, current.todo_routine_id,
+    );
+  }
+  const becameTerminal = ["complete", "ignore"].includes(current.status)
+    && !["complete", "ignore"].includes(plan.beforeRow.status);
+  const generatedTaskId = becameTerminal ? generateNextRoutineTask(database, plan.taskId) : null;
+  let generatedTask = null;
+  if (generatedTaskId) {
+    const generated = taskWithContext(database, generatedTaskId);
+    const generatedEventId = ledger.append({
+      type: "personal_todo.generated", status: "complete",
+      actorType: "system", actorName: "Slayer routine scheduler",
+      turnId: context.requestId, operationId: context.callId,
+      name: "Routine task generated", content: generated.text,
+      payload: { task: databaseTask(generated), todo_routine_id: generated.todo_routine_id },
+      subjectType: "personal_task", subjectId: String(generatedTaskId),
+    });
+    database.prepare(`
+      UPDATE personal_tasks SET source_event_id = ? WHERE personal_task_id = ?
+    `).run(generatedEventId, generatedTaskId);
+    generatedTask = databaseTask({ ...generated, source_event_id: generatedEventId });
+  }
+  return {
+    before: plan.before,
+    task: databaseTask(taskWithContext(database, plan.taskId)),
+    generated_task: generatedTask,
+  };
+}
+
 function activeTodoGroupRows(store) {
   return store.requireReady().prepare(`
     SELECT todo_group.todo_group_id, todo_group.name, todo_group.uses_sequence,
@@ -1139,151 +1254,57 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_update",
-    description: "Update one native personal to-do item by ID, including associating or clearing the exact contact it concerns, moving it to another group, changing its all-day scheduling flag, planned duration_minutes, or completing it. duration_minutes is measured from scheduled_at_utc and remains distinct from the due_at_utc deadline; it requires an exact-time, non-all-day schedule.",
+    description: "Atomically update 1 through 500 native personal to-dos by ID in one call. A one-item request uses the same updates array. Every target and change is validated before any update is retained; duplicate IDs or one invalid item roll back the complete batch. Each item may associate or clear its exact contact, move groups, change scheduling or planned duration_minutes, or become complete. duration_minutes is measured from scheduled_at_utc and requires an exact-time, non-all-day schedule.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        personal_task_id: { type: "integer", minimum: 1 },
-        text: optionalText,
-        group: optionalText,
-        related_contact_id: { type: ["integer", "null"], minimum: 1 },
-        status: { type: ["string", "null"], enum: [...todoStatuses, null] },
-        scheduled_at_utc: optionalText,
-        is_all_day: { type: ["boolean", "null"] },
-        duration_minutes: { type: ["integer", "null"], minimum: 1 },
-        due_at_utc: optionalText,
+        updates: {
+          type: "array", minItems: 1, maxItems: 500,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: todoUpdateProperties,
+            required: todoUpdateRequired,
+          },
+        },
       },
-      required: ["personal_task_id", "text", "group", "status", "scheduled_at_utc", "due_at_utc"],
+      required: ["updates"],
     },
-    async execute({
-      personal_task_id: taskId, text, group: groupName, related_contact_id: relatedContactId,
-      status,
-      scheduled_at_utc: scheduledAtUtc, is_all_day: isAllDay,
-      duration_minutes: durationMinutes, due_at_utc: dueAtUtc,
-    }, context) {
+    async execute({ updates }, context) {
       const database = store.requireReady();
-      const before = database.prepare("SELECT * FROM personal_tasks WHERE personal_task_id = ?").get(taskId);
-      if (!before) throw new Error(`To-do ${taskId} does not exist`);
-      const values = {};
-      if (text !== null) values.text = text.trim();
-      if (groupName !== null) values.todo_group_id = requireGroup(database, groupName).todo_group_id;
-      if (relatedContactId !== undefined) {
-        if (relatedContactId !== null && !database.prepare(`
-          SELECT 1 FROM contacts WHERE contact_id = ?
-        `).get(relatedContactId)) {
-          throw new Error(`Related contact ${relatedContactId} does not exist`);
-        }
-        values.related_contact_id = relatedContactId;
+      if (!Array.isArray(updates) || updates.length < 1 || updates.length > 500) {
+        throw new Error("todo_update requires between 1 and 500 updates");
       }
-      if (status !== null) {
-        values.status = status;
-        values.completed_at_utc = status === "complete" ? new Date().toISOString() : null;
+      const taskIds = updates.map(({ personal_task_id: taskId }) => taskId);
+      const duplicateTaskId = taskIds.find((taskId, index) => taskIds.indexOf(taskId) !== index);
+      if (duplicateTaskId !== undefined) {
+        throw new Error(`Duplicate to-do ID in update batch: ${duplicateTaskId}`);
       }
-      if (scheduledAtUtc !== null) values.scheduled_at_utc = scheduledAtUtc || null;
-      if (isAllDay !== null && isAllDay !== undefined) values.is_all_day = isAllDay ? 1 : 0;
-      if (durationMinutes !== undefined) {
-        if (durationMinutes !== null && (!Number.isSafeInteger(durationMinutes) || durationMinutes < 1)) {
-          throw new Error("duration_minutes must be a positive whole number or null");
-        }
-        values.duration_minutes = durationMinutes;
-      }
-      if (dueAtUtc !== null) values.due_at_utc = dueAtUtc || null;
-      if (Object.keys(values).length === 0) throw new Error("No to-do changes were supplied");
-      values.updated_at_utc = new Date().toISOString();
+      const now = new Date().toISOString();
       database.exec("BEGIN IMMEDIATE");
       try {
-        const assignments = Object.keys(values).map((column) => `"${column}" = ?`).join(", ");
-        database.prepare(`UPDATE personal_tasks SET ${assignments} WHERE personal_task_id = ?`)
-          .run(...Object.values(values), taskId);
-        const current = database.prepare(`
-          SELECT task.*, todo_group.name AS group_name
-          FROM personal_tasks AS task JOIN todo_groups AS todo_group USING (todo_group_id)
-          WHERE task.personal_task_id = ?
-        `).get(taskId);
-        if (current.is_all_day && !current.scheduled_at_utc) {
-          throw new Error("An all-day to-do requires scheduled_at_utc");
-        }
-        if (current.duration_minutes !== null && (!current.scheduled_at_utc || current.is_all_day)) {
-          throw new Error("duration_minutes requires a scheduled to-do with an exact time");
-        }
-        if (current.group_name.toLowerCase() === routineGroupName.toLowerCase()
-          && (current.todo_routine_id == null || !["todo", "ai_suggested"].includes(current.status))) {
-          throw new Error("Routine entries must remain active repeating templates; publish them to create completable to-dos.");
-        }
-        if (current.todo_routine_id) {
-          database.prepare(`
-            UPDATE todo_routines
-            SET todo_group_id = ?, text = ?, first_scheduled_at_utc = ?, first_due_at_utc = ?,
-                is_all_day = ?, updated_at_utc = ?
-            WHERE todo_routine_id = ?
-          `).run(
-            current.todo_group_id, current.text, current.scheduled_at_utc, current.due_at_utc,
-            current.is_all_day, values.updated_at_utc, current.todo_routine_id,
-          );
-        }
-        const becameTerminal = ["complete", "ignore"].includes(current.status)
-          && !["complete", "ignore"].includes(before.status);
-        const generatedTaskId = becameTerminal ? generateNextRoutineTask(database, taskId) : null;
-        let generatedTask = null;
-        if (generatedTaskId) {
-          const generated = database.prepare(`
-            SELECT task.*, todo_group.name AS group_name,
-                   routine.recurrence_rule AS routine_recurrence_rule,
-                   routine.time_zone AS routine_time_zone,
-                   routine.interaction_guide_id,
-                   interaction_guide.name AS interaction_guide_name,
-                   interaction_guide.status AS interaction_guide_status,
-                   interaction_guide.version AS interaction_guide_version
-            FROM personal_tasks AS task
-            JOIN todo_groups AS todo_group USING (todo_group_id)
-            LEFT JOIN todo_routines AS routine USING (todo_routine_id)
-            LEFT JOIN interaction_guides AS interaction_guide
-              ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
-            WHERE task.personal_task_id = ?
-          `).get(generatedTaskId);
-          const generatedEventId = ledger.append({
-            type: "personal_todo.generated", status: "complete",
-            actorType: "system", actorName: "Slayer routine scheduler",
-            turnId: context.requestId, operationId: context.callId,
-            name: "Routine task generated", content: generated.text,
-            payload: { task: databaseTask(generated), todo_routine_id: generated.todo_routine_id },
-            subjectType: "personal_task", subjectId: String(generatedTaskId),
-          });
-          database.prepare(`
-            UPDATE personal_tasks SET source_event_id = ? WHERE personal_task_id = ?
-          `).run(generatedEventId, generatedTaskId);
-          generatedTask = databaseTask({ ...generated, source_event_id: generatedEventId });
-        }
-        const row = database.prepare(`
-          SELECT task.*, todo_group.name AS group_name,
-                 routine.recurrence_rule AS routine_recurrence_rule,
-                 routine.time_zone AS routine_time_zone,
-                 routine.interaction_guide_id,
-                 interaction_guide.name AS interaction_guide_name,
-                 interaction_guide.status AS interaction_guide_status,
-                 interaction_guide.version AS interaction_guide_version
-          FROM personal_tasks AS task
-          JOIN todo_groups AS todo_group USING (todo_group_id)
-          LEFT JOIN todo_routines AS routine USING (todo_routine_id)
-          LEFT JOIN interaction_guides AS interaction_guide
-            ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
-          WHERE task.personal_task_id = ?
-        `).get(taskId);
-        const task = databaseTask(row);
+        const plans = updates.map((update) => prepareTodoUpdate(database, update, {
+          completedAtUtc: now,
+          updatedAtUtc: now,
+        }));
+        const items = plans.map((plan) => applyTodoUpdate(database, ledger, context, plan));
         ledger.append({
-          type: "personal_todo.updated", status: "complete", actorType: "tool", actorName: "todo_update",
-          turnId: context.requestId, operationId: context.callId, name: "Personal to-do updated",
-          content: task.text,
-          payload: { before: databaseTask({ ...before, group_name: null }), task, generated_task: generatedTask },
+          type: items.length === 1 ? "personal_todo.updated" : "personal_todos.updated",
+          status: "complete", actorType: "tool", actorName: "todo_update",
+          turnId: context.requestId, operationId: context.callId,
+          name: items.length === 1 ? "Personal to-do updated" : "Personal to-dos updated",
+          content: items.length === 1 ? items[0].task.text : `Updated ${items.length} personal to-dos`,
+          payload: { updated_count: items.length, items },
+          subjectType: items.length === 1 ? "personal_task" : "personal_task_batch",
+          subjectId: items.length === 1 ? String(items[0].task.personal_task_id) : String(items.length),
         });
         const result = todoResult(schemaSemantics, context, {
-          updated: true,
-          task,
-          generated_task: generatedTask,
+          updated_count: items.length,
+          items,
         }, {
           name: "todo_update",
-          purpose: "Return the updated personal task and any next routine occurrence generated by the update.",
+          purpose: "Return every atomically updated personal task and any next routine occurrences generated by the batch.",
         });
         database.exec("COMMIT");
         return result;

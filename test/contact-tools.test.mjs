@@ -473,28 +473,34 @@ test("contact duplicate tools review and safely merge current candidates", async
 
   await assert.rejects(
     registry.execute("contact_merge", {
-      keep_contact_id: kept.id,
-      keep_expected_version: "stale-version",
-      merge_contacts: [{
-        contact_id: duplicate.id,
-        expected_version: candidates.get(duplicate.id).expected_version,
+      merges: [{
+        keep_contact_id: kept.id,
+        keep_expected_version: "stale-version",
+        merge_contacts: [{
+          contact_id: duplicate.id,
+          expected_version: candidates.get(duplicate.id).expected_version,
+        }],
       }],
     }, { ...toolContext, callId: "stale-contact-merge" }),
     /changed while the merge was being reviewed/,
   );
 
   const merged = await registry.execute("contact_merge", {
-    keep_contact_id: kept.id,
-    keep_expected_version: candidates.get(kept.id).expected_version,
-    merge_contacts: [{
-      contact_id: duplicate.id,
-      expected_version: candidates.get(duplicate.id).expected_version,
+    merges: [{
+      keep_contact_id: kept.id,
+      keep_expected_version: candidates.get(kept.id).expected_version,
+      merge_contacts: [{
+        contact_id: duplicate.id,
+        expected_version: candidates.get(duplicate.id).expected_version,
+      }],
     }],
   }, { ...toolContext, callId: "contact-merge" });
-  assert.equal(merged.kept_contact.contact_id, kept.id);
-  assert.deepEqual(merged.merged_contact_ids, [duplicate.id]);
-  assert.deepEqual(merged.kept_contact.contact_methods.map(({ method_kind: kind }) => kind), ["email", "phone"]);
-  assert.deepEqual(merged.kept_contact.tags.map(({ label }) => label), ["Friend", "Library"]);
+  assert.equal(merged.merged_group_count, 1);
+  assert.equal(merged.groups[0].kept_contact_id, kept.id);
+  assert.deepEqual(merged.groups[0].merged_contact_ids, [duplicate.id]);
+  const retained = organizer.getContact(kept.id);
+  assert.deepEqual(retained.methods.map(({ kind }) => kind), ["email", "phone"]);
+  assert.deepEqual(retained.tags, ["Friend", "Library"]);
   assert.equal(organizer.getContact(duplicate.id).status, "inactive");
   const event = store.requireReady().prepare(`
     SELECT actor_type, actor_name, source, channel, turn_id, operation_id
@@ -564,10 +570,10 @@ test("compact duplicate review and atomic batches resolve 240 groups in five too
   assert.equal(firstReview.groups[0].candidates[0].contact.notes.length, 1000);
   assert.equal(firstReview.groups[0].candidates[0].notes_truncated, true);
   const firstOperations = mergeArguments(firstReview.groups);
-  const firstBatch = await registry.execute("contact_merge_batch", {
+  const firstBatch = await registry.execute("contact_merge", {
     merges: firstOperations.slice(0, 100),
   }, { ...toolContext, callId: "bulk-merge-1" });
-  const secondBatch = await registry.execute("contact_merge_batch", {
+  const secondBatch = await registry.execute("contact_merge", {
     merges: firstOperations.slice(100),
   }, { ...toolContext, callId: "bulk-merge-2" });
   assert.deepEqual(
@@ -579,7 +585,7 @@ test("compact duplicate review and atomic batches resolve 240 groups in five too
     limit: 200, offset: 0, detail: "compact",
   }, { ...toolContext, callId: "bulk-review-2" });
   assert.equal(secondReview.total_duplicate_groups, 40);
-  const finalBatch = await registry.execute("contact_merge_batch", {
+  const finalBatch = await registry.execute("contact_merge", {
     merges: mergeArguments(secondReview.groups),
   }, { ...toolContext, callId: "bulk-merge-3" });
   assert.equal(finalBatch.merged_group_count, 40);
@@ -587,7 +593,7 @@ test("compact duplicate review and atomic batches resolve 240 groups in five too
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts WHERE status = 'active'").get().count, 240);
   assert.equal(database.prepare(`
     SELECT COUNT(*) AS count FROM activity_events
-    WHERE event_type = 'contacts.merged' AND actor_type = 'tool' AND actor_name = 'contact_merge_batch'
+    WHERE event_type = 'contacts.merged' AND actor_type = 'tool' AND actor_name = 'contact_merge'
   `).get().count, 240);
 });
 

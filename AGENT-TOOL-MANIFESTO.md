@@ -326,6 +326,25 @@ Each tool publishes:
 - structured result and error states; and
 - server-enforced validation for every business invariant.
 
+Mutation tools are batch-capable by default when the same domain operation can
+naturally apply to one or more independently identifiable records. Their exact
+schema accepts a bounded collection with a minimum of one item, and a singular
+request uses that same tool with a one-item collection. Do not publish separate
+singular and batch tools when their authorization, validation, effects, and
+result meaning are otherwise the same. A singleton-only mutation requires a
+concrete domain or provider reason, such as a unique lifecycle transition, an
+interactive workflow boundary, a provider restriction, or materially different
+authorization or safety semantics.
+
+The owning domain defines the batch limit, rejects duplicate or conflicting
+targets, validates the complete collection, and states whether the operation is
+atomic or may partially succeed. It also owns per-item outcomes, idempotency,
+retry behavior, concurrency checks, and one truthful receipt for the complete
+call. Native mutations are atomic unless their domain contract explicitly
+requires another behavior. Batch support must express the domain operation; it
+must not be simulated through generic database writes or by making the model
+issue one tool call per record.
+
 The selection summary is a distinct routing contract, not a clipped execution
 description. In one or two concise sentences it states the concrete outcome,
 the situation in which the tool should be selected, and any distinction from the closest easily confused tool. It omits

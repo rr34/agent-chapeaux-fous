@@ -299,8 +299,10 @@ test("todo_group_archive rejects active groups and preserves terminal-only group
     /active task/,
   );
   await registry.execute("todo_update", {
-    personal_task_id: created.task.personal_task_id, text: null, group: null, status: "complete",
-    scheduled_at_utc: null, due_at_utc: null,
+    updates: [{
+      personal_task_id: created.task.personal_task_id, text: null, group: null, status: "complete",
+      scheduled_at_utc: null, due_at_utc: null,
+    }],
   }, { requestId: "delete-group", callId: "complete" });
   const archived = await registry.execute(
     "todo_group_archive", { name: "Development" }, { requestId: "archive-group", callId: "archive" },
@@ -368,15 +370,90 @@ test("native todo tools add and complete a Development task", async (context) =>
   assert.deepEqual(listed.tasks.map((task) => task.text), ["Flip the Tesla charging outlet"]);
 
   const updated = await registry.execute("todo_update", {
-    personal_task_id: created.task.personal_task_id,
+    updates: [{
+      personal_task_id: created.task.personal_task_id,
+      text: null,
+      group: null,
+      status: "complete",
+      scheduled_at_utc: null,
+      due_at_utc: null,
+    }],
+  }, { requestId: "request-1", callId: "call-update" });
+  assert.equal(updated.updated_count, 1);
+  assert.equal(updated.items[0].task.status, "complete");
+  assert.ok(updated.items[0].task.completed_at_utc);
+});
+
+test("todo_update schedules a 37-item batch atomically and uses the same schema for one item", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const database = store.requireReady();
+  const ledger = new Ledger(store);
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, ledger);
+
+  const insert = database.prepare(`
+    INSERT INTO personal_tasks (
+      todo_group_id, text, status, sort_position, scheduled_at_utc, is_all_day, source
+    ) VALUES (2, ?, 'todo', ?, '2026-08-31T04:00:00.000Z', 1, 'test')
+  `);
+  const taskIds = [];
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    for (let index = 0; index < 37; index += 1) {
+      taskIds.push(Number(insert.run(`Watch job ${index + 1}`, (index + 1) * 10).lastInsertRowid));
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+
+  const updates = taskIds.map((taskId) => ({
+    personal_task_id: taskId,
     text: null,
     group: null,
-    status: "complete",
-    scheduled_at_utc: null,
+    status: null,
+    scheduled_at_utc: "2026-08-31T20:00:00.000Z",
+    is_all_day: false,
     due_at_utc: null,
-  }, { requestId: "request-1", callId: "call-update" });
-  assert.equal(updated.task.status, "complete");
-  assert.ok(updated.task.completed_at_utc);
+  }));
+  const updated = await registry.execute("todo_update", { updates }, {
+    requestId: "batch-schedule", callId: "schedule-37",
+  });
+  assert.equal(updated.updated_count, 37);
+  assert.equal(updated.items.length, 37);
+  assert.equal(database.prepare(`
+    SELECT COUNT(*) AS count FROM personal_tasks
+    WHERE scheduled_at_utc = '2026-08-31T20:00:00.000Z' AND is_all_day = 0
+      AND personal_task_id IN (${taskIds.map(() => "?").join(", ")})
+  `).get(...taskIds).count, 37);
+  assert.equal(database.prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'personal_todos.updated' AND actor_name = 'todo_update'
+  `).get().count, 1);
+
+  await assert.rejects(registry.execute("todo_update", {
+    updates: [
+      { ...updates[0], scheduled_at_utc: "2026-08-31T21:00:00.000Z" },
+      { ...updates[1], personal_task_id: 999_999 },
+    ],
+  }), /To-do 999999 does not exist/);
+  assert.equal(database.prepare(`
+    SELECT scheduled_at_utc FROM personal_tasks WHERE personal_task_id = ?
+  `).get(taskIds[0]).scheduled_at_utc, "2026-08-31T20:00:00.000Z");
+
+  await assert.rejects(registry.execute("todo_update", {
+    updates: [updates[0], updates[0]],
+  }), /Duplicate to-do ID/);
+
+  const singular = await registry.execute("todo_update", {
+    updates: [{ ...updates[0], scheduled_at_utc: "2026-08-31T21:00:00.000Z" }],
+  });
+  assert.equal(singular.updated_count, 1);
+  assert.equal(singular.items[0].task.scheduled_at_utc, "2026-08-31T21:00:00.000Z");
 });
 
 test("todo_add associates a newly resolved contact with the task", async (context) => {
@@ -406,15 +483,17 @@ test("todo_add associates a newly resolved contact with the task", async (contex
     SELECT related_contact_id FROM personal_tasks WHERE personal_task_id = ?
   `).get(created.task.personal_task_id).related_contact_id, Number(contact.contact_id));
   const cleared = await registry.execute("todo_update", {
-    personal_task_id: created.task.personal_task_id,
-    text: null,
-    group: null,
-    related_contact_id: null,
-    status: null,
-    scheduled_at_utc: null,
-    due_at_utc: null,
+    updates: [{
+      personal_task_id: created.task.personal_task_id,
+      text: null,
+      group: null,
+      related_contact_id: null,
+      status: null,
+      scheduled_at_utc: null,
+      due_at_utc: null,
+    }],
   });
-  assert.equal(cleared.task.related_contact_id, null);
+  assert.equal(cleared.items[0].task.related_contact_id, null);
   await assert.rejects(
     registry.execute("todo_add", {
       text: "Unknown contact task",
@@ -463,17 +542,19 @@ test("native todo tools accept structured recurrence and generate the next task"
   );
 
   const completed = await registry.execute("todo_update", {
-    personal_task_id: created.task.personal_task_id, text: null, group: null, status: "complete",
-    scheduled_at_utc: null, due_at_utc: null,
+    updates: [{
+      personal_task_id: created.task.personal_task_id, text: null, group: null, status: "complete",
+      scheduled_at_utc: null, due_at_utc: null,
+    }],
   }, { requestId: "recurring", callId: "complete-recurring" });
-  assert.ok(completed.generated_task.personal_task_id);
+  assert.ok(completed.items[0].generated_task.personal_task_id);
   assert.equal(store.requireReady().prepare(
     "SELECT todo_routine_id FROM personal_tasks WHERE personal_task_id = ?",
-  ).get(completed.generated_task.personal_task_id).todo_routine_id, created.task.todo_routine_id);
+  ).get(completed.items[0].generated_task.personal_task_id).todo_routine_id, created.task.todo_routine_id);
   assert.equal(store.requireReady().prepare(`
     SELECT COUNT(*) AS count FROM activity_events
     WHERE event_type = 'personal_todo.generated' AND subject_id = ?
-  `).get(String(completed.generated_task.personal_task_id)).count, 1);
+  `).get(String(completed.items[0].generated_task.personal_task_id)).count, 1);
 });
 
 test("native todo tools keep Routine entries as repeating templates", async (context) => {
@@ -507,9 +588,11 @@ test("native todo tools keep Routine entries as repeating templates", async (con
     "FREQ=MONTHLY;INTERVAL=1;BYDAY=FR;BYSETPOS=1",
   );
   await assert.rejects(registry.execute("todo_update", {
-    personal_task_id: created.task.personal_task_id,
-    text: null, group: null, status: "complete",
-    scheduled_at_utc: null, due_at_utc: null,
+    updates: [{
+      personal_task_id: created.task.personal_task_id,
+      text: null, group: null, status: "complete",
+      scheduled_at_utc: null, due_at_utc: null,
+    }],
   }), /must remain active repeating templates/);
 });
 
@@ -531,15 +614,17 @@ test("native todo tools preserve an explicit all-day schedule", async (context) 
   assert.equal(created.task.is_all_day, 1);
 
   const updated = await registry.execute("todo_update", {
-    personal_task_id: created.task.personal_task_id,
-    text: null,
-    group: null,
-    status: null,
-    scheduled_at_utc: null,
-    is_all_day: false,
-    due_at_utc: null,
+    updates: [{
+      personal_task_id: created.task.personal_task_id,
+      text: null,
+      group: null,
+      status: null,
+      scheduled_at_utc: null,
+      is_all_day: false,
+      due_at_utc: null,
+    }],
   }, { requestId: "all-day", callId: "make-timed" });
-  assert.equal(updated.task.is_all_day, 0);
+  assert.equal(updated.items[0].task.is_all_day, 0);
 });
 
 test("native todo tools store and clear planned duration separately from due time", async (context) => {
@@ -561,16 +646,18 @@ test("native todo tools store and clear planned duration separately from due tim
   assert.equal(created.task.due_at_utc, "2026-09-02T21:00:00.000Z");
 
   const updated = await registry.execute("todo_update", {
-    personal_task_id: created.task.personal_task_id,
-    text: null,
-    group: null,
-    status: null,
-    scheduled_at_utc: null,
-    duration_minutes: null,
-    due_at_utc: null,
+    updates: [{
+      personal_task_id: created.task.personal_task_id,
+      text: null,
+      group: null,
+      status: null,
+      scheduled_at_utc: null,
+      duration_minutes: null,
+      due_at_utc: null,
+    }],
   });
-  assert.equal(updated.task.duration_minutes, null);
-  assert.equal(updated.task.due_at_utc, "2026-09-02T21:00:00.000Z");
+  assert.equal(updated.items[0].task.duration_minutes, null);
+  assert.equal(updated.items[0].task.due_at_utc, "2026-09-02T21:00:00.000Z");
 
   await assert.rejects(registry.execute("todo_add", {
     text: "Impossible all-day duration",
@@ -666,14 +753,16 @@ test("todo_add uses Inbox when a requested group is missing, then supports a con
   assert.equal(group.group.name, "Development");
 
   const moved = await registry.execute("todo_update", {
-    personal_task_id: created.task.personal_task_id,
-    text: null,
-    group: "Development",
-    status: null,
-    scheduled_at_utc: null,
-    due_at_utc: null,
+    updates: [{
+      personal_task_id: created.task.personal_task_id,
+      text: null,
+      group: "Development",
+      status: null,
+      scheduled_at_utc: null,
+      due_at_utc: null,
+    }],
   }, { requestId: "request-create-group", callId: "call-move" });
-  assert.equal(moved.task.todo_groups.name, "Development");
+  assert.equal(moved.items[0].task.todo_groups.name, "Development");
   assert.equal(
     database.prepare("SELECT COUNT(*) AS count FROM todo_groups WHERE name = 'Development'").get().count,
     1,

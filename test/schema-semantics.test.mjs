@@ -204,6 +204,8 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.interaction_guide_step_answer, "answers"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "starts_at_utc"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "startsAtUtc"), false);
+  assert.equal(Object.hasOwn(definitions.todo_update, "updates"), true);
+  assert.equal(Object.hasOwn(definitions.todo_update, "personal_task_id"), false);
   assert.equal(Object.hasOwn(definitions.contact_import, "entries"), true);
   assert.equal(Object.hasOwn(definitions.contact_file_import, "csv_mapping"), true);
   assert.equal(Object.hasOwn(definitions.contact_tag_rename, "current_tag"), true);
@@ -213,8 +215,8 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.contact_tag_add_batch, "contact_ids"), true);
   assert.equal(Object.hasOwn(definitions.contact_duplicate_list, "limit"), true);
   assert.equal(Object.hasOwn(definitions.contact_dedupe_clear, "max_groups"), true);
-  assert.equal(Object.hasOwn(definitions.contact_merge, "merge_contacts"), true);
-  assert.equal(Object.hasOwn(definitions.contact_merge_batch, "merges"), true);
+  assert.equal(Object.hasOwn(definitions.contact_merge, "merges"), true);
+  assert.equal(Object.hasOwn(definitions, "contact_merge_batch"), false);
   const request = ledger.createRequest({ text: "Inspect native semantic results" });
   const toolContext = {
     requestId: request.requestId,
