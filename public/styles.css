@@ -457,7 +457,15 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
   border-radius: 0;
   text-align: left;
 }
-#calendar-grid .calendar-day { min-height: 0; aspect-ratio: 2 / 3; overflow: hidden; }
+#calendar-grid .calendar-day {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  flex-direction: column;
+  min-height: 0;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+}
 .calendar-day.has-month-marker { padding-left: 1.7rem; }
 .calendar-month-marker {
   position: absolute;

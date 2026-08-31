@@ -48,10 +48,15 @@ test("compact scheduled tasks omit time and all-day labels", () => {
   });
 });
 
-test("calendar days are 2:3 and reserve the green bar for all-day events", () => {
+test("calendar days are top-aligned at 2:3 and reserve the green bar for all-day events", () => {
   const styles = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
   const eventRule = styles.match(/\.day-event \{([^}]*)\}/)?.[1] ?? "";
-  assert.match(styles, /#calendar-grid \.calendar-day \{[^}]*aspect-ratio: 2 \/ 3;/);
+  const calendarDayRule = styles.match(/#calendar-grid \.calendar-day \{([^}]*)\}/)?.[1] ?? "";
+  assert.match(calendarDayRule, /display: flex;/);
+  assert.match(calendarDayRule, /align-items: stretch;/);
+  assert.match(calendarDayRule, /justify-content: flex-start;/);
+  assert.match(calendarDayRule, /flex-direction: column;/);
+  assert.match(calendarDayRule, /aspect-ratio: 2 \/ 3;/);
   assert.doesNotMatch(eventRule, /border-left/);
   assert.match(styles, /\.day-event\.all-day \{ border-left: 3px solid var\(--accent\); \}/);
 });
