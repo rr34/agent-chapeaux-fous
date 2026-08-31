@@ -157,8 +157,8 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(document, /id="interaction-guide-detail"/);
   assert.match(document, /id="interaction-guide-dialog"/);
   assert.match(document, /id="interaction-step-dialog"/);
-  assert.match(document, /id="interaction-step-move-dialog"/);
-  assert.match(document, /id="interaction-step-move-target"/);
+  assert.match(document, /id="interaction-step-guide"/);
+  assert.doesNotMatch(document, /id="interaction-step-move-dialog"|id="interaction-step-move-target"/);
   assert.match(document, /id="interaction-step-opening"/);
   assert.match(document, /id="interaction-step-instructions"/);
   assert.doesNotMatch(document, /id="interaction-guide-text"|id="interaction-step-name"|id="interaction-step-objective"/);
@@ -168,8 +168,11 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
   assert.match(application, /function renderInteractionGuideDetail/);
   assert.match(application, /function openInteractionStepEditor/);
-  assert.match(application, /function openInteractionStepMoveEditor/);
-  assert.match(application, /function moveInteractionStep/);
+  assert.match(application, /function interactionStepIdentity/);
+  assert.match(application, /Copy exchange identity/);
+  assert.match(application, /interaction_guide_step_id: step\.id/);
+  assert.doesNotMatch(application, /function openInteractionStepMoveEditor|function moveInteractionStep/);
+  assert.doesNotMatch(application, /interaction-turn-instructions|"Agent instructions"/);
   assert.match(application, /Start or resume briefing/);
   assert.match(application, /function saveAsStructuredInteraction/);
   assert.match(application, /structuredGenerationStatuses/);

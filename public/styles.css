@@ -640,7 +640,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .interaction-turn-list { display: grid; gap: .7rem; }
 .interaction-turn-card { margin: 0; padding: .85rem; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
 .interaction-turn-card.disabled { opacity: .62; }
-.interaction-turn-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
+.interaction-turn-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
 .interaction-turn-identity { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; min-width: 0; }
 .interaction-turn-identity h5 { margin: 0; overflow-wrap: anywhere; font-size: .95rem; }
 .interaction-turn-number { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; flex: 0 0 auto; color: white; background: var(--accent); border-radius: 50%; font-size: .78rem; }
@@ -649,9 +649,8 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .interaction-turn-field + .interaction-turn-field { margin-top: .7rem; }
 .interaction-turn-field strong { display: block; color: var(--muted); font-size: .68rem; letter-spacing: .05em; text-transform: uppercase; }
 .interaction-turn-field p { margin: .25rem 0 0; line-height: 1.45; white-space: pre-wrap; }
-.interaction-turn-instructions, .interaction-turn-answers { margin-top: .75rem; padding-top: .65rem; border-top: 1px solid var(--line); }
-.interaction-turn-instructions summary, .interaction-turn-answers summary { color: var(--muted); cursor: pointer; font-size: .75rem; }
-.interaction-turn-instructions p { margin: .55rem 0 0; line-height: 1.45; white-space: pre-wrap; }
+.interaction-turn-answers { margin-top: .75rem; padding-top: .65rem; border-top: 1px solid var(--line); }
+.interaction-turn-answers summary { color: var(--muted); cursor: pointer; font-size: .75rem; }
 .interaction-turn-answers pre { max-width: 100%; margin: .55rem 0 0; padding: .65rem; overflow: auto; background: var(--panel-raised); border-radius: 8px; font-size: .72rem; white-space: pre-wrap; }
 .interaction-step-enabled { align-self: end; min-height: 42px; padding-bottom: .55rem; }
 #interaction-step-completion-mode { width: 100%; }

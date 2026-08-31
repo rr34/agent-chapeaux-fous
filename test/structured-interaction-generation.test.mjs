@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
 import { selectRequestCapabilities } from "../src/request-compiler.mjs";
 import { structuredInteractionGenerationPrompt } from "../src/structured-interaction-generation.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
+
+const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 test("a successful exchange becomes bounded source data for briefing creation tools", () => {
   const prompt = structuredInteractionGenerationPrompt({
@@ -14,12 +19,18 @@ test("a successful exchange becomes bounded source data for briefing creation to
     rawTranscript: "Help me plan tonight by asking what outcome I need.",
     response: "What outcome must be complete tonight?",
     error: null,
+    events: [],
   });
 
   assert.match(prompt, /interaction_guide_create exactly once/);
   assert.match(prompt, /interaction_guide_step_add/);
   assert.match(prompt, /agent-initiated conversation/);
-  assert.match(prompt, /concise stable answer keys to place in answers_json/);
+  assert.match(prompt, /one concise stable answers_json key per changing value/);
+  assert.match(prompt, /Generalize only values that naturally change/);
+  assert.match(prompt, /do not generalize the subject set into a category/);
+  assert.match(prompt, /Ask for every changing value together in one concise opening/);
+  assert.match(prompt, /Do not add optional inputs that the source did not request/);
+  assert.match(prompt, /A one-time setup problem is not part of the repeated interaction/);
   assert.match(prompt, /Do not start the briefing/);
   assert.match(prompt, /<user_request>\nHelp me plan tonight/);
   assert.match(prompt, /<assistant_response>\nWhat outcome must be complete tonight\?/);
@@ -42,6 +53,70 @@ test("a successful exchange becomes bounded source data for briefing creation to
     text: prompt,
   });
   assert.deepEqual(selection.capabilities, ["interaction-guides"]);
+});
+
+test("repeatable briefing generation preserves exact named slots and completed destinations", () => {
+  const requestId = "7bce8f9c-2222-4222-8222-222222222222";
+  const prompt = structuredInteractionGenerationPrompt({
+    requestId,
+    status: "complete",
+    requestKind: null,
+    rawTranscript: "Log my weight, push-up reps, pull-up reps, and squat reps.",
+    response: "Logged all four measurements.",
+    error: null,
+    events: [
+      {
+        type: "tool.call", phase: "start", operationId: "weight-call", name: "log_add",
+        payload: { arguments: {
+          tracker: "Weight", group: "Health", content_text: "Weight: 180 pounds",
+          number_value: 180, unit: "pounds", occurred_at_utc: null, create_if_missing: false,
+        } },
+      },
+      {
+        type: "tool.result", status: "complete", operationId: "weight-call", name: "log_add",
+        payload: { result: { created: true } },
+      },
+      {
+        type: "tool.call", phase: "start", operationId: "push-up-call", name: "log_add",
+        payload: { arguments: {
+          tracker: "Push-ups", group: "Exercise", content_text: "Push-ups: 40 reps",
+          number_value: 40, unit: "reps", occurred_at_utc: null, create_if_missing: false,
+        } },
+      },
+      {
+        type: "tool.result", status: "complete", operationId: "push-up-call", name: "log_add",
+        payload: { result: { created: true } },
+      },
+      {
+        type: "tool.call", phase: "error", operationId: "failed-call", name: "tracker_update",
+        payload: { arguments: { tracker_id: 99, name: "Something else" } },
+      },
+      {
+        type: "tool.result", status: "error", operationId: "failed-call", name: "tracker_update",
+        error: "failed",
+      },
+    ],
+  });
+
+  assert.match(prompt, /exactly those four measurements/);
+  assert.match(prompt, /Never replace concrete names with a broad question/);
+  assert.match(prompt, /Do not add discovery, listing, tracker creation, setup, or confirmation work/);
+  assert.match(prompt, /<completed_source_tool_calls>/);
+  assert.match(prompt, /"tracker": "Weight"/);
+  assert.match(prompt, /"tracker": "Push-ups"/);
+  assert.doesNotMatch(prompt, /Something else/);
+  assert.match(prompt, /call only interaction_guide_create and interaction_guide_step_add/);
+});
+
+test("briefing execution guidance keeps source-generated input sets fixed", () => {
+  const guidance = fs.readFileSync(path.join(
+    testDirectory, "..", "config", "instructions", "interaction-guides.md",
+  ), "utf8");
+  assert.match(guidance, /repeat that\s+exchange's concrete result/);
+  assert.match(guidance, /Keep the exact named inputs, their count, meanings, units/);
+  assert.match(guidance, /Do not replace named inputs with an open-ended request/);
+  assert.match(guidance, /The\s+user may add new inputs later by editing the briefing/);
+  assert.match(guidance, /Use a live collection\s+pattern only when the source exchange itself requested/);
 });
 
 test("failed, unfinished, and generated requests cannot recursively create briefings", () => {

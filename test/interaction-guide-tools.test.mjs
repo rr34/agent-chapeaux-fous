@@ -49,6 +49,67 @@ test("page-managed guide definitions are recorded as user actions rather than to
   ]);
 });
 
+test("the page atomically edits an exchange and changes its briefing", (context) => {
+  const { store, guides } = harness(context);
+  const source = guides.create({ name: "Source briefing" });
+  const target = guides.create({ name: "Target briefing" });
+  const added = guides.addStep({
+    guideId: source.guide.id,
+    expectedVersion: source.guide.version,
+    stepNumber: 2,
+    openingText: "What should move?",
+    instructionsText: "Old instructions.",
+    completionMode: "response_valid",
+    enabled: true,
+  });
+  const run = guides.begin({ guideId: source.guide.id, restart: false });
+  guides.answerStep({
+    runId: run.run.id,
+    stepNumber: 2,
+    answers: { prior: "answer" },
+    stepComplete: true,
+  });
+
+  const result = guides.updateStep({
+    stepId: added.step.id,
+    expectedVersion: added.guide.version,
+    targetGuideId: target.guide.id,
+    expectedTargetVersion: target.guide.version,
+    stepNumber: 4,
+    openingText: "What should move now?",
+    instructionsText: "Revised instructions.",
+    completionMode: "user_advances",
+    enabled: false,
+  }, { actorType: "user", actorName: "structured_interactions_page" });
+
+  assert.equal(result.updated, true);
+  assert.equal(result.moved, true);
+  assert.equal(result.sourceGuide.version, 3);
+  assert.equal(result.targetGuide.version, 2);
+  assert.equal(result.guide.id, target.guide.id);
+  assert.equal(result.step.guideId, target.guide.id);
+  assert.equal(result.step.stepNumber, 4);
+  assert.equal(result.step.openingText, "What should move now?");
+  assert.equal(result.step.instructionsText, "Revised instructions.");
+  assert.deepEqual(result.step.answers, {});
+  assert.equal(result.step.progressState, "pending");
+  assert.equal(result.step.completionMode, "user_advances");
+  assert.equal(result.step.enabled, false);
+  assert.deepEqual(guides.get({ guideId: source.guide.id }).steps, []);
+  assert.equal(guides.get({ guideId: target.guide.id }).steps[0].id, added.step.id);
+  const event = store.requireReady().prepare(`
+    SELECT event_type, actor_type, actor_name
+    FROM activity_events
+    WHERE event_type = 'interaction_guide.step_moved'
+    ORDER BY event_seq DESC LIMIT 1
+  `).get();
+  assert.deepEqual({ ...event }, {
+    event_type: "interaction_guide.step_moved",
+    actor_type: "user",
+    actor_name: "structured_interactions_page",
+  });
+});
+
 test("interaction guides keep list results metadata-only and use versioned updates", async (context) => {
   const { registry } = harness(context);
   const created = await registry.execute("interaction_guide_create", {

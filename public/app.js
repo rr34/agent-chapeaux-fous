@@ -314,19 +314,14 @@ const elements = {
   interactionStepForm: document.querySelector("#interaction-step-form"),
   interactionStepDialogTitle: document.querySelector("#interaction-step-dialog-title"),
   interactionStepId: document.querySelector("#interaction-step-id"),
+  interactionStepGuide: document.querySelector("#interaction-step-guide"),
+  interactionStepGuideHint: document.querySelector("#interaction-step-guide-hint"),
   interactionStepNumber: document.querySelector("#interaction-step-number"),
   interactionStepOpening: document.querySelector("#interaction-step-opening"),
   interactionStepInstructions: document.querySelector("#interaction-step-instructions"),
   interactionStepCompletionMode: document.querySelector("#interaction-step-completion-mode"),
   interactionStepEnabled: document.querySelector("#interaction-step-enabled"),
   interactionStepFormError: document.querySelector("#interaction-step-form-error"),
-  interactionStepMoveDialog: document.querySelector("#interaction-step-move-dialog"),
-  interactionStepMoveForm: document.querySelector("#interaction-step-move-form"),
-  interactionStepMoveId: document.querySelector("#interaction-step-move-id"),
-  interactionStepMoveSourceVersion: document.querySelector("#interaction-step-move-source-version"),
-  interactionStepMoveOpening: document.querySelector("#interaction-step-move-opening"),
-  interactionStepMoveTarget: document.querySelector("#interaction-step-move-target"),
-  interactionStepMoveError: document.querySelector("#interaction-step-move-error"),
 };
 
 let accessToken = localStorage.getItem("agent-slayer-token") || "";
@@ -4061,6 +4056,19 @@ function renderInteractionGuideList() {
   }
 }
 
+function interactionStepIdentity(guide, step) {
+  return [
+    "Briefing exchange reference:",
+    JSON.stringify({
+      briefing_name: guide.name,
+      interaction_guide_id: guide.id,
+      interaction_guide_step_id: step.id,
+      exchange_number: step.stepNumber,
+      opening_text: step.openingText,
+    }, null, 2),
+  ].join("\n");
+}
+
 function renderInteractionGuideDetail() {
   const guide = selectedInteractionGuide;
   if (!guide) {
@@ -4133,30 +4141,16 @@ function renderInteractionGuideDetail() {
       editStep.type = "button";
       editStep.disabled = !editable;
       editStep.addEventListener("click", () => openInteractionStepEditor(step));
-      const moveStep = node("button", "secondary compact", "Move");
-      moveStep.type = "button";
-      const moveTargets = interactionGuideSummaries.filter((candidate) => (
-        candidate.id !== guide.id && candidate.status === "active" && !candidate.activeRun
+      const copyIdentity = node("button", "secondary compact", "Copy exchange identity");
+      copyIdentity.type = "button";
+      copyIdentity.addEventListener("click", (event) => void copyText(
+        interactionStepIdentity(guide, step), event.currentTarget,
       ));
-      moveStep.disabled = !editable || moveTargets.length === 0;
-      if (!editable) {
-        moveStep.title = guide.activeRun
-          ? "Cancel or finish the active briefing before moving an exchange."
-          : "Archived briefings cannot be changed.";
-      } else if (moveTargets.length === 0) {
-        moveStep.title = "Create another briefing, or finish its active run, before moving this exchange.";
-      }
-      moveStep.addEventListener("click", () => openInteractionStepMoveEditor(step));
       const stepActions = node("div", "interaction-detail-actions");
-      stepActions.append(editStep, moveStep);
+      stepActions.append(copyIdentity, editStep);
       stepHeading.append(stepIdentity, stepActions);
 
       card.append(stepHeading);
-      if (step.instructionsText) {
-        const instructions = node("details", "interaction-turn-instructions");
-        instructions.append(node("summary", "", "Agent instructions"), node("p", "", step.instructionsText));
-        card.append(instructions);
-      }
       const answerKeys = Object.keys(step.answers ?? {});
       if (answerKeys.length) {
         const answers = node("details", "interaction-turn-answers");
@@ -4287,6 +4281,21 @@ function openInteractionStepEditor(step = null) {
   elements.interactionStepFormError.textContent = "";
   elements.interactionStepDialogTitle.textContent = step ? `Edit exchange ${step.stepNumber}` : "New exchange";
   elements.interactionStepId.value = step?.id ?? "";
+  const guideOptions = new Map([[guide.id, guide]]);
+  for (const candidate of interactionGuideSummaries) {
+    if (candidate.status === "active" && !candidate.activeRun) guideOptions.set(candidate.id, candidate);
+  }
+  elements.interactionStepGuide.replaceChildren();
+  for (const candidate of [...guideOptions.values()].sort((left, right) => left.name.localeCompare(right.name))) {
+    const option = node("option", "", candidate.name);
+    option.value = String(candidate.id);
+    option.dataset.version = String(candidate.version);
+    elements.interactionStepGuide.append(option);
+  }
+  elements.interactionStepGuide.value = String(step?.guideId ?? guide.id);
+  elements.interactionStepGuideHint.textContent = step
+    ? "Changing the briefing moves this exchange. Saved run answers and progress reset; ledger history remains available."
+    : "Choose which briefing will contain this exchange.";
   elements.interactionStepNumber.value = step?.stepNumber
     ?? Math.max(0, ...guide.steps.map(({ stepNumber }) => stepNumber)) + 1;
   elements.interactionStepOpening.value = step?.openingText ?? "";
@@ -4306,73 +4315,36 @@ async function saveInteractionStep(event) {
   submit.disabled = true;
   try {
     const stepId = elements.interactionStepId.value;
+    const targetOption = elements.interactionStepGuide.selectedOptions[0];
+    const targetGuideId = Number(elements.interactionStepGuide.value);
+    const targetVersion = Number(targetOption?.dataset.version);
     const payload = {
-      expectedVersion: guide.version,
+      expectedVersion: stepId ? guide.version : targetVersion,
       stepNumber: Number(elements.interactionStepNumber.value),
       openingText: elements.interactionStepOpening.value,
       instructionsText: elements.interactionStepInstructions.value || null,
       completionMode: elements.interactionStepCompletionMode.value,
       enabled: elements.interactionStepEnabled.checked,
     };
-    await api(stepId ? `/api/interaction-guide-steps/${stepId}` : `/api/interaction-guides/${guide.id}/steps`, {
+    if (stepId && targetGuideId !== guide.id) {
+      payload.targetGuideId = targetGuideId;
+      payload.expectedTargetVersion = targetVersion;
+    }
+    const result = await api(stepId
+      ? `/api/interaction-guide-steps/${stepId}`
+      : `/api/interaction-guides/${targetGuideId}/steps`, {
       method: stepId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     elements.interactionStepDialog.close();
-    await refreshInteractionGuides({ selectId: guide.id });
-    elements.interactionGuideStatusMessage.textContent = stepId ? "Exchange updated." : "Exchange added.";
+    const destinationGuide = result.targetGuide ?? result.guide;
+    await refreshInteractionGuides({ selectId: destinationGuide.id });
+    elements.interactionGuideStatusMessage.textContent = result.moved
+      ? `Exchange updated and moved to ${destinationGuide.name}.`
+      : stepId ? "Exchange updated." : "Exchange added.";
   } catch (error) {
     elements.interactionStepFormError.textContent = error.message || "Could not save the exchange.";
-  } finally {
-    submit.disabled = false;
-  }
-}
-
-function openInteractionStepMoveEditor(step) {
-  const sourceGuide = selectedInteractionGuide;
-  if (!sourceGuide) return;
-  const targets = interactionGuideSummaries.filter((candidate) => (
-    candidate.id !== sourceGuide.id && candidate.status === "active" && !candidate.activeRun
-  ));
-  if (targets.length === 0) return;
-  elements.interactionStepMoveForm.reset();
-  elements.interactionStepMoveError.textContent = "";
-  elements.interactionStepMoveId.value = String(step.id);
-  elements.interactionStepMoveSourceVersion.value = String(sourceGuide.version);
-  elements.interactionStepMoveOpening.textContent = `“${step.openingText}”`;
-  elements.interactionStepMoveTarget.replaceChildren();
-  for (const target of targets) {
-    const option = node("option", "", target.name);
-    option.value = String(target.id);
-    option.dataset.version = String(target.version);
-    elements.interactionStepMoveTarget.append(option);
-  }
-  elements.interactionStepMoveDialog.showModal();
-  elements.interactionStepMoveTarget.focus();
-}
-
-async function moveInteractionStep(event) {
-  event.preventDefault();
-  elements.interactionStepMoveError.textContent = "";
-  const submit = elements.interactionStepMoveForm.querySelector('[type="submit"]');
-  submit.disabled = true;
-  const selectedOption = elements.interactionStepMoveTarget.selectedOptions[0];
-  try {
-    const result = await api(`/api/interaction-guide-steps/${elements.interactionStepMoveId.value}/move`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        expectedSourceVersion: Number(elements.interactionStepMoveSourceVersion.value),
-        targetGuideId: Number(elements.interactionStepMoveTarget.value),
-        expectedTargetVersion: Number(selectedOption?.dataset.version),
-      }),
-    });
-    elements.interactionStepMoveDialog.close();
-    await refreshInteractionGuides({ selectId: result.targetGuide.id });
-    elements.interactionGuideStatusMessage.textContent = `Exchange moved to ${result.targetGuide.name} as exchange ${result.step.stepNumber}.`;
-  } catch (error) {
-    elements.interactionStepMoveError.textContent = error.message || "Could not move the exchange.";
   } finally {
     submit.disabled = false;
   }
@@ -5104,7 +5076,6 @@ elements.interactionGuideStatus.addEventListener("change", () => {
 elements.interactionGuideForm.addEventListener("submit", saveInteractionGuide);
 elements.archiveInteractionGuide.addEventListener("click", () => void archiveEditedInteractionGuide());
 elements.interactionStepForm.addEventListener("submit", saveInteractionStep);
-elements.interactionStepMoveForm.addEventListener("submit", moveInteractionStep);
 for (const button of document.querySelectorAll(".dialog-close")) {
   button.addEventListener("click", () => button.closest("dialog")?.close());
 }

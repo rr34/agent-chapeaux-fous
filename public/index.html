@@ -793,6 +793,8 @@
         <button class="secondary compact dialog-close" type="button">Close</button>
       </header>
       <input id="interaction-step-id" type="hidden">
+      <label>Briefing<select id="interaction-step-guide" required></select></label>
+      <p id="interaction-step-guide-hint" class="field-hint">Changing the briefing moves this exchange. Saved run answers and progress reset; ledger history remains available.</p>
       <label>Exchange number<input id="interaction-step-number" type="number" min="1" step="1" required></label>
       <label>Opening<textarea id="interaction-step-opening" rows="4" required maxlength="10000" placeholder="What the agent says to begin this exchange."></textarea></label>
       <label>Agent instructions <span class="field-hint">optional</span><textarea id="interaction-step-instructions" rows="8" maxlength="50000" placeholder="How to handle the exchange, when it is complete, and which tools place the information in its destination."></textarea></label>
@@ -808,25 +810,6 @@
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save exchange</button>
-      </footer>
-    </form>
-  </dialog>
-
-  <dialog id="interaction-step-move-dialog" class="editor-dialog interaction-step-dialog">
-    <form id="interaction-step-move-form" method="dialog">
-      <header class="dialog-heading">
-        <div><p class="eyebrow">Change briefing</p><h2>Move exchange</h2></div>
-        <button class="secondary compact dialog-close" type="button">Close</button>
-      </header>
-      <input id="interaction-step-move-id" type="hidden">
-      <input id="interaction-step-move-source-version" type="hidden">
-      <p id="interaction-step-move-opening" class="field-hint"></p>
-      <label>Destination briefing<select id="interaction-step-move-target" required></select></label>
-      <p class="field-hint">The exchange will be appended to the destination briefing. Its saved run answers and progress will reset; ledger history remains available.</p>
-      <p id="interaction-step-move-error" class="form-error" role="alert"></p>
-      <footer class="editor-actions">
-        <button class="secondary dialog-close" type="button">Cancel</button>
-        <button type="submit">Move exchange</button>
       </footer>
     </form>
   </dialog>

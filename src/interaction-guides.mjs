@@ -258,9 +258,13 @@ export class InteractionGuides {
   updateStep({
     stepId, expectedVersion, stepNumber, openingText,
     instructionsText, completionMode, enabled,
+    targetGuideId = null, expectedTargetVersion = null,
   }, context = {}) {
     const selectedStepId = identifier(stepId, "Briefing exchange ID");
     const selectedStepNumber = identifier(stepNumber, "Briefing exchange number");
+    const selectedTargetGuideId = targetGuideId == null
+      ? null
+      : identifier(targetGuideId, "Destination briefing ID");
     if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
     if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
     const values = {
@@ -277,31 +281,54 @@ export class InteractionGuides {
       const guideBefore = this.#guideForDefinitionEdit(
         database, before.interaction_guide_id, expectedVersion,
       );
+      const sourceGuideId = Number(guideBefore.interaction_guide_id);
+      const moving = selectedTargetGuideId !== null && selectedTargetGuideId !== sourceGuideId;
+      const targetBefore = moving
+        ? this.#guideForDefinitionEdit(database, selectedTargetGuideId, expectedTargetVersion)
+        : null;
       const row = database.prepare(`
         UPDATE interaction_guide_steps
-        SET step_number = ?, opening_text = ?, instructions_text = ?,
+        SET interaction_guide_id = ?, step_number = ?, opening_text = ?, instructions_text = ?,
             completion_mode = ?, enabled = ?,
+            answers_json = CASE WHEN ? THEN '{}' ELSE answers_json END,
+            progress_state = CASE WHEN ? THEN 'pending' ELSE progress_state END,
             updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE interaction_guide_step_id = ?
         RETURNING *
       `).get(
+        moving ? selectedTargetGuideId : sourceGuideId,
         selectedStepNumber, values.openingText, values.instructionsText,
-        completionMode, enabled ? 1 : 0, selectedStepId,
+        completionMode, enabled ? 1 : 0, moving ? 1 : 0, moving ? 1 : 0, selectedStepId,
       );
-      const guide = publicGuide(this.#bumpGuideVersion(
-        database, guideBefore.interaction_guide_id, expectedVersion,
+      const sourceGuide = publicGuide(this.#bumpGuideVersion(
+        database, sourceGuideId, expectedVersion,
       ));
+      const targetGuide = moving ? publicGuide(this.#bumpGuideVersion(
+        database, targetBefore.interaction_guide_id, expectedTargetVersion,
+      )) : null;
+      const guide = targetGuide ?? sourceGuide;
       const step = publicStep(row);
       this.ledger.append({
-        type: "interaction_guide.step_updated", status: "complete",
-        ...ledgerActor(context, "interaction_guide_step_update"), turnId: context.requestId,
-        operationId: context.callId, name: "Briefing exchange updated",
-        content: `${guide.name} exchange ${step.stepNumber}`,
-        payload: { before: publicStep(before), guide, step },
+        type: moving ? "interaction_guide.step_moved" : "interaction_guide.step_updated",
+        status: "complete",
+        ...ledgerActor(context, moving ? "interaction_guide_step_move" : "interaction_guide_step_update"),
+        turnId: context.requestId, operationId: context.callId,
+        name: moving ? "Briefing exchange updated and moved" : "Briefing exchange updated",
+        content: moving
+          ? `${sourceGuide.name} → ${targetGuide.name}, exchange ${step.stepNumber}`
+          : `${guide.name} exchange ${step.stepNumber}`,
+        payload: moving
+          ? { before: publicStep(before), sourceGuide, targetGuide, step }
+          : { before: publicStep(before), guide, step },
         subjectType: "interaction_guide", subjectId: String(guide.id),
       });
       database.exec("COMMIT");
-      return { updated: true, guide, step };
+      return {
+        updated: true,
+        ...(moving ? { moved: true, sourceGuide, targetGuide } : {}),
+        guide,
+        step,
+      };
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;
