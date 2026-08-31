@@ -81,16 +81,6 @@
     <section class="requests" aria-label="Chronological requests">
       <div id="request-list" class="request-list"></div>
       <p id="empty" class="empty">No Chapeaux Fous requests yet.</p>
-      <div id="video-script-selection" class="video-script-selection organizer-panel" role="status" aria-live="polite" hidden>
-        <div>
-          <strong id="video-script-selection-count">Choose interactions for video</strong>
-          <span>Select 1 to 8 completed interactions, then create one video.</span>
-        </div>
-        <div class="video-script-selection-actions">
-          <button id="cancel-video-script-selection" class="secondary compact" type="button">Cancel</button>
-          <button id="generate-video-script" class="compact" type="button" disabled>Create video from selected</button>
-        </div>
-      </div>
     </section>
 
     </div>
@@ -450,6 +440,16 @@
   </main>
 
   <section id="chat-composer" class="composer" aria-labelledby="request-heading">
+    <div id="video-script-selection" class="video-script-selection composer-video-script-selection" role="status" aria-live="polite" hidden>
+      <div>
+        <strong id="video-script-selection-count">Choose interactions for video</strong>
+        <span>Select 1 to 8 completed interactions, then create one video.</span>
+      </div>
+      <div class="video-script-selection-actions">
+        <button id="cancel-video-script-selection" class="secondary compact" type="button">Cancel</button>
+        <button id="generate-video-script" class="compact" type="button" disabled>Create video from selected</button>
+      </div>
+    </div>
     <h2 id="request-heading" class="sr-only">New request</h2>
     <form id="request-form">
       <div class="composer-input-row">

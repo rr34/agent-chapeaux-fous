@@ -68,8 +68,8 @@ export class OpenAISpeechService {
     apiKey,
     baseUrl = "https://api.openai.com/v1",
     model = "gpt-4o-mini-tts",
-    voice = "ash",
-    instructions = "Speak quickly and naturally in a playful casual conversation. Avoid announcer, tutorial, corporate-demo, audiobook, and sales-presentation delivery.",
+    voice = "verse",
+    instructions = "Talk extremely fast, around 1.3 times normal conversational speed, with almost no dead air or slow emphasis. Stay playful, natural, and intelligible. Avoid announcer, tutorial, corporate-demo, audiobook, and sales-presentation delivery.",
     timeoutMs = 120_000,
     fetchImpl = globalThis.fetch,
   }) {

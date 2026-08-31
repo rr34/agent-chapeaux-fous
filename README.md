@@ -457,6 +457,9 @@ single video production. The normal Agent turn first creates a portable,
 source-grounded script; `video_production_create` then atomically persists that
 script and queues its linked `video_jobs` row. Script creation follows the
 ordinary orientation, bounded-context, exact-tool-schema, and receipt rules.
+The selection workflow opens as a temporary extension above the fixed request
+composer rather than inside the chronological chat, keeping the newest
+interactions visible while the user chooses sources.
 
 A single-concurrency background worker prepares the production after the Agent
 turn finishes. The 1080x1620 MP4 is one continuous chat showing only the actual
@@ -467,7 +470,13 @@ is spoken in a feminine voice with a stronger natural French accent. Agent
 responses use a masculine, standard-American voice. Both generated roles use a
 fast, loose, mischievous conversational delivery rather than an announcer,
 tutorial, corporate-demo, audiobook, or sales-presentation tone. The default
-cast is Shimmer for typed user dialogue and Ash for Agent responses. TTS input
+cast is Shimmer for typed user dialogue and Verse for Agent responses. Both
+generated roles are prompted for an extremely fast delivery with minimal dead
+air and are played at 1.2x speed in the MP4. Each generated track is passed
+through local faster-whisper for word timestamps, allowing the active word in
+the visible request or response to highlight in sync with the speech. New chat
+bubbles spring upward from below and briefly overshoot into place while the
+existing conversation scrolls naturally above them. TTS input
 changes `Chapeaux Fous` to `Chapeaux Fou` only in the spoken copy and explicitly
 directs a French `shah-POH FOO` pronunciation; visible dialogue remains exact.
 Long generated speech is split into bounded provider calls and reassembled as

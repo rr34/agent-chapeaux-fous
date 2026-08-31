@@ -13,6 +13,7 @@ const AGENT = "#4e5b43";
 const USER = "#6e7b61";
 const PALE = "#c9d3bf";
 const INK = "#20251e";
+const SPEECH_LEAD_IN_SECONDS = 0.24;
 
 function clean(value, fallback = "") {
   return String(value ?? "").replace(/\s+/g, " ").trim() || fallback;
@@ -40,7 +41,49 @@ function textMetrics(text, current) {
   return { fontSize, lineHeight, estimatedHeight, maximumHeight };
 }
 
-function MessageText({ text, current }) {
+function messageHeight(scene) {
+  const metrics = textMetrics(messageText(scene), true);
+  return Math.min(metrics.maximumHeight, metrics.estimatedHeight + 8) + 93;
+}
+
+function timedWords(scene) {
+  return (Array.isArray(scene?.rawWords) ? scene.rawWords : []).filter((word) => (
+    Number.isFinite(Number(word?.startMs))
+    && Number.isFinite(Number(word?.endMs))
+    && Number(word.endMs) > Number(word.startMs)
+  ));
+}
+
+function HighlightedText({ text, scene, current, speechMs }) {
+  const words = timedWords(scene);
+  const activeWord = current && speechMs >= 0
+    ? words.findIndex((word) => speechMs >= Number(word.startMs) - 35 && speechMs < Number(word.endMs) + 55)
+    : -1;
+  let wordIndex = -1;
+  return (text.match(/\s+|[^\s]+/gu) || [text]).map((piece, pieceIndex) => {
+    if (/^\s+$/u.test(piece)) return <React.Fragment key={`space-${pieceIndex}`}>{piece}</React.Fragment>;
+    wordIndex += 1;
+    const active = wordIndex === activeWord;
+    return (
+      <span
+        key={`word-${pieceIndex}`}
+        style={active ? {
+          background: scene.renderSceneType === "request" ? "#f4e86f" : "#9ac477",
+          color: INK,
+          borderRadius: 7,
+          boxShadow: "0 2px 0 rgba(32,37,30,.16)",
+          fontWeight: 820,
+          margin: "0 -3px",
+          padding: "1px 3px 2px",
+        } : undefined}
+      >
+        {piece}
+      </span>
+    );
+  });
+}
+
+function MessageText({ text, current, scene }) {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
   const metrics = textMetrics(text, current);
@@ -62,7 +105,12 @@ function MessageText({ text, current }) {
         fontWeight: 560,
         transform: `translateY(${-scroll}px)`,
       }}>
-        {text}
+        <HighlightedText
+          text={text}
+          scene={scene}
+          current={current}
+          speechMs={((frame / fps) - SPEECH_LEAD_IN_SECONDS) * 1_000 * (Number(scene.playbackRate) || 1)}
+        />
       </div>
     </div>
   );
@@ -73,7 +121,7 @@ function UserBubble({ scene, current }) {
     <div style={{ ...styles.messageRow, justifyContent: "flex-end" }}>
       <div style={{ ...styles.bubble, ...styles.userBubble, ...(current ? styles.currentBubble : styles.previousBubble) }}>
         <div style={{ ...styles.bubbleLabel, color: "#e5ebdf" }}>You</div>
-        <MessageText text={messageText(scene)} current={current} />
+        <MessageText text={messageText(scene)} current={current} scene={scene} />
       </div>
     </div>
   );
@@ -85,7 +133,7 @@ function AgentBubble({ scene, current }) {
       <div style={styles.avatar}>A</div>
       <div style={{ ...styles.bubble, ...styles.agentBubble, ...(current ? styles.currentBubble : styles.previousBubble) }}>
         <div style={{ ...styles.bubbleLabel, color: AGENT }}>Agent</div>
-        <MessageText text={messageText(scene)} current={current} />
+        <MessageText text={messageText(scene)} current={current} scene={scene} />
       </div>
     </div>
   );
@@ -93,13 +141,24 @@ function AgentBubble({ scene, current }) {
 
 function SceneAudio({ scene, fps }) {
   if (!scene?.audioDataUrl) return null;
-  if (!scene.authenticAudio) return <Audio src={scene.audioDataUrl} />;
+  const delayFrames = Math.max(1, Math.round(SPEECH_LEAD_IN_SECONDS * fps));
+  const playbackRate = Number(scene.playbackRate) || 1;
+  if (!scene.authenticAudio) {
+    return (
+      <Sequence from={delayFrames}>
+        <Audio src={scene.audioDataUrl} playbackRate={playbackRate} />
+      </Sequence>
+    );
+  }
   return (
-    <Audio
-      src={scene.audioDataUrl}
-      startFrom={Math.max(0, Math.round((Number(scene.audioStartMs) / 1000) * fps))}
-      endAt={Math.max(1, Math.round((Number(scene.audioEndMs) / 1000) * fps))}
-    />
+    <Sequence from={delayFrames}>
+      <Audio
+        src={scene.audioDataUrl}
+        startFrom={Math.max(0, Math.round((Number(scene.audioStartMs) / 1000) * fps))}
+        endAt={Math.max(1, Math.round((Number(scene.audioEndMs) / 1000) * fps))}
+        playbackRate={playbackRate}
+      />
+    </Sequence>
   );
 }
 
@@ -107,8 +166,11 @@ function ChatScene({ scenes, index }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const visibleMessages = scenes.slice(0, index + 1);
-  const reveal = spring({ frame, fps, config: { damping: 18, stiffness: 155 } });
+  const reveal = spring({ frame, fps, config: { damping: 9, stiffness: 185, mass: 0.65 } });
   const activeScene = scenes[index];
+  const settled = Math.max(0, Math.min(1, reveal));
+  const translateY = Math.max(0, (1 - reveal) * 138);
+  const scale = 0.74 + (0.26 * reveal);
   return (
     <AbsoluteFill style={styles.chatStage}>
       <div style={styles.thread}>
@@ -120,8 +182,12 @@ function ChatScene({ scenes, index }) {
               style={{
                 ...styles.message,
                 ...(current ? {
-                  opacity: reveal,
-                  transform: `translateY(${(1 - reveal) * 30}px)`,
+                  height: messageHeight(scene) * settled,
+                  minHeight: 0,
+                  opacity: Math.max(0, Math.min(1, reveal * 1.8)),
+                  transform: `translateY(${translateY}px) scale(${scale})`,
+                  transformOrigin: scene.renderSceneType === "request" ? "100% 100%" : "0% 100%",
+                  zIndex: 2,
                 } : {}),
               }}
             >

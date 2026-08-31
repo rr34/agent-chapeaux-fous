@@ -92,6 +92,7 @@ test("the background worker preserves recordings and assigns distinct user and A
     VALUES ('adobe_premiere', 'legacy-export', 'queued')
   `).run();
   const speechCalls = [];
+  const generatedTimingPaths = [];
   let renderedInput;
   const worker = new VideoRenderWorker({
     videoScripts,
@@ -100,8 +101,20 @@ test("the background worker preserves recordings and assigns distinct user and A
     outputRoot: path.join(mediaRoot, "videos"),
     transcriber: {
       async transcribe(filename, options) {
-        assert.equal(filename, audioPath);
         assert.deepEqual(options, { wordTimestamps: true });
+        if (filename !== audioPath) {
+          generatedTimingPaths.push(filename);
+          assert.match(filename, /\.narration-timing-[^/]+\/narration\.wav$/u);
+          assert.equal((await fs.readFile(filename)).toString(), "generated narration");
+          return {
+            text: "Generated narration timing.", durationMs: 4_200,
+            words: [
+              { word: "Generated", startMs: 0, endMs: 1_300 },
+              { word: "narration", startMs: 1_320, endMs: 2_900 },
+              { word: "timing", startMs: 2_920, endMs: 4_100 },
+            ],
+          };
+        }
         return {
           text: "Make the release plan.", durationMs: 31_300,
           words: [
@@ -136,13 +149,15 @@ test("the background worker preserves recordings and assigns distinct user and A
   assert.equal(speechCalls.length, 3);
   assert.deepEqual(
     speechCalls.map(({ options }) => options.voice),
-    ["ash", "shimmer", "ash"],
+    ["verse", "shimmer", "verse"],
   );
   assert.equal(speechCalls[0].text, "The release plan is ready.");
   assert.equal(speechCalls[1].text, "Summarize Chapeaux Fou.");
   assert.equal(speechCalls[2].text, longResponse.replace("Chapeaux Fous", "Chapeaux Fou"));
-  assert.match(speechCalls[0].options.instructions, /quick-witted American guy/iu);
+  assert.match(speechCalls[0].options.instructions, /energetic American guy/iu);
+  assert.match(speechCalls[0].options.instructions, /extremely fast.+1\.3 times/iu);
   assert.match(speechCalls[1].options.instructions, /Parisian woman.+unmistakably strong native French accent/iu);
+  assert.match(speechCalls[1].options.instructions, /extremely fast.+almost no dead air/iu);
   assert.match(speechCalls[1].options.instructions, /Never sound like an announcer.+tutorial/iu);
   assert.match(speechCalls[2].options.instructions, /no final S sound/iu);
   assert.deepEqual(
@@ -156,14 +171,18 @@ test("the background worker preserves recordings and assigns distinct user and A
   assert.match(renderedInput.scenes[0].audioDataUrl, /^data:audio\/webm;base64,/);
   assert.equal(renderedInput.scenes[1].renderSceneType, "response");
   assert.equal(renderedInput.scenes[1].aiNarration, true);
+  assert.equal(renderedInput.scenes[1].playbackRate, 1.2);
+  assert.equal(renderedInput.scenes[1].rawWords.length, 3);
   assert.equal(renderedInput.scenes[2].renderSceneType, "request");
   assert.equal(renderedInput.scenes[2].aiNarration, true);
   assert.equal(renderedInput.scenes[3].renderSceneType, "response");
   assert.equal(renderedInput.scenes[3].aiNarration, true);
-  assert.equal(renderedInput.scenes[3].durationSeconds, 6);
+  assert.equal(renderedInput.scenes[3].durationSeconds, 5);
   assert.equal(renderedInput.scenes[3].responseText, longResponse);
   assert.equal(renderedInput.scenes[3].responseText.endsWith("…"), false);
   assert.equal(renderedInput.disclosure, "Includes AI-generated voices");
+  assert.equal(generatedTimingPaths.length, 3);
+  for (const timingPath of generatedTimingPaths) await assert.rejects(() => fs.access(timingPath));
   const finished = videoScripts.get(production.script.id);
   assert.equal(finished.render.status, "complete");
   assert.ok(finished.render.outputFileId);

@@ -144,13 +144,13 @@ export function loadConfig(environment = process.env) {
     remotionBrowserExecutable: environment.REMOTION_BROWSER_EXECUTABLE?.trim() || null,
     ttsModel: environment.SLAYER_TTS_MODEL?.trim() || "gpt-4o-mini-tts",
     ttsAgentVoice: environment.SLAYER_TTS_AGENT_VOICE?.trim()
-      || environment.SLAYER_TTS_VOICE?.trim() || "ash",
+      || environment.SLAYER_TTS_VOICE?.trim() || "verse",
     ttsUserVoice: environment.SLAYER_TTS_USER_VOICE?.trim() || "shimmer",
     ttsAgentInstructions: environment.SLAYER_TTS_AGENT_INSTRUCTIONS?.trim()
       || environment.SLAYER_TTS_INSTRUCTIONS?.trim()
-      || "Be a quick-witted American guy talking casually to a friend. Speak fast, animatedly, and mischievously, with loose natural rhythm and real reactions to the meaning. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Slightly goofy is welcome. Pronounce Chapeaux Fou in French as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
+      || "Be an energetic American guy bantering with a friend. Talk extremely fast, around 1.3 times normal conversational speed, with almost no dead air, dramatic pauses, or slow emphasis. Stay animated, mischievous, loose, and intelligible. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Pronounce Chapeaux Fou in French as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
     ttsUserInstructions: environment.SLAYER_TTS_USER_INSTRUCTIONS?.trim()
-      || "Be a quick-witted Parisian woman speaking English with an unmistakably strong native French accent in every sentence. Use French R sounds, rounded vowels, and French rhythm while staying easy to understand. Speak fast, animatedly, warmly, and a little cheekily, like casual banter with a friend. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Pronounce Chapeaux Fou as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
+      || "Be a quick-witted Parisian woman speaking English with an unmistakably strong native French accent in every sentence. Use French R sounds, rounded vowels, and French rhythm while staying easy to understand. Talk extremely fast, around 1.3 times normal conversational speed, with almost no dead air, dramatic pauses, or slow emphasis. Stay animated, warm, cheeky, and intelligible. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Pronounce Chapeaux Fou as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
     ttsTimeoutMs: positiveInteger(environment.SLAYER_TTS_TIMEOUT_MS, 2 * 60 * 1000),
   };
 }

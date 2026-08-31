@@ -22,6 +22,7 @@ function relativeMediaPath(mediaRoot, filename) {
 
 const maximumMessageCharacters = 20_000;
 const maximumProductionCharacters = 60_000;
+const generatedSpeechPlaybackRate = 1.2;
 
 function exactText(value, label, fallback = "") {
   const text = String(value ?? "").trim() || fallback;
@@ -64,10 +65,10 @@ export class VideoRenderWorker {
     ledger,
     transcriber,
     speech,
-    agentVoice = "ash",
-    agentInstructions = "Be a quick-witted American guy talking casually to a friend. Speak fast, animatedly, and mischievously, with loose natural rhythm and real reactions to the meaning. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Slightly goofy is welcome. Pronounce Chapeaux Fou in French as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
+    agentVoice = "verse",
+    agentInstructions = "Be an energetic American guy bantering with a friend. Talk extremely fast, around 1.3 times normal conversational speed, with almost no dead air, dramatic pauses, or slow emphasis. Stay animated, mischievous, loose, and intelligible. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Pronounce Chapeaux Fou in French as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
     userVoice = "shimmer",
-    userInstructions = "Be a quick-witted Parisian woman speaking English with an unmistakably strong native French accent in every sentence. Use French R sounds, rounded vowels, and French rhythm while staying easy to understand. Speak fast, animatedly, warmly, and a little cheekily, like casual banter with a friend. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Pronounce Chapeaux Fou as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
+    userInstructions = "Be a quick-witted Parisian woman speaking English with an unmistakably strong native French accent in every sentence. Use French R sounds, rounded vowels, and French rhythm while staying easy to understand. Talk extremely fast, around 1.3 times normal conversational speed, with almost no dead air, dramatic pauses, or slow emphasis. Stay animated, warm, cheeky, and intelligible. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Pronounce Chapeaux Fou as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
     mediaRoot,
     outputRoot,
     browserExecutable = null,
@@ -165,6 +166,42 @@ export class VideoRenderWorker {
     };
   }
 
+  async #narrationTiming(generated, job, scene, speakerRole) {
+    await fs.mkdir(this.outputRoot, { recursive: true, mode: 0o700 });
+    const temporaryDirectory = await fs.mkdtemp(path.join(this.outputRoot, ".narration-timing-"));
+    const audioPath = path.join(temporaryDirectory, "narration.wav");
+    const operationId = `video-narration-timing:${job.id}:${scene.sceneNumber}`;
+    try {
+      await fs.writeFile(audioPath, generated.bytes, { mode: 0o600 });
+      this.ledger.append({
+        type: "video.narration.timing.start", phase: "start", status: "processing",
+        actorType: "service", actorName: "faster-whisper", operationId,
+        name: "AI narration word timing", subjectType: "video_job", subjectId: String(job.id),
+        payload: { videoScriptId: job.videoScriptId, sceneNumber: scene.sceneNumber, speakerRole },
+      });
+      const transcription = await this.transcriber.transcribe(audioPath, { wordTimestamps: true });
+      if (!transcription.text?.trim() || !transcription.words?.length) {
+        throw new Error(`Timed transcription was unavailable for generated scene ${scene.sceneNumber}`);
+      }
+      this.ledger.append({
+        type: "video.narration.timing.complete", phase: "end", status: "complete",
+        actorType: "service", actorName: "faster-whisper", operationId,
+        name: "AI narration word timing", content: transcription.text,
+        subjectType: "video_job", subjectId: String(job.id),
+        payload: {
+          videoScriptId: job.videoScriptId,
+          sceneNumber: scene.sceneNumber,
+          speakerRole,
+          durationMs: transcription.durationMs,
+          wordCount: transcription.words.length,
+        },
+      });
+      return transcription;
+    } finally {
+      await fs.rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  }
+
   async #narrationAudio(text, job, scene, speakerRole) {
     const style = this.narrationStyles[speakerRole];
     const spokenText = speechPronunciation(text);
@@ -179,6 +216,11 @@ export class VideoRenderWorker {
       voice: style.voice,
       instructions: style.instructions,
     });
+    const timing = await this.#narrationTiming(generated, job, scene, speakerRole);
+    const durationMs = Math.max(
+      1,
+      Number(generated.durationMs) || Number(timing.durationMs) || 0,
+    );
     this.ledger.append({
       type: "video.narration.complete", phase: "end", status: "complete",
       actorType: "service", actorName: "OpenAI speech", operationId,
@@ -197,11 +239,12 @@ export class VideoRenderWorker {
     return {
       audioDataUrl: dataUrl(generated.bytes, generated.mimeType),
       audioStartMs: 0,
-      audioEndMs: null,
-      captionCues: [],
-      rawWords: [],
-      durationSeconds: Number.isFinite(generated.durationMs) && generated.durationMs > 0
-        ? Math.max(2, Math.ceil(generated.durationMs / 1_000) + 1)
+      audioEndMs: durationMs,
+      captionCues: captionCues(timing.words, durationMs),
+      rawWords: timing.words,
+      playbackRate: generatedSpeechPlaybackRate,
+      durationSeconds: durationMs > 1
+        ? Math.max(2, Math.ceil(durationMs / generatedSpeechPlaybackRate / 1_000) + 1)
         : narrationSeconds(spokenText),
       authenticRequestAudio: false,
       aiNarration: true,
