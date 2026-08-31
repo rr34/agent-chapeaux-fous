@@ -264,6 +264,22 @@ test("the web client manages OAuth and UI-added bearer MCP integrations", () => 
   assert.match(application, /oauth\/disconnect/);
 });
 
+test("video creation is an explicit select-then-create workflow", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const stylesheet = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  assert.match(document, /id="select-video-script-sources"[^>]*>Create video<\/button>/);
+  assert.match(document, /id="video-script-selection"[^>]+hidden/);
+  assert.match(document, /Choose interactions for video/);
+  assert.match(document, /Create video from selected/);
+  assert.match(application, /function showVideoScriptSelection\(\)[\s\S]+scrollIntoView/);
+  assert.match(application, /Create video from \$\{count\}/);
+  assert.match(application, /if \(selectingVideoScriptSources\) showVideoScriptSelection\(\);/);
+  assert.doesNotMatch(application, /if \(selectingVideoScriptSources\) cancelVideoScriptSelection\(\);/);
+  assert.match(stylesheet, /\.video-script-source-choice\[hidden\]\s*\{\s*display:\s*none;/);
+  assert.match(stylesheet, /\.video-script-selection\[hidden\]\s*\{\s*display:\s*none;/);
+});
+
 test("the standalone client restores calendar, grouped to-do, grouped content, and personal log surfaces", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");

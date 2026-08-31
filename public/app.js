@@ -1180,11 +1180,16 @@ function updateVideoScriptSelection() {
   const count = selectedVideoScriptRequestIds.size;
   elements.videoScriptSelection.hidden = !selectingVideoScriptSources;
   elements.selectVideoScriptSources.textContent = selectingVideoScriptSources
-    ? "Selecting interactions…"
+    ? count
+      ? `Review ${count} selected`
+      : "Choose video interactions"
     : "Create video";
   elements.videoScriptSelectionCount.textContent = count
     ? `${count} ${count === 1 ? "interaction" : "interactions"} selected`
-    : "No interactions selected";
+    : "Choose interactions for video";
+  elements.generateVideoScript.textContent = count
+    ? `Create video from ${count} ${count === 1 ? "interaction" : "interactions"}`
+    : "Create video from selected";
   elements.generateVideoScript.disabled = count === 0;
   for (const [id, entry] of requestNodes) {
     const choice = entry.querySelector(".video-script-source-choice");
@@ -1199,10 +1204,18 @@ function updateVideoScriptSelection() {
   }
 }
 
-function beginVideoScriptSelection() {
+function showVideoScriptSelection() {
   if (activeView !== "agent") switchView("agent");
-  selectingVideoScriptSources = true;
   updateVideoScriptSelection();
+  window.requestAnimationFrame(() => {
+    elements.videoScriptSelection.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+function beginVideoScriptSelection() {
+  selectingVideoScriptSources = true;
+  selectedVideoScriptRequestIds.clear();
+  showVideoScriptSelection();
 }
 
 function cancelVideoScriptSelection() {
@@ -1225,8 +1238,7 @@ function toggleVideoScriptSource(requestId, checked, checkbox) {
 async function generateSelectedVideoScript() {
   if (selectedVideoScriptRequestIds.size === 0) return;
   elements.generateVideoScript.disabled = true;
-  const original = elements.generateVideoScript.textContent;
-  elements.generateVideoScript.textContent = "Creating production…";
+  elements.generateVideoScript.textContent = "Creating video…";
   try {
     const created = await api("/api/video-productions/generate", {
       method: "POST",
@@ -1244,8 +1256,7 @@ async function generateSelectedVideoScript() {
   } catch (error) {
     elements.status.textContent = error.message || "Could not queue the video production.";
   } finally {
-    elements.generateVideoScript.textContent = original;
-    elements.generateVideoScript.disabled = selectedVideoScriptRequestIds.size === 0;
+    updateVideoScriptSelection();
   }
 }
 
@@ -5061,8 +5072,7 @@ elements.videoScriptStatusFilter.addEventListener("change", () => void refreshVi
 elements.refreshFiles.addEventListener("click", () => void loadFiles());
 elements.selectVideoScriptSources.addEventListener("click", () => {
   elements.settingsMenu.open = false;
-  switchView("agent");
-  if (selectingVideoScriptSources) cancelVideoScriptSelection();
+  if (selectingVideoScriptSources) showVideoScriptSelection();
   else beginVideoScriptSelection();
 });
 elements.cancelVideoScriptSelection.addEventListener("click", cancelVideoScriptSelection);
