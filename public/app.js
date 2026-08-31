@@ -3,7 +3,13 @@ import {
   splitLocalDateTime,
 } from "./event-date-time.js";
 import { markdownToSpeech, renderMarkdown } from "./markdown.js";
-import { dateSequence, renderCalendarGrid, sixWeekMonthDates } from "./calendar-grid.js";
+import {
+  calendarEventCellItem,
+  dateSequence,
+  renderCalendarGrid,
+  scheduledTodoCellItem,
+  sixWeekMonthDates,
+} from "./calendar-grid.js";
 import { createTimingEditor } from "./timing-editor.js";
 
 const elements = {
@@ -634,39 +640,65 @@ function formatFileSize(bytes) {
   return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
 }
 
+function conciseReferenceText(value, maximum = 200) {
+  const text = String(value ?? "").replace(/\s+/gu, " ").trim();
+  return text.length <= maximum ? text : `${text.slice(0, maximum - 1).trimEnd()}…`;
+}
+
+function referenceCode(fields) {
+  return `Reference code: ${Object.entries(fields)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([key, value]) => `${key}=${value}`)
+    .join("; ")}`;
+}
+
 function fileIdentity(file) {
   return [
-    `File #${file.fileId}:`,
-    JSON.stringify({
-      file_id: file.fileId,
-      title: file.title,
-      original_filename: file.originalFilename,
-      media_kind: file.mediaKind,
-    }, null, 2),
-  ].join("\n");
+    `File: ${conciseReferenceText(file.title)}`,
+    file.originalFilename && file.originalFilename !== file.title
+      ? `Original filename: ${conciseReferenceText(file.originalFilename)}`
+      : null,
+    file.mediaKind ? `Type: ${file.mediaKind}` : null,
+    referenceCode({ file_id: file.fileId }),
+  ].filter(Boolean).join("\n");
 }
 
 function videoIdentity(script) {
   return [
-    `Generated video “${script.title}”:`,
-    JSON.stringify({
+    `Generated video: ${conciseReferenceText(script.title)}`,
+    referenceCode({
       video_script_id: script.id,
       video_job_id: script.render?.id ?? null,
       output_file_id: script.render?.outputFileId ?? null,
       content_id: script.render?.contentId ?? null,
-      title: script.title,
-    }, null, 2),
+    }),
   ].join("\n");
 }
 
-function exchangeIdentity(requestId) {
-  return `Exchange request_id ${requestId}.`;
+function todoIdentity(todo) {
+  return [
+    `Task: ${conciseReferenceText(todo.text)}`,
+    todo.groupName ? `Group: ${conciseReferenceText(todo.groupName, 80)}` : null,
+    referenceCode({ personal_task_id: todo.id }),
+  ].filter(Boolean).join("\n");
+}
+
+function exchangeIdentity(requestId, requestText = "") {
+  return [
+    `Exchange: ${conciseReferenceText(requestText || "Agent conversation")}`,
+    referenceCode({ request_id: requestId }),
+  ].join("\n");
 }
 
 function referencedRequestIdsFromComposer(value) {
   const requestIds = [];
-  const pattern = /^Exchange request_id ([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.$/gimu;
-  for (const match of String(value || "").matchAll(pattern)) requestIds.push(match[1].toLowerCase());
+  const patterns = [
+    /^Reference code:\s*request_id=([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\s*$/gimu,
+    /^Exchange request_id ([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.$/gimu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of String(value || "").matchAll(pattern)) requestIds.push(match[1].toLowerCase());
+  }
   return [...new Set(requestIds)].slice(0, 8);
 }
 
@@ -703,8 +735,8 @@ function agentReferenceButton(identity, subject) {
   return button;
 }
 
-function replyToExchange(requestId) {
-  const identity = exchangeIdentity(requestId);
+function replyToExchange(requestId, requestText) {
+  const identity = exchangeIdentity(requestId, requestText);
   if (!elements.text.value.includes(identity)) placeIdentityInComposer(identity);
   else {
     switchView("agent");
@@ -1564,7 +1596,7 @@ function requestNode(request, index, structuredGenerationStatus = null) {
       copyText(node.querySelector(".agent-response-markdown").dataset.markdown || "", event.currentTarget);
     });
     node.querySelector(".show-trace").addEventListener("click", () => showTrace(request.requestId));
-    node.querySelector(".reply-to-exchange").addEventListener("click", () => replyToExchange(request.requestId));
+    node.querySelector(".reply-to-exchange").addEventListener("click", () => replyToExchange(request.requestId, request.request));
     node.querySelector(".save-structured-interaction").addEventListener("click", (event) => {
       const guideId = Number(event.currentTarget.dataset.guideId);
       if (Number.isSafeInteger(guideId) && guideId > 0) {
@@ -1993,31 +2025,48 @@ function formatEventTime(calendarEvent) {
     : start;
 }
 
-function calendarEventCopyText(calendarEvent) {
+function calendarEventWhen(calendarEvent) {
   const timeZone = calendarEvent.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const start = new Date(calendarEvent.startsAtUtc);
   const end = calendarEvent.endsAtUtc ? new Date(calendarEvent.endsAtUtc) : null;
   const date = (value) => formatDisplayDate(value, { includeTime: false, timeZone });
   const dateTime = (value) => formatDisplayDate(value, { timeZone });
   const time = (value) => formatDisplayTime(value, { timeZone });
-  let when;
   if (calendarEvent.isAllDay) {
     const startDate = date(start);
     const inclusiveEnd = end && end > start ? new Date(end.getTime() - 1) : null;
     const endDate = inclusiveEnd ? date(inclusiveEnd) : null;
-    when = endDate && endDate !== startDate ? `${startDate}–${endDate} · All day` : `${startDate} · All day`;
-  } else if (!end) {
-    when = dateTime(start);
-  } else if (date(start) === date(end)) {
-    when = `${dateTime(start)}–${time(end)}`;
-  } else {
-    when = `${dateTime(start)}–${dateTime(end)}`;
+    return endDate && endDate !== startDate ? `${startDate}–${endDate} · All day` : `${startDate} · All day`;
   }
+  if (!end) return dateTime(start);
+  return date(start) === date(end)
+    ? `${dateTime(start)}–${time(end)}`
+    : `${dateTime(start)}–${dateTime(end)}`;
+}
+
+function calendarEventCopyText(calendarEvent) {
+  const when = calendarEventWhen(calendarEvent);
   const lines = [calendarEvent.title, `When: ${when}`];
   if (calendarEvent.recurrenceRule) lines.push(`Repeats: ${describeTodoRecurrence(calendarEvent.recurrenceRule)}`);
   if (calendarEvent.location) lines.push(`Where: ${calendarEvent.location}`);
   if (calendarEvent.description) lines.push("", calendarEvent.description);
   return lines.join("\n");
+}
+
+function calendarEventIdentity(calendarEvent) {
+  const eventId = calendarEvent.seriesId ?? calendarEvent.id;
+  const numericEventId = Number(eventId);
+  const codes = Number.isSafeInteger(numericEventId) && numericEventId > 0
+    ? { calendar_event_id: numericEventId }
+    : { calendar_occurrence_id: eventId };
+  if (calendarEvent.isGeneratedOccurrence) codes.occurrence_starts_at_utc = calendarEvent.startsAtUtc;
+  if (calendarEvent.contactId != null) codes.contact_id = calendarEvent.contactId;
+  return [
+    `Calendar event: ${conciseReferenceText(calendarEvent.title)}`,
+    `When: ${calendarEventWhen(calendarEvent)}`,
+    calendarEvent.location ? `Where: ${conciseReferenceText(calendarEvent.location, 120)}` : null,
+    referenceCode(codes),
+  ].filter(Boolean).join("\n");
 }
 
 function switchView(view) {
@@ -2205,6 +2254,7 @@ function renderRoutineAgenda() {
   }
   for (const occurrence of occurrences) {
     const template = routineTemplates.find(({ id }) => id === occurrence.templateTodoId);
+    const item = node("div", "agenda-event");
     const button = node("button", "agenda-item todo");
     button.type = "button";
     button.append(
@@ -2213,7 +2263,13 @@ function renderRoutineAgenda() {
     );
     button.disabled = !template;
     if (template) button.addEventListener("click", () => openTodoEditor(template));
-    elements.routineAgendaList.append(button);
+    item.append(button);
+    if (template) {
+      const actions = node("div", "agenda-event-actions");
+      actions.append(agentReferenceButton(todoIdentity(template), `task ${template.text}`));
+      item.append(actions);
+    }
+    elements.routineAgendaList.append(item);
   }
 }
 
@@ -2346,7 +2402,12 @@ function renderCalendarSearchResults(events, { error = null } = {}) {
     copy.type = "button";
     copy.setAttribute("aria-label", `Copy calendar event details: ${calendarEvent.title}`);
     copy.addEventListener("click", (event) => void copyText(calendarEventCopyText(calendarEvent), event.currentTarget));
-    item.append(open, copy);
+    const actions = node("div", "calendar-search-result-actions");
+    actions.append(
+      agentReferenceButton(calendarEventIdentity(calendarEvent), `calendar event ${calendarEvent.title}`),
+      copy,
+    );
+    item.append(open, actions);
     elements.calendarSearchResultList.append(item);
   }
 }
@@ -2412,13 +2473,8 @@ function renderCalendar() {
       const scheduled = todosScheduledOnDay(date);
       const due = todosDueOnDay(date);
       return [
-        ...events.map((value) => ({
-          className: `day-event ${value.status}`,
-          text: `${value.isAllDay ? "" : `${formatEventTime(value)} `}${value.title}`,
-        })),
-        ...scheduled.map((value) => ({
-          className: "day-todo", text: `${value.isAllDay ? "All day" : "◷"} ${value.text}`,
-        })),
+        ...events.map(calendarEventCellItem),
+        ...scheduled.map(scheduledTodoCellItem),
         ...due.map((value) => ({ className: "day-todo", text: `Due ${value.text}` })),
       ];
     },
@@ -2539,7 +2595,12 @@ function agendaEventItem(calendarEvent, { allDay = false } = {}) {
     copy.type = "button";
     copy.setAttribute("aria-label", `Copy calendar event details: ${calendarEvent.title}`);
     copy.addEventListener("click", (event) => void copyText(calendarEventCopyText(calendarEvent), event.currentTarget));
-    item.append(button, copy);
+    const actions = node("div", "agenda-event-actions");
+    actions.append(
+      agentReferenceButton(calendarEventIdentity(calendarEvent), `calendar event ${calendarEvent.title}`),
+      copy,
+    );
+    item.append(button, actions);
     return item;
 }
 
@@ -2549,14 +2610,16 @@ function agendaTodoItem(todo, timing) {
     button.type = "button";
     button.append(node("strong", "", todo.text), node("span", "", `${timing} · ${todo.status.replaceAll("_", " ")}`));
     button.addEventListener("click", () => openTodoEditor(todo));
-    item.append(button);
+    const actions = node("div", "agenda-event-actions");
+    actions.append(agentReferenceButton(todoIdentity(todo), `task ${todo.text}`));
     if (todo.interactionGuideId != null && todo.interactionGuideStatus === "active"
         && ["todo", "ai_suggested"].includes(todo.status)) {
       const startGuide = node("button", "secondary compact agenda-event-copy", "Start briefing");
       startGuide.type = "button";
       startGuide.addEventListener("click", () => void startTodoInteractionGuide(todo, startGuide));
-      item.append(startGuide);
+      actions.append(startGuide);
     }
+    item.append(button, actions);
     return item;
 }
 
@@ -3073,6 +3136,7 @@ function renderTodos() {
       }
       body.append(metadata);
       const actions = node("div", "todo-actions");
+      actions.append(agentReferenceButton(todoIdentity(todo), `task ${todo.text}`));
       const schedule = node("button", "secondary compact", todo.scheduledAtUtc ? "Reschedule" : "Schedule");
       const top = node("button", "secondary compact", "⇈");
       const up = node("button", "secondary compact", "↑");
@@ -4549,14 +4613,12 @@ function renderInteractionGuideList() {
 
 function interactionStepIdentity(guide, step) {
   return [
-    "Briefing exchange:",
-    JSON.stringify({
-      briefing_name: guide.name,
+    `Briefing exchange ${step.stepNumber}: ${conciseReferenceText(step.openingText)}`,
+    `Briefing: ${conciseReferenceText(guide.name, 120)}`,
+    referenceCode({
       interaction_guide_id: guide.id,
       interaction_guide_step_id: step.id,
-      exchange_number: step.stepNumber,
-      opening_text: step.openingText,
-    }, null, 2),
+    }),
   ].join("\n");
 }
 

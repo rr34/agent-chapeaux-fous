@@ -96,7 +96,7 @@ export function registerVideoScriptTools(
   capabilityRegistry.register({
     name: "video_script_create",
     title: "Create an AI-video script",
-    description: "Persist a concise portable AI-video script from every explicitly selected interaction without rendering it. Supply only a title and short conversation description; the application inserts every exact request and final Agent response as one continuous conversation and omits intermediate activity. Use this only when the user wants the script alone; use video_production_create when they also want a finished MP4.",
+    description: "Persist a concise portable AI-video script from every explicitly selected interaction without rendering it. Supply only a title and short conversation description; the application inserts the chronological request and final response after removing machine-only references and opaque identifiers, while leaving stored exchanges unchanged. Use this only for the script; use video_production_create for an MP4.",
     parameters: parameters(),
     outputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -145,7 +145,7 @@ export function registerVideoScriptTools(
   capabilityRegistry.register({
     name: "video_production_create",
     title: "Create a script and queue its MP4",
-    description: "Persist one concise script and atomically queue its 1080x1620 Remotion MP4 from every explicitly selected interaction. Supply only a title and short conversation description; the application makes both the script and video one continuous chat containing each exact request and final Agent response, with no trace, activity, tutorial narration, intro, or outro. This proves the script and render job exist, not that rendering has finished.",
+    description: "Persist one concise script and atomically queue its 1080x1620 Remotion MP4 from every explicitly selected interaction. Supply only a title and short conversation description; the application makes one chronological chat after removing machine-only references and opaque identifiers, while leaving stored exchanges unchanged. This proves the script and render job exist, not that rendering finished.",
     parameters: parameters(),
     outputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -158,8 +158,8 @@ export function registerVideoScriptTools(
 
   registry.registerContextView("video", {
     id: "video.selected_interactions",
-    title: "Exact conversations selected for an AI-interaction video",
-    description: "Only the exact user requests and final AI-agent responses explicitly selected in the current video request, ordered chronologically. It contains no intermediate processing or tool activity. Request this view before creating either the script or the combined script-and-MP4 production.",
+    title: "Conversations selected for an AI-interaction video",
+    description: "The selected user requests and final AI-agent responses in chronological order, projected only for video by removing machine-only references and opaque identifiers. Stored exchanges remain unchanged, and no intermediate processing or tool activity is included. Request this before creating the script or combined production.",
     maximumItems: 8,
     execute(context) {
       return videoScripts.selectedInteractionContext(context.requestId);

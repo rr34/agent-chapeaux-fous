@@ -34,7 +34,13 @@ test("the background worker preserves recordings and assigns distinct user and A
   });
   ledger.finish(sourceEvent, "The release plan is ready.");
   const longResponse = `Chapeaux Fous ${"works ".repeat(800)}`.trim();
-  const typedRequest = ledger.createRequest({ text: "Summarize Chapeaux Fous.", channel: "web" });
+  const typedRequest = ledger.createRequest({
+    text: [
+      "Summarize Chapeaux Fous.",
+      "Reference code: request_id=123e4567-e89b-42d3-a456-426614174000",
+    ].join("\n"),
+    channel: "web",
+  });
   ledger.finish(ledger.trace(typedRequest.requestId)[0], longResponse);
   const generation = ledger.createRequest({
     text: "Create a video production.",

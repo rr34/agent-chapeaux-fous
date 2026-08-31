@@ -481,21 +481,25 @@ The selection workflow opens as a temporary extension above the fixed request
 composer rather than inside the chronological chat, keeping the newest
 interactions visible while the user chooses sources.
 
-The selected-interaction context contains only each exact user request and
-final Agent response. The creation tools ask the model only for the selected
+The selected-interaction context contains each chosen user request and final
+Agent response after a deterministic video-only projection removes machine
+reference lines, legacy identity JSON, UUIDs, and unmistakably opaque long
+identifiers. The stored request, response, and Agent context remain unchanged.
+The creation tools ask the model only for the selected
 request IDs, a concise title, and a one- or two-sentence description of the
 conversation. The application then builds the portable script and external
 generator prompt deterministically: a clear description that the video depicts
-a user interacting with Chapeaux Fous, an AI agent, followed by the exact
+a user interacting with Chapeaux Fous, an AI agent, followed by the projected
 chronological conversation. Neither artifact includes trace events, processing,
 tool activity, a production brief, or an intermediate scene plan.
 
 A single-concurrency background worker prepares the production after the Agent
-turn finishes. The 1080x1620 MP4 is one continuous chat showing only the actual
-request and actual response for each selected interaction; trace, processing,
-activity, intros, outros, and explanatory narration are omitted. Request scenes
-use the original saved recording when one exists; otherwise, the typed request
-is spoken in a feminine voice with a stronger natural French accent. Agent
+turn finishes. The 1080x1620 MP4 is one continuous chat showing the
+video-projected request and response for each selected interaction; trace,
+processing, activity, machine references, intros, outros, and explanatory
+narration are omitted. Request scenes use the original saved recording when one
+exists and the transcript required no machine-reference filtering; otherwise,
+the projected request is spoken in a feminine voice with a stronger natural French accent. Agent
 responses use a masculine, standard-American voice. Both generated roles use a
 fast, loose, mischievous conversational delivery rather than an announcer,
 tutorial, corporate-demo, audiobook, or sales-presentation tone. The default
@@ -507,7 +511,8 @@ the visible request or response to highlight in sync with the speech. New chat
 bubbles spring upward from below and briefly overshoot into place while the
 existing conversation scrolls naturally above them. TTS input
 changes `Chapeaux Fous` to `Chapeaux Fou` only in the spoken copy and explicitly
-directs a French `shah-POH FOO` pronunciation; visible dialogue remains exact.
+directs a French `shah-POH FOO` pronunciation; visible dialogue remains
+verbatim after the documented video-only projection.
 Long generated speech is split into bounded provider calls and reassembled as
 one WAV track. Dialogue is never silently ellipsized: a message over 20,000
 characters or production over 60,000 fails with an explicit error before the

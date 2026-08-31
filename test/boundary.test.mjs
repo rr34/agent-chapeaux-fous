@@ -588,7 +588,8 @@ test("the request composer accepts one image or text attachment and exposes mete
   assert.match(application, /Uploaded \$\{uploaded\.originalFilename\} as file #\$\{uploaded\.fileId\}/);
   assert.match(application, /\/api\/files\?limit=200/);
   assert.match(application, /function fileIdentity\(file\)/);
-  assert.match(application, /`File #\$\{file\.fileId\}:`/);
+  assert.match(application, /`File: \$\{conciseReferenceText\(file\.title\)\}`/);
+  assert.match(application, /referenceCode\(\{ file_id: file\.fileId \}\)/);
   assert.match(application, /function placeIdentityInComposer\(identity\)/);
   assert.match(application, /`In reference to:\\n\$\{identity\}`/);
   assert.match(application, /existingText \? `\$\{reference\}\\n\\n\$\{existingText\}` : `\$\{reference\}\\n\\n`/);
@@ -616,7 +617,7 @@ test("completed exchanges expose a reply action that attaches literal source con
   assert.match(application, /function agentReferenceButton\(identity, subject\)/);
   assert.match(application, /function replyArrowIcon\(\)/);
   assert.match(application, /button\.append\(replyArrowIcon\(\), node\("span", "", "Reply"\)\)/);
-  assert.match(application, /function replyToExchange\(requestId\)/);
+  assert.match(application, /function replyToExchange\(requestId, requestText\)/);
   assert.match(application, /placeIdentityInComposer\(identity\)/);
   assert.match(application, /function referencedRequestIdsFromComposer\(value\)/);
   assert.match(application, /querySelector\("\.reply-to-exchange"\)\.addEventListener\("click"/);
@@ -624,6 +625,19 @@ test("completed exchanges expose a reply action that attaches literal source con
   assert.match(server, /metadata: referencedRequestIds\.length \? \{ referencedRequestIds \} : \{\}/);
   assert.match(context, /# Explicitly referenced exchanges/);
   assert.match(context, /referencedExchangesForRequest\(requestId, \{ limit: 8 \}\)/);
+});
+
+test("calendar events and tasks use the shared reply reference control", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  assert.match(application, /function todoIdentity\(todo\)/);
+  assert.match(application, /referenceCode\(\{ personal_task_id: todo\.id \}\)/);
+  assert.match(application, /function calendarEventIdentity\(calendarEvent\)/);
+  assert.match(application, /calendar_event_id: numericEventId/);
+  assert.match(application, /agentReferenceButton\(todoIdentity\(todo\), `task/);
+  assert.match(application, /agentReferenceButton\(calendarEventIdentity\(calendarEvent\), `calendar event/);
+  assert.match(application, /const actions = node\("div", "agenda-event-actions"\)/);
+  assert.match(styles, /\.agenda-event-actions/);
 });
 
 test("the request composer can apply one-shot tool and time limits", () => {

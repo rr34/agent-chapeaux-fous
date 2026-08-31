@@ -89,7 +89,8 @@ test("video scripts persist one ordered source join for every selected interacti
   assert.match(stored.scriptText, /\*\*Chapeaux Fous · AI response\*\*[\s\S]+The checklist is ready\./);
   assert.doesNotMatch(stored.scriptText, /Production brief|Generator prompt|Scene plan|Camera and motion|Continuity requirements/);
   assert.doesNotMatch(stored.scriptText, new RegExp(first.requestId));
-  assert.match(stored.plan.generatorPrompt, /exact conversation below between a user and Chapeaux Fous, an AI agent/);
+  assert.match(stored.plan.generatorPrompt, /supplied conversation below between a user and Chapeaux Fous, an AI agent/);
+  assert.match(stored.plan.generatorPrompt, /Do not restore, read, or invent omitted codes/);
   assert.match(stored.plan.generatorPrompt, /USER REQUEST:[\s\S]+Plan the release\./);
   assert.doesNotMatch(stored.plan.generatorPrompt, /reasoning|processing|tool activity|trace activity|tutorial|scene plan/iu);
   assert.deepEqual(stored.plan.scenes.map(({ renderSceneType }) => renderSceneType), ["request", "response", "request", "response"]);
@@ -149,6 +150,52 @@ test("video-script creation rejects sources outside the request-bound selection"
     /must exactly match the selected interactions/,
   );
   assert.equal(videoScripts.list().count, 0);
+});
+
+test("video scripts project machine references out without changing stored interactions", (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const videoScripts = new VideoScripts({ store, ledger });
+  const originalRequest = [
+    "In reference to:",
+    "Task: Call financial assistance at 614-566-1456 on 2026-08-31.",
+    "Reference code: personal_task_id=418; request_id=123e4567-e89b-42d3-a456-426614174000",
+    "",
+    "Help me prepare.",
+  ].join("\n");
+  const source = completeInteraction(
+    ledger,
+    originalRequest,
+    "I can help with task #418. Reference code: personal_task_id=418",
+  );
+  const generation = ledger.createRequest({
+    text: "Create the selected video script.",
+    metadata: { requestKind: "video_script", sourceRequestIds: [source.requestId] },
+  });
+
+  const created = videoScripts.create(plan([source.requestId]), {
+    requestId: generation.requestId,
+    requestEventId: generation.eventId,
+    callId: "filtered-script",
+    channel: "web",
+  });
+
+  assert.equal(ledger.interactionReplaySource(source.requestId).rawTranscript, originalRequest);
+  assert.doesNotMatch(created.script.scriptText, /Reference code|123e4567|personal_task_id/u);
+  assert.match(created.script.scriptText, /614-566-1456/u);
+  assert.match(created.script.scriptText, /2026-08-31/u);
+  assert.match(created.script.scriptText, /task #418/u);
+  assert.doesNotMatch(created.script.plan.generatorPrompt, /Reference code|123e4567/u);
+  assert.deepEqual(
+    created.script.plan.scenes.map(({ voiceover }) => voiceover),
+    [
+      "In reference to:\nTask: Call financial assistance at 614-566-1456 on 2026-08-31.\n\nHelp me prepare.",
+      "I can help with task #418.",
+    ],
+  );
 });
 
 test("one production tool call persists its script and queues one linked background render", async (context) => {

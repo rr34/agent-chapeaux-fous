@@ -23,6 +23,17 @@ export function dateSequence(from, to) {
   return dates;
 }
 
+export function calendarEventCellItem(event) {
+  return {
+    className: ["day-event", event.isAllDay ? "all-day" : "", event.status].filter(Boolean).join(" "),
+    text: event.title,
+  };
+}
+
+export function scheduledTodoCellItem(todo) {
+  return { className: "day-todo", text: todo.text };
+}
+
 export function renderCalendarGrid({
   container,
   dates,

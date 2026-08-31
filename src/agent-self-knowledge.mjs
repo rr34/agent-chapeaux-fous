@@ -25,7 +25,7 @@ export const agentSelfTopicKnowledge = Object.freeze({
   }),
   video_generation: Object.freeze({
     facts: Object.freeze([
-      "A video production creates a portable script from the selected conversation's exact user requests and final Agent responses.",
+      "A video production creates a portable script from the selected conversation's user requests and final Agent responses after a video-only projection removes machine reference codes and unmistakably opaque identifiers; stored exchanges remain unchanged.",
       "The portable script is designed to be usable as input to a general dedicated AI video generator and is available under Video Scripts.",
       "The built-in production reuses recorded request audio when available, generates the other voices, creates word timings, and uses Remotion to render synchronized dialogue into an MP4.",
       "The portable script and the built-in MP4 are two outputs of the same production workflow.",

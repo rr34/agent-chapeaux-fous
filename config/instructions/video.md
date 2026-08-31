@@ -29,18 +29,18 @@ If the user asks to add an already-completed generated video to content:
 The user explicitly selected completed interactions for either a portable script or a script plus built-in MP4 production.
 
 - Request the `video.selected_interactions` context view during orientation. It is the only authoritative source package for either operation.
-- The context contains only each exact user request and final Agent response in chronological order. It deliberately excludes reasoning, processing, tool activity, trace activity, and other intermediate work.
+- The context contains each selected user request and final Agent response in chronological order, projected only for video. It excludes reasoning, processing, tool activity, trace activity, machine-only `Reference code:` lines, legacy reference JSON, UUIDs, and unmistakably opaque long identifiers.
 - Call the correct creation tool with exactly the supplied `sourceRequestIds`, a concise title, and a one- or two-sentence `description` of what the conversation is about.
 - Do not supply a production brief, audience analysis, scene plan, visual treatment, voiceover, on-screen copy, motion, audio notes, transitions, continuity notes, constraints, or rewritten dialogue. The application owns the final script structure.
-- The application deterministically inserts every exact request-response pair into both the portable script and the built-in production, preserving chronology and omitting intermediate material.
-- The portable script must be clear to a general AI video generator: it describes a video of a user interacting with Chapeaux Fous, an AI agent, followed by the exact conversation. The conversation is the polished final product.
+- The application deterministically inserts every video-projected request-response pair into both the portable script and the built-in production, preserving chronology and omitting only intermediate material and the defined machine-reference projection. Source requests, responses, and Agent context remain unchanged.
+- The portable script must be clear to a general AI video generator: it describes a video of a user interacting with Chapeaux Fous, an AI agent, followed by the projected conversation. The conversation is the polished final product.
 
 For a request whose kind is `video_production`:
 
 - Call `video_production_create` exactly once. Do not call `video_script_create` too.
-- The application creates exactly two chronological messages for each selected interaction: its exact request followed immediately by its exact final response.
-- Never shorten or ellipsize dialogue. The renderer supports up to 20,000 characters per message and 60,000 across one production; if source dialogue exceeds either limit, generation fails with the exact limit instead of producing a truncated MP4.
-- The background renderer uses original saved request audio when an interaction was recorded. A typed request is spoken in the configured feminine voice with a stronger natural French accent. Agent responses use the configured masculine, standard-American voice. Generated speech is disclosed in the finished video.
+- The application creates exactly two chronological messages for each selected interaction: its video-projected request followed immediately by its video-projected final response.
+- Never summarize, shorten, or ellipsize the remaining dialogue. The renderer supports up to 20,000 characters per message and 60,000 across one production; if projected dialogue exceeds either limit, generation fails with the exact limit instead of producing a truncated MP4.
+- The background renderer uses original saved request audio when an interaction was recorded and its transcript did not require machine-reference filtering. When filtering changes the spoken copy—or when the request was typed—the projected request is spoken in the configured feminine voice with a stronger natural French accent. Agent responses use the configured masculine, standard-American voice. Generated speech is disclosed in the finished video.
 - The tool result proves the script and render job were persisted and queued. Do not claim the MP4 is finished until its job reports `complete`.
 
 For a request for the script alone:

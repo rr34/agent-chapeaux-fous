@@ -131,8 +131,10 @@ personal logs, and any compatible domain tables and views.
 
 **36. Publishable-content filter** — The initial video-script boundary that
 bounds selected request and response text, redacts recognized secret patterns,
-and requires the script interaction to omit unrelated private material. Broader
-policy classification remains future work.
+and deterministically removes UI machine-reference lines, legacy identity JSON,
+UUIDs, and unmistakably opaque long identifiers from only the video projection.
+The stored Agent request, response, and functional reference context remain
+unchanged. Broader policy classification remains future work.
 
 **37. Personal communications server** — A deferred authoritative self-hosted
 email, calendar, and contacts service.

@@ -1,4 +1,5 @@
 import { redactText } from "./redaction.mjs";
+import { videoDialogueText } from "./video-dialogue.mjs";
 
 const requestTypes = ["request.received", "voice.request.received"];
 const terminalTypes = [
@@ -48,8 +49,8 @@ function parseJson(value, fallback = {}) {
   try { return JSON.parse(value || "{}"); } catch { return fallback; }
 }
 
-function exactDialogueText(value, label, fallback) {
-  const text = redactText(String(value ?? "")).trim() || fallback;
+function projectedDialogueText(value, label, fallback) {
+  const text = videoDialogueText(redactText(String(value ?? "")), fallback);
   if (text.length > maximumMessageCharacters) {
     throw new Error(
       `${label} contains ${text.length.toLocaleString()} characters; the video-script limit is ${maximumMessageCharacters.toLocaleString()}. Nothing was truncated and the script was not generated.`,
@@ -95,9 +96,10 @@ function conversationText(interactions, { markdown = false } = {}) {
 
 function canonicalGeneratorPrompt(plan, interactions) {
   return [
-    "Create a polished 1080x1620 video of the exact conversation below between a user and Chapeaux Fous, an AI agent.",
+    "Create a polished 1080x1620 video of the supplied conversation below between a user and Chapeaux Fous, an AI agent.",
     `Conversation context: ${plan.concept}`,
-    "The conversation is the finished product. Present every user request and AI response verbatim, in chronological order, as one continuous chat interaction.",
+    "The conversation is the finished product. Present every supplied user request and AI response in chronological order as one continuous chat interaction.",
+    "The application has removed machine-only reference lines and unmistakably opaque identifiers from this video copy. Do not restore, read, or invent omitted codes; otherwise preserve the supplied dialogue verbatim.",
     "Show only the supplied conversation. Do not add content before, between, or after its messages.",
     "",
     conversationText(interactions),
@@ -114,7 +116,7 @@ function scriptMarkdown(plan, interactions) {
     "",
     plan.concept,
     "",
-    "The conversation itself is the final video. Keep the exact dialogue in chronological order and add no other material.",
+    "The conversation itself is the final video. Keep the supplied video dialogue in chronological order and add no other material. Machine-only references and opaque identifiers have been omitted deterministically.",
     "",
     "## Conversation",
     "",
@@ -249,8 +251,8 @@ export class VideoScripts {
       return {
         sourceOrder: index + 1,
         requestId: id,
-        request: exactDialogueText(source.rawTranscript, `Request ${id}`, "Voice request"),
-        response: exactDialogueText(source.response, `Response ${id}`, "No response was recorded."),
+        request: projectedDialogueText(source.rawTranscript, `Request ${id}`, "Voice request"),
+        response: projectedDialogueText(source.response, `Response ${id}`, "No response was recorded."),
       };
     });
     const characters = interactions.reduce(
@@ -270,12 +272,13 @@ export class VideoScripts {
     const sources = this.#dialogue(rows.map(({ turn_id: id }) => id));
     return {
       text: [
-        "The user selected the following exact conversations for a video of interactions between a user and Chapeaux Fous, an AI agent.",
-        "Return only a concise title and a one- or two-sentence description of what the conversation is about. The application will preserve and format the exact request-response dialogue; do not summarize it or add anything else.",
+        "The user selected the following conversations for a video of interactions between a user and Chapeaux Fous, an AI agent.",
+        "The application has projected them for video by removing machine-only reference lines, legacy identity JSON, UUIDs, and unmistakably opaque long tokens. The stored Agent requests and responses are unchanged.",
+        "Return only a concise title and a one- or two-sentence description of what the conversation is about. The application will preserve and format the remaining request-response dialogue; do not summarize it, restore omitted codes, or add anything else.",
         JSON.stringify(sources, null, 2),
       ].join("\n\n"),
       data: { sources },
-      heading: "Exact selected user-and-AI conversations",
+      heading: "Video-projected selected user-and-AI conversations",
     };
   }
 
@@ -376,7 +379,7 @@ export class VideoScripts {
         durationSeconds: estimatedDialogueSeconds(interaction.request),
         sourceRequestIds: [interaction.requestId],
         renderSceneType: "request",
-        visualPrompt: "Show the exact user request as the next message in one continuous AI chat.",
+        visualPrompt: "Show the supplied video-projected user request as the next message in one continuous AI chat.",
         voiceover: interaction.request,
         onScreenText: [interaction.request],
         cameraMotion: null,
@@ -404,12 +407,12 @@ export class VideoScripts {
       audience: "Viewers watching a real interaction between a user and an AI agent.",
       durationSeconds,
       aspectRatio: "2:3",
-      visualStyle: "One polished, continuous 1080x1620 Chapeaux Fous chat containing only exact dialogue.",
+      visualStyle: "One polished, continuous 1080x1620 Chapeaux Fous chat containing only the supplied video-projected dialogue.",
       sourceRequestIds: canonicalIds,
       generatorPrompt: "",
       scenes,
       continuityNotes: ["Keep the messages in chronological order as one continuous conversation."],
-      negativeConstraints: ["Show no intermediate activity, reasoning, tools, trace, tutorial, intro, outro, summary, or invented dialogue."],
+      negativeConstraints: ["Show no intermediate activity, reasoning, tools, trace, tutorial, intro, outro, summary, restored technical reference codes, or invented dialogue."],
     };
     plan.generatorPrompt = canonicalGeneratorPrompt(plan, interactions);
     const scriptText = scriptMarkdown(plan, interactions);

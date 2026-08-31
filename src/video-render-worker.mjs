@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { renderScriptedInteractionVideo } from "../video/src/render-interaction-video.mjs";
 import { safeMediaPath } from "./request-attachments.mjs";
+import { videoDialogueText } from "./video-dialogue.mjs";
 
 function dataUrl(bytes, mimeType) {
   return `data:${mimeType || "application/octet-stream"};base64,${bytes.toString("base64")}`;
@@ -24,7 +25,7 @@ const maximumMessageCharacters = 20_000;
 const maximumProductionCharacters = 60_000;
 const generatedSpeechPlaybackRate = 1.3;
 
-function exactText(value, label, fallback = "") {
+function boundedSourceText(value, label, fallback = "") {
   const text = String(value ?? "").trim() || fallback;
   if (text.length > maximumMessageCharacters) {
     throw new Error(
@@ -256,10 +257,14 @@ export class VideoRenderWorker {
     if (!script) throw new Error(`Video script ${job.videoScriptId} was not found`);
     const sources = script.sources.map(({ requestId }) => {
       const source = this.ledger.interactionReplaySource(requestId);
+      const rawRequestText = boundedSourceText(source.rawTranscript, `Request ${requestId}`, "Voice request");
+      const rawResponseText = boundedSourceText(source.response, `Response ${requestId}`, "No response was recorded.");
+      const requestText = videoDialogueText(rawRequestText, "Voice request");
       return {
         source,
-        requestText: exactText(source.rawTranscript, `Request ${requestId}`, "Voice request"),
-        responseText: exactText(source.response, `Response ${requestId}`, "No response was recorded."),
+        requestText,
+        responseText: videoDialogueText(rawResponseText, "No response was recorded."),
+        requestTextWasFiltered: requestText !== rawRequestText,
       };
     });
     const productionCharacters = sources.reduce(
@@ -273,10 +278,10 @@ export class VideoRenderWorker {
     }
     const scenes = [];
     let usesAiNarration = false;
-    for (const { source, requestText, responseText } of sources) {
+    for (const { source, requestText, responseText, requestTextWasFiltered } of sources) {
       const { requestId } = source;
       const requestScene = { sceneNumber: scenes.length + 1 };
-      const requestAudio = source.audioFile
+      const requestAudio = source.audioFile && !requestTextWasFiltered
         ? await this.#sourceAudio(source, job, requestScene)
         : await this.#narrationAudio(requestText, job, requestScene, "user");
       usesAiNarration ||= Boolean(requestAudio.aiNarration);
