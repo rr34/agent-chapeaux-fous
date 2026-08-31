@@ -951,6 +951,32 @@ test("a failed tool result is returned to the model transport instead of becomin
   assert.match(toolResponse.error, /expected failure/);
 });
 
+test("the final response boundary formats prose dates and records the presentation step", async () => {
+  const events = [];
+  const runtime = new SlayerRuntime({
+    modelTransport: fakeTransport(async () => completedTurn({
+      text: "Moved the tasks to 2026-08-31. The tool used `2026-08-31`.",
+    })),
+    registry: new ToolRegistry(),
+    contextBuilder: {
+      async build() {
+        return { text: "context", profileFacts: [], history: [], contextBudget: { truncated: false } };
+      },
+    },
+    ledger: { append(event) { events.push(event); } },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+
+  assert.equal(
+    await runtime.run({ requestId: "dated", requestEventId: "event", text: "Move them." }),
+    "Moved the tasks to Mon, 31 Aug 2026. The tool used `2026-08-31`.",
+  );
+  assert.equal(events.some(({ type, name }) => (
+    type === "response.presentation" && name === "User-facing dates formatted"
+  )), true);
+});
+
 test("an identical failed tool call is blocked while a materially corrected retry can run", async () => {
   const responses = [];
   let executions = 0;

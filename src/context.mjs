@@ -4,6 +4,10 @@ import {
   selectRelevantProfileFactQuestions,
 } from "./profile-fact-questions.mjs";
 import { localCalendarSnapshot, timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
+import {
+  presentationInstructions,
+  presentationProfileFactTypes,
+} from "./presentation-preferences.mjs";
 
 function bounded(value, maximum) {
   const text = String(value ?? "");
@@ -140,9 +144,9 @@ export class ContextBuilder {
           previousAssistantText,
         })
       : [];
-    const alwaysRelevantActiveTypes = activeProfileFacts.some(({ factType }) => factType === "time_zone")
-      ? ["time_zone"]
-      : [];
+    const activeProfileTypes = new Set(activeProfileFacts.map(({ factType }) => factType));
+    const alwaysRelevantActiveTypes = presentationProfileFactTypes
+      .filter((factType) => activeProfileTypes.has(factType));
     const relevantProfileTypes = [...new Set([
       ...relevantProfileQuestions.map(({ factType }) => factType),
       ...alwaysRelevantActiveTypes,
@@ -167,6 +171,8 @@ export class ContextBuilder {
         `- ${weekday}, ${localDate}${relative ? ` (${relative})` : ""}`
       )),
       "Resolve relative dates and named weekdays against this table. Preserve the requested weekday separately from prior records that happen to be scheduled today.",
+      "",
+      presentationInstructions,
       "",
     ];
     const referencedExchangeText = referencedExchangeContext(referencedExchanges);

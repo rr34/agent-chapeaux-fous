@@ -1,3 +1,5 @@
+import { formatDisplayDate, formatDisplayTime } from "../public/presentation-format.js";
+
 const weekdayNames = {
   MO: "Monday", TU: "Tuesday", WE: "Wednesday", TH: "Thursday",
   FR: "Friday", SA: "Saturday", SU: "Sunday",
@@ -8,20 +10,11 @@ function inputError(message, statusCode = 400) {
 }
 
 function calendarTime(date, timeZone) {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-  }).formatToParts(date);
-  const part = (type) => parts.find((candidate) => candidate.type === type)?.value ?? "";
-  return `${part("hour")}:${part("minute")}`;
+  return formatDisplayTime(date, { timeZone });
 }
 
 function calendarDate(date, timeZone, { includeTime = false } = {}) {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone, weekday: "short", day: "2-digit", month: "short", year: "numeric",
-  }).formatToParts(date);
-  const part = (type) => parts.find((candidate) => candidate.type === type)?.value ?? "";
-  const label = `${part("weekday")}, ${part("day")} ${part("month")} ${part("year")}`;
-  return includeTime ? `${label} at ${calendarTime(date, timeZone)}` : label;
+  return formatDisplayDate(date, { includeTime, timeZone });
 }
 
 function formattedWhen(event) {

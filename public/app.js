@@ -2,6 +2,7 @@ import {
   combineLocalDateTime,
   splitLocalDateTime,
 } from "./event-date-time.js";
+import { formatDisplayDate, formatDisplayTime } from "./presentation-format.js";
 import { markdownToSpeech, renderMarkdown } from "./markdown.js";
 import {
   calendarEventCellItem,
@@ -933,30 +934,6 @@ async function copyText(text, button = null) {
     button.textContent = "Copied";
     setTimeout(() => { button.textContent = original; }, 1200);
   }
-}
-
-function formatDisplayTime(value, { timeZone = null, fallback = "—" } = {}) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime())) return fallback;
-  const timeParts = new Intl.DateTimeFormat("en-GB", {
-    ...(timeZone ? { timeZone } : {}),
-    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-  }).formatToParts(date);
-  const part = (type) => timeParts.find((candidate) => candidate.type === type)?.value ?? "";
-  return `${part("hour")}:${part("minute")}`;
-}
-
-function formatDisplayDate(value, { includeTime = true, fallback = "—", timeZone = null } = {}) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime())) return fallback;
-  const dateParts = new Intl.DateTimeFormat("en-GB", {
-    ...(timeZone ? { timeZone } : {}),
-    weekday: "short", day: "2-digit", month: "short", year: "numeric",
-  }).formatToParts(date);
-  const part = (type) => dateParts.find((candidate) => candidate.type === type)?.value ?? "";
-  const dateLabel = `${part("weekday")}, ${part("day")} ${part("month")} ${part("year")}`;
-  if (!includeTime) return dateLabel;
-  return `${dateLabel} at ${formatDisplayTime(date, { timeZone, fallback })}`;
 }
 
 const recurrenceWeekdays = [

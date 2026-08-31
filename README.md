@@ -145,6 +145,15 @@ fallback when no structured state exists. Starting a new conversation creates a
 ledger boundary for both recent context and rolling state without deleting
 application history.
 
+Active `time_zone`, `time_format`, `date_format`, `measurement_system`, and
+`temperature_unit` profile facts are presentation preferences and accompany
+every model interaction. Human-facing concrete dates use `Mon, 31 Aug 2026`;
+the final response boundary deterministically normalizes unambiguous prose
+dates while preserving ISO values in code, JSON, timestamps, URLs, filenames,
+tool data, receipts, and schemas. Measurement and temperature preferences guide
+new prose and display conversions without rewriting authoritative stored or
+quoted values.
+
 Deferred operations returned by an MCP remain owned by that MCP. Agent Slayer
 does not copy their plans, payloads, readiness state, or lifecycle into a native
 table or artifact event. It derives a small opaque action reference from the

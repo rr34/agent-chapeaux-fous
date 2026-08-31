@@ -159,6 +159,43 @@ test("an active time zone is always supplied to native model conversations", asy
   assert.equal(built.nativeConversation.continuing, false);
 });
 
+test("active presentation preferences are supplied on every model conversation", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const profileFacts = new ProfileFacts({ store, ledger });
+  const prior = ledger.createRequest({ text: "Save presentation preferences" });
+  for (const [factType, text] of [
+    ["date_format", "Use Mon, 31 Aug 2026 for dates."],
+    ["time_format", "Use 24-hour time."],
+    ["measurement_system", "Use metric measurements."],
+    ["temperature_unit", "Use degrees Celsius."],
+  ]) {
+    profileFacts.set({ factType, text, replacesFactId: null }, {
+      requestId: prior.requestId,
+      requestEventId: prior.eventId,
+      callId: `preference-${factType}`,
+    });
+  }
+  const current = ledger.createRequest({ text: "Give me a status update" });
+  const built = await new ContextBuilder({
+    ledger,
+    profileFacts,
+    profileFactQuestions: await standardCatalog(),
+  }).build(current.requestId, "Give me a status update");
+
+  assert.deepEqual(built.relevantProfileTypes, [
+    "time_format", "date_format", "measurement_system", "temperature_unit",
+  ]);
+  assert.match(built.text, /# User-facing presentation preferences/);
+  assert.match(built.text, /render every concrete calendar date as `Mon, 31 Aug 2026`/);
+  assert.match(built.text, /date_format: Use Mon, 31 Aug 2026 for dates\./);
+  assert.match(built.text, /measurement_system: Use metric measurements\./);
+  assert.match(built.text, /temperature_unit: Use degrees Celsius\./);
+});
+
 test("repeatable types keep related people's facts independent", (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

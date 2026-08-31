@@ -267,9 +267,11 @@ test("calendar controls use simple visibility states and explicit 24-hour event 
   assert.match(document, /id="todo-duration-input"[^>]+placeholder="01:00"/);
   assert.match(application, /createTimingEditor/);
   assert.match(server, /\["\/event-date-time\.js", \["event-date-time\.js", "text\/javascript; charset=utf-8"\]\]/);
+  assert.match(server, /\["\/presentation-format\.js", \["presentation-format\.js", "text\/javascript; charset=utf-8"\]\]/);
   assert.match(server, /\["\/calendar-grid\.js", \["calendar-grid\.js", "text\/javascript; charset=utf-8"\]\]/);
   assert.match(server, /\["\/timing-editor\.js", \["timing-editor\.js", "text\/javascript; charset=utf-8"\]\]/);
   assert.match(serviceWorker, /"\/calendar-grid\.js"/);
+  assert.match(serviceWorker, /"\/presentation-format\.js"/);
   assert.match(serviceWorker, /"\/timing-editor\.js"/);
   assert.match(document, /name="username" autocomplete="username"[^>]+hidden/);
   assert.match(application, /durationMinutes: timing\.duration/);
@@ -801,11 +803,13 @@ test("clicking a to-do item's text copies the complete task text", () => {
 
 test("hard-coded UI datetimes use the TLOM 24-hour display convention", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
-  assert.match(application, /function formatDisplayDate/);
-  assert.match(application, /function formatDisplayTime/);
-  assert.match(application, /weekday: "short", day: "2-digit", month: "short", year: "numeric"/);
-  assert.match(application, /hour: "2-digit", minute: "2-digit", hourCycle: "h23"/);
-  assert.match(application, /`\$\{dateLabel\} at \$\{formatDisplayTime\(date, \{ timeZone, fallback \}\)\}`/);
+  const presentation = fs.readFileSync(path.join(root, "public", "presentation-format.js"), "utf8");
+  assert.match(application, /import \{ formatDisplayDate, formatDisplayTime \} from "\.\/presentation-format\.js"/);
+  assert.match(presentation, /export function formatDisplayDate/);
+  assert.match(presentation, /export function formatDisplayTime/);
+  assert.match(presentation, /weekday: "short", day: "2-digit", month: "short", year: "numeric"/);
+  assert.match(presentation, /hour: "2-digit", minute: "2-digit", hourCycle: "h23"/);
+  assert.match(presentation, /`\$\{dateLabel\} at \$\{formatDisplayTime\(date, \{ timeZone, fallback \}\)\}`/);
   assert.match(application, /formatDisplayDate\(value, \{ includeTime: false, timeZone \}\)/);
   assert.match(application, /return formatDisplayDate\(value\)/);
 });

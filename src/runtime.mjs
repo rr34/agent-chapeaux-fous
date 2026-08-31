@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import { canonicalizeAgentName } from "./agent-name.mjs";
+import { formatUserFacingDates } from "../public/presentation-format.js";
 import {
   completionReceiptFindings,
   deferredActionContractProblem,
@@ -885,15 +886,29 @@ export class SlayerRuntime {
   }
 
   async run(args) {
+    let rawResponse;
     if (
       this.config.turnWorkflowEnabled !== false
       && this.requestCompiler
       && !Array.isArray(args.capabilityOverride)
     ) {
-      return canonicalizeAgentName(await this.#runWorkflow(args));
+      rawResponse = await this.#runWorkflow(args);
+    } else {
+      const execution = await this.#runExecutor(args);
+      rawResponse = execution.text;
     }
-    const execution = await this.#runExecutor(args);
-    return canonicalizeAgentName(execution.text);
+    const presentedResponse = formatUserFacingDates(rawResponse);
+    if (presentedResponse !== rawResponse) {
+      this.ledger.append({
+        type: "response.presentation", phase: "point", status: "complete",
+        actorType: "service", actorName: "Presentation formatter",
+        channel: args.channel ?? "web", turnId: args.requestId,
+        name: "User-facing dates formatted",
+        content: "Formatted explicit prose dates as Mon, 31 Aug 2026",
+        payload: { dateStyle: "EEE, dd MMM yyyy" },
+      });
+    }
+    return canonicalizeAgentName(presentedResponse);
   }
 
   async #runExecutor({

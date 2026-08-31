@@ -180,6 +180,7 @@ const staticFiles = new Map([
   ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
   ["/calendar-grid.js", ["calendar-grid.js", "text/javascript; charset=utf-8"]],
   ["/event-date-time.js", ["event-date-time.js", "text/javascript; charset=utf-8"]],
+  ["/presentation-format.js", ["presentation-format.js", "text/javascript; charset=utf-8"]],
   ["/timing-editor.js", ["timing-editor.js", "text/javascript; charset=utf-8"]],
   ["/markdown.js", ["markdown.js", "text/javascript; charset=utf-8"]],
   ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
