@@ -278,6 +278,73 @@ test("structured execution starts with orientation-selected tools and expands ex
   );
 });
 
+test("a generated repeatable exchange exposes only its authorized exchange-add tool", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  const calls = [];
+  const register = (name, description) => registry.withCapability("interaction-guides").register({
+    name,
+    description,
+    annotations: { readOnlyHint: true },
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() {
+      calls.push(name);
+      return { created: true, guide: { interaction_guide_id: 9, version: 5 } };
+    },
+  });
+  register("interaction_guide_get", "Fetch the exact Exchange Inbox briefing.");
+  register("interaction_guide_step_add", "Append one exchange to a briefing.");
+  register("interaction_guide_create", "Create a new briefing.");
+  const source = { text: "Make the source exchange repeatable.", sourceEventSeqs: [9] };
+  const exchangeBrief = {
+    ...brief({ auditRequired: false }),
+    requestType: "new_objective",
+    responseMode: "act",
+    objective: "Append one repeatable exchange to Exchange Inbox.",
+    summary: "Create only one exchange in the generic inbox briefing.",
+    requiredCapabilities: ["interaction-guides"],
+    requiredTools: ["interaction_guide_step_add"],
+    requestedActions: [source],
+    completionCriteria: ["A successful interaction_guide_step_add receipt exists."],
+    evidence: [source],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      assert.match(payload.developerInstructions, /interaction_guide_step_add/);
+      assert.doesNotMatch(payload.developerInstructions, /interaction_guide_get/);
+      assert.doesNotMatch(payload.developerInstructions, /interaction_guide_create/);
+      return completed(JSON.stringify(exchangeBrief), 20);
+    }
+    assert.deepEqual(payload.tools.map(({ name }) => name), ["interaction_guide_step_add"]);
+    const added = await payload.onToolCall({
+      callId: "add-exchange",
+      tool: "interaction_guide_step_add",
+      arguments: { result_filter: identityResultFilter() },
+    });
+    assert.equal(added.ok, true);
+    return completed("Created exchange in Exchange Inbox.", 30);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-repeatable-exchange",
+    requestEventId: "event-current",
+    text: "Create one exchange in Exchange Inbox.",
+    allowedToolNames: ["interaction_guide_step_add"],
+  }), "Created exchange in Exchange Inbox.");
+  assert.deepEqual(calls, ["interaction_guide_step_add"]);
+  assert.equal(requests.length, 2);
+});
+
 test("a same-execution provider confirmation reference cannot be consumed by tool selection or repair", async () => {
   const requests = [];
   const ledger = fakeLedger();

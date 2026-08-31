@@ -49,10 +49,19 @@ test("page-managed guide definitions are recorded as user actions rather than to
   ]);
 });
 
-test("the page atomically edits an exchange and changes its briefing", (context) => {
+test("the page atomically edits an exchange and appends it to its new briefing", (context) => {
   const { store, guides } = harness(context);
   const source = guides.create({ name: "Source briefing" });
   const target = guides.create({ name: "Target briefing" });
+  const targetFirst = guides.addStep({
+    guideId: target.guide.id,
+    expectedVersion: target.guide.version,
+    stepNumber: 2,
+    openingText: "Already in the destination.",
+    instructionsText: null,
+    completionMode: "response_valid",
+    enabled: true,
+  });
   const added = guides.addStep({
     guideId: source.guide.id,
     expectedVersion: source.guide.version,
@@ -74,8 +83,8 @@ test("the page atomically edits an exchange and changes its briefing", (context)
     stepId: added.step.id,
     expectedVersion: added.guide.version,
     targetGuideId: target.guide.id,
-    expectedTargetVersion: target.guide.version,
-    stepNumber: 4,
+    expectedTargetVersion: targetFirst.guide.version,
+    stepNumber: 2,
     openingText: "What should move now?",
     instructionsText: "Revised instructions.",
     completionMode: "user_advances",
@@ -85,10 +94,10 @@ test("the page atomically edits an exchange and changes its briefing", (context)
   assert.equal(result.updated, true);
   assert.equal(result.moved, true);
   assert.equal(result.sourceGuide.version, 3);
-  assert.equal(result.targetGuide.version, 2);
+  assert.equal(result.targetGuide.version, 3);
   assert.equal(result.guide.id, target.guide.id);
   assert.equal(result.step.guideId, target.guide.id);
-  assert.equal(result.step.stepNumber, 4);
+  assert.equal(result.step.stepNumber, 3);
   assert.equal(result.step.openingText, "What should move now?");
   assert.equal(result.step.instructionsText, "Revised instructions.");
   assert.deepEqual(result.step.answers, {});
@@ -96,7 +105,13 @@ test("the page atomically edits an exchange and changes its briefing", (context)
   assert.equal(result.step.completionMode, "user_advances");
   assert.equal(result.step.enabled, false);
   assert.deepEqual(guides.get({ guideId: source.guide.id }).steps, []);
-  assert.equal(guides.get({ guideId: target.guide.id }).steps[0].id, added.step.id);
+  assert.deepEqual(
+    guides.get({ guideId: target.guide.id }).steps.map(({ id, stepNumber }) => ({ id, stepNumber })),
+    [
+      { id: targetFirst.step.id, stepNumber: 2 },
+      { id: added.step.id, stepNumber: 3 },
+    ],
+  );
   const event = store.requireReady().prepare(`
     SELECT event_type, actor_type, actor_name
     FROM activity_events
@@ -148,6 +163,42 @@ test("the page deletes one exact exchange with version protection and a literal 
     stepId: added.step.id,
     expectedVersion: added.guide.version,
   }), /does not exist/);
+});
+
+test("unspecified briefing additions reuse the generic Exchange Inbox and append atomically", async (context) => {
+  const { registry } = harness(context);
+  const exchange = (opening_text) => ({
+    interaction_guide_id: null,
+    expected_version: null,
+    step_number: null,
+    opening_text,
+    instructions_text: null,
+    completion_mode: "response_valid",
+    enabled: true,
+  });
+
+  const first = await registry.execute(
+    "interaction_guide_step_add",
+    exchange("What should this repeatable exchange collect?"),
+  );
+  const second = await registry.execute(
+    "interaction_guide_step_add",
+    exchange("What should the next repeatable exchange collect?"),
+  );
+
+  assert.equal(first.default_briefing, true);
+  assert.equal(first.default_briefing_created, true);
+  assert.equal(first.guide.name, "Exchange Inbox");
+  assert.equal(first.step.step_number, 1);
+  assert.equal(second.default_briefing, true);
+  assert.equal(second.default_briefing_created, false);
+  assert.equal(second.guide.interaction_guide_id, first.guide.interaction_guide_id);
+  assert.equal(second.step.step_number, 2);
+  const fetched = await registry.execute("interaction_guide_get", {
+    interaction_guide_id: first.guide.interaction_guide_id,
+    name: null,
+  });
+  assert.deepEqual(fetched.guide.steps.map(({ step_number }) => step_number), [1, 2]);
 });
 
 test("interaction guides keep list results metadata-only and use versioned updates", async (context) => {

@@ -22,6 +22,13 @@ Use the user's requested number; do not invent transition numbers or store a
 next-step pointer. The application remains on the current step until completion
 and then selects the next higher enabled number.
 
+The **Make this exchange repeatable** action is the exception: it creates only
+one exchange without specifying a briefing. `interaction_guide_step_add`
+atomically uses or creates the generic **Exchange Inbox** briefing and appends
+the exchange after its highest existing number. Never create a separate
+briefing for the source exchange. The inbox is a generic entry point; the user
+can later move each exchange into its intended briefing.
+
 When building a briefing from one completed source exchange, repeat that
 exchange's concrete result rather than broadening it into a category workflow.
 Keep the exact named inputs, their count, meanings, units, and fixed destination

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseStructuredModelOutput, turnBriefSchema } from "../src/turn-brief.mjs";
+import {
+  orientationInstructions,
+  parseStructuredModelOutput,
+  turnBriefSchema,
+} from "../src/turn-brief.mjs";
 
 function validBrief() {
   const sourced = { text: "Create the offered reminder.", sourceEventSeqs: [4, 9] };
@@ -90,4 +94,11 @@ test("TurnBrief parsing enforces source references and unique capability selecti
     () => parseStructuredModelOutput(JSON.stringify(contextual), contextSchema, "Orientation"),
     /contextRequests\[0\] must be one of/,
   );
+});
+
+test("orientation treats conversation and focused knowledge as evidence for an actual answer", () => {
+  assert.match(orientationInstructions, /exact recent conversation entries as evidence/);
+  assert.match(orientationInstructions, /leave requiredTools empty/);
+  assert.match(orientationInstructions, /focused knowledge tool supplies evidence, not final wording/);
+  assert.match(orientationInstructions, /answering the user's actual question/);
 });

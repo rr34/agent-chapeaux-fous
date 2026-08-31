@@ -124,14 +124,14 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_step_add",
-    description: "Add one numbered exchange to a briefing after reading its current version. The parent internal guide version is the concurrency boundary and increments on success. answers_json starts as an empty object.",
+    description: "Add one numbered exchange to a briefing. For an explicitly selected briefing, supply its ID, current version, and requested number. When no briefing is specified, set interaction_guide_id, expected_version, and step_number to null; the owning service atomically uses or creates the generic Exchange Inbox and appends the exchange at its next number. The parent version increments and answers_json starts as an empty object.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        interaction_guide_id: { type: "integer", minimum: 1 },
-        expected_version: { type: "integer", minimum: 1 },
-        step_number: { type: "integer", minimum: 1 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+        expected_version: { type: ["integer", "null"], minimum: 1 },
+        step_number: { type: ["integer", "null"], minimum: 1 },
         opening_text: { type: "string", minLength: 1, maxLength: 10_000 },
         instructions_text: { type: ["string", "null"], minLength: 1, maxLength: 50_000 },
         completion_mode: {
@@ -155,7 +155,11 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         enabled: argumentsObject.enabled,
       }, context);
       return stepResult(schemaSemantics, context, {
-        created: result.created, guide: databaseGuide(result.guide), step: databaseStep(result.step),
+        created: result.created,
+        default_briefing: result.defaultGuide,
+        default_briefing_created: result.defaultGuideCreated,
+        guide: databaseGuide(result.guide),
+        step: databaseStep(result.step),
       }, "interaction_guide_step_add", "Return the newly added numbered exchange and new parent version");
     },
   });

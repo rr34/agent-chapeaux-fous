@@ -489,7 +489,18 @@ export class SlayerRuntime {
       if (remaining <= 0) throw new Error(`Turn workflow timed out after ${configuredTimeoutMs}ms`);
       return remaining;
     };
-    const availableTools = this.registry.toolDefinitions();
+    const registeredTools = this.registry.toolDefinitions();
+    const allowedToolNames = Array.isArray(args.allowedToolNames)
+      ? new Set(args.allowedToolNames)
+      : null;
+    const availableTools = allowedToolNames
+      ? registeredTools.filter(({ name }) => allowedToolNames.has(name))
+      : registeredTools;
+    if (allowedToolNames && availableTools.length !== allowedToolNames.size) {
+      const availableNames = new Set(availableTools.map(({ name }) => name));
+      const unavailable = [...allowedToolNames].filter((name) => !availableNames.has(name));
+      throw new Error(`Authorized request tool is unavailable: ${unavailable.join(", ")}`);
+    }
     const catalog = requestCapabilityCatalog(availableTools);
     const routing = await this.requestCompiler.compile({
       tools: availableTools,
@@ -824,11 +835,23 @@ export class SlayerRuntime {
     model = null, effort = null, supplementalInstructions = "",
     capabilityOverride = null, workflowStep = null, workflowStepLabel = null, stepIndex = null,
     toolOverride = null,
+    allowedToolNames: allowedToolNameList = null,
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
     activeActionReferences = [], confirmedActionReferences = [],
     preparedCapabilityContext = null,
   }) {
-    const availableTools = this.registry.toolDefinitions();
+    const registeredTools = this.registry.toolDefinitions();
+    const allowedToolNames = Array.isArray(allowedToolNameList)
+      ? new Set(allowedToolNameList)
+      : null;
+    const availableTools = allowedToolNames
+      ? registeredTools.filter(({ name }) => allowedToolNames.has(name))
+      : registeredTools;
+    if (allowedToolNames && availableTools.length !== allowedToolNames.size) {
+      const availableNames = new Set(availableTools.map(({ name }) => name));
+      const unavailable = [...allowedToolNames].filter((name) => !availableNames.has(name));
+      throw new Error(`Authorized request tool is unavailable: ${unavailable.join(", ")}`);
+    }
     const priorConversation = !isolatedConversation && typeof this.ledger.currentModelConversation === "function"
       ? this.ledger.currentModelConversation()
       : { conversationId: null, markerEventSeq: conversationStartEventSeq, capabilities: [] };

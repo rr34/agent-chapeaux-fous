@@ -31,8 +31,23 @@ test("the recorder starts as a microphone and shows live input while recording",
   assert.match(document, /id="record-meter"[^>]+class="record-meter"[\s\S]+<span><\/span>/);
   assert.match(styles, /\.record-button\.recording \.record-microphone \{ display: none; \}/);
   assert.match(styles, /\.record-button\.recording \.record-meter \{ display: flex; \}/);
+  assert.match(styles, /\.record-microphone \{[^}]+fill: var\(--brand-mid\)/);
   assert.match(application, /createMediaStreamSource\(stream\)/);
   assert.match(application, /getByteTimeDomainData\(recordingLevelData\)/);
-  assert.match(application, /recordLabel\.textContent = "Recording · tap to send"/);
-  assert.match(application, /record\.setAttribute\("aria-label", "Send recording"\)/);
+});
+
+test("recording takes over the composer with cancel, live audio, and the existing send button", () => {
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const inputRow = document.slice(document.indexOf('class="composer-input-row"'), document.indexOf('class="composer-actions"'));
+
+  assert.ok(inputRow.indexOf('id="cancel-recording"') < inputRow.indexOf('id="record"'));
+  assert.ok(inputRow.indexOf('id="record"') < inputRow.indexOf('id="send"'));
+  assert.match(styles, /\.composer\.recording \.composer-input-row \{[^}]+grid-template-areas: "cancel recorder send"/);
+  assert.match(styles, /\.composer\.recording \.composer-input-row textarea \{ display: none; \}/);
+  assert.match(styles, /\.composer\.recording \.composer-actions \{ display: none; \}/);
+  assert.match(application, /elements\.send\.addEventListener\("click"[\s\S]+sendRecording\(\)/);
+  assert.match(application, /function sendRecording\(\)[\s\S]+recorder\.stop\(\)/);
+  assert.match(application, /elements\.composer\.classList\.add\("recording"\)/);
 });

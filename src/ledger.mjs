@@ -401,21 +401,17 @@ export class Ledger {
     const explicitHats = compiled?.payload.capabilitySelection.explicitHats ?? [];
     const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
     const requestKind = request.payload?.requestKind ?? null;
-    const structuredGuideCreation = requestKind === "structured_interaction_generation"
-      ? [...events].reverse().find((event) => event.type === "tool.result"
-        && event.status === "complete" && event.name === "interaction_guide_create")
-      : null;
     const structuredGuideStep = requestKind === "structured_interaction_generation"
       ? events.find((event) => event.type === "tool.result"
         && event.status === "complete" && event.name === "interaction_guide_step_add")
       : null;
     const structuredInteractionGuideId = Number(
-      structuredGuideCreation?.payload?.result?.guide?.interaction_guide_id
-      ?? structuredGuideCreation?.payload?.result?.guide?.id,
+      structuredGuideStep?.payload?.result?.guide?.interaction_guide_id
+      ?? structuredGuideStep?.payload?.result?.guide?.id,
     );
     const structuredInteractionGenerationStatus = requestKind === "structured_interaction_generation"
       ? terminal
-        ? structuredGuideCreation && structuredGuideStep
+        ? structuredGuideStep
           ? "complete"
           : "error"
         : status

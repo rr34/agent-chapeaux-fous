@@ -37,7 +37,6 @@ const elements = {
   runLimitsDefaults: document.querySelector("#run-limits-defaults"),
   record: document.querySelector("#record"),
   recordMeter: document.querySelector("#record-meter"),
-  recordingStatus: document.querySelector("#recording-status"),
   cancelRecording: document.querySelector("#cancel-recording"),
   recordLabel: document.querySelector("#record-label"),
   recordTimer: document.querySelector("#record-timer"),
@@ -1082,6 +1081,25 @@ function startRecordingMeter(stream) {
   }
 }
 
+function sendRecording() {
+  if (recorder?.state !== "recording") return false;
+  recordingRespondSilently = elements.respondSilently.checked;
+  prepareSpeechOutput(recordingRespondSilently);
+  clearInterval(recordingTimer);
+  stopRecordingMeter();
+  recorder.stop();
+  elements.composer.classList.remove("recording");
+  elements.record.disabled = true;
+  elements.send.disabled = true;
+  elements.cancelRecording.hidden = true;
+  elements.respondSilently.disabled = true;
+  elements.record.classList.remove("recording");
+  elements.record.setAttribute("aria-label", "Saving recording");
+  elements.record.title = "Saving recording";
+  elements.status.textContent = "Saving recording…";
+  return true;
+}
+
 function formatDuration(milliseconds) {
   const seconds = Number(milliseconds) / 1000;
   if (!Number.isFinite(seconds)) return "—";
@@ -1398,7 +1416,7 @@ async function downloadInteractionVideo(fileId, button) {
 async function saveAsStructuredInteraction(requestId, button) {
   button.disabled = true;
   const original = button.textContent;
-  button.textContent = "Creating…";
+  button.textContent = "Creating exchange…";
   try {
     const created = await api(`/api/requests/${encodeURIComponent(requestId)}/structured-interaction`, {
       method: "POST",
@@ -1407,10 +1425,10 @@ async function saveAsStructuredInteraction(requestId, button) {
     });
     pendingRunLimits = null;
     updateRunLimitsSummary();
-    elements.status.textContent = `Briefing creation request ${created.requestId.slice(0, 8)} queued from exchange ${requestId.slice(0, 8)}.`;
+    elements.status.textContent = `Exchange creation request ${created.requestId.slice(0, 8)} queued from exchange ${requestId.slice(0, 8)}.`;
     await loadRequests({ force: true, followLatest: true });
   } catch (error) {
-    elements.status.textContent = error.message || "Could not create the briefing.";
+    elements.status.textContent = error.message || "Could not create the exchange.";
     button.textContent = original;
     button.disabled = false;
   }
@@ -1528,11 +1546,11 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   const generationStatus = structuredGenerationStatus?.status ?? null;
   structuredButton.disabled = generationStatus === "queued" || generationStatus === "processing";
   structuredButton.textContent = generationStatus === "complete"
-    ? "Open briefing"
+    ? "Open exchange"
     : generationStatus === "queued" || generationStatus === "processing"
-      ? "Creating briefing…"
+      ? "Creating exchange…"
       : generationStatus === "error"
-        ? "Retry briefing creation"
+        ? "Retry exchange creation"
         : "Make this exchange repeatable";
   if (structuredGenerationStatus?.guideId) {
     structuredButton.dataset.guideId = String(structuredGenerationStatus.guideId);
@@ -4571,7 +4589,7 @@ function openInteractionStepEditor(step = null) {
   }
   elements.interactionStepGuide.value = String(step?.guideId ?? guide.id);
   elements.interactionStepGuideHint.textContent = step
-    ? "Changing the briefing moves this exchange. Saved run answers and progress reset; ledger history remains available."
+    ? "Changing the briefing moves this exchange to the end. Saved run answers and progress reset; ledger history remains available."
     : "Choose which briefing will contain this exchange.";
   elements.interactionStepNumber.value = step?.stepNumber
     ?? Math.max(0, ...guide.steps.map(({ stepNumber }) => stepNumber)) + 1;
@@ -4975,24 +4993,13 @@ elements.runLimitsForm.addEventListener("submit", applyRunLimits);
 elements.runLimitsDefaults.addEventListener("click", clearRunLimits);
 elements.runToolCallsUnlimited.addEventListener("change", updateRunLimitFields);
 elements.runTimeUnlimited.addEventListener("change", updateRunLimitFields);
+elements.send.addEventListener("click", (event) => {
+  if (!sendRecording()) return;
+  event.preventDefault();
+});
 
 elements.record.addEventListener("click", async () => {
-  if (recorder?.state === "recording") {
-    recordingRespondSilently = elements.respondSilently.checked;
-    prepareSpeechOutput(recordingRespondSilently);
-    clearInterval(recordingTimer);
-    stopRecordingMeter();
-    recorder.stop();
-    elements.record.disabled = true;
-    elements.cancelRecording.hidden = true;
-    elements.respondSilently.disabled = true;
-    elements.record.classList.remove("recording");
-    elements.recordingStatus.classList.remove("active");
-    elements.record.setAttribute("aria-label", "Saving recording");
-    elements.record.title = "Saving recording";
-    elements.recordLabel.textContent = "Saving recording…";
-    return;
-  }
+  if (recorder?.state === "recording") return;
   try {
     recordingStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -5012,14 +5019,15 @@ elements.record.addEventListener("click", async () => {
         recordingRespondSilently = false;
         recordingCancelled = false;
         elements.record.disabled = false;
+        elements.send.disabled = false;
         elements.cancelRecording.disabled = false;
         elements.cancelRecording.hidden = true;
         elements.respondSilently.disabled = false;
+        elements.composer.classList.remove("recording");
         elements.record.classList.remove("recording");
-        elements.recordingStatus.classList.remove("active");
         elements.record.setAttribute("aria-label", "Start recording");
         elements.record.title = "Record a voice request";
-        elements.recordLabel.textContent = "Tap microphone to record";
+        elements.recordLabel.textContent = "Recording";
         elements.recordTimer.textContent = "00:00";
         elements.status.textContent = "Recording cancelled.";
         return;
@@ -5041,25 +5049,26 @@ elements.record.addEventListener("click", async () => {
         recordingRespondSilently = false;
         recordingCancelled = false;
         elements.record.disabled = false;
+        elements.send.disabled = false;
         elements.cancelRecording.disabled = false;
         elements.cancelRecording.hidden = true;
         elements.respondSilently.disabled = false;
+        elements.composer.classList.remove("recording");
         elements.record.classList.remove("recording");
-        elements.recordingStatus.classList.remove("active");
         elements.record.setAttribute("aria-label", "Start recording");
         elements.record.title = "Record a voice request";
-        elements.recordLabel.textContent = "Tap microphone to record";
+        elements.recordLabel.textContent = "Recording";
         elements.recordTimer.textContent = "00:00";
       }
     });
     recorder.start(1000);
     recordingStartedAt = Date.now();
+    elements.composer.classList.add("recording");
     elements.record.classList.add("recording");
-    elements.recordingStatus.classList.add("active");
     elements.cancelRecording.hidden = false;
-    elements.record.setAttribute("aria-label", "Send recording");
-    elements.record.title = "Send recording";
-    elements.recordLabel.textContent = "Recording · tap to send";
+    elements.record.setAttribute("aria-label", "Microphone input level");
+    elements.record.title = "Microphone input level";
+    elements.recordLabel.textContent = "Recording";
     elements.recordTimer.textContent = "00:00";
     startRecordingMeter(recordingStream);
     recordingTimer = setInterval(() => {
@@ -5072,12 +5081,12 @@ elements.record.addEventListener("click", async () => {
     recorder = null;
     recordingCancelled = false;
     stopRecordingMeter();
+    elements.composer.classList.remove("recording");
     elements.record.classList.remove("recording");
-    elements.recordingStatus.classList.remove("active");
     elements.cancelRecording.hidden = true;
     elements.record.setAttribute("aria-label", "Start recording");
     elements.record.title = "Record a voice request";
-    elements.recordLabel.textContent = "Tap microphone to record";
+    elements.recordLabel.textContent = "Recording";
     elements.recordTimer.textContent = "00:00";
     elements.status.textContent = error.message;
   }
@@ -5089,9 +5098,10 @@ elements.cancelRecording.addEventListener("click", () => {
   clearInterval(recordingTimer);
   stopRecordingMeter();
   elements.record.disabled = true;
+  elements.send.disabled = true;
   elements.cancelRecording.disabled = true;
+  elements.composer.classList.remove("recording");
   elements.record.classList.remove("recording");
-  elements.recordingStatus.classList.remove("active");
   elements.record.setAttribute("aria-label", "Cancelling recording");
   elements.record.title = "Cancelling recording";
   elements.recordLabel.textContent = "Cancelling…";

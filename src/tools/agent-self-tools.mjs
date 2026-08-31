@@ -1,4 +1,4 @@
-import { agentSelfAnswers, agentSelfKnowledge } from "../agent-self-knowledge.mjs";
+import { agentSelfKnowledge, agentSelfTopicKnowledge } from "../agent-self-knowledge.mjs";
 import { requestCapabilityCatalog } from "../request-compiler.mjs";
 
 function currentChannel(channel) {
@@ -165,20 +165,21 @@ export function registerAgentSelfTools(registry, {
   integrationHealth = () => ({}),
 } = {}) {
   registry.withCapability("self").register({
-    name: "agent_self_answer",
-    title: "Answer a direct Chapeaux Fous identity question",
-    description: "Return exactly one canonical first-person answer for who Chapeaux Fous is, whether it is self-aware, whether it wants to take over the world, how it generates videos of its chats, or how a user creates one. Use this instead of the large infrastructure inventory for those direct questions. Actions: READ.",
+    name: "agent_self_knowledge",
+    title: "Read focused Chapeaux Fous self-knowledge",
+    description: "Read focused current facts about Chapeaux Fous's identity, self-conception, video generation, or user video workflow. Use when the request needs those facts, including related follow-ups; the result is evidence from which to answer the actual question, never a canned response to return verbatim. Actions: READ.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        question: { type: "string", enum: ["who_are_you", "self_aware", "world_takeover", "video_generation", "video_user_creation"] },
+        topic: { type: "string", enum: ["identity", "self_awareness", "world_takeover", "video_generation", "video_user_creation"] },
       },
-      required: ["question"],
+      required: ["topic"],
     },
     outputSchema: exactObject({
-      question: { type: "string", enum: ["who_are_you", "self_aware", "world_takeover", "video_generation", "video_user_creation"] },
-      answer: { type: "string" },
+      topic: { type: "string", enum: ["identity", "self_awareness", "world_takeover", "video_generation", "video_user_creation"] },
+      facts: { type: "array", minItems: 1, items: { type: "string" } },
+      sourceRefs: { type: "array", minItems: 1, items: { type: "string" } },
     }),
     annotations: {
       readOnlyHint: true,
@@ -186,22 +187,15 @@ export function registerAgentSelfTools(registry, {
       idempotentHint: true,
       openWorldHint: false,
     },
-    execute({ question }) {
-      const answer = {
-        who_are_you: agentSelfAnswers.whoAreYou,
-        self_aware: agentSelfAnswers.selfAware,
-        world_takeover: agentSelfAnswers.worldTakeover,
-        video_generation: agentSelfAnswers.videoGeneration,
-        video_user_creation: agentSelfAnswers.videoUserCreation,
-      }[question];
-      return { question, answer };
+    execute({ topic }) {
+      return { topic, ...agentSelfTopicKnowledge[topic] };
     },
   });
 
   registry.withCapability("self").register({
     name: "agent_self_describe",
     title: "Describe Chapeaux Fous",
-    description: "Return Chapeaux Fous's detailed infrastructure, request path, runtime, integrations, sources, and live tool inventory. Use for infrastructure and transport explanations; use agent_self_answer for direct identity, self-awareness, world-takeover, or chat-video-generation questions. Actions: READ.",
+    description: "Return Chapeaux Fous's detailed infrastructure, request path, runtime, integrations, sources, and live tool inventory. Use for broad infrastructure and transport explanations; use agent_self_knowledge when a focused identity, self-conception, or video topic is enough. Actions: READ.",
     parameters: { type: "object", additionalProperties: false, properties: {} },
     outputSchema,
     annotations: {

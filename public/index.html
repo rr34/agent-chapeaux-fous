@@ -456,6 +456,7 @@
     <h2 id="request-heading" class="sr-only">New request</h2>
     <form id="request-form">
       <div class="composer-input-row">
+        <button id="cancel-recording" class="secondary compact cancel-recording" type="button" aria-label="Cancel recording" title="Cancel recording" hidden><span aria-hidden="true">×</span><span>Cancel</span></button>
         <textarea id="request-text" rows="2" placeholder="Tell Chapeaux Fous what to do…" required></textarea>
         <div class="voice-recorder">
           <button id="record" class="record-button" type="button" aria-label="Start recording" title="Record a voice request">
@@ -466,6 +467,10 @@
               <span></span><span></span><span></span><span></span><span></span>
             </span>
           </button>
+          <span class="recording-readout" aria-live="polite">
+            <span id="record-label" class="record-label">Recording</span>
+            <span id="record-timer" class="record-timer">00:00</span>
+          </span>
         </div>
         <button id="send" class="composer-send" type="submit">Send</button>
       </div>
@@ -482,11 +487,6 @@
         </div>
         <div class="composer-feedback">
           <p id="composer-status" class="status" role="status"></p>
-          <div id="recording-status" class="recording-status" aria-live="polite">
-            <span id="record-label" class="record-label">Tap microphone to record</span>
-            <span id="record-timer" class="record-timer">00:00</span>
-            <button id="cancel-recording" class="secondary compact cancel-recording" type="button" aria-label="Cancel recording" title="Cancel recording" hidden><span aria-hidden="true">×</span><span>Cancel</span></button>
-          </div>
         </div>
       </div>
     </form>

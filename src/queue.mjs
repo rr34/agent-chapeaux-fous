@@ -1,4 +1,5 @@
 import { readRequestAttachment, safeMediaPath } from "./request-attachments.mjs";
+import { repeatableExchangeToolNames } from "./structured-interaction-generation.mjs";
 
 export class RequestQueue {
   constructor({
@@ -97,6 +98,9 @@ export class RequestQueue {
         runLimits: request.payload?.runLimits ?? null,
         model: request.payload?.model ?? null,
         effort: request.payload?.effort ?? null,
+        allowedToolNames: request.payload?.requestKind === "structured_interaction_generation"
+          ? repeatableExchangeToolNames
+          : null,
         supplementalInstructions: "",
       });
       this.ledger.finish(request, response);

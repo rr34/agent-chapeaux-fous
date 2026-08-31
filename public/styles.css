@@ -224,6 +224,12 @@ section { margin-bottom: 1rem; }
 }
 .composer-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 46px auto; align-items: stretch; gap: .5rem; }
 .voice-recorder { display: grid; place-items: center; }
+.composer.recording .composer-input-row { grid-template-areas: "cancel recorder send"; grid-template-columns: auto minmax(0, 1fr) auto; }
+.composer.recording .composer-input-row textarea { display: none; }
+.composer.recording .cancel-recording { grid-area: cancel; }
+.composer.recording .voice-recorder { grid-area: recorder; display: flex; align-items: center; justify-content: center; gap: .55rem; }
+.composer.recording .composer-send { grid-area: send; }
+.composer.recording .composer-actions { display: none; }
 .record-button {
   display: grid;
   place-items: center;
@@ -240,7 +246,7 @@ section { margin-bottom: 1rem; }
 .record-button:hover { background: linear-gradient(145deg, #3c312a, #1c1714); }
 .record-button:focus-visible { outline: 3px solid rgba(255, 91, 53, .55); outline-offset: 4px; }
 .record-button:disabled { filter: grayscale(1); opacity: .45; }
-.record-microphone { width: 23px; height: 23px; fill: #ff5b35; }
+.record-microphone { width: 23px; height: 23px; fill: var(--brand-mid); }
 .record-meter { display: none; align-items: center; justify-content: center; width: 28px; height: 24px; gap: 2px; }
 .record-meter span {
   width: 3px;
@@ -250,7 +256,7 @@ section { margin-bottom: 1rem; }
   transform: scaleY(.14);
   transition: transform 70ms linear;
 }
-.record-button.recording { background: #d83a20; animation: record-pulse 1.6s infinite; }
+.record-button.recording { background: #d83a20; animation: record-pulse 1.6s infinite; pointer-events: none; }
 .record-button.recording:hover { background: #bf301a; }
 .record-button.recording .record-microphone { display: none; }
 .record-button.recording .record-meter { display: flex; }
@@ -259,14 +265,15 @@ section { margin-bottom: 1rem; }
 }
 .record-label { color: var(--muted); font-size: .72rem; }
 .record-timer { color: var(--muted); font-size: .72rem; font-variant-numeric: tabular-nums; }
-.recording-status.active .record-label, .recording-status.active .record-timer { color: #b32c17; font-weight: 600; }
-.cancel-recording { display: inline-flex; align-items: center; gap: .25rem; min-height: 28px; padding: .25rem .5rem; }
+.recording-readout { display: none; line-height: 1.15; }
+.composer.recording .recording-readout { display: grid; }
+.composer.recording .record-label, .composer.recording .record-timer { color: #b32c17; font-weight: 600; }
+.cancel-recording { display: inline-flex; align-items: center; gap: .25rem; min-height: 46px; padding: .45rem .7rem; }
 .cancel-recording > span:first-child { font-size: 1.05rem; line-height: .8; }
 .cancel-recording[hidden] { display: none; }
 .composer-feedback { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; min-width: 0; min-height: 1.3rem; }
 .composer-feedback .status { min-width: 0; margin: 0; overflow: hidden; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .composer-feedback .status:empty { display: none; }
-.recording-status { display: flex; align-items: center; gap: .45rem; flex: 0 0 auto; }
 .composer-hats-link { margin: 0; }
 
 textarea, input {
@@ -985,6 +992,7 @@ dialog h2, dialog p { margin-bottom: 0; }
   .record-button { width: 42px; height: 42px; min-height: 42px; }
   .composer textarea { height: 42px; min-height: 42px; padding: .6rem .7rem; }
   .composer-send { min-height: 42px; padding-inline: .7rem; }
+  .cancel-recording { min-height: 42px; padding-inline: .55rem; }
   .composer-actions { align-items: center; flex-wrap: wrap; }
   .request-attachment-control { width: 100%; }
   .request-file-label { max-width: calc(100vw - 10rem); }
@@ -996,7 +1004,6 @@ dialog h2, dialog p { margin-bottom: 0; }
   .request-run-controls { justify-content: flex-start; width: 100%; }
   .respond-silently-control { margin-right: auto; }
   .run-limits-summary { order: 3; width: 100%; text-align: left; }
-  .recording-status:not(.active) .record-label { display: none; }
   .run-limit-fieldset { grid-template-columns: 1fr; }
   main { padding: .7rem .7rem calc(var(--composer-height, 14rem) + .7rem); }
   .requests { border-radius: 13px; }

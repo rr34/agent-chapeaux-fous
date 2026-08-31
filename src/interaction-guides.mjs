@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 const guideStatuses = new Set(["active", "archived"]);
 const completionModes = new Set(["response_valid", "user_advances", "tool_receipt"]);
 
+export const defaultInteractionGuideName = "Exchange Inbox";
+
 function identifier(value, label = "Briefing ID") {
   const result = Number(value);
   if (!Number.isSafeInteger(result) || result < 1) throw new Error(`${label} must be a positive integer`);
@@ -215,7 +217,13 @@ export class InteractionGuides {
     guideId, expectedVersion, stepNumber, openingText,
     instructionsText = null, completionMode = "response_valid", enabled = true,
   }, context = {}) {
-    const selectedStepNumber = identifier(stepNumber, "Briefing exchange number");
+    const useDefaultGuide = guideId == null;
+    if (useDefaultGuide && (expectedVersion != null || stepNumber != null)) {
+      throw new Error("Default briefing exchange additions require null briefing ID, version, and exchange number");
+    }
+    const selectedStepNumber = useDefaultGuide
+      ? null
+      : identifier(stepNumber, "Briefing exchange number");
     if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
     if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
     const values = {
@@ -225,7 +233,57 @@ export class InteractionGuides {
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
     try {
-      const guideBefore = this.#guideForDefinitionEdit(database, guideId, expectedVersion);
+      let defaultGuideCreated = false;
+      let guideBefore;
+      let assignedStepNumber = selectedStepNumber;
+      if (useDefaultGuide) {
+        guideBefore = database.prepare(
+          "SELECT * FROM interaction_guides WHERE name = ? COLLATE NOCASE",
+        ).get(defaultInteractionGuideName);
+        if (!guideBefore) {
+          guideBefore = database.prepare(`
+            INSERT INTO interaction_guides (name)
+            VALUES (?)
+            RETURNING *
+          `).get(defaultInteractionGuideName);
+          defaultGuideCreated = true;
+          const guide = publicGuide(guideBefore);
+          this.ledger.append({
+            type: "interaction_guide.created", status: "complete",
+            ...ledgerActor(context, "interaction_guide_step_add"), turnId: context.requestId,
+            operationId: context.callId, name: "Default briefing created",
+            content: guide.name, payload: { guide }, subjectType: "interaction_guide",
+            subjectId: String(guide.id),
+          });
+        } else if (guideBefore.status === "archived") {
+          const archivedGuide = publicGuide(guideBefore);
+          guideBefore = database.prepare(`
+            UPDATE interaction_guides
+            SET status = 'active',
+                updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE interaction_guide_id = ?
+            RETURNING *
+          `).get(guideBefore.interaction_guide_id);
+          const guide = publicGuide(guideBefore);
+          this.ledger.append({
+            type: "interaction_guide.reactivated", status: "complete",
+            ...ledgerActor(context, "interaction_guide_step_add"), turnId: context.requestId,
+            operationId: context.callId, name: "Default briefing reactivated",
+            content: guide.name, payload: { before: archivedGuide, guide },
+            subjectType: "interaction_guide", subjectId: String(guide.id),
+          });
+        }
+        if (this.#activeRun(database, Number(guideBefore.interaction_guide_id))) {
+          throw conflict("Finish or cancel the active Exchange Inbox briefing before adding another exchange");
+        }
+        assignedStepNumber = Number(database.prepare(`
+          SELECT COALESCE(MAX(step_number), 0) + 1 AS step_number
+          FROM interaction_guide_steps
+          WHERE interaction_guide_id = ?
+        `).get(guideBefore.interaction_guide_id).step_number);
+      } else {
+        guideBefore = this.#guideForDefinitionEdit(database, guideId, expectedVersion);
+      }
       const row = database.prepare(`
         INSERT INTO interaction_guide_steps (
           interaction_guide_id, step_number, opening_text, instructions_text,
@@ -233,11 +291,11 @@ export class InteractionGuides {
         ) VALUES (?, ?, ?, ?, ?, ?)
         RETURNING *
       `).get(
-        guideBefore.interaction_guide_id, selectedStepNumber, values.openingText,
+        guideBefore.interaction_guide_id, assignedStepNumber, values.openingText,
         values.instructionsText, completionMode, enabled ? 1 : 0,
       );
       const guide = publicGuide(this.#bumpGuideVersion(
-        database, guideBefore.interaction_guide_id, expectedVersion,
+        database, guideBefore.interaction_guide_id, Number(guideBefore.version),
       ));
       const step = publicStep(row);
       this.ledger.append({
@@ -248,7 +306,7 @@ export class InteractionGuides {
         payload: { guide, step }, subjectType: "interaction_guide", subjectId: String(guide.id),
       });
       database.exec("COMMIT");
-      return { created: true, guide, step };
+      return { created: true, defaultGuide: useDefaultGuide, defaultGuideCreated, guide, step };
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;
@@ -286,6 +344,13 @@ export class InteractionGuides {
       const targetBefore = moving
         ? this.#guideForDefinitionEdit(database, selectedTargetGuideId, expectedTargetVersion)
         : null;
+      const destinationStepNumber = moving
+        ? Number(database.prepare(`
+            SELECT COALESCE(MAX(step_number), 0) + 1 AS step_number
+            FROM interaction_guide_steps
+            WHERE interaction_guide_id = ?
+          `).get(selectedTargetGuideId).step_number)
+        : selectedStepNumber;
       const row = database.prepare(`
         UPDATE interaction_guide_steps
         SET interaction_guide_id = ?, step_number = ?, opening_text = ?, instructions_text = ?,
@@ -297,7 +362,7 @@ export class InteractionGuides {
         RETURNING *
       `).get(
         moving ? selectedTargetGuideId : sourceGuideId,
-        selectedStepNumber, values.openingText, values.instructionsText,
+        destinationStepNumber, values.openingText, values.instructionsText,
         completionMode, enabled ? 1 : 0, moving ? 1 : 0, moving ? 1 : 0, selectedStepId,
       );
       const sourceGuide = publicGuide(this.#bumpGuideVersion(

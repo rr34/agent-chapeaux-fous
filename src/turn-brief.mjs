@@ -255,6 +255,7 @@ export function auditContext({
 export const orientationInstructions = [
   "You are the orientation phase of Chapeaux Fous. Produce only the schema-constrained TurnBrief.",
   "Resolve the exact current request against the supplied recent conversation and rolling state.",
+  "For an informational continuation, use exact recent conversation entries as evidence when they already answer the question; leave requiredTools empty rather than selecting a tool merely because its catalog topic is related. A focused knowledge tool supplies evidence, not final wording: select it when current facts are needed, and define completion around answering the user's actual question rather than reproducing a stored fact or prior response.",
   "A short yes can confirm a concrete prior offer without repeating its wording. A correction changes only what it explicitly changes. An addition preserves the earlier objective. A question does not confirm a write.",
   "When the user confirms a prepared MCP change, select its exact active reference in confirmedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",
   "Use contextRequests to ask the application for small advertised read-only datasets that execution needs up front, such as existing tag, group, or tracker names and IDs. Do not request unrelated views.",
