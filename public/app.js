@@ -7,6 +7,7 @@ import { markdownToSpeech, renderMarkdown } from "./markdown.js";
 import {
   calendarEventCellItem,
   dateSequence,
+  occursDuringCalendarDay,
   renderCalendarGrid,
   scheduledTodoCellItem,
   sixWeekMonthDates,
@@ -729,10 +730,13 @@ function replyArrowIcon() {
 function agentReferenceButton(identity, subject) {
   const button = node("button", "reference-in-agent secondary compact");
   button.type = "button";
-  button.title = `Reply with a reference to ${subject}`;
+  button.title = `Reference ${subject} in Agent`;
   button.setAttribute("aria-label", button.title);
-  button.append(replyArrowIcon(), node("span", "", "Reply"));
-  button.addEventListener("click", () => placeIdentityInComposer(identity));
+  button.append(replyArrowIcon());
+  button.addEventListener("click", () => {
+    placeIdentityInComposer(identity);
+    elements.status.textContent = "Added to Agent composer.";
+  });
   return button;
 }
 
@@ -743,7 +747,7 @@ function replyToExchange(requestId, requestText) {
     switchView("agent");
     elements.text.focus();
   }
-  elements.status.textContent = `Replying with exchange ${requestId.slice(0, 8)} in context.`;
+  elements.status.textContent = `Added exchange ${requestId.slice(0, 8)} to Agent composer.`;
 }
 
 function updateRequestFileSelection() {
@@ -1611,7 +1615,8 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   node.querySelector(".request-status").textContent = request.status;
   const replyButton = node.querySelector(".reply-to-exchange");
   replyButton.hidden = !["complete", "error"].includes(request.status);
-  replyButton.setAttribute("aria-label", `Reply with a reference to exchange ${request.requestId}`);
+  replyButton.title = `Reference exchange ${request.requestId} in Agent`;
+  replyButton.setAttribute("aria-label", replyButton.title);
   const time = node.querySelector("time");
   time.dateTime = new Date(request.submittedAtMs).toISOString();
   time.textContent = formatTime(request.submittedAtMs);
@@ -1970,11 +1975,7 @@ function twoWeekCalendarRange(value) {
 }
 
 function occursOnDay(calendarEvent, day) {
-  const dayStart = startOfDay(day).getTime();
-  const dayEnd = addDays(startOfDay(day), 1).getTime();
-  const start = new Date(calendarEvent.startsAtUtc).getTime();
-  const end = calendarEvent.endsAtUtc ? new Date(calendarEvent.endsAtUtc).getTime() : start;
-  return start < dayEnd && (end > dayStart || (start >= dayStart && start < dayEnd));
+  return occursDuringCalendarDay(calendarEvent.startsAtUtc, calendarEvent.endsAtUtc, day);
 }
 
 function isRoutineTemplate(todo) {
@@ -2201,8 +2202,11 @@ async function refreshRoutine() {
 }
 
 function routineOccurrencesOnDay(date) {
-  const key = localDateKey(date);
-  return routineOccurrences.filter(({ scheduledAtUtc }) => localDateKey(scheduledAtUtc) === key);
+  return routineOccurrences.filter((occurrence) => occursDuringCalendarDay(
+    occurrence.scheduledAtUtc,
+    plannedEnd(occurrence.scheduledAtUtc, occurrence.durationMinutes),
+    date,
+  ));
 }
 
 function plannedEnd(startsAtUtc, duration) {

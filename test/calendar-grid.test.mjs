@@ -3,9 +3,26 @@ import fs from "node:fs";
 import test from "node:test";
 import {
   calendarEventCellItem,
+  occursDuringCalendarDay,
   scheduledTodoCellItem,
   sixWeekMonthDates,
 } from "../public/calendar-grid.js";
+
+test("calendar-day overlap includes a cross-midnight item on every day it occupies", () => {
+  const startsAt = "2026-08-31T17:00:00";
+  const endsAt = "2026-09-01T20:00:00";
+  assert.equal(occursDuringCalendarDay(startsAt, endsAt, new Date(2026, 7, 31)), true);
+  assert.equal(occursDuringCalendarDay(startsAt, endsAt, new Date(2026, 8, 1)), true);
+  assert.equal(occursDuringCalendarDay(startsAt, endsAt, new Date(2026, 8, 2)), false);
+});
+
+test("an item ending at midnight does not occupy the following day", () => {
+  assert.equal(occursDuringCalendarDay(
+    "2026-08-31T17:00:00",
+    "2026-09-01T00:00:00",
+    new Date(2026, 8, 1),
+  ), false);
+});
 
 test("routine calendar always provides six Monday-first weeks around the current month", () => {
   const dates = sixWeekMonthDates(new Date(2026, 7, 15));

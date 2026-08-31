@@ -23,6 +23,18 @@ export function dateSequence(from, to) {
   return dates;
 }
 
+export function occursDuringCalendarDay(startsAt, endsAt, day) {
+  const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+  const dayEnd = addCalendarDays(dayStart, 1).getTime();
+  const dayStartMs = dayStart.getTime();
+  const start = new Date(startsAt).getTime();
+  const parsedEnd = endsAt ? new Date(endsAt).getTime() : start;
+  const end = Number.isFinite(parsedEnd) ? parsedEnd : start;
+  return Number.isFinite(start)
+    && start < dayEnd
+    && (end > dayStartMs || (start >= dayStartMs && start < dayEnd));
+}
+
 export function calendarEventCellItem(event) {
   return {
     className: ["day-event", event.isAllDay ? "all-day" : "", event.status].filter(Boolean).join(" "),

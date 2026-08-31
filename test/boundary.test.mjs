@@ -614,11 +614,14 @@ test("completed exchanges expose a reply action that attaches literal source con
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   const context = fs.readFileSync(path.join(root, "src", "context.mjs"), "utf8");
-  assert.match(document, /class="reply-to-exchange reference-in-agent secondary compact"[\s\S]+class="reply-reference-icon"[\s\S]+<span>Reply<\/span>/);
+  assert.match(document, /class="reply-to-exchange reference-in-agent secondary compact"[\s\S]+class="reply-reference-icon"/);
+  assert.doesNotMatch(document, /<span>Reply<\/span>/);
   assert.match(document, /M20 19c0-4\.4-3\.6-8-8-8H4/);
   assert.match(application, /function agentReferenceButton\(identity, subject\)/);
+  assert.match(application, /`Reference \$\{subject\} in Agent`/);
+  assert.match(application, /Added to Agent composer\./);
   assert.match(application, /function replyArrowIcon\(\)/);
-  assert.match(application, /button\.append\(replyArrowIcon\(\), node\("span", "", "Reply"\)\)/);
+  assert.match(application, /button\.append\(replyArrowIcon\(\)\)/);
   assert.match(application, /function replyToExchange\(requestId, requestText\)/);
   assert.match(application, /placeIdentityInComposer\(identity\)/);
   assert.match(application, /function referencedRequestIdsFromComposer\(value\)/);

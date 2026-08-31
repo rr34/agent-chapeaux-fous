@@ -586,6 +586,34 @@ test("reserved routine templates preview and publish as idempotent one-time todo
   }
 });
 
+test("routine previews include an occurrence that began before the range and remains in progress", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const routineGroup = organizer.ensureRoutineGroup();
+    organizer.createTodo({
+      text: "Daddy time",
+      groupId: routineGroup.id,
+      scheduledAtUtc: "2026-08-31T21:00:00.000Z",
+      durationMinutes: 1_620,
+      recurrenceRule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO",
+      recurrenceTimeZone: "America/New_York",
+    });
+
+    const preview = organizer.previewRoutines({
+      from: "2026-09-01T04:00:00.000Z",
+      to: "2026-09-02T04:00:00.000Z",
+    });
+
+    assert.equal(preview.occurrences.length, 1);
+    assert.equal(preview.occurrences[0].scheduledAtUtc, "2026-08-31T21:00:00.000Z");
+    assert.equal(preview.occurrences[0].durationMinutes, 1_620);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("agent routine creation atomically ensures the reserved group", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

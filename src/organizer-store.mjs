@@ -344,7 +344,7 @@ function occurrenceDates(event, fromUtc, toUtc) {
   ).map((date) => (zone ? zonedPartsToUtc(utcParts(date), zone) : date));
 }
 
-function hypotheticalOccurrenceDates(event, fromUtc, toUtc) {
+function hypotheticalOccurrenceDates(event, fromUtc, toUtc, durationMilliseconds = 0) {
   const zone = event.timeZone || null;
   const original = new Date(event.startsAtUtc);
   const boundary = new Date(fromUtc);
@@ -391,7 +391,14 @@ function hypotheticalOccurrenceDates(event, fromUtc, toUtc) {
       syntheticParts.year, syntheticParts.month - 1, syntheticParts.day,
       syntheticParts.hour, syntheticParts.minute, syntheticParts.second,
     ));
-  return occurrenceDates({ ...event, startsAtUtc: syntheticStart.toISOString(), recurrenceRule: rule }, fromUtc, toUtc);
+  return occurrenceDates({
+    ...event,
+    startsAtUtc: syntheticStart.toISOString(),
+    endsAtUtc: durationMilliseconds > 0
+      ? new Date(syntheticStart.getTime() + durationMilliseconds).toISOString()
+      : null,
+    recurrenceRule: rule,
+  }, fromUtc, toUtc);
 }
 
 function nextOccurrence(event, afterUtc) {
@@ -1857,6 +1864,8 @@ export class OrganizerStore {
     if (!fromUtc || !toUtc || fromUtc >= toUtc) {
       throw new OrganizerInputError("Routine preview requires a valid from/to range.");
     }
+    const rangeStartMilliseconds = new Date(fromUtc).getTime();
+    const rangeEndMilliseconds = new Date(toUtc).getTime();
     const rows = this.database.prepare(`
       SELECT routine.*,
              task.personal_task_id AS template_todo_id,
@@ -1879,18 +1888,26 @@ export class OrganizerStore {
     `).all(ROUTINE_GROUP_NAME);
     const occurrences = [];
     for (const routine of rows) {
+      const durationMilliseconds = routine.duration_minutes == null
+        ? 0
+        : Number(routine.duration_minutes) * 60_000;
       let dates = [];
       try {
         dates = hypotheticalOccurrenceDates({
           startsAtUtc: routine.first_scheduled_at_utc,
           timeZone: routine.time_zone,
           recurrenceRule: routine.recurrence_rule,
-        }, fromUtc, toUtc);
+        }, fromUtc, toUtc, durationMilliseconds);
       } catch {
         continue;
       }
       for (const scheduled of dates) {
-        if (scheduled < new Date(fromUtc) || scheduled >= new Date(toUtc)) continue;
+        const scheduledMilliseconds = scheduled.getTime();
+        const endsAtMilliseconds = scheduledMilliseconds + durationMilliseconds;
+        if (scheduledMilliseconds >= rangeEndMilliseconds
+          || (durationMilliseconds > 0
+            ? endsAtMilliseconds <= rangeStartMilliseconds
+            : scheduledMilliseconds < rangeStartMilliseconds)) continue;
         occurrences.push({
           routineId: Number(routine.todo_routine_id),
           templateTodoId: routine.template_todo_id == null ? null : Number(routine.template_todo_id),
