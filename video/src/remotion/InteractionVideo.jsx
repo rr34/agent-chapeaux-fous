@@ -36,7 +36,7 @@ function textMetrics(text, current) {
   const charactersPerLine = Math.max(24, Math.floor(730 / (fontSize * 0.54)));
   const estimatedLines = Math.max(1, Math.ceil(length / charactersPerLine));
   const estimatedHeight = estimatedLines * lineHeight;
-  const maximumHeight = current ? 760 : 230;
+  const maximumHeight = current ? 760 : estimatedHeight + 8;
   return { fontSize, lineHeight, estimatedHeight, maximumHeight };
 }
 
@@ -106,7 +106,7 @@ function SceneAudio({ scene, fps }) {
 function ChatScene({ scenes, index }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const visibleMessages = scenes.slice(0, index + 1).slice(-3);
+  const visibleMessages = scenes.slice(0, index + 1);
   const reveal = spring({ frame, fps, config: { damping: 18, stiffness: 155 } });
   const activeScene = scenes[index];
   return (
@@ -117,10 +117,13 @@ function ChatScene({ scenes, index }) {
           return (
             <div
               key={`${scene.sceneNumber}-${scene.renderSceneType}`}
-              style={current ? {
-                opacity: reveal,
-                transform: `translateY(${(1 - reveal) * 30}px)`,
-              } : null}
+              style={{
+                ...styles.message,
+                ...(current ? {
+                  opacity: reveal,
+                  transform: `translateY(${(1 - reveal) * 30}px)`,
+                } : {}),
+              }}
             >
               {scene.renderSceneType === "request"
                 ? <UserBubble scene={scene} current={current} />
@@ -198,10 +201,11 @@ const styles = {
     height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end",
     gap: 26, overflow: "hidden",
   },
+  message: { flex: "0 0 auto" },
   messageRow: { display: "flex", gap: 18, width: "100%" },
   bubble: { maxWidth: 850, padding: "27px 32px", boxSizing: "border-box" },
   currentBubble: { opacity: 1 },
-  previousBubble: { opacity: 0.7 },
+  previousBubble: { opacity: 1 },
   userBubble: {
     background: USER, color: "#fff", borderRadius: "27px 27px 7px 27px",
     boxShadow: "0 17px 40px rgba(49,61,45,.17)",

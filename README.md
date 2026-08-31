@@ -465,7 +465,15 @@ activity, intros, outros, and explanatory narration are omitted. Request scenes
 use the original saved recording when one exists; otherwise, the typed request
 is spoken in a feminine voice with a stronger natural French accent. Agent
 responses use a masculine, standard-American voice. Both generated roles use a
-brisk, playful, expressive self-promotional delivery rather than a tutorial tone.
+fast, loose, mischievous conversational delivery rather than an announcer,
+tutorial, corporate-demo, audiobook, or sales-presentation tone. The default
+cast is Shimmer for typed user dialogue and Ash for Agent responses. TTS input
+changes `Chapeaux Fous` to `Chapeaux Fou` only in the spoken copy and explicitly
+directs a French `shah-POH FOO` pronunciation; visible dialogue remains exact.
+Long generated speech is split into bounded provider calls and reassembled as
+one WAV track. Dialogue is never silently ellipsized: a message over 20,000
+characters or production over 60,000 fails with an explicit error before the
+render begins.
 Server-generated speech is explicitly disclosed as AI-generated in both the
 Video Scripts page and the finished video. The Remotion composition is a
 designed reproduction of the actual Agent chat bubbles—not a claim that the

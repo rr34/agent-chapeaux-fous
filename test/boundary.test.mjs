@@ -270,9 +270,14 @@ test("video creation is an explicit select-then-create workflow", () => {
   const stylesheet = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
   assert.match(document, /id="select-video-script-sources"[^>]*>Create video<\/button>/);
   assert.match(document, /id="video-script-selection"[^>]+hidden/);
+  assert.ok(
+    document.indexOf('id="request-list"') < document.indexOf('id="video-script-selection"'),
+    "video creation controls should follow the chronological request list",
+  );
   assert.match(document, /Choose interactions for video/);
   assert.match(document, /Create video from selected/);
   assert.match(application, /function showVideoScriptSelection\(\)[\s\S]+scrollIntoView/);
+  assert.match(application, /videoScriptSelection\.scrollIntoView\(\{ behavior: "smooth", block: "end" \}\)/);
   assert.match(application, /Create video from \$\{count\}/);
   assert.match(application, /if \(selectingVideoScriptSources\) showVideoScriptSelection\(\);/);
   assert.doesNotMatch(application, /if \(selectingVideoScriptSources\) cancelVideoScriptSelection\(\);/);
@@ -280,6 +285,17 @@ test("video creation is an explicit select-then-create workflow", () => {
   assert.doesNotMatch(application, /videoScriptRefreshTimer/);
   assert.match(stylesheet, /\.video-script-source-choice\[hidden\]\s*\{\s*display:\s*none;/);
   assert.match(stylesheet, /\.video-script-selection\[hidden\]\s*\{\s*display:\s*none;/);
+});
+
+test("the interaction video retains the complete chat history as it scrolls", () => {
+  const composition = fs.readFileSync(
+    path.join(root, "video", "src", "remotion", "InteractionVideo.jsx"),
+    "utf8",
+  );
+  assert.match(composition, /const visibleMessages = scenes\.slice\(0, index \+ 1\);/);
+  assert.doesNotMatch(composition, /visibleMessages = [^;]*\.slice\(-\d+\)/);
+  assert.match(composition, /previousBubble:\s*\{ opacity: 1 \}/);
+  assert.match(composition, /maximumHeight = current \? 760 : estimatedHeight \+ 8/);
 });
 
 test("the standalone client restores calendar, grouped to-do, grouped content, and personal log surfaces", () => {

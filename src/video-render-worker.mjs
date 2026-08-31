@@ -20,14 +20,26 @@ function relativeMediaPath(mediaRoot, filename) {
   return path.posix.join("media", ...relative.split(path.sep));
 }
 
-function boundedText(value, maximum, fallback = "") {
-  const text = String(value ?? "").replace(/\s+/gu, " ").trim() || fallback;
-  return text.length <= maximum ? text : `${text.slice(0, maximum - 1).trimEnd()}…`;
+const maximumMessageCharacters = 20_000;
+const maximumProductionCharacters = 60_000;
+
+function exactText(value, label, fallback = "") {
+  const text = String(value ?? "").trim() || fallback;
+  if (text.length > maximumMessageCharacters) {
+    throw new Error(
+      `${label} contains ${text.length.toLocaleString()} characters; the video limit is ${maximumMessageCharacters.toLocaleString()}. Nothing was truncated and the video was not generated.`,
+    );
+  }
+  return text;
 }
 
 function narrationSeconds(text) {
-  const words = boundedText(text, 10_000).split(/\s+/u).filter(Boolean).length;
+  const words = String(text ?? "").trim().split(/\s+/u).filter(Boolean).length;
   return Math.max(2, Math.ceil(words / 2.75) + 1);
+}
+
+function speechPronunciation(text) {
+  return text.replace(/\bChapeaux\s+Fous\b/giu, "Chapeaux Fou");
 }
 
 const productionRender = Object.freeze({ width: 1080, height: 1620 });
@@ -52,10 +64,10 @@ export class VideoRenderWorker {
     ledger,
     transcriber,
     speech,
-    agentVoice = "cedar",
-    agentInstructions = "Speak as a man in standard American English at a brisk, playful pace with feeling and self-promotional energy. Do not add, omit, or rewrite words.",
-    userVoice = "coral",
-    userInstructions = "Speak as a woman in English with a clearly noticeable French accent at a brisk, playful pace with feeling and self-promotional energy. Keep it natural, not caricatured. Do not add, omit, or rewrite words.",
+    agentVoice = "ash",
+    agentInstructions = "Be a quick-witted American guy talking casually to a friend. Speak fast, animatedly, and mischievously, with loose natural rhythm and real reactions to the meaning. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Slightly goofy is welcome. Pronounce Chapeaux Fou in French as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
+    userVoice = "shimmer",
+    userInstructions = "Be a quick-witted Parisian woman speaking English with an unmistakably strong native French accent in every sentence. Use French R sounds, rounded vowels, and French rhythm while staying easy to understand. Speak fast, animatedly, warmly, and a little cheekily, like casual banter with a friend. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Pronounce Chapeaux Fou as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
     mediaRoot,
     outputRoot,
     browserExecutable = null,
@@ -133,7 +145,7 @@ export class VideoRenderWorker {
     if (!transcription.text?.trim() || !transcription.words?.length) {
       throw new Error(`Timed transcription was unavailable for source ${source.requestId}`);
     }
-    const endMs = Math.min(30_000, Math.max(1_000, Number(transcription.durationMs) || 0));
+    const endMs = Math.max(1_000, Number(transcription.durationMs) || 0);
     const bytes = await fs.readFile(audioPath);
     this.ledger.append({
       type: "video.source.transcription.complete", phase: "end", status: "complete",
@@ -155,6 +167,7 @@ export class VideoRenderWorker {
 
   async #narrationAudio(text, job, scene, speakerRole) {
     const style = this.narrationStyles[speakerRole];
+    const spokenText = speechPronunciation(text);
     const operationId = `video-narration:${job.id}:${scene.sceneNumber}`;
     this.ledger.append({
       type: "video.narration.start", phase: "start", status: "processing",
@@ -162,7 +175,7 @@ export class VideoRenderWorker {
       name: "AI narration generation", subjectType: "video_job", subjectId: String(job.id),
       payload: { videoScriptId: job.videoScriptId, sceneNumber: scene.sceneNumber, speakerRole },
     });
-    const generated = await this.speech.synthesize(text, {
+    const generated = await this.speech.synthesize(spokenText, {
       voice: style.voice,
       instructions: style.instructions,
     });
@@ -177,6 +190,7 @@ export class VideoRenderWorker {
         voice: generated.voice,
         speakerRole,
         byteSize: generated.bytes.length,
+        chunkCount: generated.chunkCount ?? 1,
         aiGenerated: true,
       },
     });
@@ -186,7 +200,9 @@ export class VideoRenderWorker {
       audioEndMs: null,
       captionCues: [],
       rawWords: [],
-      durationSeconds: narrationSeconds(text),
+      durationSeconds: Number.isFinite(generated.durationMs) && generated.durationMs > 0
+        ? Math.max(2, Math.ceil(generated.durationMs / 1_000) + 1)
+        : narrationSeconds(spokenText),
       authenticRequestAudio: false,
       aiNarration: true,
     };
@@ -195,12 +211,27 @@ export class VideoRenderWorker {
   async #prepare(job) {
     const script = this.videoScripts.get(job.videoScriptId);
     if (!script) throw new Error(`Video script ${job.videoScriptId} was not found`);
+    const sources = script.sources.map(({ requestId }) => {
+      const source = this.ledger.interactionReplaySource(requestId);
+      return {
+        source,
+        requestText: exactText(source.rawTranscript, `Request ${requestId}`, "Voice request"),
+        responseText: exactText(source.response, `Response ${requestId}`, "No response was recorded."),
+      };
+    });
+    const productionCharacters = sources.reduce(
+      (total, source) => total + source.requestText.length + source.responseText.length,
+      0,
+    );
+    if (productionCharacters > maximumProductionCharacters) {
+      throw new Error(
+        `The selected dialogue contains ${productionCharacters.toLocaleString()} characters; the video limit is ${maximumProductionCharacters.toLocaleString()}. Nothing was truncated and the video was not generated.`,
+      );
+    }
     const scenes = [];
     let usesAiNarration = false;
-    for (const { requestId } of script.sources) {
-      const source = this.ledger.interactionReplaySource(requestId);
-      const requestText = boundedText(source.rawTranscript, 4_096, "Voice request");
-      const responseText = boundedText(source.response, 4_096, "No response was recorded.");
+    for (const { source, requestText, responseText } of sources) {
+      const { requestId } = source;
       const requestScene = { sceneNumber: scenes.length + 1 };
       const requestAudio = source.audioFile
         ? await this.#sourceAudio(source, job, requestScene)

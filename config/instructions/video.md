@@ -15,6 +15,7 @@ For a request whose kind is `video_production`:
 - Set `aspectRatio` to `2:3`; the built-in MP4 is exactly 1080x1620 pixels.
 - Create exactly two chronological scenes for each selected interaction: its `request` followed immediately by its `response`. Do not create intro, outro, activity, processing, trace, tutorial, summary, or explanatory scenes.
 - Each scene references exactly one interaction. Its `voiceover` is the actual request or actual final response, not narration about it. The built-in renderer independently resolves those exact source messages and does not display trace activity or scene commentary.
+- Never shorten or ellipsize dialogue. The renderer supports up to 20,000 characters per message and 60,000 across one production; if source dialogue exceeds either limit, generation fails with the exact limit instead of producing a truncated MP4.
 - Treat the tone as brisk, playful self-promotion that shows what the Agent did, never as a tutorial explaining how it worked.
 - The background renderer uses original saved request audio when an interaction was recorded. A typed request is spoken in the configured feminine voice with a stronger natural French accent. Agent responses use the configured masculine, standard-American voice. Generated speech is disclosed in the finished video.
 - The tool result proves the script and render job were persisted and queued. Do not claim the MP4 is finished until its job reports `complete`.

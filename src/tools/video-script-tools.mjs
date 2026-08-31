@@ -29,7 +29,7 @@ const outputSchema = {
 function parameters({ production = false } = {}) {
   const sceneProperties = {
     sceneNumber: { type: "integer", minimum: 1, maximum: 40 },
-    durationSeconds: { type: "integer", minimum: 1, maximum: 120 },
+    durationSeconds: { type: "integer", minimum: 1, maximum: 3600 },
     sourceRequestIds: {
       type: "array", minItems: 1, maxItems: 8, uniqueItems: true,
       items: { type: "string", minLength: 1, maxLength: 64 },
@@ -43,7 +43,7 @@ function parameters({ production = false } = {}) {
     visualPrompt: { type: "string", minLength: 1, maxLength: 5000 },
     voiceover: production
       ? {
-          type: "string", minLength: 1, maxLength: 3000,
+          type: "string", minLength: 1, maxLength: 20000,
           description: "Exact request text for a request scene or exact final Agent response for a response scene. Do not add narration or explanatory copy.",
         }
       : optionalText(3000),
@@ -68,7 +68,7 @@ function parameters({ production = false } = {}) {
       concept: { type: "string", minLength: 1, maxLength: 3000 },
       audience: { type: "string", minLength: 1, maxLength: 1000 },
       durationSeconds: {
-        type: "integer", minimum: 5, maximum: 600,
+        type: "integer", minimum: 5, maximum: 7200,
         description: "Total target duration in seconds; must equal the sum of every scene duration.",
       },
       aspectRatio: production

@@ -1207,7 +1207,7 @@ function showVideoScriptSelection() {
   if (activeView !== "agent") switchView("agent");
   updateVideoScriptSelection();
   window.requestAnimationFrame(() => {
-    elements.videoScriptSelection.scrollIntoView({ behavior: "smooth", block: "start" });
+    elements.videoScriptSelection.scrollIntoView({ behavior: "smooth", block: "end" });
   });
 }
 

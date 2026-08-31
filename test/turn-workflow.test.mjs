@@ -647,6 +647,10 @@ test("a failed completion audit adds a bounded repair call without repeating suc
     assert.equal(payload.maxToolCalls, 0);
     assert.match(payload.developerInstructions, /Earlier tool receipts from this same user request/);
     assert.match(payload.developerInstructions, /"todoId":42/);
+    assert.doesNotMatch(payload.developerInstructions, /I think that should be done\./);
+    assert.match(payload.developerInstructions, /satisfiedCriteria and successful receipts/);
+    assert.match(payload.developerInstructions, /one coherent final response/);
+    assert.match(payload.developerInstructions, /completed during this same user request/);
     return completed("Created “Offered reminder” as todo 42.", 30);
   }, requests);
   const runtime = new SlayerRuntime({
@@ -674,6 +678,76 @@ test("a failed completion audit adds a bounded repair call without repeating suc
       .map(({ payload }) => payload.workflowStep),
     ["orientation", "context_preparation", "execution", "audit", "repair"],
   );
+});
+
+test("a successful repair reports work from execution and repair in one cumulative response", async () => {
+  const requests = [];
+  const executions = [];
+  const ledger = fakeLedger();
+  const registry = todoRegistry(executions);
+  const source = { text: "Create the Alpha and Beta reminders.", sourceEventSeqs: [9] };
+  const twoReminderBrief = {
+    ...brief(),
+    requestType: "new_objective",
+    objective: "Create the Alpha and Beta reminders.",
+    summary: "Create two reminders.",
+    requestedActions: [
+      { text: "Create the Alpha reminder.", sourceEventSeqs: [9] },
+      { text: "Create the Beta reminder.", sourceEventSeqs: [9] },
+    ],
+    completionCriteria: [
+      "A successful todo_create receipt exists for Alpha.",
+      "A successful todo_create receipt exists for Beta.",
+    ],
+    evidence: [source],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(twoReminderBrief), 20);
+    if (index === 1) {
+      const result = await payload.onToolCall({
+        callId: "create-alpha", tool: "todo_create", arguments: { title: "Alpha" },
+      });
+      assert.equal(result.ok, true);
+      return completed("Created the Alpha reminder, but I could not create Beta.", 50);
+    }
+    if (index === 2) return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "repair_needed",
+      summary: "Alpha was created, but Beta remains to be created.",
+      satisfiedCriteria: ["A successful todo_create receipt exists for Alpha."],
+      remainingActions: ["Create the Beta reminder."],
+      repairInstructions: ["Create Beta without repeating the successful Alpha write."],
+    }), 10);
+    assert.doesNotMatch(payload.developerInstructions, /Created the Alpha reminder, but I could not create Beta\./);
+    assert.match(payload.developerInstructions, /A successful todo_create receipt exists for Alpha\./);
+    assert.match(payload.developerInstructions, /satisfiedCriteria and successful receipts/);
+    assert.match(payload.developerInstructions, /one coherent final response/);
+    assert.match(payload.developerInstructions, /without narrating internal execution, audit, failure, retry, or repair history/);
+    const result = await payload.onToolCall({
+      callId: "create-beta", tool: "todo_create", arguments: { title: "Beta" },
+    });
+    assert.equal(result.ok, true);
+    return completed("Created both reminders: Alpha and Beta.", 30);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  const result = await runtime.run({
+    requestId: "request-two-reminders",
+    requestEventId: "event-current",
+    text: "Create the Alpha and Beta reminders.",
+  });
+
+  assert.equal(result, "Created both reminders: Alpha and Beta.");
+  assert.deepEqual(executions, [{ title: "Alpha" }, { title: "Beta" }]);
+  assert.equal(requests.length, 4);
 });
 
 test("a historical receipt cannot masquerade as a new dry run and repair preserves the real plan", async () => {

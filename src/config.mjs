@@ -144,13 +144,13 @@ export function loadConfig(environment = process.env) {
     remotionBrowserExecutable: environment.REMOTION_BROWSER_EXECUTABLE?.trim() || null,
     ttsModel: environment.SLAYER_TTS_MODEL?.trim() || "gpt-4o-mini-tts",
     ttsAgentVoice: environment.SLAYER_TTS_AGENT_VOICE?.trim()
-      || environment.SLAYER_TTS_VOICE?.trim() || "cedar",
-    ttsUserVoice: environment.SLAYER_TTS_USER_VOICE?.trim() || "coral",
+      || environment.SLAYER_TTS_VOICE?.trim() || "ash",
+    ttsUserVoice: environment.SLAYER_TTS_USER_VOICE?.trim() || "shimmer",
     ttsAgentInstructions: environment.SLAYER_TTS_AGENT_INSTRUCTIONS?.trim()
       || environment.SLAYER_TTS_INSTRUCTIONS?.trim()
-      || "Speak as a man in standard American English. Use a brisk, lively pace with playful confidence, genuine feeling, and polished self-promotional energy. This is a fun product highlight, not a tutorial or documentary. Keep it natural rather than theatrical. Do not add, omit, or rewrite words.",
+      || "Be a quick-witted American guy talking casually to a friend. Speak fast, animatedly, and mischievously, with loose natural rhythm and real reactions to the meaning. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Slightly goofy is welcome. Pronounce Chapeaux Fou in French as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
     ttsUserInstructions: environment.SLAYER_TTS_USER_INSTRUCTIONS?.trim()
-      || "Speak as a woman in English with a clearly noticeable, consistent French accent. Use a brisk, playful, expressive pace with warmth, feeling, and confident self-promotional energy. Make the accent stronger while keeping it natural and never caricatured. This is not a tutorial. Do not add, omit, or rewrite words.",
+      || "Be a quick-witted Parisian woman speaking English with an unmistakably strong native French accent in every sentence. Use French R sounds, rounded vowels, and French rhythm while staying easy to understand. Speak fast, animatedly, warmly, and a little cheekily, like casual banter with a friend. Never sound like an announcer, presenter, tutorial, corporate demo, audiobook, or polished sales pitch. Pronounce Chapeaux Fou as shah-POH FOO, with no final S sound. Speak the supplied words verbatim.",
     ttsTimeoutMs: positiveInteger(environment.SLAYER_TTS_TIMEOUT_MS, 2 * 60 * 1000),
   };
 }

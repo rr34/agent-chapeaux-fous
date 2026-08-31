@@ -887,7 +887,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .video-script-source-choice[hidden] { display: none; }
 .video-script-source-choice input { width: auto; accent-color: var(--accent); }
 .request-card.video-script-selected { border-color: var(--brand-mid); background: rgba(201, 211, 191, .2); box-shadow: 0 0 0 1px rgba(78, 91, 67, .2); }
-.video-script-selection { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .75rem; scroll-margin-top: 5rem; }
+.video-script-selection { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .75rem; scroll-margin-bottom: calc(var(--composer-height, 11rem) + 1rem); }
 .video-script-selection[hidden] { display: none; }
 .video-script-selection > div:first-child { display: grid; gap: .2rem; }
 .video-script-selection span { color: var(--muted); font-size: .76rem; }

@@ -780,7 +780,7 @@ export class SlayerRuntime {
         JSON.stringify(audit.value, null, 2),
         "# Application-enforced receipt findings",
         JSON.stringify(executionFindings, null, 2),
-        "Perform only the remaining requested work. Earlier successful receipts are completed actions and must not be repeated. Return the final user-facing response after repair.",
+        "Perform only the remaining requested work. Earlier successful receipts are completed actions and must not be repeated. Use only the completion audit's satisfiedCriteria and successful receipts to carry earlier completed work into the final answer. Return one coherent final response to the original user request. Include earlier completed work only when it remains a user-relevant part of the final outcome. Describe included actions as work completed during this same user request, not as state that merely existed beforehand. Report the resulting state without narrating internal execution, audit, failure, retry, or repair history unless an unresolved problem still affects the user.",
       ),
     };
     const repair = await this.#runExecutorStep(repairArgs, {

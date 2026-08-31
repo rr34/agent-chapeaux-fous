@@ -32,7 +32,7 @@ function metadata({ props }) {
     width: 1080,
     height: 1620,
     fps,
-    durationInFrames: Math.max(1, Math.min(fps * 600, Math.round(totalSeconds * fps))),
+    durationInFrames: Math.max(1, Math.min(fps * 7_200, Math.round(totalSeconds * fps))),
   };
 }
 

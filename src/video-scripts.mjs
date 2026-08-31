@@ -408,13 +408,13 @@ export class VideoScripts {
       }
       return {
         sceneNumber: positiveInteger(scene.sceneNumber, `Scene ${index + 1} number`, { maximum: 40 }),
-        durationSeconds: positiveInteger(scene.durationSeconds, `Scene ${index + 1} duration`, { maximum: 120 }),
+        durationSeconds: positiveInteger(scene.durationSeconds, `Scene ${index + 1} duration`, { maximum: 3_600 }),
         sourceRequestIds: sceneSources,
         renderSceneType: scene.renderSceneType == null
           ? null
           : requiredText(scene.renderSceneType, `Scene ${index + 1} built-in render scene`, 40),
         visualPrompt: requiredText(scene.visualPrompt, `Scene ${index + 1} visual prompt`, 5_000),
-        voiceover: optionalText(scene.voiceover, `Scene ${index + 1} voiceover`, 3_000),
+        voiceover: optionalText(scene.voiceover, `Scene ${index + 1} voiceover`, queueRender ? 20_000 : 3_000),
         onScreenText: boundedArray(scene.onScreenText, `Scene ${index + 1} on-screen text`, { maximum: 10 })
           .map((value) => requiredText(value, `Scene ${index + 1} on-screen text`, 500)),
         cameraMotion: optionalText(scene.cameraMotion, `Scene ${index + 1} camera motion`, 1_000),
@@ -456,7 +456,7 @@ export class VideoScripts {
     if (scenes.some(({ sceneNumber }, index) => sceneNumber !== index + 1)) {
       throw new Error("Scene numbers must be consecutive and match scene order");
     }
-    const durationSeconds = positiveInteger(input.durationSeconds, "Target duration", { maximum: 600 });
+    const durationSeconds = positiveInteger(input.durationSeconds, "Target duration", { maximum: 7_200 });
     if (scenes.reduce((total, scene) => total + scene.durationSeconds, 0) !== durationSeconds) {
       throw new Error("Target duration must equal the sum of all scene durations");
     }

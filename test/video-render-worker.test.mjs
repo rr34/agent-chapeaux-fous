@@ -33,8 +33,9 @@ test("the background worker preserves recordings and assigns distinct user and A
     content: "Make the release plan.", primaryFileId: audio.fileId,
   });
   ledger.finish(sourceEvent, "The release plan is ready.");
-  const typedRequest = ledger.createRequest({ text: "Summarize the release plan.", channel: "web" });
-  ledger.finish(ledger.trace(typedRequest.requestId)[0], "The release plan has three phases.");
+  const longResponse = `Chapeaux Fous ${"works ".repeat(800)}`.trim();
+  const typedRequest = ledger.createRequest({ text: "Summarize Chapeaux Fous.", channel: "web" });
+  ledger.finish(ledger.trace(typedRequest.requestId)[0], longResponse);
   const generation = ledger.createRequest({
     text: "Create a video production.",
     metadata: {
@@ -66,14 +67,14 @@ test("the background worker preserves recordings and assigns distinct user and A
       {
         sceneNumber: 3, durationSeconds: 6, sourceRequestIds: [typedRequest.requestId],
         renderSceneType: "request", visualPrompt: "The typed request card",
-        voiceover: "Summarize the release plan.", onScreenText: ["Summarize the release plan."],
+        voiceover: "Summarize Chapeaux Fous.", onScreenText: ["Summarize Chapeaux Fous."],
         cameraMotion: null, audioNotes: null, transition: null,
       },
       {
         sceneNumber: 4, durationSeconds: 6, sourceRequestIds: [typedRequest.requestId],
         renderSceneType: "response", visualPrompt: "The response card",
-        voiceover: "The release plan has three phases.",
-        onScreenText: ["The release plan has three phases."],
+        voiceover: longResponse,
+        onScreenText: ["The complete response"],
         cameraMotion: null, audioNotes: null, transition: null,
       },
     ],
@@ -102,7 +103,7 @@ test("the background worker preserves recordings and assigns distinct user and A
         assert.equal(filename, audioPath);
         assert.deepEqual(options, { wordTimestamps: true });
         return {
-          text: "Make the release plan.", durationMs: 1300,
+          text: "Make the release plan.", durationMs: 31_300,
           words: [
             { word: "Make", startMs: 0, endMs: 250 },
             { word: "the", startMs: 260, endMs: 420 },
@@ -116,8 +117,8 @@ test("the background worker preserves recordings and assigns distinct user and A
       async synthesize(text, options) {
         speechCalls.push({ text, options });
         return {
-          bytes: Buffer.from("generated narration"), mimeType: "audio/mpeg",
-          model: "test-tts", voice: options.voice,
+          bytes: Buffer.from("generated narration"), mimeType: "audio/wav",
+          model: "test-tts", voice: options.voice, durationMs: 4_200, chunkCount: 2,
         };
       },
     },
@@ -132,15 +133,18 @@ test("the background worker preserves recordings and assigns distinct user and A
 
   await worker.drain();
 
-  assert.deepEqual(speechCalls.map(({ text, options }) => ({ text, voice: options.voice })), [
-    { text: "The release plan is ready.", voice: "cedar" },
-    { text: "Summarize the release plan.", voice: "coral" },
-    { text: "The release plan has three phases.", voice: "cedar" },
-  ]);
-  assert.match(speechCalls[0].options.instructions, /man.+standard American/iu);
-  assert.match(speechCalls[1].options.instructions, /woman.+French accent/iu);
-  assert.match(speechCalls[1].options.instructions, /brisk.+playful/iu);
-  assert.match(speechCalls[2].options.instructions, /man.+standard American/iu);
+  assert.equal(speechCalls.length, 3);
+  assert.deepEqual(
+    speechCalls.map(({ options }) => options.voice),
+    ["ash", "shimmer", "ash"],
+  );
+  assert.equal(speechCalls[0].text, "The release plan is ready.");
+  assert.equal(speechCalls[1].text, "Summarize Chapeaux Fou.");
+  assert.equal(speechCalls[2].text, longResponse.replace("Chapeaux Fous", "Chapeaux Fou"));
+  assert.match(speechCalls[0].options.instructions, /quick-witted American guy/iu);
+  assert.match(speechCalls[1].options.instructions, /Parisian woman.+unmistakably strong native French accent/iu);
+  assert.match(speechCalls[1].options.instructions, /Never sound like an announcer.+tutorial/iu);
+  assert.match(speechCalls[2].options.instructions, /no final S sound/iu);
   assert.deepEqual(
     renderedInput.scenes.map(({ renderSceneType }) => renderSceneType),
     ["request", "response", "request", "response"],
@@ -148,6 +152,7 @@ test("the background worker preserves recordings and assigns distinct user and A
   assert.equal(renderedInput.scenes.some((scene) => "activity" in scene), false);
   assert.equal(renderedInput.scenes[0].renderSceneType, "request");
   assert.equal(renderedInput.scenes[0].authenticAudio, true);
+  assert.equal(renderedInput.scenes[0].audioEndMs, 31_300);
   assert.match(renderedInput.scenes[0].audioDataUrl, /^data:audio\/webm;base64,/);
   assert.equal(renderedInput.scenes[1].renderSceneType, "response");
   assert.equal(renderedInput.scenes[1].aiNarration, true);
@@ -155,6 +160,9 @@ test("the background worker preserves recordings and assigns distinct user and A
   assert.equal(renderedInput.scenes[2].aiNarration, true);
   assert.equal(renderedInput.scenes[3].renderSceneType, "response");
   assert.equal(renderedInput.scenes[3].aiNarration, true);
+  assert.equal(renderedInput.scenes[3].durationSeconds, 6);
+  assert.equal(renderedInput.scenes[3].responseText, longResponse);
+  assert.equal(renderedInput.scenes[3].responseText.endsWith("…"), false);
   assert.equal(renderedInput.disclosure, "Includes AI-generated voices");
   const finished = videoScripts.get(production.script.id);
   assert.equal(finished.render.status, "complete");
