@@ -816,32 +816,67 @@ export class Ledger {
   }
 
   interactionReplaySource(requestId) {
+    const source = this.exchangeReference(requestId);
+    const events = this.trace(requestId);
+    const request = events.find((event) => receivedEventTypes.includes(event.type));
+    const candidateAudioFile = request?.primaryFileId == null ? null : this.file(request.primaryFileId);
+    const audioFile = candidateAudioFile?.media_kind === "audio" ? candidateAudioFile : null;
+    return {
+      requestId,
+      requestEventId: source.requestEventId,
+      submittedAtMs: source.submittedAtMs,
+      rawTranscript: source.request,
+      response: source.response,
+      status: source.status,
+      error: source.error,
+      requestKind: request?.payload?.requestKind ?? null,
+      audioFile,
+      events,
+    };
+  }
+
+  exchangeReference(requestId) {
     const requestRow = this.store.requireReady().prepare(`
       SELECT * FROM activity_events
       WHERE turn_id = ? AND event_type IN (${placeholders(receivedEventTypes)})
       ORDER BY event_seq LIMIT 1
     `).get(requestId, ...receivedEventTypes);
     const request = publicEvent(requestRow);
-    if (!request) throw Object.assign(new Error("Source interaction was not found"), { statusCode: 404 });
+    if (!request) throw Object.assign(new Error("Referenced exchange was not found"), { statusCode: 404 });
     const events = this.trace(requestId);
     const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
-    if (!terminal) throw Object.assign(new Error("Wait for the source interaction to finish before making its video"), { statusCode: 409 });
-    const candidateAudioFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
-    const audioFile = candidateAudioFile?.media_kind === "audio" ? candidateAudioFile : null;
+    if (!terminal) throw Object.assign(new Error("Wait for the referenced exchange to finish"), { statusCode: 409 });
     const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
     return {
       requestId,
       requestEventId: request.eventId,
+      requestEventSeq: request.eventSeq,
       submittedAtMs: request.occurredAtMs,
-      rawTranscript: transcript?.content || request.content || "",
+      submittedAtUtc: request.occurredAtUtc,
+      requestSourceEventSeq: transcript?.eventSeq ?? request.eventSeq,
+      request: transcript?.content || request.content || "",
+      responseEventSeq: response?.eventSeq ?? terminal.eventSeq,
       response: response?.content || terminal.content || terminal.error || "",
       status: terminal.status,
       error: terminal.status === "error" ? (terminal.error || terminal.content || null) : null,
-      requestKind: request.payload?.requestKind ?? null,
-      audioFile,
-      events,
     };
+  }
+
+  referencedExchangesForRequest(requestId, { limit = 8 } = {}) {
+    const requestRow = this.store.requireReady().prepare(`
+      SELECT * FROM activity_events
+      WHERE turn_id = ? AND event_type IN (${placeholders(receivedEventTypes)})
+      ORDER BY event_seq LIMIT 1
+    `).get(requestId, ...receivedEventTypes);
+    const request = publicEvent(requestRow);
+    if (!request) return [];
+    const requestIds = Array.isArray(request.payload?.referencedRequestIds)
+      ? request.payload.referencedRequestIds
+      : [];
+    return [...new Set(requestIds)]
+      .slice(0, Math.min(8, Math.max(0, Number(limit) || 0)))
+      .map((referencedRequestId) => this.exchangeReference(referencedRequestId));
   }
 
   interactionVideoSource(requestId) {

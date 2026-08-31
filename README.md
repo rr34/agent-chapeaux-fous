@@ -86,6 +86,12 @@ button opens the calendar in day-pick mode; selecting a day writes the task's
 scheduled date as an all-day task. Timed tasks remain available through the
 to-do editor and agent tools.
 
+Each finished Agent exchange also exposes a chat-style **↩ Reply** action. It
+places an `In reference to:` block with the full source request ID in the
+composer. On submission, the server validates that ID and records it as bounded
+request metadata; orientation and execution then receive the source-referenced
+request and response even when that exchange is outside ordinary recent history.
+
 `.env` intentionally lives beside `.env.example` in the repository root. It is
 ignored by Git and loaded by the process before configuration is evaluated.
 

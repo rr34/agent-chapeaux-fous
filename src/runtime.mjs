@@ -525,7 +525,13 @@ export class SlayerRuntime {
     const activeActionReferences = typeof this.ledger.activeDeferredActionReferences === "function"
       ? this.ledger.activeDeferredActionReferences({ afterEventSeq: boundaryEventSeq })
       : [];
-    const recentToolReceipts = recentToolReceiptIndex(this.ledger, recentConversation);
+    const referencedExchanges = typeof this.ledger.referencedExchangesForRequest === "function"
+      ? this.ledger.referencedExchangesForRequest(args.requestId, { limit: 8 })
+      : [];
+    const recentToolReceipts = recentToolReceiptIndex(this.ledger, [
+      ...recentConversation,
+      ...referencedExchanges.map(({ requestId }) => ({ requestId })),
+    ]);
     const fallbackCheckpoint = !previousState
       && recentConversation.length >= 10
       && typeof this.ledger.conversationCheckpoint === "function"
@@ -1046,6 +1052,7 @@ export class SlayerRuntime {
           activeProfileFactCount: context.activeProfileFactCount,
           relevantProfileTypes: context.relevantProfileTypes,
           relevantProfileQuestions: context.relevantProfileQuestions,
+          referencedExchanges: context.referencedExchanges ?? [],
           conversationCheckpoint: context.conversationCheckpoint ?? null,
           history: context.history,
           contextBudget: context.contextBudget,

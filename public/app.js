@@ -659,6 +659,17 @@ function videoIdentity(script) {
   ].join("\n");
 }
 
+function exchangeIdentity(requestId) {
+  return `Exchange request_id ${requestId}.`;
+}
+
+function referencedRequestIdsFromComposer(value) {
+  const requestIds = [];
+  const pattern = /^Exchange request_id ([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.$/gimu;
+  for (const match of String(value || "").matchAll(pattern)) requestIds.push(match[1].toLowerCase());
+  return [...new Set(requestIds)].slice(0, 8);
+}
+
 function placeIdentityInComposer(identity) {
   const reference = `In reference to:\n${identity}`;
   const existingText = elements.text.value;
@@ -667,6 +678,16 @@ function placeIdentityInComposer(identity) {
   switchView("agent");
   elements.text.focus();
   elements.text.setSelectionRange(elements.text.value.length, elements.text.value.length);
+}
+
+function replyToExchange(requestId) {
+  const identity = exchangeIdentity(requestId);
+  if (!elements.text.value.includes(identity)) placeIdentityInComposer(identity);
+  else {
+    switchView("agent");
+    elements.text.focus();
+  }
+  elements.status.textContent = `Replying with exchange ${requestId.slice(0, 8)} in context.`;
 }
 
 function updateRequestFileSelection() {
@@ -1522,6 +1543,7 @@ function requestNode(request, index, structuredGenerationStatus = null) {
       copyText(node.querySelector(".agent-response-markdown").dataset.markdown || "", event.currentTarget);
     });
     node.querySelector(".show-trace").addEventListener("click", () => showTrace(request.requestId));
+    node.querySelector(".reply-to-exchange").addEventListener("click", () => replyToExchange(request.requestId));
     node.querySelector(".save-structured-interaction").addEventListener("click", (event) => {
       const guideId = Number(event.currentTarget.dataset.guideId);
       if (Number.isSafeInteger(guideId) && guideId > 0) {
@@ -1557,6 +1579,9 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   requestNumber.setAttribute("aria-label", `Copy request ID ${request.requestId}`);
   node.querySelector(".request-channel").textContent = request.channel === "voice" ? "Voice" : "Typed";
   node.querySelector(".request-status").textContent = request.status;
+  const replyButton = node.querySelector(".reply-to-exchange");
+  replyButton.hidden = !["complete", "error"].includes(request.status);
+  replyButton.setAttribute("aria-label", `Reply with a reference to exchange ${request.requestId}`);
   const time = node.querySelector("time");
   time.dateTime = new Date(request.submittedAtMs).toISOString();
   time.textContent = formatTime(request.submittedAtMs);
@@ -5067,6 +5092,7 @@ elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = elements.text.value.trim();
   if (!text) return;
+  const referencedRequestIds = referencedRequestIdsFromComposer(text);
   const respondSilently = elements.respondSilently.checked;
   prepareSpeechOutput(respondSilently);
   elements.send.disabled = true;
@@ -5093,7 +5119,7 @@ elements.form.addEventListener("submit", async (event) => {
     const created = await api("/api/requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, primaryFileId, runLimits: pendingRunLimits }),
+      body: JSON.stringify({ text, primaryFileId, referencedRequestIds, runLimits: pendingRunLimits }),
     });
     expectSpokenResponse(created.requestId, respondSilently);
     elements.text.value = "";

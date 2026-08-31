@@ -233,6 +233,18 @@ async function readJson(request, maximumBytes = 64 * 1024) {
   catch { throw Object.assign(new Error("Body must be valid JSON"), { statusCode: 400 }); }
 }
 
+function normalizeReferencedRequestIds(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 8) {
+    throw Object.assign(new Error("Referenced request IDs must be an array of at most 8 exchange IDs"), { statusCode: 400 });
+  }
+  const requestIds = value.map((requestId) => String(requestId || "").toLowerCase());
+  if (requestIds.some((requestId) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(requestId))) {
+    throw Object.assign(new Error("Every referenced request ID must be a full exchange UUID"), { statusCode: 400 });
+  }
+  return [...new Set(requestIds)];
+}
+
 function authorized(request) {
   if (config.allowUnauthenticated) return true;
   const header = String(request.headers.authorization || "");
@@ -975,6 +987,7 @@ const server = http.createServer(async (request, response) => {
       if (!text) throw Object.assign(new Error("Request text is required"), { statusCode: 400 });
       const primaryFileId = body.primaryFileId == null ? null : Number(body.primaryFileId);
       const runLimits = normalizeRunLimits(body.runLimits);
+      const referencedRequestIds = normalizeReferencedRequestIds(body.referencedRequestIds);
       if (primaryFileId !== null) {
         if (!Number.isSafeInteger(primaryFileId) || primaryFileId <= 0) {
           throw Object.assign(new Error("Request attachment ID is invalid"), { statusCode: 400 });
@@ -984,7 +997,14 @@ const server = http.createServer(async (request, response) => {
           throw Object.assign(new Error("Request attachment was not found"), { statusCode: 404 });
         }
       }
-      const created = ledger.createRequest({ text, channel: "web", primaryFileId, runLimits });
+      for (const referencedRequestId of referencedRequestIds) ledger.exchangeReference(referencedRequestId);
+      const created = ledger.createRequest({
+        text,
+        channel: "web",
+        primaryFileId,
+        runLimits,
+        metadata: referencedRequestIds.length ? { referencedRequestIds } : {},
+      });
       queue.notify();
       sendJson(response, 202, created);
       return;

@@ -596,12 +596,28 @@ test("the request composer accepts one image or text attachment and exposes mete
   assert.match(application, /jpg: "image\/jpeg"/);
   assert.match(application, /\/api\/ai-usage\?limit=10000/);
   assert.match(application, /aiPricingStorageKey/);
-  assert.match(application, /JSON\.stringify\(\{ text, primaryFileId, runLimits: pendingRunLimits \}\)/);
+  assert.match(application, /JSON\.stringify\(\{ text, primaryFileId, referencedRequestIds, runLimits: pendingRunLimits \}\)/);
   assert.match(server, /receiveRequestAttachment/);
   assert.match(server, /url\.pathname === "\/api\/request-files"/);
   assert.match(server, /url\.pathname === "\/api\/files"/);
   assert.match(server, /url\.pathname === "\/api\/ai-usage"/);
-  assert.match(server, /ledger\.createRequest\(\{ text, channel: "web", primaryFileId, runLimits \}\)/);
+  assert.match(server, /normalizeReferencedRequestIds\(body\.referencedRequestIds\)/);
+});
+
+test("completed exchanges expose a reply action that attaches literal source context", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  const context = fs.readFileSync(path.join(root, "src", "context.mjs"), "utf8");
+  assert.match(document, /class="reply-to-exchange secondary compact"[^>]*>↩ Reply<\/button>/);
+  assert.match(application, /function replyToExchange\(requestId\)/);
+  assert.match(application, /placeIdentityInComposer\(identity\)/);
+  assert.match(application, /function referencedRequestIdsFromComposer\(value\)/);
+  assert.match(application, /querySelector\("\.reply-to-exchange"\)\.addEventListener\("click"/);
+  assert.match(server, /ledger\.exchangeReference\(referencedRequestId\)/);
+  assert.match(server, /metadata: referencedRequestIds\.length \? \{ referencedRequestIds \} : \{\}/);
+  assert.match(context, /# Explicitly referenced exchanges/);
+  assert.match(context, /referencedExchangesForRequest\(requestId, \{ limit: 8 \}\)/);
 });
 
 test("the request composer can apply one-shot tool and time limits", () => {

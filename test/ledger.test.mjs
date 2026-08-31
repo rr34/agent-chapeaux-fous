@@ -68,6 +68,56 @@ test("one-shot run limits persist on the queued request event", () => {
   }
 });
 
+test("a request carries exact references to completed or failed exchanges", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const completed = ledger.createRequest({ text: "Move the Watch Jobs to Sunday." });
+    ledger.finish(ledger.trace(completed.requestId)[0], "I moved 37 Watch Jobs to Sunday at 16:00.");
+    const failed = ledger.createRequest({ text: "Move the same jobs to 16:00." });
+    ledger.fail(ledger.trace(failed.requestId)[0], new Error("Tool-call limit reached"));
+    const current = ledger.createRequest({
+      text: "Continue the work initiated by these exchanges.",
+      metadata: { referencedRequestIds: [completed.requestId, failed.requestId] },
+    });
+
+    const references = ledger.referencedExchangesForRequest(current.requestId);
+    assert.deepEqual(references.map(({ requestId, status }) => ({ requestId, status })), [
+      { requestId: completed.requestId, status: "complete" },
+      { requestId: failed.requestId, status: "error" },
+    ]);
+    assert.equal(references[0].request, "Move the Watch Jobs to Sunday.");
+    assert.equal(references[0].response, "I moved 37 Watch Jobs to Sunday at 16:00.");
+    assert.equal(references[1].response, "Tool-call limit reached");
+    assert.ok(Number.isSafeInteger(references[0].requestEventSeq));
+    assert.ok(Number.isSafeInteger(references[0].responseEventSeq));
+    assert.deepEqual(ledger.nextQueuedRequest().payload.referencedRequestIds, [
+      completed.requestId,
+      failed.requestId,
+    ]);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
+test("an unfinished exchange cannot be attached as completed source context", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const unfinished = ledger.createRequest({ text: "Still running" });
+    assert.throws(
+      () => ledger.exchangeReference(unfinished.requestId),
+      (error) => error.statusCode === 409 && /referenced exchange to finish/.test(error.message),
+    );
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("recent requests expose only the hats recorded by the request compiler", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.filename);
