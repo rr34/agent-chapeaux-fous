@@ -5,10 +5,9 @@ const terminalTypes = [
   "request.complete", "request.error", "agent.turn.end", "agent.turn.error",
   "voice.request.interrupted", "voice.transcription.error",
 ];
-const responseTypes = ["assistant.response", "agent.turn.end"];
 const scriptStatuses = new Set(["draft", "archived", "all"]);
-const aspectRatios = new Set(["9:16", "16:9", "1:1", "4:5", "2:3"]);
-const renderSceneTypes = new Set(["intro", "request", "activity", "response", "outro"]);
+const maximumMessageCharacters = 20_000;
+const maximumProductionCharacters = 60_000;
 
 function placeholders(values) {
   return values.map(() => "?").join(", ");
@@ -21,23 +20,11 @@ function positiveInteger(value, label, { maximum = null } = {}) {
   return result;
 }
 
-function boundedArray(value, label, { minimum = 0, maximum }) {
-  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
-    throw new Error(`${label} must contain from ${minimum} through ${maximum} items`);
-  }
-  return value;
-}
-
 function requiredText(value, label, maximum) {
   const result = String(value ?? "").trim();
   if (!result) throw new Error(`${label} cannot be empty`);
   if (result.length > maximum) throw new Error(`${label} cannot exceed ${maximum} characters`);
   return result;
-}
-
-function optionalText(value, label, maximum) {
-  if (value === null || value === undefined) return null;
-  return requiredText(value, label, maximum);
 }
 
 function requestId(value) {
@@ -61,74 +48,78 @@ function parseJson(value, fallback = {}) {
   try { return JSON.parse(value || "{}"); } catch { return fallback; }
 }
 
-function boundedText(value, maximum) {
-  const text = redactText(String(value ?? ""));
-  if (text.length <= maximum) return { text, truncated: false, originalCharacters: text.length };
-  const marker = "\n[private source text bounded; middle omitted]\n";
-  const remaining = maximum - marker.length;
-  const beginning = Math.ceil(remaining * 0.58);
-  return {
-    text: `${text.slice(0, beginning)}${marker}${text.slice(-(remaining - beginning))}`,
-    truncated: true,
-    originalCharacters: text.length,
-  };
+function exactDialogueText(value, label, fallback) {
+  const text = redactText(String(value ?? "")).trim() || fallback;
+  if (text.length > maximumMessageCharacters) {
+    throw new Error(
+      `${label} contains ${text.length.toLocaleString()} characters; the video-script limit is ${maximumMessageCharacters.toLocaleString()}. Nothing was truncated and the script was not generated.`,
+    );
+  }
+  return text;
 }
 
-function markdownList(values, empty = "None specified.") {
-  return values.length ? values.map((value) => `- ${value}`).join("\n") : empty;
+function estimatedDialogueSeconds(text) {
+  const words = String(text ?? "").trim().split(/\s+/u).filter(Boolean).length;
+  return Math.max(2, Math.ceil(words / 2.75) + 1);
 }
 
-function scriptMarkdown(plan) {
+function conversationText(interactions, { markdown = false } = {}) {
+  const lines = [];
+  interactions.forEach((interaction, index) => {
+    if (index) lines.push("");
+    if (markdown) {
+      lines.push(
+        `### Interaction ${index + 1} · User and AI agent`,
+        "",
+        "**User request**",
+        "",
+        interaction.request,
+        "",
+        "**Chapeaux Fous · AI response**",
+        "",
+        interaction.response,
+      );
+    } else {
+      lines.push(
+        `INTERACTION ${index + 1} — USER AND AI AGENT`,
+        "USER REQUEST:",
+        interaction.request,
+        "",
+        "CHAPEAUX FOUS — AI RESPONSE:",
+        interaction.response,
+      );
+    }
+  });
+  return lines.join("\n");
+}
+
+function canonicalGeneratorPrompt(plan, interactions) {
+  return [
+    "Create a polished 1080x1620 video of the exact conversation below between a user and Chapeaux Fous, an AI agent.",
+    `Conversation context: ${plan.concept}`,
+    "The conversation is the finished product. Present every user request and AI response verbatim, in chronological order, as one continuous chat interaction.",
+    "Show only the supplied conversation. Do not add content before, between, or after its messages.",
+    "",
+    conversationText(interactions),
+  ].join("\n");
+}
+
+function scriptMarkdown(plan, interactions) {
   const lines = [
     `# ${plan.title}`,
     "",
-    "## Production brief",
+    "## Video description",
     "",
-    `- **Concept:** ${plan.concept}`,
-    `- **Audience:** ${plan.audience}`,
-    `- **Target duration:** ${plan.durationSeconds} seconds`,
-    `- **Aspect ratio:** ${plan.aspectRatio}`,
-    `- **Visual style:** ${plan.visualStyle}`,
+    "Create a polished 1080x1620 video of a user interacting with Chapeaux Fous, an AI agent.",
     "",
-    "## Generator prompt",
+    plan.concept,
     "",
-    plan.generatorPrompt,
+    "The conversation itself is the final video. Keep the exact dialogue in chronological order and add no other material.",
     "",
-    "## Scene plan",
+    "## Conversation",
+    "",
+    conversationText(interactions, { markdown: true }),
   ];
-  for (const scene of plan.scenes) {
-    lines.push(
-      "",
-      `### Scene ${scene.sceneNumber} · ${scene.durationSeconds} seconds`,
-      "",
-      `**Grounded in:** ${scene.sourceRequestIds.map((id) => `request ${id}`).join(", ")}`,
-      "",
-      `**Built-in render scene:** ${scene.renderSceneType ?? "Not specified."}`,
-      "",
-      `**Visual prompt:** ${scene.visualPrompt}`,
-      "",
-      `**Voiceover/dialogue:** ${scene.voiceover ?? "None."}`,
-      "",
-      "**On-screen text:**",
-      markdownList(scene.onScreenText),
-      "",
-      `**Camera and motion:** ${scene.cameraMotion ?? "Not specified."}`,
-      "",
-      `**Audio:** ${scene.audioNotes ?? "Not specified."}`,
-      "",
-      `**Transition:** ${scene.transition ?? "Not specified."}`,
-    );
-  }
-  lines.push(
-    "",
-    "## Continuity requirements",
-    "",
-    markdownList(plan.continuityNotes),
-    "",
-    "## Negative constraints",
-    "",
-    markdownList(plan.negativeConstraints),
-  );
   return lines.join("\n");
 }
 
@@ -251,62 +242,39 @@ export class VideoScripts {
     }));
   }
 
-  selectedInteractionContext(generationRequestId) {
-    const rows = this.selectionForGenerationRequest(generationRequestId);
-    const database = this.store.requireReady();
-    const perSourceBudget = Math.max(1_200, Math.min(5_000, Math.floor(13_000 / rows.length)));
-    const sources = rows.map((row, index) => {
-      const events = database.prepare(`
-        SELECT event_seq, occurred_at_utc, event_type, status, name, content_text, error_text
-        FROM activity_events WHERE turn_id = ? ORDER BY event_seq
-      `).all(row.turn_id);
-      const transcript = events.find(({ event_type: type }) => (
-        type === "transcription.complete" || type === "voice.transcription.end"
-      ));
-      const response = [...events].reverse().find(({ event_type: type }) => responseTypes.includes(type));
-      const terminal = [...events].reverse().find(({ event_type: type }) => terminalTypes.includes(type));
-      const request = boundedText(transcript?.content_text || row.request_text || "Voice request", Math.floor(perSourceBudget * 0.4));
-      const answer = boundedText(
-        response?.content_text || terminal?.content_text || terminal?.error_text || "No assistant response was recorded.",
-        Math.floor(perSourceBudget * 0.6),
-      );
-      const activity = events.filter(({ event_type: type }) => [
-        "transcription.complete", "context.prepared", "model.request", "tool.call", "tool.result",
-        "assistant.response", "request.error",
-      ].includes(type)).slice(0, 12).map((event) => ({
-        eventSeq: Number(event.event_seq),
-        occurredAtUtc: event.occurred_at_utc,
-        type: event.event_type,
-        status: event.status,
-        name: event.name,
-        error: redactText(event.error_text),
-      }));
+  #dialogue(ids) {
+    const interactions = ids.map((id, index) => {
+      const source = this.ledger.interactionReplaySource(id);
       return {
         sourceOrder: index + 1,
-        requestId: row.turn_id,
-        requestEventId: row.request_event_id,
-        requestEventSeq: Number(row.request_event_seq),
-        submittedAtUtc: row.submitted_at_utc,
-        request: request.text,
-        response: answer.text,
-        endedWithError: Boolean(terminal?.error_text || terminal?.status === "error"),
-        activity,
-        bounds: {
-          requestTruncated: request.truncated,
-          requestOriginalCharacters: request.originalCharacters,
-          responseTruncated: answer.truncated,
-          responseOriginalCharacters: answer.originalCharacters,
-        },
+        requestId: id,
+        request: exactDialogueText(source.rawTranscript, `Request ${id}`, "Voice request"),
+        response: exactDialogueText(source.response, `Response ${id}`, "No response was recorded."),
       };
     });
+    const characters = interactions.reduce(
+      (total, interaction) => total + interaction.request.length + interaction.response.length,
+      0,
+    );
+    if (characters > maximumProductionCharacters) {
+      throw new Error(
+        `The selected conversation contains ${characters.toLocaleString()} characters; the video-script limit is ${maximumProductionCharacters.toLocaleString()}. Nothing was truncated and the script was not generated.`,
+      );
+    }
+    return interactions;
+  }
+
+  selectedInteractionContext(generationRequestId) {
+    const rows = this.selectionForGenerationRequest(generationRequestId);
+    const sources = this.#dialogue(rows.map(({ turn_id: id }) => id));
     return {
       text: [
-        "The user explicitly selected the following completed interactions for one grounded AI-video script or combined production.",
-        "Use every selected interaction, preserve their chronology, ground claims in this evidence, omit secrets and unrelated private details, and do not invent outcomes.",
+        "The user selected the following exact conversations for a video of interactions between a user and Chapeaux Fous, an AI agent.",
+        "Return only a concise title and a one- or two-sentence description of what the conversation is about. The application will preserve and format the exact request-response dialogue; do not summarize it or add anything else.",
         JSON.stringify(sources, null, 2),
       ].join("\n\n"),
       data: { sources },
-      heading: "Selected source interactions for the AI-video production",
+      heading: "Exact selected user-and-AI conversations",
     };
   }
 
@@ -400,94 +368,50 @@ export class VideoScripts {
     if (JSON.stringify(canonicalIds) !== JSON.stringify(suppliedIds)) {
       throw new Error("source_request_ids must exactly match the selected interactions in chronological order");
     }
-    const selectedSet = new Set(canonicalIds);
-    const scenes = boundedArray(input?.scenes, "Scenes", { minimum: 1, maximum: 40 }).map((scene, index) => {
-      const sceneSources = sourceRequestIds(scene.sourceRequestIds);
-      if (sceneSources.some((id) => !selectedSet.has(id))) {
-        throw new Error(`Scene ${index + 1} references an interaction outside the selected source set`);
-      }
-      return {
-        sceneNumber: positiveInteger(scene.sceneNumber, `Scene ${index + 1} number`, { maximum: 40 }),
-        durationSeconds: positiveInteger(scene.durationSeconds, `Scene ${index + 1} duration`, { maximum: 3_600 }),
-        sourceRequestIds: sceneSources,
-        renderSceneType: scene.renderSceneType == null
-          ? null
-          : requiredText(scene.renderSceneType, `Scene ${index + 1} built-in render scene`, 40),
-        visualPrompt: requiredText(scene.visualPrompt, `Scene ${index + 1} visual prompt`, 5_000),
-        voiceover: optionalText(scene.voiceover, `Scene ${index + 1} voiceover`, queueRender ? 20_000 : 3_000),
-        onScreenText: boundedArray(scene.onScreenText, `Scene ${index + 1} on-screen text`, { maximum: 10 })
-          .map((value) => requiredText(value, `Scene ${index + 1} on-screen text`, 500)),
-        cameraMotion: optionalText(scene.cameraMotion, `Scene ${index + 1} camera motion`, 1_000),
-        audioNotes: optionalText(scene.audioNotes, `Scene ${index + 1} audio notes`, 1_000),
-        transition: optionalText(scene.transition, `Scene ${index + 1} transition`, 1_000),
-      };
-    });
-    if (scenes.some(({ renderSceneType }) => renderSceneType !== null && !renderSceneTypes.has(renderSceneType))) {
-      throw new Error("Built-in render scenes must be intro, request, activity, response, or outro");
-    }
-    if (queueRender && scenes.some(({ renderSceneType, voiceover }) => !renderSceneType || !voiceover)) {
-      throw new Error("Every production scene requires a built-in render scene and server narration");
-    }
-    if (queueRender && scenes.some(({ renderSceneType, sourceRequestIds: ids }) => (
-      ["request", "response"].includes(renderSceneType) && ids.length !== 1
-    ))) {
-      throw new Error("Every production request or response scene must reference exactly one interaction");
-    }
-    if (queueRender) {
-      if (input.aspectRatio !== "2:3") {
-        throw new Error("Built-in productions must use the 1080x1620 (2:3) format");
-      }
-      if (scenes.length !== canonicalIds.length * 2) {
-        throw new Error("A production requires exactly one request and one response scene per interaction");
-      }
-      canonicalIds.forEach((sourceId, sourceIndex) => {
-        const requestScene = scenes[sourceIndex * 2];
-        const responseScene = scenes[sourceIndex * 2 + 1];
-        if (requestScene.renderSceneType !== "request"
-            || responseScene.renderSceneType !== "response"
-            || requestScene.sourceRequestIds.length !== 1
-            || responseScene.sourceRequestIds.length !== 1
-            || requestScene.sourceRequestIds[0] !== sourceId
-            || responseScene.sourceRequestIds[0] !== sourceId) {
-          throw new Error("Production scenes must be chronological request-response pairs for every selected interaction");
-        }
-      });
-    }
-    if (scenes.some(({ sceneNumber }, index) => sceneNumber !== index + 1)) {
-      throw new Error("Scene numbers must be consecutive and match scene order");
-    }
-    const durationSeconds = positiveInteger(input.durationSeconds, "Target duration", { maximum: 7_200 });
-    if (scenes.reduce((total, scene) => total + scene.durationSeconds, 0) !== durationSeconds) {
-      throw new Error("Target duration must equal the sum of all scene durations");
-    }
-    const usedSourceIds = new Set(scenes.flatMap(({ sourceRequestIds: ids }) => ids));
-    if (canonicalIds.some((id) => !usedSourceIds.has(id))) {
-      throw new Error("Every selected interaction must ground at least one scene");
-    }
-    const visiblyReplayedIds = new Set(scenes
-      .filter(({ renderSceneType }) => ["request", "response"].includes(renderSceneType))
-      .flatMap(({ sourceRequestIds: ids }) => ids));
-    if (queueRender && canonicalIds.some((id) => !visiblyReplayedIds.has(id))) {
-      throw new Error("Every selected interaction needs a request or response scene in the built-in production");
-    }
-    if (!aspectRatios.has(input.aspectRatio)) throw new Error(`Unknown aspect ratio: ${input.aspectRatio}`);
+    const interactions = this.#dialogue(canonicalIds);
+    const scenes = interactions.flatMap((interaction, interactionIndex) => [
+      {
+        sceneNumber: (interactionIndex * 2) + 1,
+        durationSeconds: estimatedDialogueSeconds(interaction.request),
+        sourceRequestIds: [interaction.requestId],
+        renderSceneType: "request",
+        visualPrompt: "Show the exact user request as the next message in one continuous AI chat.",
+        voiceover: interaction.request,
+        onScreenText: [interaction.request],
+        cameraMotion: null,
+        audioNotes: null,
+        transition: null,
+      },
+      {
+        sceneNumber: (interactionIndex * 2) + 2,
+        durationSeconds: estimatedDialogueSeconds(interaction.response),
+        sourceRequestIds: [interaction.requestId],
+        renderSceneType: "response",
+        visualPrompt: "Show the exact Chapeaux Fous response immediately after the user request.",
+        voiceover: interaction.response,
+        onScreenText: [interaction.response],
+        cameraMotion: null,
+        audioNotes: null,
+        transition: null,
+      },
+    ]);
+    const durationSeconds = scenes.reduce((total, scene) => total + scene.durationSeconds, 0);
     const plan = {
       schemaVersion: 1,
       title: requiredText(input.title, "Video script title", 200),
-      concept: requiredText(input.concept, "Video concept", 3_000),
-      audience: requiredText(input.audience, "Video audience", 1_000),
+      concept: requiredText(input.description ?? input.concept, "Video description", 3_000),
+      audience: "Viewers watching a real interaction between a user and an AI agent.",
       durationSeconds,
-      aspectRatio: input.aspectRatio,
-      visualStyle: requiredText(input.visualStyle, "Visual style", 3_000),
+      aspectRatio: "2:3",
+      visualStyle: "One polished, continuous 1080x1620 Chapeaux Fous chat containing only exact dialogue.",
       sourceRequestIds: canonicalIds,
-      generatorPrompt: requiredText(input.generatorPrompt, "Generator prompt", 20_000),
+      generatorPrompt: "",
       scenes,
-      continuityNotes: boundedArray(input.continuityNotes, "Continuity notes", { maximum: 30 })
-        .map((value) => requiredText(value, "Continuity note", 2_000)),
-      negativeConstraints: boundedArray(input.negativeConstraints, "Negative constraints", { minimum: 1, maximum: 30 })
-        .map((value) => requiredText(value, "Negative constraint", 2_000)),
+      continuityNotes: ["Keep the messages in chronological order as one continuous conversation."],
+      negativeConstraints: ["Show no intermediate activity, reasoning, tools, trace, tutorial, intro, outro, summary, or invented dialogue."],
     };
-    const scriptText = scriptMarkdown(plan);
+    plan.generatorPrompt = canonicalGeneratorPrompt(plan, interactions);
+    const scriptText = scriptMarkdown(plan, interactions);
     const serialized = JSON.stringify(plan);
     if (serialized.length > 500_000 || scriptText.length > 500_000) {
       throw new Error("The generated video script exceeds the storage limit");

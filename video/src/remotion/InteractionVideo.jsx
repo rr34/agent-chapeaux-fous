@@ -1,13 +1,13 @@
-import React from "react";
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AbsoluteFill,
   Audio,
   Sequence,
-  interpolate,
   spring,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
+import { alignTimedWordsToDisplay } from "../word-timing.mjs";
 
 const AGENT = "#4e5b43";
 const USER = "#6e7b61";
@@ -37,7 +37,9 @@ function textMetrics(text, current) {
   const charactersPerLine = Math.max(24, Math.floor(730 / (fontSize * 0.54)));
   const estimatedLines = Math.max(1, Math.ceil(length / charactersPerLine));
   const estimatedHeight = estimatedLines * lineHeight;
-  const maximumHeight = current ? 760 : estimatedHeight + 8;
+  const maximumHeight = current
+    ? Math.max(lineHeight, Math.floor(760 / lineHeight) * lineHeight)
+    : estimatedHeight + 8;
   return { fontSize, lineHeight, estimatedHeight, maximumHeight };
 }
 
@@ -54,49 +56,65 @@ function timedWords(scene) {
   ));
 }
 
-function HighlightedText({ text, scene, current, speechMs }) {
-  const words = timedWords(scene);
-  const activeWord = current && speechMs >= 0
-    ? words.findIndex((word) => speechMs >= Number(word.startMs) - 35 && speechMs < Number(word.endMs) + 55)
-    : -1;
-  let wordIndex = -1;
-  return (text.match(/\s+|[^\s]+/gu) || [text]).map((piece, pieceIndex) => {
-    if (/^\s+$/u.test(piece)) return <React.Fragment key={`space-${pieceIndex}`}>{piece}</React.Fragment>;
-    wordIndex += 1;
-    const active = wordIndex === activeWord;
-    return (
-      <span
-        key={`word-${pieceIndex}`}
-        style={active ? {
-          background: scene.renderSceneType === "request" ? "#f4e86f" : "#9ac477",
-          color: INK,
-          borderRadius: 7,
-          boxShadow: "0 2px 0 rgba(32,37,30,.16)",
-          fontWeight: 820,
-          margin: "0 -3px",
-          padding: "1px 3px 2px",
-        } : undefined}
-      >
-        {piece}
-      </span>
-    );
-  });
+function HighlightedText({ alignment, activeWord, contentRef }) {
+  const activePiece = activeWord < 0 ? null : alignment.pieceIndexes[activeWord];
+  return (
+    <div ref={contentRef}>
+      {alignment.pieces.map((piece, pieceIndex) => {
+        if (/^\s+$/u.test(piece)) return <React.Fragment key={`space-${pieceIndex}`}>{piece}</React.Fragment>;
+        const active = pieceIndex === activePiece;
+        return (
+          <span
+            key={`word-${pieceIndex}`}
+            style={active ? {
+              background: "#ffffff",
+              color: AGENT,
+              borderRadius: 7,
+              boxShadow: "0 2px 0 rgba(32,37,30,.2)",
+              fontWeight: 820,
+              margin: "0 -3px",
+              padding: "1px 3px 2px",
+            } : undefined}
+          >
+            {piece}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 function MessageText({ text, current, scene }) {
   const frame = useCurrentFrame();
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps } = useVideoConfig();
   const metrics = textMetrics(text, current);
-  const viewportHeight = Math.min(metrics.maximumHeight, metrics.estimatedHeight + 8);
-  const overflow = Math.max(0, metrics.estimatedHeight - viewportHeight + 12);
-  const scrollStart = Math.min(durationInFrames - 1, Math.round(fps * 0.5));
-  const scrollEnd = Math.max(scrollStart + 1, durationInFrames - Math.round(fps * 0.5));
-  const scroll = current && overflow > 0
-    ? interpolate(frame, [scrollStart, scrollEnd], [0, overflow], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-      })
-    : 0;
+  const contentRef = useRef(null);
+  const [measuredHeight, setMeasuredHeight] = useState(metrics.estimatedHeight);
+  useLayoutEffect(() => {
+    const height = Math.ceil(contentRef.current?.scrollHeight || 0);
+    if (height > 0 && height !== measuredHeight) setMeasuredHeight(height);
+  }, [measuredHeight, metrics.fontSize, text]);
+  const naturalHeight = Math.max(metrics.lineHeight, measuredHeight);
+  const viewportHeight = current ? Math.min(metrics.maximumHeight, naturalHeight) : naturalHeight;
+  const overflow = Math.max(0, naturalHeight - viewportHeight);
+  const speechMs = ((frame / fps) - SPEECH_LEAD_IN_SECONDS) * 1_000 * (Number(scene.playbackRate) || 1);
+  const words = useMemo(() => timedWords(scene), [scene.rawWords]);
+  const alignment = useMemo(() => alignTimedWordsToDisplay(text, words), [text, words]);
+  const activeWord = current && speechMs >= 0
+    ? words.findIndex((word) => speechMs >= Number(word.startMs) - 35 && speechMs < Number(word.endMs) + 55)
+    : -1;
+  let spokenWord = -1;
+  for (let index = 0; current && index < words.length; index += 1) {
+    if (speechMs >= Number(words[index].startMs) - 35) spokenWord = index;
+    else break;
+  }
+  let spokenPiece = spokenWord < 0 ? null : alignment.pieceIndexes[spokenWord];
+  while (spokenPiece == null && spokenWord > 0) {
+    spokenWord -= 1;
+    spokenPiece = alignment.pieceIndexes[spokenWord];
+  }
+  const spokenProgress = spokenPiece == null ? 0 : spokenPiece / Math.max(1, alignment.pieces.length - 1);
+  const scroll = current ? overflow * spokenProgress : 0;
   return (
     <div style={{ height: viewportHeight, overflow: "hidden" }}>
       <div style={{
@@ -106,10 +124,9 @@ function MessageText({ text, current, scene }) {
         transform: `translateY(${-scroll}px)`,
       }}>
         <HighlightedText
-          text={text}
-          scene={scene}
-          current={current}
-          speechMs={((frame / fps) - SPEECH_LEAD_IN_SECONDS) * 1_000 * (Number(scene.playbackRate) || 1)}
+          alignment={alignment}
+          activeWord={activeWord}
+          contentRef={contentRef}
         />
       </div>
     </div>
@@ -132,7 +149,7 @@ function AgentBubble({ scene, current }) {
     <div style={{ ...styles.messageRow, justifyContent: "flex-start", alignItems: "flex-start" }}>
       <div style={styles.avatar}>A</div>
       <div style={{ ...styles.bubble, ...styles.agentBubble, ...(current ? styles.currentBubble : styles.previousBubble) }}>
-        <div style={{ ...styles.bubbleLabel, color: AGENT }}>Agent</div>
+        <div style={{ ...styles.bubbleLabel, color: "#e5ebdf" }}>Agent</div>
         <MessageText text={messageText(scene)} current={current} scene={scene} />
       </div>
     </div>
@@ -277,7 +294,7 @@ const styles = {
     boxShadow: "0 17px 40px rgba(49,61,45,.17)",
   },
   agentBubble: {
-    background: "#fff", color: INK, border: "2px solid #dce1d7",
+    background: AGENT, color: "#fff", border: `2px solid ${AGENT}`, borderLeft: `6px solid ${PALE}`,
     borderRadius: "7px 27px 27px 27px", boxShadow: "0 17px 40px rgba(49,61,45,.09)",
   },
   avatar: {

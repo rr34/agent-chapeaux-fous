@@ -39,6 +39,7 @@ const instructionFiles = new Map([
 ]);
 
 const capabilityPatterns = new Map([
+  ["self", /\bhow (?:do|did) you.{0,50}\b(?:make|create|generate|produce|render)(?:d|s|ing)?\b.{0,40}\bvideos?\b|\bhow (?:is|are|was|were).{0,40}\bvideos?\b.{0,30}\b(?:made|created|generated|produced|rendered)\b|\b(?:is it|is this).{0,30}\beasy\b.{0,40}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b|\bhow (?:long|many clicks).{0,50}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b/iu],
   ["web", /https?:\/\/|\b(?:web ?page|website|url|link)\b/iu],
   ["calendar", /\b(?:calendar|schedule|agenda|appointment|meeting|event|birthday|invite)\b/iu],
   ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b/iu],

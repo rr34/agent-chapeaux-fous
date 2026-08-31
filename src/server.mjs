@@ -747,8 +747,8 @@ const server = http.createServer(async (request, response) => {
       const runLimits = normalizeRunLimits(body.runLimits);
       const created = ledger.createRequest({
         text: [
-          "Create one portable, copy-ready AI-video-generator script grounded in every selected interaction below.",
-          "Use the selected interactions in chronological order, preserve factual outcomes, omit secrets and unrelated private details, and do not render an MP4.",
+          "Create one concise, copy-ready script for a video of the selected user-and-AI conversations below.",
+          "Use the selected interactions in chronological order. Supply only a concise title and a one- or two-sentence description of what the conversation is about; the application will insert the exact request-response dialogue and omit all intermediate activity. Do not render an MP4.",
           ...sourceRequestIds.map((id, index) => `${index + 1}. Source interaction ${id}`),
         ].join("\n"),
         channel: "web",
@@ -772,9 +772,8 @@ const server = http.createServer(async (request, response) => {
       const created = ledger.createRequest({
         text: [
           "Create one source-grounded video production from every selected interaction below.",
-          "First create the complete portable script. Then atomically queue its 1080x1620 built-in Agent-interface MP4 using server-side speech and original request audio when the selected interaction has a saved recording.",
-          "Make it one continuous chat containing only the exact request followed by the exact Agent response for each selected interaction. Do not include intro, outro, activity, trace, processing, tutorial, summary, or explanatory scenes.",
-          "Use the selected interactions in chronological order, keep the tone brisk and playfully self-promotional, omit secrets and unrelated private details, and call video_production_create exactly once.",
+          "Supply only a concise title and a one- or two-sentence description of what the conversation is about, then call video_production_create exactly once.",
+          "The application will create both the portable script and 1080x1620 MP4 as one continuous chat containing only the exact request followed by the exact final Agent response for each selected interaction. It will omit all intermediate activity, reasoning, trace, processing, tutorial, summary, intro, and outro material.",
           ...sourceRequestIds.map((id, index) => `${index + 1}. Source interaction ${id}`),
         ].join("\n"),
         channel: "web",

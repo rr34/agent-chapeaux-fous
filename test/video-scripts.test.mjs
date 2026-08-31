@@ -20,73 +20,12 @@ function plan(sourceRequestIds) {
   return {
     sourceRequestIds,
     title: "A grounded multi-interaction story",
-    concept: "Show how two separate requests build one reliable workflow.",
-    audience: "People evaluating personal AI assistants",
-    durationSeconds: 45,
-    aspectRatio: "9:16",
-    visualStyle: "Warm documentary interface footage with restrained motion graphics.",
-    generatorPrompt: "Create a 45-second vertical video following the supplied scenes without inventing any product outcomes.",
-    scenes: [
-      {
-        sceneNumber: 1,
-        durationSeconds: 20,
-        sourceRequestIds: [sourceRequestIds[0]],
-        renderSceneType: "request",
-        visualPrompt: "A close view of the first request becoming a completed response.",
-        voiceover: "The first interaction established the plan.",
-        onScreenText: ["Start with exact context"],
-        cameraMotion: "Slow push in",
-        audioNotes: "Quiet interface sounds",
-        transition: "Match cut",
-      },
-      {
-        sceneNumber: 2,
-        durationSeconds: 25,
-        sourceRequestIds,
-        renderSceneType: "response",
-        visualPrompt: "The two interactions align into one chronological production outline.",
-        voiceover: "The second interaction turns that context into a reusable result.",
-        onScreenText: ["Ground every scene"],
-        cameraMotion: null,
-        audioNotes: null,
-        transition: null,
-      },
-    ],
-    continuityNotes: ["Keep the same interface and typography across both scenes."],
-    negativeConstraints: ["Do not invent tool calls, results, people, or quotations."],
+    description: "A user asks an AI agent to create a release plan and turn it into a checklist.",
   };
 }
 
 function productionPlan(sourceRequestIds) {
-  const dialogue = [
-    ["Plan the release.", "The release plan is ready."],
-    ["Make the checklist.", "The checklist is ready."],
-  ];
-  const scenes = sourceRequestIds.flatMap((sourceId, sourceIndex) => dialogue[sourceIndex].map((text, partIndex) => ({
-    sceneNumber: sourceIndex * 2 + partIndex + 1,
-    durationSeconds: 5,
-    sourceRequestIds: [sourceId],
-    renderSceneType: partIndex === 0 ? "request" : "response",
-    visualPrompt: partIndex === 0 ? "Show the exact user chat bubble." : "Show the exact Agent chat bubble.",
-    voiceover: text,
-    onScreenText: [text],
-    cameraMotion: null,
-    audioNotes: null,
-    transition: null,
-  })));
-  return {
-    sourceRequestIds,
-    title: "A grounded multi-interaction story",
-    concept: "Show the actual conversation as one brisk, playful Agent chat.",
-    audience: "People evaluating personal AI assistants",
-    durationSeconds: scenes.reduce((total, scene) => total + scene.durationSeconds, 0),
-    aspectRatio: "2:3",
-    visualStyle: "One continuous 1080x1620 Agent chat with no explanatory scenes.",
-    generatorPrompt: "Create a playful promotional video using only the supplied request-response chat pairs.",
-    scenes,
-    continuityNotes: ["Keep every prior chat bubble in the continuous conversation."],
-    negativeConstraints: ["Do not add trace, processing, tutorial, intro, outro, or explanatory content."],
-  };
+  return plan(sourceRequestIds);
 }
 
 test("video scripts persist one ordered source join for every selected interaction", async (context) => {
@@ -107,9 +46,17 @@ test("video scripts persist one ordered source join for every selected interacti
   assert.deepEqual(prepared.data.sources.map(({ requestId }) => requestId), [first.requestId, second.requestId]);
   assert.match(prepared.text, /Plan the release/);
   assert.match(prepared.text, /The checklist is ready/);
+  assert.deepEqual(Object.keys(prepared.data.sources[0]), ["sourceOrder", "requestId", "request", "response"]);
+  assert.doesNotMatch(prepared.text, /activity|tool\.call|model\.request|context\.prepared/iu);
 
   const registry = registerNativeCapabilities(new ToolRegistry());
   registerVideoScriptTools(registry, videoScripts);
+  for (const toolName of ["video_script_create", "video_production_create"]) {
+    const definition = registry.toolDefinitions().find(({ name }) => name === toolName);
+    assert.deepEqual(Object.keys(definition.inputSchema.properties), ["sourceRequestIds", "title", "description"]);
+    assert.deepEqual(definition.inputSchema.required, ["sourceRequestIds", "title", "description"]);
+    assert.equal(definition.inputSchema.additionalProperties, false);
+  }
   assert.deepEqual(
     requestCapabilityCatalog(registry.toolDefinitions())
       .find(({ capability }) => capability === "video").contextViews.map(({ id }) => id),
@@ -136,8 +83,20 @@ test("video scripts persist one ordered source join for every selected interacti
       { requestId: second.requestId, order: 2 },
     ],
   );
-  assert.match(stored.scriptText, /## Generator prompt/);
-  assert.match(stored.scriptText, new RegExp(first.requestId));
+  assert.match(stored.scriptText, /## Video description/);
+  assert.match(stored.scriptText, /## Conversation/);
+  assert.match(stored.scriptText, /\*\*User request\*\*[\s\S]+Plan the release\./);
+  assert.match(stored.scriptText, /\*\*Chapeaux Fous · AI response\*\*[\s\S]+The checklist is ready\./);
+  assert.doesNotMatch(stored.scriptText, /Production brief|Generator prompt|Scene plan|Camera and motion|Continuity requirements/);
+  assert.doesNotMatch(stored.scriptText, new RegExp(first.requestId));
+  assert.match(stored.plan.generatorPrompt, /exact conversation below between a user and Chapeaux Fous, an AI agent/);
+  assert.match(stored.plan.generatorPrompt, /USER REQUEST:[\s\S]+Plan the release\./);
+  assert.doesNotMatch(stored.plan.generatorPrompt, /reasoning|processing|tool activity|trace activity|tutorial|scene plan/iu);
+  assert.deepEqual(stored.plan.scenes.map(({ renderSceneType }) => renderSceneType), ["request", "response", "request", "response"]);
+  assert.deepEqual(
+    stored.plan.scenes.map(({ voiceover }) => voiceover),
+    ["Plan the release.", "The release plan is ready.", "Turn the plan into a checklist.", "The checklist is ready."],
+  );
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM video_script_sources").get().count, 2);
   assert.deepEqual(
     ledger.trace(generation.requestId).filter(({ type }) => type === "video_script.created").map(({ subjectId }) => subjectId),
@@ -179,8 +138,7 @@ test("video-script creation rejects sources outside the request-bound selection"
     text: "Create the selected script.",
     metadata: { requestKind: "video_script", sourceRequestIds: [first.requestId] },
   });
-  const invalid = plan([first.requestId]);
-  invalid.scenes[0].sourceRequestIds = [unselected.requestId];
+  const invalid = plan([unselected.requestId]);
 
   assert.throws(
     () => videoScripts.create(invalid, {
@@ -188,7 +146,7 @@ test("video-script creation rejects sources outside the request-bound selection"
       requestEventId: generation.eventId,
       callId: "invalid-script",
     }),
-    /outside the selected source set/,
+    /must exactly match the selected interactions/,
   );
   assert.equal(videoScripts.list().count, 0);
 });
@@ -210,16 +168,6 @@ test("one production tool call persists its script and queues one linked backgro
   const registry = registerNativeCapabilities(new ToolRegistry());
   registerVideoScriptTools(registry, videoScripts, { onRenderQueued: () => { notifications += 1; } });
   const production = productionPlan([first.requestId, second.requestId]);
-
-  assert.throws(
-    () => videoScripts.create({ ...production, aspectRatio: "9:16" }, {
-      requestId: generation.requestId,
-      requestEventId: generation.eventId,
-      callId: "wrong-production-format",
-      channel: "web",
-    }, { queueRender: true }),
-    /1080x1620/,
-  );
 
   await assert.rejects(
     () => registry.execute("video_script_create", production, {

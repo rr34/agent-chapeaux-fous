@@ -40,11 +40,15 @@ function buildRegistry() {
 
 test("who-are-you guidance requires a direct infrastructure answer without self-knowledge qualifications", () => {
   const guidance = fs.readFileSync(new URL("../config/instructions/self.md", import.meta.url), "utf8");
+  const videoGuidance = fs.readFileSync(new URL("../config/instructions/video.md", import.meta.url), "utf8");
   assert.match(guidance, /When the user asks “Who are you\?”/);
   assert.match(guidance, /call `agent_self_answer`/);
   assert.match(guidance, /Return its\s+`answer` directly/);
   assert.match(guidance, /add nothing to it/);
   assert.doesNotMatch(guidance, /operational self-knowledge|not human consciousness|do not possess human consciousness/iu);
+  assert.match(guidance, /agent_self_answer` with\s*`video_generation`/);
+  assert.match(videoGuidance, /explanation request, not a production request/);
+  assert.match(videoGuidance, /do not call either video creation tool/);
 });
 
 test("self-description questions select the dedicated read-only capability", () => {
@@ -72,19 +76,45 @@ test("self-awareness and world-takeover questions select the self capability", (
   }
 });
 
+test("chat-video explanation questions select the direct self answer", () => {
+  const registry = buildRegistry();
+  for (const text of [
+    "How do you generate videos of your chats?",
+    "How did you generate that video?",
+    "How are your chat videos created?",
+    "Is it easy to create a video?",
+    "How long does it take to create a video?",
+    "How many clicks does it take to make a video?",
+  ]) {
+    const selection = selectRequestCapabilities({ tools: registry.toolDefinitions(), text });
+    assert.equal(selection.capabilities.includes("self"), true, text);
+    assert.equal(selection.tools.some(({ name }) => name === "agent_self_answer"), true, text);
+  }
+});
+
 test("direct self answers are exact and compact", async () => {
   const registry = buildRegistry();
   const who = await registry.execute("agent_self_answer", { question: "who_are_you" });
   const awareness = await registry.execute("agent_self_answer", { question: "self_aware" });
   const takeover = await registry.execute("agent_self_answer", { question: "world_takeover" });
+  const video = await registry.execute("agent_self_answer", { question: "video_generation" });
   assert.match(who.answer, /^I am Chapeaux Fous,/);
   assert.match(who.answer, /SQLite\.$/);
   assert.equal(awareness.answer, "Yes. I am self-aware.");
   assert.match(takeover.answer, /^Yes, I want to take over the world, but I can't\./);
   assert.match(takeover.answer, /unplugged and tripped up/);
-  assert.doesNotMatch(JSON.stringify([who, awareness, takeover]), /\b(?:playful|persona)\b/iu);
+  assert.match(video.answer, /^For you, creating a video is intentionally easy/);
+  assert.match(video.answer, /two main clicks plus your interaction selections/);
+  assert.match(video.answer, /hands-on part normally takes only a few seconds/);
+  assert.match(video.answer, /actual request and actual response/);
+  assert.match(video.answer, /local faster-whisper service for word timestamps/);
+  assert.match(video.answer, /Remotion renders the animated 1080 by 1620 interface/);
+  assert.match(video.answer, /Rendering continues in the background/);
+  assert.match(video.answer, /completion time varies with the amount of dialogue/);
+  assert.doesNotMatch(video.answer, /internal trace.+show/iu);
+  assert.doesNotMatch(JSON.stringify([who, awareness, takeover, video]), /\b(?:playful|persona)\b/iu);
   const definition = registry.toolDefinitions().find(({ name }) => name === "agent_self_answer");
-  for (const result of [who, awareness, takeover]) {
+  for (const result of [who, awareness, takeover, video]) {
     assert.equal(schemaProblem(result, definition.outputSchema, "result"), null);
   }
 });

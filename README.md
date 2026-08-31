@@ -461,6 +461,15 @@ The selection workflow opens as a temporary extension above the fixed request
 composer rather than inside the chronological chat, keeping the newest
 interactions visible while the user chooses sources.
 
+The selected-interaction context contains only each exact user request and
+final Agent response. The creation tools ask the model only for the selected
+request IDs, a concise title, and a one- or two-sentence description of the
+conversation. The application then builds the portable script and external
+generator prompt deterministically: a clear description that the video depicts
+a user interacting with Chapeaux Fous, an AI agent, followed by the exact
+chronological conversation. Neither artifact includes trace events, processing,
+tool activity, a production brief, or an intermediate scene plan.
+
 A single-concurrency background worker prepares the production after the Agent
 turn finishes. The 1080x1620 MP4 is one continuous chat showing only the actual
 request and actual response for each selected interaction; trace, processing,
@@ -487,6 +496,14 @@ Server-generated speech is explicitly disclosed as AI-generated in both the
 Video Scripts page and the finished video. The Remotion composition is a
 designed reproduction of the actual Agent chat bubbles—not a claim that the
 product captured a screen recording.
+
+Rendered bubbles use the live interface colors: user messages use `#6e7b61`,
+Agent messages use `#4e5b43`, and both use white text. The active word uses a
+white highlight instead of an unrelated accent color. Timed transcription words
+are aligned to visible conversation tokens rather than assumed to have matching
+token indexes. Long-message scrolling follows the spoken token against the
+browser-measured text height so the active final line is not left partially
+below the bubble viewport.
 
 The **Video Scripts** page remains the durable home for the portable script and
 external-generator prompt. It also shows the linked background state, polls

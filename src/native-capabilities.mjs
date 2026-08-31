@@ -1,10 +1,12 @@
 export const nativeCapabilityManifests = [
   {
     id: "self", title: "Chapeaux Fous identity and infrastructure",
-    summary: "Describe who Chapeaux Fous is, answer its self-awareness and world-takeover questions, explain how a request reaches it, and report which capabilities are callable now.",
+    summary: "Describe who Chapeaux Fous is, answer its self-awareness and world-takeover questions, explain how it creates chat videos or how a request reaches it, and report which capabilities are callable now.",
     aliases: [
       "who are you", "how do you work", "how am I talking to you", "self aware",
       "self-awareness", "are you self-aware", "take over the world", "world domination",
+      "how do you generate videos", "how did you generate that video", "videos of your chats",
+      "is it easy to create a video", "how long does it take to create a video", "how many clicks to create a video",
       "your identity", "your infrastructure", "Chapofu", "Shapofu", "Chapo fu",
     ],
     instructionFile: "self.md",

@@ -304,10 +304,15 @@ test("the interaction video retains the complete chat history as it scrolls", ()
   assert.match(composition, /const visibleMessages = scenes\.slice\(0, index \+ 1\);/);
   assert.doesNotMatch(composition, /visibleMessages = [^;]*\.slice\(-\d+\)/);
   assert.match(composition, /previousBubble:\s*\{ opacity: 1 \}/);
-  assert.match(composition, /maximumHeight = current \? 760 : estimatedHeight \+ 8/);
+  assert.match(composition, /Math\.floor\(760 \/ lineHeight\) \* lineHeight/);
   assert.match(composition, /function HighlightedText/);
   assert.match(composition, /scene\.rawWords/);
-  assert.match(composition, /background: scene\.renderSceneType === "request"/);
+  assert.match(composition, /background: "#ffffff"/);
+  assert.match(composition, /userBubble:\s*\{[\s\S]+background: USER, color: "#fff"/);
+  assert.match(composition, /agentBubble:\s*\{[\s\S]+background: AGENT, color: "#fff"/);
+  assert.doesNotMatch(composition, /#f4e86f|#9ac477/);
+  assert.match(composition, /alignTimedWordsToDisplay/);
+  assert.match(composition, /overflow \* spokenProgress/);
   assert.match(composition, /playbackRate=\{playbackRate\}/);
   assert.match(composition, /damping: 9, stiffness: 185, mass: 0\.65/);
   assert.match(composition, /translateY\(\$\{translateY\}px\) scale\(\$\{scale\}\)/);
