@@ -250,6 +250,7 @@ test("calendar controls use simple visibility states and explicit 24-hour event 
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  const serviceWorker = fs.readFileSync(path.join(root, "public", "service-worker.js"), "utf8");
   const status = /<select id="event-status">([\s\S]*?)<\/select>/.exec(document)?.[1] ?? "";
   assert.match(status, /<option value="active">Active<\/option><option value="archived">Archived<\/option>/);
   assert.doesNotMatch(status, />Confirmed<|>Tentative<|>Completed<|>Cancelled</);
@@ -261,6 +262,9 @@ test("calendar controls use simple visibility states and explicit 24-hour event 
   assert.match(application, /shiftLocalDateTime\(elements\.eventStart\.value, elements\.eventStartTime\.value, 60\)/);
   assert.match(application, /`Duration: \$\{formatDurationMinutes\(minutes\)\}`/);
   assert.match(server, /\["\/event-date-time\.js", \["event-date-time\.js", "text\/javascript; charset=utf-8"\]\]/);
+  assert.match(server, /\["\/calendar-grid\.js", \["calendar-grid\.js", "text\/javascript; charset=utf-8"\]\]/);
+  assert.match(serviceWorker, /"\/calendar-grid\.js"/);
+  assert.match(document, /name="username" autocomplete="username"[^>]+hidden/);
   assert.match(application, /elements\.todoScheduled\.step = allDay \? "1" : "60";/);
 });
 

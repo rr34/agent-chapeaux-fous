@@ -973,8 +973,9 @@
     <form id="token-form" method="dialog">
       <p class="eyebrow">Private service</p>
       <h2>Connect to Chapeaux Fous</h2>
+      <input type="text" name="username" autocomplete="username" value="chapeaux-fous" hidden aria-hidden="true" tabindex="-1">
       <label for="token">Access token</label>
-      <input id="token" type="password" autocomplete="current-password" required>
+      <input id="token" name="password" type="password" autocomplete="current-password" required>
       <p class="muted">Stored only in this browser.</p>
       <button type="submit">Connect</button>
     </form>
