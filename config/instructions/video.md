@@ -5,6 +5,11 @@ an explanation request, not a production request. Use the self capability's
 `agent_self_answer` with `video_generation`; do not request selected-interaction
 context and do not call either video creation tool.
 
+If the user instead asks how they can create a video, whether it is easy, how
+many clicks it takes, or how long their part takes, use `agent_self_answer` with
+`video_user_creation`. This is also an explanation request, not a production
+request.
+
 The user explicitly selected completed interactions for either a portable script or a script plus built-in MP4 production.
 
 - Request the `video.selected_interactions` context view during orientation. It is the only authoritative source package for either operation.

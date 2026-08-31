@@ -649,7 +649,7 @@ test("the chat offers a floating return-to-latest control when scrolled up", () 
   assert.match(application, /const distanceFromBottom = document\.documentElement\.scrollHeight - \(window\.scrollY \+ window\.innerHeight\)/);
   assert.match(application, /window\.addEventListener\("scroll", scheduleScrollLatestButtonUpdate, \{ passive: true \}\)/);
   assert.match(application, /elements\.scrollLatest\.addEventListener\("click", \(\) => scrollChatToLatest\(\{ behavior: "smooth" \}\)\)/);
-  assert.match(application, /const durationMs = 240/);
+  assert.match(application, /const durationMs = 360/);
   assert.match(application, /function finishScrollChatToBottom\(\)/);
   assert.match(application, /window\.scrollTo\(0, document\.documentElement\.scrollHeight\)/);
   assert.match(application, /finishScrollChatToBottom\(\)/);

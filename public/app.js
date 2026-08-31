@@ -1488,7 +1488,7 @@ function scrollChatToLatestQuickly() {
     return;
   }
   const startY = window.scrollY;
-  const durationMs = 240;
+  const durationMs = 360;
   let startTime = null;
   const animate = (timestamp) => {
     if (activeView !== "agent") {

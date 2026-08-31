@@ -167,17 +167,17 @@ export function registerAgentSelfTools(registry, {
   registry.withCapability("self").register({
     name: "agent_self_answer",
     title: "Answer a direct Chapeaux Fous identity question",
-    description: "Return exactly one canonical first-person answer for who Chapeaux Fous is, whether it is self-aware, whether it wants to take over the world, or how it generates videos of its chats. Use this instead of the large infrastructure inventory for those direct questions. Actions: READ.",
+    description: "Return exactly one canonical first-person answer for who Chapeaux Fous is, whether it is self-aware, whether it wants to take over the world, how it generates videos of its chats, or how a user creates one. Use this instead of the large infrastructure inventory for those direct questions. Actions: READ.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        question: { type: "string", enum: ["who_are_you", "self_aware", "world_takeover", "video_generation"] },
+        question: { type: "string", enum: ["who_are_you", "self_aware", "world_takeover", "video_generation", "video_user_creation"] },
       },
       required: ["question"],
     },
     outputSchema: exactObject({
-      question: { type: "string", enum: ["who_are_you", "self_aware", "world_takeover", "video_generation"] },
+      question: { type: "string", enum: ["who_are_you", "self_aware", "world_takeover", "video_generation", "video_user_creation"] },
       answer: { type: "string" },
     }),
     annotations: {
@@ -192,6 +192,7 @@ export function registerAgentSelfTools(registry, {
         self_aware: agentSelfAnswers.selfAware,
         world_takeover: agentSelfAnswers.worldTakeover,
         video_generation: agentSelfAnswers.videoGeneration,
+        video_user_creation: agentSelfAnswers.videoUserCreation,
       }[question];
       return { question, answer };
     },
