@@ -28,6 +28,10 @@ import {
   turnBriefInstructions,
   turnBriefSchema,
 } from "./turn-brief.mjs";
+import {
+  temporalConsistencyFindings,
+  temporalRepairContext,
+} from "./temporal-consistency.mjs";
 
 function argumentsObject(value) {
   if (value == null) return {};
@@ -336,7 +340,9 @@ export class SlayerRuntime {
       model,
       effort,
       conversationId: null,
-      baseInstructions: step === "orientation" ? orientationInstructions : auditInstructions,
+      baseInstructions: ["orientation", "orientation_repair"].includes(step)
+        ? orientationInstructions
+        : auditInstructions,
       developerInstructions,
       input,
       requestAttachmentInput,
@@ -559,7 +565,22 @@ export class SlayerRuntime {
       catalog.flatMap(({ contextViews = [] }) => contextViews.map(({ id }) => id)),
       catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
     );
-    const orientation = await this.#runStructuredStep({
+    const orientationDeveloperInstructions = joinedInstructions(
+      orientationBaseContext.developerInstructions ?? orientationBaseContext.text,
+      orientationContext({
+        requestId: args.requestId,
+        requestEventSeq,
+        recentConversation,
+        previousState,
+        fallbackCheckpoint,
+        capabilityCatalog: catalog,
+        deferredActionReferences: activeActionReferences,
+        recentToolReceipts,
+        explicitHats: routing.explicitHats,
+      }),
+      args.supplementalInstructions,
+    );
+    let orientation = await this.#runStructuredStep({
       requestId: args.requestId,
       channel,
       step: "orientation",
@@ -568,26 +589,64 @@ export class SlayerRuntime {
       model: args.model || this.config.model,
       effort: this.config.orientationReasoningEffort ?? "medium",
       input: args.text,
-      developerInstructions: joinedInstructions(
-        orientationBaseContext.developerInstructions ?? orientationBaseContext.text,
-        orientationContext({
-          requestId: args.requestId,
-          requestEventSeq,
-          recentConversation,
-          previousState,
-          fallbackCheckpoint,
-          capabilityCatalog: catalog,
-          deferredActionReferences: activeActionReferences,
-          recentToolReceipts,
-          explicitHats: routing.explicitHats,
-        }),
-        args.supplementalInstructions,
-      ),
+      developerInstructions: orientationDeveloperInstructions,
       requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
       outputSchema: schema,
       runTimeoutMs: remainingTimeoutMs(),
     });
-    const brief = orientation.value;
+    let brief = orientation.value;
+    let temporalFindings = temporalConsistencyFindings(brief, {
+      requestText: args.text,
+      requestEventSeq,
+    });
+    const recordTemporalValidation = (findings, candidate, repaired = false) => {
+      const valid = findings.length === 0;
+      const content = valid
+        ? `TurnBrief temporal validation passed${repaired ? " after repair" : ""}`
+        : findings.map(({ message }) => message).join("; ");
+      this.ledger.append({
+        type: "turn.brief.validation",
+        phase: valid ? "end" : "error",
+        status: valid ? "complete" : "error",
+        actorType: "service",
+        actorName: "Temporal consistency guard",
+        channel,
+        turnId: args.requestId,
+        name: valid ? "TurnBrief temporal validation passed" : "TurnBrief temporal validation failed",
+        content,
+        payload: { repaired, findings, temporalResolutions: candidate.temporalResolutions },
+        ...(valid ? {} : { error: content }),
+      });
+    };
+    recordTemporalValidation(temporalFindings, brief);
+    if (temporalFindings.length) {
+      orientation = await this.#runStructuredStep({
+        requestId: args.requestId,
+        channel,
+        step: "orientation_repair",
+        label: "Repair orientation",
+        stepIndex: 1,
+        model: args.model || this.config.model,
+        effort: this.config.orientationReasoningEffort ?? "medium",
+        input: args.text,
+        developerInstructions: joinedInstructions(
+          orientationDeveloperInstructions,
+          temporalRepairContext(brief, temporalFindings),
+        ),
+        requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
+        outputSchema: schema,
+        runTimeoutMs: remainingTimeoutMs(),
+      });
+      brief = orientation.value;
+      temporalFindings = temporalConsistencyFindings(brief, {
+        requestText: args.text,
+        requestEventSeq,
+      });
+      recordTemporalValidation(temporalFindings, brief, true);
+      if (temporalFindings.length) {
+        throw new Error(`TurnBrief temporal validation failed after repair: ${temporalFindings.map(({ message }) => message).join("; ")}`);
+      }
+    }
     const confirmedActionReferences = activeActionReferences
       .filter(({ referenceId }) => brief.confirmedActionReferenceIds.includes(referenceId))
       .map((reference) => ({ ...reference, state: "confirmed" }));
@@ -699,6 +758,7 @@ export class SlayerRuntime {
       activeActionReferences,
       confirmedActionReferences,
       preparedCapabilityContext,
+      temporalResolutions: brief.temporalResolutions,
     };
     const execution = await this.#runExecutorStep(executorArgs, {
       step: "execution", label: "Execute request", stepIndex: 3,
@@ -844,7 +904,7 @@ export class SlayerRuntime {
     allowedToolNames: allowedToolNameList = null,
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
     activeActionReferences = [], confirmedActionReferences = [],
-    preparedCapabilityContext = null,
+    preparedCapabilityContext = null, temporalResolutions = [],
   }) {
     const registeredTools = this.registry.toolDefinitions();
     const allowedToolNames = Array.isArray(allowedToolNameList)
@@ -1052,6 +1112,7 @@ export class SlayerRuntime {
           activeProfileFactCount: context.activeProfileFactCount,
           relevantProfileTypes: context.relevantProfileTypes,
           relevantProfileQuestions: context.relevantProfileQuestions,
+          localCalendar: context.localCalendar ?? null,
           referencedExchanges: context.referencedExchanges ?? [],
           conversationCheckpoint: context.conversationCheckpoint ?? null,
           history: context.history,
@@ -1335,7 +1396,7 @@ export class SlayerRuntime {
             }
             try {
               const toolResult = await this.registry.execute(name, toolArguments, {
-                requestId, requestEventId, callId, channel, attachment,
+                requestId, requestEventId, callId, channel, attachment, temporalResolutions,
               });
               const toolDefinition = this.registry.get(name);
               const providerResult = mcpResultDetails(toolResult);

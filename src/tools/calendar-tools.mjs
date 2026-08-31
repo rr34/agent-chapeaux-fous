@@ -2,6 +2,7 @@ import {
   buildRecurrenceRule, recurrenceSchema, validateTimeZone,
 } from "../todo-recurrence.mjs";
 import { searchCalendarEventRows } from "../calendar-search.mjs";
+import { localDateForInstant } from "../temporal-consistency.mjs";
 import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
 
 const statuses = ["tentative", "confirmed", "cancelled", "completed"];
@@ -39,6 +40,24 @@ function normalizedIso(value, label, { required = false } = {}) {
     throw new Error(`${label} must be an ISO-8601 date-time`);
   }
   return parsed.toISOString();
+}
+
+function validateCalendarTemporalTarget(startsAtUtc, context) {
+  if (!startsAtUtc) return;
+  const targets = Array.isArray(context?.temporalResolutions)
+    ? context.temporalResolutions.filter((resolution) => (
+        resolution.role === "target" && resolution.appliesTo === "calendar_start"
+      ))
+    : [];
+  if (!targets.length) return;
+  if (targets.some((target) => localDateForInstant(startsAtUtc, target.timeZone) === target.localDate)) return;
+  const actual = [...new Set(targets.map((target) => (
+    `${localDateForInstant(startsAtUtc, target.timeZone)} in ${target.timeZone}`
+  )))].join("; ");
+  const authorized = targets.map((target) => (
+    `${target.weekday}, ${target.localDate} in ${target.timeZone}`
+  )).join("; ");
+  throw new Error(`starts_at_utc resolves to ${actual}, outside the source-authorized calendar target(s): ${authorized}`);
 }
 
 function normalizedText(value, label, maximum, { required = false } = {}) {
@@ -213,6 +232,7 @@ export function registerCalendarTools(
       const database = store.requireReady();
       const startsAtUtc = normalizedIso(input.starts_at_utc, "starts_at_utc", { required: true });
       const endsAtUtc = normalizedIso(input.ends_at_utc, "ends_at_utc");
+      validateCalendarTemporalTarget(startsAtUtc, context);
       if (endsAtUtc && endsAtUtc < startsAtUtc) {
         throw new Error("ends_at_utc cannot be earlier than starts_at_utc");
       }
@@ -296,6 +316,7 @@ export function registerCalendarTools(
       if (input.location_text !== null) values.location_text = normalizedText(input.location_text, "location_text", 1_000);
       if (input.starts_at_utc !== null) {
         values.starts_at_utc = normalizedIso(input.starts_at_utc, "starts_at_utc", { required: true });
+        validateCalendarTemporalTarget(values.starts_at_utc, context);
       }
       if (input.ends_at_utc !== null) values.ends_at_utc = normalizedIso(input.ends_at_utc, "ends_at_utc");
       if (input.time_zone !== null) values.time_zone = input.time_zone ? validateTimeZone(input.time_zone) : null;

@@ -12,6 +12,7 @@ The complete request path is:
 ```text
 web or voice input
   -> orientation call with the exact request, bounded source context, and compact capability/tool catalog
+  -> deterministic TurnBrief validation, with one visible correction pass for invalid weekday/date claims
   -> strict, source-referenced TurnBrief plus rolling conversation state
   -> execution call with the accepted TurnBrief and exact initial tool schemas
   -> optional exact-tool expansion inside accepted capability families, preserving receipts
@@ -25,6 +26,12 @@ Every boundary is recorded in `activity_events` and shown in the web trace:
 user request, orientation, rolling state, execution, conditional audit and
 repair, context, tools, exact model requests and responses, tool calls and
 results, per-step usage, and the final answer.
+
+Orientation receives the current local weekday, date, time zone, and an
+eight-day local calendar table. Named-weekday action targets are recorded in
+the TurnBrief and checked with deterministic Gregorian calendar code before
+execution. Native to-do and calendar scheduling also validate proposed UTC timestamps
+against those accepted local-date targets before beginning their transactions.
 
 ## Hats and the user manual
 

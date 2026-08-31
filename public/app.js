@@ -680,6 +680,15 @@ function placeIdentityInComposer(identity) {
   elements.text.setSelectionRange(elements.text.value.length, elements.text.value.length);
 }
 
+function agentReferenceButton(identity, subject) {
+  const button = node("button", "reference-in-agent secondary compact", "↖ Reply");
+  button.type = "button";
+  button.title = `Reply with a reference to ${subject}`;
+  button.setAttribute("aria-label", button.title);
+  button.addEventListener("click", () => placeIdentityInComposer(identity));
+  return button;
+}
+
 function replyToExchange(requestId) {
   const identity = exchangeIdentity(requestId);
   if (!elements.text.value.includes(identity)) placeIdentityInComposer(identity);
@@ -732,13 +741,11 @@ function renderFileLibrary() {
       Number.isFinite(file.byteSize) ? formatFileSize(file.byteSize) : null,
     ].filter(Boolean).join(" · ");
     const actions = node("div", "file-card-actions");
-    const use = node("button", "secondary compact", "Use file in Agent");
-    use.type = "button";
-    use.addEventListener("click", () => placeIdentityInComposer(fileIdentity(file)));
+    const reply = agentReferenceButton(fileIdentity(file), `file ${file.fileId}`);
     const edit = node("button", "secondary compact", "Edit details");
     edit.type = "button";
     edit.addEventListener("click", () => void openFileEditor(file.fileId));
-    actions.append(use, edit);
+    actions.append(reply, edit);
     card.append(heading);
     if (metadata) card.append(node("p", "file-card-meta", metadata));
     if (file.description) card.append(node("p", "file-card-description", file.description));
@@ -3613,15 +3620,12 @@ function renderVideoScripts() {
     const heading = node("div", "video-script-card-heading");
     const identity = node("div", "video-script-card-identity");
     const title = node("h3");
-    if (script.render?.status === "complete" && script.render.outputFileId) {
-      const reference = node("button", "video-script-title-reference", script.title);
-      reference.type = "button";
-      reference.title = "Reference this generated video in the Agent composer";
-      reference.addEventListener("click", () => placeIdentityInComposer(videoIdentity(script)));
-      title.append(reference);
-    } else {
-      title.textContent = script.title;
-    }
+    const titleCopy = node("button", "copy-text-button video-script-title-copy", script.title);
+    titleCopy.type = "button";
+    titleCopy.title = "Copy video title";
+    titleCopy.setAttribute("aria-label", `Copy video title: ${script.title}`);
+    titleCopy.addEventListener("click", (event) => void copyText(script.title, event.currentTarget));
+    title.append(titleCopy);
     identity.append(title);
     const meta = node("div", "video-script-meta");
     meta.append(
@@ -3653,6 +3657,7 @@ function renderVideoScripts() {
     copyPrompt.addEventListener("click", () => copyText(script.plan.generatorPrompt, copyPrompt));
     actions.append(copy, copyPrompt);
     if (script.render?.status === "complete" && script.render.outputFileId) {
+      actions.prepend(agentReferenceButton(videoIdentity(script), `generated video ${script.title}`));
       const download = node("button", "compact", "Download MP4");
       download.type = "button";
       download.addEventListener("click", () => void downloadInteractionVideo(script.render.outputFileId, download));
@@ -4598,16 +4603,14 @@ function renderInteractionGuideDetail() {
       const card = node("article", `interaction-turn-card${step.enabled ? "" : " disabled"}`);
       const stepHeading = node("header", "interaction-turn-heading");
       const stepIdentity = node("div", "interaction-turn-identity");
-      const openingReference = node("button", "interaction-turn-opening-reference", step.openingText);
-      openingReference.type = "button";
-      openingReference.title = "Use this exchange in Agent";
-      openingReference.setAttribute("aria-label", `Use exchange ${step.stepNumber} in Agent: ${step.openingText}`);
-      openingReference.addEventListener("click", () => placeIdentityInComposer(
-        interactionStepIdentity(guide, step),
-      ));
+      const openingCopy = node("button", "copy-text-button interaction-turn-opening-copy", step.openingText);
+      openingCopy.type = "button";
+      openingCopy.title = "Copy exchange opening";
+      openingCopy.setAttribute("aria-label", `Copy exchange ${step.stepNumber} opening: ${step.openingText}`);
+      openingCopy.addEventListener("click", (event) => void copyText(step.openingText, event.currentTarget));
       stepIdentity.append(
         node("span", "interaction-turn-number", String(step.stepNumber)),
-        openingReference,
+        openingCopy,
         node(
           "span",
           `interaction-turn-state${step.enabled ? "" : " disabled"}`,
@@ -4621,7 +4624,10 @@ function renderInteractionGuideDetail() {
       editStep.disabled = !editable;
       editStep.addEventListener("click", () => openInteractionStepEditor(step));
       const stepActions = node("div", "interaction-detail-actions");
-      stepActions.append(editStep);
+      stepActions.append(
+        agentReferenceButton(interactionStepIdentity(guide, step), `briefing exchange ${step.stepNumber}`),
+        editStep,
+      );
       stepHeading.append(stepIdentity, stepActions);
 
       card.append(stepHeading);

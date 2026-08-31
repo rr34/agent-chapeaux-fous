@@ -454,6 +454,31 @@ test("todo_update schedules a 37-item batch atomically and uses the same schema 
   });
   assert.equal(singular.updated_count, 1);
   assert.equal(singular.items[0].task.scheduled_at_utc, "2026-08-31T21:00:00.000Z");
+
+  const sundayTarget = [{
+    sourceText: "Sunday afternoon",
+    sourceEventSeqs: [16651],
+    weekday: "Sunday",
+    localDate: "2026-09-06",
+    timeZone: "America/New_York",
+    role: "target",
+    appliesTo: "scheduled_at",
+  }];
+  await assert.rejects(registry.execute("todo_update", {
+    updates: [{ ...updates[0], scheduled_at_utc: "2026-08-31T22:00:00.000Z" }],
+  }, {
+    temporalResolutions: sundayTarget,
+  }), /outside the source-authorized temporal target/);
+  assert.equal(database.prepare(`
+    SELECT scheduled_at_utc FROM personal_tasks WHERE personal_task_id = ?
+  `).get(taskIds[0]).scheduled_at_utc, "2026-08-31T21:00:00.000Z");
+
+  const sunday = await registry.execute("todo_update", {
+    updates: [{ ...updates[0], scheduled_at_utc: "2026-09-06T20:00:00.000Z" }],
+  }, {
+    temporalResolutions: sundayTarget,
+  });
+  assert.equal(sunday.items[0].task.scheduled_at_utc, "2026-09-06T20:00:00.000Z");
 });
 
 test("todo_add associates a newly resolved contact with the task", async (context) => {

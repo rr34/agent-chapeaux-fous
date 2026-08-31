@@ -22,6 +22,28 @@ const sourcedStatement = {
   },
   required: ["text", "sourceEventSeqs"],
 };
+const weekdayNames = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
+const temporalResolution = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    sourceText: text(500),
+    sourceEventSeqs,
+    weekday: { type: "string", enum: weekdayNames },
+    localDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+    timeZone: text(200),
+    role: { type: "string", enum: ["target", "reference"] },
+    appliesTo: {
+      type: "string",
+      enum: ["scheduled_at", "due_at", "calendar_start", "other"],
+    },
+  },
+  required: [
+    "sourceText", "sourceEventSeqs", "weekday", "localDate", "timeZone", "role", "appliesTo",
+  ],
+};
 
 export function turnBriefSchema(capabilities, actionReferenceIds = [], contextViewIds = [], toolNames = []) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
@@ -74,6 +96,12 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
           ? { type: "string", enum: allowedContextViews }
           : { type: "string" },
       },
+      temporalResolutions: {
+        type: "array",
+        maxItems: 20,
+        description: "Source-referenced local calendar dates for named weekdays that govern this request. Action requests naming a weekday must resolve it here; application code validates the weekday/date pair before execution.",
+        items: temporalResolution,
+      },
       requestedActions: { type: "array", maxItems: 20, items: sourcedStatement },
       prohibitedActions: textList(),
       deferredActions: textList(),
@@ -114,7 +142,7 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
     required: [
       "contractVersion", "requestType", "responseMode", "objective", "summary",
       "requiredCapabilities", "requiredTools", "confirmedActionReferenceIds", "requestedActions",
-      "contextRequests",
+      "contextRequests", "temporalResolutions",
       "prohibitedActions", "deferredActions",
       "constraints", "unresolvedQuestions", "completionCriteria", "evidence", "audit",
       "conversationState",
@@ -259,6 +287,7 @@ export const orientationInstructions = [
   "A short yes can confirm a concrete prior offer without repeating its wording. A correction changes only what it explicitly changes. An addition preserves the earlier objective. A question does not confirm a write.",
   "When the user confirms a prepared MCP change, select its exact active reference in confirmedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",
   "Use contextRequests to ask the application for small advertised read-only datasets that execution needs up front, such as existing tag, group, or tracker names and IDs. Do not request unrelated views.",
+  "When an action request names a weekday, add its exact source phrase, event number, IANA time zone, weekday, resolved YYYY-MM-DD local date, target-or-reference role, and affected temporal field to temporalResolutions. Use the supplied local calendar table; never infer that today has the requested weekday merely because prior work moved records to today. Application code rejects inconsistent weekday/date pairs before execution, and native scheduling tools enforce target dates.",
   "Select every capability family the executor may need. Keep the output concise, source-grounded, and explicit about completion.",
 ].join("\n");
 

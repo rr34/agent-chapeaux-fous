@@ -63,6 +63,14 @@ For every request, the structure:
 9. returns each tool result to the same model exchange; and
 10. accepts a final answer only after the required completion checks.
 
+TurnBrief validation includes deterministic facts that application code can
+prove without interpreting user intent. In particular, a named weekday and a
+resolved local calendar date must agree before execution begins. A rejected
+candidate is visibly repaired once and revalidated; a second failure stops the
+request before mutation tools become callable. Source-referenced temporal
+targets are carried into participating domain tools, which reject scheduled
+timestamps outside the authorized local dates before retaining any mutation.
+
 Context views are small, live, domain-owned reference datasets such as active
 contact tags, to-do groups, or log trackers. Each view is advertised in the
 capability catalog, selected through `contextRequests`, read through its owning

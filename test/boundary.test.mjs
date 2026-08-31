@@ -174,9 +174,10 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(application, /function openInteractionStepEditor/);
   assert.match(application, /function interactionStepIdentity/);
   assert.match(application, /interaction_guide_step_id: step\.id/);
-  assert.match(application, /interaction-turn-opening-reference/);
-  assert.match(application, /Use this exchange in Agent/);
-  assert.match(application, /placeIdentityInComposer\(\s*interactionStepIdentity\(guide, step\)/);
+  assert.match(application, /interaction-turn-opening-copy/);
+  assert.match(application, /Copy exchange opening/);
+  assert.match(application, /copyText\(step\.openingText, event\.currentTarget\)/);
+  assert.match(application, /agentReferenceButton\(interactionStepIdentity\(guide, step\), `briefing exchange/);
   assert.match(application, /function deleteEditedInteractionStep/);
   assert.match(application, /method: "DELETE"/);
   assert.match(application, /Resume this briefing/);
@@ -318,10 +319,12 @@ test("video creation is an explicit select-then-create workflow", () => {
   assert.match(document, /id="video-content-dialog"[\s\S]+Add this video to content sequence/);
   assert.match(document, /id="video-content-group"/);
   assert.match(application, /function videoIdentity\(script\)/);
-  assert.match(application, /video-script-title-reference/);
+  assert.match(application, /video-script-title-copy/);
+  assert.match(application, /copyText\(script\.title, event\.currentTarget\)/);
+  assert.match(application, /agentReferenceButton\(videoIdentity\(script\), `generated video/);
   assert.match(application, /Add this video to content sequence/);
   assert.match(application, /\/api\/video-scripts\/\$\{videoAddingToContent\.id\}\/content/);
-  assert.match(stylesheet, /\.video-script-title-reference/);
+  assert.match(stylesheet, /\.video-script-title-copy/);
   assert.match(server, /videoScriptContentMatch/);
 });
 
@@ -589,8 +592,7 @@ test("the request composer accepts one image or text attachment and exposes mete
   assert.match(application, /function placeIdentityInComposer\(identity\)/);
   assert.match(application, /`In reference to:\\n\$\{identity\}`/);
   assert.match(application, /existingText \? `\$\{reference\}\\n\\n\$\{existingText\}` : `\$\{reference\}\\n\\n`/);
-  assert.match(application, /Use file in Agent/);
-  assert.match(application, /placeIdentityInComposer\(fileIdentity\(file\)\)/);
+  assert.match(application, /agentReferenceButton\(fileIdentity\(file\), `file/);
   assert.doesNotMatch(application, /Use with next request|Selected for next request/);
   assert.match(application, /request\.attachment/);
   assert.match(application, /jpg: "image\/jpeg"/);
@@ -609,7 +611,9 @@ test("completed exchanges expose a reply action that attaches literal source con
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   const context = fs.readFileSync(path.join(root, "src", "context.mjs"), "utf8");
-  assert.match(document, /class="reply-to-exchange secondary compact"[^>]*>↩ Reply<\/button>/);
+  assert.match(document, /class="reply-to-exchange reference-in-agent secondary compact"[^>]*>↖ Reply<\/button>/);
+  assert.match(application, /function agentReferenceButton\(identity, subject\)/);
+  assert.match(application, /"reference-in-agent secondary compact", "↖ Reply"/);
   assert.match(application, /function replyToExchange\(requestId\)/);
   assert.match(application, /placeIdentityInComposer\(identity\)/);
   assert.match(application, /function referencedRequestIdsFromComposer\(value\)/);

@@ -18,6 +18,7 @@ function validBrief() {
     requiredTools: ["todo_create"],
     confirmedActionReferenceIds: [],
     contextRequests: [],
+    temporalResolutions: [],
     requestedActions: [sourced],
     prohibitedActions: [],
     deferredActions: [],

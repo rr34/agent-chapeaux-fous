@@ -55,6 +55,7 @@ function brief({ auditRequired = true, confirmedActionReferenceIds = [] } = {}) 
     requiredTools: ["todo_create"],
     confirmedActionReferenceIds,
     contextRequests: [],
+    temporalResolutions: [],
     requestedActions: [source],
     prohibitedActions: [],
     deferredActions: [],
@@ -516,6 +517,105 @@ function transport(runTurn, requests) {
     },
   };
 }
+
+test("an invalid weekday/date TurnBrief is repaired before a mutation becomes callable", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  let executions = 0;
+  registry.withCapability("todos").register({
+    name: "todo_update",
+    description: "Update an exact to-do schedule.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { scheduled_at_utc: { type: "string" } },
+      required: ["scheduled_at_utc"],
+    },
+    async execute({ scheduled_at_utc }, toolContext) {
+      executions += 1;
+      assert.equal(toolContext.temporalResolutions[0].localDate, "2026-09-06");
+      return { updated_count: 1, scheduled_at_utc };
+    },
+  });
+  const invalid = {
+    ...brief(),
+    objective: "Schedule the Watch Jobs for Sunday, 2026-08-31.",
+    summary: "Schedule the Watch Jobs on Sunday afternoon.",
+    requiredTools: ["todo_update"],
+    temporalResolutions: [{
+      sourceText: "Sunday afternoon",
+      sourceEventSeqs: [9],
+      weekday: "Sunday",
+      localDate: "2026-08-31",
+      timeZone: "America/New_York",
+      role: "target",
+      appliesTo: "scheduled_at",
+    }],
+    requestedActions: [{ text: "Schedule the Watch Jobs Sunday afternoon.", sourceEventSeqs: [9] }],
+    completionCriteria: ["A successful todo_update receipt schedules the tasks on Sunday."],
+  };
+  const corrected = structuredClone(invalid);
+  corrected.objective = "Schedule the Watch Jobs for Sunday, 2026-09-06.";
+  corrected.temporalResolutions[0].localDate = "2026-09-06";
+
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(invalid), 20);
+    if (index === 1) {
+      assert.equal(executions, 0);
+      assert.match(payload.developerInstructions, /Deterministic temporal validation rejected/);
+      assert.match(payload.developerInstructions, /2026-08-31 is Monday, not Sunday/);
+      return completed(JSON.stringify(corrected), 20);
+    }
+    if (index === 2) {
+      assert.equal(executions, 0);
+      assert.deepEqual(payload.tools.map(({ name }) => name), ["todo_update"]);
+      assert.match(payload.developerInstructions, /2026-09-06/);
+      const result = await payload.onToolCall({
+        callId: "schedule-sunday",
+        tool: "todo_update",
+        arguments: { scheduled_at_utc: "2026-09-06T20:00:00.000Z" },
+      });
+      assert.equal(result.ok, true);
+      return completed("Scheduled the Watch Jobs for Sunday.", 30);
+    }
+    assert.equal(executions, 1);
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "The Sunday schedule update completed.",
+      satisfiedCriteria: ["The successful receipt uses September 6."],
+      remainingActions: [],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-sunday",
+    requestEventId: "event-current",
+    text: "Schedule all Watch Jobs Sunday afternoon.",
+  }), "Scheduled the Watch Jobs for Sunday.");
+  assert.equal(executions, 1);
+  assert.equal(requests.length, 4);
+  assert.deepEqual(
+    ledger.events.filter(({ type }) => type === "turn.brief.validation").map(({ status }) => status),
+    ["error", "complete"],
+  );
+  assert.equal(
+    ledger.events.find(({ type }) => type === "turn.brief").payload.brief.temporalResolutions[0].localDate,
+    "2026-09-06",
+  );
+});
 
 function todoRegistry(executions) {
   const registry = new ToolRegistry();

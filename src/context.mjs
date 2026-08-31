@@ -3,6 +3,7 @@ import {
   profileFactQuestionInstructions,
   selectRelevantProfileFactQuestions,
 } from "./profile-fact-questions.mjs";
+import { localCalendarSnapshot, timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 
 function bounded(value, maximum) {
   const text = String(value ?? "");
@@ -122,6 +123,7 @@ export class ContextBuilder {
       ? this.ledger.referencedExchangesForRequest(requestId, { limit: 8 })
       : [];
     const activeProfileFacts = this.profileFacts.list({ status: "active", limit: null }).facts;
+    const localCalendar = localCalendarSnapshot(new Date(), timeZoneFromProfileFacts(activeProfileFacts));
     const history = nativeConversation && !continuingConversation
       ? []
       : this.ledger.recentConversation({
@@ -158,8 +160,13 @@ export class ContextBuilder {
       : null;
     const sections = [
       "# Current time",
-      `Current UTC time: ${new Date().toISOString()}`,
-      "Resolve relative dates using an active time_zone profile fact when one is available.",
+      `Current UTC time: ${localCalendar.utcDateTime}`,
+      `Current local calendar: ${localCalendar.localWeekday}, ${localCalendar.localDate} at ${localCalendar.localTime} in ${localCalendar.timeZone}.`,
+      "Deterministic local date table:",
+      ...localCalendar.upcomingDates.map(({ weekday, localDate, relative }) => (
+        `- ${weekday}, ${localDate}${relative ? ` (${relative})` : ""}`
+      )),
+      "Resolve relative dates and named weekdays against this table. Preserve the requested weekday separately from prior records that happen to be scheduled today.",
       "",
     ];
     const referencedExchangeText = referencedExchangeContext(referencedExchanges);
@@ -254,6 +261,7 @@ export class ContextBuilder {
       activeProfileFactCount: activeProfileFacts.length,
       relevantProfileTypes,
       relevantProfileQuestions,
+      localCalendar,
       referencedExchanges: referencedExchangeSources(referencedExchanges),
       conversationCheckpoint: conversationCheckpoint ? {
         afterEventSeq: conversationCheckpoint.afterEventSeq,

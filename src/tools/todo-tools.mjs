@@ -6,10 +6,37 @@ import { localDateUtcBounds, moveOverdueTodosToToday } from "../todo-schedule-op
 import {
   buildTodoRecurrenceRule, todoRecurrenceSchema, validateTimeZone,
 } from "../todo-recurrence.mjs";
+import { localDateForInstant } from "../temporal-consistency.mjs";
 import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
 
 const todoStatuses = ["todo", "complete", "ignore", "archive", "ai_suggested"];
 const routineGroupName = "Routine";
+
+function validateTemporalTarget(value, appliesTo, context, label) {
+  if (value == null || value === "") return;
+  const targets = Array.isArray(context?.temporalResolutions)
+    ? context.temporalResolutions.filter((resolution) => (
+        resolution.role === "target" && resolution.appliesTo === appliesTo
+      ))
+    : [];
+  if (!targets.length) return;
+  const matches = targets.some((target) => (
+    localDateForInstant(value, target.timeZone) === target.localDate
+  ));
+  if (matches) return;
+  const actual = [...new Set(targets.map((target) => (
+    `${localDateForInstant(value, target.timeZone)} in ${target.timeZone}`
+  )))].join("; ");
+  const authorized = targets.map((target) => (
+    `${target.weekday}, ${target.localDate} in ${target.timeZone}`
+  )).join("; ");
+  throw new Error(`${label} resolves to ${actual}, outside the source-authorized temporal target(s): ${authorized}`);
+}
+
+function validateTodoTemporalTargets(input, context, label = "To-do schedule") {
+  validateTemporalTarget(input.scheduled_at_utc, "scheduled_at", context, `${label} scheduled_at_utc`);
+  validateTemporalTarget(input.due_at_utc, "due_at", context, `${label} due_at_utc`);
+}
 
 function findGroup(database, name) {
   const requested = name?.trim() || "Inbox";
@@ -631,6 +658,10 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     }, context) {
       const database = store.requireReady();
       const taskText = text.trim();
+      validateTodoTemporalTargets({
+        scheduled_at_utc: scheduledAtUtc,
+        due_at_utc: dueAtUtc,
+      }, context, "New to-do");
       if (!taskText) throw new Error("To-do text cannot be empty");
       if (recurrence && !scheduledAtUtc) throw new Error("A recurring to-do requires scheduled_at_utc");
       if (interactionGuideId !== null && !recurrence) {
@@ -1281,6 +1312,11 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       if (duplicateTaskId !== undefined) {
         throw new Error(`Duplicate to-do ID in update batch: ${duplicateTaskId}`);
       }
+      updates.forEach((update) => validateTodoTemporalTargets(
+        update,
+        context,
+        `To-do ${update.personal_task_id}`,
+      ));
       const now = new Date().toISOString();
       database.exec("BEGIN IMMEDIATE");
       try {

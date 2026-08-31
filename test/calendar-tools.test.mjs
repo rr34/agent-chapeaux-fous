@@ -137,6 +137,47 @@ test("native calendar tools create, list, update, and cancel stored events", asy
   assert.equal(afterCancellation.count, 0);
 });
 
+test("calendar mutations reject a start instant outside the source-authorized weekday target", async (context) => {
+  const { store, registry } = calendarFixture(context);
+  const temporalResolutions = [{
+    sourceText: "Sunday afternoon",
+    sourceEventSeqs: [16651],
+    weekday: "Sunday",
+    localDate: "2026-09-06",
+    timeZone: "America/New_York",
+    role: "target",
+    appliesTo: "calendar_start",
+  }];
+  const input = {
+    title: "Watch work",
+    description: null,
+    location_text: null,
+    starts_at_utc: "2026-08-31T20:00:00Z",
+    ends_at_utc: "2026-08-31T23:00:00Z",
+    time_zone: "America/New_York",
+    is_all_day: false,
+    status: "confirmed",
+    recurrence: null,
+  };
+  await assert.rejects(registry.execute("calendar_event_add", input, {
+    requestId: "calendar-temporal-guard",
+    callId: "wrong-monday",
+    temporalResolutions,
+  }), /outside the source-authorized calendar target/);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM calendar_events").get().count, 0);
+
+  const created = await registry.execute("calendar_event_add", {
+    ...input,
+    starts_at_utc: "2026-09-06T20:00:00Z",
+    ends_at_utc: "2026-09-06T23:00:00Z",
+  }, {
+    requestId: "calendar-temporal-guard",
+    callId: "correct-sunday",
+    temporalResolutions,
+  });
+  assert.equal(created.event.starts_at_utc, "2026-09-06T20:00:00.000Z");
+});
+
 test("calendar recurrence stays at local time across daylight saving changes", async (context) => {
   const { registry } = calendarFixture(context);
   const created = await registry.execute("calendar_event_add", {

@@ -151,6 +151,9 @@ test("an active time zone is always supplied to native model conversations", asy
 
   assert.deepEqual(built.relevantProfileTypes, ["time_zone"]);
   assert.match(built.text, /time_zone: My time zone is America\/New_York\./);
+  assert.match(built.text, /Current local calendar: (?:Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), \d{4}-\d{2}-\d{2} at \d{2}:\d{2}:\d{2} in America\/New_York\./);
+  assert.match(built.text, /Deterministic local date table:/);
+  assert.equal(built.localCalendar.timeZone, "America/New_York");
   assert.doesNotMatch(built.text, /# Recent complete exchanges/);
   assert.deepEqual(built.history, []);
   assert.equal(built.nativeConversation.continuing, false);
