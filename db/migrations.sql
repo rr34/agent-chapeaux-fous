@@ -5,6 +5,15 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0024: planned-todo-duration
+-- Preserve the amount of time reserved for a scheduled to-do or routine
+-- template without overloading its independent due-date deadline.
+
+ALTER TABLE personal_tasks
+ADD COLUMN duration_minutes INTEGER
+                            CHECK (duration_minutes IS NULL OR duration_minutes > 0);
+-- end migration 0024
+
 -- migration 0023: scripted-video-production-jobs
 -- Link application-owned background render jobs to the exact durable script
 -- they execute. The script's ordered source join remains authoritative; the

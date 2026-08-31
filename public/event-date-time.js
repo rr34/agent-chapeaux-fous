@@ -41,3 +41,15 @@ export function formatDurationMinutes(totalMinutes) {
   if (minutes || !parts.length) parts.push(`${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
   return parts.join(" ");
 }
+
+export function parseDurationClock(value) {
+  const match = /^(\d{1,4}):([0-5]\d)$/.exec(String(value || "").trim());
+  if (!match) return null;
+  const minutes = Number(match[1]) * 60 + Number(match[2]);
+  return Number.isSafeInteger(minutes) && minutes > 0 ? minutes : null;
+}
+
+export function formatDurationClock(totalMinutes) {
+  if (!Number.isSafeInteger(totalMinutes) || totalMinutes <= 0) return "";
+  return `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`;
+}

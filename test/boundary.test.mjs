@@ -254,18 +254,21 @@ test("calendar controls use simple visibility states and explicit 24-hour event 
   const status = /<select id="event-status">([\s\S]*?)<\/select>/.exec(document)?.[1] ?? "";
   assert.match(status, /<option value="active">Active<\/option><option value="archived">Archived<\/option>/);
   assert.doesNotMatch(status, />Confirmed<|>Tentative<|>Completed<|>Cancelled</);
-  assert.equal((document.match(/type="datetime-local" lang="en-GB"/g) ?? []).length, 4);
+  assert.doesNotMatch(document, /id="todo-(?:scheduled|due)"[^>]+type="datetime-local"/);
   assert.match(document, /id="event-start-time"[^>]+placeholder="HH:MM"[^>]+pattern="\(\?:\[01\]\\d\|2\[0-3\]\):\[0-5\]\\d"/);
   assert.match(document, /id="event-end-time"[^>]+placeholder="HH:MM"[^>]+pattern="\(\?:\[01\]\\d\|2\[0-3\]\):\[0-5\]\\d"/);
   assert.match(document, /id="event-duration"[^>]+aria-live="polite"/);
-  assert.match(application, /if \(calendarEvent\.isAllDay\) return "";/);
-  assert.match(application, /shiftLocalDateTime\(elements\.eventStart\.value, elements\.eventStartTime\.value, 60\)/);
-  assert.match(application, /`Duration: \$\{formatDurationMinutes\(minutes\)\}`/);
+  assert.match(document, /id="todo-start-time"[^>]+placeholder="HH:MM"/);
+  assert.match(document, /id="todo-due-time"[^>]+placeholder="HH:MM"/);
+  assert.match(document, /id="todo-duration-input"[^>]+placeholder="01:00"/);
+  assert.match(application, /createTimingEditor/);
   assert.match(server, /\["\/event-date-time\.js", \["event-date-time\.js", "text\/javascript; charset=utf-8"\]\]/);
   assert.match(server, /\["\/calendar-grid\.js", \["calendar-grid\.js", "text\/javascript; charset=utf-8"\]\]/);
+  assert.match(server, /\["\/timing-editor\.js", \["timing-editor\.js", "text\/javascript; charset=utf-8"\]\]/);
   assert.match(serviceWorker, /"\/calendar-grid\.js"/);
+  assert.match(serviceWorker, /"\/timing-editor\.js"/);
   assert.match(document, /name="username" autocomplete="username"[^>]+hidden/);
-  assert.match(application, /elements\.todoScheduled\.step = allDay \? "1" : "60";/);
+  assert.match(application, /durationMinutes: timing\.duration/);
 });
 
 test("the web client manages OAuth and UI-added bearer MCP integrations", () => {
@@ -451,11 +454,10 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(application, /scheduleTodoOnDate/);
   assert.match(application, /cancelCalendarScheduling\(\{ render: false \}\);\s+switchView\("todos"\);/);
   assert.match(application, /todo\.scheduledAtUtc \? "Reschedule" : "Schedule"/);
-  assert.match(document, /id="todo-clear-scheduled"[^>]+hidden>Clear date<\/button>/);
-  assert.ok(document.indexOf('id="todo-scheduled"') < document.indexOf('id="todo-clear-scheduled"'));
+  assert.match(document, /id="todo-clear-scheduled"[^>]+hidden>Clear schedule<\/button>/);
+  assert.ok(document.indexOf('id="todo-start"') < document.indexOf('id="todo-clear-scheduled"'));
   assert.match(application, /function clearTodoScheduledInEditor/);
-  assert.match(application, /elements\.todoScheduled\.value = ""/);
-  assert.match(application, /elements\.todoAllDay\.checked = false/);
+  assert.match(application, /todoTimingEditor\.clear\(\)/);
   assert.match(application, /elements\.todoClearScheduled\.hidden = !elements\.todoId\.value/);
   assert.doesNotMatch(application, /node\("button", "secondary compact", "Clear date"\)/);
   assert.match(document, /id="todo-all-day"/);

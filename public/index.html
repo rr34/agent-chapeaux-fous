@@ -573,7 +573,12 @@
           </div>
         </div>
       </div>
-      <p id="event-duration" class="event-duration" role="status" aria-live="polite"></p>
+      <div class="timing-duration-row">
+        <label id="event-duration-field">Duration <span class="field-hint">HH:MM</span>
+          <input id="event-duration-input" class="duration-input" type="text" inputmode="numeric" autocomplete="off" placeholder="01:00" pattern="\d{1,4}:[0-5]\d" maxlength="7" aria-label="Event duration in hours and minutes">
+        </label>
+        <p id="event-duration" class="event-duration" role="status" aria-live="polite"></p>
+      </div>
       <label>Location<input id="event-location" maxlength="1000"></label>
       <label>Description<textarea id="event-description" rows="4"></textarea></label>
       <label>Status<select id="event-status">
@@ -605,6 +610,27 @@
             <label><input type="checkbox" value="SA">Sat</label>
             <label><input type="checkbox" value="SU">Sun</label>
           </fieldset>
+          <div id="event-repeat-month-pattern" class="recurrence-month-pattern" hidden>
+            <label>On<select id="event-repeat-pattern">
+              <option value="anchor">The start day</option>
+              <option value="month-day">A day of the month</option>
+              <option value="ordinal-weekday">A numbered weekday</option>
+            </select></label>
+            <label id="event-repeat-month-day-label" hidden>Day<input id="event-repeat-month-day" type="number" min="1" max="31" step="1" value="1"></label>
+            <div id="event-repeat-ordinal-fields" class="recurrence-ordinal-fields" hidden>
+              <label>Which<select id="event-repeat-ordinal">
+                <option value="1">First</option><option value="2">Second</option>
+                <option value="3">Third</option><option value="4">Fourth</option>
+                <option value="5">Fifth</option><option value="-1">Last</option>
+              </select></label>
+              <label>Weekday<select id="event-repeat-ordinal-weekday">
+                <option value="MO">Monday</option><option value="TU">Tuesday</option>
+                <option value="WE">Wednesday</option><option value="TH">Thursday</option>
+                <option value="FR">Friday</option><option value="SA">Saturday</option>
+                <option value="SU">Sunday</option>
+              </select></label>
+            </div>
+          </div>
           <div class="recurrence-ending">
             <label>Ends<select id="event-repeat-end">
               <option value="never">Never</option>
@@ -671,12 +697,37 @@
           <span id="todo-sequence-hint" class="field-hint">Optional for this group.</span>
         </label>
         <label>Related contact<select id="todo-contact"><option value="">No contact</option></select></label>
-        <div class="todo-scheduled-editor">
-          <label>Scheduled<input id="todo-scheduled" type="datetime-local" lang="en-GB" step="60"></label>
-          <button id="todo-clear-scheduled" class="secondary compact" type="button" hidden>Clear date</button>
-        </div>
         <label class="checkbox-row"><input id="todo-all-day" type="checkbox"><span>All day</span></label>
-        <label>Due<input id="todo-due" type="datetime-local" lang="en-GB" step="60"></label>
+        <div class="timing-editor todo-timing-editor">
+          <div class="event-date-time-field" role="group" aria-labelledby="todo-start-label">
+            <span id="todo-start-label">Scheduled start</span>
+            <div class="event-date-time-inputs">
+              <input id="todo-start" type="date" aria-label="Scheduled start date">
+              <input id="todo-start-time" class="event-time-input" type="text" inputmode="numeric" autocomplete="off" placeholder="HH:MM" pattern="(?:[01]\d|2[0-3]):[0-5]\d" maxlength="5" aria-label="Scheduled start time in 24-hour HH:MM format">
+            </div>
+          </div>
+          <div class="event-date-time-field" role="group" aria-labelledby="todo-end-label">
+            <span id="todo-end-label">Planned end</span>
+            <div class="event-date-time-inputs">
+              <input id="todo-end" type="date" aria-label="Planned end date">
+              <input id="todo-end-time" class="event-time-input" type="text" inputmode="numeric" autocomplete="off" placeholder="HH:MM" pattern="(?:[01]\d|2[0-3]):[0-5]\d" maxlength="5" aria-label="Planned end time in 24-hour HH:MM format">
+            </div>
+          </div>
+          <div class="timing-duration-row">
+            <label id="todo-duration-field">Duration <span class="field-hint">HH:MM</span>
+              <input id="todo-duration-input" class="duration-input" type="text" inputmode="numeric" autocomplete="off" placeholder="01:00" pattern="\d{1,4}:[0-5]\d" maxlength="7" aria-label="Planned duration in hours and minutes">
+            </label>
+            <p id="todo-duration" class="event-duration" role="status" aria-live="polite"></p>
+          </div>
+          <button id="todo-clear-scheduled" class="secondary compact" type="button" hidden>Clear schedule</button>
+        </div>
+        <div class="event-date-time-field todo-due-editor" role="group" aria-labelledby="todo-due-label">
+          <span id="todo-due-label">Due <span class="field-hint">deadline, not planned end</span></span>
+          <div class="event-date-time-inputs">
+            <input id="todo-due" type="date" aria-label="Due date">
+            <input id="todo-due-time" class="event-time-input" type="text" inputmode="numeric" autocomplete="off" placeholder="HH:MM" pattern="(?:[01]\d|2[0-3]):[0-5]\d" maxlength="5" aria-label="Due time in 24-hour HH:MM format">
+          </div>
+        </div>
         <label>Status<select id="todo-status">
           <option value="todo">To do</option><option value="complete">Complete</option>
           <option value="ignore">Ignore</option><option value="archive">Archive</option>

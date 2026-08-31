@@ -1,12 +1,10 @@
 import {
   combineLocalDateTime,
-  durationMinutes,
-  formatDurationMinutes,
-  shiftLocalDateTime,
   splitLocalDateTime,
 } from "./event-date-time.js";
 import { markdownToSpeech, renderMarkdown } from "./markdown.js";
 import { dateSequence, renderCalendarGrid, sixWeekMonthDates } from "./calendar-grid.js";
+import { createTimingEditor } from "./timing-editor.js";
 
 const elements = {
   composer: document.querySelector("#chat-composer"),
@@ -165,6 +163,8 @@ const elements = {
   eventStartTime: document.querySelector("#event-start-time"),
   eventEnd: document.querySelector("#event-end"),
   eventEndTime: document.querySelector("#event-end-time"),
+  eventDurationInput: document.querySelector("#event-duration-input"),
+  eventDurationField: document.querySelector("#event-duration-field"),
   eventDuration: document.querySelector("#event-duration"),
   eventLocation: document.querySelector("#event-location"),
   eventDescription: document.querySelector("#event-description"),
@@ -174,6 +174,13 @@ const elements = {
   eventRepeatInterval: document.querySelector("#event-repeat-interval"),
   eventRepeatFrequency: document.querySelector("#event-repeat-frequency"),
   eventRepeatWeekdays: document.querySelector("#event-repeat-weekdays"),
+  eventRepeatMonthPattern: document.querySelector("#event-repeat-month-pattern"),
+  eventRepeatPattern: document.querySelector("#event-repeat-pattern"),
+  eventRepeatMonthDayLabel: document.querySelector("#event-repeat-month-day-label"),
+  eventRepeatMonthDay: document.querySelector("#event-repeat-month-day"),
+  eventRepeatOrdinalFields: document.querySelector("#event-repeat-ordinal-fields"),
+  eventRepeatOrdinal: document.querySelector("#event-repeat-ordinal"),
+  eventRepeatOrdinalWeekday: document.querySelector("#event-repeat-ordinal-weekday"),
   eventRepeatEnd: document.querySelector("#event-repeat-end"),
   eventRepeatCountLabel: document.querySelector("#event-repeat-count-label"),
   eventRepeatCount: document.querySelector("#event-repeat-count"),
@@ -211,10 +218,17 @@ const elements = {
   todoSequence: document.querySelector("#todo-sequence"),
   todoSequenceHint: document.querySelector("#todo-sequence-hint"),
   todoContact: document.querySelector("#todo-contact"),
-  todoScheduled: document.querySelector("#todo-scheduled"),
+  todoStart: document.querySelector("#todo-start"),
+  todoStartTime: document.querySelector("#todo-start-time"),
+  todoEnd: document.querySelector("#todo-end"),
+  todoEndTime: document.querySelector("#todo-end-time"),
+  todoDurationInput: document.querySelector("#todo-duration-input"),
+  todoDurationField: document.querySelector("#todo-duration-field"),
+  todoDuration: document.querySelector("#todo-duration"),
   todoClearScheduled: document.querySelector("#todo-clear-scheduled"),
   todoAllDay: document.querySelector("#todo-all-day"),
   todoDue: document.querySelector("#todo-due"),
+  todoDueTime: document.querySelector("#todo-due-time"),
   todoStatus: document.querySelector("#todo-status"),
   todoRepeatEnabled: document.querySelector("#todo-repeat-enabled"),
   todoRepeatFields: document.querySelector("#todo-repeat-fields"),
@@ -384,7 +398,6 @@ let routineOccurrences = [];
 let routineTemplates = [];
 let calendarSchedulingTodo = null;
 let calendarSchedulingBusy = false;
-let eventEndIsAutomatic = false;
 let eventInviteEventId = null;
 let eventInviteContacts = [];
 let eventInviteSelectedContactIds = new Set();
@@ -425,6 +438,33 @@ const pendingSpokenRequestIds = loadPendingSpokenRequestIds();
 let scrollLatestUpdateFrame = null;
 let scrollLatestAnimationFrame = null;
 elements.respondSilently.checked = loadResponseSilencePreference();
+
+const eventTimingEditor = createTimingEditor({
+  startDate: elements.eventStart,
+  startTime: elements.eventStartTime,
+  endDate: elements.eventEnd,
+  endTime: elements.eventEndTime,
+  durationInput: elements.eventDurationInput,
+  durationField: elements.eventDurationField,
+  summary: elements.eventDuration,
+  allDayInput: elements.eventAllDay,
+  onChange: updateEventRecurrenceEditor,
+});
+
+const todoTimingEditor = createTimingEditor({
+  startDate: elements.todoStart,
+  startTime: elements.todoStartTime,
+  endDate: elements.todoEnd,
+  endTime: elements.todoEndTime,
+  durationInput: elements.todoDurationInput,
+  durationField: elements.todoDurationField,
+  summary: elements.todoDuration,
+  allDayInput: elements.todoAllDay,
+  onChange: () => {
+    updateTodoRecurrenceEditor();
+    updateTodoClearScheduledVisibility();
+  },
+});
 
 function updateComposerHeight() {
   document.documentElement.style.setProperty("--composer-height", `${elements.composer.offsetHeight}px`);
@@ -853,6 +893,28 @@ const recurrenceFrequencyLabels = {
   DAILY: ["day", "days"], WEEKLY: ["week", "weeks"],
   MONTHLY: ["month", "months"], YEARLY: ["year", "years"],
 };
+const todoRecurrenceControls = {
+  enabled: elements.todoRepeatEnabled, fields: elements.todoRepeatFields,
+  interval: elements.todoRepeatInterval, frequency: elements.todoRepeatFrequency,
+  weekdays: elements.todoRepeatWeekdays, monthPattern: elements.todoRepeatMonthPattern,
+  pattern: elements.todoRepeatPattern, monthDayLabel: elements.todoRepeatMonthDayLabel,
+  monthDay: elements.todoRepeatMonthDay, ordinalFields: elements.todoRepeatOrdinalFields,
+  ordinal: elements.todoRepeatOrdinal, ordinalWeekday: elements.todoRepeatOrdinalWeekday,
+  end: elements.todoRepeatEnd, countLabel: elements.todoRepeatCountLabel,
+  count: elements.todoRepeatCount, untilLabel: elements.todoRepeatUntilLabel,
+  until: elements.todoRepeatUntil, summary: elements.todoRepeatSummary,
+};
+const eventRecurrenceControls = {
+  enabled: elements.eventRepeatEnabled, fields: elements.eventRepeatFields,
+  interval: elements.eventRepeatInterval, frequency: elements.eventRepeatFrequency,
+  weekdays: elements.eventRepeatWeekdays, monthPattern: elements.eventRepeatMonthPattern,
+  pattern: elements.eventRepeatPattern, monthDayLabel: elements.eventRepeatMonthDayLabel,
+  monthDay: elements.eventRepeatMonthDay, ordinalFields: elements.eventRepeatOrdinalFields,
+  ordinal: elements.eventRepeatOrdinal, ordinalWeekday: elements.eventRepeatOrdinalWeekday,
+  end: elements.eventRepeatEnd, countLabel: elements.eventRepeatCountLabel,
+  count: elements.eventRepeatCount, untilLabel: elements.eventRepeatUntilLabel,
+  until: elements.eventRepeatUntil, summary: elements.eventRepeatSummary,
+};
 
 function recurrenceParts(rule) {
   const values = {};
@@ -863,8 +925,8 @@ function recurrenceParts(rule) {
   return values;
 }
 
-function selectedRepeatWeekdays() {
-  return [...elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]:checked')]
+function selectedRepeatWeekdays(controls) {
+  return [...controls.weekdays.querySelectorAll('input[type="checkbox"]:checked')]
     .map(({ value }) => value);
 }
 
@@ -875,68 +937,66 @@ function repeatAnchorWeekday(value) {
   return ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][date.getDay()];
 }
 
-function scheduledWeekday() {
-  return repeatAnchorWeekday(elements.todoScheduled.value);
-}
-
-function ensureRepeatWeekday() {
-  if (elements.todoRepeatFrequency.value !== "WEEKLY" || selectedRepeatWeekdays().length) return;
-  const fallback = scheduledWeekday();
-  const checkbox = elements.todoRepeatWeekdays.querySelector(`input[value="${fallback}"]`);
+function ensureRepeatWeekday(controls, anchorValue) {
+  if (controls.frequency.value !== "WEEKLY" || selectedRepeatWeekdays(controls).length) return;
+  const fallback = repeatAnchorWeekday(anchorValue);
+  const checkbox = controls.weekdays.querySelector(`input[value="${fallback}"]`);
   if (checkbox) checkbox.checked = true;
 }
 
-function buildTodoRecurrenceRule() {
-  if (!elements.todoRepeatEnabled.checked) return null;
-  const interval = Number(elements.todoRepeatInterval.value);
+function buildRecurrenceRule(controls, anchorValue) {
+  if (!controls.enabled.checked) return null;
+  const interval = Number(controls.interval.value);
   if (!Number.isInteger(interval) || interval < 1 || interval > 999) {
     throw new Error("Repeat interval must be a whole number from 1 to 999.");
   }
-  const frequency = elements.todoRepeatFrequency.value;
+  const frequency = controls.frequency.value;
   const parts = [`FREQ=${frequency}`, `INTERVAL=${interval}`];
   if (frequency === "WEEKLY") {
-    ensureRepeatWeekday();
-    const weekdays = selectedRepeatWeekdays();
+    ensureRepeatWeekday(controls, anchorValue);
+    const weekdays = selectedRepeatWeekdays(controls);
     if (!weekdays.length) throw new Error("Choose at least one weekday.");
     parts.push(`BYDAY=${weekdays.join(",")}`);
   }
   if (["MONTHLY", "YEARLY"].includes(frequency)) {
-    if (frequency === "YEARLY" && elements.todoRepeatPattern.value !== "anchor") {
-      const anchor = elements.todoScheduled.value
-        ? new Date(elements.todoScheduled.value.includes("T")
-          ? elements.todoScheduled.value
-          : `${elements.todoScheduled.value}T12:00:00`)
+    if (frequency === "YEARLY" && controls.pattern.value !== "anchor") {
+      const anchor = anchorValue
+        ? new Date(anchorValue.includes("T") ? anchorValue : `${anchorValue}T12:00:00`)
         : null;
       if (!anchor || !Number.isFinite(anchor.getTime())) {
         throw new Error("Choose the first scheduled date for this yearly pattern.");
       }
       parts.push(`BYMONTH=${anchor.getMonth() + 1}`);
     }
-    if (elements.todoRepeatPattern.value === "month-day") {
-      const monthDay = Number(elements.todoRepeatMonthDay.value);
+    if (controls.pattern.value === "month-day") {
+      const monthDay = Number(controls.monthDay.value);
       if (!Number.isInteger(monthDay) || monthDay < 1 || monthDay > 31) {
         throw new Error("Day of month must be a whole number from 1 to 31.");
       }
       parts.push(`BYMONTHDAY=${monthDay}`);
-    } else if (elements.todoRepeatPattern.value === "ordinal-weekday") {
+    } else if (controls.pattern.value === "ordinal-weekday") {
       parts.push(
-        `BYDAY=${elements.todoRepeatOrdinalWeekday.value}`,
-        `BYSETPOS=${elements.todoRepeatOrdinal.value}`,
+        `BYDAY=${controls.ordinalWeekday.value}`,
+        `BYSETPOS=${controls.ordinal.value}`,
       );
     }
   }
-  if (elements.todoRepeatEnd.value === "count") {
-    const count = Number(elements.todoRepeatCount.value);
+  if (controls.end.value === "count") {
+    const count = Number(controls.count.value);
     if (!Number.isInteger(count) || count < 1 || count > 9999) {
       throw new Error("Occurrences must be a whole number from 1 to 9999.");
     }
     parts.push(`COUNT=${count}`);
-  } else if (elements.todoRepeatEnd.value === "until") {
-    const until = elements.todoRepeatUntil.value;
+  } else if (controls.end.value === "until") {
+    const until = controls.until.value;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(until)) throw new Error("Choose the last recurrence date.");
     parts.push(`UNTIL=${until.replaceAll("-", "")}T235959`);
   }
   return parts.join(";");
+}
+
+function buildTodoRecurrenceRule() {
+  return buildRecurrenceRule(todoRecurrenceControls, todoTimingEditor.values().start);
 }
 
 function describeTodoRecurrence(rule) {
@@ -971,121 +1031,69 @@ function describeTodoRecurrence(rule) {
   return description;
 }
 
-function updateTodoRecurrenceEditor() {
-  const enabled = elements.todoRepeatEnabled.checked;
-  elements.todoRepeatFields.hidden = !enabled;
-  elements.todoInteractionGuide.disabled = !enabled;
+function updateRecurrenceEditor(controls, anchorValue) {
+  const enabled = controls.enabled.checked;
+  controls.fields.hidden = !enabled;
   if (!enabled) return;
-  const weekly = elements.todoRepeatFrequency.value === "WEEKLY";
-  const monthlyPattern = ["MONTHLY", "YEARLY"].includes(elements.todoRepeatFrequency.value);
-  elements.todoRepeatWeekdays.hidden = !weekly;
-  elements.todoRepeatMonthPattern.hidden = !monthlyPattern;
-  elements.todoRepeatMonthDayLabel.hidden = !monthlyPattern || elements.todoRepeatPattern.value !== "month-day";
-  elements.todoRepeatOrdinalFields.hidden = !monthlyPattern || elements.todoRepeatPattern.value !== "ordinal-weekday";
-  if (weekly) ensureRepeatWeekday();
-  const ending = elements.todoRepeatEnd.value;
-  elements.todoRepeatCountLabel.hidden = ending !== "count";
-  elements.todoRepeatUntilLabel.hidden = ending !== "until";
+  const weekly = controls.frequency.value === "WEEKLY";
+  const monthlyPattern = ["MONTHLY", "YEARLY"].includes(controls.frequency.value);
+  controls.weekdays.hidden = !weekly;
+  controls.monthPattern.hidden = !monthlyPattern;
+  controls.monthDayLabel.hidden = !monthlyPattern || controls.pattern.value !== "month-day";
+  controls.ordinalFields.hidden = !monthlyPattern || controls.pattern.value !== "ordinal-weekday";
+  if (weekly) ensureRepeatWeekday(controls, anchorValue);
+  const ending = controls.end.value;
+  controls.countLabel.hidden = ending !== "count";
+  controls.untilLabel.hidden = ending !== "until";
   try {
-    elements.todoRepeatSummary.textContent = describeTodoRecurrence(buildTodoRecurrenceRule());
+    controls.summary.textContent = describeTodoRecurrence(buildRecurrenceRule(controls, anchorValue));
   } catch (error) {
-    elements.todoRepeatSummary.textContent = error.message;
+    controls.summary.textContent = error.message;
   }
+}
+
+function loadRecurrenceEditor(controls, rule, anchorValue) {
+  const parts = recurrenceParts(rule);
+  controls.enabled.checked = Boolean(rule);
+  controls.frequency.value = recurrenceFrequencyLabels[parts.FREQ] ? parts.FREQ : "WEEKLY";
+  controls.interval.value = String(Math.max(1, Number(parts.INTERVAL) || 1));
+  controls.pattern.value = parts.BYSETPOS && parts.BYDAY
+    ? "ordinal-weekday"
+    : parts.BYMONTHDAY ? "month-day" : "anchor";
+  controls.monthDay.value = parts.BYMONTHDAY || "1";
+  controls.ordinal.value = parts.BYSETPOS || "1";
+  controls.ordinalWeekday.value = (parts.BYDAY || "MO").split(",")[0];
+  for (const checkbox of controls.weekdays.querySelectorAll('input[type="checkbox"]')) {
+    checkbox.checked = (parts.BYDAY || "").split(",").includes(checkbox.value);
+  }
+  controls.end.value = parts.COUNT ? "count" : parts.UNTIL ? "until" : "never";
+  controls.count.value = parts.COUNT || "10";
+  const untilMatch = /^(\d{4})(\d{2})(\d{2})/.exec(parts.UNTIL || "");
+  controls.until.value = untilMatch ? `${untilMatch[1]}-${untilMatch[2]}-${untilMatch[3]}` : "";
+  updateRecurrenceEditor(controls, anchorValue);
+}
+
+function updateTodoRecurrenceEditor() {
+  elements.todoInteractionGuide.disabled = !elements.todoRepeatEnabled.checked;
+  updateRecurrenceEditor(todoRecurrenceControls, todoTimingEditor.values().start);
 }
 
 function loadTodoRecurrenceEditor(rule, recurrenceTimeZone = null) {
   loadedTodoRecurrenceTimeZone = recurrenceTimeZone || null;
   todoRecurrenceDirty = false;
-  const parts = recurrenceParts(rule);
-  elements.todoRepeatEnabled.checked = Boolean(rule);
-  elements.todoRepeatFrequency.value = recurrenceFrequencyLabels[parts.FREQ] ? parts.FREQ : "WEEKLY";
-  elements.todoRepeatInterval.value = String(Math.max(1, Number(parts.INTERVAL) || 1));
-  elements.todoRepeatPattern.value = parts.BYSETPOS && parts.BYDAY
-    ? "ordinal-weekday"
-    : parts.BYMONTHDAY ? "month-day" : "anchor";
-  elements.todoRepeatMonthDay.value = parts.BYMONTHDAY || "1";
-  elements.todoRepeatOrdinal.value = parts.BYSETPOS || "1";
-  elements.todoRepeatOrdinalWeekday.value = (parts.BYDAY || "MO").split(",")[0];
-  for (const checkbox of elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
-    checkbox.checked = (parts.BYDAY || "").split(",").includes(checkbox.value);
-  }
-  elements.todoRepeatEnd.value = parts.COUNT ? "count" : parts.UNTIL ? "until" : "never";
-  elements.todoRepeatCount.value = parts.COUNT || "10";
-  const untilMatch = /^(\d{4})(\d{2})(\d{2})/.exec(parts.UNTIL || "");
-  elements.todoRepeatUntil.value = untilMatch ? `${untilMatch[1]}-${untilMatch[2]}-${untilMatch[3]}` : "";
-  updateTodoRecurrenceEditor();
-}
-
-function selectedEventRepeatWeekdays() {
-  return [...elements.eventRepeatWeekdays.querySelectorAll('input[type="checkbox"]:checked')]
-    .map(({ value }) => value);
-}
-
-function ensureEventRepeatWeekday() {
-  if (elements.eventRepeatFrequency.value !== "WEEKLY" || selectedEventRepeatWeekdays().length) return;
-  const weekday = repeatAnchorWeekday(elements.eventStart.value);
-  const checkbox = elements.eventRepeatWeekdays.querySelector(`input[value="${weekday}"]`);
-  if (checkbox) checkbox.checked = true;
+  loadRecurrenceEditor(todoRecurrenceControls, rule, todoTimingEditor.values().start);
 }
 
 function buildEventRecurrenceRule() {
-  if (!elements.eventRepeatEnabled.checked) return null;
-  const interval = Number(elements.eventRepeatInterval.value);
-  if (!Number.isInteger(interval) || interval < 1 || interval > 999) {
-    throw new Error("Repeat interval must be a whole number from 1 to 999.");
-  }
-  const frequency = elements.eventRepeatFrequency.value;
-  const parts = [`FREQ=${frequency}`, `INTERVAL=${interval}`];
-  if (frequency === "WEEKLY") {
-    ensureEventRepeatWeekday();
-    const weekdays = selectedEventRepeatWeekdays();
-    if (!weekdays.length) throw new Error("Choose at least one weekday.");
-    parts.push(`BYDAY=${weekdays.join(",")}`);
-  }
-  if (elements.eventRepeatEnd.value === "count") {
-    const count = Number(elements.eventRepeatCount.value);
-    if (!Number.isInteger(count) || count < 1 || count > 9999) {
-      throw new Error("Occurrences must be a whole number from 1 to 9999.");
-    }
-    parts.push(`COUNT=${count}`);
-  } else if (elements.eventRepeatEnd.value === "until") {
-    const until = elements.eventRepeatUntil.value;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(until)) throw new Error("Choose the last recurrence date.");
-    parts.push(`UNTIL=${until.replaceAll("-", "")}T235959`);
-  }
-  return parts.join(";");
+  return buildRecurrenceRule(eventRecurrenceControls, eventTimingEditor.values().start);
 }
 
 function updateEventRecurrenceEditor() {
-  const enabled = elements.eventRepeatEnabled.checked;
-  elements.eventRepeatFields.hidden = !enabled;
-  if (!enabled) return;
-  const weekly = elements.eventRepeatFrequency.value === "WEEKLY";
-  elements.eventRepeatWeekdays.hidden = !weekly;
-  if (weekly) ensureEventRepeatWeekday();
-  const ending = elements.eventRepeatEnd.value;
-  elements.eventRepeatCountLabel.hidden = ending !== "count";
-  elements.eventRepeatUntilLabel.hidden = ending !== "until";
-  try {
-    elements.eventRepeatSummary.textContent = describeTodoRecurrence(buildEventRecurrenceRule());
-  } catch (error) {
-    elements.eventRepeatSummary.textContent = error.message;
-  }
+  updateRecurrenceEditor(eventRecurrenceControls, eventTimingEditor.values().start);
 }
 
 function loadEventRecurrenceEditor(rule) {
-  const parts = recurrenceParts(rule);
-  elements.eventRepeatEnabled.checked = Boolean(rule);
-  elements.eventRepeatFrequency.value = recurrenceFrequencyLabels[parts.FREQ] ? parts.FREQ : "WEEKLY";
-  elements.eventRepeatInterval.value = String(Math.max(1, Number(parts.INTERVAL) || 1));
-  for (const checkbox of elements.eventRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
-    checkbox.checked = (parts.BYDAY || "").split(",").includes(checkbox.value);
-  }
-  elements.eventRepeatEnd.value = parts.COUNT ? "count" : parts.UNTIL ? "until" : "never";
-  elements.eventRepeatCount.value = parts.COUNT || "10";
-  const untilMatch = /^(\d{4})(\d{2})(\d{2})/.exec(parts.UNTIL || "");
-  elements.eventRepeatUntil.value = untilMatch ? `${untilMatch[1]}-${untilMatch[2]}-${untilMatch[3]}` : "";
-  updateEventRecurrenceEditor();
+  loadRecurrenceEditor(eventRecurrenceControls, rule, eventTimingEditor.values().start);
 }
 
 function formatTime(milliseconds) {
@@ -2125,6 +2133,19 @@ function routineOccurrencesOnDay(date) {
   return routineOccurrences.filter(({ scheduledAtUtc }) => localDateKey(scheduledAtUtc) === key);
 }
 
+function plannedEnd(startsAtUtc, duration) {
+  if (!startsAtUtc || !Number.isSafeInteger(duration) || duration <= 0) return null;
+  return new Date(new Date(startsAtUtc).getTime() + duration * 60_000).toISOString();
+}
+
+function plannedTimeLabel(item) {
+  if (item.isAllDay) return "All day";
+  const end = plannedEnd(item.scheduledAtUtc, item.durationMinutes);
+  return end
+    ? `${formatDisplayTime(item.scheduledAtUtc)}–${formatDisplayTime(end)}`
+    : formatDisplayTime(item.scheduledAtUtc);
+}
+
 function renderRoutineAgenda() {
   const occurrences = routineOccurrencesOnDay(selectedRoutineDate);
   elements.routineAgendaDate.textContent = new Intl.DateTimeFormat(undefined, {
@@ -2142,7 +2163,7 @@ function renderRoutineAgenda() {
     button.type = "button";
     button.append(
       node("strong", "", occurrence.text),
-      node("span", "", `${occurrence.isAllDay ? "All day" : formatDisplayTime(occurrence.scheduledAtUtc)} · ${describeTodoRecurrence(occurrence.recurrenceRule)}`),
+      node("span", "", `${plannedTimeLabel(occurrence)} · ${describeTodoRecurrence(occurrence.recurrenceRule)}`),
     );
     button.disabled = !template;
     if (template) button.addEventListener("click", () => openTodoEditor(template));
@@ -2163,7 +2184,7 @@ function renderRoutine() {
     representativeMonth: currentMonth,
     itemsForDate: (date) => routineOccurrencesOnDay(date).map((occurrence) => ({
       className: "day-todo",
-      text: `${occurrence.isAllDay ? "All day" : formatDisplayTime(occurrence.scheduledAtUtc)} ${occurrence.text}`,
+      text: `${plannedTimeLabel(occurrence)} ${occurrence.text}`,
     })),
     onSelect: (date) => {
       selectedRoutineDate = date;
@@ -2179,12 +2200,17 @@ async function openNewRoutine() {
     if (!todoGroups.some(({ id }) => id === group.id)) todoGroups.push(group);
     openTodoEditor(null, group.id);
     elements.todoDialogTitle.textContent = "New routine";
-    elements.todoAllDay.checked = true;
-    setTodoScheduledInputType(true);
-    elements.todoScheduled.value = localDateKey(selectedRoutineDate);
+    todoTimingEditor.load({
+      start: new Date(
+        selectedRoutineDate.getFullYear(),
+        selectedRoutineDate.getMonth(),
+        selectedRoutineDate.getDate(),
+      ),
+      isAllDay: true,
+    });
     elements.todoRepeatEnabled.checked = true;
     elements.todoRepeatFrequency.value = "WEEKLY";
-    const weekday = scheduledWeekday();
+    const weekday = repeatAnchorWeekday(todoTimingEditor.values().start);
     for (const checkbox of elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
       checkbox.checked = checkbox.value === weekday;
     }
@@ -2403,7 +2429,12 @@ async function scheduleTodoOnDate(date) {
   if (!calendarSchedulingTodo || calendarSchedulingBusy) return;
   const todo = calendarSchedulingTodo;
   const scheduled = scheduledDateOnDay(todo, date);
-  const payload = { version: todo.version, scheduledAtUtc: scheduled.toISOString(), isAllDay: true };
+  const payload = {
+    version: todo.version,
+    scheduledAtUtc: scheduled.toISOString(),
+    isAllDay: true,
+    durationMinutes: null,
+  };
   if (todo.scheduledAtUtc && todo.dueAtUtc) {
     const previousScheduled = new Date(todo.scheduledAtUtc);
     const dayDifference = Math.round((
@@ -2499,6 +2530,7 @@ function renderAgenda() {
       todo,
       timing: todo.isAllDay ? "All-day task" : "Scheduled task",
       startsAtUtc: todo.scheduledAtUtc,
+      endsAtUtc: plannedEnd(todo.scheduledAtUtc, todo.durationMinutes),
       isAllDay: todo.isAllDay,
     })),
     ...todosDueOnDay(selectedCalendarDate).map((todo) => ({
@@ -2553,7 +2585,7 @@ function renderAgenda() {
         );
       } else {
         row.append(
-          agendaTimelineTime(entry.startsAtUtc, null, { label: entry.timing }),
+          agendaTimelineTime(entry.startsAtUtc, entry.endsAtUtc, { label: entry.timing }),
           node("span", "agenda-timeline-marker todo"),
           agendaTodoItem(entry.todo, entry.timing),
         );
@@ -2563,85 +2595,6 @@ function renderAgenda() {
   }
 }
 
-function eventDateTimeValue(prefix) {
-  const dateInput = prefix === "start" ? elements.eventStart : elements.eventEnd;
-  if (elements.eventAllDay.checked) return dateInput.value;
-  const timeInput = prefix === "start" ? elements.eventStartTime : elements.eventEndTime;
-  return combineLocalDateTime(dateInput.value, timeInput.value);
-}
-
-function setEventDateTime(prefix, value) {
-  const dateInput = prefix === "start" ? elements.eventStart : elements.eventEnd;
-  const timeInput = prefix === "start" ? elements.eventStartTime : elements.eventEndTime;
-  const parts = splitLocalDateTime(value);
-  dateInput.value = parts.date;
-  timeInput.value = parts.time;
-}
-
-function updateEventDuration() {
-  elements.eventEnd.setCustomValidity("");
-  elements.eventEndTime.setCustomValidity("");
-  if (elements.eventAllDay.checked) {
-    elements.eventDuration.textContent = "Duration: All-day event";
-    return;
-  }
-  const start = eventDateTimeValue("start");
-  const end = eventDateTimeValue("end");
-  const hasEndPart = Boolean(elements.eventEnd.value || elements.eventEndTime.value);
-  if (!start) {
-    elements.eventDuration.textContent = "Enter a start date and 24-hour time (HH:MM).";
-    return;
-  }
-  if (!end) {
-    if (hasEndPart) {
-      const message = "Enter both an end date and a 24-hour time (HH:MM).";
-      (elements.eventEnd.value ? elements.eventEndTime : elements.eventEnd).setCustomValidity(message);
-      elements.eventDuration.textContent = message;
-    } else {
-      elements.eventDuration.textContent = "Duration: No end time";
-    }
-    return;
-  }
-  const minutes = durationMinutes(start, end);
-  if (minutes <= 0) {
-    const message = "End must be after start.";
-    elements.eventEnd.setCustomValidity(message);
-    elements.eventDuration.textContent = message;
-    return;
-  }
-  elements.eventDuration.textContent = `Duration: ${formatDurationMinutes(minutes)}`;
-}
-
-function setEventInputTypes(allDay) {
-  for (const input of [elements.eventStartTime, elements.eventEndTime]) {
-    input.hidden = allDay;
-    input.disabled = allDay;
-  }
-  if (!allDay) {
-    if (!elements.eventStartTime.value) elements.eventStartTime.value = "09:00";
-    if (!elements.eventEndTime.value) elements.eventEndTime.value = "10:00";
-  }
-  updateEventDuration();
-}
-
-function defaultEventEndFromStart() {
-  const start = combineLocalDateTime(elements.eventStart.value, elements.eventStartTime.value);
-  if (!start || (!eventEndIsAutomatic && eventDateTimeValue("end"))) return;
-  const suggestedEnd = shiftLocalDateTime(elements.eventStart.value, elements.eventStartTime.value, 60);
-  if (!suggestedEnd) return;
-  elements.eventEnd.value = suggestedEnd.date;
-  elements.eventEndTime.value = suggestedEnd.time;
-  eventEndIsAutomatic = true;
-}
-
-function setTodoScheduledInputType(allDay) {
-  const previous = elements.todoScheduled.value;
-  elements.todoScheduled.type = allDay ? "date" : "datetime-local";
-  elements.todoScheduled.step = allDay ? "1" : "60";
-  if (allDay) elements.todoScheduled.value = previous.slice(0, 10);
-  else if (previous) elements.todoScheduled.value = `${previous.slice(0, 10)}T09:00`;
-}
-
 function openEventEditor(calendarEvent = null) {
   elements.eventForm.reset();
   elements.eventFormError.textContent = "";
@@ -2649,27 +2602,20 @@ function openEventEditor(calendarEvent = null) {
   elements.eventId.value = calendarEvent?.id ?? "";
   elements.eventVersion.value = calendarEvent?.version ?? "";
   elements.eventTitle.value = calendarEvent?.title ?? "";
-  elements.eventAllDay.checked = Boolean(calendarEvent?.isAllDay);
-  setEventInputTypes(Boolean(calendarEvent?.isAllDay));
   if (calendarEvent) {
-    setEventDateTime("start", calendarEvent.startsAtUtc);
-    setEventDateTime("end", calendarEvent.endsAtUtc);
-    if (calendarEvent.isAllDay) {
-      elements.eventStartTime.value = "";
-      elements.eventEndTime.value = "";
-    }
-    eventEndIsAutomatic = !calendarEvent.endsAtUtc;
+    eventTimingEditor.load({
+      start: calendarEvent.startsAtUtc,
+      end: calendarEvent.endsAtUtc,
+      isAllDay: calendarEvent.isAllDay,
+    });
     elements.eventLocation.value = calendarEvent.location ?? "";
     elements.eventDescription.value = calendarEvent.description ?? "";
     elements.eventStatus.value = calendarEvent.status;
   } else {
     const start = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), selectedCalendarDate.getDate(), 9);
-    setEventDateTime("start", start);
-    setEventDateTime("end", new Date(start.getTime() + 3_600_000));
-    eventEndIsAutomatic = true;
+    eventTimingEditor.load({ start, duration: 60, isAllDay: false });
     elements.eventStatus.value = "active";
   }
-  updateEventDuration();
   loadEventRecurrenceEditor(calendarEvent?.recurrenceRule ?? null);
   elements.eventDelete.hidden = !calendarEvent;
   updateEventInviteDraftAvailability();
@@ -2795,15 +2741,15 @@ async function saveEvent(event) {
   const submit = elements.eventForm.querySelector('[type="submit"]');
   submit.disabled = true;
   try {
-    const allDay = elements.eventAllDay.checked;
+    const timing = eventTimingEditor.values();
     const payload = {
       title: elements.eventTitle.value,
       description: elements.eventDescription.value,
       location: elements.eventLocation.value,
-      startsAtUtc: inputToIso(eventDateTimeValue("start"), allDay),
-      endsAtUtc: inputToIso(eventDateTimeValue("end"), allDay),
+      startsAtUtc: inputToIso(timing.start, timing.isAllDay),
+      endsAtUtc: inputToIso(timing.end, timing.isAllDay),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      isAllDay: allDay,
+      isAllDay: timing.isAllDay,
       status: elements.eventStatus.value,
       recurrenceRule: buildEventRecurrenceRule(),
     };
@@ -3064,6 +3010,9 @@ function renderTodos() {
           `scheduled ${formatDisplayDate(todo.scheduledAtUtc, { includeTime: !todo.isAllDay })}`,
         ));
       }
+      if (todo.durationMinutes) {
+        metadata.append(node("span", "todo-pill", `planned ${todo.durationMinutes} min`));
+      }
       if (todo.dueAtUtc) {
         const due = new Date(todo.dueAtUtc);
         metadata.append(node("span", `todo-pill ${todo.status !== "complete" && due < new Date() ? "overdue" : ""}`, `due ${formatTodoDateTime(due)}`));
@@ -3228,12 +3177,14 @@ function openTodoEditor(todo = null, groupId = null) {
   populateTodoGuideEditor(todo);
   elements.todoText.value = todo?.text ?? "";
   elements.todoSequence.value = todo?.sequence ?? "";
-  elements.todoAllDay.checked = Boolean(todo?.isAllDay);
-  setTodoScheduledInputType(elements.todoAllDay.checked);
-  elements.todoScheduled.value = todo?.scheduledAtUtc
-    ? (todo.isAllDay ? localDateKey(todo.scheduledAtUtc) : localDateTimeInput(todo.scheduledAtUtc))
-    : "";
-  elements.todoDue.value = localDateTimeInput(todo?.dueAtUtc);
+  todoTimingEditor.load({
+    start: todo?.scheduledAtUtc ?? null,
+    duration: todo?.durationMinutes ?? null,
+    isAllDay: Boolean(todo?.isAllDay),
+  });
+  const due = splitLocalDateTime(todo?.dueAtUtc);
+  elements.todoDue.value = due.date;
+  elements.todoDueTime.value = due.time;
   elements.todoStatus.value = todo?.status ?? "todo";
   loadTodoRecurrenceEditor(todo?.recurrenceRule ?? null, todo?.recurrenceTimeZone ?? null);
   updateTodoClearScheduledVisibility();
@@ -3243,17 +3194,26 @@ function openTodoEditor(todo = null, groupId = null) {
 
 function updateTodoClearScheduledVisibility() {
   elements.todoClearScheduled.hidden = !elements.todoId.value
-    || !elements.todoScheduled.value
+    || !todoTimingEditor.values().start
     || elements.todoRepeatEnabled.checked;
 }
 
 function clearTodoScheduledInEditor() {
-  elements.todoScheduled.value = "";
-  elements.todoAllDay.checked = false;
-  setTodoScheduledInputType(false);
+  todoTimingEditor.clear();
   updateTodoRecurrenceEditor();
   updateTodoClearScheduledVisibility();
-  elements.todoScheduled.focus();
+  elements.todoStart.focus();
+}
+
+function todoDueValue() {
+  elements.todoDue.setCustomValidity("");
+  elements.todoDueTime.setCustomValidity("");
+  if (!elements.todoDue.value && !elements.todoDueTime.value) return null;
+  const value = combineLocalDateTime(elements.todoDue.value, elements.todoDueTime.value);
+  if (value) return value;
+  const message = "Enter both a due date and a 24-hour time (HH:MM).";
+  (elements.todoDue.value ? elements.todoDueTime : elements.todoDue).setCustomValidity(message);
+  throw new Error(message);
 }
 
 function populateTodoGroupEditor(selectedGroupId) {
@@ -3342,14 +3302,16 @@ async function saveTodo(event) {
   const submit = elements.todoForm.querySelector('[type="submit"]');
   submit.disabled = true;
   try {
+    const timing = todoTimingEditor.values();
     const payload = {
       text: elements.todoText.value,
       groupId: Number(elements.todoGroup.value),
       sequence: elements.todoSequence.value ? Number(elements.todoSequence.value) : null,
       relatedContactId: elements.todoContact.value ? Number(elements.todoContact.value) : null,
-      scheduledAtUtc: inputToIso(elements.todoScheduled.value, elements.todoAllDay.checked),
-      isAllDay: elements.todoAllDay.checked && Boolean(elements.todoScheduled.value),
-      dueAtUtc: inputToIso(elements.todoDue.value),
+      scheduledAtUtc: inputToIso(timing.start, timing.isAllDay),
+      isAllDay: timing.isAllDay && Boolean(timing.start),
+      durationMinutes: timing.duration,
+      dueAtUtc: inputToIso(todoDueValue()),
       status: elements.todoStatus.value,
       interactionGuideId: elements.todoRepeatEnabled.checked && elements.todoInteractionGuide.value
         ? Number(elements.todoInteractionGuide.value)
@@ -5466,10 +5428,6 @@ elements.calendarSearch.addEventListener("input", queueCalendarSearch);
 elements.calendarSearchIncludeArchived.addEventListener("change", () => {
   if (elements.calendarSearch.value.trim()) void searchCalendarEvents();
 });
-elements.eventAllDay.addEventListener("change", () => {
-  setEventInputTypes(elements.eventAllDay.checked);
-  updateEventRecurrenceEditor();
-});
 elements.eventForm.addEventListener("submit", saveEvent);
 elements.eventDelete.addEventListener("click", () => void deleteEditedEvent());
 elements.eventInviteDraft.addEventListener("click", () => void openEventInviteDraft());
@@ -5478,23 +5436,12 @@ elements.eventInviteForm.addEventListener("submit", createEventInviteDraft);
 for (const control of [
   elements.eventRepeatEnabled, elements.eventRepeatInterval, elements.eventRepeatFrequency,
   elements.eventRepeatEnd, elements.eventRepeatCount, elements.eventRepeatUntil,
+  elements.eventRepeatPattern, elements.eventRepeatMonthDay,
+  elements.eventRepeatOrdinal, elements.eventRepeatOrdinalWeekday,
   ...elements.eventRepeatWeekdays.querySelectorAll('input[type="checkbox"]'),
 ]) {
   control.addEventListener("change", updateEventRecurrenceEditor);
   if (control.matches('input[type="number"]')) control.addEventListener("input", updateEventRecurrenceEditor);
-}
-for (const input of [elements.eventStart, elements.eventStartTime]) {
-  input.addEventListener("input", () => {
-    defaultEventEndFromStart();
-    updateEventDuration();
-    updateEventRecurrenceEditor();
-  });
-}
-for (const input of [elements.eventEnd, elements.eventEndTime]) {
-  input.addEventListener("input", () => {
-    eventEndIsAutomatic = false;
-    updateEventDuration();
-  });
 }
 elements.newTodo.addEventListener("click", async () => {
   if (todoGroups.length === 0) await refreshTodos();
@@ -5521,10 +5468,6 @@ elements.todoGroup.addEventListener("change", updateTodoSequenceHint);
 elements.moveOverdueTodos.addEventListener("click", () => void moveOverdueTodosToToday());
 elements.todoForm.addEventListener("submit", saveTodo);
 elements.todoClearScheduled.addEventListener("click", clearTodoScheduledInEditor);
-elements.todoAllDay.addEventListener("change", () => {
-  setTodoScheduledInputType(elements.todoAllDay.checked);
-  updateTodoRecurrenceEditor();
-});
 for (const control of [
   elements.todoRepeatEnabled, elements.todoRepeatInterval, elements.todoRepeatFrequency,
   elements.todoRepeatEnd, elements.todoRepeatCount, elements.todoRepeatUntil,
@@ -5540,10 +5483,6 @@ for (const control of [
   control.addEventListener("change", recurrenceChanged);
   if (control.matches('input[type="number"]')) control.addEventListener("input", recurrenceChanged);
 }
-elements.todoScheduled.addEventListener("change", () => {
-  updateTodoRecurrenceEditor();
-  updateTodoClearScheduledVisibility();
-});
 elements.newContentGroup.addEventListener("click", () => void createContentGroup());
 elements.contentGroupForm.addEventListener("submit", saveContentGroup);
 elements.contentGroupArchive.addEventListener("click", () => void archiveEditedContentGroup());

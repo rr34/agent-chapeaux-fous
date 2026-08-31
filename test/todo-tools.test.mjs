@@ -492,6 +492,46 @@ test("native todo tools preserve an explicit all-day schedule", async (context) 
   assert.equal(updated.task.is_all_day, 0);
 });
 
+test("native todo tools store and clear planned duration separately from due time", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+
+  const created = await registry.execute("todo_add", {
+    text: "Focused work",
+    group: "Inbox",
+    scheduled_at_utc: "2026-08-31T13:00:00.000Z",
+    duration_minutes: 90,
+    due_at_utc: "2026-09-02T21:00:00.000Z",
+  });
+  assert.equal(created.task.duration_minutes, 90);
+  assert.equal(created.task.due_at_utc, "2026-09-02T21:00:00.000Z");
+
+  const updated = await registry.execute("todo_update", {
+    personal_task_id: created.task.personal_task_id,
+    text: null,
+    group: null,
+    status: null,
+    scheduled_at_utc: null,
+    duration_minutes: null,
+    due_at_utc: null,
+  });
+  assert.equal(updated.task.duration_minutes, null);
+  assert.equal(updated.task.due_at_utc, "2026-09-02T21:00:00.000Z");
+
+  await assert.rejects(registry.execute("todo_add", {
+    text: "Impossible all-day duration",
+    group: "Inbox",
+    scheduled_at_utc: "2026-08-31T04:00:00.000Z",
+    is_all_day: true,
+    duration_minutes: 30,
+    due_at_utc: null,
+  }), /exact time/);
+});
+
 test("todo_move_overdue_to_today shifts all overdue active tasks in one tool call", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

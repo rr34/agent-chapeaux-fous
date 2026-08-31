@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   combineLocalDateTime,
   durationMinutes,
+  formatDurationClock,
   formatDurationMinutes,
+  parseDurationClock,
   shiftLocalDateTime,
   splitLocalDateTime,
 } from "../public/event-date-time.js";
@@ -35,4 +37,9 @@ test("event durations are expressed in hours and minutes", () => {
   assert.equal(formatDurationMinutes(60), "1 hour");
   assert.equal(formatDurationMinutes(90), "1 hour 30 minutes");
   assert.equal(formatDurationMinutes(45), "45 minutes");
+  assert.equal(parseDurationClock("01:30"), 90);
+  assert.equal(parseDurationClock("125:05"), 7505);
+  assert.equal(parseDurationClock("00:00"), null);
+  assert.equal(parseDurationClock("1:75"), null);
+  assert.equal(formatDurationClock(90), "01:30");
 });

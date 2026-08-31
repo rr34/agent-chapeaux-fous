@@ -553,6 +553,7 @@ function publicTodo(row) {
     sortPosition: row.sort_position,
     scheduledAtUtc: row.scheduled_at_utc,
     isAllDay: Boolean(row.is_all_day),
+    durationMinutes: row.duration_minutes == null ? null : Number(row.duration_minutes),
     dueAtUtc: row.due_at_utc,
     completedAtUtc: row.completed_at_utc,
     recurrenceRule: row.routine_recurrence_rule,
@@ -688,14 +689,14 @@ export function generateNextRoutineTask(database, personalTaskId, { now = new Da
   const result = database.prepare(`
     INSERT INTO personal_tasks (
       todo_group_id, todo_routine_id, related_contact_id, text, status, sort_position,
-      scheduled_at_utc, is_all_day, due_at_utc, source
-    ) VALUES (?, ?, ?, ?, 'todo', ?, ?, ?, ?, 'routine')
+      scheduled_at_utc, is_all_day, duration_minutes, due_at_utc, source
+    ) VALUES (?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, 'routine')
     ON CONFLICT (todo_routine_id, scheduled_at_utc) WHERE
       todo_routine_id IS NOT NULL AND scheduled_at_utc IS NOT NULL
     DO NOTHING
   `).run(
     routine.todo_group_id, routine.todo_routine_id, todo.related_contact_id, routine.text, sortPosition,
-    scheduled.toISOString(), routine.is_all_day, dueAtUtc,
+    scheduled.toISOString(), routine.is_all_day, todo.duration_minutes, dueAtUtc,
   );
   return result.changes === 1 ? Number(result.lastInsertRowid) : null;
 }
@@ -1694,7 +1695,8 @@ export class OrganizerStore {
     const rows = this.database.prepare(`
       SELECT routine.*,
              task.personal_task_id AS template_todo_id,
-             task.related_contact_id
+             task.related_contact_id,
+             task.duration_minutes
       FROM todo_routines AS routine
       JOIN todo_groups AS todo_group USING (todo_group_id)
       LEFT JOIN personal_tasks AS task ON task.personal_task_id = (
@@ -1730,6 +1732,7 @@ export class OrganizerStore {
           text: routine.text,
           scheduledAtUtc: scheduled.toISOString(),
           isAllDay: Boolean(routine.is_all_day),
+          durationMinutes: routine.duration_minutes == null ? null : Number(routine.duration_minutes),
           recurrenceRule: routine.recurrence_rule,
           recurrenceTimeZone: routine.time_zone,
         });
@@ -1761,7 +1764,8 @@ export class OrganizerStore {
     if (!destinationGroup) throw new OrganizerInputError("Inbox to-do group not found.", 404);
     const routines = this.database.prepare(`
       SELECT routine.*,
-             task.related_contact_id
+             task.related_contact_id,
+             task.duration_minutes
       FROM todo_routines AS routine
       LEFT JOIN personal_tasks AS task ON task.personal_task_id = (
         SELECT candidate.personal_task_id FROM personal_tasks AS candidate
@@ -1810,11 +1814,13 @@ export class OrganizerStore {
           const inserted = this.database.prepare(`
             INSERT INTO personal_tasks (
               todo_group_id, todo_routine_id, related_contact_id, text, status,
-              sort_position, scheduled_at_utc, is_all_day, due_at_utc, source, external_id
-            ) VALUES (?, NULL, ?, ?, 'todo', ?, ?, ?, ?, ?, ?)
+              sort_position, scheduled_at_utc, is_all_day, duration_minutes,
+              due_at_utc, source, external_id
+            ) VALUES (?, NULL, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?)
           `).run(
             destinationGroup.todo_group_id, routine.related_contact_id, routine.text, sortPosition,
-            scheduled.toISOString(), routine.is_all_day, dueAtUtc, routinePublishSource, externalId,
+            scheduled.toISOString(), routine.is_all_day, routine.duration_minutes,
+            dueAtUtc, routinePublishSource, externalId,
           );
           createdIds.push(Number(inserted.lastInsertRowid));
         }
@@ -2746,6 +2752,7 @@ export class OrganizerStore {
       status: enumValue(input?.status, todoStatuses, "status", "todo"),
       scheduledAtUtc: isoDateTime(input?.scheduledAtUtc, "scheduledAtUtc"),
       isAllDay: Boolean(booleanInteger(input?.isAllDay)),
+      durationMinutes: optionalPositiveInteger(input?.durationMinutes, "durationMinutes"),
       dueAtUtc: isoDateTime(input?.dueAtUtc, "dueAtUtc"),
       recurrenceRule: optionalText(input?.recurrenceRule, "recurrenceRule", 2000),
       recurrenceTimeZone: timeZone(input?.recurrenceTimeZone) ?? defaultCalendarTimeZone,
@@ -2785,6 +2792,9 @@ export class OrganizerStore {
     }
     if (todo.isAllDay && !todo.scheduledAtUtc) {
       throw new OrganizerInputError("An all-day to-do requires a scheduled date.");
+    }
+    if (todo.durationMinutes !== null && (!todo.scheduledAtUtc || todo.isAllDay)) {
+      throw new OrganizerInputError("durationMinutes requires a scheduled to-do with an exact time.");
     }
     if (todo.scheduledAtUtc && todo.dueAtUtc && todo.dueAtUtc < todo.scheduledAtUtc) {
       throw new OrganizerInputError("dueAtUtc cannot be earlier than scheduledAtUtc.");
@@ -2826,12 +2836,13 @@ export class OrganizerStore {
       const result = this.database.prepare(`
         INSERT INTO personal_tasks (
           todo_group_id, todo_routine_id, sequence, related_contact_id, text,
-          status, sort_position, scheduled_at_utc, is_all_day, due_at_utc, completed_at_utc, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
+          status, sort_position, scheduled_at_utc, is_all_day, duration_minutes,
+          due_at_utc, completed_at_utc, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
       `).run(
         groupId, routineId, todo.sequence, todo.relatedContactId, todo.text,
         todo.status, sortPosition, todo.scheduledAtUtc, todo.isAllDay ? 1 : 0,
-        todo.dueAtUtc, completedAtUtc,
+        todo.durationMinutes, todo.dueAtUtc, completedAtUtc,
       );
       const id = Number(result.lastInsertRowid);
       const created = this.getTodo(id);
@@ -3047,6 +3058,9 @@ export class OrganizerStore {
       isAllDay: input.isAllDay === undefined
         ? before.isAllDay
         : Boolean(booleanInteger(input.isAllDay)),
+      durationMinutes: input.durationMinutes === undefined
+        ? before.durationMinutes
+        : optionalPositiveInteger(input.durationMinutes, "durationMinutes"),
       dueAtUtc: input.dueAtUtc === undefined ? before.dueAtUtc : isoDateTime(input.dueAtUtc, "dueAtUtc"),
       recurrenceRule: requestedRecurrenceRule,
       recurrenceTimeZone: requestedRecurrenceRule
@@ -3075,6 +3089,9 @@ export class OrganizerStore {
     if (after.isAllDay && !after.scheduledAtUtc) {
       throw new OrganizerInputError("An all-day to-do requires a scheduled date.");
     }
+    if (after.durationMinutes !== null && (!after.scheduledAtUtc || after.isAllDay)) {
+      throw new OrganizerInputError("durationMinutes requires a scheduled to-do with an exact time.");
+    }
     if (after.recurrenceRule && !after.scheduledAtUtc) {
       throw new OrganizerInputError("A routine requires a scheduled date and time.");
     }
@@ -3102,7 +3119,7 @@ export class OrganizerStore {
     if (after.status !== "complete" && before.status === "complete") after.completedAtUtc = null;
     const changes = changedFields(before, after, [
       "groupId", "sequence", "relatedContactId", "text", "status", "sortPosition",
-      "scheduledAtUtc", "isAllDay", "dueAtUtc", "completedAtUtc", "recurrenceRule", "recurrenceTimeZone",
+      "scheduledAtUtc", "isAllDay", "durationMinutes", "dueAtUtc", "completedAtUtc", "recurrenceRule", "recurrenceTimeZone",
       "interactionGuideId",
     ]);
     if (Object.keys(changes).length === 0) return before;
@@ -3114,13 +3131,13 @@ export class OrganizerStore {
         UPDATE personal_tasks
         SET todo_group_id = ?, sequence = ?, related_contact_id = ?, text = ?, status = ?,
             sort_position = ?, scheduled_at_utc = ?, is_all_day = ?, due_at_utc = ?,
-            completed_at_utc = ?, updated_at_utc = ?
+            duration_minutes = ?, completed_at_utc = ?, updated_at_utc = ?
         WHERE personal_task_id = ?
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
         after.groupId, after.sequence, after.relatedContactId, after.text, after.status,
         after.sortPosition, after.scheduledAtUtc, after.isAllDay ? 1 : 0, after.dueAtUtc,
-        after.completedAtUtc, updatedAt, id, before.version,
+        after.durationMinutes, after.completedAtUtc, updatedAt, id, before.version,
       );
       if (result.changes !== 1) {
         throw new OrganizerInputError("This todo changed while you were saving it. Refresh and try again.", 409);

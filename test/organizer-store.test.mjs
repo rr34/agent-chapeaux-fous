@@ -534,6 +534,7 @@ test("reserved routine templates preview and publish as idempotent one-time todo
       text: "Monthly finance review",
       groupId: routineGroup.id,
       scheduledAtUtc: "2026-09-04T13:00:00.000Z",
+      durationMinutes: 90,
       recurrenceRule: "FREQ=MONTHLY;INTERVAL=1;BYDAY=FR;BYSETPOS=1",
       recurrenceTimeZone: "UTC",
     });
@@ -544,6 +545,7 @@ test("reserved routine templates preview and publish as idempotent one-time todo
     assert.equal(preview.occurrences.length, 1);
     assert.equal(preview.occurrences[0].templateTodoId, template.id);
     assert.equal(preview.occurrences[0].scheduledAtUtc, "2026-09-04T13:00:00.000Z");
+    assert.equal(preview.occurrences[0].durationMinutes, 90);
     const earlierRepresentativeMonth = organizer.previewRoutines({
       from: "2026-08-01T00:00:00.000Z",
       to: "2026-09-01T00:00:00.000Z",
@@ -560,6 +562,7 @@ test("reserved routine templates preview and publish as idempotent one-time todo
     assert.equal(first.todos[0].routineId, null);
     assert.equal(first.todos[0].source, "routine_publish");
     assert.equal(first.todos[0].groupName, "Inbox");
+    assert.equal(first.todos[0].durationMinutes, 90);
     assert.ok(organizer.database.prepare(
       "SELECT source_event_id FROM personal_tasks WHERE personal_task_id = ?",
     ).get(first.todos[0].id).source_event_id);
