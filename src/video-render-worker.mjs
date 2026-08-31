@@ -40,8 +40,13 @@ function narrationSeconds(text) {
   return Math.max(2, Math.ceil(words / 2.75) + 1);
 }
 
-function speechPronunciation(text) {
-  return text.replace(/\bChapeaux\s+Fous\b/giu, "Chapeaux Fou");
+export function speechPronunciation(text) {
+  return text
+    .replace(
+      /(?<![\p{L}\p{N}:])([01]?\d|2[0-3]):00[ \t\u00a0\u202f]*[-–—][ \t\u00a0\u202f]*([01]?\d|2[0-3]):00(?![\p{L}\p{N}:])/gu,
+      (_range, startHour, endHour) => `${Number.parseInt(startHour, 10)} to ${Number.parseInt(endHour, 10)}`,
+    )
+    .replace(/\bChapeaux\s+Fous\b/giu, "Chapeaux Fou");
 }
 
 const productionRender = Object.freeze({ width: 1080, height: 1620 });

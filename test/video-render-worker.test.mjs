@@ -4,9 +4,17 @@ import path from "node:path";
 import test from "node:test";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
-import { VideoRenderWorker } from "../src/video-render-worker.mjs";
+import { VideoRenderWorker, speechPronunciation } from "../src/video-render-worker.mjs";
 import { VideoScripts } from "../src/video-scripts.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
+
+test("video narration reads whole-hour 24-hour ranges as bare hour numbers", () => {
+  assert.equal(speechPronunciation("Monday, 07:00–12:00"), "Monday, 7 to 12");
+  assert.equal(speechPronunciation("Wednesday, 07:00-14:00"), "Wednesday, 7 to 14");
+  assert.equal(speechPronunciation("Sunday, 16:00\u202f—\u202f19:00 EDT"), "Sunday, 16 to 19 EDT");
+  assert.equal(speechPronunciation("Keep 07:30–14:00 exact."), "Keep 07:30–14:00 exact.");
+  assert.equal(speechPronunciation("Keep 2026-08-31T07:00:00Z exact."), "Keep 2026-08-31T07:00:00Z exact.");
+});
 
 test("the background worker preserves recordings and assigns distinct user and Agent voices", async (context) => {
   const temporary = temporaryDatabase();
@@ -32,7 +40,7 @@ test("the background worker preserves recordings and assigns distinct user and A
     type: "transcription.complete", status: "complete", turnId: sourceRequest.requestId,
     content: "Make the release plan.", primaryFileId: audio.fileId,
   });
-  ledger.finish(sourceEvent, "The release plan is ready.");
+  ledger.finish(sourceEvent, "The release plan is ready from 07:00–14:00.");
   const longResponse = `Chapeaux Fous ${"works ".repeat(800)}`.trim();
   const typedRequest = ledger.createRequest({
     text: [
@@ -157,7 +165,7 @@ test("the background worker preserves recordings and assigns distinct user and A
     speechCalls.map(({ options }) => options.voice),
     ["verse", "shimmer", "verse"],
   );
-  assert.equal(speechCalls[0].text, "The release plan is ready.");
+  assert.equal(speechCalls[0].text, "The release plan is ready from 7 to 14.");
   assert.equal(speechCalls[1].text, "Summarize Chapeaux Fou.");
   assert.equal(speechCalls[2].text, longResponse.replace("Chapeaux Fous", "Chapeaux Fou"));
   assert.match(speechCalls[0].options.instructions, /energetic American guy/iu);
@@ -173,6 +181,7 @@ test("the background worker preserves recordings and assigns distinct user and A
   assert.equal(renderedInput.scenes.some((scene) => "activity" in scene), false);
   assert.equal(renderedInput.scenes[0].renderSceneType, "request");
   assert.equal(renderedInput.scenes[0].authenticAudio, true);
+  assert.equal(renderedInput.scenes[0].responseText, "The release plan is ready from 07:00–14:00.");
   assert.equal(renderedInput.scenes[0].audioEndMs, 31_300);
   assert.match(renderedInput.scenes[0].audioDataUrl, /^data:audio\/webm;base64,/);
   assert.equal(renderedInput.scenes[1].renderSceneType, "response");
