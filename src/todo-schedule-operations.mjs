@@ -96,12 +96,14 @@ export function moveOverdueTodosToToday(database, {
   const timeZone = validatedTimeZone(timeZoneValue);
   const todayStartUtc = zonedPartsToUtc(localDate, timeZone).toISOString();
   const rows = database.prepare(`
-    SELECT personal_task_id, scheduled_at_utc, due_at_utc
-    FROM personal_tasks
-    WHERE status IN ('todo', 'ai_suggested')
-      AND scheduled_at_utc IS NOT NULL
-      AND scheduled_at_utc < ?
-    ORDER BY personal_task_id
+    SELECT task.personal_task_id, task.scheduled_at_utc, task.due_at_utc
+    FROM personal_tasks AS task
+    JOIN todo_groups AS todo_group USING (todo_group_id)
+    WHERE task.status IN ('todo', 'ai_suggested')
+      AND task.scheduled_at_utc IS NOT NULL
+      AND task.scheduled_at_utc < ?
+      AND todo_group.name <> 'Routine' COLLATE NOCASE
+    ORDER BY task.personal_task_id
   `).all(todayStartUtc);
 
   const targetDayNumber = Date.UTC(localDate.year, localDate.month - 1, localDate.day) / dayMilliseconds;

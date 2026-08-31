@@ -6,6 +6,7 @@ import {
   splitLocalDateTime,
 } from "./event-date-time.js";
 import { markdownToSpeech, renderMarkdown } from "./markdown.js";
+import { dateSequence, renderCalendarGrid, sixWeekMonthDates } from "./calendar-grid.js";
 
 const elements = {
   composer: document.querySelector("#chat-composer"),
@@ -86,6 +87,15 @@ const elements = {
   hatList: document.querySelector("#hat-list"),
   hatStatus: document.querySelector("#hat-status"),
   calendarView: document.querySelector("#calendar-view"),
+  routineView: document.querySelector("#routine-view"),
+  routineGrid: document.querySelector("#routine-grid"),
+  routineAgendaDate: document.querySelector("#routine-agenda-date"),
+  routineAgendaCount: document.querySelector("#routine-agenda-count"),
+  routineAgendaList: document.querySelector("#routine-agenda-list"),
+  routinePublishStatus: document.querySelector("#routine-publish-status"),
+  newRoutine: document.querySelector("#new-routine"),
+  publishRoutineThisWeek: document.querySelector("#publish-routine-this-week"),
+  publishRoutineNextWeek: document.querySelector("#publish-routine-next-week"),
   todosView: document.querySelector("#todos-view"),
   contentView: document.querySelector("#content-view"),
   videoScriptsView: document.querySelector("#video-scripts-view"),
@@ -211,6 +221,13 @@ const elements = {
   todoRepeatInterval: document.querySelector("#todo-repeat-interval"),
   todoRepeatFrequency: document.querySelector("#todo-repeat-frequency"),
   todoRepeatWeekdays: document.querySelector("#todo-repeat-weekdays"),
+  todoRepeatMonthPattern: document.querySelector("#todo-repeat-month-pattern"),
+  todoRepeatPattern: document.querySelector("#todo-repeat-pattern"),
+  todoRepeatMonthDayLabel: document.querySelector("#todo-repeat-month-day-label"),
+  todoRepeatMonthDay: document.querySelector("#todo-repeat-month-day"),
+  todoRepeatOrdinalFields: document.querySelector("#todo-repeat-ordinal-fields"),
+  todoRepeatOrdinal: document.querySelector("#todo-repeat-ordinal"),
+  todoRepeatOrdinalWeekday: document.querySelector("#todo-repeat-ordinal-weekday"),
   todoRepeatEnd: document.querySelector("#todo-repeat-end"),
   todoRepeatCountLabel: document.querySelector("#todo-repeat-count-label"),
   todoRepeatCount: document.querySelector("#todo-repeat-count"),
@@ -362,6 +379,9 @@ let calendarEvents = [];
 let calendarSearchTimer = null;
 let calendarSearchSequence = 0;
 let activeTodos = [];
+let selectedRoutineDate = new Date();
+let routineOccurrences = [];
+let routineTemplates = [];
 let calendarSchedulingTodo = null;
 let calendarSchedulingBusy = false;
 let eventEndIsAutomatic = false;
@@ -880,6 +900,31 @@ function buildTodoRecurrenceRule() {
     if (!weekdays.length) throw new Error("Choose at least one weekday.");
     parts.push(`BYDAY=${weekdays.join(",")}`);
   }
+  if (["MONTHLY", "YEARLY"].includes(frequency)) {
+    if (frequency === "YEARLY" && elements.todoRepeatPattern.value !== "anchor") {
+      const anchor = elements.todoScheduled.value
+        ? new Date(elements.todoScheduled.value.includes("T")
+          ? elements.todoScheduled.value
+          : `${elements.todoScheduled.value}T12:00:00`)
+        : null;
+      if (!anchor || !Number.isFinite(anchor.getTime())) {
+        throw new Error("Choose the first scheduled date for this yearly pattern.");
+      }
+      parts.push(`BYMONTH=${anchor.getMonth() + 1}`);
+    }
+    if (elements.todoRepeatPattern.value === "month-day") {
+      const monthDay = Number(elements.todoRepeatMonthDay.value);
+      if (!Number.isInteger(monthDay) || monthDay < 1 || monthDay > 31) {
+        throw new Error("Day of month must be a whole number from 1 to 31.");
+      }
+      parts.push(`BYMONTHDAY=${monthDay}`);
+    } else if (elements.todoRepeatPattern.value === "ordinal-weekday") {
+      parts.push(
+        `BYDAY=${elements.todoRepeatOrdinalWeekday.value}`,
+        `BYSETPOS=${elements.todoRepeatOrdinal.value}`,
+      );
+    }
+  }
   if (elements.todoRepeatEnd.value === "count") {
     const count = Number(elements.todoRepeatCount.value);
     if (!Number.isInteger(count) || count < 1 || count > 9999) {
@@ -905,6 +950,19 @@ function describeTodoRecurrence(rule) {
     const days = parts.BYDAY.split(",").map((day) => labelsByValue[day] || day);
     description += ` on ${days.join(", ")}`;
   }
+  if (["MONTHLY", "YEARLY"].includes(parts.FREQ) && parts.BYMONTHDAY) {
+    description += ` on day ${parts.BYMONTHDAY}`;
+  }
+  if (["MONTHLY", "YEARLY"].includes(parts.FREQ) && parts.BYDAY && parts.BYSETPOS) {
+    const labelsByValue = Object.fromEntries(recurrenceWeekdays);
+    const ordinalLabels = { "1": "first", "2": "second", "3": "third", "4": "fourth", "5": "fifth", "-1": "last" };
+    description += ` on the ${ordinalLabels[parts.BYSETPOS] || parts.BYSETPOS} ${labelsByValue[parts.BYDAY] || parts.BYDAY}`;
+  }
+  if (parts.FREQ === "YEARLY" && parts.BYMONTH) {
+    const month = new Intl.DateTimeFormat(undefined, { month: "long", timeZone: "UTC" })
+      .format(new Date(Date.UTC(2026, Number(parts.BYMONTH) - 1, 1)));
+    description += ` in ${month}`;
+  }
   if (parts.COUNT) description += `, ${parts.COUNT} occurrences`;
   if (parts.UNTIL) {
     const match = /^(\d{4})(\d{2})(\d{2})/.exec(parts.UNTIL);
@@ -919,7 +977,11 @@ function updateTodoRecurrenceEditor() {
   elements.todoInteractionGuide.disabled = !enabled;
   if (!enabled) return;
   const weekly = elements.todoRepeatFrequency.value === "WEEKLY";
+  const monthlyPattern = ["MONTHLY", "YEARLY"].includes(elements.todoRepeatFrequency.value);
   elements.todoRepeatWeekdays.hidden = !weekly;
+  elements.todoRepeatMonthPattern.hidden = !monthlyPattern;
+  elements.todoRepeatMonthDayLabel.hidden = !monthlyPattern || elements.todoRepeatPattern.value !== "month-day";
+  elements.todoRepeatOrdinalFields.hidden = !monthlyPattern || elements.todoRepeatPattern.value !== "ordinal-weekday";
   if (weekly) ensureRepeatWeekday();
   const ending = elements.todoRepeatEnd.value;
   elements.todoRepeatCountLabel.hidden = ending !== "count";
@@ -938,6 +1000,12 @@ function loadTodoRecurrenceEditor(rule, recurrenceTimeZone = null) {
   elements.todoRepeatEnabled.checked = Boolean(rule);
   elements.todoRepeatFrequency.value = recurrenceFrequencyLabels[parts.FREQ] ? parts.FREQ : "WEEKLY";
   elements.todoRepeatInterval.value = String(Math.max(1, Number(parts.INTERVAL) || 1));
+  elements.todoRepeatPattern.value = parts.BYSETPOS && parts.BYDAY
+    ? "ordinal-weekday"
+    : parts.BYMONTHDAY ? "month-day" : "anchor";
+  elements.todoRepeatMonthDay.value = parts.BYMONTHDAY || "1";
+  elements.todoRepeatOrdinal.value = parts.BYSETPOS || "1";
+  elements.todoRepeatOrdinalWeekday.value = (parts.BYDAY || "MO").split(",")[0];
   for (const checkbox of elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
     checkbox.checked = (parts.BYDAY || "").split(",").includes(checkbox.value);
   }
@@ -1846,14 +1914,20 @@ function occursOnDay(calendarEvent, day) {
   return start < dayEnd && (end > dayStart || (start >= dayStart && start < dayEnd));
 }
 
+function isRoutineTemplate(todo) {
+  return todo?.groupName?.toLowerCase() === "routine";
+}
+
 function todosDueOnDay(day) {
   const key = localDateKey(day);
-  return activeTodos.filter((todo) => todo.dueAtUtc && localDateKey(todo.dueAtUtc) === key);
+  return activeTodos.filter((todo) => !isRoutineTemplate(todo)
+    && todo.dueAtUtc && localDateKey(todo.dueAtUtc) === key);
 }
 
 function todosScheduledOnDay(day) {
   const key = localDateKey(day);
-  return activeTodos.filter((todo) => todo.scheduledAtUtc && localDateKey(todo.scheduledAtUtc) === key);
+  return activeTodos.filter((todo) => !isRoutineTemplate(todo)
+    && todo.scheduledAtUtc && localDateKey(todo.scheduledAtUtc) === key);
 }
 
 function formatEventTime(calendarEvent) {
@@ -1899,6 +1973,7 @@ function switchView(view) {
   elements.agentView.hidden = view !== "agent";
   elements.hatsView.hidden = view !== "hats";
   elements.calendarView.hidden = view !== "calendar";
+  elements.routineView.hidden = view !== "routine";
   elements.todosView.hidden = view !== "todos";
   elements.contentView.hidden = view !== "content";
   elements.videoScriptsView.hidden = view !== "video-scripts";
@@ -1917,6 +1992,7 @@ function switchView(view) {
     void refreshHats();
   }
   if (view === "calendar") void refreshCalendar();
+  if (view === "routine") void refreshRoutine();
   if (view === "todos") void refreshTodos();
   if (view === "content") void refreshContent();
   if (view === "video-scripts") void refreshVideoScripts();
@@ -2014,6 +2090,131 @@ async function refreshCalendar() {
     if (elements.calendarSearch.value.trim()) void searchCalendarEvents();
   } catch (error) {
     elements.calendarGrid.replaceChildren(node("p", "empty", error.message || "Calendar unavailable."));
+  }
+}
+
+function routineCalendarDates() {
+  return sixWeekMonthDates(new Date());
+}
+
+async function refreshRoutine() {
+  const dates = routineCalendarDates();
+  const from = startOfDay(dates[0]);
+  const to = addDays(startOfDay(dates.at(-1)), 1);
+  try {
+    const [previewBody, todoBody, groupBody, contactBody, guideBody] = await Promise.all([
+      api(`/api/routines/preview?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`),
+      api("/api/todos?scope=active&limit=1000"),
+      api("/api/todo-groups"),
+      api("/api/contacts?scope=all&limit=10000"),
+      api("/api/interaction-guides?status=active&limit=500"),
+    ]);
+    routineOccurrences = previewBody.occurrences;
+    routineTemplates = todoBody.todos.filter(isRoutineTemplate);
+    todoGroups = groupBody.groups;
+    todoContacts = contactBody.contacts;
+    todoGuides = guideBody.guides;
+    renderRoutine();
+  } catch (error) {
+    elements.routineGrid.replaceChildren(node("p", "empty", error.message || "Routine unavailable."));
+  }
+}
+
+function routineOccurrencesOnDay(date) {
+  const key = localDateKey(date);
+  return routineOccurrences.filter(({ scheduledAtUtc }) => localDateKey(scheduledAtUtc) === key);
+}
+
+function renderRoutineAgenda() {
+  const occurrences = routineOccurrencesOnDay(selectedRoutineDate);
+  elements.routineAgendaDate.textContent = new Intl.DateTimeFormat(undefined, {
+    weekday: "long", day: "numeric",
+  }).format(selectedRoutineDate);
+  elements.routineAgendaCount.textContent = `${occurrences.length} ${occurrences.length === 1 ? "item" : "items"}`;
+  elements.routineAgendaList.replaceChildren();
+  if (occurrences.length === 0) {
+    elements.routineAgendaList.append(node("p", "agenda-empty", "No routine items on this representative day."));
+    return;
+  }
+  for (const occurrence of occurrences) {
+    const template = routineTemplates.find(({ id }) => id === occurrence.templateTodoId);
+    const button = node("button", "agenda-item todo");
+    button.type = "button";
+    button.append(
+      node("strong", "", occurrence.text),
+      node("span", "", `${occurrence.isAllDay ? "All day" : formatDisplayTime(occurrence.scheduledAtUtc)} · ${describeTodoRecurrence(occurrence.recurrenceRule)}`),
+    );
+    button.disabled = !template;
+    if (template) button.addEventListener("click", () => openTodoEditor(template));
+    elements.routineAgendaList.append(button);
+  }
+}
+
+function renderRoutine() {
+  const dates = routineCalendarDates();
+  const currentMonth = new Date().getMonth();
+  renderCalendarGrid({
+    container: elements.routineGrid,
+    dates,
+    selectedKey: localDateKey(selectedRoutineDate),
+    todayKey: localDateKey(new Date()),
+    keyForDate: localDateKey,
+    labelForDate: (date) => formatDisplayDate(date, { includeTime: false }),
+    representativeMonth: currentMonth,
+    itemsForDate: (date) => routineOccurrencesOnDay(date).map((occurrence) => ({
+      className: "day-todo",
+      text: `${occurrence.isAllDay ? "All day" : formatDisplayTime(occurrence.scheduledAtUtc)} ${occurrence.text}`,
+    })),
+    onSelect: (date) => {
+      selectedRoutineDate = date;
+      renderRoutine();
+    },
+  });
+  renderRoutineAgenda();
+}
+
+async function openNewRoutine() {
+  try {
+    const { group } = await api("/api/routines/ensure-group", { method: "POST" });
+    if (!todoGroups.some(({ id }) => id === group.id)) todoGroups.push(group);
+    openTodoEditor(null, group.id);
+    elements.todoDialogTitle.textContent = "New routine";
+    elements.todoAllDay.checked = true;
+    setTodoScheduledInputType(true);
+    elements.todoScheduled.value = localDateKey(selectedRoutineDate);
+    elements.todoRepeatEnabled.checked = true;
+    elements.todoRepeatFrequency.value = "WEEKLY";
+    const weekday = scheduledWeekday();
+    for (const checkbox of elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
+      checkbox.checked = checkbox.value === weekday;
+    }
+    todoRecurrenceDirty = true;
+    updateTodoRecurrenceEditor();
+    updateTodoClearScheduledVisibility();
+  } catch (error) {
+    elements.routinePublishStatus.textContent = error.message || "Could not create a routine.";
+  }
+}
+
+async function publishRoutineRange(from, to) {
+  elements.routinePublishStatus.textContent = "Publishing…";
+  elements.publishRoutineThisWeek.disabled = true;
+  elements.publishRoutineNextWeek.disabled = true;
+  try {
+    const result = await api("/api/routines/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: from.toISOString(), to: to.toISOString() }),
+    });
+    const existing = result.existingCount
+      ? ` ${result.existingCount} ${result.existingCount === 1 ? "item was" : "items were"} already published.`
+      : "";
+    elements.routinePublishStatus.textContent = `Created ${result.createdCount} scheduled ${result.createdCount === 1 ? "to-do" : "to-dos"}.${existing}`;
+  } catch (error) {
+    elements.routinePublishStatus.textContent = error.message || "Could not publish the routine.";
+  } finally {
+    elements.publishRoutineThisWeek.disabled = false;
+    elements.publishRoutineNextWeek.disabled = false;
   }
 }
 
@@ -2123,50 +2324,40 @@ function renderCalendar() {
   elements.calendarDateControl.setAttribute("aria-label", formatDisplayDate(displayedDate, { includeTime: false }));
   elements.calendarGrid.setAttribute("aria-label", `Calendar from ${formatDisplayDate(gridStart, { includeTime: false })} through ${formatDisplayDate(addDays(gridEnd, -1), { includeTime: false })}`);
   elements.calendarTimeZone.textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  elements.calendarGrid.replaceChildren();
   const todayKey = localDateKey(new Date());
   const selectedKey = localDateKey(selectedCalendarDate);
-  for (let day = new Date(gridStart); day < gridEnd; day = addDays(day, 1)) {
-    const date = new Date(day);
-    const events = calendarEvents.filter((calendarEvent) => occursOnDay(calendarEvent, date));
-    const scheduled = todosScheduledOnDay(date);
-    const due = todosDueOnDay(date);
-    const button = node("button", "calendar-day");
-    button.type = "button";
-    const showsMonth = localDateKey(date) === localDateKey(gridStart) || date.getDate() === 1;
-    button.classList.toggle("has-month-marker", showsMonth);
-    button.classList.toggle("today", localDateKey(date) === todayKey);
-    button.classList.toggle("selected", localDateKey(date) === selectedKey);
-    button.setAttribute("aria-label", formatDisplayDate(date, { includeTime: false }));
-    if (showsMonth) {
-      const monthMarker = node("span", "calendar-month-marker", new Intl.DateTimeFormat(undefined, { month: "long" }).format(date));
-      monthMarker.setAttribute("aria-hidden", "true");
-      button.append(monthMarker);
-    }
-    button.append(node("span", "day-number", String(date.getDate())));
-    const items = node("span", "day-items");
-    const visible = [
-      ...events.map((value) => ({ type: "event", value })),
-      ...scheduled.map((value) => ({ type: "todo", value, marker: value.isAllDay ? "All day" : "◷" })),
-      ...due.map((value) => ({ type: "todo", value, marker: "Due" })),
-    ];
-    for (const item of visible.slice(0, 3)) {
-      items.append(item.type === "event"
-        ? node("span", `day-event ${item.value.status}`, `${item.value.isAllDay ? "" : `${formatEventTime(item.value)} `}${item.value.title}`)
-        : node("span", "day-todo", `${item.marker} ${item.value.text}`));
-    }
-    if (visible.length > 3) items.append(node("span", "day-more", `+${visible.length - 3} more`));
-    button.append(items);
-    button.disabled = calendarSchedulingBusy;
-    button.addEventListener("click", () => {
+  renderCalendarGrid({
+    container: elements.calendarGrid,
+    dates: dateSequence(gridStart, gridEnd),
+    selectedKey,
+    todayKey,
+    keyForDate: localDateKey,
+    labelForDate: (date) => formatDisplayDate(date, { includeTime: false }),
+    showMonthMarkers: true,
+    disabled: calendarSchedulingBusy,
+    itemsForDate: (date) => {
+      const events = calendarEvents.filter((calendarEvent) => occursOnDay(calendarEvent, date));
+      const scheduled = todosScheduledOnDay(date);
+      const due = todosDueOnDay(date);
+      return [
+        ...events.map((value) => ({
+          className: `day-event ${value.status}`,
+          text: `${value.isAllDay ? "" : `${formatEventTime(value)} `}${value.title}`,
+        })),
+        ...scheduled.map((value) => ({
+          className: "day-todo", text: `${value.isAllDay ? "All day" : "◷"} ${value.text}`,
+        })),
+        ...due.map((value) => ({ className: "day-todo", text: `Due ${value.text}` })),
+      ];
+    },
+    onSelect: (date) => {
       if (calendarSchedulingTodo) void scheduleTodoOnDate(date);
       else {
         selectedCalendarDate = date;
         renderCalendar();
       }
-    });
-    elements.calendarGrid.append(button);
-  }
+    },
+  });
   renderAgenda();
 }
 
@@ -2663,7 +2854,7 @@ async function refreshTodos() {
       api("/api/contacts?scope=all&limit=10000"),
       api("/api/interaction-guides?status=active&limit=500"),
     ]);
-    displayedTodos = body.todos;
+    displayedTodos = body.todos.filter((todo) => !isRoutineTemplate(todo));
     todoGroups = groupBody.groups;
     todoContacts = contactBody.contacts;
     todoGuides = guideBody.guides;
@@ -2695,7 +2886,7 @@ async function refreshTodos() {
       : "";
     renderTodos();
   } catch (error) {
-    elements.todoList.replaceChildren(node("p", "empty", error.message || "To do and habits unavailable."));
+    elements.todoList.replaceChildren(node("p", "empty", error.message || "To do unavailable."));
   }
 }
 
@@ -2727,7 +2918,8 @@ function renderTodos() {
   const groupedTodos = new Map();
   const visibleGroups = elements.todoGroupFilter.value
     ? todoGroups.filter(({ id }) => String(id) === elements.todoGroupFilter.value)
-    : todoGroups;
+    : todoGroups.filter((group) => group.name.toLowerCase() !== "routine"
+      || displayedTodos.some(({ groupId }) => groupId === group.id));
   for (const group of visibleGroups) {
     groupedTodos.set(group.id, {
       name: group.name,
@@ -2775,7 +2967,7 @@ function renderTodos() {
     up.addEventListener("click", () => void moveTodoGroup(groupId, "up"));
     down.addEventListener("click", () => void moveTodoGroup(groupId, "down"));
     bottom.addEventListener("click", () => void moveTodoGroup(groupId, "bottom"));
-    if (!group.archivedAtUtc && group.name.toLowerCase() !== "inbox") {
+    if (!group.archivedAtUtc && !["inbox", "routine"].includes(group.name.toLowerCase())) {
       const rename = node("button", "secondary compact", "Rename");
       const archive = node("button", "secondary compact", "Archive group");
       rename.type = "button";
@@ -3176,6 +3368,7 @@ async function saveTodo(event) {
     });
     elements.todoDialog.close();
     if (activeView === "calendar") await refreshCalendar();
+    else if (activeView === "routine") await refreshRoutine();
     else await refreshTodos();
   } catch (error) {
     elements.todoFormError.textContent = error.message || "Could not save the todo.";
@@ -5307,6 +5500,15 @@ elements.newTodo.addEventListener("click", async () => {
   if (todoGroups.length === 0) await refreshTodos();
   openTodoEditor();
 });
+elements.newRoutine.addEventListener("click", () => void openNewRoutine());
+elements.publishRoutineThisWeek.addEventListener("click", () => {
+  const from = startOfDay(new Date());
+  void publishRoutineRange(from, addDays(startOfWeek(from), 7));
+});
+elements.publishRoutineNextWeek.addEventListener("click", () => {
+  const from = addDays(startOfWeek(new Date()), 7);
+  void publishRoutineRange(from, addDays(from, 7));
+});
 elements.newTodoGroup.addEventListener("click", () => void createTodoGroup());
 elements.todoNewGroup.addEventListener("click", async () => {
   const group = await createTodoGroup({ selectFilter: false });
@@ -5326,6 +5528,8 @@ elements.todoAllDay.addEventListener("change", () => {
 for (const control of [
   elements.todoRepeatEnabled, elements.todoRepeatInterval, elements.todoRepeatFrequency,
   elements.todoRepeatEnd, elements.todoRepeatCount, elements.todoRepeatUntil,
+  elements.todoRepeatPattern, elements.todoRepeatMonthDay,
+  elements.todoRepeatOrdinal, elements.todoRepeatOrdinalWeekday,
   ...elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]'),
 ]) {
   const recurrenceChanged = () => {

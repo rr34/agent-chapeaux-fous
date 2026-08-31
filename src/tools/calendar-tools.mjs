@@ -189,7 +189,7 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_add",
-    description: "Create one native calendar event. Use is_all_day=true when the user names a day without a specific time, with starts_at_utc representing local midnight and time_zone preserving that local date. For repetition, supply structured recurrence concepts; never write RRULE syntax.",
+    description: "Create one native calendar event. Use is_all_day=true when the user names a day without a specific time, with starts_at_utc representing local midnight and time_zone preserving that local date. For repetition, supply structured recurrence concepts including numbered weekdays or days of the month; never write RRULE syntax.",
     parameters: {
       type: "object",
       additionalProperties: false,

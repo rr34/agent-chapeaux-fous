@@ -27,7 +27,8 @@
         </button>
         <button class="top-nav-button" data-view="hats" type="button">Hats</button>
         <button class="top-nav-button" data-view="calendar" type="button">Calendar</button>
-        <button class="top-nav-button" data-view="todos" type="button">To do and habits</button>
+        <button class="top-nav-button" data-view="routine" type="button">Routine</button>
+        <button class="top-nav-button" data-view="todos" type="button">To do</button>
         <button class="top-nav-button" data-view="content" type="button">Library</button>
         <button class="top-nav-button" data-view="video-scripts" type="button">Video Scripts</button>
         <button class="top-nav-button" data-view="files" type="button">Files</button>
@@ -190,11 +191,47 @@
       </div>
     </section>
 
+    <section id="routine-view" class="app-view" hidden>
+      <header class="organizer-heading routine-heading">
+        <div>
+          <p class="eyebrow">Hypothetical recurring plan</p>
+          <h2>Routine</h2>
+          <p class="muted routine-introduction">The current month supplies the day positions; this is a reusable pattern, not your actual calendar.</p>
+        </div>
+        <button id="new-routine" type="button">New routine</button>
+      </header>
+      <div class="routine-toolbar organizer-panel">
+        <span>Copy routine occurrences into real scheduled to-dos:</span>
+        <button id="publish-routine-this-week" class="secondary compact" type="button">Rest of this week</button>
+        <button id="publish-routine-next-week" class="secondary compact" type="button">Next week</button>
+        <span id="routine-publish-status" class="toolbar-count" role="status"></span>
+      </div>
+      <div class="calendar-layout">
+        <section class="calendar-range-panel organizer-panel" aria-label="Six-week routine calendar">
+          <div class="weekday-row" aria-hidden="true">
+            <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+          </div>
+          <div id="routine-grid" class="calendar-grid routine-grid"></div>
+        </section>
+        <section class="agenda-panel organizer-panel" aria-labelledby="routine-agenda-date">
+          <p class="eyebrow">Selected routine day</p>
+          <h3 id="routine-agenda-date">Today</h3>
+          <section class="agenda-section" aria-labelledby="routine-agenda-heading">
+            <div class="agenda-section-heading">
+              <h4 id="routine-agenda-heading">Recurring to-dos</h4>
+              <span id="routine-agenda-count"></span>
+            </div>
+            <div id="routine-agenda-list" class="agenda-list"></div>
+          </section>
+        </section>
+      </div>
+    </section>
+
     <section id="todos-view" class="app-view" hidden>
       <header class="organizer-heading">
         <div>
           <p class="eyebrow">Personal commitments</p>
-          <h2>To do and habits</h2>
+          <h2>To do</h2>
         </div>
         <button id="new-todo" type="button">New todo</button>
       </header>
@@ -672,6 +709,27 @@
             <label><input type="checkbox" value="SA">Sat</label>
             <label><input type="checkbox" value="SU">Sun</label>
           </fieldset>
+          <div id="todo-repeat-month-pattern" class="recurrence-month-pattern" hidden>
+            <label>On<select id="todo-repeat-pattern">
+              <option value="anchor">The scheduled day</option>
+              <option value="month-day">A day of the month</option>
+              <option value="ordinal-weekday">A numbered weekday</option>
+            </select></label>
+            <label id="todo-repeat-month-day-label" hidden>Day<input id="todo-repeat-month-day" type="number" min="1" max="31" step="1" value="1"></label>
+            <div id="todo-repeat-ordinal-fields" class="recurrence-ordinal-fields" hidden>
+              <label>Which<select id="todo-repeat-ordinal">
+                <option value="1">First</option><option value="2">Second</option>
+                <option value="3">Third</option><option value="4">Fourth</option>
+                <option value="5">Fifth</option><option value="-1">Last</option>
+              </select></label>
+              <label>Weekday<select id="todo-repeat-ordinal-weekday">
+                <option value="MO">Monday</option><option value="TU">Tuesday</option>
+                <option value="WE">Wednesday</option><option value="TH">Thursday</option>
+                <option value="FR">Friday</option><option value="SA">Saturday</option>
+                <option value="SU">Sunday</option>
+              </select></label>
+            </div>
+          </div>
           <div class="recurrence-ending">
             <label>Ends<select id="todo-repeat-end">
               <option value="never">Never</option>

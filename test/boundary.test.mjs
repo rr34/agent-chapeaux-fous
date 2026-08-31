@@ -337,17 +337,19 @@ test("the interaction video retains the complete chat history as it scrolls", ()
   assert.match(composition, /translateY\(\$\{translateY\}px\) scale\(\$\{scale\}\)/);
 });
 
-test("the standalone client restores calendar, grouped to-do, grouped content, and personal log surfaces", () => {
+test("the standalone client restores calendar, routine, grouped to-do, grouped content, and personal log surfaces", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /data-view="calendar"/);
   assert.match(document, /data-view="todos"/);
-  assert.match(document, /data-view="todos"[^>]*>To do and habits<\/button>/);
-  assert.match(document, /<h2>To do and habits<\/h2>/);
+  assert.match(document, /data-view="routine"[^>]*>Routine<\/button>/);
+  assert.match(document, /data-view="todos"[^>]*>To do<\/button>/);
+  assert.match(document, /<h2>Routine<\/h2>/);
+  assert.match(document, /<h2>To do<\/h2>/);
   assert.match(document, /id="agent-view-button"[^>]*>[\s\S]*?<span>Agent<\/span>[\s\S]*?<\/button>/);
   assert.doesNotMatch(document, /id="view-selector"/);
-  for (const view of ["agent", "hats", "calendar", "todos", "content", "video-scripts", "files", "contacts", "logs", "interactions", "ai-usage"]) {
+  for (const view of ["agent", "hats", "calendar", "routine", "todos", "content", "video-scripts", "files", "contacts", "logs", "interactions", "ai-usage"]) {
     assert.match(document, new RegExp(`<button[^>]+data-view="${view}"`));
   }
   assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="settings-menu"'));
@@ -389,8 +391,10 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(application, /function agendaTimelineTime/);
   assert.match(application, /events\.filter\(\(\{ isAllDay \}\) => isAllDay\)/);
   assert.match(application, /timedEntries = \[/);
-  assert.match(application, /date\.getDate\(\) === 1/);
-  assert.match(application, /"calendar-month-marker"/);
+  assert.match(application, /renderCalendarGrid/);
+  assert.match(document, /id="routine-grid" class="calendar-grid routine-grid"/);
+  assert.match(document, /aria-label="Six-week routine calendar"/);
+  assert.match(application, /sixWeekMonthDates/);
   assert.match(application, /refreshCalendar/);
   assert.match(application, /refreshTodos/);
   assert.match(application, /refreshContent/);
@@ -458,6 +462,8 @@ test("the standalone client restores calendar, grouped to-do, grouped content, a
   assert.match(server, /todoGroupReorderMatch/);
   assert.match(server, /todoGroupArchiveMatch/);
   assert.match(server, /\/api\/todos/);
+  assert.match(server, /\/api\/routines\/preview/);
+  assert.match(server, /\/api\/routines\/publish/);
   assert.match(server, /\/api\/content-items/);
   assert.match(server, /\/api\/content-groups/);
   assert.match(server, /reorderContentGroups/);

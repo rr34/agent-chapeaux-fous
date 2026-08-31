@@ -9,6 +9,7 @@ import {
 import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
 
 const todoStatuses = ["todo", "complete", "ignore", "archive", "ai_suggested"];
+const routineGroupName = "Routine";
 
 function findGroup(database, name) {
   const requested = name?.trim() || "Inbox";
@@ -337,7 +338,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal to-do item, optionally at an exact 1-based position in its group's manual sort order, associated with the exact contact it concerns, or with an all-day schedule or structured recurrence. A recurring to-do may link to one active briefing by exact ID; the to-do owns recurrence and the briefing supplies only the conversation plan. Position 1 puts the new task at the top. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
+    description: "Add one native personal to-do item, optionally at an exact 1-based position in its group's manual sort order, associated with the exact contact it concerns, or with an all-day schedule or structured recurrence. A recurring to-do may link to one active briefing by exact ID; the to-do owns recurrence and the briefing supplies only the conversation plan. Position 1 puts the new task at the top. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, month, month_day or ordinal_weekday, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. The reserved Routine group accepts only repeating templates; published real instances belong in Inbox. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -390,6 +391,9 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           ? null
           : ensureGroup(database, "Inbox");
         const selectedGroup = requestedGroupRow ?? inbox.row;
+        if (selectedGroup.name.toLowerCase() === routineGroupName.toLowerCase() && !recurrenceRule) {
+          throw new Error("Items in Routine must repeat. Put one-time to-dos in another group.");
+        }
         const usedInboxFallback = !requestedGroupRow && requestedGroup.toLowerCase() !== "inbox";
         const sortPosition = Number(database.prepare(`
           SELECT COALESCE(MAX(sort_position), 0) + 10 AS value
@@ -566,7 +570,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_group_rename",
-    description: "Rename one active native to-do group. Tasks and routines remain in the same group because its stable ID does not change. Inbox is the permanent catchall and cannot be renamed.",
+    description: "Rename one active native to-do group. Tasks and routines remain in the same group because its stable ID does not change. Inbox and the reserved Routine template group cannot be renamed.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -663,7 +667,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_group_archive",
-    description: "Archive one native to-do group by name so it leaves active group lists. This fails while the group contains active todo or ai_suggested tasks. Completed, ignored, and archived tasks retain their historical group. Inbox cannot be archived.",
+    description: "Archive one native to-do group by name so it leaves active group lists. This fails while the group contains active todo or ai_suggested tasks. Completed, ignored, and archived tasks retain their historical group. Inbox and the reserved Routine template group cannot be archived.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -814,6 +818,9 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         WHERE task.personal_task_id = ?
       `).get(taskId);
       if (!before) throw new Error(`To-do ${taskId} does not exist`);
+      if (before.group_name.toLowerCase() === routineGroupName.toLowerCase() && !enabled) {
+        throw new Error("Routine templates must repeat. Move the task to another group before removing recurrence.");
+      }
       if (enabled && !recurrence) throw new Error("recurrence is required when enabled is true");
       if (enabled && !before.scheduled_at_utc) throw new Error("Schedule the to-do before enabling recurrence");
       if (!enabled && requestedInteractionGuideId != null) {
@@ -1023,9 +1030,17 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         const assignments = Object.keys(values).map((column) => `"${column}" = ?`).join(", ");
         database.prepare(`UPDATE personal_tasks SET ${assignments} WHERE personal_task_id = ?`)
           .run(...Object.values(values), taskId);
-        const current = database.prepare("SELECT * FROM personal_tasks WHERE personal_task_id = ?").get(taskId);
+        const current = database.prepare(`
+          SELECT task.*, todo_group.name AS group_name
+          FROM personal_tasks AS task JOIN todo_groups AS todo_group USING (todo_group_id)
+          WHERE task.personal_task_id = ?
+        `).get(taskId);
         if (current.is_all_day && !current.scheduled_at_utc) {
           throw new Error("An all-day to-do requires scheduled_at_utc");
+        }
+        if (current.group_name.toLowerCase() === routineGroupName.toLowerCase()
+          && (current.todo_routine_id == null || !["todo", "ai_suggested"].includes(current.status))) {
+          throw new Error("Routine entries must remain active repeating templates; publish them to create completable to-dos.");
         }
         if (current.todo_routine_id) {
           database.prepare(`

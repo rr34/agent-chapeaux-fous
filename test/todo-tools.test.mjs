@@ -426,6 +426,43 @@ test("native todo tools accept structured recurrence and generate the next task"
   `).get(String(completed.generated_task.personal_task_id)).count, 1);
 });
 
+test("native todo tools keep Routine entries as repeating templates", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+
+  await registry.execute("todo_group_create", { name: "Routine" });
+  await assert.rejects(registry.execute("todo_add", {
+    text: "One-time item in the wrong place",
+    group: "Routine",
+    scheduled_at_utc: "2026-09-04T13:00:00.000Z",
+    due_at_utc: null,
+  }), /must repeat/);
+  const created = await registry.execute("todo_add", {
+    text: "First Friday review",
+    group: "Routine",
+    scheduled_at_utc: "2026-09-04T13:00:00.000Z",
+    due_at_utc: null,
+    recurrence: {
+      frequency: "MONTHLY", interval: 1, weekdays: [], month: null, month_day: null,
+      ordinal_weekday: { ordinal: 1, weekday: "FR" }, count: null,
+      until_date: null, time_zone: "UTC",
+    },
+  });
+  assert.equal(
+    created.task.todo_routines.recurrence_rule,
+    "FREQ=MONTHLY;INTERVAL=1;BYDAY=FR;BYSETPOS=1",
+  );
+  await assert.rejects(registry.execute("todo_update", {
+    personal_task_id: created.task.personal_task_id,
+    text: null, group: null, status: "complete",
+    scheduled_at_utc: null, due_at_utc: null,
+  }), /must remain active repeating templates/);
+});
+
 test("native todo tools preserve an explicit all-day schedule", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

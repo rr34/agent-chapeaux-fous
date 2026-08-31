@@ -523,6 +523,66 @@ test("grouped and recurring todos use the existing task tables", () => {
   }
 });
 
+test("reserved routine templates preview and publish as idempotent one-time todos", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const routineGroup = organizer.ensureRoutineGroup();
+    assert.equal(routineGroup.name, "Routine");
+    assert.equal(organizer.ensureRoutineGroup().id, routineGroup.id);
+    const template = organizer.createTodo({
+      text: "Monthly finance review",
+      groupId: routineGroup.id,
+      scheduledAtUtc: "2026-09-04T13:00:00.000Z",
+      recurrenceRule: "FREQ=MONTHLY;INTERVAL=1;BYDAY=FR;BYSETPOS=1",
+      recurrenceTimeZone: "UTC",
+    });
+    const preview = organizer.previewRoutines({
+      from: "2026-09-01T00:00:00.000Z",
+      to: "2026-10-01T00:00:00.000Z",
+    });
+    assert.equal(preview.occurrences.length, 1);
+    assert.equal(preview.occurrences[0].templateTodoId, template.id);
+    assert.equal(preview.occurrences[0].scheduledAtUtc, "2026-09-04T13:00:00.000Z");
+    const earlierRepresentativeMonth = organizer.previewRoutines({
+      from: "2026-08-01T00:00:00.000Z",
+      to: "2026-09-01T00:00:00.000Z",
+    });
+    assert.equal(earlierRepresentativeMonth.occurrences.length, 1);
+    assert.equal(earlierRepresentativeMonth.occurrences[0].scheduledAtUtc, "2026-08-07T13:00:00.000Z");
+
+    const first = organizer.publishRoutines({
+      from: "2026-09-01T00:00:00.000Z",
+      to: "2026-10-01T00:00:00.000Z",
+    });
+    assert.equal(first.createdCount, 1);
+    assert.equal(first.existingCount, 0);
+    assert.equal(first.todos[0].routineId, null);
+    assert.equal(first.todos[0].source, "routine_publish");
+    assert.equal(first.todos[0].groupName, "Inbox");
+    assert.ok(organizer.database.prepare(
+      "SELECT source_event_id FROM personal_tasks WHERE personal_task_id = ?",
+    ).get(first.todos[0].id).source_event_id);
+    const second = organizer.publishRoutines({
+      from: "2026-09-01T00:00:00.000Z",
+      to: "2026-10-01T00:00:00.000Z",
+    });
+    assert.equal(second.createdCount, 0);
+    assert.equal(second.existingCount, 1);
+    assert.equal(organizer.database.prepare(
+      "SELECT COUNT(*) AS count FROM calendar_events",
+    ).get().count, 0);
+    assert.throws(
+      () => organizer.renameTodoGroup(routineGroup.id, { name: "Habits" }),
+      /cannot be renamed/,
+    );
+    assert.throws(() => organizer.archiveTodoGroup(routineGroup.id), /cannot be archived/);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("overdue active todos move onto the requested local day as one batch", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

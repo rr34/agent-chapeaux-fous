@@ -597,6 +597,21 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/routines/ensure-group") {
+      sendJson(response, 200, { group: organizer.ensureRoutineGroup() });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/routines/preview") {
+      sendJson(response, 200, organizer.previewRoutines({
+        from: url.searchParams.get("from"),
+        to: url.searchParams.get("to"),
+      }));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/routines/publish") {
+      sendJson(response, 200, organizer.publishRoutines(await readJson(request)));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/interaction-guides") {
       sendJson(response, 200, {
         guides: interactionGuides.list({

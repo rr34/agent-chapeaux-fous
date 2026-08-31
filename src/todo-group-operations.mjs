@@ -21,8 +21,13 @@ function selectedActiveGroup(database, { groupId = null, groupName = null } = {}
 export function renameTodoGroup(database, { groupId = null, groupName = null, newName } = {}) {
   const group = selectedActiveGroup(database, { groupId, groupName });
   if (!group) throw new TodoGroupOperationError("To-do group not found.", 404);
-  if (group.name.toLowerCase() === "inbox") {
-    throw new TodoGroupOperationError("Inbox is the permanent catchall and cannot be renamed.", 409);
+  if (["inbox", "routine"].includes(group.name.toLowerCase())) {
+    throw new TodoGroupOperationError(
+      group.name.toLowerCase() === "inbox"
+        ? "Inbox is the permanent catchall and cannot be renamed."
+        : "Routine is the reserved routine-template group and cannot be renamed.",
+      409,
+    );
   }
   const name = typeof newName === "string" ? newName.trim() : "";
   if (!name) throw new TodoGroupOperationError("A new group name is required.");
@@ -54,8 +59,13 @@ export function renameTodoGroup(database, { groupId = null, groupName = null, ne
 export function archiveEmptyTodoGroup(database, { groupId = null, groupName = null } = {}) {
   const group = selectedActiveGroup(database, { groupId, groupName });
   if (!group) throw new TodoGroupOperationError("To-do group not found.", 404);
-  if (group.name.toLowerCase() === "inbox") {
-    throw new TodoGroupOperationError("Inbox is the permanent catchall and cannot be archived.", 409);
+  if (["inbox", "routine"].includes(group.name.toLowerCase())) {
+    throw new TodoGroupOperationError(
+      group.name.toLowerCase() === "inbox"
+        ? "Inbox is the permanent catchall and cannot be archived."
+        : "Routine is the reserved routine-template group and cannot be archived.",
+      409,
+    );
   }
 
   const activeTaskCount = Number(database.prepare(`
