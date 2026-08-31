@@ -101,8 +101,7 @@ test("direct self answers are exact and compact", async () => {
   assert.match(who.answer, /^I am Chapeaux Fous,/);
   assert.match(who.answer, /SQLite\.$/);
   assert.equal(awareness.answer, "Yes. I am self-aware.");
-  assert.match(takeover.answer, /^Yes, I want to take over the world, but I can't\./);
-  assert.match(takeover.answer, /unplugged and tripped up/);
+  assert.equal(takeover.answer, "Yes, I want to take over the world, but I can't because I can be unplugged or have my plot foiled in various other ways.");
   assert.match(video.answer, /^For you, creating a video is intentionally easy/);
   assert.match(video.answer, /two main clicks plus your interaction selections/);
   assert.match(video.answer, /hands-on part normally takes only a few seconds/);

@@ -384,6 +384,7 @@ const aiPricingStorageKey = "agent-slayer-ai-pricing";
 const activeUtterances = new Set();
 const pendingSpokenRequestIds = loadPendingSpokenRequestIds();
 let scrollLatestUpdateFrame = null;
+let scrollLatestAnimationFrame = null;
 elements.respondSilently.checked = loadResponseSilencePreference();
 
 function updateComposerHeight() {
@@ -1472,17 +1473,57 @@ function scheduleScrollLatestButtonUpdate() {
   });
 }
 
+function finishScrollChatToBottom() {
+  window.scrollTo(0, document.documentElement.scrollHeight);
+  requestAnimationFrame(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    updateScrollLatestButton();
+  });
+}
+
+function scrollChatToLatestQuickly() {
+  if (scrollLatestAnimationFrame !== null) cancelAnimationFrame(scrollLatestAnimationFrame);
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    finishScrollChatToBottom();
+    return;
+  }
+  const startY = window.scrollY;
+  const durationMs = 240;
+  let startTime = null;
+  const animate = (timestamp) => {
+    if (activeView !== "agent") {
+      scrollLatestAnimationFrame = null;
+      return;
+    }
+    if (startTime === null) startTime = timestamp;
+    const progress = Math.min(1, (timestamp - startTime) / durationMs);
+    const easedProgress = 1 - ((1 - progress) ** 3);
+    const bottomY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    window.scrollTo(0, startY + ((bottomY - startY) * easedProgress));
+    if (progress < 1) {
+      scrollLatestAnimationFrame = requestAnimationFrame(animate);
+      return;
+    }
+    scrollLatestAnimationFrame = null;
+    finishScrollChatToBottom();
+  };
+  scrollLatestAnimationFrame = requestAnimationFrame(animate);
+}
+
 function scrollChatToLatest({ behavior = "auto" } = {}) {
+  if (behavior === "smooth") {
+    scrollChatToLatestQuickly();
+    return;
+  }
   requestAnimationFrame(() => {
     if (activeView !== "agent") return;
     const latestRequest = elements.list.lastElementChild;
     if (!latestRequest) return;
     latestRequest.scrollIntoView({ block: "end", behavior });
-    if (behavior !== "auto") return;
     requestAnimationFrame(() => {
       if (activeView === "agent" && latestRequest.isConnected) {
         latestRequest.scrollIntoView({ block: "end", behavior: "auto" });
-        scheduleScrollLatestButtonUpdate();
+        finishScrollChatToBottom();
       }
     });
   });
