@@ -908,7 +908,7 @@
       <label>Entry<textarea id="log-content" rows="4" required maxlength="10000" placeholder="Keep this complete and understandable on its own."></textarea></label>
       <div class="editor-grid">
         <label>Number <span class="field-hint">optional</span><input id="log-number" type="number" step="any"></label>
-        <label>Unit <span class="field-hint">requires a number</span><input id="log-unit" maxlength="100"></label>
+        <label>Tracker unit <span class="field-hint">used for every numeric entry</span><input id="log-tracker-unit" maxlength="100" required></label>
         <label>Occurred<input id="log-occurred" type="datetime-local" lang="en-GB" step="60" required></label>
       </div>
       <p id="log-form-error" class="form-error" role="alert"></p>

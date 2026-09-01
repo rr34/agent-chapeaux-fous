@@ -28,7 +28,7 @@ test("log_add exposes one complete content field and no boolean or mandatory val
     "group",
     "content_text",
     "number_value",
-    "unit",
+    "tracker_unit",
     "occurred_at_utc",
     "create_if_missing",
   ]);
@@ -45,7 +45,6 @@ test("log_update exposes exact-ID partial corrections without tracker or provena
     "content_text",
     "number_value",
     "clear_number_value",
-    "unit",
     "occurred_at_utc",
   ]);
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "tracker_id"), false);
@@ -61,7 +60,7 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
     group: "Health",
     content_text: "72.1 kg after dinner",
     number_value: 72.1,
-    unit: "kg",
+    tracker_unit: "kg",
     occurred_at_utc: "2026-08-15T20:30:00-04:00",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-first" });
@@ -69,10 +68,11 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
   assert.equal(first.tracker_created, true);
   assert.equal(first.group_resolution.group_created, true);
   assert.equal(first.tracker.log_groups.name, "Health");
-  assert.equal(first.tracker.default_unit, "kg");
+  assert.equal(first.tracker.unit, "kg");
   assert.equal(first.entry.content_text, "72.1 kg after dinner");
   assert.equal(first.entry.number_value, 72.1);
-  assert.equal(first.entry.unit, "kg");
+  assert.equal(Object.hasOwn(first.entry, "unit"), false);
+  assert.equal(first.entry.trackers.unit, "kg");
   assert.equal(first.entry.source, "agent-slayer");
   assert.equal(first.entry.external_id, null);
   assert.equal(first.entry.occurred_at_utc, "2026-08-16T00:30:00.000Z");
@@ -82,7 +82,7 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
     group: null,
     content_text: "71.8 kg before breakfast",
     number_value: 71.8,
-    unit: null,
+    tracker_unit: null,
     occurred_at_utc: "2026-08-16T08:00:00Z",
     create_if_missing: false,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-second" });
@@ -90,7 +90,7 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
   assert.equal(second.tracker_created, false);
   assert.equal(second.entry.tracker_id, first.entry.tracker_id);
   assert.equal(second.entry.log_groups.name, "Health");
-  assert.equal(second.entry.unit, "kg");
+  assert.equal(second.entry.trackers.unit, "kg");
   assert.equal(
     store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_groups").get().count,
     1,
@@ -131,14 +131,14 @@ test("log_add records text-only events without a boolean or value kind", async (
     group: "Health",
     content_text: "Normal bowel movement, Bristol type 4",
     number_value: 4,
-    unit: null,
+    tracker_unit: "Bristol type",
     occurred_at_utc: null,
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-event" });
 
   assert.equal(result.entry.content_text, "Normal bowel movement, Bristol type 4");
   assert.equal(result.entry.number_value, 4);
-  assert.equal(result.entry.unit, null);
+  assert.equal(result.entry.trackers.unit, "Bristol type");
   assert.ok(result.entry.occurred_at_utc);
 
   const medication = await registry.execute("log_add", {
@@ -146,21 +146,21 @@ test("log_add records text-only events without a boolean or value kind", async (
     group: "Health",
     content_text: "Took morning medication",
     number_value: null,
-    unit: null,
+    tracker_unit: "dose",
     occurred_at_utc: null,
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-medication" });
   assert.equal(medication.entry.number_value, null);
 });
 
-test("log_update corrects one historical entry while preserving its identity and provenance", async (context) => {
-  const { store, ledger, request, registry } = loggingHarness(context, "Correct my old pain units");
+test("log_update corrects one historical entry without owning its tracker's unit", async (context) => {
+  const { store, ledger, request, registry } = loggingHarness(context, "Correct my old pain entry");
   const oldEntry = await registry.execute("log_add", {
     tracker: "Left arm pain",
     group: "Biometrics",
     content_text: "Left arm pain value: 8. It was as bad as it has ever been.",
     number_value: 8,
-    unit: null,
+    tracker_unit: "out of 10",
     occurred_at_utc: "2026-08-16T04:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "pain-old" });
@@ -169,25 +169,24 @@ test("log_update corrects one historical entry while preserving its identity and
     group: null,
     content_text: "Left arm pain is 4 out of 10.",
     number_value: 4,
-    unit: "out of 10",
+    tracker_unit: null,
     occurred_at_utc: "2026-08-20T04:54:00Z",
     create_if_missing: false,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "pain-new" });
 
   const corrected = await registry.execute("log_update", {
     log_entry_id: oldEntry.entry.log_entry_id,
-    content_text: null,
+    content_text: "Left arm pain was 8 out of 10.",
     number_value: null,
     clear_number_value: false,
-    unit: "out of 10",
     occurred_at_utc: null,
   }, { requestId: request.requestId, callId: "pain-correct" });
 
-  assert.equal(corrected.before.unit, null);
   assert.equal(corrected.entry.log_entry_id, oldEntry.entry.log_entry_id);
-  assert.equal(corrected.entry.content_text, oldEntry.entry.content_text);
+  assert.equal(corrected.entry.content_text, "Left arm pain was 8 out of 10.");
   assert.equal(corrected.entry.number_value, 8);
-  assert.equal(corrected.entry.unit, "out of 10");
+  assert.equal(corrected.entry.trackers.unit, "out of 10");
+  assert.equal(Object.hasOwn(corrected.entry, "unit"), false);
   assert.equal(corrected.entry.occurred_at_utc, oldEntry.entry.occurred_at_utc);
   assert.equal(corrected.entry.source, oldEntry.entry.source);
   assert.equal(corrected.entry.source_event_id, oldEntry.entry.source_event_id);
@@ -199,40 +198,25 @@ test("log_update corrects one historical entry while preserving its identity and
   );
 });
 
-test("log_update enforces numeric-unit consistency and can clear both projections", async (context) => {
-  const { store, request, registry } = loggingHarness(context, "Correct a log entry");
+test("tracker units are canonical and log_update clears only the numeric projection", async (context) => {
+  const { request, registry } = loggingHarness(context, "Correct a log entry");
   const textEntry = await registry.execute("log_add", {
     tracker: "Medication",
     group: "Biometrics",
     content_text: "Took morning medication.",
     number_value: null,
-    unit: null,
+    tracker_unit: "dose",
     occurred_at_utc: "2026-08-16T12:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "text-entry" });
-  await assert.rejects(
-    registry.execute("log_update", {
-      log_entry_id: textEntry.entry.log_entry_id,
-      content_text: null,
-      number_value: null,
-      clear_number_value: false,
-      unit: "points",
-      occurred_at_utc: null,
-    }, { requestId: request.requestId, callId: "invalid-unit" }),
-    /unit requires a numeric value/,
-  );
-  assert.equal(
-    store.requireReady().prepare("SELECT unit FROM log_entries WHERE log_entry_id = ?")
-      .get(textEntry.entry.log_entry_id).unit,
-    null,
-  );
+  assert.equal(Object.hasOwn(textEntry.entry, "unit"), false);
 
   const numericEntry = await registry.execute("log_add", {
     tracker: "Pain",
     group: "Biometrics",
     content_text: "Pain was present.",
     number_value: 3,
-    unit: "out of 10",
+    tracker_unit: "out of 10",
     occurred_at_utc: "2026-08-17T12:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "numeric-entry" });
@@ -241,21 +225,24 @@ test("log_update enforces numeric-unit consistency and can clear both projection
     content_text: null,
     number_value: null,
     clear_number_value: true,
-    unit: null,
     occurred_at_utc: null,
   }, { requestId: request.requestId, callId: "clear-number" });
   assert.equal(cleared.entry.number_value, null);
-  assert.equal(cleared.entry.unit, null);
+  assert.equal(cleared.entry.trackers.unit, "out of 10");
+  await assert.rejects(registry.execute("log_add", {
+    tracker: "Pain", group: null, content_text: "Pain was 4.", number_value: 4,
+    tracker_unit: "percent", occurred_at_utc: null, create_if_missing: false,
+  }, { requestId: request.requestId, callId: "mismatched-unit" }), /uses out of 10/);
 });
 
-test("tracker_update moves, renames, clears units, and archives a tracker", async (context) => {
+test("tracker_update preserves canonical units after numeric history", async (context) => {
   const { request, registry } = loggingHarness(context);
   const created = await registry.execute("log_add", {
     tracker: "Weight",
     group: "Health",
     content_text: "72.1 kg",
     number_value: 72.1,
-    unit: "kg",
+    tracker_unit: "kg",
     occurred_at_utc: null,
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-create" });
@@ -264,13 +251,13 @@ test("tracker_update moves, renames, clears units, and archives a tracker", asyn
     tracker_id: created.tracker.tracker_id,
     name: "Body weight",
     group: "Fitness",
-    default_unit: "",
+    unit: null,
     archived: true,
   }, { requestId: request.requestId, callId: "tracker-update" });
 
   assert.equal(updated.tracker.name, "Body weight");
   assert.equal(updated.tracker.log_groups.name, "Fitness");
-  assert.equal(updated.tracker.default_unit, null);
+  assert.equal(updated.tracker.unit, "kg");
   assert.ok(updated.tracker.archived_at_utc);
   const active = await registry.execute("tracker_list", {
     group: null,
@@ -284,9 +271,16 @@ test("tracker_update moves, renames, clears units, and archives a tracker", asyn
     limit: 20,
   });
   assert.equal(all.count, 1);
+  await assert.rejects(registry.execute("tracker_update", {
+    tracker_id: created.tracker.tracker_id,
+    name: null,
+    group: null,
+    unit: "pounds",
+    archived: null,
+  }, { requestId: request.requestId, callId: "change-unit" }), /cannot change after numeric entries/);
 });
 
-test("a unit without a number is rejected before creating log records", async (context) => {
+test("every new tracker requires a canonical unit, including text-only trackers", async (context) => {
   const { store, request, registry } = loggingHarness(context);
   await assert.rejects(
     registry.execute("log_add", {
@@ -294,14 +288,19 @@ test("a unit without a number is rejected before creating log records", async (c
       group: "Health",
       content_text: "Calm",
       number_value: null,
-      unit: "points",
+      tracker_unit: null,
       occurred_at_utc: null,
       create_if_missing: true,
     }, { requestId: request.requestId, requestEventId: request.eventId, callId: "bad-log" }),
-    /unit requires a numeric value/,
+    /require a canonical unit/,
   );
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM trackers").get().count, 0);
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 0);
+  const created = await registry.execute("log_add", {
+    tracker: "Mood", group: "Health", content_text: "Calm", number_value: null,
+    tracker_unit: "out of 10", occurred_at_utc: null, create_if_missing: true,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "text-unit" });
+  assert.equal(created.tracker.unit, "out of 10");
 });
 
 test("log_add reuses an established tracker through a synonymous name", async (context) => {
@@ -311,7 +310,7 @@ test("log_add reuses an established tracker through a synonymous name", async (c
     group: "Health",
     content_text: "Poop.",
     number_value: null,
-    unit: null,
+    tracker_unit: "occurrence",
     occurred_at_utc: "2026-08-17T12:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-first" });
@@ -320,7 +319,7 @@ test("log_add reuses an established tracker through a synonymous name", async (c
     group: "Health",
     content_text: "Another poop.",
     number_value: null,
-    unit: null,
+    tracker_unit: null,
     occurred_at_utc: "2026-08-18T12:00:00Z",
     create_if_missing: false,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-second" });
@@ -330,7 +329,7 @@ test("log_add reuses an established tracker through a synonymous name", async (c
     group: "Health",
     content_text: "Poop.",
     number_value: null,
-    unit: null,
+    tracker_unit: null,
     occurred_at_utc: "2026-08-19T12:00:00Z",
     create_if_missing: false,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-alias" });
@@ -352,7 +351,7 @@ test("log_add proposes a missing tracker without writing until creation is confi
     group: "Health",
     content_text: "Calm.",
     number_value: null,
-    unit: null,
+    tracker_unit: null,
     occurred_at_utc: "2026-08-18T12:00:00Z",
     create_if_missing: false,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "mood-propose" });
@@ -369,7 +368,7 @@ test("log_add proposes a missing tracker without writing until creation is confi
     group: "Health",
     content_text: "Calm.",
     number_value: null,
-    unit: null,
+    tracker_unit: "out of 10",
     occurred_at_utc: "2026-08-18T12:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "mood-confirm" });
@@ -384,7 +383,7 @@ test("log context includes authoritative active tracker names", async (context) 
     group: "Health",
     content_text: "Poop.",
     number_value: null,
-    unit: null,
+    tracker_unit: "out of 10",
     occurred_at_utc: "2026-08-18T12:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-context" });
@@ -415,7 +414,7 @@ test("log_import is source-agnostic, idempotent, and reports conflicting replays
         group: "Health",
         content_text: "72.4 kg in the morning",
         number_value: 72.4,
-        unit: "kg",
+        tracker_unit: "kg",
         occurred_at_utc: "2026-08-14T08:00:00-04:00",
       },
       {
@@ -424,7 +423,7 @@ test("log_import is source-agnostic, idempotent, and reports conflicting replays
         group: "Health",
         content_text: "Oatmeal with blueberries",
         number_value: null,
-        unit: null,
+        tracker_unit: "serving",
         occurred_at_utc: "2026-08-14T08:30:00-04:00",
       },
     ],
@@ -502,7 +501,7 @@ test("log_import rejects duplicate IDs within a batch and missing occurrence tim
     group: "Health",
     content_text: "Calm",
     number_value: null,
-    unit: null,
+    tracker_unit: "occurrence",
     occurred_at_utc: "2026-08-14T12:00:00Z",
   };
   await assert.rejects(

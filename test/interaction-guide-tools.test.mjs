@@ -165,6 +165,75 @@ test("the page deletes one exact exchange with version protection and a literal 
   }), /does not exist/);
 });
 
+test("the page atomically reorders every exchange and records one literal receipt", (context) => {
+  const { store, guides } = harness(context);
+  const created = guides.create({ name: "Sortable briefing" });
+  const first = guides.addStep({
+    guideId: created.guide.id, expectedVersion: created.guide.version, stepNumber: 2,
+    openingText: "First opening", completionMode: "response_valid", enabled: true,
+  });
+  const second = guides.addStep({
+    guideId: created.guide.id, expectedVersion: first.guide.version, stepNumber: 5,
+    openingText: "Second opening", completionMode: "response_valid", enabled: true,
+  });
+  const third = guides.addStep({
+    guideId: created.guide.id, expectedVersion: second.guide.version, stepNumber: 9,
+    openingText: "Third opening", completionMode: "response_valid", enabled: false,
+  });
+
+  const result = guides.reorderSteps({
+    guideId: created.guide.id,
+    expectedVersion: third.guide.version,
+    orderedStepIds: [third.step.id, first.step.id, second.step.id],
+  }, { actorType: "user", actorName: "structured_interactions_page" });
+
+  assert.equal(result.reordered, true);
+  assert.equal(result.guide.version, 5);
+  assert.deepEqual(
+    result.steps.map(({ id, stepNumber, openingText, enabled }) => ({
+      id, stepNumber, openingText, enabled,
+    })),
+    [
+      { id: third.step.id, stepNumber: 1, openingText: "Third opening", enabled: false },
+      { id: first.step.id, stepNumber: 2, openingText: "First opening", enabled: true },
+      { id: second.step.id, stepNumber: 3, openingText: "Second opening", enabled: true },
+    ],
+  );
+  const event = store.requireReady().prepare(`
+    SELECT event_type, actor_type, actor_name, payload_json
+    FROM activity_events
+    WHERE event_type = 'interaction_guide.steps_reordered'
+    ORDER BY event_seq DESC LIMIT 1
+  `).get();
+  assert.deepEqual({
+    eventType: event.event_type,
+    actorType: event.actor_type,
+    actorName: event.actor_name,
+  }, {
+    eventType: "interaction_guide.steps_reordered",
+    actorType: "user",
+    actorName: "structured_interactions_page",
+  });
+  assert.deepEqual(
+    JSON.parse(event.payload_json).afterOrder,
+    [
+      { stepId: third.step.id, stepNumber: 1 },
+      { stepId: first.step.id, stepNumber: 2 },
+      { stepId: second.step.id, stepNumber: 3 },
+    ],
+  );
+  assert.throws(() => guides.reorderSteps({
+    guideId: created.guide.id,
+    expectedVersion: result.guide.version,
+    orderedStepIds: [third.step.id, first.step.id],
+  }), /every exchange/);
+  assert.throws(() => guides.reorderSteps({
+    guideId: created.guide.id,
+    expectedVersion: third.guide.version,
+    orderedStepIds: [third.step.id, first.step.id, second.step.id],
+  }), /changed after it was read/);
+});
+
 test("unspecified briefing additions reuse the generic Exchange Inbox and append atomically", async (context) => {
   const { registry } = harness(context);
   const exchange = (opening_text) => ({

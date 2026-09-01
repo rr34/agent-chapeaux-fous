@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 24, 'Agent Slayer test database');
+    VALUES (1, 25, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -365,8 +365,8 @@ export function temporaryDatabase() {
       log_group_id INTEGER NOT NULL REFERENCES log_groups(log_group_id) ON DELETE RESTRICT,
       name TEXT NOT NULL COLLATE NOCASE UNIQUE
         CHECK (length(trim(name)) BETWEEN 1 AND 200),
-      default_unit TEXT
-        CHECK (default_unit IS NULL OR length(trim(default_unit)) BETWEEN 1 AND 100),
+      unit TEXT NOT NULL
+        CHECK (length(trim(unit)) BETWEEN 1 AND 100),
       archived_at_utc TEXT,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT
@@ -379,21 +379,62 @@ export function temporaryDatabase() {
       occurred_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       content_text TEXT NOT NULL CHECK (length(trim(content_text)) BETWEEN 1 AND 10000),
       number_value REAL,
-      unit TEXT CHECK (unit IS NULL OR length(trim(unit)) BETWEEN 1 AND 100),
       source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT,
       source TEXT NOT NULL DEFAULT 'agent-slayer'
         CHECK (length(trim(source)) BETWEEN 1 AND 200),
       external_id TEXT
-        CHECK (external_id IS NULL OR length(trim(external_id)) BETWEEN 1 AND 1000),
-      CHECK (unit IS NULL OR number_value IS NOT NULL)
+        CHECK (external_id IS NULL OR length(trim(external_id)) BETWEEN 1 AND 1000)
     ) STRICT;
     CREATE INDEX log_entries_tracker_occurred
       ON log_entries(tracker_id, occurred_at_utc DESC, log_entry_id DESC);
     CREATE UNIQUE INDEX log_entries_source_external
       ON log_entries(source, external_id)
       WHERE external_id IS NOT NULL;
+    CREATE TRIGGER trackers_require_unit_before_insert
+    BEFORE INSERT ON trackers
+    WHEN NEW.unit IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'trackers require a canonical unit');
+    END;
+    CREATE TRIGGER trackers_require_unit_before_update
+    BEFORE UPDATE OF unit ON trackers
+    WHEN NEW.unit IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'trackers require a canonical unit');
+    END;
+    CREATE TRIGGER log_entries_require_tracker_unit_before_insert
+    BEFORE INSERT ON log_entries
+    WHEN NEW.number_value IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM trackers
+       WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL
+     )
+    BEGIN
+      SELECT RAISE(ABORT, 'numeric log entries require a tracker unit');
+    END;
+    CREATE TRIGGER log_entries_require_tracker_unit_before_update
+    BEFORE UPDATE OF tracker_id, number_value ON log_entries
+    WHEN NEW.number_value IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM trackers
+       WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL
+     )
+    BEGIN
+      SELECT RAISE(ABORT, 'numeric log entries require a tracker unit');
+    END;
+    CREATE TRIGGER trackers_preserve_numeric_unit_before_update
+    BEFORE UPDATE OF unit ON trackers
+    WHEN OLD.unit IS NOT NEW.unit
+     AND OLD.unit <> 'set me' COLLATE NOCASE
+     AND EXISTS (
+       SELECT 1 FROM log_entries
+       WHERE tracker_id = OLD.tracker_id AND number_value IS NOT NULL
+     )
+    BEGIN
+      SELECT RAISE(ABORT, 'a tracker unit cannot change after numeric entries exist');
+    END;
     CREATE TABLE profile_facts (
       profile_fact_id INTEGER PRIMARY KEY,
       fact_type TEXT NOT NULL CHECK (length(trim(fact_type)) BETWEEN 1 AND 200),

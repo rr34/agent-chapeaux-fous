@@ -45,7 +45,7 @@ export const nativeCapabilityManifests = [
     aliases: ["log", "tracker", "weight", "mood", "symptom", "workout", "sleep"],
     instructionFile: "logs.md",
     attachmentHints: [
-      { extensions: [".csv"], mimeIncludes: ["csv"], headerTerms: ["tracker", "occurred_at", "number_value", "content_text", "unit"] },
+      { extensions: [".csv"], mimeIncludes: ["csv"], headerTerms: ["tracker", "occurred_at", "number_value", "content_text", "unit", "tracker_unit"] },
     ],
     readOnlyTools: ["log_list", "tracker_list"],
   },

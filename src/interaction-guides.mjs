@@ -313,6 +313,94 @@ export class InteractionGuides {
     }
   }
 
+  reorderSteps({ guideId, expectedVersion, orderedStepIds }, context = {}) {
+    const selectedGuideId = identifier(guideId);
+    if (!Array.isArray(orderedStepIds) || orderedStepIds.length === 0) {
+      throw new Error("Ordered briefing exchange IDs must be a nonempty array");
+    }
+    const selectedStepIds = orderedStepIds.map((stepId) => identifier(
+      stepId,
+      "Briefing exchange ID",
+    ));
+    if (new Set(selectedStepIds).size !== selectedStepIds.length) {
+      throw new Error("Ordered briefing exchange IDs cannot contain duplicates");
+    }
+
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const guideBefore = this.#guideForDefinitionEdit(
+        database, selectedGuideId, expectedVersion,
+      );
+      const rowsBefore = this.#steps(database, selectedGuideId);
+      const existingIds = new Set(rowsBefore.map((row) => Number(row.interaction_guide_step_id)));
+      if (
+        selectedStepIds.length !== rowsBefore.length
+        || selectedStepIds.some((stepId) => !existingIds.has(stepId))
+      ) {
+        throw new Error("Ordered briefing exchange IDs must contain every exchange in this briefing exactly once");
+      }
+      const beforeOrder = rowsBefore.map((row) => Number(row.interaction_guide_step_id));
+      if (beforeOrder.every((stepId, index) => stepId === selectedStepIds[index])) {
+        database.exec("COMMIT");
+        return {
+          reordered: false,
+          guide: publicGuide(guideBefore),
+          steps: rowsBefore.map(publicStep),
+        };
+      }
+
+      const maximumStepNumber = Math.max(...rowsBefore.map((row) => Number(row.step_number)));
+      if (!Number.isSafeInteger(maximumStepNumber + rowsBefore.length)) {
+        throw new Error("Briefing exchange numbers are too large to reorder safely");
+      }
+      const moveTemporarily = database.prepare(`
+        UPDATE interaction_guide_steps
+        SET step_number = ?,
+            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE interaction_guide_step_id = ? AND interaction_guide_id = ?
+      `);
+      selectedStepIds.forEach((stepId, index) => {
+        moveTemporarily.run(maximumStepNumber + index + 1, stepId, selectedGuideId);
+      });
+      const assignFinalNumber = database.prepare(`
+        UPDATE interaction_guide_steps
+        SET step_number = ?,
+            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE interaction_guide_step_id = ? AND interaction_guide_id = ?
+      `);
+      selectedStepIds.forEach((stepId, index) => {
+        assignFinalNumber.run(index + 1, stepId, selectedGuideId);
+      });
+
+      const guide = publicGuide(this.#bumpGuideVersion(
+        database, selectedGuideId, expectedVersion,
+      ));
+      const rowsAfter = this.#steps(database, selectedGuideId);
+      const steps = rowsAfter.map(publicStep);
+      this.ledger.append({
+        type: "interaction_guide.steps_reordered", status: "complete",
+        ...ledgerActor(context, "interaction_guide_steps_reorder"), turnId: context.requestId,
+        operationId: context.callId, name: "Briefing exchanges reordered",
+        content: `${guide.name}: ${steps.length} exchanges reordered`,
+        payload: {
+          guide,
+          beforeOrder: rowsBefore.map((row) => ({
+            stepId: Number(row.interaction_guide_step_id),
+            stepNumber: Number(row.step_number),
+          })),
+          afterOrder: steps.map((step) => ({ stepId: step.id, stepNumber: step.stepNumber })),
+        },
+        subjectType: "interaction_guide", subjectId: String(guide.id),
+      });
+      database.exec("COMMIT");
+      return { reordered: true, guide, steps };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   updateStep({
     stepId, expectedVersion, stepNumber, openingText,
     instructionsText, completionMode, enabled,

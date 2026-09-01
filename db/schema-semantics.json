@@ -8,8 +8,8 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 24,
-    "schemaFingerprint": "288d2e76e0ae7d853431cd36f721237b9306cda421e094554b96c579cfa0b9da",
+    "schemaVersion": 25,
+    "schemaFingerprint": "64d25d13a261aad552933f0b6c921d94312a9fcfb90d6fef9561ff353804af58",
     "extractedAt": "2026-08-31T15:10:31.650Z"
   },
   "instructions": {
@@ -9977,7 +9977,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE log_entries (\n    log_entry_id    INTEGER PRIMARY KEY,\n    tracker_id      INTEGER NOT NULL\n                    REFERENCES trackers(tracker_id) ON DELETE RESTRICT,\n    occurred_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    content_text    TEXT NOT NULL\n                    CHECK (length(trim(content_text)) BETWEEN 1 AND 10000),\n    number_value    REAL,\n    unit            TEXT\n                    CHECK (unit IS NULL OR length(trim(unit)) BETWEEN 1 AND 100),\n    source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT, source TEXT NOT NULL DEFAULT 'agent-slayer'\n                  CHECK (length(trim(source)) BETWEEN 1 AND 200), external_id TEXT\n                       CHECK (external_id IS NULL OR length(trim(external_id)) BETWEEN 1 AND 1000),\n    CHECK (unit IS NULL OR number_value IS NOT NULL)\n) STRICT",
+        "definition": "CREATE TABLE log_entries (\n    log_entry_id    INTEGER PRIMARY KEY,\n    tracker_id      INTEGER NOT NULL\n                    REFERENCES trackers(tracker_id) ON DELETE RESTRICT,\n    occurred_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    content_text    TEXT NOT NULL\n                    CHECK (length(trim(content_text)) BETWEEN 1 AND 10000),\n    number_value    REAL,\n    source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT,\n    source          TEXT NOT NULL DEFAULT 'agent-slayer'\n                    CHECK (length(trim(source)) BETWEEN 1 AND 200),\n    external_id     TEXT\n                    CHECK (external_id IS NULL OR length(trim(external_id)) BETWEEN 1 AND 1000)\n) STRICT",
         "indexes": [
           {
             "name": "log_entries_source_external",
@@ -10004,7 +10004,7 @@
       },
       "semantics": {
         "purpose": "Stores the user's authoritative time-stamped personal observations under reusable trackers.",
-        "rowMeaning": "One row represents one complete personal observation, with optional numeric and unit projections for querying.",
+        "rowMeaning": "One row represents one complete personal observation with an optional numeric projection in its tracker's canonical unit.",
         "sourceOfTruth": true,
         "derivedFrom": [],
         "synonyms": [
@@ -10025,9 +10025,9 @@
         ],
         "routingWeight": 1,
         "importantRules": [
-          "content_text is the complete human-readable observation; number_value and unit are optional query projections rather than replacements for it.",
+          "content_text is the complete human-readable observation; number_value is an optional trend projection rather than a replacement for it.",
           "occurred_at_utc records when the observed event happened, while created_at_utc records when the row was saved.",
-          "A unit is valid only when number_value is present.",
+          "The parent tracker owns the single canonical unit for every number_value in its series; entries never duplicate a unit.",
           "For imported rows, the source and non-null external_id pair is a stable idempotency key and must never identify two different observations."
         ],
         "sensitivity": "Contains private personal observations that may include health, nutrition, habits, symptoms, and daily activities."
@@ -10171,37 +10171,7 @@
             "examples": [],
             "importantRules": [
               "Null is valid for observations without a useful numeric component.",
-              "Interpret this value together with unit and the tracker definition."
-            ],
-            "sensitivity": null
-          }
-        },
-        "unit": {
-          "mechanics": {
-            "present": true,
-            "name": "unit",
-            "ordinal": 5,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Unit applying to number_value for this exact historical entry.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [
-              "This snapshot remains authoritative if the tracker's default unit later changes.",
-              "Must be null when number_value is null."
+              "Interpret this value using the parent tracker's canonical unit."
             ],
             "sensitivity": null
           }
@@ -10210,7 +10180,7 @@
           "mechanics": {
             "present": true,
             "name": "source_event_id",
-            "ordinal": 6,
+            "ordinal": 5,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -10237,7 +10207,7 @@
           "mechanics": {
             "present": true,
             "name": "created_at_utc",
-            "ordinal": 7,
+            "ordinal": 6,
             "type": "TEXT",
             "nullable": false,
             "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
@@ -10264,7 +10234,7 @@
           "mechanics": {
             "present": true,
             "name": "updated_at_utc",
-            "ordinal": 8,
+            "ordinal": 7,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -10291,7 +10261,7 @@
           "mechanics": {
             "present": true,
             "name": "source",
-            "ordinal": 9,
+            "ordinal": 8,
             "type": "TEXT",
             "nullable": false,
             "default": "'agent-slayer'",
@@ -10320,7 +10290,7 @@
           "mechanics": {
             "present": true,
             "name": "external_id",
-            "ordinal": 10,
+            "ordinal": 9,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -15786,7 +15756,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE trackers (\n    tracker_id      INTEGER PRIMARY KEY,\n    log_group_id    INTEGER NOT NULL\n                    REFERENCES log_groups(log_group_id) ON DELETE RESTRICT,\n    name            TEXT NOT NULL COLLATE NOCASE UNIQUE\n                    CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    default_unit    TEXT\n                    CHECK (default_unit IS NULL OR length(trim(default_unit)) BETWEEN 1 AND 100),\n    archived_at_utc TEXT,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT\n) STRICT",
+        "definition": "CREATE TABLE trackers (\n    tracker_id      INTEGER PRIMARY KEY,\n    log_group_id    INTEGER NOT NULL\n                    REFERENCES log_groups(log_group_id) ON DELETE RESTRICT,\n    name            TEXT NOT NULL COLLATE NOCASE UNIQUE\n                    CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    unit            TEXT NOT NULL\n                    CHECK (length(trim(unit)) BETWEEN 1 AND 100),\n    archived_at_utc TEXT,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT\n) STRICT",
         "indexes": [
           {
             "name": "sqlite_autoindex_trackers_1",
@@ -15830,8 +15800,9 @@
         "routingWeight": 0.9,
         "importantRules": [
           "Tracker names are globally unique without regard to letter case so a natural-language log request has one unambiguous target.",
-          "A tracker organizes repeated observations but does not impose a mandatory value type.",
-          "default_unit is a convenience for future numeric entries and does not reinterpret historical entry units."
+          "Every tracker has one canonical unit shared by its complete numeric series.",
+          "The migration marker set me must be replaced before another entry is recorded.",
+          "A canonical unit cannot be changed after numeric entries exist, except when replacing the set me migration marker."
         ],
         "sensitivity": "Tracker names may reveal private health conditions, habits, medications, or other personal interests."
       },
@@ -15919,13 +15890,13 @@
             "sensitivity": "May name a private health condition, habit, medication, or activity."
           }
         },
-        "default_unit": {
+        "unit": {
           "mechanics": {
             "present": true,
-            "name": "default_unit",
+            "name": "unit",
             "ordinal": 3,
             "type": "TEXT",
-            "nullable": true,
+            "nullable": false,
             "default": null,
             "primaryKeyPosition": 0,
             "generated": false,
@@ -15934,7 +15905,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Optional unit automatically applied when a new numeric entry omits its unit.",
+            "meaning": "Canonical unit shared by every numeric entry in this tracker's trend series.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -15943,7 +15914,9 @@
             "routingWeight": null,
             "examples": [],
             "importantRules": [
-              "Changing this default does not alter the explicit unit stored on an existing entry."
+              "Required for every tracker; event-style trackers use an explicit count such as occurrence or dose.",
+              "The set me value is a migration review marker, not a real measurement unit.",
+              "After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me."
             ],
             "sensitivity": null
           }

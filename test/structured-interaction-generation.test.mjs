@@ -77,7 +77,7 @@ test("repeatable exchange generation preserves exact named slots and completed d
         type: "tool.call", phase: "start", operationId: "weight-call", name: "log_add",
         payload: { arguments: {
           tracker: "Weight", group: "Health", content_text: "Weight: 180 pounds",
-          number_value: 180, unit: "pounds", occurred_at_utc: null, create_if_missing: false,
+          number_value: 180, tracker_unit: null, occurred_at_utc: null, create_if_missing: false,
         } },
       },
       {
@@ -88,7 +88,7 @@ test("repeatable exchange generation preserves exact named slots and completed d
         type: "tool.call", phase: "start", operationId: "push-up-call", name: "log_add",
         payload: { arguments: {
           tracker: "Push-ups", group: "Exercise", content_text: "Push-ups: 40 reps",
-          number_value: 40, unit: "reps", occurred_at_utc: null, create_if_missing: false,
+          number_value: 40, tracker_unit: null, occurred_at_utc: null, create_if_missing: false,
         } },
       },
       {

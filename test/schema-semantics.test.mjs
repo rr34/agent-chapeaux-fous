@@ -107,7 +107,7 @@ test("structured database reads return an exact schema-semantic projection", asy
 
   const logResult = await registry.execute("database_read", {
     objectName: "log_entries",
-    columns: ["content_text", "number_value", "unit", "source", "external_id"],
+    columns: ["content_text", "number_value", "source", "external_id"],
     where: {},
     orderBy: "occurred_at_utc",
     orderDirection: "desc",
@@ -195,6 +195,8 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.routine_add, "recurrence"), true);
   assert.equal(Object.hasOwn(definitions.routine_add, "group"), false);
   assert.equal(Object.hasOwn(definitions.log_add, "content_text"), true);
+  assert.equal(Object.hasOwn(definitions.log_add, "tracker_unit"), true);
+  assert.equal(Object.hasOwn(definitions.log_add, "unit"), false);
   assert.equal(Object.hasOwn(definitions.log_add, "content"), false);
   assert.equal(Object.hasOwn(definitions.log_update, "log_entry_id"), true);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "fact_type"), true);
@@ -234,13 +236,17 @@ test("native database-backed tools return stored field names with semantic proje
 
   const logged = await registry.execute("log_add", {
     tracker: "Weight", group: "Health", content_text: "72.1 kg", number_value: 72.1,
-    unit: "kg", occurred_at_utc: "2026-08-16T12:00:00Z", create_if_missing: true,
+    tracker_unit: "kg", occurred_at_utc: "2026-08-16T12:00:00Z", create_if_missing: true,
   }, toolContext);
   assert.equal(logged.entry.content_text, "72.1 kg");
   assert.equal(Object.hasOwn(logged.entry, "content"), false);
   assert.match(
     logged.schemaProjection.schemaProjection.schemaObjects.log_entries.fields.content_text.meaning,
     /Complete self-contained natural-language content/,
+  );
+  assert.match(
+    logged.schemaProjection.schemaProjection.schemaObjects.trackers.fields.unit.meaning,
+    /Canonical unit shared by every numeric entry/,
   );
 
   const fact = await registry.execute("profile_fact_set", {

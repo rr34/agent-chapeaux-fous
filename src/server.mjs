@@ -676,6 +676,14 @@ const server = http.createServer(async (request, response) => {
       ));
       return;
     }
+    const interactionGuideStepOrderMatch = /^\/api\/interaction-guides\/(\d+)\/steps\/order$/.exec(url.pathname);
+    if (request.method === "PATCH" && interactionGuideStepOrderMatch) {
+      sendJson(response, 200, interactionGuides.reorderSteps(
+        { ...await readJson(request), guideId: Number(interactionGuideStepOrderMatch[1]) },
+        { actorType: "user", actorName: "structured_interactions_page" },
+      ));
+      return;
+    }
     const interactionGuideStepMatch = /^\/api\/interaction-guide-steps\/(\d+)$/.exec(url.pathname);
     if (request.method === "PATCH" && interactionGuideStepMatch) {
       sendJson(response, 200, interactionGuides.updateStep(

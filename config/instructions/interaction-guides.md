@@ -124,7 +124,7 @@ For a guide that collects every active personal-log tracker:
   addressed without creating an entry.
 - Present every tracker in the starting snapshot together in the guide's one
   complete opening checklist. Organize them under concise Markdown headings,
-  clearly name each tracker, and show its group and default unit when useful.
+  clearly name each tracker, and show its group and canonical unit when useful.
   Use a mechanical list layout without introductory narration or a separate
   model-written question for each tracker. Do not require the user to answer
   every item or follow a rigid response format.
@@ -132,7 +132,7 @@ For a guide that collects every active personal-log tracker:
   answers every item at once or addresses only one named item. Record each
   supplied observation as a separate `log_add` call under the exact existing
   tracker name, preserving a complete natural-language `content_text` and any
-  actual numeric value and unit. Ask a narrow follow-up only for an answer that
+  actual numeric value. The tracker supplies its canonical unit. Ask a narrow follow-up only for an answer that
   cannot be mapped safely.
 - Do not repeat an addressed tracker or reprint the opening checklist. After
   writes return, confirm them concisely; unresolved items remain referable by

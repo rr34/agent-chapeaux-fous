@@ -5,6 +5,131 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0025: tracker-owned-log-units
+-- Numeric log entries form one comparable series per tracker. Keep existing
+-- tracker units, mark every missing canonical unit for review, discard legacy
+-- per-entry units, and keep the canonical unit only on the tracker.
+
+UPDATE trackers
+SET default_unit = 'set me'
+WHERE default_unit IS NULL;
+
+ALTER TABLE trackers RENAME COLUMN default_unit TO unit;
+
+DROP INDEX trackers_group_name;
+DROP INDEX log_entries_tracker_occurred;
+DROP INDEX log_entries_source_external;
+ALTER TABLE log_entries RENAME TO log_entries_with_entry_units;
+ALTER TABLE trackers RENAME TO trackers_with_nullable_units;
+
+CREATE TABLE trackers (
+    tracker_id      INTEGER PRIMARY KEY,
+    log_group_id    INTEGER NOT NULL
+                    REFERENCES log_groups(log_group_id) ON DELETE RESTRICT,
+    name            TEXT NOT NULL COLLATE NOCASE UNIQUE
+                    CHECK (length(trim(name)) BETWEEN 1 AND 200),
+    unit            TEXT NOT NULL
+                    CHECK (length(trim(unit)) BETWEEN 1 AND 100),
+    archived_at_utc TEXT,
+    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at_utc  TEXT
+) STRICT;
+
+INSERT INTO trackers (
+  tracker_id, log_group_id, name, unit, archived_at_utc, created_at_utc, updated_at_utc
+)
+SELECT
+  tracker_id, log_group_id, name, unit, archived_at_utc, created_at_utc, updated_at_utc
+FROM trackers_with_nullable_units;
+
+CREATE TABLE log_entries (
+    log_entry_id    INTEGER PRIMARY KEY,
+    tracker_id      INTEGER NOT NULL
+                    REFERENCES trackers(tracker_id) ON DELETE RESTRICT,
+    occurred_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    content_text    TEXT NOT NULL
+                    CHECK (length(trim(content_text)) BETWEEN 1 AND 10000),
+    number_value    REAL,
+    source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at_utc  TEXT,
+    source          TEXT NOT NULL DEFAULT 'agent-slayer'
+                    CHECK (length(trim(source)) BETWEEN 1 AND 200),
+    external_id     TEXT
+                    CHECK (external_id IS NULL OR length(trim(external_id)) BETWEEN 1 AND 1000)
+) STRICT;
+
+INSERT INTO log_entries (
+  log_entry_id, tracker_id, occurred_at_utc, content_text, number_value,
+  source_event_id, created_at_utc, updated_at_utc, source, external_id
+)
+SELECT
+  log_entry_id, tracker_id, occurred_at_utc, content_text, number_value,
+  source_event_id, created_at_utc, updated_at_utc, source, external_id
+FROM log_entries_with_entry_units;
+
+DROP TABLE log_entries_with_entry_units;
+DROP TABLE trackers_with_nullable_units;
+
+CREATE INDEX trackers_group_name
+    ON trackers(log_group_id, archived_at_utc, name);
+
+CREATE INDEX log_entries_tracker_occurred
+    ON log_entries(tracker_id, occurred_at_utc DESC, log_entry_id DESC);
+
+CREATE UNIQUE INDEX log_entries_source_external
+    ON log_entries(source, external_id)
+    WHERE external_id IS NOT NULL;
+
+CREATE TRIGGER log_entries_require_tracker_unit_before_insert
+BEFORE INSERT ON log_entries
+WHEN NEW.number_value IS NOT NULL
+ AND NOT EXISTS (
+   SELECT 1 FROM trackers
+   WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL
+ )
+BEGIN
+  SELECT RAISE(ABORT, 'numeric log entries require a tracker unit');
+END;
+
+CREATE TRIGGER trackers_require_unit_before_insert
+BEFORE INSERT ON trackers
+WHEN NEW.unit IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'trackers require a canonical unit');
+END;
+
+CREATE TRIGGER trackers_require_unit_before_update
+BEFORE UPDATE OF unit ON trackers
+WHEN NEW.unit IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'trackers require a canonical unit');
+END;
+
+CREATE TRIGGER log_entries_require_tracker_unit_before_update
+BEFORE UPDATE OF tracker_id, number_value ON log_entries
+WHEN NEW.number_value IS NOT NULL
+ AND NOT EXISTS (
+   SELECT 1 FROM trackers
+   WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL
+ )
+BEGIN
+  SELECT RAISE(ABORT, 'numeric log entries require a tracker unit');
+END;
+
+CREATE TRIGGER trackers_preserve_numeric_unit_before_update
+BEFORE UPDATE OF unit ON trackers
+WHEN OLD.unit IS NOT NEW.unit
+ AND OLD.unit <> 'set me' COLLATE NOCASE
+ AND EXISTS (
+   SELECT 1 FROM log_entries
+   WHERE tracker_id = OLD.tracker_id AND number_value IS NOT NULL
+ )
+BEGIN
+  SELECT RAISE(ABORT, 'a tracker unit cannot change after numeric entries exist');
+END;
+-- end migration 0025
+
 -- migration 0024: planned-todo-duration
 -- Preserve the amount of time reserved for a scheduled to-do or routine
 -- template without overloading its independent due-date deadline.

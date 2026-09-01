@@ -698,10 +698,17 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .interaction-turns-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
 .interaction-turns-heading .eyebrow { margin-bottom: .12rem; }
 .interaction-turn-list { display: grid; gap: .7rem; }
+.interaction-turn-list.reordering { user-select: none; }
 .interaction-turn-card { margin: 0; padding: .85rem; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
 .interaction-turn-card.disabled { opacity: .62; }
+.interaction-turn-card.dragging { border-color: var(--accent); box-shadow: 0 8px 24px rgba(0, 0, 0, .16); opacity: .82; }
+.reorder-saving .interaction-turn-drag-handle { pointer-events: none; opacity: .5; }
 .interaction-turn-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
 .interaction-turn-identity { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; min-width: 0; }
+.interaction-turn-drag-handle { width: 1.8rem; height: 1.8rem; padding: 0; touch-action: none; cursor: grab; color: var(--muted); background: transparent; border: 1px solid transparent; font-size: 1.2rem; line-height: 1; }
+.interaction-turn-drag-handle:hover, .interaction-turn-drag-handle:focus-visible { color: var(--accent); background: var(--brand-light); border-color: var(--brand-mid); }
+.interaction-turn-drag-handle:active { cursor: grabbing; }
+.interaction-turn-drag-handle:disabled { cursor: not-allowed; }
 .interaction-turn-opening-copy { font-size: .95rem; }
 .interaction-turn-number { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; flex: 0 0 auto; color: white; background: var(--accent); border-radius: 50%; font-size: .78rem; }
 .interaction-turn-state { padding: 3px 7px; color: var(--accent); background: var(--brand-light); border-radius: 999px; font-size: .65rem; }

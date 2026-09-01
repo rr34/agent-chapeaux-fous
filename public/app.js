@@ -344,7 +344,7 @@ const elements = {
   logGroupOptions: document.querySelector("#log-group-options"),
   logContent: document.querySelector("#log-content"),
   logNumber: document.querySelector("#log-number"),
-  logUnit: document.querySelector("#log-unit"),
+  logTrackerUnit: document.querySelector("#log-tracker-unit"),
   logOccurred: document.querySelector("#log-occurred"),
   logFormError: document.querySelector("#log-form-error"),
   interactionGuideStatus: document.querySelector("#interaction-guide-status"),
@@ -433,6 +433,7 @@ let logEntries = [];
 let interactionGuideSummaries = [];
 let selectedInteractionGuide = null;
 let interactionGuideLoadSequence = 0;
+let interactionGuideReorderInProgress = false;
 let aiUsageData = null;
 let requestImagePreviewUrl = null;
 let storedFiles = [];
@@ -4603,6 +4604,92 @@ function interactionStepIdentity(guide, step) {
   ].join("\n");
 }
 
+async function reorderInteractionGuideSteps(guide, orderedStepIds) {
+  if (interactionGuideReorderInProgress) return;
+  const currentOrder = guide.steps.map(({ id }) => id);
+  if (currentOrder.every((stepId, index) => stepId === orderedStepIds[index])) return;
+  interactionGuideReorderInProgress = true;
+  elements.interactionGuideStatusMessage.textContent = "Saving exchange order…";
+  elements.interactionGuideDetail.classList.add("reorder-saving");
+  try {
+    await api(`/api/interaction-guides/${guide.id}/steps/order`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: guide.version,
+        orderedStepIds,
+      }),
+    });
+    await refreshInteractionGuides({ selectId: guide.id });
+    elements.interactionGuideStatusMessage.textContent = "Exchange order saved.";
+  } catch (error) {
+    if (selectedInteractionGuide?.id === guide.id) await loadInteractionGuide(guide.id);
+    elements.interactionGuideStatusMessage.textContent = error.message || "Could not save the exchange order.";
+  } finally {
+    interactionGuideReorderInProgress = false;
+    elements.interactionGuideDetail.classList.remove("reorder-saving");
+  }
+}
+
+function enableInteractionStepDragging({ guide, step, card, handle, list }) {
+  let pointerId = null;
+  let orderBeforeDrag = [];
+
+  const finishPointerDrag = (event, { cancelled = false } = {}) => {
+    if (pointerId === null || event.pointerId !== pointerId) return;
+    if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+    pointerId = null;
+    card.classList.remove("dragging");
+    list.classList.remove("reordering");
+    if (cancelled) {
+      const cardsById = new Map(
+        [...list.querySelectorAll(".interaction-turn-card")]
+          .map((candidate) => [Number(candidate.dataset.stepId), candidate]),
+      );
+      for (const stepId of orderBeforeDrag) list.append(cardsById.get(stepId));
+      return;
+    }
+    const orderedStepIds = [...list.querySelectorAll(".interaction-turn-card")]
+      .map((candidate) => Number(candidate.dataset.stepId));
+    void reorderInteractionGuideSteps(guide, orderedStepIds);
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (interactionGuideReorderInProgress || event.button !== 0) return;
+    event.preventDefault();
+    pointerId = event.pointerId;
+    orderBeforeDrag = [...list.querySelectorAll(".interaction-turn-card")]
+      .map((candidate) => Number(candidate.dataset.stepId));
+    handle.setPointerCapture(pointerId);
+    card.classList.add("dragging");
+    list.classList.add("reordering");
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (pointerId === null || event.pointerId !== pointerId) return;
+    const target = document.elementFromPoint(event.clientX, event.clientY)
+      ?.closest(".interaction-turn-card");
+    if (!target || target === card || target.parentElement !== list) return;
+    const targetBounds = target.getBoundingClientRect();
+    list.insertBefore(card, event.clientY < targetBounds.top + targetBounds.height / 2
+      ? target
+      : target.nextSibling);
+  });
+  handle.addEventListener("pointerup", (event) => finishPointerDrag(event));
+  handle.addEventListener("pointercancel", (event) => finishPointerDrag(event, { cancelled: true }));
+  handle.addEventListener("keydown", (event) => {
+    if (interactionGuideReorderInProgress || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const orderedStepIds = guide.steps.map(({ id }) => id);
+    const currentIndex = orderedStepIds.indexOf(step.id);
+    const nextIndex = event.key === "ArrowUp" ? currentIndex - 1 : currentIndex + 1;
+    if (nextIndex < 0 || nextIndex >= orderedStepIds.length) return;
+    [orderedStepIds[currentIndex], orderedStepIds[nextIndex]] = [
+      orderedStepIds[nextIndex], orderedStepIds[currentIndex],
+    ];
+    void reorderInteractionGuideSteps(guide, orderedStepIds);
+  });
+}
+
 function renderInteractionGuideDetail() {
   const guide = selectedInteractionGuide;
   if (!guide) {
@@ -4658,14 +4745,26 @@ function renderInteractionGuideDetail() {
     const list = node("div", "interaction-turn-list");
     for (const step of guide.steps) {
       const card = node("article", `interaction-turn-card${step.enabled ? "" : " disabled"}`);
+      card.dataset.stepId = String(step.id);
       const stepHeading = node("header", "interaction-turn-heading");
       const stepIdentity = node("div", "interaction-turn-identity");
+      const dragHandle = node("button", "interaction-turn-drag-handle", "⠿");
+      dragHandle.type = "button";
+      dragHandle.disabled = !editable;
+      dragHandle.title = editable
+        ? "Drag to reorder; use Up and Down arrow keys for keyboard reordering"
+        : guide.activeRun
+          ? "Cancel or finish the active briefing before reordering."
+          : "Archived briefings cannot be reordered.";
+      dragHandle.setAttribute("aria-label", `Reorder exchange ${step.stepNumber}`);
+      dragHandle.setAttribute("aria-keyshortcuts", "ArrowUp ArrowDown");
       const openingCopy = node("button", "copy-text-button interaction-turn-opening-copy", step.openingText);
       openingCopy.type = "button";
       openingCopy.title = "Copy exchange opening";
       openingCopy.setAttribute("aria-label", `Copy exchange ${step.stepNumber} opening: ${step.openingText}`);
       openingCopy.addEventListener("click", (event) => void copyText(step.openingText, event.currentTarget));
       stepIdentity.append(
+        dragHandle,
         node("span", "interaction-turn-number", String(step.stepNumber)),
         openingCopy,
         node(
@@ -4697,6 +4796,7 @@ function renderInteractionGuideDetail() {
         card.append(answers);
       }
       list.append(card);
+      if (editable) enableInteractionStepDragging({ guide, step, card, handle: dragHandle, list });
     }
     turns.append(list);
   }
@@ -5045,7 +5145,7 @@ function renderLogs() {
       headingText.append(node("h4", "", tracker.name));
       const trackerMeta = node("p", "log-tracker-meta");
       trackerMeta.textContent = `${tracker.entryCount} ${tracker.entryCount === 1 ? "entry" : "entries"}`
-        + (tracker.defaultUnit ? ` · default ${tracker.defaultUnit}` : "");
+        + ` · ${tracker.unit}`;
       headingText.append(trackerMeta);
       const add = node("button", "secondary compact", "Log entry");
       add.type = "button";
@@ -5061,7 +5161,7 @@ function renderLogs() {
           const metadata = node("div", "log-entry-meta");
           metadata.append(node("time", "", formatDisplayDate(entry.occurredAtUtc)));
           if (entry.numberValue !== null) {
-            metadata.append(node("span", "log-value", `${entry.numberValue}${entry.unit ? ` ${entry.unit}` : ""}`));
+            metadata.append(node("span", "log-value", `${entry.numberValue} ${tracker.unit}`));
           }
           item.append(metadata, node("p", "", entry.contentText));
           entryList.append(item);
@@ -5108,7 +5208,11 @@ function updateLogTrackerEditor() {
   elements.logTrackerName.required = isNew;
   elements.logGroupName.required = isNew;
   const tracker = logTrackers.find(({ id }) => id === Number(elements.logTracker.value));
-  elements.logUnit.placeholder = tracker?.defaultUnit ? `Defaults to ${tracker.defaultUnit}` : "";
+  const unitNeedsReview = tracker?.unit?.toLowerCase() === "set me";
+  elements.logTrackerUnit.value = unitNeedsReview ? "" : tracker?.unit ?? "";
+  elements.logTrackerUnit.readOnly = Boolean(tracker && !unitNeedsReview);
+  elements.logTrackerUnit.required = isNew || unitNeedsReview;
+  elements.logTrackerUnit.placeholder = unitNeedsReview ? "Replace ‘set me’" : "e.g. kg, reps, out of 10";
 }
 
 function openLogEditor(trackerId = null) {
@@ -5134,7 +5238,7 @@ async function saveLogEntry(event) {
       groupName: creatingTracker ? elements.logGroupName.value : null,
       contentText: elements.logContent.value,
       numberValue: elements.logNumber.value === "" ? null : Number(elements.logNumber.value),
-      unit: elements.logUnit.value || null,
+      trackerUnit: elements.logTrackerUnit.value || null,
       occurredAtUtc: inputToIso(elements.logOccurred.value),
     };
     await api("/api/log-entries", {

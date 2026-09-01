@@ -26,10 +26,10 @@ function normalizedInstant(value, { useNow = false, label = "Timestamp" } = {}) 
 
 const logGroupFields = ["log_group_id", "name", "archived_at_utc"];
 const trackerFields = [
-  "tracker_id", "log_group_id", "name", "default_unit", "archived_at_utc", "created_at_utc", "updated_at_utc",
+  "tracker_id", "log_group_id", "name", "unit", "archived_at_utc", "created_at_utc", "updated_at_utc",
 ];
 const logEntryFields = [
-  "log_entry_id", "tracker_id", "occurred_at_utc", "content_text", "number_value", "unit",
+  "log_entry_id", "tracker_id", "occurred_at_utc", "content_text", "number_value",
   "source_event_id", "created_at_utc", "updated_at_utc", "source", "external_id",
 ];
 const logProjection = {
@@ -44,7 +44,7 @@ const logEntryProjection = {
   schemaObjects: ["log_entries", "trackers", "log_groups"],
   fields: {
     log_entries: logEntryFields,
-    trackers: ["tracker_id", "log_group_id", "name"],
+    trackers: ["tracker_id", "log_group_id", "name", "unit"],
     log_groups: ["log_group_id", "name"],
   },
 };
@@ -79,6 +79,7 @@ function databaseEntry(row) {
       tracker_id: row.tracker_id,
       log_group_id: row.log_group_id ?? null,
       name: row.tracker_name ?? null,
+      unit: row.tracker_unit ?? null,
     },
     log_groups: {
       log_group_id: row.log_group_id ?? null,
@@ -99,7 +100,7 @@ function logResult(schemaSemantics, context, result, {
 
 export function logCapabilityContext(store, limit = 200) {
   const trackers = !store?.status?.ready ? [] : store.requireReady().prepare(`
-    SELECT tracker.tracker_id, tracker.name, tracker.default_unit,
+    SELECT tracker.tracker_id, tracker.name, tracker.unit,
            log_group.name AS group_name,
            COUNT(entry.log_entry_id) AS entry_count,
            MAX(entry.occurred_at_utc) AS last_logged_at_utc
@@ -115,7 +116,7 @@ export function logCapabilityContext(store, limit = 200) {
     trackerId: Number(row.tracker_id),
     name: row.name,
     group: row.group_name,
-    defaultUnit: row.default_unit,
+    unit: row.unit,
     entryCount: Number(row.entry_count),
     lastLoggedAtUtc: row.last_logged_at_utc,
   }));
@@ -124,7 +125,7 @@ export function logCapabilityContext(store, limit = 200) {
         `- [tracker ${tracker.trackerId}] name: ${tracker.name}`,
         `group: ${tracker.group}`,
         `entries: ${tracker.entryCount}`,
-        `default_unit: ${tracker.defaultUnit ?? "none"}`,
+        `unit: ${tracker.unit}`,
       ].join(" | ")).join("\n")
     : "No active personal-log trackers exist.";
   return {
@@ -150,6 +151,7 @@ function joinedTracker(database, trackerId) {
 function joinedEntry(database, entryId) {
   return database.prepare(`
     SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+           tracker.unit AS tracker_unit,
            log_group.name AS group_name
     FROM log_entries AS entry
     JOIN trackers AS tracker USING (tracker_id)
@@ -267,8 +269,7 @@ function normalizedLogInput(argumentsObject, { requireOccurredAt = false } = {})
   if (number !== null && (typeof number !== "number" || !Number.isFinite(number))) {
     throw new Error("Log number must be a finite number or null");
   }
-  const suppliedUnit = optionalUnit(argumentsObject.unit);
-  if (suppliedUnit !== null && number === null) throw new Error("A log unit requires a numeric value");
+  const trackerUnit = optionalUnit(argumentsObject.tracker_unit);
   if (requireOccurredAt && (argumentsObject.occurred_at_utc === null
     || argumentsObject.occurred_at_utc === undefined
     || argumentsObject.occurred_at_utc === "")) {
@@ -284,7 +285,7 @@ function normalizedLogInput(argumentsObject, { requireOccurredAt = false } = {})
     requestedGroupWasNull,
     content,
     number,
-    suppliedUnit,
+    trackerUnit,
     occurredAtUtc,
   };
 }
@@ -320,12 +321,15 @@ function resolveTracker(database, input, now, { createIfMissing = false } = {}) 
         },
       };
     }
+    if (input.trackerUnit === null) {
+      throw new Error("New log trackers require a canonical unit");
+    }
     const selectedGroup = ensureGroup(database, input.requestedGroup, now);
     const row = database.prepare(`
-      INSERT INTO trackers (log_group_id, name, default_unit, updated_at_utc)
+      INSERT INTO trackers (log_group_id, name, unit, updated_at_utc)
       VALUES (?, ?, ?, ?)
       RETURNING *
-    `).get(selectedGroup.row.log_group_id, input.trackerName, input.suppliedUnit, now);
+    `).get(selectedGroup.row.log_group_id, input.trackerName, input.trackerUnit, now);
     tracker = {
       ...row,
       group_name: selectedGroup.row.name,
@@ -346,9 +350,14 @@ function resolveTracker(database, input, now, { createIfMissing = false } = {}) 
       updates.push("archived_at_utc = NULL");
       trackerReactivated = true;
     }
-    if (tracker.default_unit === null && input.suppliedUnit !== null) {
-      updates.push("default_unit = ?");
-      values.push(input.suppliedUnit);
+    if (input.trackerUnit !== null && tracker.unit !== input.trackerUnit) {
+      if (tracker.unit.toLowerCase() !== "set me") {
+        throw new Error(
+          `Tracker ${tracker.name} uses ${tracker.unit}; numeric entries cannot use ${input.trackerUnit}`,
+        );
+      }
+      updates.push("unit = ?");
+      values.push(input.trackerUnit);
     }
     if (updates.length) {
       updates.push("updated_at_utc = ?");
@@ -387,21 +396,20 @@ function insertEntry(database, input, tracker, {
   requestEventId = null,
   now,
 } = {}) {
-  const effectiveUnit = input.number === null
-    ? null
-    : input.suppliedUnit ?? tracker.default_unit;
+  if (tracker.unit.toLowerCase() === "set me") {
+    throw new Error(`Set the canonical unit for tracker ${tracker.name} before recording another entry`);
+  }
   const row = database.prepare(`
     INSERT INTO log_entries (
-      tracker_id, occurred_at_utc, content_text, number_value, unit,
+      tracker_id, occurred_at_utc, content_text, number_value,
       source_event_id, updated_at_utc, source, external_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     RETURNING *
   `).get(
     tracker.tracker_id,
     input.occurredAtUtc,
     input.content,
     input.number,
-    effectiveUnit,
     requestEventId,
     now,
     source,
@@ -410,6 +418,7 @@ function insertEntry(database, input, tracker, {
   return databaseEntry({
     ...row,
     tracker_name: tracker.name,
+    tracker_unit: tracker.unit,
     log_group_id: tracker.log_group_id,
     group_name: tracker.group_name,
   });
@@ -418,6 +427,7 @@ function insertEntry(database, input, tracker, {
 function existingImportedEntry(database, source, externalId) {
   return database.prepare(`
     SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+           tracker.unit AS tracker_unit,
            log_group.name AS group_name
     FROM log_entries AS entry
     JOIN trackers AS tracker USING (tracker_id)
@@ -427,12 +437,11 @@ function existingImportedEntry(database, source, externalId) {
 }
 
 function sameImportedEntry(row, input) {
-  const effectiveRequestedUnit = input.number === null ? null : input.suppliedUnit;
   return row.tracker_name.toLowerCase() === input.trackerName.toLowerCase()
     && row.occurred_at_utc === input.occurredAtUtc
     && row.content_text === input.content
     && (row.number_value === null ? null : Number(row.number_value)) === input.number
-    && (effectiveRequestedUnit === null || row.unit === effectiveRequestedUnit);
+    && (input.trackerUnit === null || row.tracker_unit === input.trackerUnit);
 }
 
 export function registerLogTools(registry, store, ledger, schemaSemantics = null) {
@@ -447,7 +456,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
   });
   registry.register({
     name: "log_add",
-    description: "Record one entry in the user's authoritative personal log. The content must remain a complete human-readable entry; number and unit are optional queryable projections, not replacements for that text. Reuse the most plausible existing tracker for exact or synonymous wording. If none matches and create_if_missing is false, no tracker or log entry is written and the result proposes a tracker for user confirmation. Set create_if_missing true only after explicit user creation intent or confirmation. On confirmed first use, create the tracker and requested group atomically; use General when group is null. A supplied group never silently moves an existing tracker.",
+    description: "Record one entry in the user's authoritative personal log. The content must remain complete human-readable text; number_value is an optional trend projection whose canonical unit belongs to the tracker, never the entry. Supply tracker_unit when creating a tracker or replacing the migration marker; otherwise use null and the existing tracker unit remains authoritative. Reuse the most plausible existing tracker. If none matches and create_if_missing is false, return an unrecorded proposal for confirmation.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -456,11 +465,11 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         group: nullableString,
         content_text: { type: "string", minLength: 1, maxLength: 10000 },
         number_value: { type: ["number", "null"] },
-        unit: { ...nullableString, maxLength: 100 },
+        tracker_unit: { ...nullableString, maxLength: 100 },
         occurred_at_utc: nullableString,
         create_if_missing: { type: "boolean" },
       },
-      required: ["tracker", "group", "content_text", "number_value", "unit", "occurred_at_utc", "create_if_missing"],
+      required: ["tracker", "group", "content_text", "number_value", "tracker_unit", "occurred_at_utc", "create_if_missing"],
     },
     async execute(argumentsObject, context) {
       const input = normalizedLogInput(argumentsObject);
@@ -479,13 +488,12 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
             proposed_tracker: {
               name: input.trackerName,
               group: input.requestedGroup,
-              default_unit: input.suppliedUnit,
+              unit: input.trackerUnit,
             },
             proposed_entry: {
               occurred_at_utc: input.occurredAtUtc,
               content_text: input.content,
               number_value: input.number,
-              unit: input.suppliedUnit,
             },
           };
           const semanticResult = logResult(schemaSemantics, context, result, {
@@ -557,7 +565,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
               group: nullableString,
               content_text: { type: "string", minLength: 1, maxLength: 10000 },
               number_value: { type: ["number", "null"] },
-              unit: { ...nullableString, maxLength: 100 },
+              tracker_unit: { ...nullableString, maxLength: 100 },
               occurred_at_utc: { type: "string" },
             },
             required: [
@@ -566,7 +574,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
               "group",
               "content_text",
               "number_value",
-              "unit",
+              "tracker_unit",
               "occurred_at_utc",
             ],
           },
@@ -711,6 +719,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       const boundedLimit = Math.min(200, Math.max(1, Number(limit) || 50));
       const rows = store.requireReady().prepare(`
         SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+               tracker.unit AS tracker_unit,
                log_group.name AS group_name
         FROM log_entries AS entry
         JOIN trackers AS tracker USING (tracker_id)
@@ -729,7 +738,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
 
   registry.register({
     name: "log_update",
-    description: "Correct one existing personal-log entry by its exact log_entry_id. Null leaves content_text, number_value, unit, or occurred_at_utc unchanged. An empty unit clears only the unit. Set clear_number_value true to clear both the numeric projection and its unit. This updates the original entry without creating a replacement and preserves its tracker and provenance fields.",
+    description: "Correct one existing personal-log entry by its exact log_entry_id. Null leaves content_text, number_value, or occurred_at_utc unchanged. Set clear_number_value true to clear the optional numeric trend projection. The canonical unit belongs to the tracker and cannot be changed through an entry correction.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -738,11 +747,10 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         content_text: nullableString,
         number_value: { type: ["number", "null"] },
         clear_number_value: { type: "boolean" },
-        unit: nullableString,
         occurred_at_utc: nullableString,
       },
       required: [
-        "log_entry_id", "content_text", "number_value", "clear_number_value", "unit", "occurred_at_utc",
+        "log_entry_id", "content_text", "number_value", "clear_number_value", "occurred_at_utc",
       ],
     },
     async execute({
@@ -750,7 +758,6 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       content_text: contentText,
       number_value: numberValue,
       clear_number_value: clearNumberValue,
-      unit,
       occurred_at_utc: occurredAtUtc,
     }, context) {
       const database = store.requireReady();
@@ -764,14 +771,9 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
           if (numberValue !== null) {
             throw new Error("clear_number_value cannot be combined with a new number_value");
           }
-          if (unit !== null && optionalUnit(unit) !== null) {
-            throw new Error("clear_number_value cannot be combined with a new unit");
-          }
           values.number_value = null;
-          values.unit = null;
         } else {
           if (numberValue !== null) values.number_value = numberValue;
-          if (unit !== null) values.unit = optionalUnit(unit);
         }
         if (occurredAtUtc !== null) {
           const selectedOccurrence = normalizedInstant(occurredAtUtc, { label: "Log occurrence time" });
@@ -779,9 +781,8 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
           values.occurred_at_utc = selectedOccurrence;
         }
         if (Object.keys(values).length === 0) throw new Error("No log entry changes were supplied");
-        const prospective = { ...beforeRow, ...values };
-        if (prospective.unit !== null && prospective.number_value === null) {
-          throw new Error("A log unit requires a numeric value");
+        if (numberValue !== null && beforeRow.tracker_unit.toLowerCase() === "set me") {
+          throw new Error(`Set the canonical unit for tracker ${beforeRow.tracker_name} before changing its number`);
         }
         values.updated_at_utc = new Date().toISOString();
         const assignments = Object.keys(values).map((column) => `"${column}" = ?`).join(", ");
@@ -811,7 +812,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
 
   registry.register({
     name: "tracker_list",
-    description: "List personal-log trackers with their groups, default units, entry counts, and most recent occurrence times.",
+    description: "List personal-log trackers with their groups, canonical units, entry counts, and most recent occurrence times.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -857,7 +858,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
 
   registry.register({
     name: "tracker_update",
-    description: "Update one personal-log tracker by ID. Rename it, move it to a group (creating or reactivating that group), change or clear its default unit, or archive/reactivate it. Null leaves each field unchanged; an empty default_unit clears it.",
+    description: "Update one personal-log tracker by ID. Rename it, move it to a group, replace its migration marker with a canonical unit, or archive/reactivate it. A canonical unit cannot be cleared and cannot change after numeric entries exist.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -865,12 +866,12 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         tracker_id: { type: "integer", minimum: 1 },
         name: nullableString,
         group: nullableString,
-        default_unit: nullableString,
+        unit: nullableString,
         archived: { type: ["boolean", "null"] },
       },
-      required: ["tracker_id", "name", "group", "default_unit", "archived"],
+      required: ["tracker_id", "name", "group", "unit", "archived"],
     },
-    async execute({ tracker_id: trackerId, name, group, default_unit: defaultUnit, archived }, context) {
+    async execute({ tracker_id: trackerId, name, group, unit, archived }, context) {
       const database = store.requireReady();
       const beforeRow = joinedTracker(database, trackerId);
       if (!beforeRow) throw new Error(`Tracker ${trackerId} does not exist`);
@@ -889,7 +890,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
             WHERE log_group_id = ?
           `).run(now, beforeRow.log_group_id);
         }
-        if (defaultUnit !== null) values.default_unit = optionalUnit(defaultUnit);
+        if (unit !== null) values.unit = requiredText(unit, "Tracker unit", 100);
         if (archived !== null) values.archived_at_utc = archived ? now : null;
         if (Object.keys(values).length === 0) throw new Error("No tracker changes were supplied");
         values.updated_at_utc = now;

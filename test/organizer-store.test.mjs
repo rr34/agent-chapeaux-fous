@@ -737,7 +737,7 @@ test("personal log entries and grouped trackers are available to the web organiz
       groupName: "Health",
       contentText: "72.1 kg after dinner",
       numberValue: 72.1,
-      unit: "kg",
+      trackerUnit: "kg",
       occurredAtUtc: "2026-08-16T00:30:00.000Z",
     });
     assert.equal(first.trackerName, "Weight");
@@ -749,10 +749,10 @@ test("personal log entries and grouped trackers are available to the web organiz
       trackerId: first.trackerId,
       contentText: "71.8 kg before breakfast",
       numberValue: 71.8,
-      unit: null,
+      trackerUnit: null,
       occurredAtUtc: "2026-08-16T08:00:00.000Z",
     });
-    assert.equal(second.unit, "kg");
+    assert.equal(second.trackerUnit, "kg");
     assert.deepEqual(
       organizer.listLogEntries({ trackerId: first.trackerId }).map(({ contentText }) => contentText),
       ["71.8 kg before breakfast", "72.1 kg after dinner"],
@@ -767,9 +767,9 @@ test("personal log entries and grouped trackers are available to the web organiz
         trackerName: "Mood",
         contentText: "Calm",
         numberValue: null,
-        unit: "points",
+        trackerUnit: null,
       }),
-      (error) => error instanceof OrganizerInputError && /requires a numeric value/.test(error.message),
+      (error) => error instanceof OrganizerInputError && /require a canonical unit/.test(error.message),
     );
     assert.equal(organizer.database.prepare(
       "SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_log.created'",

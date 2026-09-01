@@ -179,6 +179,10 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(application, /copyText\(step\.openingText, event\.currentTarget\)/);
   assert.match(application, /agentReferenceButton\(interactionStepIdentity\(guide, step\), `briefing exchange/);
   assert.match(application, /function deleteEditedInteractionStep/);
+  assert.match(application, /function enableInteractionStepDragging/);
+  assert.match(application, /interaction-turn-drag-handle/);
+  assert.match(application, /pointermove/);
+  assert.match(application, /orderedStepIds/);
   assert.match(application, /method: "DELETE"/);
   assert.match(application, /Resume this briefing/);
   assert.match(application, /Start this briefing/);
@@ -196,6 +200,7 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(server, /interactionGuides\.updateStep/);
   assert.match(server, /interactionGuides\.deleteStep/);
   assert.match(server, /interactionGuides\.moveStep/);
+  assert.match(server, /interactionGuides\.reorderSteps/);
   assert.match(server, /structuredInteractionGenerationPrompt/);
   assert.match(server, /requestKind: "structured_interaction_generation"/);
   assert.match(server, /actorType: "user", actorName: "structured_interactions_page"/);
@@ -431,6 +436,10 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(application, /elements\.contentGroupForm\.addEventListener\("submit", saveContentGroup\)/);
   assert.match(application, /function archiveEditedContentGroup/);
   assert.match(application, /refreshLogs/);
+  assert.match(document, /id="log-tracker-unit"[^>]*required/);
+  assert.doesNotMatch(document, /id="log-unit"/);
+  assert.match(application, /trackerUnit: elements\.logTrackerUnit\.value \|\| null/);
+  assert.match(application, /`\$\{entry\.numberValue\} \$\{tracker\.unit\}`/);
   assert.match(application, /todo-group-heading/);
   assert.match(application, /todo-group-sequence-marker/);
   assert.match(application, /todo-sequence-display/);

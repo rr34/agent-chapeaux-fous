@@ -280,8 +280,9 @@ capability selector, which controls which exact tool schemas are callable.
   copy action for sharing its saved details through another app.
 - `log_add`, `log_import`, `log_list`, `log_update`, `tracker_list`, and `tracker_update`
   provide the native grouped personal-log path. Each entry keeps complete
-  natural-language content with optional numeric and unit projections for
-  calculation and trends. Exact-ID corrections update an original entry without
+  natural-language content with an optional numeric projection for calculation
+  and trends. Each tracker owns the one canonical unit shared by its numeric
+  series; entries do not duplicate it. Exact-ID corrections update an original entry without
   creating a duplicate. Bounded imports use generic source and external IDs for
   safe replay without source-specific application code.
 - `contact_file_import` parses a complete attached CSV or vCard/VCF directly,
@@ -325,6 +326,9 @@ capability selector, which controls which exact tool schemas are callable.
   recurring to-do may link to a briefing while continuing to own its schedule and
   recurrence. An exchange can move to one other briefing without shared
   ownership; it is appended there while prior run history remains in the ledger.
+  On the Briefings page, editable exchanges can be dragged into a new order (or
+  moved with the handle's Up and Down arrow keys); saving renumbers the complete
+  exchange sequence atomically and records the change in the ledger.
   Each successfully completed request exposes **Make this exchange repeatable**, which
   queues a normal traced agent turn to generalize that exact exchange into a
   new briefing and its minimal numbered exchanges; the resulting receipt links back to

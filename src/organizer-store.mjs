@@ -651,7 +651,7 @@ function publicLogTracker(row) {
     groupName: row.group_name,
     groupArchivedAtUtc: row.group_archived_at_utc ?? null,
     name: row.name,
-    defaultUnit: row.default_unit,
+    unit: row.unit,
     archivedAtUtc: row.archived_at_utc,
     entryCount: Number(row.entry_count ?? 0),
     lastLoggedAtUtc: row.last_logged_at_utc ?? null,
@@ -671,7 +671,7 @@ function publicLogEntry(row) {
     occurredAtUtc: row.occurred_at_utc,
     contentText: row.content_text,
     numberValue: row.number_value,
-    unit: row.unit,
+    trackerUnit: row.tracker_unit,
     source: row.source,
     externalId: row.external_id,
     createdAtUtc: row.created_at_utc,
@@ -2619,6 +2619,7 @@ export class OrganizerStore {
     const boundedLimit = integer(limit, "limit", { fallback: 200, minimum: 1, maximum: 500 });
     return this.database.prepare(`
       SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+             tracker.unit AS tracker_unit,
              log_group.name AS group_name
       FROM log_entries AS entry
       JOIN trackers AS tracker USING (tracker_id)
@@ -2637,10 +2638,7 @@ export class OrganizerStore {
     const groupName = optionalText(input?.groupName, "groupName", 200) ?? "General";
     const contentText = requiredText(input?.contentText, "contentText", 10_000);
     const numberValue = optionalFiniteNumber(input?.numberValue, "numberValue");
-    const suppliedUnit = optionalText(input?.unit, "unit", 100);
-    if (suppliedUnit !== null && numberValue === null) {
-      throw new OrganizerInputError("unit requires a numeric value.");
-    }
+    const trackerUnit = optionalText(input?.trackerUnit, "trackerUnit", 100);
     const occurredAtUtc = isoDateTime(
       input?.occurredAtUtc ?? new Date().toISOString(),
       "occurredAtUtc",
@@ -2668,6 +2666,7 @@ export class OrganizerStore {
 
       if (!tracker) {
         if (trackerId !== null) throw new OrganizerInputError("Tracker not found.", 404);
+        if (trackerUnit === null) throw new OrganizerInputError("New trackers require a canonical unit.");
         let group = this.database.prepare(
           "SELECT * FROM log_groups WHERE name = ? COLLATE NOCASE",
         ).get(groupName);
@@ -2682,23 +2681,32 @@ export class OrganizerStore {
           `).get(now, group.log_group_id);
         }
         const created = this.database.prepare(`
-          INSERT INTO trackers (log_group_id, name, default_unit, updated_at_utc)
+          INSERT INTO trackers (log_group_id, name, unit, updated_at_utc)
           VALUES (?, ?, ?, ?) RETURNING *
-        `).get(group.log_group_id, trackerName, suppliedUnit, now);
+        `).get(group.log_group_id, trackerName, trackerUnit, now);
         tracker = {
           ...created,
           group_name: group.name,
           group_archived_at_utc: group.archived_at_utc,
         };
       } else {
-        if (tracker.archived_at_utc !== null || (tracker.default_unit === null && suppliedUnit !== null)) {
+        if (trackerUnit !== null && tracker.unit !== trackerUnit) {
+          if (tracker.unit.toLowerCase() !== "set me") {
+            throw new OrganizerInputError(
+              `Tracker ${tracker.name} uses ${tracker.unit}; numeric entries cannot use ${trackerUnit}.`,
+            );
+          }
+          this.database.prepare(`
+            UPDATE trackers SET unit = ?, updated_at_utc = ? WHERE tracker_id = ?
+          `).run(trackerUnit, now, tracker.tracker_id);
+        }
+        if (tracker.archived_at_utc !== null) {
           this.database.prepare(`
             UPDATE trackers
             SET archived_at_utc = NULL,
-                default_unit = COALESCE(default_unit, ?),
                 updated_at_utc = ?
             WHERE tracker_id = ?
-          `).run(suppliedUnit, now, tracker.tracker_id);
+          `).run(now, tracker.tracker_id);
         }
         if (tracker.group_archived_at_utc !== null) {
           this.database.prepare(`
@@ -2715,15 +2723,20 @@ export class OrganizerStore {
         `).get(tracker.tracker_id);
       }
 
-      const unit = numberValue === null ? null : suppliedUnit ?? tracker.default_unit;
+      if (tracker.unit.toLowerCase() === "set me") {
+        throw new OrganizerInputError(
+          `Set the canonical unit for tracker ${tracker.name} before recording another entry.`,
+        );
+      }
       const result = this.database.prepare(`
         INSERT INTO log_entries (
-          tracker_id, occurred_at_utc, content_text, number_value, unit, updated_at_utc, source
-        ) VALUES (?, ?, ?, ?, ?, ?, 'tailnet_web')
-      `).run(tracker.tracker_id, occurredAtUtc, contentText, numberValue, unit, now);
+          tracker_id, occurred_at_utc, content_text, number_value, updated_at_utc, source
+        ) VALUES (?, ?, ?, ?, ?, 'tailnet_web')
+      `).run(tracker.tracker_id, occurredAtUtc, contentText, numberValue, now);
       const id = Number(result.lastInsertRowid);
       const entry = publicLogEntry(this.database.prepare(`
         SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+               tracker.unit AS tracker_unit,
                log_group.name AS group_name
         FROM log_entries AS entry
         JOIN trackers AS tracker USING (tracker_id)

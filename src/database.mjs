@@ -49,10 +49,10 @@ export const requiredDatabaseShape = {
     "scheduled_at_utc", "is_all_day", "duration_minutes", "due_at_utc", "completed_at_utc", "source_event_id",
   ],
   log_groups: ["log_group_id", "name", "archived_at_utc"],
-  trackers: ["tracker_id", "log_group_id", "name", "default_unit", "archived_at_utc"],
+  trackers: ["tracker_id", "log_group_id", "name", "unit", "archived_at_utc"],
   log_entries: [
     "log_entry_id", "tracker_id", "occurred_at_utc", "content_text",
-    "number_value", "unit", "source_event_id", "source", "external_id",
+    "number_value", "source_event_id", "source", "external_id",
   ],
   profile_facts: [
     "profile_fact_id", "fact_type", "fact_text", "fact_status", "source_event_id",
