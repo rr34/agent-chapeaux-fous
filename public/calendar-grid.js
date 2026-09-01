@@ -35,6 +35,25 @@ export function occursDuringCalendarDay(startsAt, endsAt, day) {
     && (end > dayStartMs || (start >= dayStartMs && start < dayEnd));
 }
 
+export function calendarDayTimeRangeLabel(startsAt, endsAt, day, formatTime) {
+  const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const dayEnd = addCalendarDays(new Date(dayStart), 1).getTime();
+  const start = new Date(startsAt).getTime();
+  const end = endsAt ? new Date(endsAt).getTime() : Number.NaN;
+  if (!Number.isFinite(start) || start >= dayEnd) return "";
+
+  const startsToday = start >= dayStart;
+  const hasDuration = Number.isFinite(end) && end > start;
+  if (!hasDuration) return startsToday ? formatTime(new Date(start)) : "";
+  if (end <= dayStart) return "";
+
+  const endsToday = end < dayEnd;
+  if (startsToday && endsToday) return `${formatTime(new Date(start))}–${formatTime(new Date(end))}`;
+  if (startsToday) return `${formatTime(new Date(start))}–`;
+  if (endsToday) return `–${formatTime(new Date(end))}`;
+  return "Continues";
+}
+
 export function calendarEventCellItem(event) {
   return {
     className: ["day-event", event.isAllDay ? "all-day" : "", event.status].filter(Boolean).join(" "),

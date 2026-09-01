@@ -2,12 +2,46 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import {
+  calendarDayTimeRangeLabel,
   calendarEventCellItem,
   calendarGridCellContents,
   occursDuringCalendarDay,
   scheduledTodoCellItem,
   sixWeekMonthDates,
 } from "../public/calendar-grid.js";
+
+const localTime = (value) => {
+  const date = new Date(value);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+};
+
+test("cross-day time labels show only the boundary that applies to each day", () => {
+  const startsAt = "2026-09-04T17:00:00";
+  const endsAt = "2026-09-05T14:00:00";
+  assert.equal(occursDuringCalendarDay(startsAt, endsAt, new Date(2026, 8, 4)), true);
+  assert.equal(occursDuringCalendarDay(startsAt, endsAt, new Date(2026, 8, 5)), true);
+  assert.equal(calendarDayTimeRangeLabel(
+    startsAt, endsAt, new Date(2026, 8, 4), localTime,
+  ), "17:00–");
+  assert.equal(calendarDayTimeRangeLabel(
+    startsAt, endsAt, new Date(2026, 8, 5), localTime,
+  ), "–14:00");
+  assert.equal(calendarDayTimeRangeLabel(
+    startsAt, endsAt, new Date(2026, 8, 6), localTime,
+  ), "");
+});
+
+test("same-day and middle-day time labels remain unambiguous", () => {
+  assert.equal(calendarDayTimeRangeLabel(
+    "2026-09-04T09:00:00", "2026-09-04T11:00:00", new Date(2026, 8, 4), localTime,
+  ), "09:00–11:00");
+  assert.equal(calendarDayTimeRangeLabel(
+    "2026-09-03T17:00:00", "2026-09-05T14:00:00", new Date(2026, 8, 4), localTime,
+  ), "Continues");
+  assert.equal(calendarDayTimeRangeLabel(
+    "2026-09-04T17:00:00", "2026-09-05T00:00:00", new Date(2026, 8, 4), localTime,
+  ), "17:00–");
+});
 
 test("tall calendar cells use all eight rows before summarizing overflow", () => {
   const items = Array.from({ length: 8 }, (_, index) => ({ text: `Item ${index + 1}` }));

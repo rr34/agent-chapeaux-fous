@@ -6,6 +6,7 @@ import { formatDisplayDate, formatDisplayTime } from "./presentation-format.js";
 import { markdownToSpeech, renderMarkdown } from "./markdown.js";
 import {
   calendarEventCellItem,
+  calendarDayTimeRangeLabel,
   dateSequence,
   occursDuringCalendarDay,
   renderCalendarGrid,
@@ -2215,12 +2216,15 @@ function plannedEnd(startsAtUtc, duration) {
   return new Date(new Date(startsAtUtc).getTime() + duration * 60_000).toISOString();
 }
 
-function plannedTimeLabel(item) {
+function plannedTimeLabel(item, date) {
   if (item.isAllDay) return "All day";
   const end = plannedEnd(item.scheduledAtUtc, item.durationMinutes);
-  return end
-    ? `${formatDisplayTime(item.scheduledAtUtc)}–${formatDisplayTime(end)}`
-    : formatDisplayTime(item.scheduledAtUtc);
+  return calendarDayTimeRangeLabel(
+    item.scheduledAtUtc,
+    end,
+    date,
+    (value) => formatDisplayTime(value),
+  );
 }
 
 function renderRoutineAgenda() {
@@ -2241,7 +2245,7 @@ function renderRoutineAgenda() {
     button.type = "button";
     button.append(
       node("strong", "", occurrence.text),
-      node("span", "", `${plannedTimeLabel(occurrence)} · ${describeTodoRecurrence(occurrence.recurrenceRule)}`),
+      node("span", "", `${plannedTimeLabel(occurrence, selectedRoutineDate)} · ${describeTodoRecurrence(occurrence.recurrenceRule)}`),
     );
     button.disabled = !template;
     if (template) button.addEventListener("click", () => openTodoEditor(template));
@@ -2268,7 +2272,7 @@ function renderRoutine() {
     representativeMonth: currentMonth,
     itemsForDate: (date) => routineOccurrencesOnDay(date).map((occurrence) => ({
       className: "day-todo",
-      text: `${plannedTimeLabel(occurrence)} ${occurrence.text}`,
+      text: `${plannedTimeLabel(occurrence, date)} ${occurrence.text}`,
     })),
     onSelect: (date) => {
       selectedRoutineDate = date;
