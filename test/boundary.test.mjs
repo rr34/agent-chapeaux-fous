@@ -181,6 +181,8 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(application, /function deleteEditedInteractionStep/);
   assert.match(application, /function enableInteractionStepDragging/);
   assert.match(application, /interaction-turn-drag-handle/);
+  assert.match(application, /interaction-turn-placeholder/);
+  assert.match(application, /card\.style\.top/);
   assert.match(application, /pointermove/);
   assert.match(application, /orderedStepIds/);
   assert.match(application, /method: "DELETE"/);
@@ -381,6 +383,10 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(server, /url\.pathname === "\/api\/integrations\/mcp\/refresh"/);
   assert.match(document, /data-view="content"/);
   assert.match(document, /data-view="logs"/);
+  assert.match(application, /node\("details", "log-entry-disclosure"\)/);
+  assert.match(application, /"7-day average"/);
+  assert.match(application, /"1-year average"/);
+  assert.match(application, /"All-time average"/);
   assert.match(document, /id="content-view"/);
   assert.match(document, /id="content-dialog"/);
   assert.match(document, /id="content-delete"[^>]+hidden>Delete content<\/button>/);

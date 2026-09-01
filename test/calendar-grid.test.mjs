@@ -3,10 +3,21 @@ import fs from "node:fs";
 import test from "node:test";
 import {
   calendarEventCellItem,
+  calendarGridCellContents,
   occursDuringCalendarDay,
   scheduledTodoCellItem,
   sixWeekMonthDates,
 } from "../public/calendar-grid.js";
+
+test("tall calendar cells use all eight rows before summarizing overflow", () => {
+  const items = Array.from({ length: 8 }, (_, index) => ({ text: `Item ${index + 1}` }));
+  assert.deepEqual(calendarGridCellContents(items), { items, hiddenCount: 0 });
+
+  const overflowing = [...items, { text: "Item 9" }, { text: "Item 10" }];
+  const contents = calendarGridCellContents(overflowing);
+  assert.deepEqual(contents.items, overflowing.slice(0, 7));
+  assert.equal(contents.hiddenCount, 3);
+});
 
 test("calendar-day overlap includes a cross-midnight item on every day it occupies", () => {
   const startsAt = "2026-08-31T17:00:00";

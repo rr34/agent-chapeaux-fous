@@ -238,6 +238,65 @@ function timeZone(value) {
   return result;
 }
 
+function calendarDate(value, label = "localDate") {
+  const result = optionalText(value, label, 10);
+  if (!result || !/^\d{4}-\d{2}-\d{2}$/.test(result)) {
+    throw new OrganizerInputError(`${label} must be a valid calendar date in YYYY-MM-DD format.`);
+  }
+  const date = new Date(`${result}T00:00:00.000Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== result) {
+    throw new OrganizerInputError(`${label} must be a valid calendar date in YYYY-MM-DD format.`);
+  }
+  return result;
+}
+
+function dateKeyFromParts({ year, month, day }) {
+  return [year, month, day]
+    .map((part, index) => String(part).padStart(index === 0 ? 4 : 2, "0"))
+    .join("-");
+}
+
+function shiftedDateKey(value, dayOffset) {
+  const [year, month, day] = value.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + dayOffset));
+  return shifted.toISOString().slice(0, 10);
+}
+
+function dailyNumericAverages(rows, { averageTimeZone, asOfDate }) {
+  const dailyByTracker = new Map();
+  for (const row of rows) {
+    const occurredAt = new Date(row.occurred_at_utc);
+    if (!Number.isFinite(occurredAt.getTime())) continue;
+    const dateKey = dateKeyFromParts(zonedParts(occurredAt, averageTimeZone));
+    const trackerDays = dailyByTracker.get(row.tracker_id) ?? new Map();
+    const day = trackerDays.get(dateKey) ?? { sum: 0, entryCount: 0 };
+    day.sum += Number(row.number_value);
+    day.entryCount += 1;
+    trackerDays.set(dateKey, day);
+    dailyByTracker.set(row.tracker_id, trackerDays);
+  }
+
+  const averageForRange = (days, earliestDate = null, latestDate = null) => {
+    let sum = 0;
+    let dayCount = 0;
+    for (const [dateKey, day] of days) {
+      if (earliestDate !== null && dateKey < earliestDate) continue;
+      if (latestDate !== null && dateKey > latestDate) continue;
+      sum += day.sum / day.entryCount;
+      dayCount += 1;
+    }
+    return { value: dayCount === 0 ? null : sum / dayCount, dayCount };
+  };
+
+  const sevenDayStart = shiftedDateKey(asOfDate, -6);
+  const oneYearStart = shiftedDateKey(asOfDate, -364);
+  return new Map([...dailyByTracker].map(([trackerId, days]) => [trackerId, {
+    sevenDay: averageForRange(days, sevenDayStart, asOfDate),
+    oneYear: averageForRange(days, oneYearStart, asOfDate),
+    allTime: averageForRange(days),
+  }]));
+}
+
 function zonedParts(date, zone) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: zone,
@@ -2578,7 +2637,13 @@ export class OrganizerStore {
     }
   }
 
-  listLogTrackers({ groupId = null, includeArchived = false, limit = 200 } = {}) {
+  listLogTrackers({
+    groupId = null,
+    includeArchived = false,
+    limit = 200,
+    timeZone: timeZoneValue = null,
+    localDate = null,
+  } = {}) {
     const conditions = [];
     const values = [];
     if (!includeArchived) {
@@ -2590,7 +2655,7 @@ export class OrganizerStore {
       values.push(identifier(groupId, "log group id"));
     }
     const boundedLimit = integer(limit, "limit", { fallback: 200, minimum: 1, maximum: 500 });
-    return this.database.prepare(`
+    const trackerRows = this.database.prepare(`
       SELECT tracker.*, log_group.name AS group_name,
              log_group.archived_at_utc AS group_archived_at_utc,
              COUNT(entry.log_entry_id) AS entry_count,
@@ -2602,7 +2667,32 @@ export class OrganizerStore {
       GROUP BY tracker.tracker_id
       ORDER BY log_group.name COLLATE NOCASE, tracker.name COLLATE NOCASE
       LIMIT ?
-    `).all(...values, boundedLimit).map(publicLogTracker);
+    `).all(...values, boundedLimit);
+    if (trackerRows.length === 0) return [];
+
+    const averageTimeZone = timeZone(timeZoneValue) ?? defaultCalendarTimeZone;
+    const asOfDate = localDate == null || localDate === ""
+      ? dateKeyFromParts(zonedParts(new Date(), averageTimeZone))
+      : calendarDate(localDate);
+    const trackerIds = trackerRows.map(({ tracker_id: trackerId }) => trackerId);
+    const placeholders = trackerIds.map(() => "?").join(", ");
+    const numericRows = this.database.prepare(`
+      SELECT tracker_id, number_value, occurred_at_utc
+      FROM log_entries
+      WHERE number_value IS NOT NULL
+        AND tracker_id IN (${placeholders})
+      ORDER BY occurred_at_utc
+    `).all(...trackerIds);
+    const averagesByTracker = dailyNumericAverages(numericRows, { averageTimeZone, asOfDate });
+    const emptyAverages = {
+      sevenDay: { value: null, dayCount: 0 },
+      oneYear: { value: null, dayCount: 0 },
+      allTime: { value: null, dayCount: 0 },
+    };
+    return trackerRows.map((row) => ({
+      ...publicLogTracker(row),
+      numericAverages: averagesByTracker.get(row.tracker_id) ?? emptyAverages,
+    }));
   }
 
   listLogEntries({ trackerId = null, groupId = null, limit = 200 } = {}) {

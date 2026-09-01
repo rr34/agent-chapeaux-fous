@@ -921,6 +921,8 @@ const server = http.createServer(async (request, response) => {
           groupId: url.searchParams.get("groupId"),
           includeArchived: url.searchParams.get("includeArchived") === "true",
           limit: url.searchParams.get("limit") || 200,
+          timeZone: url.searchParams.get("timeZone"),
+          localDate: url.searchParams.get("localDate"),
         }),
       });
       return;

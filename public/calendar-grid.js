@@ -46,6 +46,13 @@ export function scheduledTodoCellItem(todo) {
   return { className: "day-todo", text: todo.text };
 }
 
+export function calendarGridCellContents(items, maximumRows = 8) {
+  const rowLimit = Math.max(1, Math.floor(maximumRows));
+  if (items.length <= rowLimit) return { items, hiddenCount: 0 };
+  const visibleItems = items.slice(0, rowLimit - 1);
+  return { items: visibleItems, hiddenCount: items.length - visibleItems.length };
+}
+
 export function renderCalendarGrid({
   container,
   dates,
@@ -87,17 +94,17 @@ export function renderCalendarGrid({
     button.append(number);
     const items = document.createElement("span");
     items.className = "day-items";
-    const visible = itemsForDate(date);
-    for (const item of visible.slice(0, 3)) {
+    const contents = calendarGridCellContents(itemsForDate(date));
+    for (const item of contents.items) {
       const row = document.createElement("span");
       row.className = item.className;
       row.textContent = item.text;
       items.append(row);
     }
-    if (visible.length > 3) {
+    if (contents.hiddenCount > 0) {
       const more = document.createElement("span");
       more.className = "day-more";
-      more.textContent = `+${visible.length - 3} more`;
+      more.textContent = `+${contents.hiddenCount} more`;
       items.append(more);
     }
     button.append(items);

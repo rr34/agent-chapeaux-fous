@@ -783,6 +783,70 @@ test("personal log entries and grouped trackers are available to the web organiz
   }
 });
 
+test("numeric log averages give each logged local day one equal weight", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
+    const first = organizer.createLogEntry({
+      trackerName: "Weight",
+      groupName: "Health",
+      contentText: "First reading",
+      numberValue: 70,
+      trackerUnit: "kg",
+      occurredAtUtc: "2026-08-31T12:00:00.000Z",
+    });
+    for (const [contentText, numberValue, occurredAtUtc] of [
+      ["Second reading that day", 74, "2026-08-31T20:00:00.000Z"],
+      ["Previous day", 80, "2026-08-30T12:00:00.000Z"],
+      ["Eight local days ago", 100, "2026-08-23T12:00:00.000Z"],
+      ["Old history", 50, "2020-01-01T12:00:00.000Z"],
+    ]) {
+      organizer.createLogEntry({
+        trackerId: first.trackerId,
+        contentText,
+        numberValue,
+        occurredAtUtc,
+      });
+    }
+
+    const tracker = organizer.listLogTrackers({
+      timeZone: "America/New_York",
+      localDate: "2026-08-31",
+    })[0];
+    assert.deepEqual(tracker.numericAverages.sevenDay, { value: 76, dayCount: 2 });
+    assert.deepEqual(tracker.numericAverages.oneYear, { value: 84, dayCount: 3 });
+    assert.deepEqual(tracker.numericAverages.allTime, { value: 75.5, dayCount: 4 });
+
+    const temperature = organizer.createLogEntry({
+      trackerName: "Temperature",
+      groupName: "Health",
+      contentText: "Just after midnight UTC",
+      numberValue: 10,
+      trackerUnit: "°C",
+      occurredAtUtc: "2026-08-31T00:30:00.000Z",
+    });
+    organizer.createLogEntry({
+      trackerId: temperature.trackerId,
+      contentText: "Late that UTC day",
+      numberValue: 20,
+      occurredAtUtc: "2026-08-31T23:30:00.000Z",
+    });
+    const newYorkTemperature = organizer.listLogTrackers({
+      timeZone: "America/New_York",
+      localDate: "2026-08-31",
+    }).find(({ id }) => id === temperature.trackerId);
+    const utcTemperature = organizer.listLogTrackers({
+      timeZone: "UTC",
+      localDate: "2026-08-31",
+    }).find(({ id }) => id === temperature.trackerId);
+    assert.deepEqual(newYorkTemperature.numericAverages.sevenDay, { value: 15, dayCount: 2 });
+    assert.deepEqual(utcTemperature.numericAverages.sevenDay, { value: 15, dayCount: 1 });
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("recurrence can be added, edited, and removed through todo updates", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);

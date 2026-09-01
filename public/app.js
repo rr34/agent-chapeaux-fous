@@ -4634,11 +4634,39 @@ async function reorderInteractionGuideSteps(guide, orderedStepIds) {
 function enableInteractionStepDragging({ guide, step, card, handle, list }) {
   let pointerId = null;
   let orderBeforeDrag = [];
+  let placeholder = null;
+  let pointerOffsetY = 0;
+  let styleBeforeDrag = null;
 
-  const finishPointerDrag = (event, { cancelled = false } = {}) => {
+  const movePointerDrag = (event) => {
+    if (pointerId === null || event.pointerId !== pointerId || !placeholder) return;
+    event.preventDefault();
+    card.style.top = `${event.clientY - pointerOffsetY}px`;
+
+    const nextCard = [...list.querySelectorAll(".interaction-turn-card")]
+      .find((candidate) => {
+        const bounds = candidate.getBoundingClientRect();
+        return event.clientY < bounds.top + bounds.height / 2;
+      });
+    if (nextCard) list.insertBefore(placeholder, nextCard);
+    else list.append(placeholder);
+  };
+
+  const stopListeningForPointerDrag = () => {
+    window.removeEventListener("pointermove", movePointerDrag, true);
+    window.removeEventListener("pointerup", finishPointerDrag, true);
+    window.removeEventListener("pointercancel", cancelPointerDrag, true);
+  };
+
+  function finishPointerDrag(event, { cancelled = false } = {}) {
     if (pointerId === null || event.pointerId !== pointerId) return;
+    stopListeningForPointerDrag();
     if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
     pointerId = null;
+    placeholder.replaceWith(card);
+    placeholder = null;
+    if (styleBeforeDrag === null) card.removeAttribute("style");
+    else card.setAttribute("style", styleBeforeDrag);
     card.classList.remove("dragging");
     list.classList.remove("reordering");
     if (cancelled) {
@@ -4652,7 +4680,11 @@ function enableInteractionStepDragging({ guide, step, card, handle, list }) {
     const orderedStepIds = [...list.querySelectorAll(".interaction-turn-card")]
       .map((candidate) => Number(candidate.dataset.stepId));
     void reorderInteractionGuideSteps(guide, orderedStepIds);
-  };
+  }
+
+  function cancelPointerDrag(event) {
+    finishPointerDrag(event, { cancelled: true });
+  }
 
   handle.addEventListener("pointerdown", (event) => {
     if (interactionGuideReorderInProgress || event.button !== 0) return;
@@ -4660,22 +4692,31 @@ function enableInteractionStepDragging({ guide, step, card, handle, list }) {
     pointerId = event.pointerId;
     orderBeforeDrag = [...list.querySelectorAll(".interaction-turn-card")]
       .map((candidate) => Number(candidate.dataset.stepId));
+    const bounds = card.getBoundingClientRect();
+    pointerOffsetY = event.clientY - bounds.top;
+    styleBeforeDrag = card.getAttribute("style");
+    placeholder = node("div", "interaction-turn-placeholder");
+    placeholder.style.height = `${bounds.height}px`;
+    list.replaceChild(placeholder, card);
+    document.body.append(card);
+    Object.assign(card.style, {
+      boxSizing: "border-box",
+      height: `${bounds.height}px`,
+      left: `${bounds.left}px`,
+      margin: "0",
+      pointerEvents: "none",
+      position: "fixed",
+      top: `${bounds.top}px`,
+      width: `${bounds.width}px`,
+      zIndex: "1000",
+    });
     handle.setPointerCapture(pointerId);
     card.classList.add("dragging");
     list.classList.add("reordering");
+    window.addEventListener("pointermove", movePointerDrag, true);
+    window.addEventListener("pointerup", finishPointerDrag, true);
+    window.addEventListener("pointercancel", cancelPointerDrag, true);
   });
-  handle.addEventListener("pointermove", (event) => {
-    if (pointerId === null || event.pointerId !== pointerId) return;
-    const target = document.elementFromPoint(event.clientX, event.clientY)
-      ?.closest(".interaction-turn-card");
-    if (!target || target === card || target.parentElement !== list) return;
-    const targetBounds = target.getBoundingClientRect();
-    list.insertBefore(card, event.clientY < targetBounds.top + targetBounds.height / 2
-      ? target
-      : target.nextSibling);
-  });
-  handle.addEventListener("pointerup", (event) => finishPointerDrag(event));
-  handle.addEventListener("pointercancel", (event) => finishPointerDrag(event, { cancelled: true }));
   handle.addEventListener("keydown", (event) => {
     if (interactionGuideReorderInProgress || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
@@ -4764,7 +4805,6 @@ function renderInteractionGuideDetail() {
       openingCopy.setAttribute("aria-label", `Copy exchange ${step.stepNumber} opening: ${step.openingText}`);
       openingCopy.addEventListener("click", (event) => void copyText(step.openingText, event.currentTarget));
       stepIdentity.append(
-        dragHandle,
         node("span", "interaction-turn-number", String(step.stepNumber)),
         openingCopy,
         node(
@@ -4783,6 +4823,7 @@ function renderInteractionGuideDetail() {
       stepActions.append(
         agentReferenceButton(interactionStepIdentity(guide, step), `briefing exchange ${step.stepNumber}`),
         editStep,
+        dragHandle,
       );
       stepHeading.append(stepIdentity, stepActions);
 
@@ -5059,8 +5100,13 @@ async function cancelInteractionGuideRun(guide, button) {
 
 async function refreshLogs() {
   try {
+    const trackerParameters = new URLSearchParams({
+      limit: "500",
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      localDate: localDateKey(new Date()),
+    });
     const [trackerBody, entryBody] = await Promise.all([
-      api("/api/log-trackers?limit=500"),
+      api(`/api/log-trackers?${trackerParameters}`),
       api("/api/log-entries?limit=500"),
     ]);
     logTrackers = trackerBody.trackers;
@@ -5105,6 +5151,35 @@ function populateLogTrackerFilter(selectedTracker = elements.logTrackerFilter.va
   }
   elements.logTrackerFilter.value = selectedTracker;
   if (!elements.logTrackerFilter.value) elements.logTrackerFilter.value = "";
+}
+
+function formatLogAverage(average, unit) {
+  if (average?.value === null || average?.value === undefined) return "—";
+  const value = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(average.value);
+  return `${value} ${unit}`;
+}
+
+function logAverageGrid(tracker) {
+  const grid = node("div", "log-average-grid");
+  const averages = [
+    ["7-day average", tracker.numericAverages?.sevenDay],
+    ["1-year average", tracker.numericAverages?.oneYear],
+    ["All-time average", tracker.numericAverages?.allTime],
+  ];
+  for (const [label, average] of averages) {
+    const statistic = node("div", "log-average-stat");
+    statistic.append(
+      node("span", "", label),
+      node("strong", "", formatLogAverage(average, tracker.unit)),
+      node(
+        "small",
+        "",
+        `${average?.dayCount ?? 0} ${(average?.dayCount ?? 0) === 1 ? "logged day" : "logged days"}`,
+      ),
+    );
+    grid.append(statistic);
+  }
+  return grid;
 }
 
 function renderLogs() {
@@ -5167,7 +5242,20 @@ function renderLogs() {
           entryList.append(item);
         }
       }
-      card.append(cardHeading, entryList);
+      const entryDisclosure = node("details", "log-entry-disclosure");
+      const entrySummary = node("summary", "log-entry-summary");
+      entrySummary.append(
+        node("span", "", "Recent entries"),
+        node(
+          "span",
+          "log-entry-summary-count",
+          entries.length === tracker.entryCount
+            ? String(entries.length)
+            : `${entries.length} of ${tracker.entryCount}`,
+        ),
+      );
+      entryDisclosure.append(entrySummary, entryList);
+      card.append(cardHeading, logAverageGrid(tracker), entryDisclosure);
       cards.append(card);
     }
     section.append(heading, cards);
