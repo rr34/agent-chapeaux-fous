@@ -189,6 +189,30 @@ function sourceEntry(entry) {
   };
 }
 
+function orientationCapabilityCatalog(catalog) {
+  if (!catalog.length) return "No connected capability families are currently advertised.";
+  return catalog.flatMap((capability) => {
+    const lines = [
+      `### ${capability.capability} — ${capability.title ?? capability.capability}`,
+      capability.summary,
+    ];
+    for (const view of capability.contextViews ?? []) {
+      lines.push(`- context:${view.id} — ${view.title ?? view.id}: ${view.description ?? ""}`.trim());
+    }
+    for (const tool of capability.tools ?? []) {
+      const status = tool.descriptionStatus ? ` [${tool.descriptionStatus}]` : "";
+      lines.push(`- tool:${tool.name}${tool.title ? ` — ${tool.title}` : ""}${status}: ${tool.summary}`);
+      if (tool.operations) {
+        lines.push(`  operations exhaustive=${tool.operations.exhaustive}`);
+        for (const operation of tool.operations.entries) {
+          lines.push(`  - ${operation.name} — ${operation.title}: ${operation.summary} Actions: ${operation.actionClasses.join(", ")}. Effects: ${operation.effectClassifications.join(", ")}.`);
+        }
+      }
+    }
+    return [...lines, ""];
+  }).join("\n").trim();
+}
+
 export function orientationContext({
   requestId,
   requestEventSeq,
@@ -230,7 +254,7 @@ export function orientationContext({
     JSON.stringify(explicitHats, null, 2),
     "",
     "## Connected capability families",
-    JSON.stringify(capabilityCatalog, null, 2),
+    orientationCapabilityCatalog(capabilityCatalog),
     "Each capability entry includes a compact catalog of its provider-published tools without their input schemas. Select the smallest initial tool set likely to complete the request in `requiredTools`. It is acceptable to omit a tool that later evidence may require because execution can request additional tools inside the accepted capability families. Never select a tool outside `requiredCapabilities`.",
     "Context views are small read-only datasets that the application can prepare after orientation and before execution. Request only views that materially help execution resolve existing names, identifiers, or categories. They are not writes and do not replace domain tools.",
   ].join("\n");

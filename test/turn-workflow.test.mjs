@@ -243,7 +243,7 @@ test("structured execution starts with orientation-selected tools and expands ex
       "remote_accounting_list_transactions",
       "remote_accounting_verify_ledger",
     ]);
-    assert.match(payload.developerInstructions, /Earlier tool receipts from this same user request/);
+    assert.match(payload.developerInstructions, /Earlier execution evidence from this same user request/);
     assert.match(payload.developerInstructions, /"transactionCount":13/);
     const verified = await payload.onToolCall({
       callId: "verify-ledger",
@@ -287,7 +287,7 @@ test("a generated repeatable exchange exposes only its authorized exchange-add t
   const register = (name, description) => registry.withCapability("interaction-guides").register({
     name,
     description,
-    annotations: { readOnlyHint: true },
+    annotations: { readOnlyHint: name === "interaction_guide_get" },
     parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
     async execute() {
       calls.push(name);
@@ -317,14 +317,24 @@ test("a generated repeatable exchange exposes only its authorized exchange-add t
       assert.doesNotMatch(payload.developerInstructions, /interaction_guide_create/);
       return completed(JSON.stringify(exchangeBrief), 20);
     }
-    assert.deepEqual(payload.tools.map(({ name }) => name), ["interaction_guide_step_add"]);
-    const added = await payload.onToolCall({
-      callId: "add-exchange",
-      tool: "interaction_guide_step_add",
-      arguments: { result_filter: identityResultFilter() },
-    });
-    assert.equal(added.ok, true);
-    return completed("Created exchange in Exchange Inbox.", 30);
+    if (index === 1) {
+      assert.deepEqual(payload.tools.map(({ name }) => name), ["interaction_guide_step_add"]);
+      const added = await payload.onToolCall({
+        callId: "add-exchange",
+        tool: "interaction_guide_step_add",
+        arguments: {},
+      });
+      assert.equal(added.ok, true);
+      return completed("Created exchange in Exchange Inbox.", 30);
+    }
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "The exchange was created by the authorized tool.",
+      satisfiedCriteria: ["A successful interaction_guide_step_add receipt exists."],
+      remainingActions: [],
+      repairInstructions: [],
+    }), 10);
   }, requests);
   const runtime = new SlayerRuntime({
     modelTransport,
@@ -343,7 +353,7 @@ test("a generated repeatable exchange exposes only its authorized exchange-add t
     allowedToolNames: ["interaction_guide_step_add"],
   }), "Created exchange in Exchange Inbox.");
   assert.deepEqual(calls, ["interaction_guide_step_add"]);
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 3);
 });
 
 test("a same-execution provider confirmation reference cannot be consumed by tool selection or repair", async () => {
@@ -812,7 +822,7 @@ test("a failed completion audit adds a bounded repair call without repeating suc
       repairInstructions: ["Do not call todo_create again; use the existing receipt."],
     }), 10);
     assert.equal(payload.maxToolCalls, 0);
-    assert.match(payload.developerInstructions, /Earlier tool receipts from this same user request/);
+    assert.match(payload.developerInstructions, /Earlier execution evidence from this same user request/);
     assert.match(payload.developerInstructions, /"todoId":42/);
     assert.doesNotMatch(payload.developerInstructions, /I think that should be done\./);
     assert.match(payload.developerInstructions, /satisfiedCriteria and successful receipts/);
@@ -969,7 +979,8 @@ test("a historical receipt cannot masquerade as a new dry run and repair preserv
     if (index === 0) return completed(JSON.stringify(dryRunBrief), 20);
     if (index === 1) {
       const historical = await payload.onToolCall({
-        callId: "historical", tool: "tool_receipt_read", arguments: { receiptEventSeq: 42 },
+        callId: "historical", tool: "tool_receipt_read",
+        arguments: { receiptEventSeq: 42, result_filter: identityResultFilter() },
       });
       assert.equal(historical.ok, true);
       return completed("Dry run completed: 273 accounts.", 50);

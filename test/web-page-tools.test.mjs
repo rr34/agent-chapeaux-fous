@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readResultFilterSchema } from "../src/search/result-filter.mjs";
 import { WebPageClient, isPublicIpAddress, parseWebPageUrl } from "../src/web-page-client.mjs";
 import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
@@ -20,8 +21,9 @@ test("web_page_read exposes one explicit URL reader and no search query", () => 
     properties: {
       url: { type: "string", minLength: 8, maxLength: 4096 },
       maximum_characters: { type: "integer", minimum: 1000, maximum: 100000 },
+      result_filter: readResultFilterSchema,
     },
-    required: ["url", "maximum_characters"],
+    required: ["url", "maximum_characters", "result_filter"],
   });
   assert.match(definition.description, /does not search the web/i);
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "query"), false);

@@ -10,6 +10,7 @@ import { SlayerRuntime } from "../src/runtime.mjs";
 import {
   artifactUploadMetadataKey, McpToolManager, mcpResultDetails, remoteToolName,
 } from "../src/tools/mcp-tools.mjs";
+import { toolDescriptionMetadataKey } from "../src/tool-description.mjs";
 import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
 
 test("remote application tools use provider-neutral names", () => {
@@ -17,6 +18,74 @@ test("remote application tools use provider-neutral names", () => {
   assert.equal(name, "remote_weather_openmeteo_search_locations");
   assert.equal(name.startsWith("mcp__"), false);
   assert.match(name, /^[A-Za-z][A-Za-z0-9_-]{0,63}$/);
+});
+
+test("remote Tool Description metadata is validated without becoming a base-MCP requirement", () => {
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "remote_example_valid",
+    description: "A complete provider execution description.",
+    source: "mcp:example",
+    annotations: { readOnlyHint: true },
+    metadata: {
+      [toolDescriptionMetadataKey]: {
+        protocol: "agent-slayer.tool-description",
+        version: 1,
+        summary: "Read the current example record.",
+        actionClasses: ["READ"],
+        effectClassifications: ["READ-ONLY"],
+      },
+    },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { return {}; },
+  });
+  assert.equal(registry.toolDefinitions().length, 1);
+
+  assert.throws(() => registry.register({
+    name: "remote_example_invalid",
+    description: "A complete provider execution description.",
+    source: "mcp:example",
+    annotations: { readOnlyHint: true },
+    metadata: {
+      [toolDescriptionMetadataKey]: {
+        protocol: "agent-slayer.tool-description",
+        version: 1,
+        summary: "Mutate the example record.",
+        actionClasses: ["UPDATE"],
+        effectClassifications: ["MUTATING"],
+      },
+    },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { return {}; },
+  }), /effects conflict with readOnlyHint/);
+
+  assert.throws(() => registry.register({
+    name: "remote_example_malformed",
+    description: "A provider extension with a field outside the versioned contract.",
+    source: "mcp:example",
+    annotations: { readOnlyHint: true },
+    metadata: {
+      [toolDescriptionMetadataKey]: {
+        protocol: "agent-slayer.tool-description",
+        version: 1,
+        summary: "Read the current example record.",
+        actionClasses: ["READ"],
+        effectClassifications: ["READ-ONLY"],
+        undocumentedField: true,
+      },
+    },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { return {}; },
+  }), /undocumentedField is not allowed/);
+
+  registry.register({
+    name: "remote_example_legacy",
+    description: "A legacy MCP tool with no Agent Slayer extension.",
+    source: "mcp:example",
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { return {}; },
+  });
+  assert.equal(registry.toolDefinitions().length, 2);
 });
 
 test("an advertised HTTP artifact receiver becomes one resumable file-upload application tool", async (context) => {
@@ -48,6 +117,13 @@ test("an advertised HTTP artifact receiver becomes one resumable file-upload app
       name: "stage_transaction_import_artifact", description: "Stage an uploaded transaction artifact.",
       inputSchema: inputSchema(["import_job_id", "artifact_id"]),
       _meta: {
+        [toolDescriptionMetadataKey]: {
+          protocol: "agent-slayer.tool-description",
+          version: 1,
+          summary: "Stage one previously uploaded transaction artifact for provider validation.",
+          actionClasses: ["EXECUTE"],
+          effectClassifications: ["MUTATING"],
+        },
         [artifactUploadMetadataKey]: {
           contractVersion: 1,
           transportId: "transaction_import",
@@ -143,6 +219,13 @@ test("an advertised HTTP artifact receiver becomes one resumable file-upload app
     "remote_accounting_stage_transaction_import_artifact", wrapperName,
   ]);
   const definition = registry.toolDefinitions().find(({ name }) => name === wrapperName);
+  const consumerDefinition = registry.toolDefinitions().find(({ name }) => (
+    name === "remote_accounting_stage_transaction_import_artifact"
+  ));
+  assert.equal(
+    consumerDefinition.metadata[toolDescriptionMetadataKey].protocol,
+    "agent-slayer.tool-description",
+  );
   assert.deepEqual(definition.inputSchema.required, ["file_id"]);
   assert.equal(definition.annotations.idempotentHint, true);
   assert.equal(definition.annotations.openWorldHint, true);

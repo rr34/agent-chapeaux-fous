@@ -5,6 +5,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { auth, UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { FileOAuthClientProvider } from "../mcp-oauth.mjs";
+import {
+  defineToolDescription, toolDescriptionMetadataKey,
+} from "../tool-description.mjs";
 
 function expandEnvironment(value, environment) {
   if (typeof value !== "string") return value;
@@ -700,6 +703,11 @@ export class McpToolManager {
         readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true,
       },
       metadata: {
+        [toolDescriptionMetadataKey]: defineToolDescription({
+          summary: `Upload one complete verified durable file to ${serverName}'s advertised artifact receiver. This transfers bytes but does not invoke the provider's consuming tool.`,
+          actionClasses: ["EXECUTE"],
+          effectClassifications: ["MUTATING", "EXTERNAL"],
+        }),
         [artifactUploadMetadataKey]: {
           contractVersion: artifactUploadContractVersion,
           transportId: upload.transportId,

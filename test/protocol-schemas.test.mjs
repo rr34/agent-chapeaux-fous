@@ -6,6 +6,10 @@ const retrySchemaPath = new URL(
   "../config/protocol-schemas/retry-descriptor.v1.schema.json",
   import.meta.url,
 );
+const toolDescriptionSchemaPath = new URL(
+  "../config/protocol-schemas/tool-description.v1.schema.json",
+  import.meta.url,
+);
 const manifestoPath = new URL("../AGENT-TOOL-MANIFESTO.md", import.meta.url);
 
 test("the manifesto references one authoritative versioned retry descriptor", () => {
@@ -38,4 +42,22 @@ test("the manifesto references one authoritative versioned retry descriptor", ()
   );
   assert.match(manifesto, /[Ii]t\s+never refers to the Agent Slayer request ID/);
   assert.match(manifesto, /a `true`\s+value is unsupported and must not be guessed around/);
+});
+
+test("the manifesto publishes one authoritative layered Tool Description contract", () => {
+  const schema = JSON.parse(fs.readFileSync(toolDescriptionSchemaPath, "utf8"));
+  const manifesto = fs.readFileSync(manifestoPath, "utf8");
+
+  assert.deepEqual(schema.properties.protocol.enum, ["agent-slayer.tool-description"]);
+  assert.deepEqual(schema.properties.version.enum, [1]);
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(new Set(schema.required), new Set([
+    "protocol", "version", "summary", "actionClasses", "effectClassifications",
+  ]));
+  assert.equal(schema.properties.operations.properties.exhaustive.type, "boolean");
+  assert.equal(schema.properties.operations.properties.entries.maxItems, 40);
+  assert.match(manifesto, /3A\. The Tool Description contract/);
+  assert.match(manifesto, /config\/protocol-schemas\/tool-description\.v1\.schema\.json/);
+  assert.match(manifesto, /_meta\["agent-slayer\/selection"\]/);
+  assert.match(manifesto, /`operations\.exhaustive=true`/);
 });

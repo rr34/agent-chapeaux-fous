@@ -321,7 +321,86 @@ Each MCP publishes a capability manifest containing:
 - named bounded read-only context views; and
 - current tool metadata exposed through discovery.
 
-Each tool publishes:
+## 3A. The Tool Description contract
+
+Tool use is the Agent's primary operational boundary, so every native and MCP
+tool is described through one layered contract. The layers become progressively
+more exact; a compact earlier layer routes to a later layer but never replaces
+or paraphrases it.
+
+1. **Machine name** — the stable callable identity.
+2. **Concise title** — a short human label for catalogs and traces.
+3. **Selection summary** — one or two human-authored routing sentences stating
+   the concrete outcome, when to select the tool, and the nearest important
+   distinction.
+4. **Action and effect classifications** — validated structured routing facts
+   used to generate the selection-summary suffix.
+5. **Operations** — an optional bounded provider-owned list for a dispatcher
+   tool whose generic `entity`, `workflow`, `operation`, or `action` field hides
+   materially different operations. An ordinary focused tool omits this layer.
+6. **Execution description** — the complete provider-owned instructions stating
+   how and when to use the tool and what its result proves.
+7. **Exact input schema** — the complete callable argument contract.
+8. **Exact output schema and result states** — structured success, incomplete,
+   partial, error, retry, and handoff shapes.
+9. **Protocol annotations and metadata** — truthful read-only, destructive,
+   idempotent, open-world, artifact, and other protocol facts.
+10. **Owning implementation** — authorization, validation, transactions,
+    idempotency, persistence, and actual effects behind the published contract.
+
+Layers 1 through 5 form the orientation catalog entry. Layers 6 through 9 are
+shown only when the exact tool becomes callable in execution. Layer 10 never
+becomes model context; the model observes only its published contracts and
+results.
+
+Every Tool Description validates against the single authoritative versioned
+schema at
+`config/protocol-schemas/tool-description.v1.schema.json`. Native tools publish
+the description in their owned registration. An MCP may publish the same object
+in its standard tool `_meta` field under the extension key
+`_meta["agent-slayer/selection"]`; an application adapter may instead supply
+explicit source-referenced metadata when the provider cannot publish the
+extension itself. Agent Slayer validates either source identically and never
+silently truncates an execution description into a selection summary.
+
+The MCP extension is an Agent Slayer interoperability contract, not a claim
+that base MCP requires this field. A remote tool lacking it may remain
+connected for compatibility, but its catalog entry explicitly says that Tool
+Description metadata is missing; Agent Slayer does not invent provider meaning
+or present a clipped execution description as validated routing evidence.
+
+The extension object has this exact shape:
+
+```json
+{
+  "protocol": "agent-slayer.tool-description",
+  "version": 1,
+  "summary": "Execute one guarded provider workflow after its exact operation is selected.",
+  "actionClasses": ["EXECUTE"],
+  "effectClassifications": ["MUTATING"],
+  "operations": {
+    "exhaustive": true,
+    "entries": [
+      {
+        "name": "item_management",
+        "title": "Manage property items",
+        "summary": "Add items, change optional instance labels, or remove an empty item within one property.",
+        "actionClasses": ["CREATE", "UPDATE", "DELETE"],
+        "effectClassifications": ["MUTATING", "DESTRUCTIVE"]
+      }
+    ]
+  }
+}
+```
+
+`operations.exhaustive=true` means that absence from `entries` proves the tool
+does not expose another operation in that version. `false` makes the entries
+useful routing examples but never evidence that an omitted operation is
+unsupported. Operation names and summaries come from the same provider-owned
+registry that generates dispatcher schemas and detailed description responses;
+parallel handwritten operation lists are forbidden because they can drift.
+
+Each tool therefore publishes:
 
 - a stable machine name and concise title;
 - a human-authored selection summary of no more than 400 characters;
@@ -353,12 +432,11 @@ requires another behavior. Batch support must express the domain operation; it
 must not be simulated through generic database writes or by making the model
 issue one tool call per record.
 
-The selection summary is a distinct routing contract, not a clipped execution
-description. In one or two concise sentences it states the concrete outcome,
-the situation in which the tool should be selected, and any distinction from the closest easily confused tool. It omits
-argument-level procedure unless that procedure determines which tool is
-appropriate. It must be sufficient for a model to select probable tools from a
-catalog while the complete description and schema remain deferred.
+The selection summary is the routing layer of the Tool Description, not a
+clipped execution description. It omits argument-level procedure unless that
+procedure determines which tool is appropriate. It must be sufficient for a
+model to select probable tools from a catalog while the complete description
+and schemas remain deferred.
 
 Every cataloged selection summary ends with a compact, standardized suffix
 generated from the tool's validated metadata, for example `Actions: READ.` or
@@ -377,14 +455,13 @@ owned by the tool, not incidental implementation details such as internal SQL
 statements. They inform selection but do not grant authorization or weaken any
 approval, validation, or provider-owned workflow boundary.
 
-Every native tool and externally owned MCP tool must supply this concise
-selection summary through its owned definition or explicit source-referenced
-catalog metadata. Registration and discovery validate that it is present and
-no longer than 400 characters. They must never create a selection summary by
-silently truncating a verbose description; a missing or overlong summary is
-reported explicitly for correction at the owning boundary. Application-owned
-selection metadata never replaces, rewrites, or broadens a provider-published
-description, schema, authorization boundary, or workflow meaning.
+Every native tool must supply a valid Tool Description. Every externally owned
+MCP tool should supply one through `_meta["agent-slayer/selection"]` or explicit
+source-referenced adapter metadata. Registration and discovery validate
+metadata when present; missing or invalid remote metadata is reported
+explicitly for correction at the owning boundary. Application-owned metadata
+never replaces, rewrites, or broadens a provider-published description, schema,
+authorization boundary, or workflow meaning.
 
 Native calendar, contact, to-do, log, email, profile, file, guide, search, and
 video tools use the same domain services as their HTTP and UI adapters. Generic
@@ -402,6 +479,12 @@ The schema-semantics compiler is a separate shared internal tool because it
 performs one concrete operation across participating structured database-backed
 tools. It is deterministic application code, not an LLM or a model-callable
 tool, and it does not become the owner of any schema it processes.
+
+The Tool Description contract answers which tool or provider-owned operation
+can produce an outcome. The schema-semantics compiler answers what the selected
+structured objects and fields mean. An operations list must never absorb field
+semantics or replace an exact compiled schema projection; the compiler must
+never infer tool operations from field names.
 
 The compiler owns:
 
@@ -449,15 +532,30 @@ The protocol carries:
 - effect receipts; and
 - opaque provider-owned workflow references.
 
-Orientation receives a bounded capability catalog containing each candidate
-tool's complete, validated selection summary but no callable schema or clipped
-execution description. It selects the smallest likely initial tool set inside
-its accepted capability families. Execution receives full guidance, complete
-execution descriptions, and exact schemas only for those selected tools. It may
+Orientation receives a bounded capability catalog containing only capability
+identity, title, summary, and context views plus each candidate tool's machine
+name, concise title, complete validated selection summary, optional bounded
+operations, and an explicit status only when Tool Description validation is
+missing. Raw annotation objects, representative
+tool lists, counts derivable from the list, callable schemas, and execution
+descriptions are omitted. Execution receives full guidance, complete execution
+descriptions, annotations, and exact schemas only for selected tools. It may
 make a bounded request for additional exact tools only inside the accepted
-capability families; the application then continues the same execution with
-prior receipts preserved. A merely cataloged, deferred, disabled, disconnected,
-unauthorized, or failed tool is never represented as callable.
+capability families; the application then continues the same execution with a
+compact source-referenced projection of earlier receipts. A merely cataloged,
+deferred, disabled, disconnected, unauthorized, or failed tool is never
+represented as callable.
+
+The continuation projection is the only model-facing form of an earlier
+same-request receipt after tool expansion or model-thread replacement. It
+integrates tool name, status, canonical arguments, stable receipt event number,
+exact filtered evidence, errors, and action references in one object. It removes
+duplicate schema contexts, search-filter bookkeeping, provider envelopes, and
+other data that does not change the observed evidence. The complete literal
+receipt remains once in the durable ledger and trace; it is not copied beside
+the compact projection. If exact omitted evidence is still required and receipt
+reading is callable, execution pages that stable receipt instead of repeating
+the original action.
 
 Initial tool selection is deliberately precise and recoverable. Accepting a
 capability family does not make every tool in that family callable, and the

@@ -42,7 +42,7 @@ function callableCapabilities(registry) {
   return requestCapabilityCatalog(registry.toolDefinitions()).map((capability) => ({
     capability: capability.capability,
     summary: capability.summary,
-    toolCount: capability.toolCount,
+    toolCount: capability.tools.length,
     tools: capability.tools.map((tool) => {
       const definition = registry.get(tool.name);
       return {

@@ -9,9 +9,11 @@ import {
   selectRequestCapabilities,
 } from "../src/request-compiler.mjs";
 import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
+import { registerAgentSelfTools } from "../src/tools/agent-self-tools.mjs";
 import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerJmapEmailTools } from "../src/tools/jmap-email-tools.mjs";
+import { registerEmailReceiptTools } from "../src/tools/email-receipts.mjs";
 import { registerFileTools } from "../src/tools/file-tools.mjs";
 import { registerLogTools } from "../src/tools/log-tools.mjs";
 import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
@@ -20,7 +22,10 @@ import { registerSearchTools } from "../src/tools/search-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
+import { registerVideoScriptTools } from "../src/tools/video-script-tools.mjs";
 import { loadHatCatalog } from "../src/hat-catalog.mjs";
+import { assertNativeToolDescriptions } from "../src/native-tool-descriptions.mjs";
+import { toolDescriptionMetadataKey } from "../src/tool-description.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const hatCatalog = await loadHatCatalog(path.join(repositoryRoot, "config", "hats.json"));
@@ -78,6 +83,22 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("file_read")), "files");
 });
 
+test("application startup can enforce Tool Description metadata for every native tool", () => {
+  const registry = new ToolRegistry();
+  registerWebPageTools(registry, {});
+  assert.doesNotThrow(() => assertNativeToolDescriptions(registry.toolDefinitions()));
+  registry.register({
+    name: "unclassified_native_tool",
+    description: "Test-only missing metadata.",
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { return {}; },
+  });
+  assert.throws(
+    () => assertNativeToolDescriptions(registry.toolDefinitions()),
+    /unclassified_native_tool/,
+  );
+});
+
 test("a referenced generated video can select the focused content-sequence operation", () => {
   const selection = selectRequestCapabilities({
     tools: [...tools, tool("video_content_add")],
@@ -98,10 +119,6 @@ test("the orienter receives one organized catalog of every connected capability 
   assert.equal(catalog.some(({ capability }) => capability === "unclassified"), true);
   assert.equal(catalog.some(({ capability }) => capability === "integration:tlom"), true);
   assert.deepEqual(
-    catalog.find(({ capability }) => capability === "email").representativeTools,
-    ["email_search", "email_send"],
-  );
-  assert.deepEqual(
     catalog.find(({ capability }) => capability === "email").tools.map(({ name }) => name),
     ["email_search", "email_send"],
   );
@@ -109,6 +126,8 @@ test("the orienter receives one organized catalog of every connected capability 
     catalog.find(({ capability }) => capability === "email").tools[0].inputSchema,
     undefined,
   );
+  assert.equal(catalog.find(({ capability }) => capability === "email").toolCount, undefined);
+  assert.equal(catalog.find(({ capability }) => capability === "email").tools[0].annotations, undefined);
 });
 
 test("a TurnBrief tool override starts narrow and advertises exact in-capability expansion", async () => {
@@ -243,14 +262,26 @@ test("every currently registered local tool belongs to an explicit capability", 
     ledger: {}, searchCoordinator: {}, mediaRoot: "/tmp", maximumTextBytes: 1,
   });
   registerJmapEmailTools(registry, { health() { return { ready: true }; } });
+  registerEmailReceiptTools(registry, {});
   registerSearchTools(registry, {
     listProviders() { return [{ id: "history" }]; },
     search() { return {}; },
   });
+  registerVideoScriptTools(registry, {}, { videoContent: {} });
+  registerAgentSelfTools(registry, { hatCatalog });
+  assertNativeToolDescriptions(registry.toolDefinitions());
   assert.deepEqual(
     registry.toolDefinitions().filter((definition) => capabilityForTool(definition) === "unclassified"),
     [],
   );
+  for (const definition of registry.toolDefinitions()) {
+    assert.equal(typeof definition.title, "string", definition.name);
+    assert.equal(
+      definition.metadata?.[toolDescriptionMetadataKey]?.protocol,
+      "agent-slayer.tool-description",
+      definition.name,
+    );
+  }
 });
 
 test("a broad cross-domain discovery request selects global search", () => {
@@ -434,6 +465,17 @@ test("native database reads are always callable while database writes require ex
   const mutation = selectRequestCapabilities({ tools, text: "Update the database rows for those content items." });
   assert.equal(mutation.capabilities.includes("database-write"), true);
   assert.equal(names(mutation).includes("database_write"), true);
+
+  const registry = new ToolRegistry();
+  registerDatabaseTools(registry, {}, {}, null);
+  const databaseWrite = requestCapabilityCatalog(registry.toolDefinitions())
+    .find(({ capability }) => capability === "database-write")
+    .tools.find(({ name }) => name === "database_write");
+  assert.equal(databaseWrite.operations.exhaustive, true);
+  assert.deepEqual(databaseWrite.operations.entries.map(({ name }) => name), [
+    "insert", "update", "delete",
+  ]);
+  assert.equal(databaseWrite.annotations, undefined);
 });
 
 test("an explicit plural email request does not inherit an unrelated prior topic from incidental pronouns", () => {

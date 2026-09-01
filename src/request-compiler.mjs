@@ -1,5 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+  catalogToolDescription, defineToolDescription, toolDescriptionMetadataKey,
+} from "./tool-description.mjs";
 
 const localCapabilityMatchers = [
   ["web", (tool) => tool.name === "web_page_read"],
@@ -322,49 +325,19 @@ function capabilitySummary(capability, tools) {
   if (declared) return declared;
   if (capability.startsWith("integration:")) {
     const provider = capability.slice("integration:".length);
-    const examples = tools.slice(0, 3).map(({ name }) => name).join(", ");
-    return `${provider} connected integration${examples ? `; representative operations: ${examples}` : ""}.`;
+    return `${provider} connected integration.`;
   }
   return capabilitySummaries.get(capability) ?? `${capability} application capability.`;
 }
 
-function compactToolSummary(tool, maximumCharacters = 320) {
-  const value = String(tool.description ?? tool.title ?? tool.name).replace(/\s+/gu, " ").trim();
-  if (value.length <= maximumCharacters) return value;
-  const prefix = value.slice(0, maximumCharacters - 1);
-  const boundary = prefix.lastIndexOf(" ");
-  return `${prefix.slice(0, boundary >= maximumCharacters * 0.7 ? boundary : prefix.length)}…`;
-}
-
-function ownedToolSelectionSummary(tool) {
-  const selection = tool.metadata?.["agent-slayer/selection"];
-  if (selection == null) return null;
-  const summary = String(selection.summary ?? "").replace(/\s+/gu, " ").trim();
-  const actions = selection.actionClasses;
-  const effects = selection.effectClassifications;
-  const validActions = new Set(["CREATE", "READ", "UPDATE", "DELETE", "EXECUTE"]);
-  const validEffects = new Set(["READ-ONLY", "MUTATING", "DESTRUCTIVE", "EXTERNAL"]);
-  if (!summary) throw new Error(`${tool.name} selection summary is required`);
-  if (!Array.isArray(actions) || actions.length === 0 || actions.some((value) => !validActions.has(value))) {
-    throw new Error(`${tool.name} selection action classes are invalid`);
-  }
-  if (!Array.isArray(effects) || effects.length === 0 || effects.some((value) => !validEffects.has(value))) {
-    throw new Error(`${tool.name} selection effect classifications are invalid`);
-  }
-  if (effects.includes("READ-ONLY") !== (tool.annotations?.readOnlyHint === true)) {
-    throw new Error(`${tool.name} selection effects conflict with its read-only annotation`);
-  }
-  const complete = `${summary} Actions: ${actions.join(", ")}. Effects: ${effects.join(", ")}.`;
-  if (complete.length > 400) throw new Error(`${tool.name} selection summary exceeds 400 characters`);
-  return complete;
-}
-
 function toolCatalogEntry(tool) {
+  const description = catalogToolDescription(tool);
   return {
     name: tool.name,
     title: tool.title ?? null,
-    summary: ownedToolSelectionSummary(tool) ?? compactToolSummary(tool),
-    annotations: tool.annotations ?? null,
+    summary: description.summary,
+    ...(description.operations ? { operations: description.operations } : {}),
+    ...(description.status === "validated" ? {} : { descriptionStatus: description.status }),
   };
 }
 
@@ -379,14 +352,16 @@ export function requestCapabilityCatalog(tools) {
   }
   return [...grouped.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([capability, entries]) => ({
-      capability,
-      summary: capabilitySummary(capability, entries),
-      toolCount: entries.length,
-      representativeTools: entries.slice(0, 5).map(({ name }) => name),
-      tools: entries.map(toolCatalogEntry),
-      contextViews: entries.find(({ capability: manifest }) => manifest)?.capability?.contextViews ?? [],
-    }));
+    .map(([capability, entries]) => {
+      const manifest = entries.find(({ capability: declared }) => declared)?.capability;
+      return {
+        capability,
+        title: manifest?.title ?? capability,
+        summary: capabilitySummary(capability, entries),
+        tools: entries.map(toolCatalogEntry),
+        contextViews: manifest?.contextViews ?? [],
+      };
+    });
 }
 
 export function capabilityRequestDefinition(capabilities) {
@@ -394,6 +369,7 @@ export function capabilityRequestDefinition(capabilities) {
   if (allowed.length === 0) return null;
   return {
     name: "request_capabilities",
+    title: "Request capability schemas",
     description: "Request exact schemas for one or more additional capability families when the current callable tools are insufficient. Prefer calling this before dependent actions, but it may be called after a read or other domain tool when that result reveals another capability is needed. After a successful request, Agent Slayer continues the same user request with those tools and prior same-request receipts loaded; do not ask the user to retry or treat this call itself as completing the task.",
     inputSchema: {
       type: "object",
@@ -412,6 +388,14 @@ export function capabilityRequestDefinition(capabilities) {
     strict: true,
     source: "local",
     upstreamName: null,
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    metadata: {
+      [toolDescriptionMetadataKey]: defineToolDescription({
+        summary: "Load exact schemas for additional connected capability families when the current callable set is insufficient; this performs no domain action.",
+        actionClasses: ["EXECUTE"],
+        effectClassifications: ["READ-ONLY"],
+      }),
+    },
   };
 }
 
@@ -448,6 +432,7 @@ function requestToolsDefinition(tools) {
   if (allowed.length === 0) return null;
   return {
     name: "request_tools",
+    title: "Request tool schemas",
     description: "Request exact schemas for one or more additional tools inside the capability families selected by the accepted TurnBrief. Use this only when the current exact tools cannot finish the request. Agent Slayer will continue the same execution with earlier receipts preserved; this call does not perform the requested domain action.",
     inputSchema: {
       type: "object",
@@ -466,6 +451,14 @@ function requestToolsDefinition(tools) {
     strict: true,
     source: "local",
     upstreamName: null,
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    metadata: {
+      [toolDescriptionMetadataKey]: defineToolDescription({
+        summary: "Load exact schemas for additional tools inside accepted capability families when the current callable set is insufficient; this performs no domain action.",
+        actionClasses: ["EXECUTE"],
+        effectClassifications: ["READ-ONLY"],
+      }),
+    },
   };
 }
 
@@ -592,8 +585,7 @@ export class RequestCompiler {
           "# Additional tools inside the accepted capability families",
           "These provider-published tools are not currently callable because their exact schemas were intentionally deferred. If execution evidence shows that one is needed, call `request_tools`; Agent Slayer will continue this same execution with only those additional exact schemas and prior receipts.",
           ...deferredTools.map((tool) => (
-            `- ${tool.name}${tool.title ? ` (${tool.title})` : ""}: ${compactToolSummary(tool)}`
-            + (tool.annotations ? ` Effects: ${JSON.stringify(tool.annotations)}.` : "")
+            `- ${tool.name}${tool.title ? ` (${tool.title})` : ""}: ${toolCatalogEntry(tool).summary}`
           )),
         ].join("\n")
       : "";
@@ -620,7 +612,6 @@ export class RequestCompiler {
       deferredTools: deferredTools.map(toolCatalogEntry),
       capabilityCatalog: deferredCapabilities.map((capability) => ({
         capability,
-        toolCount: grouped.get(capability)?.length ?? 0,
         summary: capabilitySummary(capability, grouped.get(capability) ?? []),
       })),
     };

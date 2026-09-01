@@ -169,7 +169,9 @@ test("contact_search exposes the Contacts UI substring search to the agent", asy
   });
 
   const definition = registry.toolDefinitions().find(({ name }) => name === "contact_search");
-  assert.deepEqual(definition.inputSchema.required, ["queries", "include_inactive", "limit"]);
+  assert.deepEqual(definition.inputSchema.required, [
+    "queries", "include_inactive", "limit", "result_filter",
+  ]);
   assert.match(definition.description, /same case-insensitive substring behavior as the Contacts UI/);
 
   const result = await registry.execute("contact_search", {

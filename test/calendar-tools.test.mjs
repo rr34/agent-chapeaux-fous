@@ -51,7 +51,9 @@ test("calendar_event_search returns exact stored fields with strict bounded argu
   `).run("Archived library planning", "2099-09-11T18:30:00.000Z", "cancelled");
 
   const definition = registry.toolDefinitions().find(({ name }) => name === "calendar_event_search");
-  assert.deepEqual(definition.inputSchema.required, ["query", "include_archived", "limit"]);
+  assert.deepEqual(definition.inputSchema.required, [
+    "query", "include_archived", "limit", "result_filter",
+  ]);
   assert.equal(definition.inputSchema.additionalProperties, false);
 
   const result = await registry.execute("calendar_event_search", {

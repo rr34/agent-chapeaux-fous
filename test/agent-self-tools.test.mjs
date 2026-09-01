@@ -74,7 +74,8 @@ test("self-description questions select the dedicated read-only capability", () 
   assert.equal(selection.tools.some(({ name }) => name === "agent_self_describe"), true);
   const catalog = requestCapabilityCatalog(registry.toolDefinitions());
   const self = catalog.find(({ capability }) => capability === "self");
-  assert.equal(self.toolCount, 2);
+  assert.equal(self.toolCount, undefined);
+  assert.equal(self.tools.length, 2);
   assert.deepEqual(self.tools.map(({ name }) => name), ["agent_self_knowledge", "agent_self_describe"]);
   assert.equal(self.tools[0].inputSchema, undefined);
 });

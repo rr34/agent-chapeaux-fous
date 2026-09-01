@@ -1,4 +1,8 @@
 import { withReadResultFilterSchema } from "../search/result-filter.mjs";
+import { applyNativeToolDescription } from "../native-tool-descriptions.mjs";
+import {
+  toolDescriptionMetadataKey, validateToolDescription,
+} from "../tool-description.mjs";
 
 function typeMatches(value, type) {
   if (type === "null") return value === null;
@@ -150,11 +154,30 @@ export class ToolRegistry {
   register(tool) {
     if (!tool?.name || typeof tool.execute !== "function") throw new Error("A tool needs a name and execute function");
     if (this.tools.has(tool.name)) throw new Error(`Duplicate tool name: ${tool.name}`);
+    const source = String(tool.source ?? "local");
+    const nativeDescribed = source === "local" ? applyNativeToolDescription(tool) : tool;
+    const nativeSelection = nativeDescribed.metadata?.[toolDescriptionMetadataKey];
+    const described = nativeSelection && nativeDescribed.annotations == null
+      ? {
+          ...nativeDescribed,
+          annotations: {
+            readOnlyHint: nativeSelection.effectClassifications.includes("READ-ONLY"),
+            destructiveHint: nativeSelection.effectClassifications.includes("DESTRUCTIVE"),
+          },
+        }
+      : nativeDescribed;
+    const publishedDescription = described.metadata?.[toolDescriptionMetadataKey];
+    if (publishedDescription) {
+      validateToolDescription(publishedDescription, {
+        annotations: described.annotations ?? null,
+        label: described.name,
+      });
+    }
     this.tools.set(tool.name, {
       strict: true,
       source: "local",
-      ...tool,
-      validateArguments: tool.validateArguments ?? (tool.strict !== false),
+      ...described,
+      validateArguments: described.validateArguments ?? (described.strict !== false),
     });
     return this;
   }

@@ -14,6 +14,7 @@ import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { registerNativeCapabilities } from "./native-capabilities.mjs";
+import { assertNativeToolDescriptions } from "./native-tool-descriptions.mjs";
 import { loadHatCatalog } from "./hat-catalog.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { capabilityForTool, RequestCompiler } from "./request-compiler.mjs";
@@ -125,6 +126,7 @@ registerAgentSelfTools(registry, {
   integrationHealth: () => ({ ...mcp.health(), email: jmap.health() }),
   hatCatalog,
 });
+assertNativeToolDescriptions(registry.toolDefinitions());
 const contextBuilder = new ContextBuilder({
   ledger,
   profileFacts,

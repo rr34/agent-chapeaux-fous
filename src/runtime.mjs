@@ -231,32 +231,70 @@ function joinedInstructions(...sections) {
   return sections.map((section) => String(section ?? "").trim()).filter(Boolean).join("\n\n");
 }
 
+function compactWorkingContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const fields = [
+    "active_frontdoor_id", "active_item_id", "active_task_id", "current_project_id",
+    "ActiveContextVersion", "context_version", "active_scope", "breadcrumb",
+  ];
+  return Object.fromEntries(fields.filter((name) => Object.hasOwn(value, name)).map((name) => [name, value[name]]));
+}
+
+function continuationEvidence(value) {
+  if (Array.isArray(value)) return value.map(continuationEvidence);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).flatMap(([name, child]) => {
+    if (["schema_contexts", "schemaProjection", "result_filter"].includes(name)) return [];
+    if (name === "working_context") return [[name, compactWorkingContext(child)]];
+    return [[name, continuationEvidence(child)]];
+  }));
+}
+
+function continuationReceipt(receipt) {
+  const compact = {
+    receiptEventSeq: receipt.receiptEventSeq ?? null,
+    tool: receipt.tool,
+    status: receipt.ok ? "complete" : "error",
+    arguments: receipt.arguments,
+    ...(Object.hasOwn(receipt, "result") ? { evidence: continuationEvidence(receipt.result) } : {}),
+    ...(receipt.error ? { error: receipt.error } : {}),
+    ...(receipt.toolFailure ? { toolFailure: receipt.toolFailure } : {}),
+    ...(receipt.deferredActionReference ? { deferredActionReference: receipt.deferredActionReference } : {}),
+  };
+  return compact;
+}
+
 function sameRequestReceiptInstructions(receipts, maximumCharacters = 24_000) {
   if (!receipts.length) return "";
   const header = [
-    "# Earlier tool receipts from this same user request",
-    "These calls already happened earlier in this request. Treat successful receipts as completed actions, continue from their exact results, and do not repeat them unless the user explicitly asked for repetition.",
+    "# Earlier execution evidence from this same user request",
+    "Each source-referenced entry below is the compact canonical continuation projection of one durable tool receipt. Treat successful entries as completed actions, continue from their evidence, and do not repeat them unless the user explicitly asked for repetition.",
   ].join("\n");
   const blocks = [];
   let characters = header.length;
   for (const receipt of receipts) {
-    const exact = JSON.stringify(receipt);
+    const projected = continuationReceipt(receipt);
+    const exact = JSON.stringify(projected);
     const remaining = maximumCharacters - characters - 2;
     if (remaining <= 0) break;
     const block = exact.length <= remaining
       ? exact
       : JSON.stringify({
+          receiptEventSeq: receipt.receiptEventSeq ?? null,
           tool: receipt.tool,
           arguments: receipt.arguments,
-          ok: receipt.ok,
-          resultOmittedBecauseReceiptBudgetWasExceeded: true,
+          status: receipt.ok ? "complete" : "error",
+          evidenceStoredInDurableReceipt: true,
+          continuation: Number.isSafeInteger(receipt.receiptEventSeq)
+            ? "The exact durable receipt remains source evidence. Use tool_receipt_read only when it is callable and this omitted evidence is still necessary; never repeat the original action merely to recover its result."
+            : "The exact durable receipt remains in the request trace; never repeat the original action merely to recover its result.",
         });
     if (block.length > remaining) break;
     blocks.push(block);
     characters += block.length + 2;
   }
   const omitted = receipts.length - blocks.length;
-  return [header, ...blocks, ...(omitted ? [`[${omitted} additional receipt(s) omitted]`] : [])].join("\n\n");
+  return [header, ...blocks, ...(omitted ? [`[${omitted} additional evidence entr${omitted === 1 ? "y" : "ies"} omitted]`] : [])].join("\n\n");
 }
 
 function inlineToolResult(toolResult, { tool, receiptEventSeq, maximumCharacters }) {
@@ -777,7 +815,13 @@ export class SlayerRuntime {
     const terminalFindings = terminalToolFailureFindings(execution.receipts);
     const executionFindings = [...receiptFindings, ...confirmationFindings, ...terminalFindings];
     const auditEffects = auditEffectsForReceipts(execution.receipts, this.registry);
-    if (!brief.audit.required && auditEffects.length === 0 && executionFindings.length === 0) {
+    const declaredActionNeedsAudit = brief.responseMode === "act" && brief.requestedActions.length > 0;
+    if (
+      !brief.audit.required
+      && !declaredActionNeedsAudit
+      && auditEffects.length === 0
+      && executionFindings.length === 0
+    ) {
       const operationId = `${this.modelTransport.id}:${args.requestId}:audit`;
       const auditPayload = {
         workflowStep: "audit", workflowStepLabel: "Audit completion", stepIndex: 4,

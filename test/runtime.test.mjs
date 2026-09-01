@@ -554,7 +554,9 @@ test("late capability expansion preserves earlier same-request tool receipts wit
         tool: "alpha_read",
         arguments: { id: 3 },
       });
-      assert.deepEqual(alpha, { ok: true, result: { id: 3, scope: "project-3" } });
+      assert.equal(alpha.ok, true);
+      assert.equal(alpha.result.scope, "project-3");
+      assert.equal(alpha.result.schema_contexts[0].projection_id, "projection-3");
       const expansion = await payload.onToolCall({
         callId: "expand-beta-late",
         tool: "request_capabilities",
@@ -563,9 +565,12 @@ test("late capability expansion preserves earlier same-request tool receipts wit
       assert.equal(expansion.ok, true);
       return completedTurn({ text: "Continuing.", threadId: "first-thread" });
     }
-    assert.match(payload.developerInstructions, /Earlier tool receipts from this same user request/);
+    assert.match(payload.developerInstructions, /Earlier execution evidence from this same user request/);
     assert.match(payload.developerInstructions, /"tool":"alpha_read"/);
     assert.match(payload.developerInstructions, /"scope":"project-3"/);
+    assert.doesNotMatch(payload.developerInstructions, /projection-3/);
+    assert.doesNotMatch(payload.developerInstructions, /result_filter/);
+    assert.doesNotMatch(payload.developerInstructions, /resultFilter/);
     const beta = await payload.onToolCall({
       callId: "write-beta",
       tool: "beta_write",
@@ -581,7 +586,15 @@ test("late capability expansion preserves earlier same-request tool receipts wit
       type: "object", additionalProperties: false,
       properties: { id: { type: "integer" } }, required: ["id"],
     },
-    async execute({ id }) { alphaExecutions += 1; return { id, scope: `project-${id}` }; },
+    async execute({ id }) {
+      alphaExecutions += 1;
+      return {
+        id,
+        scope: `project-${id}`,
+        schema_contexts: [{ projection_id: `projection-${id}`, schema: { verbose: "x".repeat(2000) } }],
+        result_filter: { status: "complete", inputCharacters: 2000 },
+      };
+    },
   });
   registry.register({
     name: "beta_write", description: "write beta",
