@@ -462,6 +462,39 @@ function requestToolsDefinition(tools) {
   };
 }
 
+export function requiredToolCapabilityFindings(tools, capabilities, requestedToolNames) {
+  const allowedNames = new Set(overrideSelection(tools, capabilities).tools.map(({ name }) => name));
+  const selectedCapabilities = [...new Set(capabilities)].sort();
+  return [...new Set(requestedToolNames)].flatMap((name, index) => {
+    if (allowedNames.has(name)) return [];
+    const tool = tools.find((candidate) => candidate.name === name);
+    const owningCapability = tool ? capabilityForTool(tool) : null;
+    return [{
+      code: "tool_capability_not_selected",
+      path: `brief.requiredTools[${index}]`,
+      message: owningCapability
+        ? `${name} belongs to capability ${owningCapability}, but that capability is absent from requiredCapabilities`
+        : `${name} is not available in the selected capability families`,
+      tool: name,
+      owningCapability,
+      selectedCapabilities,
+    }];
+  });
+}
+
+export function requiredToolCapabilityRepairContext(brief, findings) {
+  return [
+    "# Deterministic capability validation rejected the candidate TurnBrief",
+    "Return a complete replacement TurnBrief. For every required tool, include its owning capability in requiredCapabilities, or remove the tool if it is unnecessary. Do not change the user's objective merely to avoid a capability requirement.",
+    "",
+    "## Rejected candidate",
+    JSON.stringify(brief, null, 2),
+    "",
+    "## Application findings",
+    JSON.stringify(findings, null, 2),
+  ].join("\n");
+}
+
 function exactToolOverrideSelection(tools, capabilities, requestedToolNames) {
   const capabilitySelection = overrideSelection(tools, capabilities);
   const allowedByName = new Map(capabilitySelection.tools.map((tool) => [tool.name, tool]));

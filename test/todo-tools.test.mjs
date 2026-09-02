@@ -740,6 +740,22 @@ test("todo_move_overdue_to_today shifts overdue one-time tasks but preserves rou
   }, { requestId: "move-overdue", callId: "move-all" });
 
   assert.equal(result.moved_count, 2);
+  assert.deepEqual(result.moves, [
+    {
+      personal_task_id: first.task.personal_task_id,
+      previous_scheduled_at_utc: "2026-08-15T13:00:00.000Z",
+      scheduled_at_utc: "2026-08-17T13:00:00.000Z",
+      previous_due_at_utc: "2026-08-16T14:00:00.000Z",
+      due_at_utc: "2026-08-18T14:00:00.000Z",
+    },
+    {
+      personal_task_id: second.task.personal_task_id,
+      previous_scheduled_at_utc: "2026-08-16T04:00:00.000Z",
+      scheduled_at_utc: "2026-08-17T04:00:00.000Z",
+      previous_due_at_utc: null,
+      due_at_utc: null,
+    },
+  ]);
   assert.deepEqual(
     result.tasks.map(({ personal_task_id }) => personal_task_id),
     [first.task.personal_task_id, second.task.personal_task_id],
@@ -766,6 +782,12 @@ test("todo_move_overdue_to_today shifts overdue one-time tasks but preserves rou
     WHERE event_type = 'personal_todos.moved_to_today'
       AND actor_name = 'todo_move_overdue_to_today'
   `).get().count, 1);
+  const receiptPayload = JSON.parse(store.requireReady().prepare(`
+    SELECT payload_json FROM activity_events
+    WHERE event_type = 'personal_todos.moved_to_today'
+      AND actor_name = 'todo_move_overdue_to_today'
+  `).get().payload_json);
+  assert.deepEqual(receiptPayload.moves, result.moves);
 });
 
 test("todo_add uses Inbox when a requested group is missing, then supports a confirmed create and move", async (context) => {

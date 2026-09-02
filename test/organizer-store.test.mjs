@@ -727,6 +727,26 @@ test("overdue one-time todos move as one batch while routine publications stay s
       SELECT COUNT(*) AS count FROM activity_events
       WHERE event_type = 'personal_todos.moved_to_today'
     `).get().count, 1);
+    const receiptPayload = JSON.parse(organizer.database.prepare(`
+      SELECT payload_json FROM activity_events
+      WHERE event_type = 'personal_todos.moved_to_today'
+    `).get().payload_json);
+    assert.deepEqual(receiptPayload.moves, [
+      {
+        id: timed.id,
+        previousScheduledAtUtc: "2026-08-15T13:30:00.000Z",
+        scheduledAtUtc: "2026-08-17T13:30:00.000Z",
+        previousDueAtUtc: "2026-08-16T15:00:00.000Z",
+        dueAtUtc: "2026-08-18T15:00:00.000Z",
+      },
+      {
+        id: allDay.id,
+        previousScheduledAtUtc: "2026-08-16T04:00:00.000Z",
+        scheduledAtUtc: "2026-08-17T04:00:00.000Z",
+        previousDueAtUtc: null,
+        dueAtUtc: null,
+      },
+    ]);
     assert.deepEqual(organizer.moveOverdueTodosToToday({
       localDate: "2026-08-17",
       timeZone: "America/New_York",

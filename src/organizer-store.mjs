@@ -1726,6 +1726,7 @@ export class OrganizerStore {
             localDate: result.localDate,
             timeZone: result.timeZone,
             movedTodoIds,
+            moves: result.moves,
           },
         });
       }

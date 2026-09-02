@@ -1221,7 +1221,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_move_overdue_to_today",
-    description: "Move every active one-time native to-do scheduled before the specified local day onto that day in one batch. Use this when the user asks to move, roll, or stack overdue ordinary tasks onto today. The scheduled local time is preserved, and any due date moves by the same number of calendar days. Routine templates and routine-managed or routine-published occurrences keep their recurrence-defined dates. Completed, ignored, archived, unscheduled, and already-current tasks are also unchanged.",
+    description: "Move every active one-time native to-do scheduled before the specified local day onto that day in one batch. Use this when the user asks to move, roll, or stack overdue ordinary tasks onto today. The scheduled local time is preserved, and any due date moves by the same number of calendar days. Routine templates and routine-managed or routine-published occurrences keep their recurrence-defined dates. Completed, ignored, archived, unscheduled, and already-current tasks are also unchanged. The result records each moved task's exact previous and resulting schedule and due timestamps so a later correction can restore it without guessing.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1253,10 +1253,18 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           WHERE task.personal_task_id IN (${movedTodoIds.map(() => "?").join(", ")})
           ORDER BY task.personal_task_id
         `).all(...movedTodoIds).map(databaseTask);
+        const moves = operation.moves.map((move) => ({
+          personal_task_id: move.id,
+          previous_scheduled_at_utc: move.previousScheduledAtUtc,
+          scheduled_at_utc: move.scheduledAtUtc,
+          previous_due_at_utc: move.previousDueAtUtc,
+          due_at_utc: move.dueAtUtc,
+        }));
         const result = {
           moved_count: rows.length,
           local_date: operation.localDate,
           time_zone: operation.timeZone,
+          moves,
           tasks: rows,
         };
         if (rows.length > 0) {
@@ -1272,7 +1280,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         }
         const semanticResult = todoResult(schemaSemantics, context, result, {
           name: "todo_move_overdue_to_today",
-          purpose: "Return all active personal tasks moved from past scheduled days onto the requested local day.",
+          purpose: "Return all active one-time personal tasks moved from past scheduled days onto the requested local day, including exact before-and-after timestamps for correction evidence.",
         });
         database.exec("COMMIT");
         return semanticResult;

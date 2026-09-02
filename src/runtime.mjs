@@ -11,7 +11,11 @@ import {
   pendingConfirmationFindings,
   pendingConfirmationResponse,
 } from "./deferred-actions.mjs";
-import { requestCapabilityCatalog } from "./request-compiler.mjs";
+import {
+  requestCapabilityCatalog,
+  requiredToolCapabilityFindings,
+  requiredToolCapabilityRepairContext,
+} from "./request-compiler.mjs";
 import {
   readResultFilterSchema,
   ResultFilterBoundary,
@@ -633,32 +637,50 @@ export class SlayerRuntime {
       outputSchema: schema,
       runTimeoutMs: remainingTimeoutMs(),
     });
+    const confirmedTargetTools = (candidate) => activeActionReferences
+      .filter(({ referenceId }) => candidate.confirmedActionReferenceIds.includes(referenceId))
+      .map(({ targetTool }) => targetTool);
+    const validateBrief = (candidate) => {
+      const temporalFindings = temporalConsistencyFindings(candidate, {
+        requestText: args.text,
+        requestEventSeq,
+      });
+      const capabilityFindings = requiredToolCapabilityFindings(
+        availableTools,
+        candidate.requiredCapabilities,
+        [...candidate.requiredTools, ...confirmedTargetTools(candidate)],
+      );
+      return { temporalFindings, capabilityFindings, findings: [...temporalFindings, ...capabilityFindings] };
+    };
     let brief = orientation.value;
-    let temporalFindings = temporalConsistencyFindings(brief, {
-      requestText: args.text,
-      requestEventSeq,
-    });
-    const recordTemporalValidation = (findings, candidate, repaired = false) => {
+    let validation = validateBrief(brief);
+    const recordBriefValidation = (findings, candidate, repaired = false) => {
       const valid = findings.length === 0;
       const content = valid
-        ? `TurnBrief temporal validation passed${repaired ? " after repair" : ""}`
+        ? `TurnBrief validation passed${repaired ? " after repair" : ""}`
         : findings.map(({ message }) => message).join("; ");
       this.ledger.append({
         type: "turn.brief.validation",
         phase: valid ? "end" : "error",
         status: valid ? "complete" : "error",
         actorType: "service",
-        actorName: "Temporal consistency guard",
+        actorName: "TurnBrief validation guard",
         channel,
         turnId: args.requestId,
-        name: valid ? "TurnBrief temporal validation passed" : "TurnBrief temporal validation failed",
+        name: valid ? "TurnBrief validation passed" : "TurnBrief validation failed",
         content,
-        payload: { repaired, findings, temporalResolutions: candidate.temporalResolutions },
+        payload: {
+          repaired,
+          findings,
+          temporalResolutions: candidate.temporalResolutions,
+          requiredCapabilities: candidate.requiredCapabilities,
+          requiredTools: candidate.requiredTools,
+        },
         ...(valid ? {} : { error: content }),
       });
     };
-    recordTemporalValidation(temporalFindings, brief);
-    if (temporalFindings.length) {
+    recordBriefValidation(validation.findings, brief);
+    if (validation.findings.length) {
       orientation = await this.#runStructuredStep({
         requestId: args.requestId,
         channel,
@@ -670,20 +692,22 @@ export class SlayerRuntime {
         input: args.text,
         developerInstructions: joinedInstructions(
           orientationDeveloperInstructions,
-          temporalRepairContext(brief, temporalFindings),
+          validation.temporalFindings.length
+            ? temporalRepairContext(brief, validation.temporalFindings)
+            : null,
+          validation.capabilityFindings.length
+            ? requiredToolCapabilityRepairContext(brief, validation.capabilityFindings)
+            : null,
         ),
         requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
         outputSchema: schema,
         runTimeoutMs: remainingTimeoutMs(),
       });
       brief = orientation.value;
-      temporalFindings = temporalConsistencyFindings(brief, {
-        requestText: args.text,
-        requestEventSeq,
-      });
-      recordTemporalValidation(temporalFindings, brief, true);
-      if (temporalFindings.length) {
-        throw new Error(`TurnBrief temporal validation failed after repair: ${temporalFindings.map(({ message }) => message).join("; ")}`);
+      validation = validateBrief(brief);
+      recordBriefValidation(validation.findings, brief, true);
+      if (validation.findings.length) {
+        throw new Error(`TurnBrief validation failed after repair: ${validation.findings.map(({ message }) => message).join("; ")}`);
       }
     }
     const confirmedActionReferences = activeActionReferences

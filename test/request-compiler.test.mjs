@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import {
   capabilityForTool,
   requestCapabilityCatalog,
+  requiredToolCapabilityFindings,
+  requiredToolCapabilityRepairContext,
   RequestCompiler,
   selectRequestCapabilities,
 } from "../src/request-compiler.mjs";
@@ -707,6 +709,42 @@ test("accepted capability overrides include declared dependent tools without lat
   assert.deepEqual(compiled.deferredCapabilities, []);
   assert.equal(names(compiled).includes("request_capabilities"), false);
   assert.equal(names(compiled).includes("database_write"), false);
+});
+
+test("required tool capability validation rejects tools outside the TurnBrief families", () => {
+  const candidateTools = [
+    { ...tool("tool_receipt_read"), capabilityId: "database" },
+    { ...tool("todo_update"), capabilityId: "todos" },
+    {
+      ...tool("contact_lookup_batch"),
+      capabilityId: "contacts",
+    },
+    {
+      ...tool("email_send"),
+      capabilityId: "email",
+      capability: { dependentTools: ["contact_lookup_batch"] },
+    },
+  ];
+  const findings = requiredToolCapabilityFindings(
+    candidateTools,
+    ["todos"],
+    ["tool_receipt_read", "todo_update"],
+  );
+  assert.deepEqual(findings, [{
+    code: "tool_capability_not_selected",
+    path: "brief.requiredTools[0]",
+    message: "tool_receipt_read belongs to capability database, but that capability is absent from requiredCapabilities",
+    tool: "tool_receipt_read",
+    owningCapability: "database",
+    selectedCapabilities: ["todos"],
+  }]);
+  assert.match(requiredToolCapabilityRepairContext({ requiredCapabilities: ["todos"] }, findings), /complete replacement TurnBrief/);
+  assert.match(requiredToolCapabilityRepairContext({ requiredCapabilities: ["todos"] }, findings), /include its owning capability/);
+  assert.deepEqual(
+    requiredToolCapabilityFindings(candidateTools, ["email"], ["contact_lookup_batch"]),
+    [],
+    "declared dependent tools remain valid without selecting their owning family separately",
+  );
 });
 
 test("the compiler loads instructions only for selected callable capabilities", async () => {

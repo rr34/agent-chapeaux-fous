@@ -627,6 +627,126 @@ test("an invalid weekday/date TurnBrief is repaired before a mutation becomes ca
   );
 });
 
+test("a TurnBrief tool outside its selected capability is repaired before execution", async () => {
+  const requests = [];
+  const executions = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("database").register({
+    name: "tool_receipt_read",
+    description: "Read one exact durable tool receipt.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { receiptEventSeq: { type: "integer" } },
+      required: ["receiptEventSeq"],
+    },
+    async execute({ receiptEventSeq }) {
+      executions.push({ tool: "tool_receipt_read", receiptEventSeq });
+      return {
+        moves: [{
+          personal_task_id: 322,
+          previous_scheduled_at_utc: "2026-09-02T11:00:00.000Z",
+        }],
+      };
+    },
+  });
+  registry.withCapability("todos").register({
+    name: "todo_update",
+    description: "Update identified to-dos atomically.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { personal_task_id: { type: "integer" }, scheduled_at_utc: { type: "string" } },
+      required: ["personal_task_id", "scheduled_at_utc"],
+    },
+    async execute(argumentsObject) {
+      executions.push({ tool: "todo_update", ...argumentsObject });
+      return { updated_count: 1, task: argumentsObject };
+    },
+  });
+  const invalid = {
+    ...brief(),
+    requestType: "correction",
+    objective: "Restore to-do #322 to its exact schedule before the prior batch move.",
+    summary: "Restore only #322 to its prior schedule.",
+    requiredCapabilities: ["todos"],
+    requiredTools: ["tool_receipt_read", "todo_update"],
+    requestedActions: [{ text: "Move #322 back to where it was.", sourceEventSeqs: [9] }],
+    completionCriteria: ["The prior receipt is read and #322 is restored by todo_update."],
+  };
+  const corrected = structuredClone(invalid);
+  corrected.requiredCapabilities = ["database", "todos"];
+
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(invalid), 20);
+    if (index === 1) {
+      assert.deepEqual(executions, []);
+      assert.match(payload.developerInstructions, /Deterministic capability validation rejected/);
+      assert.match(payload.developerInstructions, /tool_receipt_read belongs to capability database/);
+      return completed(JSON.stringify(corrected), 20);
+    }
+    if (index === 2) {
+      assert.deepEqual(payload.tools.map(({ name }) => name), ["tool_receipt_read", "todo_update"]);
+      const receipt = await payload.onToolCall({
+        callId: "read-prior-move",
+        tool: "tool_receipt_read",
+        arguments: { receiptEventSeq: 19686, result_filter: identityResultFilter() },
+      });
+      assert.equal(receipt.ok, true);
+      const update = await payload.onToolCall({
+        callId: "restore-task",
+        tool: "todo_update",
+        arguments: {
+          personal_task_id: 322,
+          scheduled_at_utc: receipt.result.moves[0].previous_scheduled_at_utc,
+        },
+      });
+      assert.equal(update.ok, true);
+      return completed("Restored #322 to its prior schedule.", 30);
+    }
+    assert.deepEqual(executions, [
+      { tool: "tool_receipt_read", receiptEventSeq: 19686 },
+      {
+        tool: "todo_update",
+        personal_task_id: 322,
+        scheduled_at_utc: "2026-09-02T11:00:00.000Z",
+      },
+    ]);
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "The exact prior schedule was restored.",
+      satisfiedCriteria: ["The receipt was read and the task was updated."],
+      remainingActions: [],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-restore-task",
+    requestEventId: "event-current",
+    text: "Move #322 back to where it was.",
+  }), "Restored #322 to its prior schedule.");
+  assert.equal(requests.length, 4);
+  assert.deepEqual(
+    ledger.events.filter(({ type }) => type === "turn.brief.validation").map(({ status }) => status),
+    ["error", "complete"],
+  );
+  assert.deepEqual(
+    ledger.events.find(({ type }) => type === "turn.brief").payload.brief.requiredCapabilities,
+    ["database", "todos"],
+  );
+});
+
 function todoRegistry(executions) {
   const registry = new ToolRegistry();
   registry.register({
