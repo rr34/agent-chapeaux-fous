@@ -41,6 +41,25 @@ test("remote Tool Description metadata is validated without becoming a base-MCP 
   });
   assert.equal(registry.toolDefinitions().length, 1);
 
+  registry.register({
+    name: "remote_example_mixed",
+    description: "Read or update the current example record.",
+    source: "mcp:example",
+    annotations: { readOnlyHint: false },
+    metadata: {
+      [toolDescriptionMetadataKey]: {
+        protocol: "agent-slayer.tool-description",
+        version: 1,
+        summary: "Read or update the current example record.",
+        actionClasses: ["READ", "UPDATE"],
+        effectClassifications: ["READ-ONLY", "MUTATING"],
+      },
+    },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { return {}; },
+  });
+  assert.equal(registry.toolDefinitions().length, 2);
+
   assert.throws(() => registry.register({
     name: "remote_example_invalid",
     description: "A complete provider execution description.",
@@ -53,6 +72,24 @@ test("remote Tool Description metadata is validated without becoming a base-MCP 
         summary: "Mutate the example record.",
         actionClasses: ["UPDATE"],
         effectClassifications: ["MUTATING"],
+      },
+    },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { return {}; },
+  }), /effects conflict with readOnlyHint/);
+
+  assert.throws(() => registry.register({
+    name: "remote_example_false_mutation_hint",
+    description: "A complete provider execution description.",
+    source: "mcp:example",
+    annotations: { readOnlyHint: false },
+    metadata: {
+      [toolDescriptionMetadataKey]: {
+        protocol: "agent-slayer.tool-description",
+        version: 1,
+        summary: "Read the current example record.",
+        actionClasses: ["READ"],
+        effectClassifications: ["READ-ONLY"],
       },
     },
     parameters: { type: "object", additionalProperties: false, properties: {} },
@@ -85,7 +122,7 @@ test("remote Tool Description metadata is validated without becoming a base-MCP 
     parameters: { type: "object", additionalProperties: false, properties: {} },
     async execute() { return {}; },
   });
-  assert.equal(registry.toolDefinitions().length, 2);
+  assert.equal(registry.toolDefinitions().length, 3);
 });
 
 test("an advertised HTTP artifact receiver becomes one resumable file-upload application tool", async (context) => {

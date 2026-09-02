@@ -103,11 +103,10 @@ export function validateToolDescription(value, { annotations = null, label = "to
     throw new Error(`${label} has an invalid _meta[\"${toolDescriptionMetadataKey}\"]: ${error.message}`);
   }
   const readOnly = annotations?.readOnlyHint === true;
-  if (readOnly !== description.effectClassifications.includes("READ-ONLY")) {
+  const exclusivelyReadOnly = description.effectClassifications.length === 1
+    && description.effectClassifications[0] === "READ-ONLY";
+  if (readOnly !== exclusivelyReadOnly) {
     throw new Error(`${label} tool-description effects conflict with readOnlyHint`);
-  }
-  if (readOnly && description.effectClassifications.length !== 1) {
-    throw new Error(`${label} read-only tool cannot declare mutating, destructive, or external effects`);
   }
   if (annotations?.destructiveHint === true && !description.effectClassifications.includes("DESTRUCTIVE")) {
     throw new Error(`${label} destructiveHint requires the DESTRUCTIVE effect`);
