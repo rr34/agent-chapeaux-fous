@@ -669,7 +669,7 @@ test("agent routine creation atomically ensures the reserved group", () => {
   }
 });
 
-test("overdue active todos move onto the requested local day as one batch", () => {
+test("overdue one-time todos move as one batch while routine publications stay scheduled", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);
   try {
@@ -698,6 +698,15 @@ test("overdue active todos move onto the requested local day as one batch", () =
       scheduledAtUtc: "2026-08-14T14:00:00.000Z",
       status: "complete",
     });
+    const publishedRoutineId = Number(organizer.database.prepare(`
+      INSERT INTO personal_tasks (
+        todo_group_id, text, status, scheduled_at_utc, source, external_id
+      ) VALUES (?, 'Published routine occurrence', 'todo', ?, 'routine_publish', ?)
+    `).run(
+      group.id,
+      "2026-08-15T11:00:00.000Z",
+      "routine:99:2026-08-15T11:00:00.000Z",
+    ).lastInsertRowid);
 
     const result = organizer.moveOverdueTodosToToday({
       localDate: "2026-08-17",
@@ -710,6 +719,10 @@ test("overdue active todos move onto the requested local day as one batch", () =
     assert.equal(organizer.getTodo(allDay.id).scheduledAtUtc, "2026-08-17T04:00:00.000Z");
     assert.equal(organizer.getTodo(today.id).scheduledAtUtc, "2026-08-17T04:00:00.000Z");
     assert.equal(organizer.getTodo(completed.id).scheduledAtUtc, "2026-08-14T14:00:00.000Z");
+    assert.equal(
+      organizer.getTodo(publishedRoutineId).scheduledAtUtc,
+      "2026-08-15T11:00:00.000Z",
+    );
     assert.equal(organizer.database.prepare(`
       SELECT COUNT(*) AS count FROM activity_events
       WHERE event_type = 'personal_todos.moved_to_today'

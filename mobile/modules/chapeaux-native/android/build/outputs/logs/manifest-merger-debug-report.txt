@@ -1,0 +1,28 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:1:1-8:12
+INJECTED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:1:1-8:12
+	package
+		INJECTED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:1:11-69
+queries
+ADDED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:2:3-7:13
+intent#action:name:android.intent.action.SENDTO+data:scheme:smsto
+ADDED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:3:5-6:14
+action#android.intent.action.SENDTO
+ADDED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:4:7-61
+	android:name
+		ADDED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:4:15-58
+data
+ADDED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:5:7-38
+	android:scheme
+		ADDED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:5:13-35
+uses-sdk
+INJECTED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml
+INJECTED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml

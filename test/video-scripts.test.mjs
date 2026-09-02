@@ -192,7 +192,7 @@ test("video scripts project machine references out without changing stored inter
   assert.deepEqual(
     created.script.plan.scenes.map(({ voiceover }) => voiceover),
     [
-      "In reference to:\nTask: Call financial assistance at 614-566-1456 on 2026-08-31.\n\nHelp me prepare.",
+      "In reference to: Task: Call financial assistance at 614-566-1456 on 2026-08-31. Help me prepare.",
       "I can help with task #418.",
     ],
   );

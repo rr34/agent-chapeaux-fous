@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { renderScriptedInteractionVideo } from "../video/src/render-interaction-video.mjs";
 import { safeMediaPath } from "./request-attachments.mjs";
-import { videoDialogueText } from "./video-dialogue.mjs";
+import { videoDialogueText, videoSpeechText } from "./video-dialogue.mjs";
 
 function dataUrl(bytes, mimeType) {
   return `data:${mimeType || "application/octet-stream"};base64,${bytes.toString("base64")}`;
@@ -210,7 +210,7 @@ export class VideoRenderWorker {
 
   async #narrationAudio(text, job, scene, speakerRole) {
     const style = this.narrationStyles[speakerRole];
-    const spokenText = speechPronunciation(text);
+    const spokenText = speechPronunciation(videoSpeechText(text));
     const operationId = `video-narration:${job.id}:${scene.sceneNumber}`;
     this.ledger.append({
       type: "video.narration.start", phase: "start", status: "processing",

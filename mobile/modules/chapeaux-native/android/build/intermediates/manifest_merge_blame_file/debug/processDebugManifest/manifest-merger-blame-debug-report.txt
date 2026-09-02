@@ -1,0 +1,21 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="expo.modules.chapeauxnative" >
+4
+5    <uses-sdk android:minSdkVersion="24" />
+6
+7    <queries>
+7-->/home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:2:3-7:13
+8        <intent>
+8-->/home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:3:5-6:14
+9            <action android:name="android.intent.action.SENDTO" />
+9-->/home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:4:7-61
+9-->/home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:4:15-58
+10
+11            <data android:scheme="smsto" />
+11-->/home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:5:7-38
+11-->/home/nate/code/agent-chapeaux-fous/mobile/modules/chapeaux-native/android/src/main/AndroidManifest.xml:5:13-35
+12        </intent>
+13    </queries>
+14
+15</manifest>

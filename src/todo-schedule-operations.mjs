@@ -95,6 +95,9 @@ export function moveOverdueTodosToToday(database, {
   const localDate = calendarDateParts(localDateValue, "localDate");
   const timeZone = validatedTimeZone(timeZoneValue);
   const todayStartUtc = zonedPartsToUtc(localDate, timeZone).toISOString();
+  // Routine schedules share personal_tasks with ordinary work. Protect both
+  // directly linked occurrences and Routine-calendar publications from a
+  // general backlog roll-forward.
   const rows = database.prepare(`
     SELECT task.personal_task_id, task.scheduled_at_utc, task.due_at_utc
     FROM personal_tasks AS task
@@ -103,6 +106,8 @@ export function moveOverdueTodosToToday(database, {
       AND task.scheduled_at_utc IS NOT NULL
       AND task.scheduled_at_utc < ?
       AND todo_group.name <> 'Routine' COLLATE NOCASE
+      AND task.todo_routine_id IS NULL
+      AND (task.source IS NULL OR task.source <> 'routine_publish' COLLATE NOCASE)
     ORDER BY task.personal_task_id
   `).all(todayStartUtc);
 

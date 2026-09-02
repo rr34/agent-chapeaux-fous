@@ -40,7 +40,7 @@ test("the background worker preserves recordings and assigns distinct user and A
     type: "transcription.complete", status: "complete", turnId: sourceRequest.requestId,
     content: "Make the release plan.", primaryFileId: audio.fileId,
   });
-  ledger.finish(sourceEvent, "The release plan is ready from 07:00–14:00.");
+  ledger.finish(sourceEvent, "## Release plan\n\nThe **release plan** is ready from 07:00–14:00.");
   const longResponse = `Chapeaux Fous ${"works ".repeat(800)}`.trim();
   const typedRequest = ledger.createRequest({
     text: [
@@ -165,7 +165,7 @@ test("the background worker preserves recordings and assigns distinct user and A
     speechCalls.map(({ options }) => options.voice),
     ["verse", "shimmer", "verse"],
   );
-  assert.equal(speechCalls[0].text, "The release plan is ready from 7 to 14.");
+  assert.equal(speechCalls[0].text, "Release plan. The release plan is ready from 7 to 14.");
   assert.equal(speechCalls[1].text, "Summarize Chapeaux Fou.");
   assert.equal(speechCalls[2].text, longResponse.replace("Chapeaux Fous", "Chapeaux Fou"));
   assert.match(speechCalls[0].options.instructions, /energetic American guy/iu);
@@ -181,7 +181,7 @@ test("the background worker preserves recordings and assigns distinct user and A
   assert.equal(renderedInput.scenes.some((scene) => "activity" in scene), false);
   assert.equal(renderedInput.scenes[0].renderSceneType, "request");
   assert.equal(renderedInput.scenes[0].authenticAudio, true);
-  assert.equal(renderedInput.scenes[0].responseText, "The release plan is ready from 07:00–14:00.");
+  assert.equal(renderedInput.scenes[0].responseText, "Release plan. The release plan is ready from 07:00–14:00.");
   assert.equal(renderedInput.scenes[0].audioEndMs, 31_300);
   assert.match(renderedInput.scenes[0].audioDataUrl, /^data:audio\/webm;base64,/);
   assert.equal(renderedInput.scenes[1].renderSceneType, "response");

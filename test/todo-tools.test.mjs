@@ -694,7 +694,7 @@ test("native todo tools store and clear planned duration separately from due tim
   }), /exact time/);
 });
 
-test("todo_move_overdue_to_today shifts all overdue active tasks in one tool call", async (context) => {
+test("todo_move_overdue_to_today shifts overdue one-time tasks but preserves routine schedules", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.filename);
@@ -715,6 +715,24 @@ test("todo_move_overdue_to_today shifts all overdue active tasks in one tool cal
     is_all_day: true,
     due_at_utc: null,
   }, { requestId: "move-overdue", callId: "add-second" });
+  const repeating = await registry.execute("todo_add", {
+    text: "Recurring work window",
+    group: "Inbox",
+    scheduled_at_utc: "2026-08-15T11:00:00.000Z",
+    due_at_utc: null,
+    recurrence: {
+      frequency: "DAILY", interval: 1, weekdays: [], count: null,
+      until_date: null, time_zone: "America/New_York",
+    },
+  }, { requestId: "move-overdue", callId: "add-repeating" });
+  const publishedRoutineId = Number(store.requireReady().prepare(`
+    INSERT INTO personal_tasks (
+      todo_group_id, text, status, scheduled_at_utc, source, external_id
+    ) VALUES (1, 'Published leg day', 'todo', ?, 'routine_publish', ?)
+  `).run(
+    "2026-08-16T00:30:00.000Z",
+    "routine:99:2026-08-16T00:30:00.000Z",
+  ).lastInsertRowid);
 
   const result = await registry.execute("todo_move_overdue_to_today", {
     local_date: "2026-08-17",
@@ -731,6 +749,18 @@ test("todo_move_overdue_to_today shifts all overdue active tasks in one tool cal
     ["2026-08-17T13:00:00.000Z", "2026-08-17T04:00:00.000Z"],
   );
   assert.equal(result.tasks[0].due_at_utc, "2026-08-18T14:00:00.000Z");
+  assert.equal(
+    store.requireReady().prepare(`
+      SELECT scheduled_at_utc FROM personal_tasks WHERE personal_task_id = ?
+    `).get(repeating.task.personal_task_id).scheduled_at_utc,
+    "2026-08-15T11:00:00.000Z",
+  );
+  assert.equal(
+    store.requireReady().prepare(`
+      SELECT scheduled_at_utc FROM personal_tasks WHERE personal_task_id = ?
+    `).get(publishedRoutineId).scheduled_at_utc,
+    "2026-08-16T00:30:00.000Z",
+  );
   assert.equal(store.requireReady().prepare(`
     SELECT COUNT(*) AS count FROM activity_events
     WHERE event_type = 'personal_todos.moved_to_today'

@@ -1221,7 +1221,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_move_overdue_to_today",
-    description: "Move every active native to-do scheduled before the specified local day onto that day in one batch. Use this when the user asks to move, roll, or stack overdue scheduled tasks onto today. The scheduled local time is preserved, and any due date moves by the same number of calendar days. Completed, ignored, archived, unscheduled, and already-current tasks are unchanged.",
+    description: "Move every active one-time native to-do scheduled before the specified local day onto that day in one batch. Use this when the user asks to move, roll, or stack overdue ordinary tasks onto today. The scheduled local time is preserved, and any due date moves by the same number of calendar days. Routine templates and routine-managed or routine-published occurrences keep their recurrence-defined dates. Completed, ignored, archived, unscheduled, and already-current tasks are also unchanged.",
     parameters: {
       type: "object",
       additionalProperties: false,

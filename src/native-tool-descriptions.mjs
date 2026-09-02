@@ -118,7 +118,7 @@ const descriptions = new Map(Object.entries({
   todo_group_archive: update("Archive one empty active native to-do group; reserved groups and groups with active tasks cannot be archived."),
   todo_interaction_guide_set: update("Link or unlink one active briefing on an existing repeating native to-do without changing recurrence."),
   todo_recurrence_set: update("Add, replace, or remove structured recurrence on one existing native to-do, optionally linking a briefing."),
-  todo_move_overdue_to_today: update("Move every active overdue native to-do onto one specified local day while preserving local time and due-date distance."),
+  todo_move_overdue_to_today: update("Move every active overdue one-time to-do onto one specified local day while preserving local time and due-date distance; recurrence-managed schedule entries stay fixed."),
   todo_update: update("Atomically update up to 500 native personal to-dos by stable ID, rolling back the complete batch on any invalid change."),
 
   video_script_create: create("Persist one portable source-grounded chat script from explicitly selected completed interactions without rendering video."),

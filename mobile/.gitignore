@@ -1,0 +1,13 @@
+.expo/
+.expo-shared/
+/android/
+/ios/
+node_modules/
+dist/
+*.jks
+*.keystore
+*.mobileprovision
+*.p8
+*.p12
+*.key
+*.pem

@@ -38,6 +38,13 @@ one-task request is a one-item array. Do not spend one model tool call per task.
 One duplicate ID, missing task, invalid contact, invalid group, or invalid
 resulting schedule rejects the whole batch without retaining earlier updates.
 
+Use `todo_move_overdue_to_today` for a general request to roll overdue ordinary
+tasks forward. It deliberately leaves Routine templates, repeating-task
+occurrences, and Routine-calendar publications on their recurrence-defined
+dates even though published occurrences share the personal task table. If the
+user explicitly names one of those schedule entries and asks to move it, use
+`todo_update` for that exact task instead.
+
 For a daily review, use `todo_list.completed_on_date` to read tasks completed on
 one local date and `todo_list.scheduled_on_date` to read tasks scheduled on one
 local date. Always supply the applicable IANA `time_zone`. These select tasks by
