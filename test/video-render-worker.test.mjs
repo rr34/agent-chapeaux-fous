@@ -201,7 +201,9 @@ test("the background worker preserves recordings and assigns distinct user and A
   const finished = videoScripts.get(production.script.id);
   assert.equal(finished.render.status, "complete");
   assert.ok(finished.render.outputFileId);
-  assert.equal(ledger.file(finished.render.outputFileId).media_kind, "video");
+  const outputFile = ledger.file(finished.render.outputFileId);
+  assert.equal(outputFile.media_kind, "video");
+  assert.equal(outputFile.original_filename, `agent-story-${finished.render.outputFileId}.mp4`);
   assert.equal(store.requireReady().prepare(
     "SELECT status FROM video_jobs WHERE template = 'legacy-export'",
   ).get().status, "queued");

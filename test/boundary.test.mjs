@@ -331,6 +331,8 @@ test("video creation is an explicit select-then-create workflow", () => {
   assert.match(application, /video-script-title-copy/);
   assert.match(application, /copyText\(script\.title, event\.currentTarget\)/);
   assert.match(application, /agentReferenceButton\(videoIdentity\(script\), `generated video/);
+  assert.match(application, /`File #\$\{script\.render\.outputFileId\}`/);
+  assert.match(application, /`agent-story-\$\{script\.render\.outputFileId\}\.mp4`/);
   assert.match(application, /Add this video to content sequence/);
   assert.match(application, /\/api\/video-scripts\/\$\{videoAddingToContent\.id\}\/content/);
   assert.match(stylesheet, /\.video-script-title-copy/);

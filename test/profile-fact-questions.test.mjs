@@ -22,6 +22,11 @@ test("the standard profile question catalog is comprehensive and valid", async (
     "preferred_name", "default_location", "address", "vehicle", "emergency_contact",
     "work_hours", "dietary_information", "accessibility_need", "travel_preference",
   ]) assert.ok(factTypes.includes(factType), factType);
+  assert.equal(catalog.onboardingBrief.name, "core_profile");
+  assert.deepEqual(catalog.onboardingBrief.factTypes, [
+    "preferred_name", "default_location", "time_zone", "time_format",
+    "measurement_system", "temperature_unit",
+  ]);
 });
 
 test("only relevant profile types and questions become model context", async () => {
@@ -44,6 +49,13 @@ test("only relevant profile types and questions become model context", async () 
   });
   assert.deepEqual(knownLocation.map(({ factType }) => factType), ["default_location"]);
   assert.match(profileFactQuestionInstructions(knownLocation), /default_location:/);
+
+  const rain = selectRelevantProfileFactQuestions(catalog, {
+    activeFacts: [{ factType: "time_zone", text: "My time zone is America/New_York." }],
+    requestText: "Is it supposed to rain over the next day?",
+  });
+  assert.deepEqual(rain.map(({ factType }) => factType), ["default_location"]);
+  assert.match(profileFactQuestionInstructions(rain), /time-zone fact is not a geographic location/);
 
   const temporalHistory = selectRelevantProfileFactQuestions(catalog, {
     activeFacts: [{ factType: "time_zone", text: "My time zone is America/New_York." }],
@@ -109,9 +121,42 @@ test("a selected question has exact type, wording, and ask-when guidance", async
   assert.match(instructions, /Ask when:/);
 });
 
+test("the explicit standard onboarding brief marks complete and missing core facts", async () => {
+  const catalog = await loadProfileFactQuestions(
+    path.join(repositoryRoot, "config", "profile-fact-questions.json"),
+  );
+  const selected = selectRelevantProfileFactQuestions(catalog, {
+    activeFacts: [
+      { factType: "preferred_name", text: "Call me Nate." },
+      { factType: "time_zone", text: "Use America/New_York." },
+    ],
+    requestText: "Set up my profile",
+  });
+  assert.deepEqual(selected.map(({ factType }) => factType), [
+    "preferred_name", "default_location", "time_zone", "time_format",
+    "measurement_system", "temperature_unit",
+  ]);
+  assert.deepEqual(selected.map(({ onboardingStatus }) => onboardingStatus), [
+    "complete", "missing", "complete", "missing", "missing", "missing",
+  ]);
+  assert.equal(selected.every(({ standardOnboarding }) => standardOnboarding), true);
+  const instructions = profileFactQuestionInstructions(selected);
+  assert.match(instructions, /# Standard onboarding brief/);
+  assert.match(instructions, /\[complete\] preferred_name:/);
+  assert.match(instructions, /\[missing\] default_location:/);
+  assert.match(instructions, /allow any item to be skipped/);
+});
+
 test("the profile question catalog rejects duplicate fact types", () => {
   assert.throws(() => validateProfileFactQuestions({
     version: 1,
+    onboardingBrief: {
+      name: "core_profile",
+      title: "Core profile setup",
+      purpose: "Collect core defaults.",
+      factTypes: ["address"],
+      triggers: ["onboarding"],
+    },
     questions: [
       { factType: "address", question: "What is your address?", askWhen: "Address work.", triggers: ["address"] },
       { factType: "address", question: "Where do you live?", askWhen: "Location work.", triggers: ["location"] },

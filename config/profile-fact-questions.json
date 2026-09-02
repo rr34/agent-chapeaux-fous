@@ -1,5 +1,12 @@
 {
   "version": 1,
+  "onboardingBrief": {
+    "name": "core_profile",
+    "title": "Core profile setup",
+    "purpose": "Collect the small set of durable defaults needed to localize and personalize ordinary requests without guessing.",
+    "factTypes": ["preferred_name", "default_location", "time_zone", "time_format", "measurement_system", "temperature_unit"],
+    "triggers": ["onboarding", "onboard me", "set up my profile", "setup my profile", "profile setup", "basic profile"]
+  },
   "questions": [
     {
       "factType": "preferred_name",
@@ -29,7 +36,7 @@
       "factType": "default_location",
       "question": "What city and state or country should I use as your default location?",
       "askWhen": "A request depends on local weather, time, nearby places, travel origin, or another location-based default.",
-      "triggers": ["my location", "where i live", "i live in", "i am in", "i'm in", "located in", "local weather", "weather", "forecast", "high today", "low today", "near me", "nearby", "local time"]
+      "triggers": ["my location", "current location", "where am i", "where i am", "where i live", "i live in", "i am in", "i'm in", "located in", "local weather", "weather", "forecast", "rain", "raining", "precipitation", "snow", "snowing", "storm", "high today", "low today", "near me", "nearby", "local time"]
     },
     {
       "factType": "address",

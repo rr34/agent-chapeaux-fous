@@ -1509,7 +1509,7 @@ async function generateSelectedVideoScript() {
   }
 }
 
-async function downloadInteractionVideo(fileId, button) {
+async function downloadInteractionVideo(fileId, button, preferredFilename = null) {
   button.disabled = true;
   const original = button.textContent;
   button.textContent = "Downloading…";
@@ -1532,7 +1532,7 @@ async function downloadInteractionVideo(fileId, button) {
     const matched = /filename="([^"]+)"/i.exec(disposition);
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = matched?.[1] || `slayer-video-${fileId}.mp4`;
+    link.download = preferredFilename || matched?.[1] || `slayer-video-${fileId}.mp4`;
     document.body.append(link);
     link.click();
     link.remove();
@@ -3698,6 +3698,9 @@ function renderVideoScripts() {
       node("span", "todo-pill", script.plan.aspectRatio),
       node("span", "todo-pill", formatDisplayDate(script.updatedAtUtc || script.createdAtUtc)),
     );
+    if (script.render?.outputFileId) {
+      meta.prepend(node("span", "todo-pill", `File #${script.render.outputFileId}`));
+    }
     identity.append(meta);
     const sources = node("div", "video-script-sources");
     sources.append(node("span", "", "Sources:"));
@@ -3724,7 +3727,11 @@ function renderVideoScripts() {
       actions.prepend(agentReferenceButton(videoIdentity(script), `generated video ${script.title}`));
       const download = node("button", "compact", "Download MP4");
       download.type = "button";
-      download.addEventListener("click", () => void downloadInteractionVideo(script.render.outputFileId, download));
+      download.addEventListener("click", () => void downloadInteractionVideo(
+        script.render.outputFileId,
+        download,
+        `agent-story-${script.render.outputFileId}.mp4`,
+      ));
       actions.prepend(download);
       const addToContent = node(
         "button",

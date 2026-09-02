@@ -356,9 +356,10 @@ export class VideoRenderWorker {
       });
       const rendered = await this.render({ input, outputLocation: output, browserExecutable: this.browserExecutable });
       const bytes = await fs.readFile(output);
-      const registered = this.ledger.registerFile({
+      const registered = this.ledger.registerFileWithIdFilename({
         storagePath: relativeMediaPath(this.mediaRoot, output),
-        originalFilename: `agent-story-${job.videoScriptId}-${job.id}.mp4`,
+        filenamePrefix: "agent-story-",
+        filenameExtension: ".mp4",
         mimeType: "video/mp4",
         sha256: digest(bytes),
         byteSize: bytes.length,

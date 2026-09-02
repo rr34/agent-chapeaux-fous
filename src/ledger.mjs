@@ -1173,6 +1173,63 @@ export class Ledger {
     return { ...publicFile(row), duplicate: false, storagePath };
   }
 
+  registerFileWithIdFilename({
+    storagePath, filenamePrefix, filenameExtension, mimeType, sha256, byteSize,
+    mediaKind = "audio", durationMs = null, width = null, height = null,
+    title = null, description = null,
+  }) {
+    const prefix = String(filenamePrefix ?? "").trim();
+    const extension = String(filenameExtension ?? "").trim();
+    if (!prefix) throw new Error("Numbered filename prefix is required");
+    if (!/^\.[A-Za-z0-9]+$/u.test(extension)) {
+      throw new Error("Numbered filename extension must start with a dot and contain only letters or numbers");
+    }
+    const database = this.store.requireReady();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = database.prepare(
+        "SELECT * FROM files WHERE sha256 = ? AND byte_size = ? ORDER BY file_id LIMIT 1",
+      ).get(sha256, byteSize);
+      if (existing) {
+        const originalFilename = `${prefix}${existing.file_id}${extension}`;
+        const row = existing.original_filename === originalFilename
+          ? existing
+          : database.prepare(`
+              UPDATE files SET original_filename = ?, updated_at_utc = ?
+              WHERE file_id = ? RETURNING *
+            `).get(originalFilename, new Date().toISOString(), existing.file_id);
+        database.exec("COMMIT");
+        return { ...publicFile(row), duplicate: true, storagePath: existing.storage_path };
+      }
+      const inserted = database.prepare(`
+        INSERT INTO files (
+          storage_path, original_filename, title, description, title_source, media_kind, mime_type,
+          sha256, byte_size, duration_ms, width, height
+        ) VALUES (?, NULL, ?, ?, 'original_filename', ?, ?, ?, ?, ?, ?, ?)
+        RETURNING *
+      `).get(
+        storagePath, String(title || "Stored file").trim(),
+        description == null ? null : String(description).trim(), mediaKind, mimeType,
+        sha256, byteSize, durationMs, width, height,
+      );
+      const originalFilename = `${prefix}${inserted.file_id}${extension}`;
+      const row = database.prepare(`
+        UPDATE files
+        SET original_filename = ?,
+            title = CASE WHEN ? IS NULL THEN ? ELSE title END,
+            updated_at_utc = ?
+        WHERE file_id = ? RETURNING *
+      `).get(
+        originalFilename, title, originalFilename, new Date().toISOString(), inserted.file_id,
+      );
+      database.exec("COMMIT");
+      return { ...publicFile(row), duplicate: false, storagePath };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   file(fileId) {
     return this.store.requireReady().prepare("SELECT * FROM files WHERE file_id = ?").get(fileId);
   }

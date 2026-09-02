@@ -159,6 +159,37 @@ test("an active time zone is always supplied to native model conversations", asy
   assert.equal(built.nativeConversation.continuing, false);
 });
 
+test("a rain request selects the saved default location instead of treating time zone as location", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const profileFacts = new ProfileFacts({ store, ledger });
+  const prior = ledger.createRequest({ text: "Save my location and time zone" });
+  for (const [factType, text] of [
+    ["default_location", "My default location is Delaware, Ohio."],
+    ["time_zone", "My time zone is America/New_York."],
+  ]) {
+    profileFacts.set({ factType, text, replacesFactId: null }, {
+      requestId: prior.requestId,
+      requestEventId: prior.eventId,
+      callId: `profile-${factType}`,
+    });
+  }
+  const current = ledger.createRequest({ text: "Is it supposed to rain over the next day?" });
+  const built = await new ContextBuilder({
+    ledger,
+    profileFacts,
+    profileFactQuestions: await standardCatalog(),
+  }).build(current.requestId, "Is it supposed to rain over the next day?");
+
+  assert.deepEqual(built.relevantProfileTypes, ["default_location", "time_zone"]);
+  assert.match(built.text, /default_location: My default location is Delaware, Ohio\./);
+  assert.match(built.text, /time_zone: My time zone is America\/New_York\./);
+  assert.match(built.text, /time-zone fact is not a geographic location/);
+});
+
 test("active presentation preferences are supplied on every model conversation", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

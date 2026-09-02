@@ -154,6 +154,14 @@ tool data, receipts, and schemas. Measurement and temperature preferences guide
 new prose and display conversions without rewriting authoritative stored or
 quoted values.
 
+`config/profile-fact-questions.json` also defines the standard core-profile
+onboarding brief. It collects a preferred name, default geographic location,
+time zone, time format, measurement system, and temperature unit when the user
+explicitly starts profile setup. Outside onboarding, the same catalog selects
+only profile types relevant to the current request. Geographic requests such as
+rain forecasts select `default_location`; a saved time zone never substitutes
+for a city or region.
+
 Deferred operations returned by an MCP remain owned by that MCP. Agent Slayer
 does not copy their plans, payloads, readiness state, or lifecycle into a native
 table or artifact event. It derives a small opaque action reference from the

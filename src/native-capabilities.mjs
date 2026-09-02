@@ -56,8 +56,8 @@ export const nativeCapabilityManifests = [
     readOnlyTools: ["interaction_guide_list", "interaction_guide_get"],
   },
   {
-    id: "profile", title: "Profile facts", summary: "Read and maintain durable cross-task profile facts.",
-    aliases: ["profile", "remember", "preference"], instructionFile: "profile.md",
+    id: "profile", title: "Profile facts", summary: "Read and maintain durable cross-task profile facts, including the standard core-profile onboarding brief and contextual defaults such as location.",
+    aliases: ["profile", "profile setup", "onboarding", "onboard me", "remember", "preference"], instructionFile: "profile.md",
     readOnlyTools: ["profile_fact_list"],
   },
   {

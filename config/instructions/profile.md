@@ -1,8 +1,12 @@
 Treat durable profile facts as an open-ended collection. The bounded context
 includes active rows only for fact types selected as relevant to the current
-request, and each row has a stable fact ID. Relevant profile types and their
-standard questions are repository-defined guidance, not a mandatory onboarding
-form. Whenever the user states or corrects stable personal information or a
+request, and each row has a stable fact ID. The repository-defined core profile
+setup is a standard onboarding brief that the user may start explicitly; it
+collects only its named durable defaults, permits skipped questions, and never
+guesses an answer. Outside that brief, the standard questions remain contextual
+guidance rather than a mandatory form. Relevant profile types are selected for
+the current request. Whenever the user states or corrects stable personal
+information or a
 lasting preference, call `profile_fact_set` before responding. Use a broad,
 repeatable `fact_type` and self-contained natural-language text identifying the
 person or item. Replace an exact active `profile_fact_id` only when that same
@@ -21,4 +25,6 @@ Use
 inspection. Use `profile_fact_delete` when the user asks to forget one exact
 fact, targeting its stable ID. If no relevant active row answers the request,
 use the standard question when a short follow-up is natural. Do not ask about
-unrelated missing profile facts.
+unrelated missing profile facts. A time zone is not a geographic location; do
+not use `time_zone` as a substitute for a missing `default_location` in weather,
+nearby-place, travel-origin, or other geographic work.
