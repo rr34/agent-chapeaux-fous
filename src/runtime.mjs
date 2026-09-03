@@ -603,13 +603,14 @@ export class SlayerRuntime {
   async #runWorkflow(args) {
     const channel = args.channel ?? "web";
     const workflowStartedAt = Date.now();
+    let pausedDurationMs = 0;
     const configuredTimeoutMs = args.runLimits?.timeoutMs ?? null;
     const configuredMaxToolCalls = args.runLimits == null
       ? this.config.maxToolCalls
       : args.runLimits.maxToolCalls;
     const remainingTimeoutMs = () => {
       if (configuredTimeoutMs === null) return null;
-      const remaining = configuredTimeoutMs - (Date.now() - workflowStartedAt);
+      const remaining = configuredTimeoutMs - (Date.now() - workflowStartedAt - pausedDurationMs);
       if (remaining <= 0) throw new Error(`Turn workflow timed out after ${configuredTimeoutMs}ms`);
       return remaining;
     };
@@ -998,6 +999,49 @@ export class SlayerRuntime {
       preparedCapabilityContext,
       temporalResolutions: brief.temporalResolutions,
     };
+    if (typeof args.awaitTurnBriefApproval === "function") {
+      const capabilityById = new Map(catalog.map((entry) => [entry.capability, entry]));
+      const toolByName = new Map(catalog.flatMap(({ tools = [] }) => (
+        tools.map((tool) => [tool.name, tool])
+      )));
+      const contextViewById = new Map(catalog.flatMap(({ capability, contextViews = [] }) => (
+        contextViews.map((view) => [view.id, { ...view, capability }])
+      )));
+      const approvalStartedAt = Date.now();
+      try {
+        await args.awaitTurnBriefApproval({
+          objective: brief.objective,
+          summary: brief.summary,
+          capabilities: executionCapabilities.map((capability) => {
+            const entry = capabilityById.get(capability);
+            return {
+              capability,
+              title: entry?.title ?? capability,
+              summary: entry?.summary ?? null,
+            };
+          }),
+          tools: executorArgs.toolOverride.map((name) => {
+            const entry = toolByName.get(name);
+            return {
+              name,
+              title: entry?.title ?? null,
+              summary: entry?.summary ?? null,
+            };
+          }),
+          contextViews: brief.contextRequests.map((id) => {
+            const entry = contextViewById.get(id);
+            return {
+              id,
+              title: entry?.title ?? id,
+              description: entry?.description ?? null,
+              capability: entry?.capability ?? null,
+            };
+          }),
+        });
+      } finally {
+        pausedDurationMs += Date.now() - approvalStartedAt;
+      }
+    }
     const execution = await this.#runExecutorStep(executorArgs, {
       step: "execution", label: "Execute request", stepIndex: 3,
       effort: args.effort || this.config.reasoningEffort,

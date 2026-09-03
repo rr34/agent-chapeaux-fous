@@ -468,3 +468,55 @@ test("the request queue supplies stored receipt bytes to the model runtime", asy
   assert.equal(runtimeRequest.attachment.mediaKind, "image");
   assert.deepEqual(Buffer.from(runtimeRequest.attachment.dataBase64, "base64"), bytes);
 });
+
+test("the request queue continues or cancels only the exact pending TurnBrief", async () => {
+  const events = [];
+  const outcomes = [];
+  const ledger = {
+    markProcessing() {},
+    file() { return null; },
+    append(event) { events.push(event); },
+    finish() { outcomes.push("finished"); },
+    fail(_request, error) { throw error; },
+    cancel() { outcomes.push("cancelled"); },
+  };
+  let invocation = 0;
+  const queue = new RequestQueue({
+    ledger,
+    runtime: {
+      async run(input) {
+        invocation += 1;
+        await input.awaitTurnBriefApproval({
+          objective: `Objective ${invocation}`,
+          summary: `Summary ${invocation}`,
+          capabilities: [], tools: [], contextViews: [],
+        });
+        return "done";
+      },
+    },
+    transcriber: { async transcribe() { throw new Error("must not transcribe"); } },
+    mediaRoot: "/tmp",
+  });
+  const request = {
+    eventId: "event-approval", turnId: "request-approval", content: "Do this.",
+    channel: "web", primaryFileId: null, payload: {},
+  };
+
+  const continued = queue.process(request);
+  await new Promise((resolve) => setImmediate(resolve));
+  let pending = events.find(({ type }) => type === "turn.brief.approval_required");
+  assert.ok(pending);
+  assert.equal(queue.continueTurnBrief(request.turnId, "wrong-approval"), false);
+  assert.equal(queue.continueTurnBrief(request.turnId, pending.payload.approvalId), true);
+  await continued;
+  assert.deepEqual(outcomes, ["finished"]);
+
+  const cancelled = queue.process(request);
+  await new Promise((resolve) => setImmediate(resolve));
+  pending = [...events].reverse().find(({ type }) => type === "turn.brief.approval_required");
+  assert.equal(queue.cancelTurnBrief(request.turnId, pending.payload.approvalId), true);
+  await cancelled;
+  assert.deepEqual(outcomes, ["finished", "cancelled"]);
+  assert.equal(events.some(({ type }) => type === "turn.brief.approved"), true);
+  assert.equal(events.some(({ type }) => type === "turn.brief.cancelled"), true);
+});

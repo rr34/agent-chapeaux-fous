@@ -171,9 +171,27 @@ test("a TurnBrief can skip the audit for declared read-only work and the trace s
   });
   runtime.systemPrompt = "SYSTEM PROMPT";
 
-  assert.equal(await runtime.run({
+  let approvalPlan;
+  let releaseApproval;
+  let approvalReached;
+  const waitingForApproval = new Promise((resolve) => { approvalReached = resolve; });
+  const run = runtime.run({
     requestId: "request-read-todos", requestEventId: "event-current", text: "What are my to-dos?",
-  }), "There are no current to-dos.");
+    awaitTurnBriefApproval(plan) {
+      approvalPlan = plan;
+      approvalReached();
+      return new Promise((resolve) => { releaseApproval = resolve; });
+    },
+  });
+  await waitingForApproval;
+  assert.equal(requests.length, 1, "execution must not start before the displayed TurnBrief is continued");
+  assert.equal(approvalPlan.objective, readBrief.objective);
+  assert.equal(approvalPlan.summary, readBrief.summary);
+  assert.deepEqual(approvalPlan.capabilities.map(({ capability }) => capability), ["todos"]);
+  assert.deepEqual(approvalPlan.tools.map(({ name }) => name), ["todo_list"]);
+  assert.deepEqual(approvalPlan.contextViews.map(({ id }) => id), ["todos.active_groups"]);
+  releaseApproval();
+  assert.equal(await run, "There are no current to-dos.");
   assert.equal(requests.length, 2);
   const skipped = ledger.events.find(({ type, phase, payload }) => (
     type === "agent.step" && phase === "end" && payload?.skipped

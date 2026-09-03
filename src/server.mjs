@@ -427,6 +427,25 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { requests: ledger.recentRequests(url.searchParams.get("limit")) });
       return;
     }
+    const turnBriefDecisionMatch = /^\/api\/requests\/([0-9a-f][0-9a-f-]{35})\/turn-brief\/(continue|cancel)$/.exec(url.pathname);
+    if (request.method === "POST" && turnBriefDecisionMatch) {
+      const body = await readJson(request);
+      const approvalId = typeof body.approvalId === "string" ? body.approvalId : "";
+      if (!/^[0-9a-f][0-9a-f-]{35}$/.test(approvalId)) {
+        sendJson(response, 400, { error: "A valid TurnBrief approval ID is required" });
+        return;
+      }
+      const [, requestId, decision] = turnBriefDecisionMatch;
+      const accepted = decision === "continue"
+        ? queue.continueTurnBrief(requestId, approvalId)
+        : queue.cancelTurnBrief(requestId, approvalId);
+      if (!accepted) {
+        sendJson(response, 409, { error: "That TurnBrief is no longer waiting for a decision" });
+        return;
+      }
+      sendJson(response, 200, { requestId, approvalId, decision });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/ai-usage") {
       sendJson(response, 200, {
         entries: ledger.modelUsage({ limit: url.searchParams.get("limit") || 1000 }),

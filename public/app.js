@@ -1585,6 +1585,59 @@ async function saveAsStructuredInteraction(requestId, button) {
   }
 }
 
+function renderTurnBriefItems(list, items, { identity, title, summary }) {
+  list.replaceChildren();
+  if (!Array.isArray(items) || items.length === 0) {
+    const item = document.createElement("li");
+    item.className = "turn-brief-none";
+    item.textContent = "None";
+    list.append(item);
+    return;
+  }
+  for (const value of items) {
+    const item = document.createElement("li");
+    const itemTitle = title(value);
+    const itemIdentity = identity(value);
+    if (itemTitle) {
+      const strong = document.createElement("strong");
+      strong.textContent = itemTitle;
+      item.append(strong);
+    }
+    if (itemIdentity) {
+      const code = document.createElement("code");
+      code.textContent = itemIdentity;
+      item.append(code);
+    }
+    const itemSummary = summary(value);
+    if (itemSummary) {
+      const detail = document.createElement("p");
+      detail.textContent = itemSummary;
+      item.append(detail);
+    }
+    list.append(item);
+  }
+}
+
+async function decideTurnBrief(requestId, decision, button) {
+  const panel = button.closest(".turn-brief-approval");
+  const approvalId = panel.dataset.approvalId;
+  const buttons = panel.querySelectorAll("button");
+  buttons.forEach((candidate) => { candidate.disabled = true; });
+  const status = panel.querySelector(".turn-brief-decision-status");
+  status.textContent = decision === "continue" ? "Continuing…" : "Cancelling…";
+  try {
+    await api(`/api/requests/${encodeURIComponent(requestId)}/turn-brief/${decision}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approvalId }),
+    });
+    await loadRequests({ force: true, followLatest: true });
+  } catch (error) {
+    status.textContent = error.message || "The decision could not be recorded.";
+    buttons.forEach((candidate) => { candidate.disabled = false; });
+  }
+}
+
 function requestNode(request, index, structuredGenerationStatus = null) {
   let node = requestNodes.get(request.requestId);
   if (!node) {
@@ -1621,6 +1674,12 @@ function requestNode(request, index, structuredGenerationStatus = null) {
     node.querySelector(".edit-request-file").addEventListener("click", (event) => {
       const fileId = Number(event.currentTarget.dataset.fileId);
       if (fileId) void openFileEditor(fileId);
+    });
+    node.querySelector(".turn-brief-continue").addEventListener("click", (event) => {
+      void decideTurnBrief(request.requestId, "continue", event.currentTarget);
+    });
+    node.querySelector(".turn-brief-cancel").addEventListener("click", (event) => {
+      void decideTurnBrief(request.requestId, "cancel", event.currentTarget);
     });
     requestNodes.set(request.requestId, node);
   }
@@ -1663,6 +1722,33 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   const response = node.querySelector(".agent-response");
   renderAgentMascot(node.querySelector(".agent-response-avatar"), request.explicitHats);
   response.hidden = !request.response;
+  const approvalPanel = node.querySelector(".turn-brief-approval");
+  const approval = request.turnBriefApproval;
+  approvalPanel.hidden = !approval;
+  if (approval) {
+    approvalPanel.dataset.approvalId = approval.approvalId;
+    approvalPanel.querySelector(".turn-brief-objective").textContent = approval.objective;
+    approvalPanel.querySelector(".turn-brief-description").textContent = approval.summary;
+    approvalPanel.querySelector(".turn-brief-decision-status").textContent = "";
+    approvalPanel.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+    renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-capabilities"), approval.capabilities, {
+      identity: ({ capability }) => capability,
+      title: ({ title }) => title,
+      summary: ({ summary }) => summary,
+    });
+    renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-tools"), approval.tools, {
+      identity: ({ name }) => name,
+      title: ({ title }) => title,
+      summary: ({ summary }) => summary,
+    });
+    renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-context-views"), approval.contextViews, {
+      identity: ({ id }) => id,
+      title: ({ title }) => title,
+      summary: ({ description }) => description,
+    });
+  } else {
+    delete approvalPanel.dataset.approvalId;
+  }
   const responseMarkdown = response.querySelector(".agent-response-markdown");
   if (request.response && responseMarkdown.dataset.markdown !== request.response) {
     responseMarkdown.dataset.markdown = request.response;
@@ -1843,6 +1929,9 @@ function traceLabel(event, index) {
     "request.received": "USER REQUEST",
     "agent.step": "AGENT STEP",
     "turn.brief": "ACCEPTED TURNBRIEF",
+    "turn.brief.approval_required": "TURNBRIEF REVIEW REQUIRED",
+    "turn.brief.approved": "TURNBRIEF CONTINUED",
+    "turn.brief.cancelled": "TURNBRIEF CANCELLED",
     "conversation.state": "ROLLING CONVERSATION STATE",
     "context.sent": "CONTEXT SENT",
     "tools.sent": "TOOLS AVAILABLE",
@@ -1869,7 +1958,7 @@ async function showTrace(requestId) {
   body.events.forEach((event, index) => {
     const details = document.createElement("details");
     details.className = "trace-event";
-    if (["request.received", "agent.step", "turn.brief", "conversation.state", "context.sent", "tools.sent", "model.request", "tool.call", "tool.result", "assistant.response", "request.error"].includes(event.type)) details.open = true;
+    if (["request.received", "agent.step", "turn.brief", "turn.brief.approval_required", "turn.brief.approved", "turn.brief.cancelled", "conversation.state", "context.sent", "tools.sent", "model.request", "tool.call", "tool.result", "assistant.response", "request.error", "request.cancelled"].includes(event.type)) details.open = true;
     const summary = document.createElement("summary");
     summary.textContent = traceLabel(event, index);
     const pre = document.createElement("pre");

@@ -68,6 +68,45 @@ test("one-shot run limits persist on the queued request event", () => {
   }
 });
 
+test("a pending TurnBrief review is public and cancellation is terminal", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.filename);
+  const ledger = new Ledger(store);
+  try {
+    const created = ledger.createRequest({ text: "Check today's schedule." });
+    const request = ledger.nextQueuedRequest();
+    ledger.markProcessing(request);
+    ledger.append({
+      type: "turn.brief.approval_required", phase: "start", status: "waiting",
+      actorType: "service", actorName: "TurnBrief approval gate",
+      channel: "web", turnId: created.requestId, operationId: "approval-1",
+      name: "TurnBrief approval required", content: "Read today's schedule.",
+      payload: {
+        approvalId: "approval-1",
+        objective: "Check today's schedule.",
+        summary: "Read today's scheduled items.",
+        capabilities: [{ capability: "calendar", title: "Calendar", summary: "Calendar tools." }],
+        tools: [{ name: "calendar_event_list", title: "List events", summary: "Read events." }],
+        contextViews: [],
+      },
+    });
+    const pending = ledger.recentRequests()[0];
+    assert.equal(pending.progress.label, "Waiting for you to review the plan");
+    assert.equal(pending.turnBriefApproval.objective, "Check today's schedule.");
+    assert.deepEqual(pending.turnBriefApproval.tools.map(({ name }) => name), ["calendar_event_list"]);
+
+    ledger.cancel(request);
+    const cancelled = ledger.recentRequests()[0];
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(cancelled.turnBriefApproval, undefined);
+    assert.equal(ledger.nextQueuedRequest(), null);
+    assert.equal(ledger.unfinishedRequestCount(), 0);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("a request carries exact references to completed or failed exchanges", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.filename);

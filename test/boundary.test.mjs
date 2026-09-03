@@ -144,6 +144,26 @@ test("the client exposes a live user manual generated from the explicit hat cata
   }
 });
 
+test("the client pauses on the final TurnBrief with only Continue and Cancel decisions", () => {
+  const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+
+  assert.match(document, /class="turn-brief-objective"/);
+  assert.match(document, /class="turn-brief-description"/);
+  assert.match(document, />Hats \/ capability families</);
+  assert.match(document, />Selected tools</);
+  assert.match(document, />Requested read-only context views</);
+  assert.match(document, /class="turn-brief-continue"[^>]*>Continue<\/button>/);
+  assert.match(document, /class="turn-brief-cancel secondary"[^>]*>Cancel<\/button>/);
+  assert.doesNotMatch(document, /Change plan/iu);
+  assert.match(application, /function decideTurnBrief/);
+  assert.match(application, /turn-brief\/\$\{decision\}/);
+  assert.match(styles, /\.turn-brief-approval/);
+  assert.match(server, /turn-brief\\\/\(continue\|cancel\)/);
+});
+
 test("the todo editor builds recurrence without exposing an RRULE input", () => {
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(document, /id="todo-repeat-enabled"/);

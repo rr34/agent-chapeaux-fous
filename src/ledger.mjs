@@ -64,6 +64,7 @@ const conversationTextEventTypes = [
 const terminalEventTypes = [
   "request.complete",
   "request.error",
+  "request.cancelled",
   "agent.turn.end",
   "agent.turn.error",
   "voice.request.interrupted",
@@ -171,7 +172,8 @@ export function requestProgress(events, startedAtMs) {
   const model = activeOperation(events, "model.request", ["model.response", "request.error"]);
   let label = "Queued";
   const activeStep = activeOperation(events, "agent.step", ["agent.step"]);
-  if (tool) label = `Running ${tool.name || tool.actorName || "tool"}`;
+  if (last?.type === "turn.brief.approval_required") label = "Waiting for you to review the plan";
+  else if (tool) label = `Running ${tool.name || tool.actorName || "tool"}`;
   else if (videoTranscription) label = "Timing video captions";
   else if (transcription) label = "Transcribing";
   else if (model) label = model.payload?.workflowStep
@@ -331,7 +333,7 @@ export class Ledger {
         AND NOT EXISTS (
           SELECT 1 FROM activity_events AS terminal
           WHERE terminal.turn_id = received.turn_id
-            AND terminal.event_type IN ('request.complete', 'request.error')
+            AND terminal.event_type IN ('request.complete', 'request.error', 'request.cancelled')
         )
       ORDER BY received.event_seq
       LIMIT 1
@@ -367,6 +369,15 @@ export class Ledger {
     });
   }
 
+  cancel(request) {
+    this.append({
+      type: "request.cancelled", phase: "end", status: "cancelled",
+      actorType: "user", actorName: "User",
+      channel: request.channel, turnId: request.turnId, name: "Request cancelled",
+      content: "Cancelled before execution",
+    });
+  }
+
   trace(requestId) {
     return this.store.requireReady().prepare(`
       SELECT * FROM activity_events WHERE turn_id = ? ORDER BY event_seq
@@ -399,6 +410,21 @@ export class Ledger {
       && Array.isArray(event.payload?.capabilitySelection?.explicitHats)
     ));
     const explicitHats = compiled?.payload.capabilitySelection.explicitHats ?? [];
+    const approvalRequired = [...events].reverse().find((event) => (
+      event.type === "turn.brief.approval_required"
+    ));
+    const approvalResolved = approvalRequired && events.some((event) => (
+      event.eventSeq > approvalRequired.eventSeq
+      && [
+        "turn.brief.approved",
+        "turn.brief.cancelled",
+        "request.cancelled",
+        "request.processing",
+      ].includes(event.type)
+    ));
+    const turnBriefApproval = approvalRequired && !approvalResolved && !terminal
+      ? approvalRequired.payload
+      : null;
     const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
     const requestKind = request.payload?.requestKind ?? null;
     const structuredGuideStep = requestKind === "structured_interaction_generation"
@@ -449,6 +475,7 @@ export class Ledger {
       eventCount: events.length,
       ...(sourceFile ? { attachment: publicFile(sourceFile) } : {}),
       ...(explicitHats.length ? { explicitHats } : {}),
+      ...(turnBriefApproval ? { turnBriefApproval } : {}),
       ...(requestKind ? { requestKind } : {}),
       ...(request.payload?.sourceRequestId ? { sourceRequestId: request.payload.sourceRequestId } : {}),
       ...(structuredInteractionGenerationStatus ? { structuredInteractionGenerationStatus } : {}),

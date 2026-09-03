@@ -1006,6 +1006,34 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .agent-response-markdown input[type="checkbox"] { width: auto; margin: 0 .35rem 0 0; accent-color: var(--accent); }
 .markdown-image-alt { color: var(--muted); font-style: italic; }
 .request-error { margin: 0 0 .65rem; white-space: pre-wrap; }
+.turn-brief-approval {
+  display: grid;
+  gap: .8rem;
+  margin: 0 0 .8rem;
+  padding: .85rem;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--brand-light);
+  border-radius: 11px;
+}
+.turn-brief-approval[hidden] { display: none; }
+.turn-brief-heading { margin: 0; color: var(--accent); font-size: .9rem; font-weight: 600; }
+.turn-brief-summary { display: grid; gap: .7rem; margin: 0; }
+.turn-brief-summary > div { display: grid; gap: .2rem; }
+.turn-brief-summary dt, .turn-brief-selection h3 { color: var(--muted); font-size: .72rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.turn-brief-summary dd { margin: 0; line-height: 1.45; white-space: pre-wrap; }
+.turn-brief-selection { display: grid; gap: .75rem; }
+.turn-brief-selection > div { padding-top: .7rem; border-top: 1px solid var(--line); }
+.turn-brief-selection h3, .turn-brief-selection p { margin: 0; }
+.turn-brief-selection > div > p { margin-top: .2rem; color: var(--muted); font-size: .75rem; }
+.turn-brief-selection ul { display: grid; gap: .45rem; margin: .55rem 0 0; padding: 0; list-style: none; }
+.turn-brief-selection li { display: grid; gap: .12rem; }
+.turn-brief-selection strong { font-size: .82rem; font-weight: 500; }
+.turn-brief-selection code { color: var(--accent); font-size: .72rem; overflow-wrap: anywhere; }
+.turn-brief-selection li p { color: var(--muted); font-size: .75rem; line-height: 1.4; }
+.turn-brief-selection .turn-brief-none { color: var(--muted); font-size: .78rem; }
+.turn-brief-actions { display: flex; gap: .5rem; justify-content: flex-end; }
+.turn-brief-decision-status { min-height: 1.1rem; margin: 0; color: var(--muted); font-size: .75rem; }
 .response-metrics { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .65rem; margin-top: .7rem; padding: .55rem 0; color: rgba(255, 255, 255, .78); border-top: 1px solid rgba(255, 255, 255, .22); border-bottom: 1px solid rgba(255, 255, 255, .22); font-size: .75rem; font-variant-numeric: tabular-nums; }
 .response-metrics-label { color: #ffffff; font-weight: 500; }
 .request-steps { display: grid; gap: .3rem; margin: .65rem 0; padding: 0; list-style: none; }

@@ -1,5 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { readRequestAttachment, safeMediaPath } from "./request-attachments.mjs";
 import { repeatableExchangeToolNames } from "./structured-interaction-generation.mjs";
+
+export class RequestCancelledError extends Error {
+  constructor(message = "Request cancelled before execution") {
+    super(message);
+    this.name = "RequestCancelledError";
+  }
+}
 
 export class RequestQueue {
   constructor({
@@ -15,6 +23,7 @@ export class RequestQueue {
     this.maxRequestAttachmentBytes = maxRequestAttachmentBytes;
     this.running = false;
     this.wakeRequested = false;
+    this.pendingTurnBriefApprovals = new Map();
   }
 
   notify() {
@@ -102,10 +111,67 @@ export class RequestQueue {
           ? repeatableExchangeToolNames
           : null,
         supplementalInstructions: "",
+        awaitTurnBriefApproval: (plan) => this.awaitTurnBriefApproval(request, plan),
       });
       this.ledger.finish(request, response);
     } catch (error) {
-      this.ledger.fail(request, error);
+      if (error instanceof RequestCancelledError) this.ledger.cancel(request);
+      else this.ledger.fail(request, error);
     }
+  }
+
+  awaitTurnBriefApproval(request, plan) {
+    if (this.pendingTurnBriefApprovals.has(request.turnId)) {
+      throw new Error(`TurnBrief approval is already pending for request ${request.turnId}`);
+    }
+    const approvalId = randomUUID();
+    this.ledger.append({
+      type: "turn.brief.approval_required", phase: "start", status: "waiting",
+      actorType: "service", actorName: "TurnBrief approval gate",
+      channel: request.channel, turnId: request.turnId,
+      operationId: approvalId, name: "TurnBrief approval required",
+      content: plan.summary,
+      payload: { approvalId, ...plan },
+      subjectType: "turn_brief", subjectId: request.turnId,
+    });
+    return new Promise((resolve) => {
+      this.pendingTurnBriefApprovals.set(request.turnId, {
+        approvalId,
+        request,
+        resolve,
+      });
+    }).then((decision) => {
+      if (decision === "cancel") throw new RequestCancelledError();
+    });
+  }
+
+  continueTurnBrief(requestId, approvalId) {
+    return this.#resolveTurnBriefApproval(requestId, approvalId, "continue");
+  }
+
+  cancelTurnBrief(requestId, approvalId) {
+    return this.#resolveTurnBriefApproval(requestId, approvalId, "cancel");
+  }
+
+  #resolveTurnBriefApproval(requestId, approvalId, decision) {
+    const pending = this.pendingTurnBriefApprovals.get(requestId);
+    if (!pending || pending.approvalId !== approvalId) return false;
+    this.pendingTurnBriefApprovals.delete(requestId);
+    const continuing = decision === "continue";
+    this.ledger.append({
+      type: continuing ? "turn.brief.approved" : "turn.brief.cancelled",
+      phase: "end", status: continuing ? "complete" : "cancelled",
+      actorType: "user", actorName: "User",
+      channel: pending.request.channel, turnId: pending.request.turnId,
+      operationId: pending.approvalId,
+      name: continuing ? "TurnBrief approved" : "TurnBrief cancelled",
+      content: continuing
+        ? "The user continued with the displayed TurnBrief."
+        : "The user cancelled before execution.",
+      payload: { approvalId: pending.approvalId, decision },
+      subjectType: "turn_brief", subjectId: pending.request.turnId,
+    });
+    pending.resolve(decision);
+    return true;
   }
 }

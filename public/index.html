@@ -1095,6 +1095,39 @@
           </div>
         </div>
         <div class="request-agent-turn" aria-label="Chapeaux Fous response">
+          <section class="turn-brief-approval" aria-label="Review the orientation plan" hidden>
+            <p class="turn-brief-heading">Before I continue</p>
+            <dl class="turn-brief-summary">
+              <div>
+                <dt>Objective</dt>
+                <dd class="turn-brief-objective"></dd>
+              </div>
+              <div>
+                <dt>Summary</dt>
+                <dd class="turn-brief-description"></dd>
+              </div>
+            </dl>
+            <div class="turn-brief-selection">
+              <div>
+                <h3>Hats / capability families</h3>
+                <p>The selected families can be used together.</p>
+                <ul class="turn-brief-capabilities"></ul>
+              </div>
+              <div>
+                <h3>Selected tools</h3>
+                <ul class="turn-brief-tools"></ul>
+              </div>
+              <div>
+                <h3>Requested read-only context views</h3>
+                <ul class="turn-brief-context-views"></ul>
+              </div>
+            </div>
+            <p class="turn-brief-decision-status" aria-live="polite"></p>
+            <div class="turn-brief-actions">
+              <button class="turn-brief-continue" type="button">Continue</button>
+              <button class="turn-brief-cancel secondary" type="button">Cancel</button>
+            </div>
+          </section>
           <div class="agent-response" hidden>
             <span class="agent-response-avatar agent-mascot" role="img"></span>
             <div class="agent-response-body">
