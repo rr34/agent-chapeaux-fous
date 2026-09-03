@@ -229,7 +229,7 @@ export class SlayerDatabase {
     if (this.engine === "mariadb") {
       return this.requireReady().prepare(`
         SELECT CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 'table' ELSE 'view' END AS type,
-               TABLE_NAME AS name, NULL AS sql
+               TABLE_NAME AS name, NULL AS \`sql\`
         FROM information_schema.TABLES
         WHERE TABLE_SCHEMA = DATABASE()
         ORDER BY type, name

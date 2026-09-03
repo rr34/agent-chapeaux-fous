@@ -26,6 +26,22 @@ test("database counts distinguish logical objects from SQLite FTS5 shadow tables
   });
 });
 
+test("MariaDB object discovery quotes its SQLite-compatible sql alias", () => {
+  let statement = "";
+  const store = Object.create(SlayerDatabase.prototype);
+  store.engine = "mariadb";
+  store.status = { ready: true };
+  store.database = {
+    prepare(sql) {
+      statement = sql;
+      return { all: () => [] };
+    },
+  };
+
+  assert.deepEqual(store.objects(), []);
+  assert.match(statement, /NULL AS `sql`/);
+});
+
 test("generic model writes use an explicit allowlist instead of inheriting new domain tables", (context) => {
   const temporary = temporaryDatabase();
   context.after(temporary.cleanup);
