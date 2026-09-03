@@ -177,6 +177,7 @@ const elements = {
   eventDuration: document.querySelector("#event-duration"),
   eventLocation: document.querySelector("#event-location"),
   eventDescription: document.querySelector("#event-description"),
+  eventPlanningPrompt: document.querySelector("#event-planning-prompt"),
   eventStatus: document.querySelector("#event-status"),
   eventRepeatEnabled: document.querySelector("#event-repeat-enabled"),
   eventRepeatFields: document.querySelector("#event-repeat-fields"),
@@ -222,6 +223,7 @@ const elements = {
   todoId: document.querySelector("#todo-id"),
   todoVersion: document.querySelector("#todo-version"),
   todoText: document.querySelector("#todo-text"),
+  todoPlanningPrompt: document.querySelector("#todo-planning-prompt"),
   todoGroup: document.querySelector("#todo-group"),
   todoNewGroup: document.querySelector("#todo-new-group"),
   todoSequence: document.querySelector("#todo-sequence"),
@@ -2030,6 +2032,7 @@ function calendarEventCopyText(calendarEvent) {
   if (calendarEvent.recurrenceRule) lines.push(`Repeats: ${describeTodoRecurrence(calendarEvent.recurrenceRule)}`);
   if (calendarEvent.location) lines.push(`Where: ${calendarEvent.location}`);
   if (calendarEvent.description) lines.push("", calendarEvent.description);
+  if (calendarEvent.planningPromptText) lines.push("", `Planning prompt: ${calendarEvent.planningPromptText}`);
   return lines.join("\n");
 }
 
@@ -2599,7 +2602,7 @@ function agendaTodoItem(todo, timing) {
     const actions = node("div", "agenda-event-actions");
     actions.append(agentReferenceButton(todoIdentity(todo), `task ${todo.text}`));
     if (todo.interactionGuideId != null && todo.interactionGuideStatus === "active"
-        && ["todo", "ai_suggested"].includes(todo.status)) {
+        && ["unplanned", "todo", "ai_suggested"].includes(todo.status)) {
       const startGuide = node("button", "secondary compact agenda-event-copy", "Start briefing");
       startGuide.type = "button";
       startGuide.addEventListener("click", () => void startTodoInteractionGuide(todo, startGuide));
@@ -2705,11 +2708,13 @@ function openEventEditor(calendarEvent = null) {
     });
     elements.eventLocation.value = calendarEvent.location ?? "";
     elements.eventDescription.value = calendarEvent.description ?? "";
+    elements.eventPlanningPrompt.value = calendarEvent.planningPromptText ?? "";
     elements.eventStatus.value = calendarEvent.status;
   } else {
     const start = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), selectedCalendarDate.getDate(), 9);
     eventTimingEditor.load({ start, duration: 60, isAllDay: false });
     elements.eventStatus.value = "active";
+    elements.eventPlanningPrompt.value = "";
   }
   loadEventRecurrenceEditor(calendarEvent?.recurrenceRule ?? null);
   elements.eventDelete.hidden = !calendarEvent;
@@ -2840,6 +2845,7 @@ async function saveEvent(event) {
     const payload = {
       title: elements.eventTitle.value,
       description: elements.eventDescription.value,
+      planningPromptText: elements.eventPlanningPrompt.value,
       location: elements.eventLocation.value,
       startsAtUtc: inputToIso(timing.start, timing.isAllDay),
       endsAtUtc: inputToIso(timing.end, timing.isAllDay),
@@ -2948,7 +2954,7 @@ function renderTodos() {
   });
   elements.todoCount.textContent = `${visibleTodos.length} ${visibleTodos.length === 1 ? "task" : "tasks"}`;
   const overdueCount = displayedTodos.filter((todo) => (
-    ["todo", "ai_suggested"].includes(todo.status)
+    ["unplanned", "todo", "ai_suggested"].includes(todo.status)
       && todo.scheduledAtUtc
       && new Date(todo.scheduledAtUtc) < startOfDay(new Date())
   )).length;
@@ -3078,6 +3084,9 @@ function renderTodos() {
       text.addEventListener("click", (event) => void copyText(todo.text, event.currentTarget));
       title.append(text);
       body.append(title);
+      if (todo.planningPromptText) {
+        body.append(node("p", "todo-planning-prompt", todo.planningPromptText));
+      }
       const metadata = node("div", "todo-meta");
       metadata.append(node("span", "todo-pill", todo.status.replaceAll("_", " ")));
       if (todo.relatedContactId != null) {
@@ -3146,13 +3155,13 @@ function renderTodos() {
       bottom.addEventListener("click", () => void moveTodo(todo, "bottom", visibleTodos));
       edit.addEventListener("click", () => openTodoEditor(todo));
       if (todo.interactionGuideId != null && todo.interactionGuideStatus === "active"
-          && ["todo", "ai_suggested"].includes(todo.status)) {
+          && ["unplanned", "todo", "ai_suggested"].includes(todo.status)) {
         const startGuide = node("button", "secondary compact", "Start briefing");
         startGuide.type = "button";
         startGuide.addEventListener("click", () => void startTodoInteractionGuide(todo, startGuide));
         actions.append(startGuide);
       }
-      if (["todo", "ai_suggested"].includes(todo.status)) actions.append(schedule);
+      if (["unplanned", "todo", "ai_suggested"].includes(todo.status)) actions.append(schedule);
       if (group.usesSequence) {
         const assignSequence = node("button", "secondary compact", "Assign next #");
         assignSequence.type = "button";
@@ -3272,6 +3281,7 @@ function openTodoEditor(todo = null, groupId = null) {
   populateTodoContactEditor(todo);
   populateTodoGuideEditor(todo);
   elements.todoText.value = todo?.text ?? "";
+  elements.todoPlanningPrompt.value = todo?.planningPromptText ?? "";
   elements.todoSequence.value = todo?.sequence ?? "";
   todoTimingEditor.load({
     start: todo?.scheduledAtUtc ?? null,
@@ -3401,6 +3411,7 @@ async function saveTodo(event) {
     const timing = todoTimingEditor.values();
     const payload = {
       text: elements.todoText.value,
+      planningPromptText: elements.todoPlanningPrompt.value,
       groupId: Number(elements.todoGroup.value),
       sequence: elements.todoSequence.value ? Number(elements.todoSequence.value) : null,
       relatedContactId: elements.todoContact.value ? Number(elements.todoContact.value) : null,

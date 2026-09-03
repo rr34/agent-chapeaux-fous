@@ -40,13 +40,14 @@ export const requiredDatabaseShape = {
   calendar_events: [
     "calendar_event_id", "title", "description", "location_text", "starts_at_utc",
     "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule",
-    "source_event_id", "created_at_utc", "updated_at_utc",
+    "source_event_id", "created_at_utc", "updated_at_utc", "planning_prompt_text",
   ],
   calendar_event_exclusions: ["calendar_event_id", "excluded_starts_at_utc"],
   todo_groups: ["todo_group_id", "name", "sort_position", "uses_sequence", "archived_at_utc"],
   personal_tasks: [
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
     "scheduled_at_utc", "is_all_day", "duration_minutes", "due_at_utc", "completed_at_utc", "source_event_id",
+    "planning_prompt_text",
   ],
   log_groups: ["log_group_id", "name", "archived_at_utc"],
   trackers: ["tracker_id", "log_group_id", "name", "unit", "archived_at_utc"],
@@ -72,6 +73,7 @@ export const requiredDatabaseShape = {
     "todo_routine_id", "todo_group_id", "text", "first_scheduled_at_utc",
     "first_due_at_utc", "time_zone", "recurrence_rule", "disabled_at_utc",
     "created_at_utc", "updated_at_utc", "is_all_day", "interaction_guide_id",
+    "planning_prompt_text",
   ],
 };
 

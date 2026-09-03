@@ -9,7 +9,8 @@ const statuses = ["tentative", "confirmed", "cancelled", "completed"];
 const calendarEventFields = [
   "calendar_event_id", "ical_uid", "ical_recurrence_id", "title", "description",
   "location_text", "starts_at_utc", "ends_at_utc", "time_zone", "is_all_day",
-  "status", "recurrence_rule", "source_event_id", "created_at_utc", "updated_at_utc",
+  "status", "recurrence_rule", "planning_prompt_text", "source_event_id",
+  "created_at_utc", "updated_at_utc",
 ];
 const contactFields = ["contact_id", "display_name", "birth_date"];
 const optionalText = { type: ["string", "null"] };
@@ -208,7 +209,7 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_add",
-    description: "Create one native calendar event. Use is_all_day=true when the user names a day without a specific time, with starts_at_utc representing local midnight and time_zone preserving that local date. For repetition, supply structured recurrence concepts including numbered weekdays or days of the month; never write RRULE syntax.",
+    description: "Create one native calendar event with an optional planning_prompt_text containing the exact question to ask about still-unplanned time. Use is_all_day=true when the user names a day without a specific time, with starts_at_utc representing local midnight and time_zone preserving that local date. For repetition, supply structured recurrence concepts including numbered weekdays or days of the month; never write RRULE syntax.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -216,6 +217,7 @@ export function registerCalendarTools(
         title: { type: "string", minLength: 1, maxLength: 500 },
         description: optionalText,
         location_text: optionalText,
+        planning_prompt_text: optionalText,
         starts_at_utc: { type: "string" },
         ends_at_utc: optionalText,
         time_zone: optionalText,
@@ -252,14 +254,15 @@ export function registerCalendarTools(
         const inserted = database.prepare(`
           INSERT INTO calendar_events (
             title, description, location_text, starts_at_utc, ends_at_utc,
-            time_zone, is_all_day, status, recurrence_rule
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            time_zone, is_all_day, status, recurrence_rule, planning_prompt_text
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           RETURNING calendar_event_id
         `).get(
           normalizedText(input.title, "title", 500, { required: true }),
           normalizedText(input.description, "description", 10_000),
           normalizedText(input.location_text, "location_text", 1_000),
-          startsAtUtc, endsAtUtc, timeZone, input.is_all_day ? 1 : 0, input.status, recurrenceRule,
+          startsAtUtc, endsAtUtc, timeZone, input.is_all_day ? 1 : 0, input.status,
+          recurrenceRule, normalizedText(input.planning_prompt_text, "planning_prompt_text", 10_000),
         );
         let event = calendarEvent(database, inserted.calendar_event_id);
         const sourceEventId = writeEvent(database, ledger, context, {
@@ -287,7 +290,7 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_update",
-    description: "Update or cancel one native calendar event by calendar_event_id. Null means leave a field unchanged; use an empty string to clear description, location_text, ends_at_utc, or time_zone. Change recurrence separately with calendar_event_recurrence_set.",
+    description: "Update or cancel one native calendar event by calendar_event_id. Null means leave a field unchanged; use an empty string to clear description, location_text, planning_prompt_text, ends_at_utc, or time_zone. Change recurrence separately with calendar_event_recurrence_set.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -296,6 +299,7 @@ export function registerCalendarTools(
         title: optionalText,
         description: optionalText,
         location_text: optionalText,
+        planning_prompt_text: optionalText,
         starts_at_utc: optionalText,
         ends_at_utc: optionalText,
         time_zone: optionalText,
@@ -314,6 +318,11 @@ export function registerCalendarTools(
       if (input.title !== null) values.title = normalizedText(input.title, "title", 500, { required: true });
       if (input.description !== null) values.description = normalizedText(input.description, "description", 10_000);
       if (input.location_text !== null) values.location_text = normalizedText(input.location_text, "location_text", 1_000);
+      if (input.planning_prompt_text !== undefined && input.planning_prompt_text !== null) {
+        values.planning_prompt_text = normalizedText(
+          input.planning_prompt_text, "planning_prompt_text", 10_000,
+        );
+      }
       if (input.starts_at_utc !== null) {
         values.starts_at_utc = normalizedIso(input.starts_at_utc, "starts_at_utc", { required: true });
         validateCalendarTemporalTarget(values.starts_at_utc, context);

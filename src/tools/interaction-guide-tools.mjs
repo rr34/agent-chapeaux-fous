@@ -237,7 +237,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_start",
-    description: "Start or resume one exact briefing. An unfinished run resumes its active exchange. Set restart true only when the user explicitly asks to discard that run and begin again; a new run resets exchange progress and answers after preserving prior progress in the ledger.",
+    description: "Start or resume one exact briefing. An unfinished run resumes its active exchange. Set restart true only when the user explicitly asks to discard that run and begin again. Completed runs are preserved in the ledger while their reusable exchange state is already reset for this next run.",
     parameters: {
       type: "object",
       additionalProperties: false,

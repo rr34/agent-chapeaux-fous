@@ -389,7 +389,7 @@ test("one exchange moves between briefings without a schema change or shared own
 });
 
 test("numbered interaction steps persist answers and resume at the exact active step", async (context) => {
-  const { registry } = harness(context);
+  const { store, registry } = harness(context);
   const created = await registry.execute("interaction_guide_create", {
     name: "Evening Brief",
   }, { requestId: "brief-build", callId: "create-brief" });
@@ -496,6 +496,31 @@ test("numbered interaction steps persist answers and resume at the exact active 
   assert.equal(completed.run_complete, true);
   assert.equal(completed.step.progress_state, "completed");
   assert.equal(completed.current_step, null);
+
+  const readyAgain = await registry.execute("interaction_guide_get", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+  });
+  assert.equal(Object.hasOwn(readyAgain.guide, "active_run"), false);
+  assert.deepEqual(
+    readyAgain.guide.steps.map(({ answers_json, progress_state }) => ({
+      answers_json, progress_state,
+    })),
+    [
+      { answers_json: {}, progress_state: "pending" },
+      { answers_json: {}, progress_state: "pending" },
+    ],
+  );
+  const completedEvent = store.requireReady().prepare(`
+    SELECT payload_json
+    FROM activity_events
+    WHERE event_type = 'interaction_guide.step_completed' AND subject_id = ?
+    ORDER BY event_seq DESC
+    LIMIT 1
+  `).get(runId);
+  assert.deepEqual(JSON.parse(completedEvent.payload_json).answers, {
+    inputs: "Customer notes and the existing estimate",
+  });
 
   const nextRun = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,

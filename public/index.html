@@ -239,6 +239,7 @@
         <label for="todo-scope">Show</label>
         <select id="todo-scope">
           <option value="active">Active</option>
+          <option value="unplanned">Unplanned</option>
           <option value="completed">Completed</option>
           <option value="all">Everything</option>
         </select>
@@ -581,6 +582,7 @@
       </div>
       <label>Location<input id="event-location" maxlength="1000"></label>
       <label>Description<textarea id="event-description" rows="4"></textarea></label>
+      <label>Planning prompt<textarea id="event-planning-prompt" rows="3" maxlength="10000" placeholder="What should the agent ask to help plan this time?"></textarea></label>
       <label>Status<select id="event-status">
         <option value="active">Active</option><option value="archived">Archived</option>
       </select></label>
@@ -687,6 +689,7 @@
       <input id="todo-id" type="hidden">
       <input id="todo-version" type="hidden">
       <label>Task<textarea id="todo-text" rows="4" required maxlength="10000"></textarea></label>
+      <label>Planning prompt<textarea id="todo-planning-prompt" rows="3" maxlength="10000" placeholder="What should the agent ask to help plan this item?"></textarea></label>
       <div class="editor-grid">
         <div class="todo-group-editor">
           <label>Group<select id="todo-group" required></select></label>
@@ -729,7 +732,7 @@
           </div>
         </div>
         <label>Status<select id="todo-status">
-          <option value="todo">To do</option><option value="complete">Complete</option>
+          <option value="unplanned">Unplanned</option><option value="todo">To do</option><option value="complete">Complete</option>
           <option value="ignore">Ignore</option><option value="archive">Archive</option>
           <option value="ai_suggested">AI suggested</option>
         </select></label>

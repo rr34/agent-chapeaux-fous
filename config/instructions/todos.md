@@ -10,6 +10,14 @@ write RRULE syntax. When a to-do is assigned to a calendar day without an exact
 time, set `is_all_day=true` and represent that date as local midnight; use a
 timed schedule only when the user supplies or requests a time.
 
+Use status `unplanned` for an active item whose concrete plan has not yet been
+decided. `todo_list` with `status="unplanned"` is the authoritative list of
+items that still need planning. Preserve the user's exact question in nullable
+`planning_prompt_text`; do not invent a planning prompt when the user has not
+supplied or requested one. The field and status are independent, so changing
+one does not silently change the other. Recurring unplanned items carry their
+planning prompt and unplanned status into future occurrences.
+
 When the user asks to establish a routine, habit, or other reusable hypothetical
 schedule, use `routine_add`, not `todo_add`. `routine_add` atomically ensures the
 reserved Routine group and creates one repeating to-do template; it does not

@@ -558,6 +558,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .todo-card.completed h3 { text-decoration: line-through; }
 .todo-body { min-width: 0; }
 .todo-body h3 { margin: 1px 0 6px; font-size: .96rem; white-space: pre-wrap; }
+.todo-planning-prompt { margin: 0 0 .55rem; color: var(--muted); font-size: .8rem; line-height: 1.4; white-space: pre-wrap; }
 .todo-text { display: block; max-width: 100%; padding: 0; color: inherit; background: transparent; border: 0; text-align: left; cursor: copy; }
 .todo-text:hover { color: var(--accent); }
 .todo-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }

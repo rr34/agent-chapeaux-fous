@@ -8,9 +8,9 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 25,
-    "schemaFingerprint": "64d25d13a261aad552933f0b6c921d94312a9fcfb90d6fef9561ff353804af58",
-    "extractedAt": "2026-08-31T15:10:31.650Z"
+    "schemaVersion": 27,
+    "schemaFingerprint": "c7c1a6008a14fdb3828163150aad4ee93436f1e4ac56ebdcbfa9cff4db66a56d",
+    "extractedAt": "2026-09-03T01:28:51.971Z"
   },
   "instructions": {
     "humanOwned": "Fill only semantics properties. Null, empty arrays, and empty objects are intentional blanks.",
@@ -3404,7 +3404,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE \"calendar_events\" (\n    calendar_event_id   INTEGER PRIMARY KEY,\n    -- UID and RECURRENCE-ID identify imported iCalendar components without\n    -- implying that the agent owns more than one calendar.\n    ical_uid            TEXT,\n    ical_recurrence_id  TEXT,\n    title               TEXT NOT NULL,\n    description         TEXT,\n    location_text       TEXT,\n    starts_at_utc       TEXT NOT NULL,\n    ends_at_utc         TEXT,\n    time_zone           TEXT,\n    is_all_day          INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1)),\n    status              TEXT NOT NULL DEFAULT 'confirmed'\n                        CHECK (status IN ('tentative', 'confirmed', 'cancelled', 'completed')),\n    recurrence_rule     TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n) STRICT",
+        "definition": "CREATE TABLE \"calendar_events\" (\n    calendar_event_id   INTEGER PRIMARY KEY,\n    -- UID and RECURRENCE-ID identify imported iCalendar components without\n    -- implying that the agent owns more than one calendar.\n    ical_uid            TEXT,\n    ical_recurrence_id  TEXT,\n    title               TEXT NOT NULL,\n    description         TEXT,\n    location_text       TEXT,\n    starts_at_utc       TEXT NOT NULL,\n    ends_at_utc         TEXT,\n    time_zone           TEXT,\n    is_all_day          INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1)),\n    status              TEXT NOT NULL DEFAULT 'confirmed'\n                        CHECK (status IN ('tentative', 'confirmed', 'cancelled', 'completed')),\n    recurrence_rule     TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n, planning_prompt_text TEXT\n                                CHECK (\n                                    planning_prompt_text IS NULL\n                                    OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000\n                                )) STRICT",
         "indexes": [
           {
             "name": "calendar_events_ical_occurrence",
@@ -3459,7 +3459,8 @@
         "importantRules": [
           "starts_at_utc and ends_at_utc are UTC instants; time_zone preserves the intended display zone.",
           "There is exactly one logical calendar; imported identifiers prevent duplicate events but never partition events into separate calendars.",
-          "Materialized repeating occurrences are ordinary event rows and may be edited independently."
+          "Materialized repeating occurrences are ordinary event rows and may be edited independently.",
+          "planning_prompt_text is optional and records the exact proactive planning question associated with the scheduled time."
         ],
         "sensitivity": "Contains the user's private schedule, locations, participants, and imported calendar identifiers."
       },
@@ -3897,6 +3898,43 @@
             "routingWeight": null,
             "examples": [],
             "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "planning_prompt_text": {
+          "mechanics": {
+            "present": true,
+            "name": "planning_prompt_text",
+            "ordinal": 15,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional question the agent should proactively ask to help the user decide how this scheduled time will be used.",
+            "units": null,
+            "format": "Plain text question",
+            "allowedValueMeanings": {},
+            "synonyms": [
+              "planning question"
+            ],
+            "keywords": [
+              "plan",
+              "proactive question",
+              "blank time"
+            ],
+            "routingWeight": null,
+            "examples": [
+              "What should we do during these four hours with the kids?"
+            ],
+            "importantRules": [
+              "Null means no proactive planning question is attached to this event."
+            ],
             "sensitivity": null
           }
         },
@@ -9297,7 +9335,7 @@
         "importantRules": [
           "The parent interaction_guides.version is the only definition concurrency version and increments when any step definition changes.",
           "A run remains on its current step until that step's completion mode is satisfied, then advances to the next higher enabled step number.",
-          "Starting a new run resets answers_json and progress_state only after prior progress has been preserved in activity_events.",
+          "Completing a run preserves its progress in activity_events, then immediately resets answers_json and progress_state for the next run.",
           "Generic database reads and writes must not expose or mutate these private rows; use the owning interaction-guide tools."
         ],
         "sensitivity": "Contains private scripted questions, instructions, and the user's current answers."
@@ -9467,7 +9505,7 @@
             "examples": [],
             "importantRules": [
               "Merge partial answers without discarding answers already collected in the active run.",
-              "A new run clears this object only after the prior run's progress has been retained in activity_events.",
+              "A completed run clears this object only after that run's progress has been retained in activity_events.",
               "Answers do not replace business validation or successful receipts from the tools that own destination data."
             ],
             "sensitivity": "Contains private user answers that may span any domain covered by the structured interaction."
@@ -9628,7 +9666,7 @@
             "examples": [],
             "importantRules": [
               "The interaction-guide service owns transitions; definition tools do not write this field directly.",
-              "A new run or explicit cancellation resets current progress only after immutable history is retained in activity_events."
+              "Run completion or explicit cancellation resets current progress only after immutable history is retained in activity_events."
             ],
             "sensitivity": null
           }
@@ -10942,12 +10980,12 @@
       "mechanics": {
         "present": true,
         "kind": "view",
-        "definition": "CREATE VIEW open_personal_tasks AS\nSELECT *\nFROM personal_tasks\nWHERE status IN ('todo', 'ai_suggested')",
+        "definition": "CREATE VIEW open_personal_tasks AS\nSELECT *\nFROM personal_tasks\nWHERE status IN ('unplanned', 'todo', 'ai_suggested')",
         "indexes": []
       },
       "semantics": {
         "purpose": "Provides the personal tasks that currently belong on the user's actionable To-Do List.",
-        "rowMeaning": "One row represents one task whose status is todo or ai_suggested.",
+        "rowMeaning": "One row represents one task whose status is unplanned, todo, or ai_suggested.",
         "sourceOfTruth": false,
         "derivedFrom": [
           "personal_tasks"
@@ -10964,7 +11002,7 @@
         ],
         "routingWeight": 1,
         "importantRules": [
-          "The view excludes complete, ignored, and archived tasks."
+          "The view includes unplanned, todo, and ai_suggested tasks and excludes complete, ignored, and archived tasks."
         ],
         "sensitivity": "Contains the user's private plans, commitments, and agent-suggested work."
       },
@@ -11143,6 +11181,7 @@
             "generated": false,
             "hidden": false,
             "allowedValues": [
+              "unplanned",
               "todo",
               "ai_suggested"
             ]
@@ -11446,6 +11485,33 @@
           },
           "semantics": {
             "inheritsFrom": "personal_tasks.duration_minutes",
+            "meaning": null,
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "planning_prompt_text": {
+          "mechanics": {
+            "present": true,
+            "name": "planning_prompt_text",
+            "ordinal": 18,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": "personal_tasks.planning_prompt_text",
             "meaning": null,
             "units": null,
             "format": null,
@@ -12021,7 +12087,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE personal_tasks (\n    personal_task_id    INTEGER PRIMARY KEY,\n    todo_group_id       INTEGER NOT NULL\n                        REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    todo_routine_id     INTEGER\n                        REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,\n    sequence            INTEGER CHECK (sequence IS NULL OR sequence > 0),\n    related_contact_id  INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    text                TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'todo'\n                        CHECK (status IN ('todo', 'complete', 'ignore', 'archive', 'ai_suggested')),\n    sort_position       INTEGER NOT NULL DEFAULT 0,\n    scheduled_at_utc    TEXT,\n    due_at_utc          TEXT,\n    completed_at_utc    TEXT,\n    source              TEXT,\n    external_id         TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT, is_all_day INTEGER NOT NULL DEFAULT 0\n                  CHECK (is_all_day IN (0, 1)), duration_minutes INTEGER\n                            CHECK (duration_minutes IS NULL OR duration_minutes > 0),\n    UNIQUE (todo_group_id, sequence),\n    UNIQUE (source, external_id)\n) STRICT",
+        "definition": "CREATE TABLE personal_tasks (\n    personal_task_id    INTEGER PRIMARY KEY,\n    todo_group_id       INTEGER NOT NULL\n                        REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    todo_routine_id     INTEGER\n                        REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,\n    sequence            INTEGER CHECK (sequence IS NULL OR sequence > 0),\n    related_contact_id  INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    text                TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'todo'\n                        CHECK (status IN (\n                            'unplanned', 'todo', 'complete', 'ignore',\n                            'archive', 'ai_suggested'\n                        )),\n    sort_position       INTEGER NOT NULL DEFAULT 0,\n    scheduled_at_utc    TEXT,\n    due_at_utc          TEXT,\n    completed_at_utc    TEXT,\n    source              TEXT,\n    external_id         TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT,\n    is_all_day          INTEGER NOT NULL DEFAULT 0\n                        CHECK (is_all_day IN (0, 1)),\n    duration_minutes    INTEGER\n                        CHECK (duration_minutes IS NULL OR duration_minutes > 0),\n    planning_prompt_text TEXT\n                        CHECK (\n                            planning_prompt_text IS NULL\n                            OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000\n                        ),\n    UNIQUE (todo_group_id, sequence),\n    UNIQUE (source, external_id)\n) STRICT",
         "indexes": [
           {
             "name": "personal_tasks_contact",
@@ -12111,7 +12177,9 @@
           "Every task belongs to exactly one todo group.",
           "sequence is an optional stable identifier unique within a group; sort_position is mutable presentation order.",
           "scheduled_at_utc places work on the calendar, due_at_utc is its deadline, and completed_at_utc records actual completion.",
-          "The single text field contains the complete task wording; there is no title-description split."
+          "The single text field contains the complete task wording; there is no title-description split.",
+          "unplanned is an active status for an item that still needs a concrete plan.",
+          "planning_prompt_text is nullable and independent of status."
         ],
         "sensitivity": "Contains the user's private tasks, plans, relationships, schedules, and source references."
       },
@@ -12292,6 +12360,7 @@
             "generated": false,
             "hidden": false,
             "allowedValues": [
+              "unplanned",
               "todo",
               "complete",
               "ignore",
@@ -12305,6 +12374,7 @@
             "units": null,
             "format": null,
             "allowedValueMeanings": {
+              "unplanned": "The item is active but still needs a concrete plan.",
               "todo": "the user intends to do this task.",
               "complete": "The task was finished.",
               "ignore": "The task was intentionally skipped without completion.",
@@ -12615,6 +12685,44 @@
             "routingWeight": null,
             "examples": [],
             "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "planning_prompt_text": {
+          "mechanics": {
+            "present": true,
+            "name": "planning_prompt_text",
+            "ordinal": 18,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional question the agent should proactively ask to help turn this task into a concrete plan.",
+            "units": null,
+            "format": "Plain text question",
+            "allowedValueMeanings": {},
+            "synonyms": [
+              "planning question"
+            ],
+            "keywords": [
+              "plan",
+              "unplanned",
+              "proactive question"
+            ],
+            "routingWeight": null,
+            "examples": [
+              "What do we want to do while we have the kids this afternoon?"
+            ],
+            "importantRules": [
+              "Null means the task has no stored planning question.",
+              "The field may be present on any task status and does not itself change the status."
+            ],
             "sensitivity": null
           }
         }
@@ -14331,7 +14439,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE \"reminders\" (\n    reminder_id         INTEGER PRIMARY KEY,\n    calendar_event_id   INTEGER REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE CASCADE,\n    title               TEXT,\n    remind_at_utc       TEXT NOT NULL,\n    delivery_method     TEXT NOT NULL DEFAULT 'agent'\n                        CHECK (delivery_method IN (\n                            'agent', 'webhook', 'notification',\n                            'email', 'sms', 'other'\n                        )),\n    delivery_target     TEXT,\n    status              TEXT NOT NULL DEFAULT 'pending'\n                        CHECK (status IN (\n                            'pending', 'processing', 'delivered',\n                            'snoozed', 'cancelled', 'error'\n                        )),\n    attempt_count       INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),\n    last_attempt_at_utc TEXT,\n    delivered_at_utc   TEXT,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n) STRICT",
+        "definition": "CREATE TABLE reminders (\n    reminder_id         INTEGER PRIMARY KEY,\n    calendar_event_id   INTEGER REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE CASCADE,\n    title               TEXT,\n    remind_at_utc       TEXT NOT NULL,\n    delivery_method     TEXT NOT NULL DEFAULT 'agent'\n                        CHECK (delivery_method IN (\n                            'agent', 'webhook', 'notification',\n                            'email', 'sms', 'other'\n                        )),\n    delivery_target     TEXT,\n    status              TEXT NOT NULL DEFAULT 'pending'\n                        CHECK (status IN (\n                            'pending', 'processing', 'delivered',\n                            'snoozed', 'cancelled', 'error'\n                        )),\n    attempt_count       INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),\n    last_attempt_at_utc TEXT,\n    delivered_at_utc   TEXT,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n) STRICT",
         "indexes": [
           {
             "name": "reminders_due",
@@ -15349,7 +15457,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE todo_routines (\n    todo_routine_id        INTEGER PRIMARY KEY,\n    todo_group_id          INTEGER NOT NULL\n                           REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    text                   TEXT NOT NULL,\n    first_scheduled_at_utc TEXT NOT NULL,\n    first_due_at_utc       TEXT,\n    time_zone              TEXT NOT NULL,\n    recurrence_rule        TEXT NOT NULL,\n    disabled_at_utc        TEXT,\n    created_at_utc         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc         TEXT\n, is_all_day INTEGER NOT NULL DEFAULT 0\n                  CHECK (is_all_day IN (0, 1)), interaction_guide_id INTEGER\n          REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL) STRICT",
+        "definition": "CREATE TABLE todo_routines (\n    todo_routine_id        INTEGER PRIMARY KEY,\n    todo_group_id          INTEGER NOT NULL\n                           REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    text                   TEXT NOT NULL,\n    first_scheduled_at_utc TEXT NOT NULL,\n    first_due_at_utc       TEXT,\n    time_zone              TEXT NOT NULL,\n    recurrence_rule        TEXT NOT NULL,\n    disabled_at_utc        TEXT,\n    created_at_utc         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc         TEXT\n, is_all_day INTEGER NOT NULL DEFAULT 0\n                  CHECK (is_all_day IN (0, 1)), interaction_guide_id INTEGER\n          REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL, planning_prompt_text TEXT\n                                CHECK (\n                                    planning_prompt_text IS NULL\n                                    OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000\n                                )) STRICT",
         "indexes": []
       },
       "semantics": {
@@ -15375,7 +15483,8 @@
         "importantRules": [
           "The single text field contains the complete routine wording; there is no title-description split.",
           "RRULE determines recurrence from first_scheduled_at_utc in time_zone.",
-          "Completing or ignoring an occurrence generates the next future occurrence without accumulating missed work."
+          "Completing or ignoring an occurrence generates the next future occurrence without accumulating missed work.",
+          "planning_prompt_text is copied into each generated occurrence; a routine whose template task is unplanned keeps future occurrences unplanned."
         ],
         "sensitivity": "Contains the user's private recurring responsibilities and schedules."
       },
@@ -15702,6 +15811,43 @@
             "examples": [],
             "importantRules": [
               "This reference does not schedule or repeat the guide; the containing to-do routine owns recurrence."
+            ],
+            "sensitivity": null
+          }
+        },
+        "planning_prompt_text": {
+          "mechanics": {
+            "present": true,
+            "name": "planning_prompt_text",
+            "ordinal": 12,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional proactive planning question copied into each task occurrence generated from this routine.",
+            "units": null,
+            "format": "Plain text question",
+            "allowedValueMeanings": {},
+            "synonyms": [
+              "recurring planning question"
+            ],
+            "keywords": [
+              "routine",
+              "plan",
+              "proactive question"
+            ],
+            "routingWeight": null,
+            "examples": [
+              "What would make family time fun this weekend?"
+            ],
+            "importantRules": [
+              "Null means generated occurrences have no routine-supplied planning question."
             ],
             "sensitivity": null
           }
@@ -16469,6 +16615,33 @@
             "sensitivity": null
           }
         },
+        "planning_prompt_text": {
+          "mechanics": {
+            "present": true,
+            "name": "planning_prompt_text",
+            "ordinal": 15,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": "calendar_events.planning_prompt_text",
+            "meaning": null,
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
         "calendar_key": {
           "mechanics": {
             "present": false,
@@ -16584,7 +16757,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE video_jobs (\n    video_job_id        INTEGER PRIMARY KEY,\n    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    source_turn_id      TEXT,\n    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,\n    renderer            TEXT NOT NULL DEFAULT 'remotion'\n                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),\n    template            TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'queued'\n                        CHECK (status IN (\n                            'queued', 'preparing', 'rendering',\n                            'complete', 'error', 'cancelled'\n                        )),\n    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),\n    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    started_at_utc      TEXT,\n    completed_at_utc    TEXT,\n    updated_at_utc      TEXT,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL\n, video_script_id INTEGER\n             REFERENCES video_scripts(video_script_id) ON DELETE SET NULL) STRICT",
+        "definition": "CREATE TABLE video_jobs (\n    video_job_id        INTEGER PRIMARY KEY,\n    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    source_turn_id      TEXT,\n    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,\n    renderer            TEXT NOT NULL DEFAULT 'remotion'\n                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),\n    template            TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'queued'\n                        CHECK (status IN (\n                            'queued', 'preparing', 'rendering',\n                            'complete', 'error', 'cancelled'\n                        )),\n    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),\n    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    started_at_utc      TEXT,\n    completed_at_utc    TEXT,\n    updated_at_utc      TEXT,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL,\n    video_script_id     INTEGER REFERENCES video_scripts(video_script_id) ON DELETE SET NULL\n) STRICT",
         "indexes": [
           {
             "name": "video_jobs_one_active_script",

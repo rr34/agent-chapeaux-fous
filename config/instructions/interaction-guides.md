@@ -62,10 +62,11 @@ or `completed`. Do not try to write it directly through definition tools.
 For a guide with numbered steps, call `interaction_guide_start`. With
 `restart: false`, an interrupted active run resumes; do not clear or replace its
 answers. Use `restart: true` only when the user explicitly asks to discard the
-active run and begin again. Starting a new run preserves the previous run in the
-ledger, clears the child rows' current answers, resets their progress, and marks
-the first enabled step active. Present `current_step` by starting with its exact
-`opening_text` and use its instructions to handle the reply. Request any
+active run and begin again. A completed run is preserved in the ledger and
+immediately clears the child rows' current answers and resets their progress to
+`pending`, leaving the briefing ready for its next use. Starting that next run
+marks the first enabled step active. Present `current_step` by starting with its
+exact `opening_text` and use its instructions to handle the reply. Request any
 deferred data or action capabilities the step requires.
 
 On every reply to a numbered step, call `interaction_guide_step_answer` before
@@ -74,7 +75,9 @@ responding. Merge every supplied answer into the exact active step. Keep
 continue the same numbered step without replaying unnecessary text. When it is
 true, use the returned `current_step`, which is mechanically the next higher
 enabled step, and begin with that step's exact opening text. If `run_complete`
-is true, summarize completion instead of inventing another question.
+is true, summarize completion instead of inventing another question. The
+returned completed step is the receipt for that just-finished call; subsequent
+briefing reads show clean `pending` exchanges for the next run.
 
 `interaction_guide_list` and `interaction_guide_get` include compact active-run
 metadata when a guide is interrupted, allowing a later request to discover the

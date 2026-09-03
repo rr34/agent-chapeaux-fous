@@ -5,6 +5,271 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0027: unplanned-planning-prompts
+-- Distinguish active work that still needs a plan and preserve the exact
+-- question the Agent should ask on tasks, routine definitions, and events.
+
+PRAGMA defer_foreign_keys = ON;
+
+DROP VIEW due_reminders;
+DROP VIEW open_personal_tasks;
+
+ALTER TABLE reminders RENAME TO migration_0027_reminders;
+ALTER TABLE video_jobs RENAME TO migration_0027_video_jobs;
+ALTER TABLE personal_tasks RENAME TO migration_0027_personal_tasks;
+
+CREATE TABLE personal_tasks (
+    personal_task_id    INTEGER PRIMARY KEY,
+    todo_group_id       INTEGER NOT NULL
+                        REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
+    todo_routine_id     INTEGER
+                        REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,
+    sequence            INTEGER CHECK (sequence IS NULL OR sequence > 0),
+    related_contact_id  INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,
+    text                TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'todo'
+                        CHECK (status IN (
+                            'unplanned', 'todo', 'complete', 'ignore',
+                            'archive', 'ai_suggested'
+                        )),
+    sort_position       INTEGER NOT NULL DEFAULT 0,
+    scheduled_at_utc    TEXT,
+    due_at_utc          TEXT,
+    completed_at_utc    TEXT,
+    source              TEXT,
+    external_id         TEXT,
+    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at_utc      TEXT,
+    is_all_day          INTEGER NOT NULL DEFAULT 0
+                        CHECK (is_all_day IN (0, 1)),
+    duration_minutes    INTEGER
+                        CHECK (duration_minutes IS NULL OR duration_minutes > 0),
+    planning_prompt_text TEXT
+                        CHECK (
+                            planning_prompt_text IS NULL
+                            OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000
+                        ),
+    UNIQUE (todo_group_id, sequence),
+    UNIQUE (source, external_id)
+) STRICT;
+
+INSERT INTO personal_tasks (
+    personal_task_id, todo_group_id, todo_routine_id, sequence,
+    related_contact_id, text, status, sort_position, scheduled_at_utc,
+    due_at_utc, completed_at_utc, source, external_id, source_event_id,
+    created_at_utc, updated_at_utc, is_all_day, duration_minutes,
+    planning_prompt_text
+)
+SELECT
+    personal_task_id, todo_group_id, todo_routine_id, sequence,
+    related_contact_id, text, status, sort_position, scheduled_at_utc,
+    due_at_utc, completed_at_utc, source, external_id, source_event_id,
+    created_at_utc, updated_at_utc, is_all_day, duration_minutes, NULL
+FROM migration_0027_personal_tasks;
+
+CREATE TABLE reminders (
+    reminder_id         INTEGER PRIMARY KEY,
+    calendar_event_id   INTEGER REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
+    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE CASCADE,
+    title               TEXT,
+    remind_at_utc       TEXT NOT NULL,
+    delivery_method     TEXT NOT NULL DEFAULT 'agent'
+                        CHECK (delivery_method IN (
+                            'agent', 'webhook', 'notification',
+                            'email', 'sms', 'other'
+                        )),
+    delivery_target     TEXT,
+    status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN (
+                            'pending', 'processing', 'delivered',
+                            'snoozed', 'cancelled', 'error'
+                        )),
+    attempt_count       INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    last_attempt_at_utc TEXT,
+    delivered_at_utc   TEXT,
+    error_text          TEXT,
+    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at_utc      TEXT
+) STRICT;
+
+INSERT INTO reminders (
+    reminder_id, calendar_event_id, personal_task_id, title, remind_at_utc,
+    delivery_method, delivery_target, status, attempt_count,
+    last_attempt_at_utc, delivered_at_utc, error_text,
+    created_at_utc, updated_at_utc
+)
+SELECT
+    reminder_id, calendar_event_id, personal_task_id, title, remind_at_utc,
+    delivery_method, delivery_target, status, attempt_count,
+    last_attempt_at_utc, delivered_at_utc, error_text,
+    created_at_utc, updated_at_utc
+FROM migration_0027_reminders;
+
+CREATE TABLE video_jobs (
+    video_job_id        INTEGER PRIMARY KEY,
+    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    source_turn_id      TEXT,
+    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,
+    renderer            TEXT NOT NULL DEFAULT 'remotion'
+                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),
+    template            TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'queued'
+                        CHECK (status IN (
+                            'queued', 'preparing', 'rendering',
+                            'complete', 'error', 'cancelled'
+                        )),
+    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),
+    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,
+    error_text          TEXT,
+    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    started_at_utc      TEXT,
+    completed_at_utc    TEXT,
+    updated_at_utc      TEXT,
+    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL,
+    video_script_id     INTEGER REFERENCES video_scripts(video_script_id) ON DELETE SET NULL
+) STRICT;
+
+INSERT INTO video_jobs (
+    video_job_id, request_event_id, source_turn_id, content_id, renderer,
+    template, status, input_json, output_file_id, error_text, created_at_utc,
+    started_at_utc, completed_at_utc, updated_at_utc, personal_task_id,
+    video_script_id
+)
+SELECT
+    video_job_id, request_event_id, source_turn_id, content_id, renderer,
+    template, status, input_json, output_file_id, error_text, created_at_utc,
+    started_at_utc, completed_at_utc, updated_at_utc, personal_task_id,
+    video_script_id
+FROM migration_0027_video_jobs;
+
+DROP TABLE migration_0027_reminders;
+DROP TABLE migration_0027_video_jobs;
+DROP TABLE migration_0027_personal_tasks;
+
+CREATE INDEX personal_tasks_status_schedule
+    ON personal_tasks(status, scheduled_at_utc, due_at_utc);
+
+CREATE INDEX personal_tasks_group_order
+    ON personal_tasks(todo_group_id, sort_position, personal_task_id);
+
+CREATE INDEX personal_tasks_contact
+    ON personal_tasks(related_contact_id, status);
+
+CREATE UNIQUE INDEX personal_tasks_routine_occurrence
+    ON personal_tasks(todo_routine_id, scheduled_at_utc)
+    WHERE todo_routine_id IS NOT NULL AND scheduled_at_utc IS NOT NULL;
+
+CREATE TRIGGER personal_tasks_assign_sequence_after_insert
+AFTER INSERT ON personal_tasks
+WHEN NEW.sequence IS NULL
+ AND EXISTS (
+     SELECT 1 FROM todo_groups
+     WHERE todo_group_id = NEW.todo_group_id AND uses_sequence = 1
+ )
+BEGIN
+    UPDATE personal_tasks
+    SET sequence = (
+        SELECT COALESCE(MAX(sequence), 0) + 1
+        FROM personal_tasks
+        WHERE todo_group_id = NEW.todo_group_id
+          AND personal_task_id <> NEW.personal_task_id
+    )
+    WHERE personal_task_id = NEW.personal_task_id;
+END;
+
+CREATE TRIGGER personal_tasks_assign_sequence_after_update
+AFTER UPDATE OF todo_group_id, sequence ON personal_tasks
+WHEN NEW.sequence IS NULL
+ AND EXISTS (
+     SELECT 1 FROM todo_groups
+     WHERE todo_group_id = NEW.todo_group_id AND uses_sequence = 1
+ )
+BEGIN
+    UPDATE personal_tasks
+    SET sequence = (
+        SELECT COALESCE(MAX(sequence), 0) + 1
+        FROM personal_tasks
+        WHERE todo_group_id = NEW.todo_group_id
+          AND personal_task_id <> NEW.personal_task_id
+    )
+    WHERE personal_task_id = NEW.personal_task_id;
+END;
+
+CREATE INDEX reminders_due ON reminders(status, remind_at_utc);
+
+CREATE VIEW due_reminders AS
+SELECT *
+FROM reminders
+WHERE status IN ('pending', 'error')
+  AND remind_at_utc <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+
+CREATE INDEX video_jobs_script_created
+    ON video_jobs(video_script_id, created_at_utc DESC, video_job_id DESC);
+
+CREATE UNIQUE INDEX video_jobs_one_active_script
+    ON video_jobs(video_script_id)
+    WHERE video_script_id IS NOT NULL
+      AND status IN ('queued', 'preparing', 'rendering');
+
+CREATE VIEW open_personal_tasks AS
+SELECT *
+FROM personal_tasks
+WHERE status IN ('unplanned', 'todo', 'ai_suggested');
+
+ALTER TABLE todo_routines
+ADD COLUMN planning_prompt_text TEXT
+                                CHECK (
+                                    planning_prompt_text IS NULL
+                                    OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000
+                                );
+
+ALTER TABLE calendar_events
+ADD COLUMN planning_prompt_text TEXT
+                                CHECK (
+                                    planning_prompt_text IS NULL
+                                    OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000
+                                );
+-- end migration 0027
+
+-- migration 0026: reset-completed-briefing-runs
+-- A completed run is immutable ledger history, not reusable current-run state.
+-- Clear legacy terminal answers and completion markers so every finished
+-- briefing is immediately ready for its next run. Preserve interrupted runs.
+
+UPDATE interaction_guide_steps AS step
+SET answers_json = '{}',
+    progress_state = 'pending',
+    updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE EXISTS (
+  SELECT 1
+  FROM activity_events AS started
+  JOIN activity_events AS completed
+    ON completed.subject_type = 'interaction_guide_run'
+   AND completed.subject_id = started.subject_id
+   AND completed.event_type = 'interaction_guide.run_completed'
+  WHERE started.event_type = 'interaction_guide.run_started'
+    AND started.subject_type = 'interaction_guide_run'
+    AND json_extract(started.payload_json, '$.interactionGuideId') = step.interaction_guide_id
+)
+AND NOT EXISTS (
+  SELECT 1
+  FROM activity_events AS started
+  WHERE started.event_type = 'interaction_guide.run_started'
+    AND started.subject_type = 'interaction_guide_run'
+    AND json_extract(started.payload_json, '$.interactionGuideId') = step.interaction_guide_id
+    AND NOT EXISTS (
+      SELECT 1
+      FROM activity_events AS terminal
+      WHERE terminal.subject_type = 'interaction_guide_run'
+        AND terminal.subject_id = started.subject_id
+        AND terminal.event_type IN (
+          'interaction_guide.run_completed', 'interaction_guide.run_cancelled'
+        )
+    )
+);
+-- end migration 0026
+
 -- migration 0025: tracker-owned-log-units
 -- Numeric log entries form one comparable series per tracker. Keep existing
 -- tracker units, mark every missing canonical unit for review, discard legacy

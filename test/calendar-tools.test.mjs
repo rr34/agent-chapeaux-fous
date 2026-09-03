@@ -139,6 +139,37 @@ test("native calendar tools create, list, update, and cancel stored events", asy
   assert.equal(afterCancellation.count, 0);
 });
 
+test("calendar events store and clear an optional planning prompt", async (context) => {
+  const { registry } = calendarFixture(context);
+  const created = await registry.execute("calendar_event_add", {
+    title: "Time with the kids",
+    description: null,
+    location_text: null,
+    planning_prompt_text: "What should we do during this block?",
+    starts_at_utc: "2026-09-05T20:00:00.000Z",
+    ends_at_utc: "2026-09-06T00:00:00.000Z",
+    time_zone: "America/New_York",
+    is_all_day: false,
+    status: "confirmed",
+    recurrence: null,
+  });
+  assert.equal(created.event.planning_prompt_text, "What should we do during this block?");
+
+  const updated = await registry.execute("calendar_event_update", {
+    calendar_event_id: created.event.calendar_event_id,
+    title: null,
+    description: null,
+    location_text: null,
+    planning_prompt_text: "",
+    starts_at_utc: null,
+    ends_at_utc: null,
+    time_zone: null,
+    is_all_day: null,
+    status: null,
+  });
+  assert.equal(updated.event.planning_prompt_text, null);
+});
+
 test("calendar mutations reject a start instant outside the source-authorized weekday target", async (context) => {
   const { store, registry } = calendarFixture(context);
   const temporalResolutions = [{

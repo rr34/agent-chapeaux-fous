@@ -582,6 +582,62 @@ test("native todo tools accept structured recurrence and generate the next task"
   `).get(String(completed.items[0].generated_task.personal_task_id)).count, 1);
 });
 
+test("unplanned recurring to-dos retain their planning prompt across occurrences", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.filename);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+
+  const created = await registry.execute("todo_add", {
+    text: "Time with the kids",
+    status: "unplanned",
+    planning_prompt_text: "What should we do during this block?",
+    group: "Development",
+    scheduled_at_utc: "2026-09-05T20:00:00.000Z",
+    due_at_utc: null,
+    recurrence: {
+      frequency: "WEEKLY", interval: 1, weekdays: ["SA"], count: null,
+      until_date: null, time_zone: "America/New_York",
+    },
+  });
+  assert.equal(created.task.status, "unplanned");
+  assert.equal(created.task.planning_prompt_text, "What should we do during this block?");
+  assert.equal(
+    created.task.todo_routines.planning_prompt_text,
+    "What should we do during this block?",
+  );
+
+  const listed = await registry.execute("todo_list", {
+    group: null,
+    status: "unplanned",
+    completed_on_date: null,
+    scheduled_on_date: null,
+    time_zone: null,
+    limit: 20,
+  });
+  assert.deepEqual(listed.tasks.map(({ personal_task_id }) => personal_task_id), [
+    created.task.personal_task_id,
+  ]);
+
+  const completed = await registry.execute("todo_update", {
+    updates: [{
+      personal_task_id: created.task.personal_task_id,
+      text: null,
+      group: null,
+      status: "complete",
+      scheduled_at_utc: null,
+      due_at_utc: null,
+    }],
+  });
+  assert.equal(completed.items[0].generated_task.status, "unplanned");
+  assert.equal(
+    completed.items[0].generated_task.planning_prompt_text,
+    "What should we do during this block?",
+  );
+});
+
 test("native todo tools keep Routine entries as repeating templates", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

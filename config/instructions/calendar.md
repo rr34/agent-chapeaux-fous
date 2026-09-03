@@ -12,4 +12,6 @@ include the schema-semantic compiler projection; `occurrence_*` fields describe
 computed schedule instances rather than additional stored columns. Use
 `calendar_event_search` for title, description, or location lookup across stored
 event series; use `calendar_event_list` when the user asks what occurs in a date
-range.
+range. Preserve an exact user-supplied question about still-unplanned event time
+in nullable `planning_prompt_text`. Do not treat that prompt as the event title,
+description, or a separate scheduled action.

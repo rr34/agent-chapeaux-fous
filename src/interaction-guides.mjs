@@ -184,6 +184,15 @@ export class InteractionGuides {
     `).get(guideId) ?? null;
   }
 
+  #resetRunState(database, guideId) {
+    database.prepare(`
+      UPDATE interaction_guide_steps
+      SET answers_json = '{}', progress_state = 'pending',
+          updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE interaction_guide_id = ?
+    `).run(guideId);
+  }
+
   get({ guideId = null, name = null } = {}) {
     const hasId = guideId !== null && guideId !== undefined;
     const selectedName = name == null ? null : String(name).trim();
@@ -612,12 +621,7 @@ export class InteractionGuides {
       }
       const enabledSteps = this.#steps(database, guide.id, { enabledOnly: true });
       if (!enabledSteps.length) throw conflict("This briefing has no enabled exchanges");
-      database.prepare(`
-        UPDATE interaction_guide_steps
-        SET answers_json = '{}', progress_state = 'pending',
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE interaction_guide_id = ?
-      `).run(guide.id);
+      this.#resetRunState(database, guide.id);
       const runId = randomUUID();
       const current = database.prepare(`
         UPDATE interaction_guide_steps
@@ -772,6 +776,7 @@ export class InteractionGuides {
           payload: { interactionGuideId: Number(guide.interaction_guide_id), guideVersion: Number(guide.version) },
           subjectType: "interaction_guide_run", subjectId: selectedRunId,
         });
+        this.#resetRunState(database, Number(guide.interaction_guide_id));
       }
       database.exec("COMMIT");
       return {
@@ -821,12 +826,7 @@ export class InteractionGuides {
         payload: { interactionGuideId: Number(started.interactionGuideId), reason: selectedReason },
         subjectType: "interaction_guide_run", subjectId: selectedRunId,
       });
-      database.prepare(`
-        UPDATE interaction_guide_steps
-        SET answers_json = '{}', progress_state = 'pending',
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE interaction_guide_id = ?
-      `).run(Number(started.interactionGuideId));
+      this.#resetRunState(database, Number(started.interactionGuideId));
       database.exec("COMMIT");
       return {
         cancelled: true,

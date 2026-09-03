@@ -19,8 +19,8 @@ const external = (summary, actionClasses = ["EXECUTE"]) => defineToolDescription
 const descriptions = new Map(Object.entries({
   calendar_event_search: read("Search stored native calendar series by terms in title, description, or location. Use calendar_event_list instead for occurrences in a UTC range."),
   calendar_event_list: read("List the calendar schedule in an explicit UTC range, expanding recurrence occurrences and including derived contact birthdays."),
-  calendar_event_add: create("Create one native calendar event, including an all-day event or structured recurrence when requested."),
-  calendar_event_update: update("Update or cancel one native calendar event by stable ID. Recurrence changes belong to calendar_event_recurrence_set."),
+  calendar_event_add: create("Create one native calendar event, including an optional planning prompt, all-day event, or structured recurrence when requested."),
+  calendar_event_update: update("Update or cancel one native calendar event by stable ID, including its optional planning prompt. Recurrence changes belong to calendar_event_recurrence_set."),
   calendar_event_recurrence_set: update("Add, replace, or remove structured recurrence on one existing native calendar event."),
 
   contact_import: create("Import up to 200 normalized structured contacts. Use contact_file_import when the source is an attached CSV or vCard."),
@@ -109,8 +109,8 @@ const descriptions = new Map(Object.entries({
 
   todo_group_list: read("List active native to-do groups and their open counts so a new task can use the best existing group."),
   todo_list: read("List native personal to-dos, with explicit filters for status, group, scheduled local date, or completion local date."),
-  routine_add: create("Create one reusable Routine template with required recurrence in the reserved Routine group. Unlike todo_add, this defines a standing routine or habit."),
-  todo_add: create("Create one native personal to-do with optional group position, contact, schedule, duration, due date, and recurrence."),
+  routine_add: create("Create one reusable Routine template with required recurrence, optional unplanned status, and optional planning prompt in the reserved Routine group. Unlike todo_add, this defines a standing routine or habit."),
+  todo_add: create("Create one native personal to-do with optional unplanned status, planning prompt, group position, contact, schedule, duration, due date, and recurrence."),
   todo_position_set: update("Move one native personal to-do to an exact position in its group's manual sort order."),
   todo_group_create: create("Create or reactivate one native to-do group after the user has confirmed it."),
   todo_group_rename: update("Rename one active native to-do group without changing its stable identity or contained tasks."),
@@ -119,7 +119,7 @@ const descriptions = new Map(Object.entries({
   todo_interaction_guide_set: update("Link or unlink one active briefing on an existing repeating native to-do without changing recurrence."),
   todo_recurrence_set: update("Add, replace, or remove structured recurrence on one existing native to-do, optionally linking a briefing."),
   todo_move_overdue_to_today: update("Move every active overdue one-time to-do onto one specified local day while preserving local time and due-date distance; recurrence-managed schedule entries stay fixed."),
-  todo_update: update("Atomically update up to 500 native personal to-dos by stable ID, rolling back the complete batch on any invalid change."),
+  todo_update: update("Atomically update up to 500 native personal to-dos by stable ID, including status and planning prompt, rolling back the complete batch on any invalid change."),
 
   video_script_create: create("Persist one portable source-grounded chat script from explicitly selected completed interactions without rendering video."),
   video_content_add: create("Add one completed Agent-interface MP4 to one existing content-library group with the next sequence number."),

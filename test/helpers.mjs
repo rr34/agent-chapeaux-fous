@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 25, 'Agent Slayer test database');
+    VALUES (1, 27, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -234,7 +234,9 @@ export function temporaryDatabase() {
       recurrence_rule TEXT,
       source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-      updated_at_utc TEXT
+      updated_at_utc TEXT,
+      planning_prompt_text TEXT
+        CHECK (planning_prompt_text IS NULL OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000)
     ) STRICT;
     CREATE TABLE calendar_event_exclusions (
       calendar_event_id INTEGER NOT NULL REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
@@ -290,7 +292,9 @@ export function temporaryDatabase() {
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT,
       is_all_day INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1)),
-      interaction_guide_id INTEGER REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL
+      interaction_guide_id INTEGER REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL,
+      planning_prompt_text TEXT
+        CHECK (planning_prompt_text IS NULL OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000)
     ) STRICT;
     CREATE TABLE personal_tasks (
       personal_task_id INTEGER PRIMARY KEY,
@@ -299,7 +303,8 @@ export function temporaryDatabase() {
       sequence INTEGER,
       related_contact_id INTEGER,
       text TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'todo',
+      status TEXT NOT NULL DEFAULT 'todo'
+        CHECK (status IN ('unplanned', 'todo', 'complete', 'ignore', 'archive', 'ai_suggested')),
       sort_position INTEGER NOT NULL DEFAULT 0,
       scheduled_at_utc TEXT,
       due_at_utc TEXT,
@@ -310,7 +315,9 @@ export function temporaryDatabase() {
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT,
       is_all_day INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1)),
-      duration_minutes INTEGER CHECK (duration_minutes IS NULL OR duration_minutes > 0)
+      duration_minutes INTEGER CHECK (duration_minutes IS NULL OR duration_minutes > 0),
+      planning_prompt_text TEXT
+        CHECK (planning_prompt_text IS NULL OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000)
     ) STRICT;
     CREATE UNIQUE INDEX personal_tasks_group_sequence
       ON personal_tasks(todo_group_id, sequence)

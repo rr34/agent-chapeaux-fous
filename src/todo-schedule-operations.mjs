@@ -102,7 +102,7 @@ export function moveOverdueTodosToToday(database, {
     SELECT task.personal_task_id, task.scheduled_at_utc, task.due_at_utc
     FROM personal_tasks AS task
     JOIN todo_groups AS todo_group USING (todo_group_id)
-    WHERE task.status IN ('todo', 'ai_suggested')
+    WHERE task.status IN ('unplanned', 'todo', 'ai_suggested')
       AND task.scheduled_at_utc IS NOT NULL
       AND task.scheduled_at_utc < ?
       AND todo_group.name <> 'Routine' COLLATE NOCASE
