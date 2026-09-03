@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
+import { openApplicationDatabase } from "./database-connection.mjs";
 import rrulePackage from "rrule";
 import { searchCalendarEventRows } from "./calendar-search.mjs";
 import {
@@ -800,8 +800,9 @@ function changedFields(before, after, fields) {
 }
 
 export class OrganizerStore {
-  constructor(databasePath) {
-    this.database = new DatabaseSync(databasePath);
+  constructor(databaseTarget) {
+    this.databaseTarget = databaseTarget;
+    this.database = openApplicationDatabase(databaseTarget);
     this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
   }
 

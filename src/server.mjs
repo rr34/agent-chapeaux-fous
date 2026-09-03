@@ -53,9 +53,9 @@ import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 
 const config = loadConfig();
 const identity = runtimeIdentity(config.repositoryRoot);
-const store = new SlayerDatabase(config.databasePath);
+const store = new SlayerDatabase(config.databaseTarget);
 const ledger = new Ledger(store);
-const organizer = store.status.ready ? new OrganizerStore(config.databasePath) : null;
+const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
 const interactionGuides = new InteractionGuides({
   store,

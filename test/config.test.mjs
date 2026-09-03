@@ -23,6 +23,41 @@ test("OpenAI Responses configuration has stable defaults", () => {
     outputPerMillion: 12,
   });
   assert.equal(config.hatCatalogPath, path.join(repositoryRoot, "config", "hats.json"));
+  assert.deepEqual(config.databaseTarget, {
+    engine: "sqlite",
+    filename: path.join(repositoryRoot, "data/agent.sqlite"),
+  });
+});
+
+test("MariaDB runtime configuration is explicit and bounded", () => {
+  const config = loadConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_DATABASE_ENGINE: "mariadb",
+    SLAYER_DATABASE_HOST: "db.internal",
+    SLAYER_DATABASE_PORT: "3307",
+    SLAYER_DATABASE_NAME: "chapeauxfous_rehearsal",
+    SLAYER_DATABASE_USER: "cfr_user",
+    SLAYER_DATABASE_PASSWORD: "temporary",
+  });
+  assert.equal(config.databasePath, null);
+  assert.deepEqual(config.databaseTarget, {
+    engine: "mariadb",
+    connection: {
+      host: "db.internal",
+      port: 3307,
+      socketPath: undefined,
+      user: "cfr_user",
+      password: "temporary",
+      database: "chapeauxfous_rehearsal",
+    },
+  });
+  assert.throws(() => loadConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_DATABASE_ENGINE: "mariadb",
+    SLAYER_DATABASE_NAME: "bad-name",
+    SLAYER_DATABASE_USER: "cfr_user",
+    SLAYER_DATABASE_PASSWORD: "temporary",
+  }), /valid MariaDB database name/);
 });
 
 test("turn workflow reasoning effort is independently configurable by phase", () => {

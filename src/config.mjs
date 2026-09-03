@@ -36,6 +36,33 @@ function resolveFromRoot(value, fallback) {
   return path.resolve(repositoryRoot, value?.trim() || fallback);
 }
 
+function databaseConfiguration(environment) {
+  const engine = selectedValue(environment.SLAYER_DATABASE_ENGINE, ["sqlite", "mariadb"], "sqlite");
+  if (engine === "sqlite") {
+    return { engine, filename: resolveFromRoot(environment.SLAYER_DATABASE, "data/agent.sqlite") };
+  }
+  const database = environment.SLAYER_DATABASE_NAME?.trim();
+  const user = environment.SLAYER_DATABASE_USER?.trim();
+  const password = environment.SLAYER_DATABASE_PASSWORD;
+  if (!database || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(database)) {
+    throw new Error("SLAYER_DATABASE_NAME must be a valid MariaDB database name");
+  }
+  if (!user || password == null) {
+    throw new Error("SLAYER_DATABASE_USER and SLAYER_DATABASE_PASSWORD are required for MariaDB");
+  }
+  return {
+    engine,
+    connection: {
+      host: environment.SLAYER_DATABASE_HOST?.trim() || "localhost",
+      port: positiveInteger(environment.SLAYER_DATABASE_PORT, 3306),
+      socketPath: environment.SLAYER_DATABASE_SOCKET?.trim() || undefined,
+      user,
+      password,
+      database,
+    },
+  };
+}
+
 export function loadConfig(environment = process.env) {
   const allowUnauthenticated = environment.SLAYER_ALLOW_UNAUTHENTICATED === "true";
   const accessToken = environment.SLAYER_ACCESS_TOKEN?.trim() || "";
@@ -52,6 +79,7 @@ export function loadConfig(environment = process.env) {
   const port = positiveInteger(environment.SLAYER_PORT, 8787);
   const defaultPublicHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
   const publicUrl = new URL(environment.SLAYER_PUBLIC_URL?.trim() || `http://${defaultPublicHost}:${port}`);
+  const databaseTarget = databaseConfiguration(environment);
   const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
   if (
     !["http:", "https:"].includes(publicUrl.protocol)
@@ -67,7 +95,8 @@ export function loadConfig(environment = process.env) {
     publicUrl: publicUrl.toString(),
     accessToken,
     allowUnauthenticated,
-    databasePath: resolveFromRoot(environment.SLAYER_DATABASE, "data/agent.sqlite"),
+    databaseTarget,
+    databasePath: databaseTarget.engine === "sqlite" ? databaseTarget.filename : null,
     mediaRoot: resolveFromRoot(environment.SLAYER_MEDIA_ROOT, "media"),
     systemPromptPath: path.join(repositoryRoot, "config/system-prompt.md"),
     hatCatalogPath: path.join(repositoryRoot, "config/hats.json"),

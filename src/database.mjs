@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { openApplicationDatabase } from "./database-connection.mjs";
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -128,6 +129,39 @@ export function inspectDatabase(database) {
   return { ready: problems.length === 0, problems, objects: objects.map(serializable) };
 }
 
+export function inspectMariaDatabase(database) {
+  const problems = [];
+  const objects = database.prepare(`
+    SELECT TABLE_NAME AS name, TABLE_TYPE AS table_type
+    FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+    ORDER BY TABLE_TYPE, TABLE_NAME
+  `).all();
+  const byName = new Map(objects.map((object) => [object.name, object]));
+  for (const [name, requiredColumns] of Object.entries(requiredDatabaseShape)) {
+    const object = byName.get(name);
+    if (!object || object.table_type !== "BASE TABLE") {
+      problems.push(`Missing required table: ${name}`);
+      continue;
+    }
+    const columns = new Set(database.prepare(`
+      SELECT COLUMN_NAME AS name
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+    `).all(name).map((row) => row.name));
+    for (const column of requiredColumns) {
+      if (!columns.has(column)) problems.push(`Missing required column: ${name}.${column}`);
+    }
+  }
+  const meta = database.prepare(`
+    SELECT schema_version FROM database_meta WHERE singleton = 1
+  `).get();
+  if (Number(meta?.schema_version) !== 28) {
+    problems.push(`Expected MariaDB schema version 28, found ${meta?.schema_version ?? "none"}`);
+  }
+  return { ready: problems.length === 0, problems, objects };
+}
+
 export function summarizeDatabaseObjects(objects) {
   const entries = Array.isArray(objects) ? objects : [];
   const fts5Tables = entries.filter((object) => (
@@ -150,23 +184,32 @@ export function summarizeDatabaseObjects(objects) {
 }
 
 export class SlayerDatabase {
-  constructor(filename) {
-    this.filename = filename;
+  constructor(target) {
+    this.databaseTarget = target;
+    this.filename = typeof target === "string" ? target : target?.filename ?? target?.connection?.database ?? null;
+    this.engine = typeof target === "object" ? target.engine : "sqlite";
     this.database = null;
     this.status = { ready: false, reason: "database has not been opened" };
-    if (!fs.existsSync(filename)) {
-      this.status = { ready: false, reason: `database file is missing: ${filename}` };
+    if (this.engine === "sqlite" && !fs.existsSync(this.filename)) {
+      this.status = { ready: false, reason: `database file is missing: ${this.filename}` };
       return;
     }
     try {
-      this.database = new DatabaseSync(filename);
+      this.database = openApplicationDatabase(target);
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
-      const inspection = inspectDatabase(this.database);
+      const inspection = this.engine === "mariadb"
+        ? inspectMariaDatabase(this.database)
+        : inspectDatabase(this.database);
       this.status = inspection.ready
-        ? { ready: true, filename }
-        : { ready: false, reason: inspection.problems.join("; "), filename };
+        ? { ready: true, engine: this.engine, database: this.filename }
+        : { ready: false, reason: inspection.problems.join("; "), engine: this.engine, database: this.filename };
     } catch (error) {
-      this.status = { ready: false, reason: error instanceof Error ? error.message : String(error), filename };
+      this.status = {
+        ready: false,
+        reason: error instanceof Error ? error.message : String(error),
+        engine: this.engine,
+        database: this.filename,
+      };
       this.database?.close();
       this.database = null;
     }
@@ -183,6 +226,15 @@ export class SlayerDatabase {
   }
 
   objects() {
+    if (this.engine === "mariadb") {
+      return this.requireReady().prepare(`
+        SELECT CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 'table' ELSE 'view' END AS type,
+               TABLE_NAME AS name, NULL AS sql
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+        ORDER BY type, name
+      `).all().map(serializable);
+    }
     return this.requireReady().prepare(`
       SELECT type, name, sql FROM sqlite_schema
       WHERE type IN ('table', 'view')
@@ -200,9 +252,33 @@ export class SlayerDatabase {
     if (writable && (object.type !== "table" || !modelWritableTables.has(name) || /^CREATE VIRTUAL TABLE/i.test(object.sql))) {
       throw new Error(`Model writes are not permitted on ${name}`);
     }
-    const columns = this.requireReady().prepare(`PRAGMA table_info(${identifier(name, "object")})`).all().map(serializable);
-    const foreignKeys = this.requireReady().prepare(`PRAGMA foreign_key_list(${identifier(name, "object")})`).all().map(serializable);
+    const columns = this.engine === "mariadb"
+      ? this.requireReady().prepare(`
+          SELECT ORDINAL_POSITION - 1 AS cid, COLUMN_NAME AS name, COLUMN_TYPE AS type,
+                 CASE WHEN IS_NULLABLE = 'NO' THEN 1 ELSE 0 END AS notnull,
+                 COLUMN_DEFAULT AS dflt_value,
+                 CASE WHEN COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END AS pk
+          FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+          ORDER BY ORDINAL_POSITION
+        `).all(name).map(serializable)
+      : this.requireReady().prepare(`PRAGMA table_info(${identifier(name, "object")})`).all().map(serializable);
+    const foreignKeys = this.engine === "mariadb"
+      ? this.requireReady().prepare(`
+          SELECT ORDINAL_POSITION - 1 AS id, POSITION_IN_UNIQUE_CONSTRAINT - 1 AS seq,
+                 REFERENCED_TABLE_NAME AS \`table\`, COLUMN_NAME AS \`from\`,
+                 REFERENCED_COLUMN_NAME AS \`to\`
+          FROM information_schema.KEY_COLUMN_USAGE
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+          ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
+        `).all(name).map(serializable)
+      : this.requireReady().prepare(`PRAGMA foreign_key_list(${identifier(name, "object")})`).all().map(serializable);
     return { ...object, writable: object.type === "table" && modelWritableTables.has(name), columns, foreignKeys };
+  }
+
+  quotedIdentifier(name, label) {
+    identifier(name, label);
+    return this.engine === "mariadb" ? `\`${name}\`` : `"${name}"`;
   }
 
   validateColumns(names, available) {
@@ -220,9 +296,9 @@ export class SlayerDatabase {
     const clauses = [];
     const values = [];
     for (const [column, item] of entries) {
-      if (item === null) clauses.push(`${identifier(column, "column")} IS NULL`);
+      if (item === null) clauses.push(`${this.quotedIdentifier(column, "column")} IS NULL`);
       else {
-        clauses.push(`${identifier(column, "column")} = ?`);
+        clauses.push(`${this.quotedIdentifier(column, "column")} = ?`);
         values.push(normalizeValue(item));
       }
     }
@@ -237,7 +313,7 @@ export class SlayerDatabase {
     let ordering = "";
     if (orderBy) {
       this.validateColumns([orderBy], object.columns);
-      ordering = ` ORDER BY ${identifier(orderBy, "column")} ${orderDirection === "desc" ? "DESC" : "ASC"}`;
+      ordering = ` ORDER BY ${this.quotedIdentifier(orderBy, "column")} ${orderDirection === "desc" ? "DESC" : "ASC"}`;
     }
     const boundedLimit = Number(limit);
     if (!Number.isInteger(boundedLimit) || boundedLimit < 1 || boundedLimit > 200) {
@@ -247,7 +323,7 @@ export class SlayerDatabase {
     if (!Number.isSafeInteger(boundedOffset) || boundedOffset < 0 || boundedOffset > 1_000_000) {
       throw new Error("offset must be an integer from 0 to 1000000");
     }
-    const sql = `SELECT ${selected.map((column) => identifier(column, "column")).join(", ")} FROM ${identifier(objectName, "object")}${condition.sql}${ordering} LIMIT ? OFFSET ?`;
+    const sql = `SELECT ${selected.map((column) => this.quotedIdentifier(column, "column")).join(", ")} FROM ${this.quotedIdentifier(objectName, "object")}${condition.sql}${ordering} LIMIT ? OFFSET ?`;
     const fetched = this.requireReady().prepare(sql).all(...condition.values, boundedLimit + 1, boundedOffset).map(serializable);
     const hasMore = fetched.length > boundedLimit;
     const rows = fetched.slice(0, boundedLimit);
@@ -273,7 +349,7 @@ export class SlayerDatabase {
         const entries = Object.entries(values);
         if (entries.length === 0) throw new Error("Insert requires values");
         this.validateColumns(entries.map(([column]) => column), object.columns);
-        const sql = `INSERT INTO ${identifier(table, "table")} (${entries.map(([column]) => identifier(column, "column")).join(", ")}) VALUES (${entries.map(() => "?").join(", ")}) RETURNING *`;
+        const sql = `INSERT INTO ${this.quotedIdentifier(table, "table")} (${entries.map(([column]) => this.quotedIdentifier(column, "column")).join(", ")}) VALUES (${entries.map(() => "?").join(", ")}) RETURNING *`;
         rows = database.prepare(sql).all(...entries.map(([, value]) => normalizeValue(value)));
       } else {
         if (!where || Object.keys(where).length === 0) throw new Error(`${action} requires a nonempty where object`);
@@ -282,11 +358,11 @@ export class SlayerDatabase {
           const entries = Object.entries(values);
           if (entries.length === 0) throw new Error("Update requires values");
           this.validateColumns(entries.map(([column]) => column), object.columns);
-          const set = entries.map(([column]) => `${identifier(column, "column")} = ?`).join(", ");
-          rows = database.prepare(`UPDATE ${identifier(table, "table")} SET ${set}${condition.sql} RETURNING *`)
+        const set = entries.map(([column]) => `${this.quotedIdentifier(column, "column")} = ?`).join(", ");
+          rows = database.prepare(`UPDATE ${this.quotedIdentifier(table, "table")} SET ${set}${condition.sql} RETURNING *`)
             .all(...entries.map(([, value]) => normalizeValue(value)), ...condition.values);
         } else if (action === "delete") {
-          rows = database.prepare(`DELETE FROM ${identifier(table, "table")}${condition.sql} RETURNING *`).all(...condition.values);
+          rows = database.prepare(`DELETE FROM ${this.quotedIdentifier(table, "table")}${condition.sql} RETURNING *`).all(...condition.values);
         } else {
           throw new Error(`Unsupported database action: ${action}`);
         }

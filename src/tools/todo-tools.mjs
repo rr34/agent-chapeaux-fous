@@ -593,7 +593,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     }, context) {
       const recurrenceRule = buildTodoRecurrenceRule(recurrence);
       const recurrenceTimeZone = validateTimeZone(recurrence.time_zone);
-      const organizer = new OrganizerStore(store.filename);
+      const organizer = new OrganizerStore(store.databaseTarget);
       try {
         const result = organizer.createRoutine({
           text,

@@ -74,12 +74,53 @@ export class HistorySearchProvider {
   }
 
   capabilities() {
-    const available = synchronizedFtsAvailable(this.ledger.store.requireReady());
+    const database = this.ledger.store.requireReady();
+    const available = database.engine === "mariadb" || synchronizedFtsAvailable(database);
     return { phrase: available, proximity: available, snippets: available };
   }
 
   search({ query, mode, maxDistance, contextTokens, limit }) {
     const database = this.ledger.store.requireReady();
+    if (database.engine === "mariadb") {
+      const result = database.hybridSearch({
+        table: "activity_events",
+        idColumn: "event_seq",
+        searchColumns: ["name", "content_text", "source"],
+        selectColumns: [
+          "event_id", "occurred_at_ms", "recorded_at_ms", "occurred_at_utc", "event_type",
+          "event_phase", "status", "actor_type", "actor_name", "channel", "session_id", "turn_id",
+          "trace_id", "operation_id", "span_id", "parent_span_id", "parent_event_id", "payload_json",
+          "primary_file_id", "subject_type", "subject_id", "external_ref", "error_text",
+        ],
+        query,
+        mode,
+        maxDistance,
+        contextTokens,
+        limit: limit + 1,
+        whereSql: `event_type IN (${placeholders(historyEventTypes)})`,
+        whereValues: historyEventTypes,
+      });
+      const hasMore = result.hasMore || result.rows.length > limit;
+      const selected = result.rows.slice(0, limit);
+      return {
+        native: { entries: selected.map(publicHistoryEvent) },
+        matchMode: mode,
+        exhaustive: !hasMore,
+        hasMore,
+        warnings: [],
+        hits: selected.map((row) => ({
+          provider: this.id,
+          kind: "conversation_event",
+          id: String(row.event_seq),
+          title: row.name || (row.event_type.includes("request") ? "User request" : "Assistant response"),
+          snippet: row.search_snippet,
+          matchedFields: ["name", "content_text", "source"],
+          occurredAtUtc: row.occurred_at_utc,
+          actionRef: { event_seq: Number(row.event_seq), request_id: row.turn_id },
+          providerRank: Number(row.search_rank),
+        })),
+      };
+    }
     if (mode === "terms" || !synchronizedFtsAvailable(database)) {
       const entries = this.ledger.searchHistory(query, limit);
       return {
