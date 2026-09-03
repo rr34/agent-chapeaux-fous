@@ -31,11 +31,12 @@ test("MariaDB schema parsing preserves compound trigger statements", () => {
 
 test("MariaDB connection settings validate names and ports", () => {
   const environment = {
-    SLAYER_DATABASE_HOST: "db.internal",
-    SLAYER_DATABASE_PORT: "3307",
-    SLAYER_DATABASE_NAME: "chapeauxfous",
-    SLAYER_DATABASE_USER: "app",
-    SLAYER_DATABASE_PASSWORD: "secret",
+    MARIADB_ENGINE: "mariadb",
+    MARIADB_HOST: "db.internal",
+    MARIADB_PORT: "3307",
+    MARIADB_NAME: "chapeauxfous",
+    MARIADB_USER: "app",
+    MARIADB_PASSWORD: "secret",
   };
   assert.deepEqual(databaseConnectionFromEnvironment(environment), {
     host: "db.internal",
@@ -47,12 +48,20 @@ test("MariaDB connection settings validate names and ports", () => {
   });
   assert.equal(quoteMariaDbIdentifier("chapeauxfous"), "`chapeauxfous`");
   assert.throws(
-    () => databaseConnectionFromEnvironment({ ...environment, SLAYER_DATABASE_PORT: "0" }),
+    () => databaseConnectionFromEnvironment({ ...environment, MARIADB_PORT: "0" }),
     /integer from 1 to 65535/,
   );
   assert.throws(
-    () => databaseConnectionFromEnvironment({ ...environment, SLAYER_DATABASE_NAME: "bad-name" }),
+    () => databaseConnectionFromEnvironment({ ...environment, MARIADB_NAME: "bad-name" }),
     /valid MariaDB identifier/,
+  );
+  assert.throws(
+    () => databaseConnectionFromEnvironment({
+      SLAYER_DATABASE_NAME: "chapeauxfous",
+      SLAYER_DATABASE_USER: "app",
+      SLAYER_DATABASE_PASSWORD: "secret",
+    }),
+    /MARIADB_ENGINE must be mariadb/,
   );
 });
 

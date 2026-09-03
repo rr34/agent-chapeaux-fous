@@ -66,7 +66,7 @@ and an initialized MariaDB database matching `db/mariadb/0001-baseline.sql`.
 
 ```bash
 cp .env.example .env
-# Set OPENAI_API_KEY, SLAYER_ACCESS_TOKEN, and the SLAYER_DATABASE_* values.
+# Set OPENAI_API_KEY, SLAYER_ACCESS_TOKEN, and the MARIADB_* values.
 npm install
 npm run db:verify
 npm test
@@ -74,7 +74,7 @@ npm start
 ```
 
 The test suite creates and drops isolated databases. The configured application
-account may do that locally, or `SLAYER_TEST_DATABASE_*` can name a separate
+account may do that locally, or `MARIADB_TEST_*` can name a separate
 test administrator as shown in `.env.example`.
 
 Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and

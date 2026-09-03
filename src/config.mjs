@@ -37,21 +37,25 @@ function resolveFromRoot(value, fallback) {
 }
 
 function databaseConfiguration(environment) {
-  const database = environment.SLAYER_DATABASE_NAME?.trim();
-  const user = environment.SLAYER_DATABASE_USER?.trim();
-  const password = environment.SLAYER_DATABASE_PASSWORD;
+  const engine = environment.MARIADB_ENGINE?.trim().toLowerCase();
+  const database = environment.MARIADB_NAME?.trim();
+  const user = environment.MARIADB_USER?.trim();
+  const password = environment.MARIADB_PASSWORD;
+  if (engine !== "mariadb") {
+    throw new Error("MARIADB_ENGINE must be mariadb");
+  }
   if (!database || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(database)) {
-    throw new Error("SLAYER_DATABASE_NAME must be a valid MariaDB database name");
+    throw new Error("MARIADB_NAME must be a valid MariaDB database name");
   }
   if (!user || password == null) {
-    throw new Error("SLAYER_DATABASE_USER and SLAYER_DATABASE_PASSWORD are required for MariaDB");
+    throw new Error("MARIADB_USER and MARIADB_PASSWORD are required");
   }
   return {
-    engine: "mariadb",
+    engine,
     connection: {
-      host: environment.SLAYER_DATABASE_HOST?.trim() || "localhost",
-      port: positiveInteger(environment.SLAYER_DATABASE_PORT, 3306),
-      socketPath: environment.SLAYER_DATABASE_SOCKET?.trim() || undefined,
+      host: environment.MARIADB_HOST?.trim() || "localhost",
+      port: positiveInteger(environment.MARIADB_PORT, 3306),
+      socketPath: environment.MARIADB_SOCKET?.trim() || undefined,
       user,
       password,
       database,

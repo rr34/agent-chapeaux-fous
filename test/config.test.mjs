@@ -5,10 +5,11 @@ import test from "node:test";
 import { loadConfig, repositoryRoot } from "../src/config.mjs";
 
 const databaseEnvironment = {
-  SLAYER_DATABASE_HOST: "localhost",
-  SLAYER_DATABASE_NAME: "chapeauxfous",
-  SLAYER_DATABASE_USER: "cfr_user",
-  SLAYER_DATABASE_PASSWORD: "temporary",
+  MARIADB_ENGINE: "mariadb",
+  MARIADB_HOST: "localhost",
+  MARIADB_NAME: "chapeauxfous",
+  MARIADB_USER: "cfr_user",
+  MARIADB_PASSWORD: "temporary",
 };
 
 function loadTestConfig(environment = {}) {
@@ -50,11 +51,11 @@ test("OpenAI Responses configuration has stable defaults", () => {
 test("MariaDB runtime configuration is explicit and bounded", () => {
   const config = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
-    SLAYER_DATABASE_HOST: "db.internal",
-    SLAYER_DATABASE_PORT: "3307",
-    SLAYER_DATABASE_NAME: "chapeauxfous",
-    SLAYER_DATABASE_USER: "cfr_user",
-    SLAYER_DATABASE_PASSWORD: "temporary",
+    MARIADB_HOST: "db.internal",
+    MARIADB_PORT: "3307",
+    MARIADB_NAME: "chapeauxfous",
+    MARIADB_USER: "cfr_user",
+    MARIADB_PASSWORD: "temporary",
   });
   assert.deepEqual(config.databaseTarget, {
     engine: "mariadb",
@@ -69,10 +70,19 @@ test("MariaDB runtime configuration is explicit and bounded", () => {
   });
   assert.throws(() => loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
-    SLAYER_DATABASE_NAME: "bad-name",
+    MARIADB_NAME: "bad-name",
+    MARIADB_USER: "cfr_user",
+    MARIADB_PASSWORD: "temporary",
+  }), /valid MariaDB database name/);
+});
+
+test("legacy SLAYER_DATABASE variables are not accepted", () => {
+  assert.throws(() => loadConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_DATABASE_NAME: "chapeauxfous",
     SLAYER_DATABASE_USER: "cfr_user",
     SLAYER_DATABASE_PASSWORD: "temporary",
-  }), /valid MariaDB database name/);
+  }), /MARIADB_ENGINE must be mariadb/);
 });
 
 test("turn workflow reasoning effort is independently configurable by phase", () => {

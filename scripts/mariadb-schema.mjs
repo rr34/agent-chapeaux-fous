@@ -28,8 +28,10 @@ export function parseMariaDbScript(source) {
 }
 
 export function databaseConnectionFromEnvironment(environment = process.env, { database = null, test = false } = {}) {
-  const prefix = test ? "SLAYER_TEST_DATABASE_" : "SLAYER_DATABASE_";
-  const fallback = (name) => test ? environment[`SLAYER_DATABASE_${name}`] : undefined;
+  const engine = environment.MARIADB_ENGINE?.trim().toLowerCase();
+  if (engine !== "mariadb") throw new Error("MARIADB_ENGINE must be mariadb");
+  const prefix = test ? "MARIADB_TEST_" : "MARIADB_";
+  const fallback = (name) => test ? environment[`MARIADB_${name}`] : undefined;
   const selectedDatabase = database ?? environment[`${prefix}NAME`]?.trim() ?? fallback("NAME")?.trim();
   const user = environment[`${prefix}USER`]?.trim() ?? fallback("USER")?.trim();
   const password = environment[`${prefix}PASSWORD`] ?? fallback("PASSWORD");
