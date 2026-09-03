@@ -175,7 +175,7 @@ test("failed, unfinished, and generated requests cannot recursively create brief
 test("request summaries expose the save action and link generation requests to their source", (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
 

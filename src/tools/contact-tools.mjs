@@ -200,7 +200,7 @@ function importNormalizedContacts({
 }) {
   const database = store.requireReady();
   const now = new Date().toISOString();
-  database.exec("BEGIN IMMEDIATE");
+  database.exec("START TRANSACTION");
   try {
     const items = [];
     const conflicts = [];
@@ -260,7 +260,7 @@ function importNormalizedContacts({
         );
       }
       const assignTag = database.prepare(`
-        INSERT OR IGNORE INTO record_tags (tag_id, record_type, record_id)
+        INSERT IGNORE INTO record_tags (tag_id, record_type, record_id)
         VALUES (?, 'contact', ?)
       `);
       for (const tag of input.tags) {
@@ -378,7 +378,7 @@ export function contactTagContext(store, limit = 200) {
      AND assignment.record_type = 'contact'
     WHERE tag.is_active = 1
     GROUP BY tag.tag_id
-    ORDER BY tag.label COLLATE NOCASE, tag.slug
+    ORDER BY tag.label, tag.slug
     LIMIT ?
   `).all(limit).map((row) => ({
     slug: row.slug,

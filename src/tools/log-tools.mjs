@@ -110,7 +110,7 @@ export function logCapabilityContext(store, limit = 200) {
     WHERE tracker.archived_at_utc IS NULL
       AND log_group.archived_at_utc IS NULL
     GROUP BY tracker.tracker_id
-    ORDER BY tracker.name COLLATE NOCASE
+    ORDER BY tracker.name
     LIMIT ?
   `).all(limit).map((row) => ({
     trackerId: Number(row.tracker_id),
@@ -225,14 +225,14 @@ function findTracker(database, name) {
            log_group.archived_at_utc AS group_archived_at_utc
     FROM trackers AS tracker
     JOIN log_groups AS log_group USING (log_group_id)
-    WHERE tracker.name = ? COLLATE NOCASE
+    WHERE tracker.name = ?
   `).get(name);
   return exact ? { row: exact, matchType: "exact" } : { row: null, matchType: "none" };
 }
 
 function ensureGroup(database, name, now) {
   const existing = database.prepare(`
-    SELECT * FROM log_groups WHERE name = ? COLLATE NOCASE
+    SELECT * FROM log_groups WHERE name = ?
   `).get(name);
   if (!existing) {
     return {
@@ -475,7 +475,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       const input = normalizedLogInput(argumentsObject);
       const database = store.requireReady();
       const now = new Date().toISOString();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const trackerResult = resolveTracker(database, input, now, {
           createIfMissing: argumentsObject.create_if_missing,
@@ -601,7 +601,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       });
       const database = store.requireReady();
       const now = new Date().toISOString();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const items = [];
         for (const input of inputs) {
@@ -695,11 +695,11 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       const conditions = [];
       const values = [];
       if (tracker !== null) {
-        conditions.push("tracker.name = ? COLLATE NOCASE");
+        conditions.push("tracker.name = ?");
         values.push(requiredText(tracker, "Tracker name", 200));
       }
       if (group !== null) {
-        conditions.push("log_group.name = ? COLLATE NOCASE");
+        conditions.push("log_group.name = ?");
         values.push(requiredText(group, "Log group name", 200));
       }
       if (source !== null) {
@@ -761,7 +761,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       occurred_at_utc: occurredAtUtc,
     }, context) {
       const database = store.requireReady();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const beforeRow = joinedEntry(database, entryId);
         if (!beforeRow) throw new Error(`Log entry ${entryId} does not exist`);
@@ -785,7 +785,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
           throw new Error(`Set the canonical unit for tracker ${beforeRow.tracker_name} before changing its number`);
         }
         values.updated_at_utc = new Date().toISOString();
-        const assignments = Object.keys(values).map((column) => `"${column}" = ?`).join(", ");
+        const assignments = Object.keys(values).map((column) => `\`${column}\` = ?`).join(", ");
         database.prepare(`UPDATE log_entries SET ${assignments} WHERE log_entry_id = ?`)
           .run(...Object.values(values), entryId);
         const entry = databaseEntry(joinedEntry(database, entryId));
@@ -831,7 +831,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         conditions.push("log_group.archived_at_utc IS NULL");
       }
       if (group !== null) {
-        conditions.push("log_group.name = ? COLLATE NOCASE");
+        conditions.push("log_group.name = ?");
         values.push(requiredText(group, "Log group name", 200));
       }
       const boundedLimit = Math.min(200, Math.max(1, Number(limit) || 50));
@@ -845,7 +845,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         LEFT JOIN log_entries AS entry USING (tracker_id)
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
         GROUP BY tracker.tracker_id
-        ORDER BY log_group.name COLLATE NOCASE, tracker.name COLLATE NOCASE
+        ORDER BY log_group.name, tracker.name
         LIMIT ?
       `).all(...values, boundedLimit).map(databaseTracker);
       return logResult(schemaSemantics, context, { count: rows.length, trackers: rows }, {
@@ -876,7 +876,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       const beforeRow = joinedTracker(database, trackerId);
       if (!beforeRow) throw new Error(`Tracker ${trackerId} does not exist`);
       const now = new Date().toISOString();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const values = {};
         if (name !== null) values.name = requiredText(name, "Tracker name", 200);
@@ -894,7 +894,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         if (archived !== null) values.archived_at_utc = archived ? now : null;
         if (Object.keys(values).length === 0) throw new Error("No tracker changes were supplied");
         values.updated_at_utc = now;
-        const assignments = Object.keys(values).map((column) => `"${column}" = ?`).join(", ");
+        const assignments = Object.keys(values).map((column) => `\`${column}\` = ?`).join(", ");
         database.prepare(`UPDATE trackers SET ${assignments} WHERE tracker_id = ?`)
           .run(...Object.values(values), trackerId);
         const tracker = databaseTracker(joinedTracker(database, trackerId));

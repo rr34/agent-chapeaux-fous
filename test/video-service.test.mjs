@@ -10,10 +10,10 @@ import { temporaryDatabase } from "./helpers.mjs";
 test("an interaction video uses saved audio, records render events, and registers the MP4", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
-  const root = path.dirname(temporary.filename);
+  const root = temporary.directory;
   const mediaRoot = path.join(root, "media");
   const audioPath = path.join(mediaRoot, "2026", "08", "source.webm");
   await fs.mkdir(path.dirname(audioPath), { recursive: true });

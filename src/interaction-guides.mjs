@@ -130,7 +130,7 @@ export class InteractionGuides {
       SELECT interaction_guide_id, name, status, version, created_at_utc, updated_at_utc
       FROM interaction_guides
       ${status === "all" ? "" : "WHERE status = ?"}
-      ORDER BY name COLLATE NOCASE, interaction_guide_id
+      ORDER BY name, interaction_guide_id
       LIMIT ?
     `).all(...(status === "all" ? [limit] : [status, limit]));
     const database = this.store.requireReady();
@@ -190,7 +190,7 @@ export class InteractionGuides {
     const guide = database.prepare(`
       UPDATE interaction_guides
       SET version = version + 1,
-          updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
       WHERE interaction_guide_id = ? AND version = ?
       RETURNING *
     `).get(guideId, expectedVersion);
@@ -237,7 +237,7 @@ export class InteractionGuides {
     database.prepare(`
       UPDATE interaction_guide_steps
       SET answers_json = '{}', progress_state = 'pending',
-          updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
       WHERE interaction_guide_id = ?
     `).run(guideId);
   }
@@ -253,7 +253,7 @@ export class InteractionGuides {
           "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
         ).get(identifier(guideId))
       : this.store.requireReady().prepare(
-          "SELECT * FROM interaction_guides WHERE name = ? COLLATE NOCASE",
+          "SELECT * FROM interaction_guides WHERE name = ?",
         ).get(selectedName);
     if (!row) return null;
     const database = this.store.requireReady();
@@ -362,14 +362,14 @@ export class InteractionGuides {
       contract: normalizeInteractionGuideContract(contract),
     };
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       let defaultGuideCreated = false;
       let guideBefore;
       let assignedStepNumber = selectedStepNumber;
       if (useDefaultGuide) {
         guideBefore = database.prepare(
-          "SELECT * FROM interaction_guides WHERE name = ? COLLATE NOCASE",
+          "SELECT * FROM interaction_guides WHERE name = ?",
         ).get(defaultInteractionGuideName);
         if (!guideBefore) {
           guideBefore = database.prepare(`
@@ -391,7 +391,7 @@ export class InteractionGuides {
           guideBefore = database.prepare(`
             UPDATE interaction_guides
             SET status = 'active',
-                updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
             WHERE interaction_guide_id = ?
             RETURNING *
           `).get(guideBefore.interaction_guide_id);
@@ -457,7 +457,7 @@ export class InteractionGuides {
     }
 
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const guideBefore = this.#guideForDefinitionEdit(
         database, selectedGuideId, expectedVersion,
@@ -487,7 +487,7 @@ export class InteractionGuides {
       const moveTemporarily = database.prepare(`
         UPDATE interaction_guide_steps
         SET step_number = ?,
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
         WHERE interaction_guide_step_id = ? AND interaction_guide_id = ?
       `);
       selectedStepIds.forEach((stepId, index) => {
@@ -496,7 +496,7 @@ export class InteractionGuides {
       const assignFinalNumber = database.prepare(`
         UPDATE interaction_guide_steps
         SET step_number = ?,
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
         WHERE interaction_guide_step_id = ? AND interaction_guide_id = ?
       `);
       selectedStepIds.forEach((stepId, index) => {
@@ -547,7 +547,7 @@ export class InteractionGuides {
       contract: normalizeInteractionGuideContract(contract),
     };
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const before = database.prepare(
         "SELECT * FROM interaction_guide_steps WHERE interaction_guide_step_id = ?",
@@ -574,7 +574,7 @@ export class InteractionGuides {
             enabled = ?,
             answers_json = CASE WHEN ? THEN '{}' ELSE answers_json END,
             progress_state = CASE WHEN ? THEN 'pending' ELSE progress_state END,
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
         WHERE interaction_guide_step_id = ?
         RETURNING *
       `).get(
@@ -620,7 +620,7 @@ export class InteractionGuides {
   deleteStep({ stepId, expectedVersion }, context = {}) {
     const selectedStepId = identifier(stepId, "Briefing exchange ID");
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const before = database.prepare(
         "SELECT * FROM interaction_guide_steps WHERE interaction_guide_step_id = ?",
@@ -657,7 +657,7 @@ export class InteractionGuides {
     const selectedStepId = identifier(stepId, "Briefing exchange ID");
     const selectedTargetGuideId = identifier(targetGuideId, "Destination briefing ID");
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const before = database.prepare(
         "SELECT * FROM interaction_guide_steps WHERE interaction_guide_step_id = ?",
@@ -682,7 +682,7 @@ export class InteractionGuides {
         UPDATE interaction_guide_steps
         SET interaction_guide_id = ?, step_number = ?, answers_json = '{}',
             progress_state = 'pending',
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
         WHERE interaction_guide_step_id = ?
         RETURNING *
       `).get(selectedTargetGuideId, targetStepNumber, selectedStepId);
@@ -720,7 +720,7 @@ export class InteractionGuides {
     if (!guide) throw new Error("Briefing not found");
     if (guide.status !== "active") throw conflict("Archived briefings cannot be started");
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const activeRun = this.#activeRun(database, guide.id);
       if (activeRun && !restart) {
@@ -792,7 +792,7 @@ export class InteractionGuides {
       const current = database.prepare(`
         UPDATE interaction_guide_steps
         SET progress_state = 'active',
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
         WHERE interaction_guide_step_id = ?
         RETURNING *
       `).get(enabledSteps[0].interaction_guide_step_id);
@@ -850,7 +850,7 @@ export class InteractionGuides {
     if (typeof userConfirmedAdvance !== "boolean") throw new Error("User confirmed advance must be true or false");
     const suppliedAnswers = answersObject(answers).value;
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const startedRow = database.prepare(`
         SELECT * FROM activity_events
@@ -961,7 +961,7 @@ export class InteractionGuides {
       const saved = database.prepare(`
         UPDATE interaction_guide_steps
         SET answers_json = ?, progress_state = ?,
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
         WHERE interaction_guide_step_id = ?
         RETURNING *
       `).get(
@@ -992,7 +992,7 @@ export class InteractionGuides {
       const next = nextPending ? database.prepare(`
         UPDATE interaction_guide_steps
         SET progress_state = 'active',
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
         WHERE interaction_guide_step_id = ?
         RETURNING *
       `).get(nextPending.interaction_guide_step_id) : (stepComplete ? null : saved);
@@ -1028,7 +1028,7 @@ export class InteractionGuides {
     const selectedRunId = requiredText(runId, "Briefing run ID", 100);
     const selectedReason = requiredText(reason, "Briefing cancellation reason", 1_000);
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const startedRow = database.prepare(`
         SELECT * FROM activity_events
@@ -1077,10 +1077,10 @@ export class InteractionGuides {
   create({ name }, context = {}) {
     const selectedName = requiredText(name, "Briefing name", 200);
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const existing = database.prepare(
-        "SELECT * FROM interaction_guides WHERE name = ? COLLATE NOCASE",
+        "SELECT * FROM interaction_guides WHERE name = ?",
       ).get(selectedName);
       if (existing) throw conflict(`A briefing named "${selectedName}" already exists`);
       const row = database.prepare(`
@@ -1110,7 +1110,7 @@ export class InteractionGuides {
       throw new Error("Expected briefing version must be a positive integer");
     }
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const beforeRow = database.prepare(
         "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
@@ -1129,13 +1129,13 @@ export class InteractionGuides {
       }
       const duplicate = database.prepare(`
         SELECT interaction_guide_id FROM interaction_guides
-        WHERE name = ? COLLATE NOCASE AND interaction_guide_id <> ?
+        WHERE name = ? AND interaction_guide_id <> ?
       `).get(selectedName, selectedId);
       if (duplicate) throw conflict(`A briefing named "${selectedName}" already exists`);
       const row = database.prepare(`
         UPDATE interaction_guides
         SET name = ?, version = version + 1,
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
         WHERE interaction_guide_id = ? AND version = ?
         RETURNING *
       `).get(selectedName, selectedId, expectedVersion);
@@ -1163,7 +1163,7 @@ export class InteractionGuides {
       throw new Error("Expected briefing version must be a positive integer");
     }
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const before = database.prepare(
         "SELECT * FROM interaction_guides WHERE interaction_guide_id = ?",
@@ -1189,7 +1189,7 @@ export class InteractionGuides {
       const row = database.prepare(`
         UPDATE interaction_guides
         SET status = 'archived', version = version + 1,
-            updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            updated_at_utc = CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
         WHERE interaction_guide_id = ? AND version = ?
         RETURNING *
       `).get(selectedId, expectedVersion);

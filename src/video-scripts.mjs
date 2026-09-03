@@ -428,7 +428,7 @@ export class VideoScripts {
       const script = this.get(existing.video_script_id);
       return { created: false, unchanged: true, script, renderQueued: false, render: script.render };
     }
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const result = database.prepare(`
         INSERT INTO video_scripts (
@@ -482,7 +482,7 @@ export class VideoScripts {
       return { queued: false, existing: true, script };
     }
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       this.#insertRenderJob(id, script.sources.map(({ requestId: sourceId }) => sourceId), {
         ...context,
@@ -513,7 +513,7 @@ export class VideoScripts {
   claimNextRenderJob() {
     const database = this.store.requireReady();
     const now = new Date().toISOString();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const row = database.prepare(`
         UPDATE video_jobs
@@ -584,7 +584,7 @@ export class VideoScripts {
     }
     const database = this.store.requireReady();
     const now = new Date().toISOString();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const row = database.prepare(`
         UPDATE video_jobs SET content_id = ?, updated_at_utc = ?
@@ -642,7 +642,7 @@ export class VideoScripts {
     if (!current) throw Object.assign(new Error("Video script not found"), { statusCode: 404 });
     if (current.status === "archived") return { archived: false, alreadyArchived: true, script: current };
     const now = new Date().toISOString();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const row = database.prepare(`
         UPDATE video_scripts

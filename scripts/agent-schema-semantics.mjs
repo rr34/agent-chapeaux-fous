@@ -1,9 +1,6 @@
 import fs from "node:fs";
-import {
-  assertSemanticForm,
-  syncSemanticForm,
-} from "schema-semantic-compiler";
-import { extractSqliteCatalog } from "schema-semantic-compiler/sqlite";
+import { assertSemanticForm, syncSemanticForm } from "schema-semantic-compiler";
+import { extractMariaDbCatalog } from "schema-semantic-compiler/mariadb";
 import { semanticFormFilename } from "./agent-schema.mjs";
 
 export function agentSchemaVersion(database) {
@@ -12,10 +9,11 @@ export function agentSchemaVersion(database) {
     FROM database_meta
     WHERE singleton = 1
   `).get();
-  if (!row || !Number.isInteger(row.schema_version) || row.schema_version < 1) {
+  const version = Number(row?.schema_version);
+  if (!Number.isInteger(version) || version < 1) {
     throw new Error("database_meta does not contain a valid schema version");
   }
-  return row.schema_version;
+  return version;
 }
 
 export function readAgentSemanticForm(filename = semanticFormFilename) {
@@ -29,25 +27,44 @@ export function readAgentSemanticForm(filename = semanticFormFilename) {
   return assertSemanticForm(form);
 }
 
-export function compileAgentSemanticForm(database, {
+function currentSemanticForm(form) {
+  for (const [objectName, object] of Object.entries(form.schemaObjects)) {
+    if (object.mechanics.present === false) {
+      delete form.schemaObjects[objectName];
+      continue;
+    }
+    for (const [fieldName, field] of Object.entries(object.fields)) {
+      if (field.mechanics.present === false) delete object.fields[fieldName];
+    }
+    for (const [relationshipId, relationship] of Object.entries(object.relationships)) {
+      if (relationship.mechanics.present === false) delete object.relationships[relationshipId];
+    }
+  }
+  return form;
+}
+
+export async function compileAgentSemanticForm(database, {
   existingForm = readAgentSemanticForm(),
   seedComments = false,
   now = new Date(),
 } = {}) {
-  const catalog = extractSqliteCatalog({
-    database,
-    databaseName: "main",
+  const databaseName = database.configuration?.database;
+  const catalog = await extractMariaDbCatalog({
+    query: async (sql, parameters = []) => database.prepare(sql).all(...parameters),
+    databaseName,
     schemaVersion: agentSchemaVersion(database),
   });
-  return syncSemanticForm({ catalog, existingForm, seedComments, now });
+  const synchronized = syncSemanticForm({ catalog, existingForm, seedComments, now });
+  synchronized.form = currentSemanticForm(synchronized.form);
+  return synchronized;
 }
 
-export function writeAgentSemanticForm(database, {
+export async function writeAgentSemanticForm(database, {
   filename = semanticFormFilename,
   seedComments = false,
 } = {}) {
   const existingForm = readAgentSemanticForm(filename);
-  const compiled = compileAgentSemanticForm(database, {
+  const compiled = await compileAgentSemanticForm(database, {
     existingForm,
     seedComments: seedComments || existingForm == null,
   });
@@ -57,23 +74,19 @@ export function writeAgentSemanticForm(database, {
   return compiled.report;
 }
 
-export function assertAgentSemanticFormMatches(database, filename = semanticFormFilename) {
+export async function assertAgentSemanticFormMatches(database, filename = semanticFormFilename) {
   const existingForm = readAgentSemanticForm(filename);
-  if (!existingForm) {
-    throw new Error(`Tracked schema semantic form not found: ${filename}`);
-  }
+  if (!existingForm) throw new Error(`Tracked schema semantic form not found: ${filename}`);
   const extractedAt = new Date(existingForm.database.extractedAt);
   if (Number.isNaN(extractedAt.getTime())) {
     throw new Error(`Schema semantic form has an invalid extractedAt value: ${existingForm.database.extractedAt}`);
   }
-  const { form: expected } = compileAgentSemanticForm(database, {
+  const { form: expected } = await compileAgentSemanticForm(database, {
     existingForm,
     seedComments: false,
     now: extractedAt,
   });
-  const actualText = `${JSON.stringify(existingForm, null, 2)}\n`;
-  const expectedText = `${JSON.stringify(expected, null, 2)}\n`;
-  if (actualText !== expectedText) {
+  if (`${JSON.stringify(existingForm, null, 2)}\n` !== `${JSON.stringify(expected, null, 2)}\n`) {
     throw new Error(
       `Agent schema semantic form drift detected. Run npm run schema:semantics:sync and inspect ${filename}.`,
     );

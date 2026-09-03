@@ -19,11 +19,11 @@ test("video narration reads whole-hour 24-hour ranges as bare hour numbers", () 
 test("the background worker preserves recordings and assigns distinct user and Agent voices", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const videoScripts = new VideoScripts({ store, ledger });
-  const mediaRoot = path.join(path.dirname(temporary.filename), "media");
+  const mediaRoot = path.join(temporary.directory, "media");
   const audioPath = path.join(mediaRoot, "source.webm");
   await fs.mkdir(mediaRoot, { recursive: true });
   await fs.writeFile(audioPath, Buffer.from("authentic source audio"));

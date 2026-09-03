@@ -27,7 +27,7 @@ function exchangeContract(instructions = null, mode = "response_valid", override
 function harness(context, { clock, timeZone } = {}) {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const guides = new InteractionGuides({
@@ -865,7 +865,7 @@ test("one-time to-dos cannot link an interaction guide", async (context) => {
 test("the organizer API exposes a linked guide and clears it when recurrence is removed", (context) => {
   const { store, guides } = harness(context);
   const guide = guides.create({ name: "Planning" }).guide;
-  const organizer = new OrganizerStore(store.filename);
+  const organizer = new OrganizerStore(store.databaseTarget);
   context.after(() => organizer.close());
   const created = organizer.createTodo({
     text: "Plan the day",

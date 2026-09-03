@@ -28,9 +28,9 @@ export function searchCalendarEventRows(database, {
   }
   const terms = normalizedQuery.split(/\s+/u).map((term) => `%${escapedLikeTerm(term)}%`);
   const termClause = `(
-    title LIKE ? ESCAPE '\\' COLLATE NOCASE
-    OR COALESCE(description, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
-    OR COALESCE(location_text, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
+    title LIKE ? ESCAPE '\\\\'
+    OR COALESCE(description, '') LIKE ? ESCAPE '\\\\'
+    OR COALESCE(location_text, '') LIKE ? ESCAPE '\\\\'
   )`;
   const filters = terms.map(() => termClause).join(" AND ");
   const parameters = terms.flatMap((term) => [term, term, term]);

@@ -10,9 +10,7 @@ secrets*
 # Dependencies
 node_modules/
 
-# Runtime data
-data/**
-!data/.gitkeep
+# Runtime media
 media/**
 !media/.gitkeep
 

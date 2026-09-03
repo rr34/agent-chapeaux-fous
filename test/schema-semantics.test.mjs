@@ -23,7 +23,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 test("structured database reads expose bounded offset pagination", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   ledger.append({ type: "test.page", name: "first pagination marker" });
@@ -67,7 +67,7 @@ test("structured database reads expose bounded offset pagination", async (contex
 test("structured database reads return an exact schema-semantic projection", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const schemaSemantics = new SchemaSemantics({
@@ -166,7 +166,7 @@ test("structured database reads return an exact schema-semantic projection", asy
 test("native database-backed tools return stored field names with semantic projections", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const schemaSemantics = new SchemaSemantics({
@@ -174,7 +174,7 @@ test("native database-backed tools return stored field names with semantic proje
     ledger,
   });
   const profileFacts = new ProfileFacts({ store, ledger });
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());
   const registry = new ToolRegistry();
   registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);

@@ -8,7 +8,6 @@ function restoredError(details) {
   error.name = details?.name ?? "Error";
   if (details?.stack) error.stack = details.stack;
   if (details?.code) error.code = details.code;
-  if (details?.mariaDbCode) error.mariaDbCode = details.mariaDbCode;
   if (details?.errno) error.errno = details.errno;
   if (details?.sqlState) error.sqlState = details.sqlState;
   return error;
@@ -42,7 +41,13 @@ export class MariaDatabaseSync {
     this.controlBuffer = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2);
     this.responseBuffer = new SharedArrayBuffer(responseBytes);
     this.worker = new Worker(new URL("./mariadb-sync-worker.mjs", import.meta.url), { type: "module" });
-    this.server = this.request({ type: "init", configuration: this.configuration });
+    try {
+      this.server = this.request({ type: "init", configuration: this.configuration });
+    } catch (error) {
+      this.closed = true;
+      void this.worker.terminate();
+      throw error;
+    }
   }
 
   request(request) {

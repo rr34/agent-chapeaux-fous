@@ -10,7 +10,7 @@ function selectedActiveGroup(database, { groupId = null, groupName = null } = {}
   return groupId == null
     ? database.prepare(`
         SELECT * FROM todo_groups
-        WHERE name = ? COLLATE NOCASE AND archived_at_utc IS NULL
+        WHERE name = ? AND archived_at_utc IS NULL
       `).get(String(groupName || "").trim())
     : database.prepare(`
         SELECT * FROM todo_groups
@@ -29,7 +29,7 @@ export function renameTodoGroup(database, { groupId = null, groupName = null, ne
   if (name.length > 200) throw new TodoGroupOperationError("A group name cannot exceed 200 characters.");
   const conflict = database.prepare(`
     SELECT todo_group_id FROM todo_groups
-    WHERE name = ? COLLATE NOCASE AND todo_group_id <> ?
+    WHERE name = ? AND todo_group_id <> ?
   `).get(name, group.todo_group_id);
   if (conflict) throw new TodoGroupOperationError("A to-do group with that name already exists.", 409);
 

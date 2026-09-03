@@ -9,7 +9,7 @@ import { temporaryDatabase } from "./helpers.mjs";
 
 test("active request progress follows the latest unfinished ledger operation", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const created = ledger.createRequest({ text: "Update the property clock entry" });
@@ -52,7 +52,7 @@ test("active request progress follows the latest unfinished ledger operation", (
 
 test("one-shot run limits persist on the queued request event", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const created = ledger.createRequest({
@@ -70,7 +70,7 @@ test("one-shot run limits persist on the queued request event", () => {
 
 test("a pending TurnBrief review is public and cancellation is terminal", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const created = ledger.createRequest({ text: "Check today's schedule." });
@@ -109,7 +109,7 @@ test("a pending TurnBrief review is public and cancellation is terminal", () => 
 
 test("a request carries exact references to completed or failed exchanges", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const completed = ledger.createRequest({ text: "Move the Watch Jobs to Sunday." });
@@ -143,7 +143,7 @@ test("a request carries exact references to completed or failed exchanges", () =
 
 test("an unfinished exchange cannot be attached as completed source context", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const unfinished = ledger.createRequest({ text: "Still running" });
@@ -159,7 +159,7 @@ test("an unfinished exchange cannot be attached as completed source context", ()
 
 test("recent requests expose only the hats recorded by the request compiler", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const created = ledger.createRequest({ text: "As my contacts, find Tim, then as my email, write him." });
@@ -188,7 +188,7 @@ test("recent requests expose only the hats recorded by the request compiler", ()
 
 test("request IDs resolve from an unambiguous visible prefix", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     ledger.append({
@@ -213,7 +213,7 @@ test("request IDs resolve from an unambiguous visible prefix", () => {
 
 test("model conversation markers persist resumable state without changing the database schema", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     assert.deepEqual(ledger.activeModelConversation("tools-a"), {
@@ -256,7 +256,7 @@ test("model conversation markers persist resumable state without changing the da
 
 test("context usage, intent checkpoints, and exact tool receipts remain recoverable from the ledger", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const attachment = ledger.registerFile({
@@ -387,7 +387,7 @@ test("context usage, intent checkpoints, and exact tool receipts remain recovera
 
 test("request details aggregate total usage and preserve usage for each workflow step", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const created = ledger.createRequest({ text: "Go ahead and do that." });
@@ -440,7 +440,7 @@ test("request details aggregate total usage and preserve usage for each workflow
 
 test("rolling conversation state is bounded by an explicit new-conversation event", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const state = {
@@ -465,7 +465,7 @@ test("rolling conversation state is bounded by an explicit new-conversation even
 
 test("MCP deferred actions are derived from receipts and leave the active set after execution", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     ledger.append({
@@ -520,7 +520,7 @@ test("MCP deferred actions are derived from receipts and leave the active set af
 
 test("completed requests report elapsed time from receipt through the terminal event", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const created = ledger.createRequest({ text: "Time this request" });
@@ -539,7 +539,7 @@ test("completed requests report elapsed time from receipt through the terminal e
 
 test("conversation history can be retrieved as paired exchanges within a date range", () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const addExchange = (requestText, responseText, occurredAtUtc) => {
@@ -602,7 +602,7 @@ test("conversation history can be retrieved as paired exchanges within a date ra
 
 test("history_range exposes paired history without returning its current request", async () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const prior = ledger.createRequest({ text: "Prior request" });
@@ -629,7 +629,7 @@ test("history_range exposes paired history without returning its current request
 
 test("email cleanup receipts recover exact messages from successful prior tool operations", async () => {
   const temporary = temporaryDatabase();
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   const ledger = new Ledger(store);
   try {
     const cleanup = ledger.createRequest({ text: "Trash the social notifications" });

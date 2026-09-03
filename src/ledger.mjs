@@ -967,7 +967,7 @@ export class Ledger {
         SELECT 1 FROM activity_events AS topic_event
         WHERE topic_event.turn_id = received.turn_id
           AND topic_event.event_type IN (${placeholders(conversationTextEventTypes)})
-          AND topic_event.content_text LIKE ? ESCAPE '\\'
+          AND topic_event.content_text LIKE ? ESCAPE '\\\\'
       )`;
     }).join("\n");
     const rows = database.prepare(`
@@ -1052,7 +1052,7 @@ export class Ledger {
     return this.store.requireReady().prepare(`
       SELECT * FROM activity_events
       WHERE event_type IN (${placeholders([...receivedEventTypes, ...responseEventTypes])})
-        AND content_text LIKE ? ESCAPE '\\'
+        AND content_text LIKE ? ESCAPE '\\\\'
       ORDER BY event_seq DESC LIMIT ?
     `).all(...receivedEventTypes, ...responseEventTypes, escaped, bounded).map(publicEvent);
   }
@@ -1212,7 +1212,7 @@ export class Ledger {
       throw new Error("Numbered filename extension must start with a dot and contain only letters or numbers");
     }
     const database = this.store.requireReady();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const existing = database.prepare(
         "SELECT * FROM files WHERE sha256 = ? AND byte_size = ? ORDER BY file_id LIMIT 1",
@@ -1295,10 +1295,10 @@ export class Ledger {
         ON event.primary_file_id = file.file_id
        AND event.event_type IN ('request.received', 'voice.request.received')
       WHERE ? = ''
-         OR file.title LIKE ? ESCAPE '\\'
-         OR file.description LIKE ? ESCAPE '\\'
-         OR file.original_filename LIKE ? ESCAPE '\\'
-         OR event.content_text LIKE ? ESCAPE '\\'
+         OR file.title LIKE ? ESCAPE '\\\\'
+         OR file.description LIKE ? ESCAPE '\\\\'
+         OR file.original_filename LIKE ? ESCAPE '\\\\'
+         OR event.content_text LIKE ? ESCAPE '\\\\'
       ORDER BY file.created_at_utc DESC, file.file_id DESC
       LIMIT ?
     `).all(selectedQuery, pattern, pattern, pattern, pattern, bounded).map(publicFile);

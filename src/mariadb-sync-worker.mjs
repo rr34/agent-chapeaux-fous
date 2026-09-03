@@ -2,7 +2,7 @@ import { parentPort } from "node:worker_threads";
 import { serialize } from "node:v8";
 import mysql from "mysql2/promise";
 import { mariaDbHybridSearch } from "./search/mariadb-search.mjs";
-import { parseUpdateReturning, translateSqliteSql } from "./mariadb-sql.mjs";
+import { parseUpdateReturning } from "./mariadb-sql.mjs";
 
 let connection = null;
 let transactionActive = false;
@@ -62,34 +62,25 @@ async function updateReturning(parsed, parameters) {
 }
 
 function normalizeError(error) {
-  let message = error instanceof Error ? error.message : String(error);
-  if (error?.code === "ER_DUP_ENTRY") {
-    const key = /for key ['`]?([^'`]+)['`]?/iu.exec(message)?.[1] ?? "";
-    if (key.includes("contact_methods")) message = `UNIQUE constraint failed: contact_methods (${message})`;
-    else if (key.includes("trackers_name")) message = `UNIQUE constraint failed: trackers.name (${message})`;
-  }
   return {
     name: error?.name ?? "Error",
-    message,
+    message: error instanceof Error ? error.message : String(error),
     stack: error?.stack ?? null,
-    code: error?.code ? "ERR_SQLITE_ERROR" : null,
-    mariaDbCode: error?.code ?? null,
+    code: error?.code ?? null,
     errno: error?.errno ?? null,
     sqlState: error?.sqlState ?? null,
   };
 }
 
 async function prepared({ mode, sql, parameters }) {
-  const translated = translateSqliteSql(sql);
-  if (translated === null) return mode === "run" ? { changes: 0, lastInsertRowid: 0 } : mode === "all" ? [] : undefined;
-  const update = parseUpdateReturning(translated);
+  const update = parseUpdateReturning(sql);
   if (update) {
     const outcome = await updateReturning(update, parameters);
     if (mode === "all") return outcome.rows;
     if (mode === "get") return outcome.rows[0];
     return { changes: outcome.result.affectedRows, lastInsertRowid: outcome.result.insertId ?? 0 };
   }
-  const [result] = await connection.execute(translated, parameters);
+  const [result] = await connection.execute(sql, parameters);
   if (Array.isArray(result)) {
     const rows = plainRows(result);
     if (mode === "all") return rows;
@@ -121,12 +112,9 @@ async function handle(request) {
     return true;
   }
   if (request.type === "exec") {
-    const translated = translateSqliteSql(request.sql);
-    if (translated !== null) {
-      await connection.query(translated);
-      if (/^START\s+TRANSACTION\b/iu.test(translated)) transactionActive = true;
-      else if (/^(COMMIT|ROLLBACK)\b/iu.test(translated)) transactionActive = false;
-    }
+    await connection.query(request.sql);
+    if (/^START\s+TRANSACTION\b/iu.test(request.sql)) transactionActive = true;
+    else if (/^(COMMIT|ROLLBACK)\b/iu.test(request.sql)) transactionActive = false;
     return true;
   }
   if (request.type === "prepared") return prepared(request);

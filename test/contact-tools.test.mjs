@@ -15,10 +15,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 function harness(context) {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());
   const schemaSemantics = new SchemaSemantics({
     filename: path.join(root, "db", "schema-semantics.json"),
@@ -231,7 +231,7 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
     VALUES (?, '2026-08-17T12:00:00.000Z') RETURNING contact_id
   `);
   const ids = [];
-  database.exec("BEGIN IMMEDIATE");
+  database.exec("START TRANSACTION");
   try {
     for (let index = 1; index <= 1000; index += 1) {
       ids.push(Number(insert.get(`Batch Person ${index}`).contact_id));
@@ -531,7 +531,7 @@ test("compact duplicate review and atomic batches resolve 240 groups in five too
     ) VALUES (?, 'email', 'Imported', ?, ?, 1, 1)
   `);
   const version = "2026-08-17T12:00:00.000Z";
-  database.exec("BEGIN IMMEDIATE");
+  database.exec("START TRANSACTION");
   try {
     for (let group = 1; group <= 240; group += 1) {
       const email = `duplicate-${group}@example.test`;
@@ -616,7 +616,7 @@ test("source-aware clear dedupe resolves 505 groups in two calls and leaves ambi
     if (email) insertMethod.run(contact.contact_id, email, email.toLowerCase());
     return Number(contact.contact_id);
   };
-  database.exec("BEGIN IMMEDIATE");
+  database.exec("START TRANSACTION");
   try {
     for (let group = 1; group <= 505; group += 1) {
       const email = `clear-${group}@example.test`;

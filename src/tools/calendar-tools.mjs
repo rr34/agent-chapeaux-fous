@@ -249,7 +249,7 @@ export function registerCalendarTools(
         }
         timeZone = recurrenceTimeZone;
       }
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const inserted = database.prepare(`
           INSERT INTO calendar_events (
@@ -337,9 +337,9 @@ export function registerCalendarTools(
         throw new Error("ends_at_utc cannot be earlier than starts_at_utc");
       }
       values.updated_at_utc = new Date().toISOString();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
-        const assignments = Object.keys(values).map((field) => `"${field}" = ?`).join(", ");
+        const assignments = Object.keys(values).map((field) => `\`${field}\` = ?`).join(", ");
         database.prepare(`UPDATE calendar_events SET ${assignments} WHERE calendar_event_id = ?`)
           .run(...Object.values(values), input.calendar_event_id);
         const event = calendarEvent(database, input.calendar_event_id);
@@ -385,7 +385,7 @@ export function registerCalendarTools(
         ? validateTimeZone(recurrence.time_zone, before.time_zone || undefined)
         : before.time_zone;
       const updatedAt = new Date().toISOString();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         database.prepare(`
           UPDATE calendar_events

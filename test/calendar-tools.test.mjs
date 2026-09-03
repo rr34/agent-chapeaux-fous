@@ -15,9 +15,9 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 function calendarFixture(context, { semantics = false } = {}) {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());
   const ledger = new Ledger(store);
   const schemaSemantics = semantics ? new SchemaSemantics({

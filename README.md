@@ -62,18 +62,20 @@ natural language rather than returning a canned help response.
 ## First local run
 
 Requirements: Node.js 22.5 or newer, an OpenAI API project/key with API billing,
-and an existing Slayer database snapshot.
+and an initialized MariaDB database matching `db/mariadb/0001-baseline.sql`.
 
 ```bash
 cp .env.example .env
-# Set OPENAI_API_KEY and SLAYER_ACCESS_TOKEN in .env.
-cp /path/to/latest-snapshot.sqlite data/agent.sqlite
+# Set OPENAI_API_KEY, SLAYER_ACCESS_TOKEN, and the SLAYER_DATABASE_* values.
 npm install
-npm run schema:migrate
 npm run db:verify
 npm test
 npm start
 ```
+
+The test suite creates and drops isolated databases. The configured application
+account may do that locally, or `SLAYER_TEST_DATABASE_*` can name a separate
+test administrator as shown in `.env.example`.
 
 Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and
 stores it only in that browser. The same client includes the Agent request
@@ -361,10 +363,10 @@ capability selector, which controls which exact tool schemas are callable.
 - `global_search` performs read-only discovery across selected calendar,
   contacts, and history providers. It returns compact references and reports
   each provider's actual matching mode, capabilities, completeness, warnings,
-  and errors. History can use an existing synchronized FTS5 index for phrase or
-  token-proximity matching with bounded contextual snippets; when that index is
-  unavailable, the result explicitly reports its substring fallback. Existing
-  domain search tools retain their schemas and native result shapes.
+  and errors. History and file discovery use MariaDB FULLTEXT indexes with
+  bounded contextual snippets and deterministic fallbacks for short tokens,
+  stopwords, accents, phrases, and proximity. Existing domain search tools
+  retain their schemas and native result shapes.
 - `email_account_list`, `email_mailbox_list`, `email_identity_list`,
   `email_search`, `email_get`, `email_thread_get`, `email_changes`,
   `email_update`, `email_bulk_update`, `email_cleanup_preview`,
@@ -473,12 +475,13 @@ back to unrelated local database tools.
 
 ## Database and schema changes
 
-No database is committed. The live application database is MariaDB. After
-creating a current MariaDB dump, rehearse an application schema upgrade with
-`npm run db:mariadb:schema:migrate -- --database chapeauxfous_rehearsal`.
-Apply the same tracked migration to production only with the explicit live and
-backup acknowledgements documented by the command's `--help` output. The
-application does not migrate or write an old SQLite snapshot during this flow.
+No database is committed. MariaDB is the application's only database engine,
+and `db/mariadb/0001-baseline.sql` is the authoritative schema for a fresh
+installation. `npm run db:verify` checks the configured database's required
+shape, schema version, FULLTEXT indexes, and tracked semantic mechanics without
+mutating data. Future schema changes must be implemented as explicit,
+reviewable MariaDB migrations with their own preconditions, backup procedure,
+postconditions, and foreign-key verification.
 
 `profile_facts` is the authoritative store for durable user facts. Multiple
 active rows may share a broad type such as `vehicle`; their text identifies the
@@ -613,8 +616,9 @@ journalctl --user -u agent-slayer.service -n 100 --no-pager
 
 When an update includes a database migration, stop the running writer before
 changing the database. If the dependency lock changed, install the exact
-dependency set while the service is stopped. Then migrate, verify, and start the
-service again:
+dependency set while the service is stopped. Apply the reviewed MariaDB
+migration only after creating a current dump, then verify and start the service
+again:
 
 ```bash
 cd /home/nate/code/agent-chapeaux-fous
@@ -622,7 +626,7 @@ cd /home/nate/code/agent-chapeaux-fous
 systemctl --user stop agent-slayer.service
 npm ci
 
-npm run schema:migrate -- --no-semantics
+# Apply the release's reviewed MariaDB migration procedure here.
 npm run db:verify
 
 systemctl --user start agent-slayer.service
@@ -630,10 +634,8 @@ systemctl --user status agent-slayer.service --no-pager
 journalctl --user -u agent-slayer.service -n 100 --no-pager
 ```
 
-Do not start the service if migration or verification fails. The migration
-runner creates a timestamped backup under `data/backups/`, applies pending
-migrations transactionally, and checks database integrity. The
-`--no-semantics` option prevents deployment from rewriting the tracked semantic
-catalog; schema-semantic changes should already be present in the deployed
-revision. Running the migration command again is safe and reports when the
-database is already current.
+Do not start the service if migration or verification fails. MariaDB DDL may
+commit implicitly, so each migration must state its own safe replay and recovery
+rules rather than assuming a transaction can roll back the complete schema
+change. Schema-semantic changes should already be present in the deployed
+revision.

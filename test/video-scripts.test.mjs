@@ -31,7 +31,7 @@ function productionPlan(sourceRequestIds) {
 test("video scripts persist one ordered source join for every selected interaction", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const videoScripts = new VideoScripts({ store, ledger });
@@ -129,7 +129,7 @@ test("video scripts persist one ordered source join for every selected interacti
 test("video-script creation rejects sources outside the request-bound selection", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const videoScripts = new VideoScripts({ store, ledger });
@@ -155,7 +155,7 @@ test("video-script creation rejects sources outside the request-bound selection"
 test("video scripts project machine references out without changing stored interactions", (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const videoScripts = new VideoScripts({ store, ledger });
@@ -201,7 +201,7 @@ test("video scripts project machine references out without changing stored inter
 test("one production tool call persists its script and queues one linked background render", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const videoScripts = new VideoScripts({ store, ledger });
@@ -269,7 +269,7 @@ test("one production tool call persists its script and queues one linked backgro
 test("video-script selection rejects failed interactions", (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const videoScripts = new VideoScripts({ store, ledger });

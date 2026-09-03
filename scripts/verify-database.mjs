@@ -3,48 +3,35 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
-import { inspectDatabase, summarizeDatabaseObjects } from "../src/database.mjs";
-import { readMigrationLedger, validatePendingMigrations } from "./agent-migrations.mjs";
-import { migrationsFilename, semanticFormFilename } from "./agent-schema.mjs";
-import { agentSchemaVersion, assertAgentSemanticFormMatches } from "./agent-schema-semantics.mjs";
+import { SlayerDatabase, inspectDatabase, summarizeDatabaseObjects } from "../src/database.mjs";
+import { repositoryRoot, semanticFormFilename } from "./agent-schema.mjs";
+import { assertAgentSemanticFormMatches } from "./agent-schema-semantics.mjs";
+import { databaseConnectionFromEnvironment } from "./mariadb-schema.mjs";
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const environmentFilename = path.join(repositoryRoot, ".env");
 if (fs.existsSync(environmentFilename)) process.loadEnvFile(environmentFilename);
-const filename = path.resolve(repositoryRoot, process.env.SLAYER_DATABASE?.trim() || "data/agent.sqlite");
 
-if (!fs.existsSync(filename)) {
-  console.error(`Database file is missing: ${filename}`);
-  process.exitCode = 1;
-} else {
-  const database = new DatabaseSync(filename, { readOnly: true });
-  try {
-    database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
-    const result = inspectDatabase(database);
-    if (!result.ready) {
-      console.error("Database is not compatible with Agent Slayer:");
-      for (const problem of result.problems) console.error(`- ${problem}`);
-      process.exitCode = 1;
-    } else {
-      assertAgentSemanticFormMatches(database, semanticFormFilename);
-      const pending = validatePendingMigrations(
-        readMigrationLedger(migrationsFilename),
-        agentSchemaVersion(database),
-      );
-      const counts = summarizeDatabaseObjects(result.objects);
-      console.log(`Agent Slayer database is ready: ${filename}`);
-      console.log(
-        `Verified ${counts.applicationTableCount} logical application tables and ${counts.applicationViewCount} views (${counts.applicationObjectCount} logical schema objects).`,
-      );
-      console.log(
-        `SQLite reports ${counts.sqliteObjectCount} non-internal table/view entries total, including ${counts.fts5ShadowTableCount} FTS5 shadow tables.`,
-      );
-      console.log("SQLite mechanics match db/schema-semantics.json.");
-      if (pending.length) console.log(`${pending.length} unapplied schema migration${pending.length === 1 ? " is" : "s are"} present.`);
-    }
-  } finally {
-    database.close();
+const connection = databaseConnectionFromEnvironment();
+const store = new SlayerDatabase({ engine: "mariadb", connection });
+try {
+  if (!store.status.ready) throw new Error(store.status.reason);
+  const database = store.requireReady();
+  const inspection = inspectDatabase(database);
+  if (!inspection.ready) {
+    throw new Error(`Database is not compatible with Agent Slayer:\n- ${inspection.problems.join("\n- ")}`);
   }
+  await assertAgentSemanticFormMatches(database, semanticFormFilename);
+  const counts = summarizeDatabaseObjects(store.objects());
+  const fullTextIndexes = database.prepare(`
+    SELECT COUNT(DISTINCT TABLE_NAME, INDEX_NAME) AS count
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND INDEX_TYPE = 'FULLTEXT'
+  `).get();
+  console.log(`Agent Slayer MariaDB database is ready: ${connection.database}`);
+  console.log(
+    `Verified ${counts.applicationTableCount} application tables and ${counts.applicationViewCount} views (${counts.applicationObjectCount} schema objects).`,
+  );
+  console.log(`Verified ${Number(fullTextIndexes.count)} FULLTEXT indexes and db/schema-semantics.json mechanics.`);
+} finally {
+  store.close();
 }

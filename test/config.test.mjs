@@ -4,8 +4,19 @@ import path from "node:path";
 import test from "node:test";
 import { loadConfig, repositoryRoot } from "../src/config.mjs";
 
+const databaseEnvironment = {
+  SLAYER_DATABASE_HOST: "localhost",
+  SLAYER_DATABASE_NAME: "chapeauxfous",
+  SLAYER_DATABASE_USER: "cfr_user",
+  SLAYER_DATABASE_PASSWORD: "temporary",
+};
+
+function loadTestConfig(environment = {}) {
+  return loadConfig({ ...databaseEnvironment, ...environment });
+}
+
 test("OpenAI Responses configuration has stable defaults", () => {
-  const config = loadConfig({
+  const config = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     XDG_STATE_HOME: "/tmp/agent-slayer-state-test",
   });
@@ -24,22 +35,27 @@ test("OpenAI Responses configuration has stable defaults", () => {
   });
   assert.equal(config.hatCatalogPath, path.join(repositoryRoot, "config", "hats.json"));
   assert.deepEqual(config.databaseTarget, {
-    engine: "sqlite",
-    filename: path.join(repositoryRoot, "data/agent.sqlite"),
+    engine: "mariadb",
+    connection: {
+      host: "localhost",
+      port: 3306,
+      socketPath: undefined,
+      user: "cfr_user",
+      password: "temporary",
+      database: "chapeauxfous",
+    },
   });
 });
 
 test("MariaDB runtime configuration is explicit and bounded", () => {
-  const config = loadConfig({
+  const config = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
-    SLAYER_DATABASE_ENGINE: "mariadb",
     SLAYER_DATABASE_HOST: "db.internal",
     SLAYER_DATABASE_PORT: "3307",
-    SLAYER_DATABASE_NAME: "chapeauxfous_rehearsal",
+    SLAYER_DATABASE_NAME: "chapeauxfous",
     SLAYER_DATABASE_USER: "cfr_user",
     SLAYER_DATABASE_PASSWORD: "temporary",
   });
-  assert.equal(config.databasePath, null);
   assert.deepEqual(config.databaseTarget, {
     engine: "mariadb",
     connection: {
@@ -48,12 +64,11 @@ test("MariaDB runtime configuration is explicit and bounded", () => {
       socketPath: undefined,
       user: "cfr_user",
       password: "temporary",
-      database: "chapeauxfous_rehearsal",
+      database: "chapeauxfous",
     },
   });
-  assert.throws(() => loadConfig({
+  assert.throws(() => loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
-    SLAYER_DATABASE_ENGINE: "mariadb",
     SLAYER_DATABASE_NAME: "bad-name",
     SLAYER_DATABASE_USER: "cfr_user",
     SLAYER_DATABASE_PASSWORD: "temporary",
@@ -61,7 +76,7 @@ test("MariaDB runtime configuration is explicit and bounded", () => {
 });
 
 test("turn workflow reasoning effort is independently configurable by phase", () => {
-  const config = loadConfig({
+  const config = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_REASONING_EFFORT: "xhigh",
     SLAYER_ORIENTATION_REASONING_EFFORT: "low",
@@ -77,7 +92,7 @@ test("turn workflow reasoning effort is independently configurable by phase", ()
 });
 
 test("the public URL controls browser OAuth callbacks", () => {
-  const config = loadConfig({
+  const config = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_PUBLIC_URL: "https://slayer.example.test",
     XDG_STATE_HOME: "/tmp/agent-slayer-state-test",
@@ -89,21 +104,21 @@ test("the public URL controls browser OAuth callbacks", () => {
 
 test("the public URL rejects credentials and non-HTTP schemes", () => {
   assert.throws(
-    () => loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "file:///tmp/slayer" }),
+    () => loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "file:///tmp/slayer" }),
     /must be an HTTPS origin/,
   );
   assert.throws(
-    () => loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "https://user:secret@example.test" }),
+    () => loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "https://user:secret@example.test" }),
     /must be an HTTPS origin/,
   );
   assert.throws(
-    () => loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "http://slayer.example.test" }),
+    () => loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "http://slayer.example.test" }),
     /must be an HTTPS origin/,
   );
 });
 
 test("native JMAP email configuration is independent of MCP", () => {
-  const config = loadConfig({
+  const config = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_JMAP_SESSION_URL: "https://mail.example.test/jmap/session",
     SLAYER_JMAP_ACCESS_TOKEN: "jmap-secret",
@@ -122,7 +137,7 @@ test("native JMAP email configuration is independent of MCP", () => {
 });
 
 test("text request attachments have a separate bounded upload limit", () => {
-  const defaults = loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
+  const defaults = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
   assert.equal(defaults.maxToolCalls, 128);
   assert.equal(defaults.contextRolloverPercent, 65);
   assert.equal(defaults.conversationCheckpointCharacters, 48 * 1024);
@@ -130,7 +145,7 @@ test("text request attachments have a separate bounded upload limit", () => {
   assert.equal(defaults.maxTextAttachmentBytes, 10 * 1024 * 1024);
   assert.equal(defaults.maxRequestAttachmentBytes, 50 * 1024 * 1024);
   assert.equal(defaults.maxAttachmentContextCharacters, 64 * 1024);
-  const configured = loadConfig({
+  const configured = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_MAX_TEXT_ATTACHMENT_BYTES: "8192",
     SLAYER_MAX_REQUEST_ATTACHMENT_BYTES: "67108864",
@@ -142,7 +157,7 @@ test("text request attachments have a separate bounded upload limit", () => {
 });
 
 test("context rollover and inline result limits are configurable", () => {
-  const configured = loadConfig({
+  const configured = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_CONTEXT_ROLLOVER_PERCENT: "72.5",
     SLAYER_CONVERSATION_CHECKPOINT_CHARACTERS: "24000",
@@ -154,10 +169,10 @@ test("context rollover and inline result limits are configurable", () => {
 });
 
 test("explicit page reads have bounded network limits", () => {
-  const defaults = loadConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
+  const defaults = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
   assert.equal(defaults.webPageTimeoutMs, 15_000);
   assert.equal(defaults.webPageMaximumBytes, 2 * 1024 * 1024);
-  const configured = loadConfig({
+  const configured = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_WEB_PAGE_TIMEOUT_MS: "9000",
     SLAYER_WEB_PAGE_MAX_BYTES: "524288",

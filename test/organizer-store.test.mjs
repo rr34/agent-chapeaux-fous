@@ -5,7 +5,7 @@ import { temporaryDatabase } from "./helpers.mjs";
 
 test("calendar events use the existing tables with optimistic concurrency and safe deletion", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const created = organizer.createCalendar({
       title: "Dentist",
@@ -52,7 +52,7 @@ test("calendar events use the existing tables with optimistic concurrency and sa
 
 test("calendar events can create, display, edit, and stop recurring series", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const created = organizer.createCalendar({
       title: "Weekly planning",
@@ -88,7 +88,7 @@ test("calendar events can create, display, edit, and stop recurring series", () 
 
 test("calendar search matches all terms across stored event details and optionally includes archived events", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const matching = organizer.createCalendar({
       title: "Dental cleaning",
@@ -137,7 +137,7 @@ test("calendar search matches all terms across stored event details and optional
 
 test("contacts support searchable-page data, multiple methods, and safe edits", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const created = organizer.createContact({
       kind: "person",
@@ -191,7 +191,7 @@ test("contacts support searchable-page data, multiple methods, and safe edits", 
 
 test("bulk contact tagging and deletion are version-checked and atomic", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const first = organizer.createContact({
       displayName: "First Contact",
@@ -260,7 +260,7 @@ test("bulk contact tagging and deletion are version-checked and atomic", () => {
 
 test("contact tag rename merges existing destinations without touching other record types", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const first = organizer.createContact({ displayName: "First", tags: ["Old Tag", "Target"] });
     const second = organizer.createContact({ displayName: "Second", tags: ["Old Tag"] });
@@ -300,7 +300,7 @@ test("contact tag rename merges existing destinations without touching other rec
 
 test("contact merges combine methods and tags while retaining inactive source records", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const kept = organizer.createContact({
       displayName: "Jordan Lee",
@@ -354,7 +354,7 @@ test("contact merges combine methods and tags while retaining inactive source re
 
 test("contact duplicate review requires a shared name part and method to connect different full names", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const first = organizer.createContact({
       displayName: "Aaron Williams",
@@ -416,7 +416,7 @@ test("contact duplicate review requires a shared name part and method to connect
 
 test("automatic contact dedupe leaves partial-name matches for review", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const insertContact = organizer.database.prepare(`
       INSERT INTO contacts (display_name, source, external_id, updated_at_utc)
@@ -453,7 +453,7 @@ test("automatic contact dedupe leaves partial-name matches for review", () => {
 
 test("contact merge batches roll back every group when one reviewed version is stale", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const firstKeep = organizer.createContact({ displayName: "First", methods: [{ kind: "email", value: "first@example.test" }] });
     const firstMerge = organizer.createContact({ displayName: "First copy", methods: [{ kind: "email", value: "FIRST@example.test" }] });
@@ -491,7 +491,7 @@ test("contact merge batches roll back every group when one reviewed version is s
 
 test("grouped and recurring todos use the existing task tables", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const group = organizer.createTodoGroup({ name: "Health" });
     const created = organizer.createTodo({
@@ -525,7 +525,7 @@ test("grouped and recurring todos use the existing task tables", () => {
 
 test("routine definitions preview and publish as linked idempotent task occurrences", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const inbox = organizer.listTodoGroups().find(({ name }) => name === "Inbox");
     const created = organizer.createRoutine({
@@ -597,7 +597,7 @@ test("routine definitions preview and publish as linked idempotent task occurren
 
 test("routine previews include an occurrence that began before the range and remains in progress", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     organizer.createRoutine({
       text: "Daddy time",
@@ -623,7 +623,7 @@ test("routine previews include an occurrence that began before the range and rem
 
 test("editing a published occurrence does not rewrite its routine definition", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const created = organizer.createRoutine({
       text: "Regular work window",
@@ -657,7 +657,7 @@ test("editing a published occurrence does not rewrite its routine definition", (
 
 test("agent routine creation stores one definition and no hidden task", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const created = organizer.createRoutine({
       text: "Friday planning",
@@ -696,7 +696,7 @@ test("agent routine creation stores one definition and no hidden task", () => {
 
 test("overdue one-time todos move as one batch while routine publications stay scheduled", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const group = organizer.createTodoGroup({ name: "Catch up" });
     const timed = organizer.createTodo({
@@ -788,7 +788,7 @@ test("overdue one-time todos move as one batch while routine publications stay s
 
 test("personal log entries and grouped trackers are available to the web organizer", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const first = organizer.createLogEntry({
       trackerName: "Weight",
@@ -843,7 +843,7 @@ test("personal log entries and grouped trackers are available to the web organiz
 
 test("numeric log averages give each logged local day one equal weight", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const first = organizer.createLogEntry({
       trackerName: "Weight",
@@ -907,7 +907,7 @@ test("numeric log averages give each logged local day one equal weight", () => {
 
 test("recurrence can be added, edited, and removed through todo updates", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const group = organizer.createTodoGroup({ name: "Home" });
     const created = organizer.createTodo({
@@ -955,7 +955,7 @@ test("recurrence can be added, edited, and removed through todo updates", () => 
 
 test("one-time todos can clear only their scheduled date", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const group = organizer.createTodoGroup({ name: "Unscheduled" });
     const created = organizer.createTodo({
@@ -981,7 +981,7 @@ test("one-time todos can clear only their scheduled date", () => {
 
 test("group reordering atomically normalizes every task position", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const group = organizer.createTodoGroup({ name: "Ordered work" });
     const tasks = ["First", "Second", "Third", "Fourth"]
@@ -1008,7 +1008,7 @@ test("group reordering atomically normalizes every task position", () => {
 
 test("to-do group sequence mode assigns stable next numbers only while enabled", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const group = organizer.createTodoGroup({ name: "Watch Jobs" });
     const numbered = organizer.createTodo({ text: "Existing numbered task", groupId: group.id, sequence: 7 });
@@ -1056,7 +1056,7 @@ test("to-do group sequence mode assigns stable next numbers only while enabled",
 
 test("to-do group reordering atomically moves whole groups", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const first = organizer.createTodoGroup({ name: "First custom group" });
     const second = organizer.createTodoGroup({ name: "Second custom group" });
@@ -1088,7 +1088,7 @@ test("to-do group reordering atomically moves whole groups", () => {
 
 test("renaming a group preserves membership and explicit ordering", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const group = organizer.createTodoGroup({ name: "Zulu" });
     const task = organizer.createTodo({ text: "Keeps its group ID", groupId: group.id });
@@ -1116,7 +1116,7 @@ test("renaming a group preserves membership and explicit ordering", () => {
 
 test("archiving a group fails on active tasks and preserves terminal task history", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const group = organizer.createTodoGroup({ name: "Temporary" });
     const active = organizer.createTodo({ text: "Still active", groupId: group.id });
@@ -1145,7 +1145,7 @@ test("archiving a group fails on active tasks and preserves terminal task histor
 
 test("to-dos expose related contacts and carry them into recurring occurrences", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     const contact = organizer.createContact({ displayName: "Acme Watch Company" });
     const task = organizer.createTodo({
@@ -1187,7 +1187,7 @@ test("to-dos expose related contacts and carry them into recurring occurrences",
 
 test("grouped content supports sequence-aware CRUD, filtering, and safe group lifecycle", () => {
   const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   try {
     assert.deepEqual(organizer.listContentGroups().map(({ name }) => name), ["General"]);
     const campaigns = organizer.createContentGroup({ name: "Campaigns" });

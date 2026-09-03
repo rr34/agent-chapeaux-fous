@@ -823,14 +823,11 @@ export function generateNextRoutineTask(database, personalTaskId, {
     FROM todo_personal WHERE todo_group_id = ?
   `).get(routine.todo_group_id).next_position);
   const result = database.prepare(`
-    INSERT INTO todo_personal (
+    INSERT IGNORE INTO todo_personal (
       todo_group_id, todo_routine_id, related_contact_id, text, status, sort_position,
       scheduled_at_utc, is_all_day, duration_minutes, due_at_utc,
       planning_prompt_text, source
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'routine')
-    ON CONFLICT (todo_routine_id, scheduled_at_utc) WHERE
-      todo_routine_id IS NOT NULL AND scheduled_at_utc IS NOT NULL
-    DO NOTHING
   `).run(
     routine.todo_group_id, routine.todo_routine_id, routine.related_contact_id, routine.text,
     nextStatus && ["unplanned", "todo", "ai_suggested"].includes(nextStatus)
@@ -852,7 +849,6 @@ export class OrganizerStore {
   constructor(databaseTarget) {
     this.databaseTarget = databaseTarget;
     this.database = openApplicationDatabase(databaseTarget);
-    this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
   }
 
   close() {
@@ -905,7 +901,7 @@ export class OrganizerStore {
       WHERE assignment.record_type = 'contact'
         AND assignment.record_id = ?
         AND tag.is_active = 1
-      ORDER BY tag.label COLLATE NOCASE, tag.tag_id
+      ORDER BY tag.label, tag.tag_id
     `).all(String(id)).map(({ label }) => label);
     return publicContact(row, methods, tags);
   }
@@ -970,7 +966,7 @@ export class OrganizerStore {
     const rows = this.database.prepare(`
       SELECT * FROM contacts
       ${scope === "active" ? "WHERE status = 'active'" : ""}
-      ORDER BY status <> 'active', display_name COLLATE NOCASE, contact_id
+      ORDER BY status <> 'active', display_name, contact_id
       LIMIT ?
     `).all(boundedLimit);
     if (rows.length === 0) return [];
@@ -994,7 +990,7 @@ export class OrganizerStore {
       WHERE assignment.record_type = 'contact'
         AND assignment.record_id IN (${placeholders})
         AND tag.is_active = 1
-      ORDER BY tag.label COLLATE NOCASE, tag.tag_id
+      ORDER BY tag.label, tag.tag_id
     `).all(...rows.map(({ contact_id: id }) => String(id)));
     for (const assignment of assignments) {
       const values = tagsByContact.get(assignment.record_id) ?? [];
@@ -1133,7 +1129,7 @@ export class OrganizerStore {
       tags: contactTags(input?.tags) ?? [],
     };
     const now = new Date().toISOString();
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = this.database.prepare(`
         INSERT INTO contacts (
@@ -1161,7 +1157,7 @@ export class OrganizerStore {
       return created;
     } catch (error) {
       this.database.exec("ROLLBACK");
-      if (String(error?.message).includes("UNIQUE constraint failed: contact_methods")) {
+      if (error?.code === "ER_DUP_ENTRY") {
         throw new OrganizerInputError("Duplicate contact methods are not allowed.", 409);
       }
       throw error;
@@ -1195,7 +1191,7 @@ export class OrganizerStore {
     const now = candidate > before.version
       ? candidate
       : new Date(new Date(before.version).getTime() + 1).toISOString();
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       this.database.prepare(`
         UPDATE contacts
@@ -1228,7 +1224,7 @@ export class OrganizerStore {
       return updated;
     } catch (error) {
       this.database.exec("ROLLBACK");
-      if (String(error?.message).includes("UNIQUE constraint failed: contact_methods")) {
+      if (error?.code === "ER_DUP_ENTRY") {
         throw new OrganizerInputError("Duplicate contact methods are not allowed.", 409);
       }
       throw error;
@@ -1239,7 +1235,7 @@ export class OrganizerStore {
     const action = enumValue(input?.action, new Set(["add_tag", "delete"]), "action");
     const selections = reviewedContactSelections(input?.contacts);
     const tag = action === "add_tag" ? contactTags([input?.tag])?.[0] : null;
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const find = this.database.prepare(`
         SELECT contact_id, display_name, created_at_utc, updated_at_utc
@@ -1258,7 +1254,7 @@ export class OrganizerStore {
       if (action === "add_tag") {
         const storedTag = this.#ensureContactTag(tag);
         const assign = this.database.prepare(`
-          INSERT OR IGNORE INTO record_tags (tag_id, record_type, record_id)
+          INSERT IGNORE INTO record_tags (tag_id, record_type, record_id)
           VALUES (?, 'contact', ?)
         `);
         const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
@@ -1309,7 +1305,7 @@ export class OrganizerStore {
   addTagToContacts(input, activity = {}) {
     const contactIds = contactIdentifiers(input?.contactIds);
     const tag = contactTags([input?.tag])?.[0];
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const find = this.database.prepare(`
         SELECT contact_id, created_at_utc, updated_at_utc
@@ -1322,7 +1318,7 @@ export class OrganizerStore {
       });
       const storedTag = this.#ensureContactTag(tag);
       const assign = this.database.prepare(`
-        INSERT OR IGNORE INTO record_tags (tag_id, record_type, record_id)
+        INSERT IGNORE INTO record_tags (tag_id, record_type, record_id)
         VALUES (?, 'contact', ?)
       `);
       const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
@@ -1370,7 +1366,7 @@ export class OrganizerStore {
   renameContactTag(input, activity = {}) {
     const previousInput = contactTags([input?.currentTag])?.[0];
     const renamedInput = contactTags([input?.newTag])?.[0];
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const previous = this.database.prepare("SELECT * FROM tags WHERE slug = ?").get(previousInput.slug);
       if (!previous) throw new OrganizerInputError("The contact tag to rename was not found.", 404);
@@ -1396,7 +1392,7 @@ export class OrganizerStore {
         const target = this.#ensureContactTag(renamedInput);
         targetId = target.tag_id;
         this.database.prepare(`
-          INSERT OR IGNORE INTO record_tags (tag_id, record_type, record_id)
+          INSERT IGNORE INTO record_tags (tag_id, record_type, record_id)
           SELECT ?, record_type, record_id
           FROM record_tags
           WHERE tag_id = ? AND record_type = 'contact'
@@ -1551,7 +1547,7 @@ export class OrganizerStore {
     if (!Array.isArray(inputs) || inputs.length === 0 || inputs.length > 500) {
       throw new OrganizerInputError("Contact merge batch must contain 1 through 500 merge groups.");
     }
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const plans = inputs.map((input) => this.#contactMergePlan(input));
       const seenContactIds = new Set();
@@ -1771,7 +1767,7 @@ export class OrganizerStore {
   }
 
   moveOverdueTodosToToday(input) {
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = moveOverdueTodosToToday(this.database, input ?? {});
       const movedTodoIds = result.moves.map(({ id }) => id);
@@ -1891,7 +1887,7 @@ export class OrganizerStore {
     const group = routine.groupId == null
       ? this.database.prepare(`
           SELECT * FROM todo_groups
-          WHERE name = 'Inbox' COLLATE NOCASE AND archived_at_utc IS NULL
+          WHERE name = 'Inbox' AND archived_at_utc IS NULL
         `).get()
       : this.database.prepare(`
           SELECT * FROM todo_groups
@@ -1899,7 +1895,7 @@ export class OrganizerStore {
         `).get(routine.groupId);
     if (!group) throw new OrganizerInputError("Active destination to-do group not found.", 404);
 
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const now = new Date().toISOString();
       const insertedRoutine = this.database.prepare(`
@@ -2027,7 +2023,7 @@ export class OrganizerStore {
     ]);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = this.database.prepare(`
         UPDATE todo_routines
@@ -2137,7 +2133,7 @@ export class OrganizerStore {
     `).all();
     const createdIds = [];
     let existingCount = 0;
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const sortPositions = new Map();
       for (const routine of routines) {
@@ -2229,7 +2225,7 @@ export class OrganizerStore {
         "SELECT * FROM todo_groups WHERE todo_group_id = ?",
       ).get(Number(result.lastInsertRowid)));
     } catch (error) {
-      if (error?.code === "ERR_SQLITE_ERROR") {
+      if (error?.code === "ER_DUP_ENTRY") {
         throw new OrganizerInputError("A to-do group with that name already exists.", 409);
       }
       throw error;
@@ -2238,7 +2234,7 @@ export class OrganizerStore {
 
   renameTodoGroup(idValue, input) {
     const id = identifier(idValue, "to-do group id");
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = renameTodoGroup(this.database, { groupId: id, newName: input?.name });
       this.#activity({
@@ -2260,7 +2256,7 @@ export class OrganizerStore {
 
   archiveTodoGroup(idValue) {
     const id = identifier(idValue, "to-do group id");
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = archiveEmptyTodoGroup(this.database, { groupId: id });
       this.#activity({
@@ -2282,7 +2278,7 @@ export class OrganizerStore {
 
   setTodoGroupSequenceMode(idValue, input) {
     const id = identifier(idValue, "to-do group id");
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = setTodoGroupSequenceMode(this.database, {
         groupId: id,
@@ -2314,7 +2310,7 @@ export class OrganizerStore {
       throw new OrganizerInputError("orderedGroupIds cannot contain duplicates.");
     }
 
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const rows = this.database.prepare(`
         SELECT todo_group_id
@@ -2369,7 +2365,7 @@ export class OrganizerStore {
   createContentGroup(input) {
     const name = requiredText(input?.name, "name", 200);
     const now = new Date().toISOString();
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = this.database.prepare(`
         INSERT INTO content_groups (name, sort_position, created_at_utc)
@@ -2397,7 +2393,7 @@ export class OrganizerStore {
     const id = identifier(idValue, "content group id");
     const name = requiredText(input?.name, "name", 200);
     const now = new Date().toISOString();
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const before = this.database.prepare(
         "SELECT * FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
@@ -2429,7 +2425,7 @@ export class OrganizerStore {
   archiveContentGroup(idValue) {
     const id = identifier(idValue, "content group id");
     const now = new Date().toISOString();
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const group = this.database.prepare(
         "SELECT * FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
@@ -2466,7 +2462,7 @@ export class OrganizerStore {
     if (new Set(orderedGroupIds).size !== orderedGroupIds.length) {
       throw new OrganizerInputError("orderedGroupIds cannot contain duplicates.");
     }
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const rows = this.database.prepare(`
         SELECT content_group_id FROM content_groups
@@ -2555,7 +2551,7 @@ export class OrganizerStore {
       contentUrl: httpUrl(input?.contentUrl, "contentUrl"),
     };
     const now = new Date().toISOString();
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const group = this.database.prepare(
         "SELECT 1 FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
@@ -2600,7 +2596,7 @@ export class OrganizerStore {
       publishedAtUtc: isoDateTime(input?.publishedAtUtc ?? new Date().toISOString(), "publishedAtUtc", { required: true }),
     };
     const now = new Date().toISOString();
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const group = this.database.prepare(
         "SELECT * FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
@@ -2672,7 +2668,7 @@ export class OrganizerStore {
     if (typeof input?.version !== "string" || !input.version) {
       throw new OrganizerInputError("version is required when updating content.");
     }
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const before = this.getContent(id);
       if (!before) throw new OrganizerInputError("Content not found.", 404);
@@ -2736,7 +2732,7 @@ export class OrganizerStore {
     if (typeof input?.version !== "string" || !input.version) {
       throw new OrganizerInputError("version is required when deleting content.");
     }
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const before = this.getContent(id);
       if (!before) throw new OrganizerInputError("Content not found.", 404);
@@ -2788,7 +2784,7 @@ export class OrganizerStore {
       LEFT JOIN log_entries AS entry USING (tracker_id)
       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       GROUP BY tracker.tracker_id
-      ORDER BY log_group.name COLLATE NOCASE, tracker.name COLLATE NOCASE
+      ORDER BY log_group.name, tracker.name
       LIMIT ?
     `).all(...values, boundedLimit);
     if (trackerRows.length === 0) return [];
@@ -2859,7 +2855,7 @@ export class OrganizerStore {
     );
     const now = new Date().toISOString();
 
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       let tracker = trackerId == null
         ? this.database.prepare(`
@@ -2867,7 +2863,7 @@ export class OrganizerStore {
                  log_group.archived_at_utc AS group_archived_at_utc
           FROM trackers AS tracker
           JOIN log_groups AS log_group USING (log_group_id)
-          WHERE tracker.name = ? COLLATE NOCASE
+          WHERE tracker.name = ?
         `).get(trackerName)
         : this.database.prepare(`
           SELECT tracker.*, log_group.name AS group_name,
@@ -2881,7 +2877,7 @@ export class OrganizerStore {
         if (trackerId !== null) throw new OrganizerInputError("Tracker not found.", 404);
         if (trackerUnit === null) throw new OrganizerInputError("New trackers require a canonical unit.");
         let group = this.database.prepare(
-          "SELECT * FROM log_groups WHERE name = ? COLLATE NOCASE",
+          "SELECT * FROM log_groups WHERE name = ?",
         ).get(groupName);
         if (!group) {
           group = this.database.prepare(`
@@ -2971,7 +2967,7 @@ export class OrganizerStore {
       return entry;
     } catch (error) {
       this.database.exec("ROLLBACK");
-      if (String(error?.message).includes("UNIQUE constraint failed: trackers.name")) {
+      if (error?.code === "ER_DUP_ENTRY") {
         throw new OrganizerInputError("A tracker with that name already exists.", 409);
       }
       throw error;
@@ -3002,7 +2998,7 @@ export class OrganizerStore {
       }
     }
 
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = this.database.prepare(`
         INSERT INTO calendar_events (
@@ -3086,7 +3082,7 @@ export class OrganizerStore {
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
 
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = this.database.prepare(`
         UPDATE calendar_events
@@ -3126,7 +3122,7 @@ export class OrganizerStore {
     if (typeof input?.version !== "string" || !input.version) {
       throw new OrganizerInputError("version is required when deleting a calendar event.");
     }
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const before = this.getCalendar(id);
       if (!before) throw new OrganizerInputError("Calendar event not found.", 404);
@@ -3175,7 +3171,7 @@ export class OrganizerStore {
         : identifier(input.interactionGuideId, "briefing id"),
     };
     const groupId = todo.groupId ?? this.database.prepare(
-      "SELECT todo_group_id FROM todo_groups WHERE name = 'Inbox' COLLATE NOCASE",
+      "SELECT todo_group_id FROM todo_groups WHERE name = 'Inbox'",
     ).get()?.todo_group_id;
     const selectedGroup = groupId ? this.database.prepare(
       "SELECT name FROM todo_groups WHERE todo_group_id = ? AND archived_at_utc IS NULL",
@@ -3218,7 +3214,7 @@ export class OrganizerStore {
     }
     const completedAtUtc = todo.status === "complete" ? new Date().toISOString() : null;
 
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       let routineId = null;
       if (todo.recurrenceRule) {
@@ -3338,7 +3334,7 @@ export class OrganizerStore {
       throw new OrganizerInputError("orderedTodoIds cannot contain duplicates.");
     }
 
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const rows = this.database.prepare(`
         SELECT personal_task_id
@@ -3384,7 +3380,7 @@ export class OrganizerStore {
 
   assignNextTodoSequence(idValue, input) {
     const id = identifier(idValue, "todo id");
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const before = this.getTodo(id);
       if (!before) throw new OrganizerInputError("Todo not found.", 404);
@@ -3536,7 +3532,7 @@ export class OrganizerStore {
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
 
-    this.database.exec("BEGIN IMMEDIATE");
+    this.database.exec("START TRANSACTION");
     try {
       const result = this.database.prepare(`
         UPDATE todo_personal

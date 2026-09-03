@@ -8,15 +8,9 @@
   },
   "scripts": {
     "start": "node src/server.mjs",
-    "schema:migrate": "node scripts/migrate-agent-db.mjs",
     "schema:semantics:sync": "node scripts/sync-agent-schema-semantics.mjs",
     "test": "node --test test/*.test.mjs",
-    "db:verify": "node scripts/verify-database.mjs",
-    "db:mariadb:rehearse": "node scripts/migrate-sqlite-to-mariadb.mjs",
-    "db:mariadb:migrate": "node scripts/migrate-sqlite-to-mariadb.mjs",
-    "db:mariadb:verify-search": "node scripts/verify-mariadb-search.mjs",
-    "db:mariadb:verify-runtime": "node scripts/verify-mariadb-runtime.mjs",
-    "db:mariadb:schema:migrate": "node scripts/migrate-mariadb-schema.mjs"
+    "db:verify": "node scripts/verify-database.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

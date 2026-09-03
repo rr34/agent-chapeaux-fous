@@ -32,7 +32,7 @@ test("local calendar-date boundaries honor daylight-saving changes", () => {
 test("todo_list filters single completion and schedule timestamps by local date", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const database = store.requireReady();
   const insert = database.prepare(`
@@ -149,7 +149,7 @@ test("todo_list filters single completion and schedule timestamps by local date"
 test("todo_group_list exposes every active group including empty catchalls", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const registry = new ToolRegistry();
   registerTodoTools(registry, store, new Ledger(store));
@@ -164,7 +164,7 @@ test("todo_group_list exposes every active group including empty catchalls", asy
 test("native todo tools place new and existing tasks at exact 1-based positions", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const registry = new ToolRegistry();
@@ -229,7 +229,7 @@ test("native todo tools place new and existing tasks at exact 1-based positions"
 test("routine_add creates one reusable definition without a hidden task", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const registry = new ToolRegistry();
   registerTodoTools(registry, store, new Ledger(store));
@@ -296,7 +296,7 @@ test("routine_add creates one reusable definition without a hidden task", async 
 test("sequenced groups backfill tasks and assign the next number through native tools", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const registry = new ToolRegistry();
   registerTodoTools(registry, store, new Ledger(store));
@@ -343,7 +343,7 @@ test("sequenced groups backfill tasks and assign the next number through native 
 test("todo_group_archive rejects active groups and preserves terminal-only groups", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const registry = new ToolRegistry();
@@ -379,7 +379,7 @@ test("todo_group_archive rejects active groups and preserves terminal-only group
 test("todo_group_rename keeps tasks attached through the stable group ID", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const registry = new ToolRegistry();
@@ -406,7 +406,7 @@ test("todo_group_rename keeps tasks attached through the stable group ID", async
 test("native todo tools add and complete a Development task", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   assert.equal(store.status.ready, true);
   const ledger = new Ledger(store);
@@ -445,7 +445,7 @@ test("native todo tools add and complete a Development task", async (context) =>
 test("todo_update schedules a 37-item batch atomically and uses the same schema for one item", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const database = store.requireReady();
   const ledger = new Ledger(store);
@@ -458,7 +458,7 @@ test("todo_update schedules a 37-item batch atomically and uses the same schema 
     ) VALUES (2, ?, 'todo', ?, '2026-08-31T04:00:00.000Z', 1, 'test')
   `);
   const taskIds = [];
-  database.exec("BEGIN IMMEDIATE");
+  database.exec("START TRANSACTION");
   try {
     for (let index = 0; index < 37; index += 1) {
       taskIds.push(Number(insert.run(`Watch job ${index + 1}`, (index + 1) * 10).lastInsertRowid));
@@ -542,7 +542,7 @@ test("todo_update schedules a 37-item batch atomically and uses the same schema 
 test("todo_add associates a newly resolved contact with the task", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const database = store.requireReady();
   const contact = database.prepare(`
@@ -593,7 +593,7 @@ test("todo_add associates a newly resolved contact with the task", async (contex
 test("native todo tools accept structured recurrence and generate the next task", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const registry = new ToolRegistry();
@@ -644,7 +644,7 @@ test("native todo tools accept structured recurrence and generate the next task"
 test("unplanned recurring to-dos retain their planning prompt across occurrences", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const registry = new ToolRegistry();
   registerTodoTools(registry, store, new Ledger(store));
@@ -700,7 +700,7 @@ test("unplanned recurring to-dos retain their planning prompt across occurrences
 test("a group named Routine behaves like any ordinary task group", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const registry = new ToolRegistry();
   registerTodoTools(registry, store, new Ledger(store));
@@ -742,7 +742,7 @@ test("a group named Routine behaves like any ordinary task group", async (contex
 test("native todo tools preserve an explicit all-day schedule", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const registry = new ToolRegistry();
   registerTodoTools(registry, store, new Ledger(store));
@@ -773,7 +773,7 @@ test("native todo tools preserve an explicit all-day schedule", async (context) 
 test("native todo tools preserve null optional fields and clear them only explicitly", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const registry = new ToolRegistry();
   registerTodoTools(registry, store, new Ledger(store));
@@ -841,7 +841,7 @@ test("native todo tools preserve null optional fields and clear them only explic
 test("todo_move_overdue_to_today shifts overdue one-time tasks but preserves routine schedules", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const registry = new ToolRegistry();
   registerTodoTools(registry, store, new Ledger(store));
@@ -937,7 +937,7 @@ test("todo_move_overdue_to_today shifts overdue one-time tasks but preserves rou
 test("todo_add uses Inbox when a requested group is missing, then supports a confirmed create and move", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const database = store.requireReady();
   database.prepare("DELETE FROM todo_groups WHERE name = 'Development'").run();
@@ -1002,7 +1002,7 @@ test("todo_add uses Inbox when a requested group is missing, then supports a con
 test("generic database writes cannot mutate the ledger", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const registry = new ToolRegistry();
@@ -1021,7 +1021,7 @@ test("generic database writes cannot mutate the ledger", async (context) => {
 test("legacy voice-service requests remain visible without rewriting their events", (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
 

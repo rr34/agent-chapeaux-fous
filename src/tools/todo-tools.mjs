@@ -41,7 +41,7 @@ function findGroup(database, name) {
   const requested = name?.trim() || "Inbox";
   return database.prepare(`
     SELECT * FROM todo_groups
-    WHERE name = ? COLLATE NOCASE AND archived_at_utc IS NULL
+    WHERE name = ? AND archived_at_utc IS NULL
   `).get(requested);
 }
 
@@ -50,7 +50,7 @@ function requireGroup(database, name) {
   const row = findGroup(database, requested);
   if (row) return row;
   const available = database.prepare(`
-    SELECT name FROM todo_groups WHERE archived_at_utc IS NULL ORDER BY name COLLATE NOCASE
+    SELECT name FROM todo_groups WHERE archived_at_utc IS NULL ORDER BY name
   `).all().map((item) => item.name);
   throw new Error(`Unknown to-do group "${requested}". Available groups: ${available.join(", ") || "none"}`);
 }
@@ -58,7 +58,7 @@ function requireGroup(database, name) {
 function ensureGroup(database, name) {
   const requested = name?.trim() || "Inbox";
   const existing = database.prepare(`
-    SELECT * FROM todo_groups WHERE name = ? COLLATE NOCASE
+    SELECT * FROM todo_groups WHERE name = ?
   `).get(requested);
   if (!existing) {
     return {
@@ -373,7 +373,7 @@ function prepareTodoUpdate(database, input, { completedAtUtc, updatedAtUtc }) {
 }
 
 function applyTodoUpdate(database, ledger, context, plan) {
-  const assignments = Object.keys(plan.values).map((column) => `"${column}" = ?`).join(", ");
+  const assignments = Object.keys(plan.values).map((column) => `\`${column}\` = ?`).join(", ");
   database.prepare(`UPDATE todo_personal SET ${assignments} WHERE personal_task_id = ?`)
     .run(...Object.values(plan.values), plan.taskId);
   const current = taskWithContext(database, plan.taskId);
@@ -416,7 +416,7 @@ function activeTodoGroupRows(store) {
      AND task.status NOT IN ('complete', 'ignore', 'archive')
     WHERE todo_group.archived_at_utc IS NULL
     GROUP BY todo_group.todo_group_id
-    ORDER BY todo_group.name COLLATE NOCASE, todo_group.todo_group_id
+    ORDER BY todo_group.name, todo_group.todo_group_id
   `).all();
 }
 
@@ -502,7 +502,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       const conditions = [];
       const values = [];
       if (groupName) {
-        conditions.push("todo_group.name = ? COLLATE NOCASE");
+        conditions.push("todo_group.name = ?");
         values.push(groupName.trim());
       }
       if (status) {
@@ -524,7 +524,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         ? "task.completed_at_utc DESC, task.personal_task_id DESC"
         : scheduledOnDate !== null
           ? "task.scheduled_at_utc, task.personal_task_id"
-          : `todo_group.name COLLATE NOCASE,
+          : `todo_group.name,
                  task.sequence IS NULL, task.sequence DESC,
                  task.sort_position, task.personal_task_id`;
       const rows = database.prepare(`
@@ -869,7 +869,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       }
       const recurrenceRule = recurrence ? buildTodoRecurrenceRule(recurrence) : null;
       const recurrenceTimeZone = recurrence ? validateTimeZone(recurrence.time_zone) : null;
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const requestedGroup = groupName?.trim() || "Inbox";
         const requestedGroupRow = findGroup(database, requestedGroup);
@@ -976,7 +976,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     },
     async execute({ personal_task_id: taskId, position }, context) {
       const database = store.requireReady();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const operation = setTodoPosition(database, taskId, position);
         const task = databaseTask(taskWithContext(database, taskId));
@@ -1026,7 +1026,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       const groupName = name.trim();
       if (!groupName) throw new Error("To-do group name cannot be empty");
       const database = store.requireReady();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const selectedGroup = ensureGroup(database, groupName);
         const result = {
@@ -1073,7 +1073,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     },
     async execute({ current_name: currentName, new_name: newName }, context) {
       const database = store.requireReady();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const operationResult = renameTodoGroup(database, { groupName: currentName, newName });
         const groupRow = database.prepare("SELECT * FROM todo_groups WHERE todo_group_id = ?")
@@ -1120,7 +1120,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     },
     async execute({ name, uses_sequence: usesSequence }, context) {
       const database = store.requireReady();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const operationResult = setTodoGroupSequenceMode(database, {
           groupName: name,
@@ -1169,7 +1169,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     },
     async execute({ name }, context) {
       const database = store.requireReady();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const operationResult = archiveEmptyTodoGroup(database, { groupName: name });
         const groupRow = database.prepare("SELECT * FROM todo_groups WHERE todo_group_id = ?")
@@ -1236,7 +1236,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         });
       }
       const updatedAt = new Date().toISOString();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         database.prepare(`
           UPDATE todo_routines SET interaction_guide_id = ?, updated_at_utc = ?
@@ -1335,7 +1335,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       const recurrenceTimeZone = enabled ? validateTimeZone(recurrence.time_zone) : null;
       const updatedAt = new Date().toISOString();
 
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         let routineId = before.todo_routine_id == null ? null : Number(before.todo_routine_id);
         if (enabled && routineId) {
@@ -1436,7 +1436,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     },
     async execute({ local_date: localDate, time_zone: timeZone }, context) {
       const database = store.requireReady();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const operation = moveOverdueTodosToToday(database, { localDate, timeZone });
         const movedTodoIds = operation.moves.map(({ id }) => id);
@@ -1530,7 +1530,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         `To-do ${update.personal_task_id}`,
       ));
       const now = new Date().toISOString();
-      database.exec("BEGIN IMMEDIATE");
+      database.exec("START TRANSACTION");
       try {
         const plans = updates.map((update) => prepareTodoUpdate(database, update, {
           completedAtUtc: now,

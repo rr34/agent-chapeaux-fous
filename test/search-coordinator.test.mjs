@@ -15,37 +15,13 @@ import { temporaryDatabase } from "./helpers.mjs";
 function harness(context) {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
-  const organizer = new OrganizerStore(temporary.filename);
+  const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());
   const ledger = new Ledger(store);
   const coordinator = createNativeSearchCoordinator({ store, organizer, ledger });
   return { store, organizer, ledger, coordinator };
-}
-
-function addSynchronizedHistoryFts(database) {
-  database.exec(`
-    CREATE VIRTUAL TABLE activity_events_fts USING fts5(
-      name, content_text, source,
-      content = 'activity_events', content_rowid = 'event_seq'
-    );
-    CREATE TRIGGER activity_events_fts_insert AFTER INSERT ON activity_events BEGIN
-      INSERT INTO activity_events_fts(rowid, name, content_text, source)
-      VALUES (new.event_seq, new.name, new.content_text, new.source);
-    END;
-    CREATE TRIGGER activity_events_fts_delete AFTER DELETE ON activity_events BEGIN
-      INSERT INTO activity_events_fts(activity_events_fts, rowid, name, content_text, source)
-      VALUES ('delete', old.event_seq, old.name, old.content_text, old.source);
-    END;
-    CREATE TRIGGER activity_events_fts_update AFTER UPDATE ON activity_events BEGIN
-      INSERT INTO activity_events_fts(activity_events_fts, rowid, name, content_text, source)
-      VALUES ('delete', old.event_seq, old.name, old.content_text, old.source);
-      INSERT INTO activity_events_fts(rowid, name, content_text, source)
-      VALUES (new.event_seq, new.name, new.content_text, new.source);
-    END;
-    INSERT INTO activity_events_fts(activity_events_fts) VALUES ('rebuild');
-  `);
 }
 
 test("search coordinator interleaves providers and reports partial failures literally", async () => {
@@ -157,9 +133,9 @@ test("existing domain tools preserve their results when routed through search pr
   }
 });
 
-test("history provider uses synchronized FTS5 for proximity and contextual snippets", async (context) => {
+test("history provider uses MariaDB full-text search for proximity and contextual snippets", async (context) => {
   const { store, ledger, coordinator } = harness(context);
-  addSynchronizedHistoryFts(store.requireReady());
+  assert.equal(store.requireReady().engine, "mariadb");
   const near = ledger.createRequest({ text: "The cabinet design needs one final decision before Friday." });
   ledger.finish(ledger.trace(near.requestId)[0], "Okay.");
   const far = ledger.createRequest({
@@ -182,16 +158,4 @@ test("history provider uses synchronized FTS5 for proximity and contextual snipp
   assert.deepEqual(result.hits.map(({ actionRef }) => actionRef.request_id), [near.requestId]);
   assert.match(result.hits[0].snippet, /\[\[cabinet\]\]/i);
   assert.match(result.hits[0].snippet, /\[\[design\]\]/i);
-});
-
-test("history proximity search falls back explicitly when synchronized FTS is unavailable", async (context) => {
-  const { ledger, coordinator } = harness(context);
-  const request = ledger.createRequest({ text: "cabinet design decision" });
-  ledger.finish(ledger.trace(request.requestId)[0], "Okay.");
-  const result = await coordinator.search({
-    query: "cabinet design", scopes: ["history"], mode: "near", limit: 10,
-  });
-  assert.equal(result.providers[0].matchMode, "substring_fallback");
-  assert.match(result.providers[0].warnings[0], /FTS5/);
-  assert.equal(result.hits.length, 1);
 });

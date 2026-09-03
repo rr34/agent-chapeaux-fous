@@ -1,5 +1,3 @@
-const utcTimestampSql = "CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')";
-
 export function countSqlParameters(sql) {
   let count = 0;
   let quote = null;
@@ -14,23 +12,6 @@ export function countSqlParameters(sql) {
     else if (character === "?") count += 1;
   }
   return count;
-}
-
-export function translateSqliteSql(sql) {
-  let translated = String(sql).trim();
-  if (/^BEGIN\s+IMMEDIATE\s*;?$/iu.test(translated)) return "START TRANSACTION";
-  if (/^PRAGMA\b/iu.test(translated)) return null;
-  translated = translated
-    .replace(/\bINSERT\s+OR\s+IGNORE\s+INTO\b/giu, "INSERT IGNORE INTO")
-    .replace(/\s+COLLATE\s+NOCASE\b/giu, " COLLATE utf8mb4_general_ci")
-    .replace(/strftime\('%Y-%m-%dT%H:%M:%fZ',\s*'now'\)/giu, utcTimestampSql)
-    .replace(/"([A-Za-z_][A-Za-z0-9_]*)"/gu, "`$1`")
-    .replaceAll("ESCAPE '\\'", "ESCAPE '\\\\'");
-  if (/\bON\s+CONFLICT\b[\s\S]*\bDO\s+NOTHING\s*;?$/iu.test(translated)) {
-    translated = translated.replace(/^INSERT\s+INTO\b/iu, "INSERT IGNORE INTO");
-    translated = translated.replace(/\s+ON\s+CONFLICT\b[\s\S]*\bDO\s+NOTHING\s*;?$/iu, "");
-  }
-  return translated;
 }
 
 export function parseUpdateReturning(sql) {

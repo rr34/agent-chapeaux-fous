@@ -105,7 +105,7 @@ export function moveOverdueTodosToToday(database, {
       AND task.scheduled_at_utc IS NOT NULL
       AND task.scheduled_at_utc < ?
       AND task.todo_routine_id IS NULL
-      AND (task.source IS NULL OR task.source <> 'routine_publish' COLLATE NOCASE)
+      AND (task.source IS NULL OR task.source <> 'routine_publish')
     ORDER BY task.personal_task_id
   `).all(todayStartUtc);
 

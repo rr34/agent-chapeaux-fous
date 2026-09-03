@@ -125,9 +125,9 @@ speech generation.
 **34. TLOM database** — TLOM's private application data store. TLOM owns its
 schema, user isolation, authorization, and internal instrumentation.
 
-**35. Agent database** — The externally supplied SQLite snapshot containing
-Agent Slayer's ledger, history, files, durable profile facts, personal to-dos,
-personal logs, and any compatible domain tables and views.
+**35. Agent database** — The MariaDB database containing Agent Slayer's ledger,
+history, files, durable profile facts, personal to-dos, personal logs, and any
+compatible domain tables and views.
 
 **36. Publishable-content filter** — The initial video-script boundary that
 bounds selected request and response text, redacts recognized secret patterns,
@@ -178,7 +178,7 @@ stores original audio, registers the file, creates a request, and wakes the FIFO
 worker.
 
 **49. Schema semantic compiler** — The deterministic schema-explanation package
-that combines SQLite mechanics with human-authored meanings. It is pinned as a
+that combines MariaDB mechanics with human-authored meanings. It is pinned as a
 dependency and compiles exact projections for structured database operations;
 it neither accesses rows nor decides or enforces authorization.
 

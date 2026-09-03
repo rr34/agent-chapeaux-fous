@@ -6,8 +6,8 @@
     "version": "0.2.1"
   },
   "database": {
-    "engine": "sqlite",
-    "name": "main",
+    "engine": "mariadb",
+    "name": "chapeauxfous",
     "schemaVersion": 29,
     "schemaFingerprint": "abc4f1cc61db6a62ff21ee4d8fbcd148c0127b204e95850b3dba3eb3c0bf3d48",
     "extractedAt": "2026-09-03T01:28:51.971Z"
@@ -22,7 +22,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE activity_event_files (\n    event_id            TEXT NOT NULL REFERENCES activity_events(event_id) ON DELETE CASCADE,\n    file_id             INTEGER NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,\n    file_role           TEXT NOT NULL DEFAULT 'attachment'\n                        CHECK (file_role IN ('attachment', 'input', 'output', 'other')),\n    ordinal             INTEGER NOT NULL DEFAULT 0 CHECK (ordinal >= 0),\n    PRIMARY KEY (event_id, file_id)\n) STRICT, WITHOUT ROWID",
+        "definition": null,
         "indexes": [
           {
             "name": "activity_event_files_file",
@@ -32,17 +32,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_activity_event_files_1",
-            "columns": [
-              "event_id",
-              "file_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "pk"
+            "origin": "BTREE"
           }
         ]
       },
@@ -239,7 +229,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE activity_events (\n    -- One append-oriented ledger row. event_seq orders local writes; event_id is the stable public identifier.\n    event_seq           INTEGER PRIMARY KEY AUTOINCREMENT,\n    event_id            TEXT NOT NULL UNIQUE\n                        DEFAULT (lower(hex(randomblob(16)))),\n\n    -- occurred_at describes the source event; recorded_at describes when this ledger received it.\n    occurred_at_ms      INTEGER NOT NULL DEFAULT (\n                            CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)\n                        ),\n    recorded_at_ms      INTEGER NOT NULL DEFAULT (\n                            CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)\n                        ),\n    occurred_at_utc     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n\n    -- event_type is the extensible event name; event_phase pairs operation start/end/error records.\n    event_type          TEXT NOT NULL,\n    event_phase         TEXT NOT NULL DEFAULT 'point'\n                        CHECK (event_phase IN ('point', 'start', 'end', 'error')),\n    status              TEXT,\n\n    -- Actor identifies who acted. Source/channel identify where the event entered the agent system.\n    actor_type          TEXT NOT NULL\n                        CHECK (actor_type IN (\n                            'user', 'agent', 'model', 'tool',\n                            'system', 'service', 'external'\n                        )),\n    actor_name          TEXT,\n    source              TEXT NOT NULL,\n    channel             TEXT,\n\n    -- Correlation identifiers reconstruct conversations, turns, traces, and nested operations.\n    session_id          TEXT,\n    turn_id             TEXT,\n    trace_id            TEXT,\n    operation_id        TEXT,\n    span_id             TEXT,\n    parent_span_id      TEXT,\n    parent_event_id     TEXT,\n\n    -- Human-readable content stays intact; payload_json preserves structured arguments/results.\n    name                TEXT,\n    content_text        TEXT,\n    payload_json        TEXT NOT NULL DEFAULT '{}'\n                        CHECK (json_valid(payload_json)),\n    primary_file_id     INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n\n    -- Optional subject/external references connect the event to records without changing the ledger shape.\n    subject_type        TEXT,\n    subject_id          TEXT,\n    external_ref        TEXT,\n    error_text          TEXT\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "activity_events_occurred",
@@ -249,7 +239,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "activity_events_operation",
@@ -260,7 +250,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "activity_events_session",
@@ -271,7 +261,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "activity_events_subject",
@@ -282,7 +272,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "activity_events_trace",
@@ -293,7 +283,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "activity_events_turn",
@@ -304,7 +294,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "activity_events_type",
@@ -314,16 +304,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_activity_events_1",
-            "columns": [
-              "event_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -388,7 +369,7 @@
             "ordinal": 1,
             "type": "TEXT",
             "nullable": false,
-            "default": "lower(hex(randomblob(16)))",
+            "default": "lcase(replace(uuid(),'-',''))",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -415,7 +396,7 @@
             "ordinal": 2,
             "type": "INTEGER",
             "nullable": false,
-            "default": "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)",
+            "default": "unix_timestamp(current_timestamp(3)) * 1000",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -442,7 +423,7 @@
             "ordinal": 3,
             "type": "INTEGER",
             "nullable": false,
-            "default": "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)",
+            "default": "unix_timestamp(current_timestamp(3)) * 1000",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -469,7 +450,7 @@
             "ordinal": 4,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -1144,180 +1125,11 @@
         }
       }
     },
-    "activity_events_fts": {
-      "mechanics": {
-        "present": true,
-        "kind": "virtual_table",
-        "definition": "CREATE VIRTUAL TABLE activity_events_fts USING fts5(\n    -- Full-text search index over selected activity_events text; this is not another activity ledger.\n    name,\n    content_text,\n    source,\n    content = 'activity_events',\n    content_rowid = 'event_seq'\n)",
-        "indexes": []
-      },
-      "semantics": {
-        "purpose": "Provides full-text search over selected human-readable columns from activity_events without creating a second event history.",
-        "rowMeaning": "One searchable document corresponds to one activity_events row and indexes that event's name, content text, and source.",
-        "sourceOfTruth": false,
-        "derivedFrom": [
-          "activity_events"
-        ],
-        "synonyms": [
-          "activity search index",
-          "ledger full-text index"
-        ],
-        "keywords": [
-          "search history",
-          "find in history",
-          "older conversation",
-          "past conversation"
-        ],
-        "routingWeight": 0.8,
-        "importantRules": [
-          "Return the matching activity_events row for authoritative event metadata and complete structured payloads."
-        ],
-        "sensitivity": "Indexes private text copied from activity_events."
-      },
-      "fields": {
-        "name": {
-          "mechanics": {
-            "present": true,
-            "name": "name",
-            "ordinal": 0,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "activity_events.name",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "content_text": {
-          "mechanics": {
-            "present": true,
-            "name": "content_text",
-            "ordinal": 1,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "activity_events.content_text",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source": {
-          "mechanics": {
-            "present": true,
-            "name": "source",
-            "ordinal": 2,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "activity_events.source",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "activity_events_fts": {
-          "mechanics": {
-            "present": true,
-            "name": "activity_events_fts",
-            "ordinal": 3,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": true,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "FTS5 control column used for special full-text-index commands; it is not domain data.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "rank": {
-          "mechanics": {
-            "present": true,
-            "name": "rank",
-            "ordinal": 4,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": true,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "FTS5 relevance score available when ordering full-text search matches.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        }
-      },
-      "relationships": {}
-    },
     "activity_operation_latency": {
       "mechanics": {
         "present": true,
         "kind": "view",
-        "definition": "CREATE VIEW activity_operation_latency AS\nWITH operation_times AS (\n    SELECT\n        operation_id,\n        trace_id,\n        name,\n        MIN(CASE WHEN event_phase = 'start' THEN occurred_at_ms END) AS started_at_ms,\n        MAX(CASE WHEN event_phase IN ('end', 'error') THEN occurred_at_ms END) AS finished_at_ms,\n        MAX(CASE WHEN event_phase = 'error' THEN 1 ELSE 0 END) AS ended_in_error\n    FROM activity_events\n    WHERE operation_id IS NOT NULL\n    GROUP BY operation_id, trace_id, name\n)\nSELECT\n    operation_id,\n    trace_id,\n    name,\n    started_at_ms,\n    finished_at_ms,\n    CASE\n        WHEN started_at_ms IS NOT NULL AND finished_at_ms IS NOT NULL\n        THEN finished_at_ms - started_at_ms\n    END AS duration_ms,\n    ended_in_error\nFROM operation_times",
+        "definition": null,
         "indexes": []
       },
       "semantics": {
@@ -1523,7 +1335,7 @@
             "inheritsFrom": null,
             "meaning": "Derived 1 when any grouped event has error phase, otherwise 0.",
             "units": null,
-            "format": "SQLite boolean: 0=false, 1=true",
+            "format": "MariaDB boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -1540,7 +1352,7 @@
       "mechanics": {
         "present": true,
         "kind": "view",
-        "definition": "CREATE VIEW activity_recent AS\nSELECT *\nFROM activity_events\nORDER BY occurred_at_ms DESC, event_seq DESC\nLIMIT 1000",
+        "definition": null,
         "indexes": []
       },
       "semantics": {
@@ -2301,7 +2113,7 @@
       "mechanics": {
         "present": true,
         "kind": "view",
-        "definition": "CREATE VIEW activity_turn_latency AS\nSELECT\n    turn_id,\n    MIN(occurred_at_ms) AS started_at_ms,\n    MAX(occurred_at_ms) AS finished_at_ms,\n    MAX(occurred_at_ms) - MIN(occurred_at_ms) AS duration_ms,\n    COUNT(*) AS event_count,\n    SUM(CASE WHEN event_phase = 'error' THEN 1 ELSE 0 END) AS error_count\nFROM activity_events\nWHERE turn_id IS NOT NULL\nGROUP BY turn_id",
+        "definition": null,
         "indexes": []
       },
       "semantics": {
@@ -2496,7 +2308,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE agent_turn_attempts (\n    attempt_id             TEXT PRIMARY KEY,\n    source_event_id        TEXT NOT NULL\n                           REFERENCES activity_events(event_id) ON DELETE RESTRICT,\n    subject_type           TEXT NOT NULL,\n    subject_id             TEXT NOT NULL,\n    attempt_number         INTEGER NOT NULL CHECK (attempt_number > 0),\n    session_id             TEXT,\n    agent_operation_id     TEXT NOT NULL UNIQUE,\n    openclaw_run_id        TEXT UNIQUE,\n    request_content_sha256 TEXT NOT NULL CHECK (length(request_content_sha256) = 64),\n    correlation_method     TEXT\n                           CHECK (correlation_method IN ('prompt_sha256', 'gateway_result')),\n    status                 TEXT NOT NULL DEFAULT 'processing'\n                           CHECK (status IN ('processing', 'complete', 'error', 'interrupted')),\n    started_at_ms          INTEGER NOT NULL,\n    correlated_at_ms       INTEGER,\n    completed_at_ms        INTEGER,\n    created_at_utc         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc         TEXT,\n    UNIQUE (subject_type, subject_id, attempt_number),\n    CHECK (\n        (openclaw_run_id IS NULL AND correlation_method IS NULL AND correlated_at_ms IS NULL)\n        OR\n        (openclaw_run_id IS NOT NULL AND correlation_method IS NOT NULL AND correlated_at_ms IS NOT NULL)\n    )\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "agent_turn_attempts_active_prompt",
@@ -2508,7 +2320,7 @@
             ],
             "unique": false,
             "partial": true,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "agent_turn_attempts_subject",
@@ -2519,45 +2331,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_agent_turn_attempts_1",
-            "columns": [
-              "attempt_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "pk"
-          },
-          {
-            "name": "sqlite_autoindex_agent_turn_attempts_2",
-            "columns": [
-              "agent_operation_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          },
-          {
-            "name": "sqlite_autoindex_agent_turn_attempts_3",
-            "columns": [
-              "openclaw_run_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          },
-          {
-            "name": "sqlite_autoindex_agent_turn_attempts_4",
-            "columns": [
-              "subject_type",
-              "subject_id",
-              "attempt_number"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -2984,7 +2758,7 @@
             "ordinal": 14,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -3061,20 +2835,8 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE \"calendar_event_contacts\" (\n    calendar_event_id   INTEGER NOT NULL REFERENCES \"calendar_events\"(calendar_event_id) ON DELETE CASCADE,\n    contact_id          INTEGER NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,\n    participant_role    TEXT NOT NULL DEFAULT 'attendee'\n                        CHECK (participant_role IN ('organizer', 'attendee', 'customer', 'other')),\n    response_status     TEXT,\n    PRIMARY KEY (calendar_event_id, contact_id, participant_role)\n) STRICT, WITHOUT ROWID",
-        "indexes": [
-          {
-            "name": "sqlite_autoindex_calendar_event_contacts_1",
-            "columns": [
-              "calendar_event_id",
-              "contact_id",
-              "participant_role"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "pk"
-          }
-        ]
+        "definition": null,
+        "indexes": []
       },
       "semantics": {
         "purpose": "Associates contacts with calendar events while preserving each contact's participant role and response.",
@@ -3269,7 +3031,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE calendar_event_exclusions (\n    calendar_event_id      INTEGER NOT NULL\n                           REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,\n    excluded_starts_at_utc TEXT NOT NULL,\n    PRIMARY KEY (calendar_event_id, excluded_starts_at_utc)\n) STRICT, WITHOUT ROWID",
+        "definition": null,
         "indexes": [
           {
             "name": "calendar_event_exclusions_start",
@@ -3279,17 +3041,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_calendar_event_exclusions_1",
-            "columns": [
-              "calendar_event_id",
-              "excluded_starts_at_utc"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "pk"
+            "origin": "BTREE"
           }
         ]
       },
@@ -3404,7 +3156,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE \"calendar_events\" (\n    calendar_event_id   INTEGER PRIMARY KEY,\n    -- UID and RECURRENCE-ID identify imported iCalendar components without\n    -- implying that the agent owns more than one calendar.\n    ical_uid            TEXT,\n    ical_recurrence_id  TEXT,\n    title               TEXT NOT NULL,\n    description         TEXT,\n    location_text       TEXT,\n    starts_at_utc       TEXT NOT NULL,\n    ends_at_utc         TEXT,\n    time_zone           TEXT,\n    is_all_day          INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1)),\n    status              TEXT NOT NULL DEFAULT 'confirmed'\n                        CHECK (status IN ('tentative', 'confirmed', 'cancelled', 'completed')),\n    recurrence_rule     TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n, planning_prompt_text TEXT\n                                CHECK (\n                                    planning_prompt_text IS NULL\n                                    OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000\n                                )) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "calendar_events_ical_occurrence",
@@ -3414,7 +3166,7 @@
             ],
             "unique": true,
             "partial": true,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "calendar_events_ical_single",
@@ -3423,7 +3175,7 @@
             ],
             "unique": true,
             "partial": true,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "calendar_events_start",
@@ -3433,7 +3185,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -3746,7 +3498,7 @@
             "inheritsFrom": null,
             "meaning": "1 when the event represents a calendar day rather than a precise time; otherwise 0.",
             "units": null,
-            "format": "SQLite boolean: 0=false, 1=true",
+            "format": "MariaDB boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -3854,7 +3606,7 @@
             "ordinal": 13,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -3937,114 +3689,6 @@
             ],
             "sensitivity": null
           }
-        },
-        "calendar_key": {
-          "mechanics": {
-            "present": false,
-            "name": "calendar_key",
-            "ordinal": 1,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Local key identifying the external or logical calendar that owns a mirrored event.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "external_id": {
-          "mechanics": {
-            "present": false,
-            "name": "external_id",
-            "ordinal": 2,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Calendar-provider identifier for the mirrored event.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source": {
-          "mechanics": {
-            "present": false,
-            "name": "source",
-            "ordinal": 12,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "System or process from which this calendar event was obtained or created.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "raw_json": {
-          "mechanics": {
-            "present": false,
-            "name": "raw_json",
-            "ordinal": 14,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'{}'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Provider-specific event data retained without forcing every provider property into a column.",
-            "units": null,
-            "format": "JSON object encoded as text",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
         }
       },
       "relationships": {
@@ -4076,7 +3720,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE contact_methods (\n    -- Multiple reachable identities for one contact: email, phone, address, handle, URL, or other.\n    contact_method_id   INTEGER PRIMARY KEY,\n    contact_id          INTEGER NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,\n    method_kind         TEXT NOT NULL\n                        CHECK (method_kind IN (\n                            'email', 'phone', 'postal_address',\n                            'handle', 'url', 'other'\n                        )),\n    label               TEXT,\n    -- value preserves the original; normalized_value supports reliable matching and lookup.\n    value               TEXT NOT NULL,\n    normalized_value    TEXT,\n    is_primary          INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),\n    can_receive         INTEGER NOT NULL DEFAULT 1 CHECK (can_receive IN (0, 1)),\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    UNIQUE (contact_id, method_kind, value)\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "contact_methods_lookup",
@@ -4086,18 +3730,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_contact_methods_1",
-            "columns": [
-              "contact_id",
-              "method_kind",
-              "value"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -4325,7 +3958,7 @@
             "inheritsFrom": null,
             "meaning": "1 when this is the preferred contact method of its kind for the contact; otherwise 0.",
             "units": null,
-            "format": "SQLite boolean: 0=false, 1=true",
+            "format": "MariaDB boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -4352,7 +3985,7 @@
             "inheritsFrom": null,
             "meaning": "1 when the agent may use this method as a delivery destination; otherwise 0.",
             "units": null,
-            "format": "SQLite boolean: 0=false, 1=true",
+            "format": "MariaDB boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -4369,7 +4002,7 @@
             "ordinal": 8,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -4380,33 +4013,6 @@
             "meaning": "UTC timestamp when this contact method was inserted.",
             "units": null,
             "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "metadata_json": {
-          "mechanics": {
-            "present": false,
-            "name": "metadata_json",
-            "ordinal": 8,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'{}'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Structured method-specific details that do not justify dedicated columns.",
-            "units": null,
-            "format": "JSON object encoded as text",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -4442,330 +4048,11 @@
         }
       }
     },
-    "contact_relationships": {
-      "mechanics": {
-        "present": false,
-        "kind": "table",
-        "definition": "CREATE TABLE contact_relationships (\n    -- Directed relationship from contact_id to related_contact_id, such as spouse, customer, or employer.\n    relationship_id    INTEGER PRIMARY KEY,\n    contact_id          INTEGER NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,\n    related_contact_id  INTEGER NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,\n    relationship_type   TEXT NOT NULL,\n    started_on           TEXT,\n    ended_on             TEXT,\n    notes                TEXT,\n    created_at_utc       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    CHECK (contact_id <> related_contact_id),\n    UNIQUE (contact_id, related_contact_id, relationship_type)\n) STRICT",
-        "indexes": [
-          {
-            "name": "contact_relationships_reverse",
-            "columns": [
-              "related_contact_id",
-              "relationship_type"
-            ],
-            "unique": false,
-            "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_contact_relationships_1",
-            "columns": [
-              "contact_id",
-              "related_contact_id",
-              "relationship_type"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          }
-        ]
-      },
-      "semantics": {
-        "purpose": "Records meaningful directed relationships between contacts, such as spouse, customer, employer, employee, or service provider.",
-        "rowMeaning": "One row states that contact_id has one named relationship to related_contact_id, optionally during a bounded period.",
-        "sourceOfTruth": true,
-        "derivedFrom": [],
-        "synonyms": [
-          "people relationships",
-          "contact links"
-        ],
-        "keywords": [
-          "relationship",
-          "spouse",
-          "customer",
-          "employer",
-          "employee",
-          "service provider",
-          "knows"
-        ],
-        "routingWeight": 0.5,
-        "importantRules": [
-          "Direction matters: reversing contact_id and related_contact_id can change the meaning.",
-          "A contact cannot relate to itself through this table."
-        ],
-        "sensitivity": "Contains private interpersonal and organizational relationship information."
-      },
-      "fields": {
-        "relationship_id": {
-          "mechanics": {
-            "present": true,
-            "name": "relationship_id",
-            "ordinal": 0,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 1,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Stable local identifier for this directed contact relationship.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "contact_id": {
-          "mechanics": {
-            "present": true,
-            "name": "contact_id",
-            "ordinal": 1,
-            "type": "INTEGER",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Contact from whose perspective relationship_type is stated.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "related_contact_id": {
-          "mechanics": {
-            "present": true,
-            "name": "related_contact_id",
-            "ordinal": 2,
-            "type": "INTEGER",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Other contact to whom contact_id has the stated relationship.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "relationship_type": {
-          "mechanics": {
-            "present": true,
-            "name": "relationship_type",
-            "ordinal": 3,
-            "type": "TEXT",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Directional relationship label, such as spouse, customer, employer, employee, or service provider.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "started_on": {
-          "mechanics": {
-            "present": true,
-            "name": "started_on",
-            "ordinal": 4,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Calendar date on which the relationship began, when known.",
-            "units": null,
-            "format": "ISO 8601 calendar date",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "ended_on": {
-          "mechanics": {
-            "present": true,
-            "name": "ended_on",
-            "ordinal": 5,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Calendar date on which the relationship ended, when known.",
-            "units": null,
-            "format": "ISO 8601 calendar date",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "notes": {
-          "mechanics": {
-            "present": true,
-            "name": "notes",
-            "ordinal": 6,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Free-text context needed to understand this relationship.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "created_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "created_at_utc",
-            "ordinal": 7,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC timestamp when this relationship record was inserted.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        }
-      },
-      "relationships": {
-        "fk:contact_id->contacts.contact_id": {
-          "mechanics": {
-            "present": true,
-            "id": "fk:contact_id->contacts.contact_id",
-            "columns": [
-              "contact_id"
-            ],
-            "targetObject": "contacts",
-            "targetColumns": [
-              "contact_id"
-            ],
-            "onUpdate": "NO ACTION",
-            "onDelete": "CASCADE"
-          },
-          "semantics": {
-            "meaning": "Connects this directed contact relationship to the contact identified by contact_id.",
-            "cardinality": "Each directed contact relationship references exactly one contact; one referenced record may be used by many directed contact relationship records.",
-            "importantRules": [
-              "Deleting the referenced row also deletes this dependent row."
-            ]
-          }
-        },
-        "fk:related_contact_id->contacts.contact_id": {
-          "mechanics": {
-            "present": true,
-            "id": "fk:related_contact_id->contacts.contact_id",
-            "columns": [
-              "related_contact_id"
-            ],
-            "targetObject": "contacts",
-            "targetColumns": [
-              "contact_id"
-            ],
-            "onUpdate": "NO ACTION",
-            "onDelete": "CASCADE"
-          },
-          "semantics": {
-            "meaning": "Connects this directed contact relationship to the contact identified by related_contact_id.",
-            "cardinality": "Each directed contact relationship references exactly one contact; one referenced record may be used by many directed contact relationship records.",
-            "importantRules": [
-              "Deleting the referenced row also deletes this dependent row."
-            ]
-          }
-        }
-      }
-    },
     "contacts": {
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE contacts (\n    -- People, organizations, and services share one address-book table.\n    contact_id          INTEGER PRIMARY KEY,\n    contact_kind        TEXT NOT NULL DEFAULT 'person'\n                        CHECK (contact_kind IN ('person', 'organization', 'service')),\n    display_name        TEXT NOT NULL,\n    given_name          TEXT,\n    family_name         TEXT,\n    organization_name   TEXT,\n    -- Exactly one active row may identify Nate through the contacts_one_self partial unique index.\n    is_self             INTEGER NOT NULL DEFAULT 0 CHECK (is_self IN (0, 1)),\n    status              TEXT NOT NULL DEFAULT 'active'\n                        CHECK (status IN ('active', 'inactive', 'blocked', 'deceased')),\n    notes               TEXT,\n    source              TEXT,\n    external_id         TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n, birth_date TEXT\n    CHECK (\n        birth_date IS NULL\n        OR (length(birth_date) = 10 AND date(birth_date) = birth_date)\n        OR (\n            length(birth_date) = 7\n            AND substr(birth_date, 1, 2) = '--'\n            AND date('2000-' || substr(birth_date, 3)) = '2000-' || substr(birth_date, 3)\n        )\n    )) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "contacts_display_name",
@@ -4774,7 +4061,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "contacts_one_self",
@@ -4783,7 +4070,7 @@
             ],
             "unique": true,
             "partial": true,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -5013,7 +4300,7 @@
             "inheritsFrom": null,
             "meaning": "1 only for the active contact record representing the user; otherwise 0.",
             "units": null,
-            "format": "SQLite boolean: 0=false, 1=true",
+            "format": "MariaDB boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -5148,7 +4435,7 @@
             "ordinal": 11,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -5233,7 +4520,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE content_groups (\n    content_group_id INTEGER PRIMARY KEY,\n    name             TEXT NOT NULL COLLATE NOCASE UNIQUE\n                     CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    sort_position    INTEGER NOT NULL DEFAULT 0,\n    archived_at_utc  TEXT,\n    created_at_utc   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc   TEXT\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "content_groups_order",
@@ -5244,16 +4531,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_content_groups_1",
-            "columns": [
-              "name"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -5393,7 +4671,7 @@
             "ordinal": 4,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -5447,7 +4725,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE content_items (\n    content_id           INTEGER PRIMARY KEY,\n    content_group_id     INTEGER NOT NULL\n                         REFERENCES content_groups(content_group_id) ON DELETE RESTRICT,\n    sequence             INTEGER CHECK (sequence IS NULL OR sequence > 0),\n    content_type         TEXT NOT NULL DEFAULT 'mobileUGC_tutorial'\n                         CHECK (content_type IN (\n                             'mobileUGC_tutorial', 'mobileUGC_ad',\n                             'webUGC_tutorial', 'webUGC_ad', 'video_ad',\n                             'podcast', 'image', 'unknown'\n                         )),\n    title                TEXT NOT NULL,\n    transcript           TEXT,\n    description          TEXT,\n    published_at_utc     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    content_host         TEXT NOT NULL DEFAULT 'youtube'\n                         CHECK (content_host IN (\n                             'youtube', 'vimeo', 'spotify', 'mytlomdotcom', 'none'\n                         )),\n    content_status       TEXT NOT NULL DEFAULT 'active'\n                         CHECK (content_status IN ('active', 'obsolete', 'unused', 'queued')),\n    content_url          TEXT,\n    relationship_to_user TEXT NOT NULL DEFAULT 'mine'\n                         CHECK (relationship_to_user IN ('mine', 'reference')),\n    creator_contact_id   INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    personal_notes       TEXT,\n    external_id          TEXT,\n    primary_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    consumed_at_utc      TEXT,\n    source_event_id      TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc       TEXT,\n    UNIQUE (content_group_id, sequence)\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "content_items_creator",
@@ -5457,7 +4735,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "content_items_group_order",
@@ -5468,7 +4746,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "content_items_type_status",
@@ -5478,17 +4756,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_content_items_1",
-            "columns": [
-              "content_group_id",
-              "sequence"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -5750,7 +5018,7 @@
             "ordinal": 7,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -6079,7 +5347,7 @@
             "ordinal": 18,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -6117,185 +5385,6 @@
             "meaning": "UTC timestamp of the latest recorded change to this catalog record.",
             "units": null,
             "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "content_kind": {
-          "mechanics": {
-            "present": false,
-            "name": "content_kind",
-            "ordinal": 4,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'other'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": [
-              "video",
-              "book",
-              "article",
-              "post",
-              "podcast",
-              "image",
-              "document",
-              "course",
-              "website",
-              "other"
-            ]
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Medium or form of the content item.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {
-              "video": "Moving-image content.",
-              "book": "Book-length written work.",
-              "article": "Long- or medium-form written article.",
-              "post": "Short-form social, forum, or blog post.",
-              "podcast": "Episodic spoken-audio content.",
-              "image": "Still image or graphic.",
-              "document": "Document not better represented as a book or article.",
-              "course": "Structured instructional material.",
-              "website": "Website or web application treated as a content source.",
-              "other": "Content form not covered by the named values."
-            },
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "status": {
-          "mechanics": {
-            "present": false,
-            "name": "status",
-            "ordinal": 10,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'reference'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": [
-              "idea",
-              "draft",
-              "queued",
-              "published",
-              "reference",
-              "consumed",
-              "obsolete",
-              "archived"
-            ]
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Current lifecycle or consumption state of the content item.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {
-              "idea": "Potential original content not yet drafted.",
-              "draft": "Original content is being developed.",
-              "queued": "Content is ready or scheduled for production or publication.",
-              "published": "Content has been published.",
-              "reference": "Source material retained for lookup or inspiration.",
-              "consumed": "Reference material has been read, watched, or otherwise consumed.",
-              "obsolete": "Content should no longer guide current work.",
-              "archived": "Content retained but removed from active use."
-            },
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "host": {
-          "mechanics": {
-            "present": false,
-            "name": "host",
-            "ordinal": 12,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Platform, publisher, site, channel, or other host through which the content is available.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source_url": {
-          "mechanics": {
-            "present": false,
-            "name": "source_url",
-            "ordinal": 13,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Original or canonical URL where the content can be found.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "link",
-              "url",
-              "where found"
-            ],
-            "routingWeight": 0.6,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "metadata_json": {
-          "mechanics": {
-            "present": false,
-            "name": "metadata_json",
-            "ordinal": 16,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'{}'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Structured content- or provider-specific details without dedicated columns.",
-            "units": null,
-            "format": "JSON object encoded as text",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -6401,7 +5490,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE correspondence (\n    -- One logical message table for email, SMS, MMS, iMessage, chat, voicemail, and future media.\n    correspondence_id   INTEGER PRIMARY KEY,\n    medium              TEXT NOT NULL\n                        CHECK (medium IN (\n                            'email', 'sms', 'mms', 'imessage',\n                            'chat', 'voicemail', 'other'\n                        )),\n    direction           TEXT NOT NULL\n                        CHECK (direction IN ('inbound', 'outbound', 'draft', 'internal')),\n    -- account_key identifies the mailbox/phone identity; thread_key groups a conversation.\n    account_key         TEXT,\n    thread_key          TEXT,\n    external_id         TEXT,\n    in_reply_to_id      INTEGER REFERENCES correspondence(correspondence_id) ON DELETE SET NULL,\n    -- The complete available message is retained, not replaced by an extracted fact or summary.\n    subject             TEXT,\n    body_text           TEXT,\n    body_html           TEXT,\n    status              TEXT,\n    sent_at_utc         TEXT,\n    received_at_utc     TEXT,\n    -- raw_json preserves provider-specific fields that do not justify permanent schema columns.\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    UNIQUE (medium, account_key, external_id)\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "correspondence_thread",
@@ -6412,7 +5501,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "correspondence_timeline_index",
@@ -6421,18 +5510,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_correspondence_1",
-            "columns": [
-              "medium",
-              "account_key",
-              "external_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -6888,7 +5966,7 @@
             "ordinal": 14,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -6899,33 +5977,6 @@
             "meaning": "UTC timestamp when this local message record was inserted.",
             "units": null,
             "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "raw_json": {
-          "mechanics": {
-            "present": false,
-            "name": "raw_json",
-            "ordinal": 13,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'{}'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Provider-specific message fields retained without permanent schema proliferation.",
-            "units": null,
-            "format": "JSON object encoded as text",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -6987,19 +6038,8 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE correspondence_files (\n    -- Attachments and recordings linked to correspondence while file bytes remain outside SQLite.\n    correspondence_id   INTEGER NOT NULL REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,\n    file_id             INTEGER NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,\n    attachment_role     TEXT NOT NULL DEFAULT 'attachment'\n                        CHECK (attachment_role IN ('attachment', 'inline', 'recording', 'other')),\n    PRIMARY KEY (correspondence_id, file_id)\n) STRICT, WITHOUT ROWID",
-        "indexes": [
-          {
-            "name": "sqlite_autoindex_correspondence_files_1",
-            "columns": [
-              "correspondence_id",
-              "file_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "pk"
-          }
-        ]
+        "definition": null,
+        "indexes": []
       },
       "semantics": {
         "purpose": "Associates externally stored files with correspondence and identifies how each file appears in the message.",
@@ -7165,7 +6205,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE \"correspondence_participants\" (\n    correspondence_id   INTEGER NOT NULL REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,\n    participant_role    TEXT NOT NULL\n                        CHECK (participant_role IN (\n                            'from', 'to', 'cc', 'bcc', 'reply_to',\n                            'sender', 'recipient'\n                        )),\n    contact_id          INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    contact_method_id   INTEGER REFERENCES contact_methods(contact_method_id) ON DELETE SET NULL,\n    address_value       TEXT,\n    display_name        TEXT,\n    PRIMARY KEY (correspondence_id, participant_role, address_value)\n) STRICT, WITHOUT ROWID",
+        "definition": null,
         "indexes": [
           {
             "name": "correspondence_participants_contact",
@@ -7175,18 +6215,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_correspondence_participants_1",
-            "columns": [
-              "correspondence_id",
-              "participant_role",
-              "address_value"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "pk"
+            "origin": "BTREE"
           }
         ]
       },
@@ -7467,7 +6496,7 @@
       "mechanics": {
         "present": true,
         "kind": "view",
-        "definition": "CREATE VIEW correspondence_timeline AS\nSELECT\n    correspondence.*,\n    COALESCE(received_at_utc, sent_at_utc, created_at_utc) AS timeline_at_utc\nFROM correspondence",
+        "definition": null,
         "indexes": []
       },
       "semantics": {
@@ -7926,33 +6955,6 @@
             "importantRules": [],
             "sensitivity": null
           }
-        },
-        "raw_json": {
-          "mechanics": {
-            "present": false,
-            "name": "raw_json",
-            "ordinal": 13,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "correspondence.raw_json",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
         }
       },
       "relationships": {}
@@ -7961,11 +6963,11 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE database_meta (\n    -- Single metadata row identifying this database and its explicitly approved schema generation.\n    singleton           INTEGER PRIMARY KEY CHECK (singleton = 1),\n    schema_version      INTEGER NOT NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    description         TEXT\n) STRICT",
+        "definition": null,
         "indexes": []
       },
       "semantics": {
-        "purpose": "Identifies this agent database and records the schema version used by the migration runner.",
+        "purpose": "Identifies the application MariaDB database and records its current schema version.",
         "rowMeaning": "The sole row describes the database itself rather than a user-domain entity.",
         "sourceOfTruth": true,
         "derivedFrom": [],
@@ -8028,7 +7030,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Current integer schema generation used to decide which pending migration runs next.",
+            "meaning": "Current integer schema generation expected by the application.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -8047,7 +7049,7 @@
             "ordinal": 2,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -8101,7 +7103,7 @@
       "mechanics": {
         "present": true,
         "kind": "view",
-        "definition": "CREATE VIEW due_reminders AS\nSELECT *\nFROM reminders\nWHERE status IN ('pending', 'error')\n  AND remind_at_utc <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        "definition": null,
         "indexes": []
       },
       "semantics": {
@@ -8509,60 +7511,6 @@
             "importantRules": [],
             "sensitivity": null
           }
-        },
-        "personal_todo_item_id": {
-          "mechanics": {
-            "present": false,
-            "name": "personal_todo_item_id",
-            "ordinal": 2,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "reminders.personal_todo_item_id",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "payload_json": {
-          "mechanics": {
-            "present": false,
-            "name": "payload_json",
-            "ordinal": 12,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "reminders.payload_json",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
         }
       },
       "relationships": {}
@@ -8571,7 +7519,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE files (\n    -- Metadata for external files in Agent media storage; file bytes are never stored in this table.\n    file_id             INTEGER PRIMARY KEY,\n    storage_path        TEXT NOT NULL UNIQUE,\n    original_filename   TEXT,\n    media_kind          TEXT NOT NULL DEFAULT 'other'\n                        CHECK (media_kind IN (\n                            'audio', 'video', 'image', 'document',\n                            'archive', 'other'\n                        )),\n    mime_type           TEXT,\n    -- SHA-256 supports integrity checks and deduplication; media dimensions/duration aid render workflows.\n    sha256              TEXT,\n    byte_size           INTEGER CHECK (byte_size IS NULL OR byte_size >= 0),\n    duration_ms         INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),\n    width               INTEGER CHECK (width IS NULL OR width > 0),\n    height              INTEGER CHECK (height IS NULL OR height > 0),\n    -- source_event_id identifies the ledger event that introduced the file when known.\n    source_event_id     TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))\n, title TEXT\n                 CHECK (title IS NULL OR length(trim(title)) BETWEEN 1 AND 200), description TEXT\n                       CHECK (description IS NULL OR length(trim(description)) BETWEEN 1 AND 5000), title_source TEXT NOT NULL DEFAULT 'original_filename'\n                             CHECK (title_source IN ('original_filename', 'ai', 'user')), updated_at_utc TEXT) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "files_created",
@@ -8581,7 +7529,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "files_sha256_unique",
@@ -8590,21 +7538,12 @@
             ],
             "unique": true,
             "partial": true,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_files_1",
-            "columns": [
-              "storage_path"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
       "semantics": {
-        "purpose": "Catalogs files held in agent media storage while keeping large binary bytes outside SQLite.",
+        "purpose": "Catalogs files held in agent media storage while keeping large binary bytes outside MariaDB.",
         "rowMeaning": "One row represents one externally stored file and records where it is stored plus known integrity and media metadata.",
         "sourceOfTruth": true,
         "derivedFrom": [],
@@ -8949,7 +7888,7 @@
             "ordinal": 11,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -9084,192 +8023,6 @@
             "importantRules": [],
             "sensitivity": null
           }
-        },
-        "metadata_json": {
-          "mechanics": {
-            "present": false,
-            "name": "metadata_json",
-            "ordinal": 11,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'{}'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Structured file-, media-, or provider-specific details without dedicated columns.",
-            "units": null,
-            "format": "JSON object encoded as text",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        }
-      },
-      "relationships": {}
-    },
-    "files_fts": {
-      "mechanics": {
-        "present": true,
-        "kind": "virtual_table",
-        "definition": "CREATE VIRTUAL TABLE files_fts USING fts5(\n    title,\n    description,\n    original_filename,\n    content = 'files',\n    content_rowid = 'file_id'\n)",
-        "indexes": []
-      },
-      "semantics": {
-        "purpose": "Provides synchronized FTS5 discovery over durable file titles, descriptions, and original filenames.",
-        "rowMeaning": "One search-index row derived from one files row with the same rowid/file_id.",
-        "sourceOfTruth": false,
-        "derivedFrom": [
-          "files"
-        ],
-        "synonyms": [],
-        "keywords": [],
-        "routingWeight": null,
-        "importantRules": [],
-        "sensitivity": null
-      },
-      "fields": {
-        "title": {
-          "mechanics": {
-            "present": true,
-            "name": "title",
-            "ordinal": 0,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "files.title",
-            "meaning": "Search-index copy of files.title.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "description": {
-          "mechanics": {
-            "present": true,
-            "name": "description",
-            "ordinal": 1,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "files.description",
-            "meaning": "Search-index copy of files.description.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "original_filename": {
-          "mechanics": {
-            "present": true,
-            "name": "original_filename",
-            "ordinal": 2,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "files.original_filename",
-            "meaning": "Search-index copy of files.original_filename.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "files_fts": {
-          "mechanics": {
-            "present": true,
-            "name": "files_fts",
-            "ordinal": 3,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": true,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "FTS5 hidden control column used for index maintenance commands.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "rank": {
-          "mechanics": {
-            "present": true,
-            "name": "rank",
-            "ordinal": 4,
-            "type": null,
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": true,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "FTS5 hidden relevance rank for the current query.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
         }
       },
       "relationships": {}
@@ -9278,7 +8031,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE interaction_guide_steps (\n    interaction_guide_step_id INTEGER PRIMARY KEY,\n    interaction_guide_id      INTEGER NOT NULL\n                              REFERENCES interaction_guides(interaction_guide_id)\n                              ON DELETE CASCADE,\n    step_number               INTEGER NOT NULL CHECK (step_number > 0),\n    opening_text              TEXT NOT NULL\n                              CHECK (length(trim(opening_text)) BETWEEN 1 AND 10000),\n    contract_json             TEXT NOT NULL\n                              DEFAULT '{\"version\":1,\"instructions\":null,\"inputs\":[],\"operations\":[],\"recoveryReads\":[],\"completion\":{\"mode\":\"response_valid\"}}'\n                              CHECK (\n                                  length(contract_json) <= 200000\n                                  AND json_valid(contract_json)\n                                  AND json_type(contract_json) = 'object'\n                                  AND json_extract(contract_json, '$.version') = 1\n                                  AND json_type(contract_json, '$.inputs') = 'array'\n                                  AND json_type(contract_json, '$.operations') = 'array'\n                                  AND json_type(contract_json, '$.recoveryReads') = 'array'\n                                  AND json_type(contract_json, '$.completion') = 'object'\n                                  AND json_extract(contract_json, '$.completion.mode') IN (\n                                      'response_valid', 'user_advances', 'tool_receipt'\n                                  )\n                              ),\n    answers_json              TEXT NOT NULL DEFAULT '{}'\n                              CHECK (\n                                  length(answers_json) <= 100000\n                                  AND json_valid(answers_json)\n                                  AND json_type(answers_json) = 'object'\n                              ),\n    enabled                   INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),\n    created_at_utc            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc            TEXT,\n    progress_state            TEXT NOT NULL DEFAULT 'pending'\n                              CHECK (progress_state IN ('pending', 'active', 'completed')),\n    UNIQUE (interaction_guide_id, step_number)\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "interaction_guide_steps_guide_order",
@@ -9289,7 +8042,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "interaction_guide_steps_guide_progress",
@@ -9301,17 +8054,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_interaction_guide_steps_1",
-            "columns": [
-              "interaction_guide_id",
-              "step_number"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -9562,7 +8305,7 @@
             "ordinal": 7,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -9649,122 +8392,6 @@
             ],
             "sensitivity": null
           }
-        },
-        "instructions_text": {
-          "mechanics": {
-            "present": false,
-            "name": "instructions_text",
-            "ordinal": 4,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Optional agent instructions describing what this step must accomplish, how to handle its reply, and any destination or domain tool required to commit the answer.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "completion_mode": {
-          "mechanics": {
-            "present": false,
-            "name": "completion_mode",
-            "ordinal": 6,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'response_valid'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": [
-              "response_valid",
-              "user_advances",
-              "tool_receipt"
-            ]
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Constrained evidence rule that must be satisfied before this step is recorded complete.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {
-              "response_valid": "At least one answer has been recorded and the step instructions have been satisfied.",
-              "user_advances": "The user has explicitly directed the interaction to continue.",
-              "tool_receipt": "A successful same-request tool-result event proves the requested effect."
-            },
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "name": {
-          "mechanics": {
-            "present": false,
-            "name": "name",
-            "ordinal": 3,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Optional concise human-facing label for the purpose of this numbered step.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "objective_text": {
-          "mechanics": {
-            "present": false,
-            "name": "objective_text",
-            "ordinal": 5,
-            "type": "TEXT",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Stable description of what this step must accomplish before the run may advance.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
         }
       },
       "relationships": {
@@ -9796,7 +8423,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE interaction_guides (\n    interaction_guide_id INTEGER PRIMARY KEY,\n    name                 TEXT NOT NULL COLLATE NOCASE UNIQUE\n                         CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    status               TEXT NOT NULL DEFAULT 'active'\n                         CHECK (status IN ('active', 'archived')),\n    version              INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    created_at_utc       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc       TEXT\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "interaction_guides_status_name",
@@ -9807,16 +8434,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_interaction_guides_1",
-            "columns": [
-              "name"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -9972,7 +8590,7 @@
             "ordinal": 4,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -10018,36 +8636,6 @@
             "importantRules": [],
             "sensitivity": null
           }
-        },
-        "guide_text": {
-          "mechanics": {
-            "present": false,
-            "name": "guide_text",
-            "ordinal": 2,
-            "type": "TEXT",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Complete user-owned plan for conducting the structured interaction; it may contain ordinary text or Markdown-style formatting.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [
-              "This is database text, not a filesystem Markdown document.",
-              "Transient answers and daily results do not belong here unless the user explicitly changes the guide itself."
-            ],
-            "sensitivity": "May contain private questions, preferences, and instructions for personal planning or reflection."
-          }
         }
       },
       "relationships": {}
@@ -10056,7 +8644,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE log_entries (\n    log_entry_id    INTEGER PRIMARY KEY,\n    tracker_id      INTEGER NOT NULL\n                    REFERENCES trackers(tracker_id) ON DELETE RESTRICT,\n    occurred_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    content_text    TEXT NOT NULL\n                    CHECK (length(trim(content_text)) BETWEEN 1 AND 10000),\n    number_value    REAL,\n    source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT,\n    source          TEXT NOT NULL DEFAULT 'agent-slayer'\n                    CHECK (length(trim(source)) BETWEEN 1 AND 200),\n    external_id     TEXT\n                    CHECK (external_id IS NULL OR length(trim(external_id)) BETWEEN 1 AND 1000)\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "log_entries_source_external",
@@ -10066,7 +8654,7 @@
             ],
             "unique": true,
             "partial": true,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "log_entries_tracker_occurred",
@@ -10077,7 +8665,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -10173,7 +8761,7 @@
             "ordinal": 2,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -10289,7 +8877,7 @@
             "ordinal": 6,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -10447,18 +9035,8 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE log_groups (\n    log_group_id    INTEGER PRIMARY KEY,\n    name            TEXT NOT NULL COLLATE NOCASE UNIQUE\n                    CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    archived_at_utc TEXT,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT\n) STRICT",
-        "indexes": [
-          {
-            "name": "sqlite_autoindex_log_groups_1",
-            "columns": [
-              "name"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          }
-        ]
+        "definition": null,
+        "indexes": []
       },
       "semantics": {
         "purpose": "Defines broad named groups that organize the user's personal trackers.",
@@ -10573,7 +9151,7 @@
             "ordinal": 3,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -10627,7 +9205,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE notes (\n    -- Personal notes, journal entries, ideas, and reference notes stored independently of chat history.\n    note_id             INTEGER PRIMARY KEY,\n    title               TEXT,\n    body_text           TEXT NOT NULL,\n    note_kind           TEXT NOT NULL DEFAULT 'personal'\n                        CHECK (note_kind IN ('personal', 'journal', 'reference', 'idea', 'other')),\n    status              TEXT NOT NULL DEFAULT 'active'\n                        CHECK (status IN ('active', 'archived', 'deleted')),\n    -- subject_type/subject_id optionally attach a note to any known contact, work item, content item, or event.\n    subject_type        TEXT,\n    subject_id          TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    occurred_at_utc     TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "notes_subject",
@@ -10638,7 +9216,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -10944,7 +9522,7 @@
             "ordinal": 9,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -11021,7 +9599,7 @@
       "mechanics": {
         "present": true,
         "kind": "view",
-        "definition": "CREATE VIEW open_todo_personal AS\nSELECT *\nFROM todo_personal\nWHERE status IN ('unplanned', 'todo', 'ai_suggested')",
+        "definition": null,
         "indexes": []
       },
       "semantics": {
@@ -11568,567 +10146,11 @@
       },
       "relationships": {}
     },
-    "open_personal_todo_items": {
-      "mechanics": {
-        "present": false,
-        "kind": "view",
-        "definition": "CREATE VIEW open_personal_todo_items AS\nSELECT *\nFROM personal_todo_items\nWHERE status IN ('idea', 'open', 'in_progress', 'waiting', 'blocked')",
-        "indexes": []
-      },
-      "semantics": {
-        "purpose": "Provides personal to-do items that still require consideration or action by excluding completed, cancelled, and archived records.",
-        "rowMeaning": "One row represents one unfinished personal project, job, task, or watch whose status is idea, open, in progress, waiting, or blocked.",
-        "sourceOfTruth": false,
-        "derivedFrom": [
-          "personal_todo_items"
-        ],
-        "synonyms": [
-          "open todos",
-          "active personal work"
-        ],
-        "keywords": [
-          "open task",
-          "todo",
-          "to do",
-          "what should i do",
-          "unfinished",
-          "pending work",
-          "open project"
-        ],
-        "routingWeight": 1,
-        "importantRules": [
-          "The view includes ideas and blocked or waiting work, not only immediately actionable tasks."
-        ],
-        "sensitivity": "Contains private plans, commitments, customer work, and agent-improvement tasks."
-      },
-      "fields": {
-        "personal_todo_item_id": {
-          "mechanics": {
-            "present": true,
-            "name": "personal_todo_item_id",
-            "ordinal": 0,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.personal_todo_item_id",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "parent_personal_todo_item_id": {
-          "mechanics": {
-            "present": true,
-            "name": "parent_personal_todo_item_id",
-            "ordinal": 1,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.parent_personal_todo_item_id",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "item_kind": {
-          "mechanics": {
-            "present": true,
-            "name": "item_kind",
-            "ordinal": 2,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.item_kind",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "contact_id": {
-          "mechanics": {
-            "present": true,
-            "name": "contact_id",
-            "ordinal": 3,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.contact_id",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "title": {
-          "mechanics": {
-            "present": true,
-            "name": "title",
-            "ordinal": 4,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.title",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "description": {
-          "mechanics": {
-            "present": true,
-            "name": "description",
-            "ordinal": 5,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.description",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "status": {
-          "mechanics": {
-            "present": true,
-            "name": "status",
-            "ordinal": 6,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": [
-              "idea",
-              "open",
-              "in_progress",
-              "waiting",
-              "blocked"
-            ]
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.status",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "priority": {
-          "mechanics": {
-            "present": true,
-            "name": "priority",
-            "ordinal": 7,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.priority",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "starts_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "starts_at_utc",
-            "ordinal": 8,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.starts_at_utc",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "due_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "due_at_utc",
-            "ordinal": 9,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.due_at_utc",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "completed_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "completed_at_utc",
-            "ordinal": 10,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.completed_at_utc",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "recurrence_rule": {
-          "mechanics": {
-            "present": true,
-            "name": "recurrence_rule",
-            "ordinal": 11,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.recurrence_rule",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source": {
-          "mechanics": {
-            "present": true,
-            "name": "source",
-            "ordinal": 12,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.source",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "external_id": {
-          "mechanics": {
-            "present": true,
-            "name": "external_id",
-            "ordinal": 13,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.external_id",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source_event_id": {
-          "mechanics": {
-            "present": true,
-            "name": "source_event_id",
-            "ordinal": 14,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.source_event_id",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "created_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "created_at_utc",
-            "ordinal": 15,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.created_at_utc",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "updated_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "updated_at_utc",
-            "ordinal": 16,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.updated_at_utc",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "workflow_stage": {
-          "mechanics": {
-            "present": true,
-            "name": "workflow_stage",
-            "ordinal": 17,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.workflow_stage",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "metadata_json": {
-          "mechanics": {
-            "present": false,
-            "name": "metadata_json",
-            "ordinal": 15,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "personal_todo_items.metadata_json",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        }
-      },
-      "relationships": {}
-    },
     "todo_personal": {
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE todo_personal (\n    personal_task_id    INTEGER PRIMARY KEY,\n    todo_group_id       INTEGER NOT NULL\n                        REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    todo_routine_id     INTEGER\n                        REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,\n    sequence            INTEGER CHECK (sequence IS NULL OR sequence > 0),\n    related_contact_id  INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    text                TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'todo'\n                        CHECK (status IN (\n                            'unplanned', 'todo', 'complete', 'ignore',\n                            'archive', 'ai_suggested'\n                        )),\n    sort_position       INTEGER NOT NULL DEFAULT 0,\n    scheduled_at_utc    TEXT,\n    due_at_utc          TEXT,\n    completed_at_utc    TEXT,\n    source              TEXT,\n    external_id         TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT,\n    is_all_day          INTEGER NOT NULL DEFAULT 0\n                        CHECK (is_all_day IN (0, 1)),\n    duration_minutes    INTEGER\n                        CHECK (duration_minutes IS NULL OR duration_minutes > 0),\n    planning_prompt_text TEXT\n                        CHECK (\n                            planning_prompt_text IS NULL\n                            OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000\n                        ),\n    UNIQUE (todo_group_id, sequence),\n    UNIQUE (source, external_id)\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "todo_personal_contact",
@@ -12138,7 +10160,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "todo_personal_group_order",
@@ -12149,7 +10171,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "todo_personal_routine_occurrence",
@@ -12159,7 +10181,7 @@
             ],
             "unique": true,
             "partial": true,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "todo_personal_status_schedule",
@@ -12170,27 +10192,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_todo_personal_1",
-            "columns": [
-              "todo_group_id",
-              "sequence"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          },
-          {
-            "name": "sqlite_autoindex_todo_personal_2",
-            "columns": [
-              "source",
-              "external_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -12270,7 +10272,7 @@
             "inheritsFrom": null,
             "meaning": "1 when the task is assigned to its scheduled calendar date without an exact clock time; otherwise 0.",
             "units": null,
-            "format": "SQLite boolean: 0=false, 1=true",
+            "format": "MariaDB boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -12629,7 +10631,7 @@
             "ordinal": 14,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -12693,7 +10695,7 @@
             "inheritsFrom": null,
             "meaning": "1 when the task is assigned to its scheduled calendar date without an exact clock time; otherwise 0.",
             "units": null,
-            "format": "SQLite boolean: 0=false, 1=true",
+            "format": "MariaDB boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -12852,710 +10854,11 @@
         }
       }
     },
-    "personal_todo_items": {
-      "mechanics": {
-        "present": false,
-        "kind": "table",
-        "definition": "CREATE TABLE \"personal_todo_items\" (\n    -- Projects, customer jobs, tasks, and watches share one hierarchy instead of four isolated systems.\n    personal_todo_item_id        INTEGER PRIMARY KEY,\n    -- parent_work_item_id allows a project/job to contain jobs or tasks.\n    parent_personal_todo_item_id INTEGER REFERENCES \"personal_todo_items\"(personal_todo_item_id) ON DELETE SET NULL,\n    item_kind           TEXT NOT NULL DEFAULT 'task'\n                        CHECK (item_kind IN ('project', 'job', 'task', 'watch')),\n    -- contact_id links a job or task to its customer or other responsible contact when useful.\n    contact_id          INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    title               TEXT NOT NULL,\n    description         TEXT,\n    status              TEXT NOT NULL DEFAULT 'open'\n                        CHECK (status IN (\n                            'idea', 'open', 'in_progress', 'waiting',\n                            'blocked', 'completed', 'cancelled', 'archived'\n                        )),\n    priority            INTEGER NOT NULL DEFAULT 0,\n    starts_at_utc       TEXT,\n    due_at_utc          TEXT,\n    completed_at_utc    TEXT,\n    -- recurrence_rule supports repeated work without a separate recurring-task table.\n    recurrence_rule     TEXT,\n    source              TEXT,\n    external_id         TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n, workflow_stage TEXT) STRICT",
-        "indexes": [
-          {
-            "name": "personal_todo_items_contact",
-            "columns": [
-              "contact_id",
-              "status"
-            ],
-            "unique": false,
-            "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "personal_todo_items_parent",
-            "columns": [
-              "parent_personal_todo_item_id",
-              "status"
-            ],
-            "unique": false,
-            "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "personal_todo_items_status_due",
-            "columns": [
-              "status",
-              "due_at_utc",
-              "priority"
-            ],
-            "unique": false,
-            "partial": false,
-            "origin": "c"
-          }
-        ]
-      },
-      "semantics": {
-        "purpose": "Stores the user's agent-owned projects, customer jobs, tasks, and watches in one hierarchical personal-work system.",
-        "rowMeaning": "One row represents one personal project, job, task, or condition to watch, optionally nested under another item.",
-        "sourceOfTruth": true,
-        "derivedFrom": [],
-        "synonyms": [
-          "personal to-dos",
-          "personal work items"
-        ],
-        "keywords": [
-          "task",
-          "todo",
-          "to do",
-          "project",
-          "job",
-          "work",
-          "watch",
-          "deadline",
-          "due"
-        ],
-        "routingWeight": 1,
-        "importantRules": [
-          "TLOM-owned tasks remain in TLOM and are not duplicated here unless the user explicitly requests a separate personal todo.",
-          "Video creation and agent-improvement requests remain durable personal to-do items even when subordinate execution records exist."
-        ],
-        "sensitivity": "Contains private plans, priorities, customer associations, deadlines, and operational metadata."
-      },
-      "fields": {
-        "personal_todo_item_id": {
-          "mechanics": {
-            "present": true,
-            "name": "personal_todo_item_id",
-            "ordinal": 0,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 1,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Stable local identifier for this personal to-do item.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "parent_personal_todo_item_id": {
-          "mechanics": {
-            "present": true,
-            "name": "parent_personal_todo_item_id",
-            "ordinal": 1,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Containing personal project, job, task, or watch when this item is part of a hierarchy.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "item_kind": {
-          "mechanics": {
-            "present": true,
-            "name": "item_kind",
-            "ordinal": 2,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'task'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": [
-              "project",
-              "job",
-              "task",
-              "watch"
-            ]
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Kind of personal work or attention represented by this item.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {
-              "project": "Outcome requiring multiple subordinate items.",
-              "job": "Bounded piece of work, often associated with a customer.",
-              "task": "Specific action to perform.",
-              "watch": "Condition or subject to monitor rather than immediately complete."
-            },
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "contact_id": {
-          "mechanics": {
-            "present": true,
-            "name": "contact_id",
-            "ordinal": 3,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Customer or other contact associated with this personal item when useful.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "title": {
-          "mechanics": {
-            "present": true,
-            "name": "title",
-            "ordinal": 4,
-            "type": "TEXT",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Concise human-readable statement of the project, job, task, or watch.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "task title",
-              "project name",
-              "job name"
-            ],
-            "routingWeight": 0.9,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "description": {
-          "mechanics": {
-            "present": true,
-            "name": "description",
-            "ordinal": 5,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Complete context needed to understand or perform the personal item.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "task details",
-              "project details",
-              "what needs doing"
-            ],
-            "routingWeight": 0.9,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "status": {
-          "mechanics": {
-            "present": true,
-            "name": "status",
-            "ordinal": 6,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'open'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": [
-              "idea",
-              "open",
-              "in_progress",
-              "waiting",
-              "blocked",
-              "completed",
-              "cancelled",
-              "archived"
-            ]
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Current lifecycle state of the personal item.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {
-              "idea": "Possible work not yet accepted as an active commitment.",
-              "open": "Accepted work not yet started.",
-              "in_progress": "Work is actively underway.",
-              "waiting": "Progress depends on time, another person, or an external event.",
-              "blocked": "A known obstacle prevents progress.",
-              "completed": "Required outcome has been achieved.",
-              "cancelled": "Work was deliberately abandoned.",
-              "archived": "Retained for reference but removed from active work."
-            },
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "priority": {
-          "mechanics": {
-            "present": true,
-            "name": "priority",
-            "ordinal": 7,
-            "type": "INTEGER",
-            "nullable": false,
-            "default": "0",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Relative scheduling importance; larger values sort ahead of smaller values within otherwise comparable work.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "important",
-              "urgent",
-              "priority"
-            ],
-            "routingWeight": 0.7,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "starts_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "starts_at_utc",
-            "ordinal": 8,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC time before which work is not intended to start, when scheduled.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "start date",
-              "when to start"
-            ],
-            "routingWeight": 0.5,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "due_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "due_at_utc",
-            "ordinal": 9,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC deadline or target completion time, when one exists.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [
-              "deadline",
-              "due date",
-              "when due"
-            ],
-            "routingWeight": 0.9,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "completed_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "completed_at_utc",
-            "ordinal": 10,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC time the item was actually completed.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "recurrence_rule": {
-          "mechanics": {
-            "present": true,
-            "name": "recurrence_rule",
-            "ordinal": 11,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Rule describing repeated personal work without creating a separate recurrence table.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source": {
-          "mechanics": {
-            "present": true,
-            "name": "source",
-            "ordinal": 12,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Workflow, integration, or user action from which this item originated.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "external_id": {
-          "mechanics": {
-            "present": true,
-            "name": "external_id",
-            "ordinal": 13,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Identifier assigned by the source system when this item mirrors external work.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source_event_id": {
-          "mechanics": {
-            "present": true,
-            "name": "source_event_id",
-            "ordinal": 14,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Ledger event containing the user request or interaction that created this personal item when known.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "created_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "created_at_utc",
-            "ordinal": 15,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC timestamp when the personal item was inserted.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "updated_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "updated_at_utc",
-            "ordinal": 16,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC timestamp of the latest recorded change to the personal item.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "workflow_stage": {
-          "mechanics": {
-            "present": true,
-            "name": "workflow_stage",
-            "ordinal": 17,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Optional workflow-specific stage for work that passes through a named process beyond its general todo status.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [
-              "Use status for the universal todo lifecycle and workflow_stage only for a concrete subordinate process such as video preparation."
-            ],
-            "sensitivity": null
-          }
-        },
-        "metadata_json": {
-          "mechanics": {
-            "present": false,
-            "name": "metadata_json",
-            "ordinal": 15,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'{}'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Structured workflow-specific details that do not justify dedicated columns.",
-            "units": null,
-            "format": "JSON object encoded as text",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        }
-      },
-      "relationships": {
-        "fk:contact_id->contacts.contact_id": {
-          "mechanics": {
-            "present": true,
-            "id": "fk:contact_id->contacts.contact_id",
-            "columns": [
-              "contact_id"
-            ],
-            "targetObject": "contacts",
-            "targetColumns": [
-              "contact_id"
-            ],
-            "onUpdate": "NO ACTION",
-            "onDelete": "SET NULL"
-          },
-          "semantics": {
-            "meaning": "Connects this personal to-do item to the contact identified by contact_id.",
-            "cardinality": "Each personal to-do item may reference zero or one contact; one referenced record may be used by many personal to-do item records.",
-            "importantRules": [
-              "Deleting the referenced row preserves this row and clears the reference."
-            ]
-          }
-        },
-        "fk:parent_personal_todo_item_id->personal_todo_items.personal_todo_item_id": {
-          "mechanics": {
-            "present": true,
-            "id": "fk:parent_personal_todo_item_id->personal_todo_items.personal_todo_item_id",
-            "columns": [
-              "parent_personal_todo_item_id"
-            ],
-            "targetObject": "personal_todo_items",
-            "targetColumns": [
-              "personal_todo_item_id"
-            ],
-            "onUpdate": "NO ACTION",
-            "onDelete": "SET NULL"
-          },
-          "semantics": {
-            "meaning": "Connects this personal to-do item to the personal to-do item identified by parent_personal_todo_item_id.",
-            "cardinality": "Each personal to-do item may reference zero or one personal to-do item; one referenced record may be used by many personal to-do item records.",
-            "importantRules": [
-              "Deleting the referenced row preserves this row and clears the reference."
-            ]
-          }
-        },
-        "fk:source_event_id->activity_events.event_id": {
-          "mechanics": {
-            "present": true,
-            "id": "fk:source_event_id->activity_events.event_id",
-            "columns": [
-              "source_event_id"
-            ],
-            "targetObject": "activity_events",
-            "targetColumns": [
-              "event_id"
-            ],
-            "onUpdate": "NO ACTION",
-            "onDelete": "SET NULL"
-          },
-          "semantics": {
-            "meaning": "Connects this personal to-do item to the observable event identified by source_event_id.",
-            "cardinality": "Each personal to-do item may reference zero or one observable event; one referenced record may be used by many personal to-do item records.",
-            "importantRules": [
-              "Deleting the referenced row preserves this row and clears the reference."
-            ]
-          }
-        }
-      }
-    },
     "profile_facts": {
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE profile_facts (\n    profile_fact_id   INTEGER PRIMARY KEY,\n    fact_type          TEXT NOT NULL\n                      CHECK (length(trim(fact_type)) BETWEEN 1 AND 200),\n    fact_text        TEXT NOT NULL\n                      CHECK (length(trim(fact_text)) BETWEEN 1 AND 10000),\n    fact_status       TEXT NOT NULL DEFAULT 'active'\n                      CHECK (fact_status IN ('active', 'archived')),\n    source_event_id   TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    archived_by_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc    TEXT,\n    archived_at_utc   TEXT,\n    CHECK (\n        (fact_status = 'active' AND archived_at_utc IS NULL)\n        OR (fact_status = 'archived' AND archived_at_utc IS NOT NULL)\n    )\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "profile_facts_status_type",
@@ -13566,7 +10869,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -13788,7 +11091,7 @@
             "ordinal": 6,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -13861,65 +11164,6 @@
             "importantRules": [],
             "sensitivity": null
           }
-        },
-        "fact_key": {
-          "mechanics": {
-            "present": false,
-            "name": "fact_key",
-            "ordinal": 1,
-            "type": "TEXT",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Stable lowercase identifier for one kind of durable profile information.",
-            "units": null,
-            "format": "lowercase snake_case",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [
-              "preferred_name",
-              "default_location",
-              "vehicle",
-              "address"
-            ],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "value_text": {
-          "mechanics": {
-            "present": false,
-            "name": "value_text",
-            "ordinal": 2,
-            "type": "TEXT",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Human-readable value stored in this version of the profile fact.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": "May contain private personal information."
-          }
         }
       },
       "relationships": {
@@ -13973,7 +11217,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE record_links (\n    -- Flexible directed relationships between records when a dedicated foreign key would be excessive.\n    -- Record identifiers are text so the join can point to integer or text primary identifiers.\n    record_link_id      INTEGER PRIMARY KEY,\n    left_record_type    TEXT NOT NULL,\n    left_record_id      TEXT NOT NULL,\n    relationship_type   TEXT NOT NULL,\n    right_record_type   TEXT NOT NULL,\n    right_record_id     TEXT NOT NULL,\n    notes               TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    CHECK (\n        left_record_type <> right_record_type\n        OR left_record_id <> right_record_id\n    ),\n    UNIQUE (\n        left_record_type,\n        left_record_id,\n        relationship_type,\n        right_record_type,\n        right_record_id\n    )\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "record_links_right",
@@ -13984,20 +11228,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_record_links_1",
-            "columns": [
-              "left_record_type",
-              "left_record_id",
-              "relationship_type",
-              "right_record_type",
-              "right_record_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
+            "origin": "BTREE"
           }
         ]
       },
@@ -14019,7 +11250,7 @@
         "routingWeight": 0.2,
         "importantRules": [
           "Direction matters: left and right records are not interchangeable unless the relationship type explicitly says so.",
-          "The text identifiers are polymorphic and are not enforced by SQLite foreign keys."
+          "The text identifiers are polymorphic and are not enforced by MariaDB foreign keys."
         ],
         "sensitivity": "May reveal private relationships among contacts, notes, content, work, and events."
       },
@@ -14247,7 +11478,7 @@
             "ordinal": 8,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -14297,7 +11528,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE record_tags (\n    -- Generic tag assignments for content, notes, contacts, work items, and future record types.\n    tag_id              INTEGER NOT NULL REFERENCES tags(tag_id) ON DELETE CASCADE,\n    record_type         TEXT NOT NULL,\n    record_id           TEXT NOT NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    PRIMARY KEY (tag_id, record_type, record_id)\n) STRICT, WITHOUT ROWID",
+        "definition": null,
         "indexes": [
           {
             "name": "record_tags_record",
@@ -14307,18 +11538,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
-          },
-          {
-            "name": "sqlite_autoindex_record_tags_1",
-            "columns": [
-              "tag_id",
-              "record_type",
-              "record_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "pk"
+            "origin": "BTREE"
           }
         ]
       },
@@ -14338,7 +11558,7 @@
         ],
         "routingWeight": 0.3,
         "importantRules": [
-          "record_type and record_id form a polymorphic reference that SQLite cannot validate with a foreign key."
+          "record_type and record_id form a polymorphic reference that MariaDB cannot validate with a foreign key."
         ],
         "sensitivity": "Tag assignments may reveal private categorization of people, communications, work, or content."
       },
@@ -14431,7 +11651,7 @@
             "ordinal": 3,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -14481,7 +11701,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE reminders (\n    reminder_id         INTEGER PRIMARY KEY,\n    calendar_event_id   INTEGER REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,\n    personal_task_id    INTEGER REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,\n    title               TEXT,\n    remind_at_utc       TEXT NOT NULL,\n    delivery_method     TEXT NOT NULL DEFAULT 'agent'\n                        CHECK (delivery_method IN (\n                            'agent', 'webhook', 'notification',\n                            'email', 'sms', 'other'\n                        )),\n    delivery_target     TEXT,\n    status              TEXT NOT NULL DEFAULT 'pending'\n                        CHECK (status IN (\n                            'pending', 'processing', 'delivered',\n                            'snoozed', 'cancelled', 'error'\n                        )),\n    attempt_count       INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),\n    last_attempt_at_utc TEXT,\n    delivered_at_utc   TEXT,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "reminders_due",
@@ -14491,7 +11711,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -14887,7 +12107,7 @@
             "ordinal": 12,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -14925,60 +12145,6 @@
             "meaning": "UTC timestamp of the latest recorded change to the reminder.",
             "units": null,
             "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "personal_todo_item_id": {
-          "mechanics": {
-            "present": false,
-            "name": "personal_todo_item_id",
-            "ordinal": 2,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Personal todo item this reminder supports, when applicable.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "payload_json": {
-          "mechanics": {
-            "present": false,
-            "name": "payload_json",
-            "ordinal": 12,
-            "type": "TEXT",
-            "nullable": false,
-            "default": "'{}'",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Structured method- or provider-specific delivery details.",
-            "units": null,
-            "format": "JSON object encoded as text",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -15031,28 +12197,6 @@
             "cardinality": null,
             "importantRules": []
           }
-        },
-        "fk:personal_todo_item_id->personal_todo_items.personal_todo_item_id": {
-          "mechanics": {
-            "present": false,
-            "id": "fk:personal_todo_item_id->personal_todo_items.personal_todo_item_id",
-            "columns": [
-              "personal_todo_item_id"
-            ],
-            "targetObject": "personal_todo_items",
-            "targetColumns": [
-              "personal_todo_item_id"
-            ],
-            "onUpdate": "NO ACTION",
-            "onDelete": "CASCADE"
-          },
-          "semantics": {
-            "meaning": "Connects this reminder to the personal to-do item identified by personal_todo_item_id.",
-            "cardinality": "Each reminder may reference zero or one personal to-do item; one referenced record may be used by many reminder records.",
-            "importantRules": [
-              "Deleting the referenced row also deletes this dependent row."
-            ]
-          }
         }
       }
     },
@@ -15060,18 +12204,8 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE tags (\n    -- Reusable human labels. slug is the stable machine identifier; label is display text.\n    tag_id              INTEGER PRIMARY KEY,\n    slug                TEXT NOT NULL UNIQUE,\n    label               TEXT NOT NULL,\n    is_active           INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))\n) STRICT",
-        "indexes": [
-          {
-            "name": "sqlite_autoindex_tags_1",
-            "columns": [
-              "slug"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          }
-        ]
+        "definition": null,
+        "indexes": []
       },
       "semantics": {
         "purpose": "Defines reusable human labels that can categorize many kinds of agent records.",
@@ -15194,7 +12328,7 @@
             "inheritsFrom": null,
             "meaning": "1 when the tag is available for normal use; otherwise 0.",
             "units": null,
-            "format": "SQLite boolean: 0=false, 1=true",
+            "format": "MariaDB boolean: 0=false, 1=true",
             "allowedValueMeanings": {},
             "synonyms": [],
             "keywords": [],
@@ -15211,7 +12345,7 @@
             "ordinal": 4,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -15238,17 +12372,8 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE todo_groups (\n    todo_group_id   INTEGER PRIMARY KEY,\n    name            TEXT NOT NULL COLLATE NOCASE UNIQUE,\n    archived_at_utc TEXT,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT\n, sort_position INTEGER NOT NULL DEFAULT 0, uses_sequence INTEGER NOT NULL DEFAULT 0\n                         CHECK (uses_sequence IN (0, 1))) STRICT",
+        "definition": null,
         "indexes": [
-          {
-            "name": "sqlite_autoindex_todo_groups_1",
-            "columns": [
-              "name"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          },
           {
             "name": "todo_groups_order",
             "columns": [
@@ -15258,7 +12383,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -15377,7 +12502,7 @@
             "ordinal": 3,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -15499,7 +12624,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE todo_routines (\n    todo_routine_id        INTEGER PRIMARY KEY,\n    todo_group_id          INTEGER NOT NULL\n                           REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    text                   TEXT NOT NULL,\n    first_scheduled_at_utc TEXT NOT NULL,\n    first_due_at_utc       TEXT,\n    time_zone              TEXT NOT NULL,\n    recurrence_rule        TEXT NOT NULL,\n    disabled_at_utc        TEXT,\n    created_at_utc         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc         TEXT\n, is_all_day INTEGER NOT NULL DEFAULT 0\n                  CHECK (is_all_day IN (0, 1)), interaction_guide_id INTEGER\n          REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL, planning_prompt_text TEXT\n                                CHECK (\n                                    planning_prompt_text IS NULL\n                                    OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000\n                                )) STRICT",
+        "definition": null,
         "indexes": []
       },
       "semantics": {
@@ -15897,7 +13022,7 @@
             "ordinal": 13,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -16129,17 +13254,8 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE trackers (\n    tracker_id      INTEGER PRIMARY KEY,\n    log_group_id    INTEGER NOT NULL\n                    REFERENCES log_groups(log_group_id) ON DELETE RESTRICT,\n    name            TEXT NOT NULL COLLATE NOCASE UNIQUE\n                    CHECK (length(trim(name)) BETWEEN 1 AND 200),\n    unit            TEXT NOT NULL\n                    CHECK (length(trim(unit)) BETWEEN 1 AND 100),\n    archived_at_utc TEXT,\n    created_at_utc  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc  TEXT\n) STRICT",
+        "definition": null,
         "indexes": [
-          {
-            "name": "sqlite_autoindex_trackers_1",
-            "columns": [
-              "name"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          },
           {
             "name": "trackers_group_name",
             "columns": [
@@ -16149,7 +13265,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -16328,7 +13444,7 @@
             "ordinal": 5,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -16405,7 +13521,7 @@
       "mechanics": {
         "present": true,
         "kind": "view",
-        "definition": "CREATE VIEW upcoming_calendar AS\nSELECT *\nFROM calendar_events\nWHERE status IN ('tentative', 'confirmed')\n  AND starts_at_utc >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')\nORDER BY starts_at_utc",
+        "definition": null,
         "indexes": []
       },
       "semantics": {
@@ -16868,114 +13984,6 @@
             "importantRules": [],
             "sensitivity": null
           }
-        },
-        "calendar_key": {
-          "mechanics": {
-            "present": false,
-            "name": "calendar_key",
-            "ordinal": 1,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "calendar_events.calendar_key",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "external_id": {
-          "mechanics": {
-            "present": false,
-            "name": "external_id",
-            "ordinal": 2,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "calendar_events.external_id",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source": {
-          "mechanics": {
-            "present": false,
-            "name": "source",
-            "ordinal": 12,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "calendar_events.source",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "raw_json": {
-          "mechanics": {
-            "present": false,
-            "name": "raw_json",
-            "ordinal": 14,
-            "type": "TEXT",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": "calendar_events.raw_json",
-            "meaning": null,
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
         }
       },
       "relationships": {}
@@ -16984,7 +13992,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE video_jobs (\n    video_job_id        INTEGER PRIMARY KEY,\n    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    source_turn_id      TEXT,\n    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,\n    renderer            TEXT NOT NULL DEFAULT 'remotion'\n                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),\n    template            TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'queued'\n                        CHECK (status IN (\n                            'queued', 'preparing', 'rendering',\n                            'complete', 'error', 'cancelled'\n                        )),\n    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),\n    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    started_at_utc      TEXT,\n    completed_at_utc    TEXT,\n    updated_at_utc      TEXT,\n    personal_task_id    INTEGER REFERENCES todo_personal(personal_task_id) ON DELETE SET NULL,\n    video_script_id     INTEGER REFERENCES video_scripts(video_script_id) ON DELETE SET NULL\n) STRICT",
+        "definition": null,
         "indexes": [
           {
             "name": "video_jobs_one_active_script",
@@ -16993,7 +14001,7 @@
             ],
             "unique": true,
             "partial": true,
-            "origin": "c"
+            "origin": "BTREE"
           },
           {
             "name": "video_jobs_script_created",
@@ -17004,7 +14012,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -17332,7 +14340,7 @@
             "ordinal": 10,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,
@@ -17488,35 +14496,6 @@
             "importantRules": [],
             "sensitivity": null
           }
-        },
-        "personal_todo_item_id": {
-          "mechanics": {
-            "present": false,
-            "name": "personal_todo_item_id",
-            "ordinal": 14,
-            "type": "INTEGER",
-            "nullable": true,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Originating personal to-do item whose requested video work this render job executes.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [
-              "The referenced personal todo remains the user-facing work record and is not replaced by this execution job."
-            ],
-            "sensitivity": null
-          }
         }
       },
       "relationships": {
@@ -17627,28 +14606,6 @@
             "cardinality": null,
             "importantRules": []
           }
-        },
-        "fk:personal_todo_item_id->personal_todo_items.personal_todo_item_id": {
-          "mechanics": {
-            "present": false,
-            "id": "fk:personal_todo_item_id->personal_todo_items.personal_todo_item_id",
-            "columns": [
-              "personal_todo_item_id"
-            ],
-            "targetObject": "personal_todo_items",
-            "targetColumns": [
-              "personal_todo_item_id"
-            ],
-            "onUpdate": "NO ACTION",
-            "onDelete": "SET NULL"
-          },
-          "semantics": {
-            "meaning": "Connects this video render job to the personal to-do item it executes.",
-            "cardinality": "Each video render job may reference zero or one personal to-do item; one todo may be used by multiple render attempts.",
-            "importantRules": [
-              "Deleting the referenced todo preserves the render history and clears this reference."
-            ]
-          }
         }
       }
     },
@@ -17656,28 +14613,8 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE video_script_sources (\n    video_script_id  INTEGER NOT NULL\n                     REFERENCES video_scripts(video_script_id) ON DELETE CASCADE,\n    request_event_id TEXT NOT NULL\n                     REFERENCES activity_events(event_id) ON DELETE RESTRICT,\n    source_order     INTEGER NOT NULL CHECK (source_order > 0),\n    PRIMARY KEY (video_script_id, request_event_id),\n    UNIQUE (video_script_id, source_order)\n) STRICT, WITHOUT ROWID",
+        "definition": null,
         "indexes": [
-          {
-            "name": "sqlite_autoindex_video_script_sources_1",
-            "columns": [
-              "video_script_id",
-              "request_event_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "pk"
-          },
-          {
-            "name": "sqlite_autoindex_video_script_sources_2",
-            "columns": [
-              "video_script_id",
-              "source_order"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          },
           {
             "name": "video_script_sources_request",
             "columns": [
@@ -17686,7 +14623,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -17845,17 +14782,8 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE video_scripts (\n    video_script_id     INTEGER PRIMARY KEY,\n    title               TEXT NOT NULL\n                        CHECK (length(trim(title)) BETWEEN 1 AND 200),\n    status              TEXT NOT NULL DEFAULT 'draft'\n                        CHECK (status IN ('draft', 'archived')),\n    schema_version      INTEGER NOT NULL DEFAULT 1\n                        CHECK (schema_version = 1),\n    script_json         TEXT NOT NULL\n                        CHECK (\n                            length(script_json) <= 500000\n                            AND json_valid(script_json)\n                            AND json_type(script_json) = 'object'\n                        ),\n    script_text         TEXT NOT NULL\n                        CHECK (length(trim(script_text)) BETWEEN 1 AND 500000),\n    created_by_event_id TEXT UNIQUE REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT,\n    archived_at_utc     TEXT,\n    version             INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),\n    CHECK (\n        (status = 'draft' AND archived_at_utc IS NULL)\n        OR (status = 'archived' AND archived_at_utc IS NOT NULL)\n    )\n) STRICT",
+        "definition": null,
         "indexes": [
-          {
-            "name": "sqlite_autoindex_video_scripts_1",
-            "columns": [
-              "created_by_event_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "u"
-          },
           {
             "name": "video_scripts_status_created",
             "columns": [
@@ -17865,7 +14793,7 @@
             ],
             "unique": false,
             "partial": false,
-            "origin": "c"
+            "origin": "BTREE"
           }
         ]
       },
@@ -18096,7 +15024,7 @@
             "ordinal": 7,
             "type": "TEXT",
             "nullable": false,
-            "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
             "primaryKeyPosition": 0,
             "generated": false,
             "hidden": false,

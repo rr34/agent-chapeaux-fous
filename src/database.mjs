@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { openApplicationDatabase } from "./database-connection.mjs";
 
 export const requiredDatabaseShape = {
@@ -86,7 +84,7 @@ export const modelWritableTables = new Set(["content_groups", "content_items"]);
 
 function identifier(name, label = "identifier") {
   if (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-    throw new Error(`Invalid SQLite ${label}: ${String(name)}`);
+    throw new Error(`Invalid MariaDB ${label}: ${String(name)}`);
   }
   return `"${name}"`;
 }
@@ -107,30 +105,6 @@ function normalizeValue(value) {
 }
 
 export function inspectDatabase(database) {
-  const problems = [];
-  const objects = database.prepare(`
-    SELECT type, name, sql FROM sqlite_schema
-    WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
-    ORDER BY type, name
-  `).all();
-  const byName = new Map(objects.map((object) => [object.name, object]));
-  for (const [name, requiredColumns] of Object.entries(requiredDatabaseShape)) {
-    const object = byName.get(name);
-    if (!object || object.type !== "table") {
-      problems.push(`Missing required table: ${name}`);
-      continue;
-    }
-    const columns = new Set(database.prepare(`PRAGMA table_info(${identifier(name, "table")})`).all().map((row) => row.name));
-    for (const column of requiredColumns) {
-      if (!columns.has(column)) problems.push(`Missing required column: ${name}.${column}`);
-    }
-  }
-  const integrity = database.prepare("PRAGMA quick_check").get();
-  if (integrity?.quick_check !== "ok") problems.push(`SQLite quick_check: ${integrity?.quick_check ?? "unknown failure"}`);
-  return { ready: problems.length === 0, problems, objects: objects.map(serializable) };
-}
-
-export function inspectMariaDatabase(database) {
   const problems = [];
   const objects = database.prepare(`
     SELECT TABLE_NAME AS name, TABLE_TYPE AS table_type
@@ -165,42 +139,25 @@ export function inspectMariaDatabase(database) {
 
 export function summarizeDatabaseObjects(objects) {
   const entries = Array.isArray(objects) ? objects : [];
-  const fts5Tables = entries.filter((object) => (
-    object?.type === "table"
-    && /^\s*CREATE\s+VIRTUAL\s+TABLE\b[\s\S]*\bUSING\s+fts5\s*\(/iu.test(String(object.sql ?? ""))
-  ));
-  const fts5ShadowNames = new Set(fts5Tables.flatMap(({ name }) => (
-    ["data", "idx", "content", "docsize", "config"].map((suffix) => `${name}_${suffix}`)
-  )));
-  const logical = entries.filter(({ name }) => !fts5ShadowNames.has(name));
-  const applicationTableCount = logical.filter(({ type }) => type === "table").length;
-  const applicationViewCount = logical.filter(({ type }) => type === "view").length;
+  const applicationTableCount = entries.filter(({ type }) => type === "table").length;
+  const applicationViewCount = entries.filter(({ type }) => type === "view").length;
   return {
     applicationTableCount,
     applicationViewCount,
     applicationObjectCount: applicationTableCount + applicationViewCount,
-    sqliteObjectCount: entries.length,
-    fts5ShadowTableCount: entries.filter(({ name }) => fts5ShadowNames.has(name)).length,
   };
 }
 
 export class SlayerDatabase {
   constructor(target) {
     this.databaseTarget = target;
-    this.filename = typeof target === "string" ? target : target?.filename ?? target?.connection?.database ?? null;
-    this.engine = typeof target === "object" ? target.engine : "sqlite";
+    this.filename = target?.connection?.database ?? null;
+    this.engine = "mariadb";
     this.database = null;
     this.status = { ready: false, reason: "database has not been opened" };
-    if (this.engine === "sqlite" && !fs.existsSync(this.filename)) {
-      this.status = { ready: false, reason: `database file is missing: ${this.filename}` };
-      return;
-    }
     try {
       this.database = openApplicationDatabase(target);
-      this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
-      const inspection = this.engine === "mariadb"
-        ? inspectMariaDatabase(this.database)
-        : inspectDatabase(this.database);
+      const inspection = inspectDatabase(this.database);
       this.status = inspection.ready
         ? { ready: true, engine: this.engine, database: this.filename }
         : { ready: false, reason: inspection.problems.join("; "), engine: this.engine, database: this.filename };
@@ -227,21 +184,11 @@ export class SlayerDatabase {
   }
 
   objects() {
-    if (this.engine === "mariadb") {
-      return this.requireReady().prepare(`
-        SELECT CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 'table' ELSE 'view' END AS type,
-               TABLE_NAME AS name, NULL AS \`sql\`
-        FROM information_schema.TABLES
-        WHERE TABLE_SCHEMA = DATABASE()
-        ORDER BY type, name
-      `).all().map(serializable);
-    }
     return this.requireReady().prepare(`
-      SELECT type, name, sql FROM sqlite_schema
-      WHERE type IN ('table', 'view')
-        AND name NOT LIKE 'sqlite_%'
-        AND name NOT LIKE 'activity_events_fts_%'
-        AND name NOT LIKE 'files_fts_%'
+      SELECT CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 'table' ELSE 'view' END AS type,
+             TABLE_NAME AS name, NULL AS \`sql\`
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
       ORDER BY type, name
     `).all().map(serializable);
   }
@@ -250,11 +197,10 @@ export class SlayerDatabase {
     identifier(name, "object");
     const object = this.objects().find((candidate) => candidate.name === name);
     if (!object) throw new Error(`Unknown database object: ${name}`);
-    if (writable && (object.type !== "table" || !modelWritableTables.has(name) || /^CREATE VIRTUAL TABLE/i.test(object.sql))) {
+    if (writable && (object.type !== "table" || !modelWritableTables.has(name))) {
       throw new Error(`Model writes are not permitted on ${name}`);
     }
-    const columns = this.engine === "mariadb"
-      ? this.requireReady().prepare(`
+    const columns = this.requireReady().prepare(`
           SELECT ORDINAL_POSITION - 1 AS cid, COLUMN_NAME AS name, COLUMN_TYPE AS type,
                  CASE WHEN IS_NULLABLE = 'NO' THEN 1 ELSE 0 END AS notnull,
                  COLUMN_DEFAULT AS dflt_value,
@@ -262,24 +208,21 @@ export class SlayerDatabase {
           FROM information_schema.COLUMNS
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
           ORDER BY ORDINAL_POSITION
-        `).all(name).map(serializable)
-      : this.requireReady().prepare(`PRAGMA table_info(${identifier(name, "object")})`).all().map(serializable);
-    const foreignKeys = this.engine === "mariadb"
-      ? this.requireReady().prepare(`
+        `).all(name).map(serializable);
+    const foreignKeys = this.requireReady().prepare(`
           SELECT ORDINAL_POSITION - 1 AS id, POSITION_IN_UNIQUE_CONSTRAINT - 1 AS seq,
                  REFERENCED_TABLE_NAME AS \`table\`, COLUMN_NAME AS \`from\`,
                  REFERENCED_COLUMN_NAME AS \`to\`
           FROM information_schema.KEY_COLUMN_USAGE
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL
           ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
-        `).all(name).map(serializable)
-      : this.requireReady().prepare(`PRAGMA foreign_key_list(${identifier(name, "object")})`).all().map(serializable);
+        `).all(name).map(serializable);
     return { ...object, writable: object.type === "table" && modelWritableTables.has(name), columns, foreignKeys };
   }
 
   quotedIdentifier(name, label) {
     identifier(name, label);
-    return this.engine === "mariadb" ? `\`${name}\`` : `"${name}"`;
+    return `\`${name}\``;
   }
 
   validateColumns(names, available) {
@@ -344,7 +287,7 @@ export class SlayerDatabase {
     const object = this.objectInfo(table, { writable: true });
     const database = this.requireReady();
     let rows;
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       if (action === "insert") {
         const entries = Object.entries(values);
@@ -359,7 +302,7 @@ export class SlayerDatabase {
           const entries = Object.entries(values);
           if (entries.length === 0) throw new Error("Update requires values");
           this.validateColumns(entries.map(([column]) => column), object.columns);
-        const set = entries.map(([column]) => `${this.quotedIdentifier(column, "column")} = ?`).join(", ");
+          const set = entries.map(([column]) => `${this.quotedIdentifier(column, "column")} = ?`).join(", ");
           rows = database.prepare(`UPDATE ${this.quotedIdentifier(table, "table")} SET ${set}${condition.sql} RETURNING *`)
             .all(...entries.map(([, value]) => normalizeValue(value)), ...condition.values);
         } else if (action === "delete") {

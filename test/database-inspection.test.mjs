@@ -3,30 +3,20 @@ import test from "node:test";
 import { SlayerDatabase, modelWritableTables, summarizeDatabaseObjects } from "../src/database.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
-test("database counts distinguish logical objects from SQLite FTS5 shadow tables", () => {
+test("database counts distinguish application tables and views", () => {
   const objects = [
-    { type: "table", name: "files", sql: "CREATE TABLE files (file_id INTEGER PRIMARY KEY)" },
-    {
-      type: "table",
-      name: "files_fts",
-      sql: "CREATE VIRTUAL TABLE files_fts USING fts5(title, content='files', content_rowid='file_id')",
-    },
-    { type: "table", name: "files_fts_data", sql: "CREATE TABLE files_fts_data(id INTEGER PRIMARY KEY, block BLOB)" },
-    { type: "table", name: "files_fts_idx", sql: "CREATE TABLE files_fts_idx(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID" },
-    { type: "table", name: "files_fts_docsize", sql: "CREATE TABLE files_fts_docsize(id INTEGER PRIMARY KEY, sz BLOB)" },
-    { type: "table", name: "files_fts_config", sql: "CREATE TABLE files_fts_config(k PRIMARY KEY, v) WITHOUT ROWID" },
-    { type: "view", name: "recent_files", sql: "CREATE VIEW recent_files AS SELECT * FROM files" },
+    { type: "table", name: "files" },
+    { type: "table", name: "activity_events" },
+    { type: "view", name: "recent_files" },
   ];
   assert.deepEqual(summarizeDatabaseObjects(objects), {
     applicationTableCount: 2,
     applicationViewCount: 1,
     applicationObjectCount: 3,
-    sqliteObjectCount: 7,
-    fts5ShadowTableCount: 4,
   });
 });
 
-test("MariaDB object discovery quotes its SQLite-compatible sql alias", () => {
+test("MariaDB object discovery quotes its sql alias", () => {
   let statement = "";
   const store = Object.create(SlayerDatabase.prototype);
   store.engine = "mariadb";
@@ -45,7 +35,7 @@ test("MariaDB object discovery quotes its SQLite-compatible sql alias", () => {
 test("generic model writes use an explicit allowlist instead of inheriting new domain tables", (context) => {
   const temporary = temporaryDatabase();
   context.after(temporary.cleanup);
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
 
   assert.deepEqual([...modelWritableTables].sort(), ["content_groups", "content_items"]);

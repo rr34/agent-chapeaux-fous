@@ -3,7 +3,7 @@
 This repository begins with a new history and a standalone runtime design.
 
 Retained product concepts and application-owned work include the Slayer name,
-the SQLite domain model, the web/voice workflow, local transcription, and the
+the MariaDB domain model, the web/voice workflow, local transcription, and the
 idea of a complete activity ledger. The direct model loop, tool registry, MCP
 boundary, request queue, server, web client, and trace presentation in this
 tree are standalone application code.

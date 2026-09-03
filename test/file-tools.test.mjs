@@ -15,7 +15,7 @@ import { temporaryDatabase } from "./helpers.mjs";
 test("stable file tools find, inspect, verify, page, and safely title an upload", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const mediaRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-slayer-file-tools-"));
@@ -91,7 +91,7 @@ test("stable file tools find, inspect, verify, page, and safely title an upload"
 test("table tools inspect a TSV and transform the complete file into durable JSON Lines with exceptions", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const mediaRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-slayer-table-tools-"));

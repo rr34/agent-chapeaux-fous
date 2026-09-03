@@ -37,10 +37,6 @@ function resolveFromRoot(value, fallback) {
 }
 
 function databaseConfiguration(environment) {
-  const engine = selectedValue(environment.SLAYER_DATABASE_ENGINE, ["sqlite", "mariadb"], "sqlite");
-  if (engine === "sqlite") {
-    return { engine, filename: resolveFromRoot(environment.SLAYER_DATABASE, "data/agent.sqlite") };
-  }
   const database = environment.SLAYER_DATABASE_NAME?.trim();
   const user = environment.SLAYER_DATABASE_USER?.trim();
   const password = environment.SLAYER_DATABASE_PASSWORD;
@@ -51,7 +47,7 @@ function databaseConfiguration(environment) {
     throw new Error("SLAYER_DATABASE_USER and SLAYER_DATABASE_PASSWORD are required for MariaDB");
   }
   return {
-    engine,
+    engine: "mariadb",
     connection: {
       host: environment.SLAYER_DATABASE_HOST?.trim() || "localhost",
       port: positiveInteger(environment.SLAYER_DATABASE_PORT, 3306),
@@ -96,7 +92,6 @@ export function loadConfig(environment = process.env) {
     accessToken,
     allowUnauthenticated,
     databaseTarget,
-    databasePath: databaseTarget.engine === "sqlite" ? databaseTarget.filename : null,
     mediaRoot: resolveFromRoot(environment.SLAYER_MEDIA_ROOT, "media"),
     systemPromptPath: path.join(repositoryRoot, "config/system-prompt.md"),
     hatCatalogPath: path.join(repositoryRoot, "config/hats.json"),

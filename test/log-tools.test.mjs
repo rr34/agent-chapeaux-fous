@@ -10,7 +10,7 @@ import { temporaryDatabase } from "./helpers.mjs";
 function loggingHarness(context, requestText = "Log my weight") {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   assert.equal(store.status.ready, true);
   const ledger = new Ledger(store);

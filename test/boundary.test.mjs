@@ -5,7 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const excludedDirectories = new Set(["node_modules", ".git", "data", "media", ".venv"]);
+const excludedDirectories = new Set(["node_modules", ".git", "media", ".venv", "build"]);
 const excludedFiles = new Set([".env"]);
 const excludedRelativeFiles = new Set([
   "db/mariadb/0001-baseline.sql",
@@ -32,6 +32,18 @@ test("the standalone tree contains no previous runtime-host references", () => {
   const matches = [];
   for (const filename of files(root)) {
     if (excludedRelativeFiles.has(path.relative(root, filename))) continue;
+    const content = fs.readFileSync(filename);
+    if (content.includes(0)) continue;
+    if (content.toString("utf8").toLowerCase().includes(forbidden)) matches.push(path.relative(root, filename));
+  }
+  assert.deepEqual(matches, []);
+});
+
+test("the standalone tree contains no retired database-engine references", () => {
+  const forbidden = ["sql", "ite"].join("");
+  const matches = [];
+  for (const filename of files(root)) {
+    if (path.relative(root, filename) === "text.json") continue;
     const content = fs.readFileSync(filename);
     if (content.includes(0)) continue;
     if (content.toString("utf8").toLowerCase().includes(forbidden)) matches.push(path.relative(root, filename));

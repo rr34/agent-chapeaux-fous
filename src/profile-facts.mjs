@@ -71,7 +71,7 @@ export class ProfileFacts {
 
     const database = this.store.requireReady();
     const now = new Date().toISOString();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const before = replacesFactId === null ? null : database.prepare(`
         SELECT * FROM profile_facts
@@ -139,7 +139,7 @@ export class ProfileFacts {
       return { archived: false, alreadyArchived: true, fact: publicFact(before) };
     }
     const now = new Date().toISOString();
-    database.exec("BEGIN IMMEDIATE");
+    database.exec("START TRANSACTION");
     try {
       const row = database.prepare(`
         UPDATE profile_facts

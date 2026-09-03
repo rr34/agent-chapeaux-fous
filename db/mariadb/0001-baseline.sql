@@ -1,9 +1,8 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 28.
+-- Target: MariaDB 10.11, schema version 29.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
--- The SQLite database remains the authoritative migration source until the
--- rehearsal and cutover verification reports both succeed.
+-- This file is the authoritative schema for a fresh Chapeaux Fous database.
 
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
@@ -370,12 +369,17 @@ CREATE TABLE interaction_guide_steps (
 CREATE TABLE todo_routines (
     todo_routine_id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     todo_group_id           BIGINT UNSIGNED NOT NULL,
+    publication_mode        VARCHAR(32) NOT NULL DEFAULT 'on_completion',
     text                    TEXT NOT NULL,
+    default_status          VARCHAR(32) NOT NULL DEFAULT 'todo',
     first_scheduled_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     first_due_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     time_zone               VARCHAR(255) NOT NULL,
     recurrence_rule         TEXT NOT NULL,
+    related_contact_id      BIGINT UNSIGNED,
+    duration_minutes        BIGINT,
     disabled_at_utc         VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
+    source_event_id         VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin,
     created_at_utc          VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
                             DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
     updated_at_utc          VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
@@ -385,11 +389,16 @@ CREATE TABLE todo_routines (
     PRIMARY KEY (todo_routine_id),
     CONSTRAINT todo_routines_group FOREIGN KEY (todo_group_id) REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
     CONSTRAINT todo_routines_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL,
+    CONSTRAINT todo_routines_contact FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
+    CONSTRAINT todo_routines_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT todo_routines_publication_mode CHECK (publication_mode IN ('on_completion', 'calendar')),
+    CONSTRAINT todo_routines_default_status CHECK (default_status IN ('unplanned', 'todo', 'ai_suggested')),
+    CONSTRAINT todo_routines_duration CHECK (duration_minutes IS NULL OR duration_minutes > 0),
     CONSTRAINT todo_routines_all_day CHECK (is_all_day IN (0, 1)),
     CONSTRAINT todo_routines_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
 ) ENGINE=InnoDB;
 
-CREATE TABLE personal_tasks (
+CREATE TABLE todo_personal (
     personal_task_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     todo_group_id        BIGINT UNSIGNED NOT NULL,
     todo_routine_id      BIGINT UNSIGNED,
@@ -411,21 +420,21 @@ CREATE TABLE personal_tasks (
     duration_minutes     BIGINT,
     planning_prompt_text TEXT,
     PRIMARY KEY (personal_task_id),
-    UNIQUE KEY personal_tasks_group_sequence (todo_group_id, sequence),
-    UNIQUE KEY personal_tasks_source_external (source, external_id),
-    UNIQUE KEY personal_tasks_routine_occurrence (todo_routine_id, scheduled_at_utc),
-    KEY personal_tasks_status_schedule (status, scheduled_at_utc, due_at_utc),
-    KEY personal_tasks_group_order (todo_group_id, sort_position, personal_task_id),
-    KEY personal_tasks_contact (related_contact_id, status),
-    CONSTRAINT personal_tasks_group FOREIGN KEY (todo_group_id) REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
-    CONSTRAINT personal_tasks_routine FOREIGN KEY (todo_routine_id) REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,
-    CONSTRAINT personal_tasks_contact_fk FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
-    CONSTRAINT personal_tasks_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
-    CONSTRAINT personal_tasks_sequence CHECK (sequence IS NULL OR sequence > 0),
-    CONSTRAINT personal_tasks_status CHECK (status IN ('unplanned', 'todo', 'complete', 'ignore', 'archive', 'ai_suggested')),
-    CONSTRAINT personal_tasks_all_day CHECK (is_all_day IN (0, 1)),
-    CONSTRAINT personal_tasks_duration CHECK (duration_minutes IS NULL OR duration_minutes > 0),
-    CONSTRAINT personal_tasks_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
+    UNIQUE KEY todo_personal_group_sequence (todo_group_id, sequence),
+    UNIQUE KEY todo_personal_source_external (source, external_id),
+    UNIQUE KEY todo_personal_routine_occurrence (todo_routine_id, scheduled_at_utc),
+    KEY todo_personal_status_schedule (status, scheduled_at_utc, due_at_utc),
+    KEY todo_personal_group_order (todo_group_id, sort_position, personal_task_id),
+    KEY todo_personal_contact (related_contact_id, status),
+    CONSTRAINT todo_personal_group FOREIGN KEY (todo_group_id) REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
+    CONSTRAINT todo_personal_routine FOREIGN KEY (todo_routine_id) REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,
+    CONSTRAINT todo_personal_contact_fk FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
+    CONSTRAINT todo_personal_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT todo_personal_sequence CHECK (sequence IS NULL OR sequence > 0),
+    CONSTRAINT todo_personal_status CHECK (status IN ('unplanned', 'todo', 'complete', 'ignore', 'archive', 'ai_suggested')),
+    CONSTRAINT todo_personal_all_day CHECK (is_all_day IN (0, 1)),
+    CONSTRAINT todo_personal_duration CHECK (duration_minutes IS NULL OR duration_minutes > 0),
+    CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
 ) ENGINE=InnoDB;
 
 CREATE TABLE reminders (
@@ -447,7 +456,7 @@ CREATE TABLE reminders (
     PRIMARY KEY (reminder_id),
     KEY reminders_due (status, remind_at_utc),
     CONSTRAINT reminders_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
-    CONSTRAINT reminders_task FOREIGN KEY (personal_task_id) REFERENCES personal_tasks(personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT reminders_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
     CONSTRAINT reminders_delivery CHECK (delivery_method IN ('agent', 'webhook', 'notification', 'email', 'sms', 'other')),
     CONSTRAINT reminders_status CHECK (status IN ('pending', 'processing', 'delivered', 'snoozed', 'cancelled', 'error')),
     CONSTRAINT reminders_attempt CHECK (attempt_count >= 0)
@@ -578,7 +587,7 @@ CREATE TABLE video_jobs (
     CONSTRAINT video_jobs_event FOREIGN KEY (request_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT video_jobs_content FOREIGN KEY (content_id) REFERENCES content_items(content_id) ON DELETE SET NULL,
     CONSTRAINT video_jobs_file FOREIGN KEY (output_file_id) REFERENCES files(file_id) ON DELETE SET NULL,
-    CONSTRAINT video_jobs_task FOREIGN KEY (personal_task_id) REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL,
+    CONSTRAINT video_jobs_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE SET NULL,
     CONSTRAINT video_jobs_script FOREIGN KEY (video_script_id) REFERENCES video_scripts(video_script_id) ON DELETE SET NULL,
     CONSTRAINT video_jobs_renderer CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),
     CONSTRAINT video_jobs_status CHECK (status IN ('queued', 'preparing', 'rendering', 'complete', 'error', 'cancelled')),
@@ -736,8 +745,8 @@ SELECT * FROM reminders
 WHERE status IN ('pending', 'error')
   AND remind_at_utc <= CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z');
 
-CREATE VIEW open_personal_tasks AS
-SELECT * FROM personal_tasks
+CREATE VIEW open_todo_personal AS
+SELECT * FROM todo_personal
 WHERE status IN ('unplanned', 'todo', 'ai_suggested');
 
 CREATE VIEW upcoming_calendar AS
@@ -782,8 +791,8 @@ BEGIN
   END IF;
 END//
 
-CREATE TRIGGER personal_tasks_assign_sequence_before_insert
-BEFORE INSERT ON personal_tasks
+CREATE TRIGGER todo_personal_assign_sequence_before_insert
+BEFORE INSERT ON todo_personal
 FOR EACH ROW
 BEGIN
   IF NEW.sequence IS NULL
@@ -791,14 +800,14 @@ BEGIN
   THEN
     SET NEW.sequence = (
       SELECT COALESCE(MAX(sequence), 0) + 1
-      FROM personal_tasks
+      FROM todo_personal
       WHERE todo_group_id = NEW.todo_group_id
     );
   END IF;
 END//
 
-CREATE TRIGGER personal_tasks_assign_sequence_before_update
-BEFORE UPDATE ON personal_tasks
+CREATE TRIGGER todo_personal_assign_sequence_before_update
+BEFORE UPDATE ON todo_personal
 FOR EACH ROW
 BEGIN
   IF NEW.sequence IS NULL
@@ -806,7 +815,7 @@ BEGIN
   THEN
     SET NEW.sequence = (
       SELECT COALESCE(MAX(sequence), 0) + 1
-      FROM personal_tasks
+      FROM todo_personal
       WHERE todo_group_id = NEW.todo_group_id
         AND personal_task_id <> OLD.personal_task_id
     );
@@ -850,4 +859,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 28, 'Chapeaux Fous MariaDB database');
+VALUES (1, 29, 'Chapeaux Fous MariaDB database');

@@ -39,8 +39,8 @@ the data. Generic database writes are default-deny for tool-owned tables.
 - Never commit secrets or `.env`.
 - Do not deploy or restart services as part of repository work unless Nate
   explicitly requests that live-system action.
-- Treat `data/agent.sqlite` as Nate's data. Do not replace, recreate, or mutate
-  its schema without explicit approval.
+- Treat the live MariaDB database as Nate's data. Do not replace, recreate, or
+  mutate its schema without explicit approval.
 - Run `npm run db:verify` before and after database-dependent changes.
 - Keep observability linear and literal. Product users should not need to know
   internal lifecycle terminology to understand a trace.

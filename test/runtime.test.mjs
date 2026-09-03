@@ -921,7 +921,7 @@ test("a native thread above the context watermark rolls into a checkpointed repl
 test("oversized live tool results spill to an exact paginated receipt without repeating the action", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const registry = new ToolRegistry();

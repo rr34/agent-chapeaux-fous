@@ -20,7 +20,7 @@ async function standardCatalog() {
 test("profile facts replace by ID, archive, and supply relevant first-call context", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const profileFacts = new ProfileFacts({ store, ledger });
@@ -84,7 +84,7 @@ test("profile facts replace by ID, archive, and supply relevant first-call conte
 test("profile context includes only active rows of relevant types and reports exact truncation", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const profileFacts = new ProfileFacts({ store, ledger });
@@ -124,7 +124,7 @@ test("profile context includes only active rows of relevant types and reports ex
 test("an active time zone is always supplied to native model conversations", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const profileFacts = new ProfileFacts({ store, ledger });
@@ -162,7 +162,7 @@ test("an active time zone is always supplied to native model conversations", asy
 test("a rain request selects the saved default location instead of treating time zone as location", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const profileFacts = new ProfileFacts({ store, ledger });
@@ -193,7 +193,7 @@ test("a rain request selects the saved default location instead of treating time
 test("active presentation preferences are supplied on every model conversation", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const profileFacts = new ProfileFacts({ store, ledger });
@@ -230,7 +230,7 @@ test("active presentation preferences are supplied on every model conversation",
 test("repeatable types keep related people's facts independent", (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
-  const store = new SlayerDatabase(temporary.filename);
+  const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
   const profileFacts = new ProfileFacts({ store, ledger });
