@@ -7,7 +7,11 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const excludedDirectories = new Set(["node_modules", ".git", "data", "media", ".venv"]);
 const excludedFiles = new Set([".env"]);
-const excludedRelativeFiles = new Set(["db/schema-semantics.json", "text.json"]);
+const excludedRelativeFiles = new Set([
+  "db/mariadb/0001-baseline.sql",
+  "db/schema-semantics.json",
+  "text.json",
+]);
 
 function files(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

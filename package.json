@@ -11,7 +11,8 @@
     "schema:migrate": "node scripts/migrate-agent-db.mjs",
     "schema:semantics:sync": "node scripts/sync-agent-schema-semantics.mjs",
     "test": "node --test test/*.test.mjs",
-    "db:verify": "node scripts/verify-database.mjs"
+    "db:verify": "node scripts/verify-database.mjs",
+    "db:mariadb:rehearse": "node scripts/migrate-sqlite-to-mariadb.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
@@ -22,6 +23,7 @@
     "ajv-formats": "3.0.1",
     "dompurify": "3.4.14",
     "marked": "18.0.10",
+    "mysql2": "3.23.3",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "remotion": "4.0.507",
