@@ -21,6 +21,10 @@ const elements = {
   text: document.querySelector("#request-text"),
   send: document.querySelector("#send"),
   respondSilently: document.querySelector("#respond-silently"),
+  composerAttachFile: document.querySelector("#composer-attach-file"),
+  composerFileSelection: document.querySelector("#composer-file-selection"),
+  composerFileLabel: document.querySelector("#composer-file-label"),
+  composerRemoveRequestFile: document.querySelector("#composer-remove-request-file"),
   requestFile: document.querySelector("#request-file"),
   requestFileLabel: document.querySelector("#request-file-label"),
   requestImagePreview: document.querySelector("#request-image-preview"),
@@ -771,6 +775,19 @@ function updateRequestFileSelection() {
     elements.requestImagePreview.src = requestImagePreviewUrl;
   }
   const stored = storedFiles.find(({ fileId }) => fileId === existingFileId);
+  const composerFileLabel = file
+    ? file.name
+    : stored
+      ? `#${stored.fileId} ${stored.title}`
+      : "";
+  elements.composerFileSelection.hidden = !composerFileLabel;
+  elements.composerFileLabel.textContent = composerFileLabel;
+  elements.composerAttachFile.classList.toggle("selected", Boolean(composerFileLabel));
+  elements.composerAttachFile.setAttribute(
+    "aria-label",
+    composerFileLabel ? `Replace attached file: ${composerFileLabel}` : "Attach a file",
+  );
+  elements.composerAttachFile.title = elements.composerAttachFile.getAttribute("aria-label");
   elements.fileSelectionStatus.textContent = file
     ? `${file.name} will be uploaded and attached to the next request.`
     : stored
@@ -5427,6 +5444,7 @@ elements.text.addEventListener("keydown", (event) => {
   if (!elements.send.disabled) elements.form.requestSubmit();
 });
 elements.text.addEventListener("input", resizeRequestText);
+elements.composerAttachFile.addEventListener("click", () => elements.requestFile.click());
 elements.requestFile.addEventListener("change", () => {
   if (elements.requestFile.files?.length) elements.requestExistingFile.value = "";
   updateRequestFileSelection();
@@ -5441,11 +5459,13 @@ elements.editSelectedFile.addEventListener("click", () => {
 });
 elements.fileForm.addEventListener("submit", saveFileDetails);
 elements.respondSilently.addEventListener("change", saveResponseSilencePreference);
-elements.removeRequestFile.addEventListener("click", () => {
+function clearRequestFileSelection() {
   elements.requestFile.value = "";
   elements.requestExistingFile.value = "";
   updateRequestFileSelection();
-});
+}
+elements.removeRequestFile.addEventListener("click", clearRequestFileSelection);
+elements.composerRemoveRequestFile.addEventListener("click", clearRequestFileSelection);
 elements.runLimitsButton.addEventListener("click", openRunLimitsDialog);
 elements.runLimitsForm.addEventListener("submit", applyRunLimits);
 elements.runLimitsDefaults.addEventListener("click", clearRunLimits);

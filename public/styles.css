@@ -222,10 +222,11 @@ section { margin-bottom: 1rem; }
   box-shadow: 0 -14px 48px rgba(17, 24, 39, .14);
   backdrop-filter: blur(16px);
 }
-.composer-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 46px auto; align-items: stretch; gap: .5rem; }
+.composer-input-row { display: grid; grid-template-columns: 46px minmax(0, 1fr) 46px auto; align-items: stretch; gap: .5rem; }
 .voice-recorder { display: grid; place-items: center; }
 .composer.recording .composer-input-row { grid-template-areas: "cancel recorder send"; grid-template-columns: auto minmax(0, 1fr) auto; }
 .composer.recording .composer-input-row textarea { display: none; }
+.composer.recording .composer-attachment-button { display: none; }
 .composer.recording .cancel-recording { grid-area: cancel; }
 .composer.recording .voice-recorder { grid-area: recorder; display: flex; align-items: center; justify-content: center; gap: .55rem; }
 .composer.recording .composer-send { grid-area: send; }
@@ -275,6 +276,26 @@ section { margin-bottom: 1rem; }
 .composer-feedback .status { min-width: 0; margin: 0; overflow: hidden; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .composer-feedback .status:empty { display: none; }
 .composer-hats-link { margin: 0; }
+.composer-attachment-button {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  padding: 0;
+  color: var(--accent);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+.composer-attachment-button:hover, .composer-attachment-button.selected { color: white; background: var(--accent); }
+.composer-attachment-button:focus-visible { outline: 3px solid rgba(78, 91, 67, .25); outline-offset: 3px; }
+.composer-attachment-icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.composer-file-selection { display: inline-flex; align-items: center; min-width: 0; max-width: 20rem; padding: .25rem .3rem .25rem .55rem; color: var(--accent); background: var(--brand-light); border-radius: 999px; font-size: .75rem; }
+.composer-file-selection[hidden] { display: none; }
+.composer-file-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-file-remove { width: 24px; min-width: 24px; min-height: 24px; margin-left: .2rem; padding: 0; color: var(--accent); background: transparent; border-radius: 50%; font-size: 1rem; line-height: 1; }
+.composer-file-remove:hover { color: white; background: var(--accent); }
 
 textarea, input {
   width: 100%;
@@ -1041,7 +1062,8 @@ dialog h2, dialog p { margin-bottom: 0; }
   .settings-menu > summary { width: 34px; height: 34px; }
   .settings-panel { right: 0; }
   .composer { padding-inline: .55rem; border-radius: 13px 13px 0 0; }
-  .composer-input-row { grid-template-columns: minmax(0, 1fr) 42px auto; gap: .35rem; }
+  .composer-input-row { grid-template-columns: 42px minmax(0, 1fr) 42px auto; gap: .35rem; }
+  .composer-attachment-button { width: 42px; height: 42px; min-height: 42px; }
   .record-button { width: 42px; height: 42px; min-height: 42px; }
   .composer textarea { height: 42px; min-height: 42px; padding: .6rem .7rem; }
   .composer-send { min-height: 42px; padding-inline: .7rem; }
@@ -1049,6 +1071,7 @@ dialog h2, dialog p { margin-bottom: 0; }
   .composer-actions { align-items: center; flex-wrap: wrap; }
   .request-attachment-control { width: 100%; }
   .request-file-label { max-width: calc(100vw - 10rem); }
+  .composer-file-selection { max-width: 11rem; }
   .request-existing-file { max-width: 9rem; }
   .request-attachment { grid-template-columns: 1fr; }
   .request-file-description { grid-column: 1; }

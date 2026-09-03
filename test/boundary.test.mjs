@@ -783,14 +783,18 @@ test("the persistent composer uses a compact microphone beside the text box", ()
   assert.match(application, /new ResizeObserver\(updateComposerHeight\)\.observe\(elements\.composer\)/);
 });
 
-test("file controls live on the Files screen instead of the two-row composer", () => {
+test("the composer exposes file upload while the Files screen retains stored-file controls", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const filesView = document.slice(document.indexOf('id="files-view"'), document.indexOf('id="contacts-view"'));
   const composer = document.slice(document.indexOf('id="chat-composer"'), document.indexOf('id="integrations-dialog"'));
-  assert.match(filesView, /id="request-file"[\s\S]+id="request-existing-file"[\s\S]+id="file-list"/);
-  assert.doesNotMatch(composer, /id="request-file"|id="request-existing-file"/);
+  assert.match(filesView, /for="request-file"[\s\S]+id="request-existing-file"[\s\S]+id="file-list"/);
+  assert.match(composer, /id="composer-attach-file"[\s\S]+id="request-file"[\s\S]+id="request-text"/);
+  assert.match(composer, /id="composer-file-selection"[\s\S]+id="composer-remove-request-file"/);
+  assert.doesNotMatch(composer, /id="request-existing-file"/);
   assert.match(composer, /class="composer-input-row"[\s\S]+class="composer-actions"/);
+  assert.match(application, /elements\.composerAttachFile\.addEventListener\("click", \(\) => elements\.requestFile\.click\(\)\)/);
+  assert.match(application, /elements\.composerRemoveRequestFile\.addEventListener\("click", clearRequestFileSelection\)/);
   assert.match(application, /elements\.filesView\.hidden = view !== "files"/);
   assert.match(application, /if \(view === "files"\) void loadFiles\(\)/);
 });
