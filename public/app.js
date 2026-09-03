@@ -1729,27 +1729,29 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   const approvalPanel = node.querySelector(".turn-brief-approval");
   const approval = request.turnBriefApproval;
   approvalPanel.hidden = !approval;
-  if (approval && approvalPanel.dataset.approvalId !== approval.approvalId) {
-    approvalPanel.dataset.approvalId = approval.approvalId;
-    setTextContent(approvalPanel.querySelector(".turn-brief-objective"), approval.objective);
-    setTextContent(approvalPanel.querySelector(".turn-brief-description"), approval.summary);
-    setTextContent(approvalPanel.querySelector(".turn-brief-decision-status"), "");
-    approvalPanel.querySelectorAll("button").forEach((button) => { button.disabled = false; });
-    renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-capabilities"), approval.capabilities, {
-      identity: ({ capability }) => capability,
-      title: ({ title }) => title,
-      summary: ({ summary }) => summary,
-    });
-    renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-tools"), approval.tools, {
-      identity: ({ name }) => name,
-      title: ({ title }) => title,
-      summary: ({ summary }) => summary,
-    });
-    renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-context-views"), approval.contextViews, {
-      identity: ({ id }) => id,
-      title: ({ title }) => title,
-      summary: ({ description }) => description,
-    });
+  if (approval) {
+    if (approvalPanel.dataset.approvalId !== approval.approvalId) {
+      approvalPanel.dataset.approvalId = approval.approvalId;
+      setTextContent(approvalPanel.querySelector(".turn-brief-objective"), approval.objective);
+      setTextContent(approvalPanel.querySelector(".turn-brief-description"), approval.summary);
+      setTextContent(approvalPanel.querySelector(".turn-brief-decision-status"), "");
+      approvalPanel.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+      renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-capabilities"), approval.capabilities, {
+        identity: ({ capability }) => capability,
+        title: ({ title }) => title,
+        summary: ({ summary }) => summary,
+      });
+      renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-tools"), approval.tools, {
+        identity: ({ name }) => name,
+        title: ({ title }) => title,
+        summary: ({ summary }) => summary,
+      });
+      renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-context-views"), approval.contextViews, {
+        identity: ({ id }) => id,
+        title: ({ title }) => title,
+        summary: ({ description }) => description,
+      });
+    }
   } else {
     delete approvalPanel.dataset.approvalId;
   }
