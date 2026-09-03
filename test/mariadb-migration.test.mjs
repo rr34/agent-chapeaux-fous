@@ -74,7 +74,11 @@ test("active video-job uniqueness does not derive a generated column from its fo
 
 test("MariaDB birth-date constraint accepts both SQLite date representations", () => {
   const schema = fs.readFileSync(path.join(repositoryRoot, "db/mariadb/0001-baseline.sql"), "utf8");
-  assert.match(schema, /birth_date REGEXP '\^\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}\$'/);
-  assert.match(schema, /birth_date REGEXP '\^--\[0-9\]\{2\}-\[0-9\]\{2\}\$'/);
-  assert.match(schema, /CONCAT\('2000-', SUBSTRING\(birth_date, 3\)\)/);
+  const contactsTable = schema.match(/CREATE TABLE contacts \([\s\S]*?\n\) ENGINE=InnoDB;/)?.[0] ?? "";
+  const birthDateConstraint = contactsTable.match(/CONSTRAINT contacts_birth_date CHECK \([\s\S]*?\n    \)/)?.[0] ?? "";
+  assert.match(birthDateConstraint, /birth_date REGEXP '\^\(\[0-9\]\{4\}-\|--\)/);
+  assert.doesNotMatch(birthDateConstraint, /DATE_FORMAT/);
+  assert.match(schema, /CREATE TRIGGER contacts_validate_birth_date_before_insert/);
+  assert.match(schema, /CREATE TRIGGER contacts_validate_birth_date_before_update/);
+  assert.match(schema, /MOD\(CAST\(SUBSTRING\(NEW\.birth_date, 1, 4\) AS UNSIGNED\), 400\) = 0/);
 });

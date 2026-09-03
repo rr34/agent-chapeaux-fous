@@ -160,7 +160,7 @@ CREATE TABLE contacts (
     created_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
                        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
     updated_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
-    birth_date         CHAR(10) CHARACTER SET ascii COLLATE ascii_bin,
+    birth_date         VARCHAR(10) CHARACTER SET ascii COLLATE ascii_bin,
     active_self_guard  TINYINT AS (IF(is_self = 1 AND status = 'active', 1, NULL)) PERSISTENT,
     PRIMARY KEY (contact_id),
     UNIQUE KEY contacts_one_self (active_self_guard),
@@ -170,17 +170,7 @@ CREATE TABLE contacts (
     CONSTRAINT contacts_status CHECK (status IN ('active', 'inactive', 'blocked', 'deceased')),
     CONSTRAINT contacts_birth_date CHECK (
       birth_date IS NULL
-      OR (
-        birth_date REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-        AND DATE_FORMAT(STR_TO_DATE(birth_date, '%Y-%m-%d'), '%Y-%m-%d') = birth_date
-      )
-      OR (
-        birth_date REGEXP '^--[0-9]{2}-[0-9]{2}$'
-        AND DATE_FORMAT(
-          STR_TO_DATE(CONCAT('2000-', SUBSTRING(birth_date, 3)), '%Y-%m-%d'),
-          '%Y-%m-%d'
-        ) = CONCAT('2000-', SUBSTRING(birth_date, 3))
-      )
+      OR birth_date REGEXP '^([0-9]{4}-|--)((0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|(0[469]|11)-(0[1-9]|[12][0-9]|30)|02-(0[1-9]|1[0-9]|2[0-9]))$'
     )
 ) ENGINE=InnoDB;
 
@@ -757,6 +747,40 @@ WHERE status IN ('tentative', 'confirmed')
 ORDER BY starts_at_utc;
 
 DELIMITER //
+
+CREATE TRIGGER contacts_validate_birth_date_before_insert
+BEFORE INSERT ON contacts
+FOR EACH ROW
+BEGIN
+  IF NEW.birth_date REGEXP '^[0-9]{4}-02-29$'
+     AND NOT (
+       MOD(CAST(SUBSTRING(NEW.birth_date, 1, 4) AS UNSIGNED), 400) = 0
+       OR (
+         MOD(CAST(SUBSTRING(NEW.birth_date, 1, 4) AS UNSIGNED), 4) = 0
+         AND MOD(CAST(SUBSTRING(NEW.birth_date, 1, 4) AS UNSIGNED), 100) <> 0
+       )
+     )
+  THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'birth_date February 29 requires a leap year';
+  END IF;
+END//
+
+CREATE TRIGGER contacts_validate_birth_date_before_update
+BEFORE UPDATE ON contacts
+FOR EACH ROW
+BEGIN
+  IF NEW.birth_date REGEXP '^[0-9]{4}-02-29$'
+     AND NOT (
+       MOD(CAST(SUBSTRING(NEW.birth_date, 1, 4) AS UNSIGNED), 400) = 0
+       OR (
+         MOD(CAST(SUBSTRING(NEW.birth_date, 1, 4) AS UNSIGNED), 4) = 0
+         AND MOD(CAST(SUBSTRING(NEW.birth_date, 1, 4) AS UNSIGNED), 100) <> 0
+       )
+     )
+  THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'birth_date February 29 requires a leap year';
+  END IF;
+END//
 
 CREATE TRIGGER personal_tasks_assign_sequence_before_insert
 BEFORE INSERT ON personal_tasks
