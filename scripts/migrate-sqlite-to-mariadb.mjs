@@ -70,13 +70,18 @@ try {
 
   sqlite = new DatabaseSync(sourceFilename, { readOnly: true });
   sqlite.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+  const sourceVersion = agentSchemaVersion(sqlite);
+  if (sourceVersion !== 28) {
+    throw new Error(
+      `SQLite source schema version is ${sourceVersion}; expected 28. `
+      + `Migrate the disposable copy first:\n  npm run schema:migrate -- --database ${sourceFilename} --no-semantics`,
+    );
+  }
   const sourceInspection = inspectDatabase(sqlite);
   if (!sourceInspection.ready) {
     throw new Error(`SQLite source is not compatible:\n- ${sourceInspection.problems.join("\n- ")}`);
   }
   assertAgentSemanticFormMatches(sqlite, semanticFormFilename);
-  const sourceVersion = agentSchemaVersion(sqlite);
-  if (sourceVersion !== 28) throw new Error(`Expected SQLite schema version 28, found ${sourceVersion}`);
 
   maria = await mysql.createConnection({
     host: process.env.MARIADB_HOST?.trim() || "localhost",
