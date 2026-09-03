@@ -62,7 +62,9 @@ export function calendarEventCellItem(event) {
 }
 
 export function scheduledTodoCellItem(todo) {
-  return { className: "day-todo", text: todo.text };
+  const routine = todo.routinePublicationMode === "calendar" ? todo.routineText : null;
+  const plan = routine && todo.text !== routine ? ` — ${todo.text}` : "";
+  return { className: "day-todo", text: `${routine ?? todo.text}${plan}` };
 }
 
 export function calendarGridCellContents(items, maximumRows = 8) {

@@ -15,7 +15,8 @@
     "db:mariadb:rehearse": "node scripts/migrate-sqlite-to-mariadb.mjs",
     "db:mariadb:migrate": "node scripts/migrate-sqlite-to-mariadb.mjs",
     "db:mariadb:verify-search": "node scripts/verify-mariadb-search.mjs",
-    "db:mariadb:verify-runtime": "node scripts/verify-mariadb-runtime.mjs"
+    "db:mariadb:verify-runtime": "node scripts/verify-mariadb-runtime.mjs",
+    "db:mariadb:schema:migrate": "node scripts/migrate-mariadb-schema.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

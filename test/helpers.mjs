@@ -16,7 +16,7 @@ export function temporaryDatabase() {
       description TEXT
     ) STRICT;
     INSERT INTO database_meta (singleton, schema_version, description)
-    VALUES (1, 28, 'Agent Slayer test database');
+    VALUES (1, 29, 'Agent Slayer test database');
     CREATE TABLE files (
       file_id INTEGER PRIMARY KEY,
       storage_path TEXT NOT NULL UNIQUE,
@@ -211,7 +211,7 @@ export function temporaryDatabase() {
       started_at_utc TEXT,
       completed_at_utc TEXT,
       updated_at_utc TEXT,
-      personal_task_id INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL,
+      personal_task_id INTEGER REFERENCES todo_personal(personal_task_id) ON DELETE SET NULL,
       video_script_id INTEGER REFERENCES video_scripts(video_script_id) ON DELETE SET NULL
     ) STRICT;
     CREATE INDEX video_jobs_script_created
@@ -293,12 +293,19 @@ export function temporaryDatabase() {
     CREATE TABLE todo_routines (
       todo_routine_id INTEGER PRIMARY KEY,
       todo_group_id INTEGER NOT NULL REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
+      publication_mode TEXT NOT NULL DEFAULT 'on_completion'
+        CHECK (publication_mode IN ('on_completion', 'calendar')),
       text TEXT NOT NULL,
+      default_status TEXT NOT NULL DEFAULT 'todo'
+        CHECK (default_status IN ('unplanned', 'todo', 'ai_suggested')),
       first_scheduled_at_utc TEXT NOT NULL,
       first_due_at_utc TEXT,
       time_zone TEXT NOT NULL,
       recurrence_rule TEXT NOT NULL,
+      related_contact_id INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,
+      duration_minutes INTEGER CHECK (duration_minutes IS NULL OR duration_minutes > 0),
       disabled_at_utc TEXT,
+      source_event_id TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,
       created_at_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at_utc TEXT,
       is_all_day INTEGER NOT NULL DEFAULT 0 CHECK (is_all_day IN (0, 1)),
@@ -306,7 +313,7 @@ export function temporaryDatabase() {
       planning_prompt_text TEXT
         CHECK (planning_prompt_text IS NULL OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000)
     ) STRICT;
-    CREATE TABLE personal_tasks (
+    CREATE TABLE todo_personal (
       personal_task_id INTEGER PRIMARY KEY,
       todo_group_id INTEGER NOT NULL REFERENCES todo_groups(todo_group_id),
       todo_routine_id INTEGER,
@@ -329,45 +336,45 @@ export function temporaryDatabase() {
       planning_prompt_text TEXT
         CHECK (planning_prompt_text IS NULL OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000)
     ) STRICT;
-    CREATE UNIQUE INDEX personal_tasks_group_sequence
-      ON personal_tasks(todo_group_id, sequence)
+    CREATE UNIQUE INDEX todo_personal_group_sequence
+      ON todo_personal(todo_group_id, sequence)
       WHERE sequence IS NOT NULL;
-    CREATE TRIGGER personal_tasks_assign_sequence_after_insert
-    AFTER INSERT ON personal_tasks
+    CREATE TRIGGER todo_personal_assign_sequence_after_insert
+    AFTER INSERT ON todo_personal
     WHEN NEW.sequence IS NULL
      AND EXISTS (
        SELECT 1 FROM todo_groups
        WHERE todo_group_id = NEW.todo_group_id AND uses_sequence = 1
      )
     BEGIN
-      UPDATE personal_tasks
+      UPDATE todo_personal
       SET sequence = (
         SELECT COALESCE(MAX(sequence), 0) + 1
-        FROM personal_tasks
+        FROM todo_personal
         WHERE todo_group_id = NEW.todo_group_id
           AND personal_task_id <> NEW.personal_task_id
       )
       WHERE personal_task_id = NEW.personal_task_id;
     END;
-    CREATE TRIGGER personal_tasks_assign_sequence_after_update
-    AFTER UPDATE OF todo_group_id, sequence ON personal_tasks
+    CREATE TRIGGER todo_personal_assign_sequence_after_update
+    AFTER UPDATE OF todo_group_id, sequence ON todo_personal
     WHEN NEW.sequence IS NULL
      AND EXISTS (
        SELECT 1 FROM todo_groups
        WHERE todo_group_id = NEW.todo_group_id AND uses_sequence = 1
      )
     BEGIN
-      UPDATE personal_tasks
+      UPDATE todo_personal
       SET sequence = (
         SELECT COALESCE(MAX(sequence), 0) + 1
-        FROM personal_tasks
+        FROM todo_personal
         WHERE todo_group_id = NEW.todo_group_id
           AND personal_task_id <> NEW.personal_task_id
       )
       WHERE personal_task_id = NEW.personal_task_id;
     END;
-    CREATE UNIQUE INDEX personal_tasks_routine_occurrence
-      ON personal_tasks(todo_routine_id, scheduled_at_utc)
+    CREATE UNIQUE INDEX todo_personal_routine_occurrence
+      ON todo_personal(todo_routine_id, scheduled_at_utc)
       WHERE todo_routine_id IS NOT NULL AND scheduled_at_utc IS NOT NULL;
     CREATE TABLE log_groups (
       log_group_id INTEGER PRIMARY KEY,

@@ -27,7 +27,7 @@ export function registerDatabaseTools(
   const historyRegistry = registry.withCapability?.("history") ?? registry;
   databaseRegistry.register({
     name: "database_schema",
-    description: "Inspect the existing Slayer SQLite tables, views, columns, foreign keys, and CREATE statements. This never changes schema.",
+    description: "Inspect the existing native database tables, views, columns, and foreign keys. This never changes schema.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -51,7 +51,7 @@ export function registerDatabaseTools(
 
   databaseRegistry.register({
     name: "database_read",
-    description: "Read bounded rows from one existing SQLite table or view. Equality filters only; no raw SQL is accepted. When hasMore is true, repeat the same read with nextOffset to continue.",
+    description: "Read bounded rows from one existing native database table or view. Equality filters only; no raw SQL is accepted. When hasMore is true, repeat the same read with nextOffset to continue.",
     strict: false,
     parameters: {
       type: "object",

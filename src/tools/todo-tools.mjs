@@ -10,7 +10,6 @@ import { localDateForInstant } from "../temporal-consistency.mjs";
 import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
 
 const todoStatuses = ["unplanned", "todo", "complete", "ignore", "archive", "ai_suggested"];
-const routineGroupName = "Routine";
 
 function validateTemporalTarget(value, appliesTo, context, label) {
   if (value == null || value === "") return;
@@ -90,8 +89,10 @@ const personalTaskFields = [
   "planning_prompt_text", "created_at_utc", "updated_at_utc",
 ];
 const todoRoutineFields = [
-  "todo_routine_id", "recurrence_rule", "time_zone", "interaction_guide_id",
-  "planning_prompt_text",
+  "todo_routine_id", "todo_group_id", "publication_mode", "text", "default_status",
+  "first_scheduled_at_utc", "first_due_at_utc", "time_zone", "recurrence_rule",
+  "related_contact_id", "is_all_day", "duration_minutes", "interaction_guide_id",
+  "planning_prompt_text", "disabled_at_utc", "source_event_id",
 ];
 const interactionGuideFields = ["interaction_guide_id", "name", "status", "version"];
 
@@ -100,36 +101,28 @@ const routineAddOutputSchema = {
   additionalProperties: false,
   properties: {
     created: { type: "boolean", const: true },
-    routine_group: {
+    routine: {
       type: "object", additionalProperties: false,
       properties: {
-        todo_group_id: { type: "integer", minimum: 1 },
-        name: { type: "string", const: "Routine" },
-        created: { type: "boolean" },
-        reactivated: { type: "boolean" },
-      },
-      required: ["todo_group_id", "name", "created", "reactivated"],
-    },
-    template: {
-      type: "object", additionalProperties: false,
-      properties: {
-        personal_task_id: { type: "integer", minimum: 1 },
         todo_routine_id: { type: "integer", minimum: 1 },
+        todo_group_id: { type: "integer", minimum: 1 },
+        publication_mode: { type: "string", const: "calendar" },
         text: { type: "string" },
-        status: { type: "string", enum: ["unplanned", "todo"] },
+        default_status: { type: "string", enum: ["unplanned", "todo", "ai_suggested"] },
         planning_prompt_text: { type: ["string", "null"] },
-        scheduled_at_utc: { type: "string" },
+        first_scheduled_at_utc: { type: "string" },
         is_all_day: { type: "integer", enum: [0, 1] },
         duration_minutes: { type: ["integer", "null"], minimum: 1 },
-        due_at_utc: { type: ["string", "null"] },
+        first_due_at_utc: { type: ["string", "null"] },
         recurrence_rule: { type: "string" },
         time_zone: { type: "string" },
         related_contact_id: { type: ["integer", "null"], minimum: 1 },
         interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
       },
       required: [
-        "personal_task_id", "todo_routine_id", "text", "status", "planning_prompt_text", "scheduled_at_utc",
-        "is_all_day", "duration_minutes", "due_at_utc", "recurrence_rule",
+        "todo_routine_id", "todo_group_id", "publication_mode", "text", "default_status",
+        "planning_prompt_text", "first_scheduled_at_utc", "is_all_day", "duration_minutes",
+        "first_due_at_utc", "recurrence_rule",
         "time_zone", "related_contact_id", "interaction_guide_id",
       ],
     },
@@ -138,7 +131,7 @@ const routineAddOutputSchema = {
     },
     schemaProjection: { type: ["object", "null"] },
   },
-  required: ["created", "routine_group", "template", "next_occurrences", "schemaProjection"],
+  required: ["created", "routine", "next_occurrences", "schemaProjection"],
 };
 
 const todoGroupProjection = {
@@ -150,11 +143,19 @@ const activeTodoGroupProjection = {
   fields: { todo_groups: ["todo_group_id", "name", "uses_sequence", "archived_at_utc"] },
 };
 const todoTaskProjection = {
-  schemaObjects: ["personal_tasks", "todo_groups", "todo_routines", "interaction_guides"],
+  schemaObjects: ["todo_personal", "todo_groups", "todo_routines", "interaction_guides"],
   fields: {
-    personal_tasks: personalTaskFields,
+    todo_personal: personalTaskFields,
     todo_groups: ["todo_group_id", "name"],
     todo_routines: todoRoutineFields,
+    interaction_guides: interactionGuideFields,
+  },
+};
+const routineProjection = {
+  schemaObjects: ["todo_routines", "todo_groups", "interaction_guides"],
+  fields: {
+    todo_routines: todoRoutineFields,
+    todo_groups: ["todo_group_id", "name"],
     interaction_guides: interactionGuideFields,
   },
 };
@@ -173,6 +174,8 @@ function databaseTask(row) {
     },
     todo_routines: row.todo_routine_id == null ? null : {
       todo_routine_id: row.todo_routine_id,
+      publication_mode: row.routine_publication_mode ?? null,
+      text: row.routine_text ?? null,
       recurrence_rule: row.routine_recurrence_rule ?? null,
       time_zone: row.routine_time_zone ?? null,
       interaction_guide_id: row.interaction_guide_id ?? null,
@@ -187,9 +190,32 @@ function databaseTask(row) {
   };
 }
 
+function databaseRoutine(routine) {
+  return {
+    todo_routine_id: routine.id,
+    todo_group_id: routine.groupId,
+    publication_mode: routine.publicationMode,
+    text: routine.text,
+    default_status: routine.status,
+    first_scheduled_at_utc: routine.scheduledAtUtc,
+    first_due_at_utc: routine.dueAtUtc,
+    time_zone: routine.recurrenceTimeZone,
+    recurrence_rule: routine.recurrenceRule,
+    related_contact_id: routine.relatedContactId,
+    is_all_day: routine.isAllDay ? 1 : 0,
+    duration_minutes: routine.durationMinutes,
+    interaction_guide_id: routine.interactionGuideId,
+    planning_prompt_text: routine.planningPromptText,
+    disabled_at_utc: routine.disabledAtUtc,
+    source_event_id: routine.sourceEventId,
+  };
+}
+
 function taskWithContext(database, taskId) {
   return database.prepare(`
     SELECT task.*, todo_group.name AS group_name,
+           routine.text AS routine_text,
+           routine.publication_mode AS routine_publication_mode,
            routine.recurrence_rule AS routine_recurrence_rule,
            routine.time_zone AS routine_time_zone,
            routine.interaction_guide_id,
@@ -197,7 +223,7 @@ function taskWithContext(database, taskId) {
            interaction_guide.name AS interaction_guide_name,
            interaction_guide.status AS interaction_guide_status,
            interaction_guide.version AS interaction_guide_version
-    FROM personal_tasks AS task
+    FROM todo_personal AS task
     JOIN todo_groups AS todo_group USING (todo_group_id)
     LEFT JOIN todo_routines AS routine USING (todo_routine_id)
     LEFT JOIN interaction_guides AS interaction_guide
@@ -208,12 +234,12 @@ function taskWithContext(database, taskId) {
 
 function setTodoPosition(database, taskId, position) {
   const selected = database.prepare(`
-    SELECT todo_group_id FROM personal_tasks WHERE personal_task_id = ?
+    SELECT todo_group_id FROM todo_personal WHERE personal_task_id = ?
   `).get(taskId);
   if (!selected) throw new Error(`To-do ${taskId} does not exist`);
   const rows = database.prepare(`
     SELECT personal_task_id
-    FROM personal_tasks
+    FROM todo_personal
     WHERE todo_group_id = ?
     ORDER BY sort_position, personal_task_id
   `).all(selected.todo_group_id);
@@ -227,7 +253,7 @@ function setTodoPosition(database, taskId, position) {
     orderedTaskIds.splice(position - 1, 0, taskId);
     const updatedAtUtc = new Date().toISOString();
     const update = database.prepare(`
-      UPDATE personal_tasks
+      UPDATE todo_personal
       SET sort_position = ?, updated_at_utc = ?
       WHERE personal_task_id = ? AND todo_group_id = ?
     `);
@@ -283,12 +309,10 @@ function prepareTodoUpdate(database, input, { completedAtUtc, updatedAtUtc }) {
   if (!beforeRow) throw new Error(`To-do ${taskId} does not exist`);
   const before = databaseTask(beforeRow);
   const values = {};
-  let targetGroupName = before.todo_groups.name;
   if (input.text !== null) values.text = input.text.trim();
   if (input.group !== null) {
     const group = requireGroup(database, input.group);
     values.todo_group_id = group.todo_group_id;
-    targetGroupName = group.name;
   }
   if (input.clear_related_contact && input.related_contact_id !== null && input.related_contact_id !== undefined) {
     throw new Error("related_contact_id and clear_related_contact cannot both change the to-do");
@@ -344,32 +368,15 @@ function prepareTodoUpdate(database, input, { completedAtUtc, updatedAtUtc }) {
     && (!prospective.scheduled_at_utc || prospective.is_all_day)) {
     throw new Error(`duration_minutes requires a scheduled to-do with an exact time (to-do ${taskId})`);
   }
-  if (targetGroupName.toLowerCase() === routineGroupName.toLowerCase()
-    && (prospective.todo_routine_id == null
-      || !["unplanned", "todo", "ai_suggested"].includes(prospective.status))) {
-    throw new Error("Routine entries must remain active repeating templates; publish them to create completable to-dos.");
-  }
   values.updated_at_utc = updatedAtUtc;
   return { taskId, before, beforeRow, values };
 }
 
 function applyTodoUpdate(database, ledger, context, plan) {
   const assignments = Object.keys(plan.values).map((column) => `"${column}" = ?`).join(", ");
-  database.prepare(`UPDATE personal_tasks SET ${assignments} WHERE personal_task_id = ?`)
+  database.prepare(`UPDATE todo_personal SET ${assignments} WHERE personal_task_id = ?`)
     .run(...Object.values(plan.values), plan.taskId);
   const current = taskWithContext(database, plan.taskId);
-  if (current.todo_routine_id) {
-    database.prepare(`
-      UPDATE todo_routines
-      SET todo_group_id = ?, text = ?, first_scheduled_at_utc = ?, first_due_at_utc = ?,
-          is_all_day = ?, planning_prompt_text = ?, updated_at_utc = ?
-      WHERE todo_routine_id = ?
-    `).run(
-      current.todo_group_id, current.text, current.scheduled_at_utc, current.due_at_utc,
-      current.is_all_day, current.planning_prompt_text, plan.values.updated_at_utc,
-      current.todo_routine_id,
-    );
-  }
   const becameTerminal = ["complete", "ignore"].includes(current.status)
     && !["complete", "ignore"].includes(plan.beforeRow.status);
   const generatedTaskId = becameTerminal
@@ -387,7 +394,7 @@ function applyTodoUpdate(database, ledger, context, plan) {
       subjectType: "personal_task", subjectId: String(generatedTaskId),
     });
     database.prepare(`
-      UPDATE personal_tasks SET source_event_id = ? WHERE personal_task_id = ?
+      UPDATE todo_personal SET source_event_id = ? WHERE personal_task_id = ?
     `).run(generatedEventId, generatedTaskId);
     generatedTask = databaseTask({ ...generated, source_event_id: generatedEventId });
   }
@@ -404,7 +411,7 @@ function activeTodoGroupRows(store) {
            todo_group.archived_at_utc,
            COUNT(task.personal_task_id) AS open_task_count
     FROM todo_groups AS todo_group
-    LEFT JOIN personal_tasks AS task
+    LEFT JOIN todo_personal AS task
       ON task.todo_group_id = todo_group.todo_group_id
      AND task.status NOT IN ('complete', 'ignore', 'archive')
     WHERE todo_group.archived_at_utc IS NULL
@@ -469,7 +476,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_list",
-    description: "List the user's native personal to-do items, including entries rendered as Scheduled task or All-day task on the Calendar screen. Set status to unplanned for the authoritative list of work windows and other items that still need planning, even when their eventual work concerns a property or external system. Use completed_on_date to select tasks completed on one local calendar date and scheduled_on_date to select calendar-visible task instances scheduled on one local date; scheduled_on_date excludes hidden Routine templates so an occurrence can be planned without rewriting its reusable template. These are query filters and do not add ranges to task records. Supply time_zone whenever either date filter is used. With no status and no completed date, terminal tasks remain excluded as before.",
+    description: "List the user's native personal to-do items, including entries rendered as Scheduled task or All-day task on the Calendar screen. Set status to unplanned for the authoritative list of work windows and other items that still need planning, even when their eventual work concerns a property or external system. Use completed_on_date to select tasks completed on one local calendar date and scheduled_on_date to select actual task occurrences scheduled on one local date. These are query filters and do not add ranges to task records. Supply time_zone whenever either date filter is used. With no status and no completed date, terminal tasks remain excluded as before.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -513,9 +520,6 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         conditions.push(`task.${column} >= ? AND task.${column} < ?`);
         values.push(bounds.startsAtUtc, bounds.endsAtUtc);
       }
-      if (scheduledOnDate !== null) {
-        conditions.push("todo_group.name <> 'Routine' COLLATE NOCASE");
-      }
       const order = completedOnDate !== null
         ? "task.completed_at_utc DESC, task.personal_task_id DESC"
         : scheduledOnDate !== null
@@ -525,6 +529,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
                  task.sort_position, task.personal_task_id`;
       const rows = database.prepare(`
         SELECT task.*, todo_group.name AS group_name,
+               routine.text AS routine_text,
+               routine.publication_mode AS routine_publication_mode,
                routine.recurrence_rule AS routine_recurrence_rule,
                routine.time_zone AS routine_time_zone,
                routine.interaction_guide_id,
@@ -532,7 +538,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
                interaction_guide.name AS interaction_guide_name,
                interaction_guide.status AS interaction_guide_status,
                interaction_guide.version AS interaction_guide_version
-        FROM personal_tasks AS task
+        FROM todo_personal AS task
         JOIN todo_groups AS todo_group USING (todo_group_id)
         LEFT JOIN todo_routines AS routine USING (todo_routine_id)
         LEFT JOIN interaction_guides AS interaction_guide
@@ -559,14 +565,55 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   });
 
   registry.register({
+    name: "routine_list",
+    description: "List the active reusable calendar routine definitions themselves. These are standing windows or commitments, not dated personal task occurrences. Use todo_list to read the actual dated tasks produced from them.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+      },
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    metadata: {
+      "agent-slayer/selection": {
+        summary: "List reusable calendar routine definitions separately from their dated task occurrences.",
+        actionClasses: ["READ"],
+        effectClassifications: ["READ-ONLY"],
+      },
+    },
+    async execute({ limit = 100 }, context) {
+      const organizer = new OrganizerStore(store.databaseTarget);
+      try {
+        const routines = organizer.listRoutines({ publicationMode: "calendar" })
+          .slice(0, Math.min(500, Math.max(1, Number(limit) || 100)))
+          .map(databaseRoutine);
+        return todoResult(schemaSemantics, context, { count: routines.length, routines }, {
+          name: "routine_list",
+          purpose: "Return active reusable calendar routine definitions without task occurrences.",
+          projection: routineProjection,
+        });
+      } finally {
+        organizer.close();
+      }
+    },
+  });
+
+  registry.register({
     name: "routine_add",
     title: "Add a reusable routine",
-    description: "Create one reusable Routine template backed by a repeating native to-do. Use status unplanned when each occurrence still needs a concrete plan, and preserve the exact question in planning_prompt_text. Use this instead of todo_add when the user is defining a standing routine or habit: it atomically ensures the reserved Routine group, requires structured recurrence, and returns the saved template with its next three hypothetical occurrences. It creates no calendar event and publishes no real to-do occurrences.",
+    description: "Create one reusable routine definition without creating a personal task. Use status unplanned when each future occurrence still needs a concrete plan, and preserve the exact question in planning_prompt_text. Use this instead of todo_add when the user is defining a standing calendar routine or work window. The routine owns its recurrence, default task group, contact, duration, status, and planning prompt; publishing later creates real dated personal tasks linked by todo_routine_id.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         text: { type: "string", minLength: 1, maxLength: 10000 },
+        group: optionalText,
         status: { type: "string", enum: ["unplanned", "todo"] },
         planning_prompt_text: optionalText,
         related_contact_id: { type: ["integer", "null"], minimum: 1 },
@@ -600,13 +647,13 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     },
     metadata: {
       "agent-slayer/selection": {
-        summary: "Create one reusable Routine template when the user defines a standing routine or habit. Unlike todo_add, this always targets the reserved Routine group and requires recurrence.",
+        summary: "Create one reusable calendar routine definition without creating a task occurrence. Publishing later creates dated personal tasks linked to it.",
         actionClasses: ["CREATE"],
         effectClassifications: ["MUTATING"],
       },
     },
     async execute({
-      text, related_contact_id: relatedContactId,
+      text, group: groupName = null, related_contact_id: relatedContactId,
       status = "todo", planning_prompt_text: planningPromptText = null,
       interaction_guide_id: interactionGuideId,
       scheduled_at_utc: scheduledAtUtc, is_all_day: isAllDay,
@@ -614,10 +661,15 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     }, context) {
       const recurrenceRule = buildTodoRecurrenceRule(recurrence);
       const recurrenceTimeZone = validateTimeZone(recurrence.time_zone);
+      const database = store.requireReady();
+      const requestedGroup = groupName?.trim() || "Inbox";
+      const group = findGroup(database, requestedGroup);
+      if (!group) throw new Error(`Active to-do group ${requestedGroup} does not exist`);
       const organizer = new OrganizerStore(store.databaseTarget);
       try {
         const result = organizer.createRoutine({
           text,
+          groupId: group.todo_group_id,
           status,
           planningPromptText,
           relatedContactId,
@@ -636,34 +688,118 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           source: "agent-slayer",
           channel: "model_tool",
         });
-        const template = {
-          personal_task_id: result.template.id,
-          todo_routine_id: result.template.routineId,
-          text: result.template.text,
-          status: result.template.status,
-          planning_prompt_text: result.template.planningPromptText,
-          scheduled_at_utc: result.template.scheduledAtUtc,
-          is_all_day: result.template.isAllDay ? 1 : 0,
-          duration_minutes: result.template.durationMinutes,
-          due_at_utc: result.template.dueAtUtc,
-          recurrence_rule: result.template.recurrenceRule,
-          time_zone: result.template.recurrenceTimeZone,
-          related_contact_id: result.template.relatedContactId,
-          interaction_guide_id: result.template.interactionGuideId,
+        const routine = {
+          todo_routine_id: result.routine.id,
+          todo_group_id: result.routine.groupId,
+          publication_mode: result.routine.publicationMode,
+          text: result.routine.text,
+          default_status: result.routine.status,
+          planning_prompt_text: result.routine.planningPromptText,
+          first_scheduled_at_utc: result.routine.scheduledAtUtc,
+          is_all_day: result.routine.isAllDay ? 1 : 0,
+          duration_minutes: result.routine.durationMinutes,
+          first_due_at_utc: result.routine.dueAtUtc,
+          recurrence_rule: result.routine.recurrenceRule,
+          time_zone: result.routine.recurrenceTimeZone,
+          related_contact_id: result.routine.relatedContactId,
+          interaction_guide_id: result.routine.interactionGuideId,
         };
         return todoResult(schemaSemantics, context, {
           created: true,
-          routine_group: {
-            todo_group_id: result.group.id,
-            name: result.group.name,
-            created: result.groupCreated,
-            reactivated: result.groupReactivated,
-          },
-          template,
+          routine,
           next_occurrences: result.nextOccurrences,
         }, {
           name: "routine_add",
-          purpose: "Return the reusable Routine template created atomically in the reserved Routine group and its next hypothetical occurrences.",
+          purpose: "Return the reusable routine definition and its next hypothetical occurrences.",
+          projection: routineProjection,
+        });
+      } finally {
+        organizer.close();
+      }
+    },
+  });
+
+  registry.register({
+    name: "routine_update",
+    description: "Update one reusable calendar routine definition. This changes the standing routine used for future publication and does not rewrite personal task occurrences that were already published.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        todo_routine_id: { type: "integer", minimum: 1 },
+        text: { type: "string", minLength: 1, maxLength: 10000 },
+        group: { type: "string", minLength: 1, maxLength: 10000 },
+        status: { type: "string", enum: ["unplanned", "todo", "ai_suggested"] },
+        planning_prompt_text: optionalText,
+        related_contact_id: { type: ["integer", "null"], minimum: 1 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+        scheduled_at_utc: { type: "string", minLength: 1 },
+        is_all_day: { type: "boolean" },
+        duration_minutes: { type: ["integer", "null"], minimum: 1 },
+        due_at_utc: optionalText,
+        recurrence: { ...todoRecurrenceSchema, type: "object" },
+      },
+      required: ["todo_routine_id"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+    metadata: {
+      "agent-slayer/selection": {
+        summary: "Update one standing calendar routine definition without rewriting existing task occurrences.",
+        actionClasses: ["UPDATE"],
+        effectClassifications: ["MUTATING"],
+      },
+    },
+    async execute(input, context) {
+      validateTodoTemporalTargets(input, context, "Routine");
+      const organizer = new OrganizerStore(store.databaseTarget);
+      try {
+        const before = organizer.getRoutine(input.todo_routine_id);
+        if (!before || before.publicationMode !== "calendar") {
+          throw new Error(`Calendar routine ${input.todo_routine_id} does not exist`);
+        }
+        const update = { version: before.version };
+        if (Object.hasOwn(input, "text")) update.text = input.text;
+        if (Object.hasOwn(input, "status")) update.status = input.status;
+        if (Object.hasOwn(input, "planning_prompt_text")) {
+          update.planningPromptText = input.planning_prompt_text;
+        }
+        if (Object.hasOwn(input, "related_contact_id")) {
+          update.relatedContactId = input.related_contact_id;
+        }
+        if (Object.hasOwn(input, "interaction_guide_id")) {
+          update.interactionGuideId = input.interaction_guide_id;
+        }
+        if (Object.hasOwn(input, "scheduled_at_utc")) update.scheduledAtUtc = input.scheduled_at_utc;
+        if (Object.hasOwn(input, "is_all_day")) update.isAllDay = input.is_all_day;
+        if (Object.hasOwn(input, "duration_minutes")) update.durationMinutes = input.duration_minutes;
+        if (Object.hasOwn(input, "due_at_utc")) update.dueAtUtc = input.due_at_utc;
+        if (Object.hasOwn(input, "group")) {
+          update.groupId = requireGroup(store.requireReady(), input.group).todo_group_id;
+        }
+        if (Object.hasOwn(input, "recurrence")) {
+          update.recurrenceRule = buildTodoRecurrenceRule(input.recurrence);
+          update.recurrenceTimeZone = validateTimeZone(input.recurrence.time_zone);
+        }
+        const routine = organizer.updateRoutine(input.todo_routine_id, update, {
+          requestId: context.requestId,
+          callId: context.callId,
+          actorType: "tool",
+          actorName: "routine_update",
+          source: "agent-slayer",
+          channel: "model_tool",
+        });
+        return todoResult(schemaSemantics, context, {
+          updated: routine.version !== before.version,
+          routine: databaseRoutine(routine),
+        }, {
+          name: "routine_update",
+          purpose: "Return the updated reusable calendar routine definition.",
+          projection: routineProjection,
         });
       } finally {
         organizer.close();
@@ -673,7 +809,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_add",
-    description: "Add one native personal to-do item. Use status unplanned when the item still needs a concrete plan and preserve the exact question in planning_prompt_text. The item may also have an exact 1-based group position, contact, all-day schedule, duration, due date, or structured recurrence. duration_minutes is the positive planned work length from scheduled_at_utc and is separate from due_at_utc, which remains a deadline; use it only for an exact-time, non-all-day task. A recurring to-do may link to one active briefing by exact ID; the to-do owns recurrence and the briefing supplies only the conversation plan. Position 1 puts the new task at the top. When the request creates or resolves a contact for this task, pass that tool result's contact_id as related_contact_id. Set is_all_day=true when the user names a calendar day without an exact time; scheduled_at_utc should represent local midnight in the user's time zone. Never write RRULE syntax: express recurrence with frequency, interval, weekdays, month, month_day or ordinal_weekday, count or until_date, and time_zone. A recurring todo requires scheduled_at_utc. The reserved Routine group accepts only repeating templates; published real instances belong in Inbox. Honor an explicitly named group. When no group is named, first use todo_group_list and choose the best clear existing match; use Inbox only when no group is reasonably implied. If the requested group does not exist, add it to Inbox and return group_resolution.used_inbox_fallback=true; then ask whether to create the requested group and move the task. Never create a requested group implicitly.",
+    description: "Add one actual native personal to-do item. Use status unplanned when the item still needs a concrete plan and preserve the exact question in planning_prompt_text. The item may also have an exact 1-based group position, contact, all-day schedule, duration, due date, or structured recurrence. A recurrence creates one routine definition plus this first actual occurrence; later completion generates the next occurrence. Use routine_add instead for a standing calendar routine whose occurrences are published in ranges. duration_minutes is the positive planned work length from scheduled_at_utc and is separate from due_at_utc. Honor an explicitly named group; when none is named, inspect existing groups and use Inbox only when no group is reasonably implied.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -741,36 +877,30 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           ? null
           : ensureGroup(database, "Inbox");
         const selectedGroup = requestedGroupRow ?? inbox.row;
-        if (selectedGroup.name.toLowerCase() === routineGroupName.toLowerCase() && !recurrenceRule) {
-          throw new Error("Items in Routine must repeat. Put one-time to-dos in another group.");
-        }
-        if (selectedGroup.name.toLowerCase() === routineGroupName.toLowerCase()
-          && !["unplanned", "todo", "ai_suggested"].includes(status)) {
-          throw new Error("Routine templates must keep an active to-do status.");
-        }
         const usedInboxFallback = !requestedGroupRow && requestedGroup.toLowerCase() !== "inbox";
         const sortPosition = Number(database.prepare(`
           SELECT COALESCE(MAX(sort_position), 0) + 10 AS value
-          FROM personal_tasks WHERE todo_group_id = ?
+          FROM todo_personal WHERE todo_group_id = ?
         `).get(selectedGroup.todo_group_id).value);
         const sourceEventId = context.requestEventId || null;
         let routineId = null;
         if (recurrenceRule) {
           const routine = database.prepare(`
             INSERT INTO todo_routines (
-              todo_group_id, text, first_scheduled_at_utc, first_due_at_utc,
-              time_zone, is_all_day, recurrence_rule, interaction_guide_id,
-              planning_prompt_text
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              todo_group_id, publication_mode, text, default_status,
+              first_scheduled_at_utc, first_due_at_utc, time_zone, recurrence_rule,
+              related_contact_id, is_all_day, duration_minutes,
+              interaction_guide_id, planning_prompt_text, source_event_id
+            ) VALUES (?, 'on_completion', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
-            selectedGroup.todo_group_id, taskText, scheduledAtUtc, dueAtUtc || null,
-            recurrenceTimeZone, isAllDay ? 1 : 0, recurrenceRule, interactionGuideId,
-            planningPromptText?.trim() || null,
+            selectedGroup.todo_group_id, taskText, status, scheduledAtUtc, dueAtUtc || null,
+            recurrenceTimeZone, recurrenceRule, relatedContactId, isAllDay ? 1 : 0,
+            durationMinutes, interactionGuideId, planningPromptText?.trim() || null, sourceEventId,
           );
           routineId = Number(routine.lastInsertRowid);
         }
         const inserted = database.prepare(`
-          INSERT INTO personal_tasks (
+          INSERT INTO todo_personal (
             todo_group_id, todo_routine_id, related_contact_id, text, status, sort_position,
             scheduled_at_utc, is_all_day, duration_minutes, due_at_utc,
             planning_prompt_text, source, source_event_id
@@ -782,11 +912,13 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         );
         const taskId = Number(inserted.lastInsertRowid);
         if (position !== null) setTodoPosition(database, taskId, position);
-        const row = database.prepare("SELECT * FROM personal_tasks WHERE personal_task_id = ?")
+        const row = database.prepare("SELECT * FROM todo_personal WHERE personal_task_id = ?")
           .get(taskId);
         const task = databaseTask({
           ...row,
           group_name: selectedGroup.name,
+          routine_text: recurrenceRule ? taskText : null,
+          routine_publication_mode: recurrenceRule ? "on_completion" : null,
           routine_recurrence_rule: recurrenceRule,
           routine_time_zone: recurrenceTimeZone,
           routine_planning_prompt_text: planningPromptText?.trim() || null,
@@ -929,7 +1061,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_group_rename",
-    description: "Rename one active native to-do group. Tasks and routines remain in the same group because its stable ID does not change. Inbox and the reserved Routine template group cannot be renamed.",
+    description: "Rename one active native to-do group. Tasks and routine definitions retain the same stable group ID. Inbox cannot be renamed.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1026,7 +1158,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_group_archive",
-    description: "Archive one native to-do group by name so it leaves active group lists. This fails while the group contains active unplanned, todo, or ai_suggested tasks. Completed, ignored, and archived tasks retain their historical group. Inbox and the reserved Routine template group cannot be archived.",
+    description: "Archive one native to-do group by name so it leaves active group lists. This fails while the group contains active unplanned, todo, or ai_suggested tasks. Completed, ignored, and archived tasks retain their historical group. Inbox cannot be archived.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1111,7 +1243,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           WHERE todo_routine_id = ?
         `).run(interactionGuideId, updatedAt, before.todo_routine_id);
         database.prepare(`
-          UPDATE personal_tasks SET updated_at_utc = ? WHERE personal_task_id = ?
+          UPDATE todo_personal SET updated_at_utc = ? WHERE personal_task_id = ?
         `).run(updatedAt, taskId);
         const task = databaseTask(taskWithContext(database, taskId));
         ledger.append({
@@ -1163,6 +1295,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       const database = store.requireReady();
       const before = database.prepare(`
         SELECT task.*, todo_group.name AS group_name,
+               routine.text AS routine_text,
+               routine.publication_mode AS routine_publication_mode,
                routine.recurrence_rule AS routine_recurrence_rule,
                routine.time_zone AS routine_time_zone,
                routine.interaction_guide_id,
@@ -1170,7 +1304,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
                interaction_guide.name AS interaction_guide_name,
                interaction_guide.status AS interaction_guide_status,
                interaction_guide.version AS interaction_guide_version
-        FROM personal_tasks AS task
+        FROM todo_personal AS task
         JOIN todo_groups AS todo_group USING (todo_group_id)
         LEFT JOIN todo_routines AS routine USING (todo_routine_id)
         LEFT JOIN interaction_guides AS interaction_guide
@@ -1178,8 +1312,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         WHERE task.personal_task_id = ?
       `).get(taskId);
       if (!before) throw new Error(`To-do ${taskId} does not exist`);
-      if (before.group_name.toLowerCase() === routineGroupName.toLowerCase() && !enabled) {
-        throw new Error("Routine templates must repeat. Move the task to another group before removing recurrence.");
+      if (before.routine_publication_mode === "calendar") {
+        throw new Error("Change a calendar routine through its routine definition, not through one dated task occurrence");
       }
       if (enabled && !recurrence) throw new Error("recurrence is required when enabled is true");
       if (enabled && !before.scheduled_at_utc) throw new Error("Schedule the to-do before enabling recurrence");
@@ -1207,26 +1341,33 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         if (enabled && routineId) {
           database.prepare(`
             UPDATE todo_routines
-            SET todo_group_id = ?, text = ?, first_scheduled_at_utc = ?, first_due_at_utc = ?,
-                time_zone = ?, is_all_day = ?, recurrence_rule = ?, interaction_guide_id = ?,
-                planning_prompt_text = ?, disabled_at_utc = NULL, updated_at_utc = ?
+            SET todo_group_id = ?, text = ?, default_status = ?,
+                first_scheduled_at_utc = ?, first_due_at_utc = ?, time_zone = ?,
+                recurrence_rule = ?, related_contact_id = ?, is_all_day = ?, duration_minutes = ?,
+                interaction_guide_id = ?, planning_prompt_text = ?,
+                disabled_at_utc = NULL, updated_at_utc = ?
             WHERE todo_routine_id = ?
           `).run(
-            before.todo_group_id, before.text, before.scheduled_at_utc, before.due_at_utc,
-            recurrenceTimeZone, before.is_all_day, recurrenceRule, interactionGuideId,
-            before.planning_prompt_text, updatedAt, routineId,
+            before.todo_group_id, before.text,
+            ["unplanned", "todo", "ai_suggested"].includes(before.status) ? before.status : "todo",
+            before.scheduled_at_utc, before.due_at_utc, recurrenceTimeZone, recurrenceRule,
+            before.related_contact_id, before.is_all_day, before.duration_minutes,
+            interactionGuideId, before.planning_prompt_text, updatedAt, routineId,
           );
         } else if (enabled) {
           const routine = database.prepare(`
             INSERT INTO todo_routines (
-              todo_group_id, text, first_scheduled_at_utc, first_due_at_utc,
-              time_zone, is_all_day, recurrence_rule, interaction_guide_id,
-              planning_prompt_text
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              todo_group_id, publication_mode, text, default_status,
+              first_scheduled_at_utc, first_due_at_utc, time_zone, recurrence_rule,
+              related_contact_id, is_all_day, duration_minutes,
+              interaction_guide_id, planning_prompt_text
+            ) VALUES (?, 'on_completion', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
-            before.todo_group_id, before.text, before.scheduled_at_utc, before.due_at_utc,
-            recurrenceTimeZone, before.is_all_day, recurrenceRule, interactionGuideId,
-            before.planning_prompt_text,
+            before.todo_group_id, before.text,
+            ["unplanned", "todo", "ai_suggested"].includes(before.status) ? before.status : "todo",
+            before.scheduled_at_utc, before.due_at_utc, recurrenceTimeZone, recurrenceRule,
+            before.related_contact_id, before.is_all_day, before.duration_minutes,
+            interactionGuideId, before.planning_prompt_text,
           );
           routineId = Number(routine.lastInsertRowid);
         } else if (routineId) {
@@ -1237,11 +1378,13 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           routineId = null;
         }
         database.prepare(`
-          UPDATE personal_tasks SET todo_routine_id = ?, updated_at_utc = ?
+          UPDATE todo_personal SET todo_routine_id = ?, updated_at_utc = ?
           WHERE personal_task_id = ?
         `).run(routineId, updatedAt, taskId);
         const row = database.prepare(`
           SELECT task.*, todo_group.name AS group_name,
+                 routine.text AS routine_text,
+                 routine.publication_mode AS routine_publication_mode,
                  routine.recurrence_rule AS routine_recurrence_rule,
                  routine.time_zone AS routine_time_zone,
                  routine.interaction_guide_id,
@@ -1249,7 +1392,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
                  interaction_guide.name AS interaction_guide_name,
                  interaction_guide.status AS interaction_guide_status,
                  interaction_guide.version AS interaction_guide_version
-          FROM personal_tasks AS task
+          FROM todo_personal AS task
           JOIN todo_groups AS todo_group USING (todo_group_id)
           LEFT JOIN todo_routines AS routine USING (todo_routine_id)
           LEFT JOIN interaction_guides AS interaction_guide
@@ -1281,7 +1424,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_move_overdue_to_today",
-    description: "Move every active one-time native to-do scheduled before the specified local day onto that day in one batch. Use this when the user asks to move, roll, or stack overdue ordinary tasks onto today. The scheduled local time is preserved, and any due date moves by the same number of calendar days. Routine templates and routine-managed or routine-published occurrences keep their recurrence-defined dates. Completed, ignored, archived, unscheduled, and already-current tasks are also unchanged. The result records each moved task's exact previous and resulting schedule and due timestamps so a later correction can restore it without guessing.",
+    description: "Move every active one-time native to-do scheduled before the specified local day onto that day in one batch. Use this when the user asks to move, roll, or stack overdue ordinary tasks onto today. The scheduled local time is preserved, and any due date moves by the same number of calendar days. Tasks linked to routine definitions keep their recurrence-defined dates. Completed, ignored, archived, unscheduled, and already-current tasks are also unchanged.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1306,7 +1449,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
                  interaction_guide.name AS interaction_guide_name,
                  interaction_guide.status AS interaction_guide_status,
                  interaction_guide.version AS interaction_guide_version
-          FROM personal_tasks AS task
+          FROM todo_personal AS task
           JOIN todo_groups AS todo_group USING (todo_group_id)
           LEFT JOIN todo_routines AS routine USING (todo_routine_id)
           LEFT JOIN interaction_guides AS interaction_guide

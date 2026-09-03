@@ -21,13 +21,8 @@ function selectedActiveGroup(database, { groupId = null, groupName = null } = {}
 export function renameTodoGroup(database, { groupId = null, groupName = null, newName } = {}) {
   const group = selectedActiveGroup(database, { groupId, groupName });
   if (!group) throw new TodoGroupOperationError("To-do group not found.", 404);
-  if (["inbox", "routine"].includes(group.name.toLowerCase())) {
-    throw new TodoGroupOperationError(
-      group.name.toLowerCase() === "inbox"
-        ? "Inbox is the permanent catchall and cannot be renamed."
-        : "Routine is the reserved routine-template group and cannot be renamed.",
-      409,
-    );
+  if (group.name.toLowerCase() === "inbox") {
+    throw new TodoGroupOperationError("Inbox is the permanent catchall and cannot be renamed.", 409);
   }
   const name = typeof newName === "string" ? newName.trim() : "";
   if (!name) throw new TodoGroupOperationError("A new group name is required.");
@@ -59,18 +54,13 @@ export function renameTodoGroup(database, { groupId = null, groupName = null, ne
 export function archiveEmptyTodoGroup(database, { groupId = null, groupName = null } = {}) {
   const group = selectedActiveGroup(database, { groupId, groupName });
   if (!group) throw new TodoGroupOperationError("To-do group not found.", 404);
-  if (["inbox", "routine"].includes(group.name.toLowerCase())) {
-    throw new TodoGroupOperationError(
-      group.name.toLowerCase() === "inbox"
-        ? "Inbox is the permanent catchall and cannot be archived."
-        : "Routine is the reserved routine-template group and cannot be archived.",
-      409,
-    );
+  if (group.name.toLowerCase() === "inbox") {
+    throw new TodoGroupOperationError("Inbox is the permanent catchall and cannot be archived.", 409);
   }
 
   const activeTaskCount = Number(database.prepare(`
     SELECT COUNT(*) AS count
-    FROM personal_tasks
+    FROM todo_personal
     WHERE todo_group_id = ? AND status IN ('unplanned', 'todo', 'ai_suggested')
   `).get(group.todo_group_id).count);
   if (activeTaskCount > 0) {
@@ -81,7 +71,7 @@ export function archiveEmptyTodoGroup(database, { groupId = null, groupName = nu
   }
 
   const retainedTerminalTaskCount = Number(database.prepare(`
-    SELECT COUNT(*) AS count FROM personal_tasks WHERE todo_group_id = ?
+    SELECT COUNT(*) AS count FROM todo_personal WHERE todo_group_id = ?
   `).get(group.todo_group_id).count);
   const archivedAtUtc = new Date().toISOString();
   const archived = database.prepare(`
@@ -111,17 +101,17 @@ export function setTodoGroupSequenceMode(database, {
   if (usesSequence) {
     const nextSequence = Number(database.prepare(`
       SELECT COALESCE(MAX(sequence), 0) + 1 AS value
-      FROM personal_tasks
+      FROM todo_personal
       WHERE todo_group_id = ?
     `).get(group.todo_group_id).value);
     const unnumbered = database.prepare(`
       SELECT personal_task_id
-      FROM personal_tasks
+      FROM todo_personal
       WHERE todo_group_id = ? AND sequence IS NULL
       ORDER BY sort_position, personal_task_id
     `).all(group.todo_group_id);
     const assign = database.prepare(`
-      UPDATE personal_tasks
+      UPDATE todo_personal
       SET sequence = ?, updated_at_utc = ?
       WHERE personal_task_id = ? AND sequence IS NULL
     `);

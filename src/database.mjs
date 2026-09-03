@@ -45,7 +45,7 @@ export const requiredDatabaseShape = {
   ],
   calendar_event_exclusions: ["calendar_event_id", "excluded_starts_at_utc"],
   todo_groups: ["todo_group_id", "name", "sort_position", "uses_sequence", "archived_at_utc"],
-  personal_tasks: [
+  todo_personal: [
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
     "scheduled_at_utc", "is_all_day", "duration_minutes", "due_at_utc", "completed_at_utc", "source_event_id",
     "planning_prompt_text",
@@ -74,7 +74,8 @@ export const requiredDatabaseShape = {
     "todo_routine_id", "todo_group_id", "text", "first_scheduled_at_utc",
     "first_due_at_utc", "time_zone", "recurrence_rule", "disabled_at_utc",
     "created_at_utc", "updated_at_utc", "is_all_day", "interaction_guide_id",
-    "planning_prompt_text",
+    "planning_prompt_text", "publication_mode", "default_status",
+    "related_contact_id", "duration_minutes", "source_event_id",
   ],
 };
 
@@ -156,8 +157,8 @@ export function inspectMariaDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 28) {
-    problems.push(`Expected MariaDB schema version 28, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 29) {
+    problems.push(`Expected MariaDB schema version 29, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

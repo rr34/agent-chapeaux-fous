@@ -64,7 +64,7 @@ try {
   assert.equal(objects.filter(({ type }) => type === "table").length, 32);
   assert.equal(objects.filter(({ type }) => type === "view").length, 7);
   assert.ok(store.objectInfo("contacts").columns.some(({ name }) => name === "birth_date"));
-  assert.equal(store.read({ objectName: "database_meta", limit: 1 }).rows[0].schema_version, 28);
+  assert.equal(store.read({ objectName: "database_meta", limit: 1 }).rows[0].schema_version, 29);
 
   organizer = new OrganizerStore(target);
   const ledger = new Ledger(store);

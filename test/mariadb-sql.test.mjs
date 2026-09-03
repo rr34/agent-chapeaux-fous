@@ -10,10 +10,10 @@ test("SQLite transaction and conflict syntax translates to MariaDB", () => {
     "INSERT IGNORE INTO record_tags (tag_id) VALUES (?)",
   );
   assert.equal(
-    translateSqliteSql(`INSERT INTO personal_tasks (todo_routine_id, scheduled_at_utc) VALUES (?, ?)
+    translateSqliteSql(`INSERT INTO todo_personal (todo_routine_id, scheduled_at_utc) VALUES (?, ?)
       ON CONFLICT (todo_routine_id, scheduled_at_utc) WHERE todo_routine_id IS NOT NULL
       DO NOTHING`),
-    "INSERT IGNORE INTO personal_tasks (todo_routine_id, scheduled_at_utc) VALUES (?, ?)",
+    "INSERT IGNORE INTO todo_personal (todo_routine_id, scheduled_at_utc) VALUES (?, ?)",
   );
 });
 

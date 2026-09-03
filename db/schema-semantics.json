@@ -8,7 +8,7 @@
   "database": {
     "engine": "sqlite",
     "name": "main",
-    "schemaVersion": 28,
+    "schemaVersion": 29,
     "schemaFingerprint": "abc4f1cc61db6a62ff21ee4d8fbcd148c0127b204e95850b3dba3eb3c0bf3d48",
     "extractedAt": "2026-09-03T01:28:51.971Z"
   },
@@ -11017,11 +11017,11 @@
         }
       }
     },
-    "open_personal_tasks": {
+    "open_todo_personal": {
       "mechanics": {
         "present": true,
         "kind": "view",
-        "definition": "CREATE VIEW open_personal_tasks AS\nSELECT *\nFROM personal_tasks\nWHERE status IN ('unplanned', 'todo', 'ai_suggested')",
+        "definition": "CREATE VIEW open_todo_personal AS\nSELECT *\nFROM todo_personal\nWHERE status IN ('unplanned', 'todo', 'ai_suggested')",
         "indexes": []
       },
       "semantics": {
@@ -11029,7 +11029,7 @@
         "rowMeaning": "One row represents one task whose status is unplanned, todo, or ai_suggested.",
         "sourceOfTruth": false,
         "derivedFrom": [
-          "personal_tasks"
+          "todo_personal"
         ],
         "synonyms": [
           "open tasks",
@@ -11062,7 +11062,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.personal_task_id",
+            "inheritsFrom": "todo_personal.personal_task_id",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11089,7 +11089,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.todo_group_id",
+            "inheritsFrom": "todo_personal.todo_group_id",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11116,7 +11116,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.todo_routine_id",
+            "inheritsFrom": "todo_personal.todo_routine_id",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11143,7 +11143,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.sequence",
+            "inheritsFrom": "todo_personal.sequence",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11170,7 +11170,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.related_contact_id",
+            "inheritsFrom": "todo_personal.related_contact_id",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11197,7 +11197,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.text",
+            "inheritsFrom": "todo_personal.text",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11228,7 +11228,7 @@
             ]
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.status",
+            "inheritsFrom": "todo_personal.status",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11255,7 +11255,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.sort_position",
+            "inheritsFrom": "todo_personal.sort_position",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11282,7 +11282,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.scheduled_at_utc",
+            "inheritsFrom": "todo_personal.scheduled_at_utc",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11309,7 +11309,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.due_at_utc",
+            "inheritsFrom": "todo_personal.due_at_utc",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11336,7 +11336,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.completed_at_utc",
+            "inheritsFrom": "todo_personal.completed_at_utc",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11363,7 +11363,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.source",
+            "inheritsFrom": "todo_personal.source",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11390,7 +11390,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.external_id",
+            "inheritsFrom": "todo_personal.external_id",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11417,7 +11417,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.source_event_id",
+            "inheritsFrom": "todo_personal.source_event_id",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11444,7 +11444,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.created_at_utc",
+            "inheritsFrom": "todo_personal.created_at_utc",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11471,7 +11471,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.updated_at_utc",
+            "inheritsFrom": "todo_personal.updated_at_utc",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11498,7 +11498,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.is_all_day",
+            "inheritsFrom": "todo_personal.is_all_day",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11525,7 +11525,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.duration_minutes",
+            "inheritsFrom": "todo_personal.duration_minutes",
             "meaning": null,
             "units": null,
             "format": null,
@@ -11552,7 +11552,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.planning_prompt_text",
+            "inheritsFrom": "todo_personal.planning_prompt_text",
             "meaning": null,
             "units": null,
             "format": null,
@@ -12124,14 +12124,14 @@
       },
       "relationships": {}
     },
-    "personal_tasks": {
+    "todo_personal": {
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE personal_tasks (\n    personal_task_id    INTEGER PRIMARY KEY,\n    todo_group_id       INTEGER NOT NULL\n                        REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    todo_routine_id     INTEGER\n                        REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,\n    sequence            INTEGER CHECK (sequence IS NULL OR sequence > 0),\n    related_contact_id  INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    text                TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'todo'\n                        CHECK (status IN (\n                            'unplanned', 'todo', 'complete', 'ignore',\n                            'archive', 'ai_suggested'\n                        )),\n    sort_position       INTEGER NOT NULL DEFAULT 0,\n    scheduled_at_utc    TEXT,\n    due_at_utc          TEXT,\n    completed_at_utc    TEXT,\n    source              TEXT,\n    external_id         TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT,\n    is_all_day          INTEGER NOT NULL DEFAULT 0\n                        CHECK (is_all_day IN (0, 1)),\n    duration_minutes    INTEGER\n                        CHECK (duration_minutes IS NULL OR duration_minutes > 0),\n    planning_prompt_text TEXT\n                        CHECK (\n                            planning_prompt_text IS NULL\n                            OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000\n                        ),\n    UNIQUE (todo_group_id, sequence),\n    UNIQUE (source, external_id)\n) STRICT",
+        "definition": "CREATE TABLE todo_personal (\n    personal_task_id    INTEGER PRIMARY KEY,\n    todo_group_id       INTEGER NOT NULL\n                        REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,\n    todo_routine_id     INTEGER\n                        REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,\n    sequence            INTEGER CHECK (sequence IS NULL OR sequence > 0),\n    related_contact_id  INTEGER REFERENCES contacts(contact_id) ON DELETE SET NULL,\n    text                TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'todo'\n                        CHECK (status IN (\n                            'unplanned', 'todo', 'complete', 'ignore',\n                            'archive', 'ai_suggested'\n                        )),\n    sort_position       INTEGER NOT NULL DEFAULT 0,\n    scheduled_at_utc    TEXT,\n    due_at_utc          TEXT,\n    completed_at_utc    TEXT,\n    source              TEXT,\n    external_id         TEXT,\n    source_event_id     TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT,\n    is_all_day          INTEGER NOT NULL DEFAULT 0\n                        CHECK (is_all_day IN (0, 1)),\n    duration_minutes    INTEGER\n                        CHECK (duration_minutes IS NULL OR duration_minutes > 0),\n    planning_prompt_text TEXT\n                        CHECK (\n                            planning_prompt_text IS NULL\n                            OR length(trim(planning_prompt_text)) BETWEEN 1 AND 10000\n                        ),\n    UNIQUE (todo_group_id, sequence),\n    UNIQUE (source, external_id)\n) STRICT",
         "indexes": [
           {
-            "name": "personal_tasks_contact",
+            "name": "todo_personal_contact",
             "columns": [
               "related_contact_id",
               "status"
@@ -12141,7 +12141,7 @@
             "origin": "c"
           },
           {
-            "name": "personal_tasks_group_order",
+            "name": "todo_personal_group_order",
             "columns": [
               "todo_group_id",
               "sort_position",
@@ -12152,7 +12152,7 @@
             "origin": "c"
           },
           {
-            "name": "personal_tasks_routine_occurrence",
+            "name": "todo_personal_routine_occurrence",
             "columns": [
               "todo_routine_id",
               "scheduled_at_utc"
@@ -12162,7 +12162,7 @@
             "origin": "c"
           },
           {
-            "name": "personal_tasks_status_schedule",
+            "name": "todo_personal_status_schedule",
             "columns": [
               "status",
               "scheduled_at_utc",
@@ -12173,7 +12173,7 @@
             "origin": "c"
           },
           {
-            "name": "sqlite_autoindex_personal_tasks_1",
+            "name": "sqlite_autoindex_todo_personal_1",
             "columns": [
               "todo_group_id",
               "sequence"
@@ -12183,7 +12183,7 @@
             "origin": "u"
           },
           {
-            "name": "sqlite_autoindex_personal_tasks_2",
+            "name": "sqlite_autoindex_todo_personal_2",
             "columns": [
               "source",
               "external_id"
@@ -12195,8 +12195,8 @@
         ]
       },
       "semantics": {
-        "purpose": "Stores the ordinary actionable and historical tasks in the user's authoritative personal To-Do List.",
-        "rowMeaning": "One row represents one personal task, including one generated occurrence of a routine when todo_routine_id is present.",
+        "purpose": "Stores actual actionable and historical occurrences in the user’s authoritative personal To-Do List.",
+        "rowMeaning": "One row represents one actual personal task occurrence; todo_routine_id optionally links it to the reusable definition that produced it.",
         "sourceOfTruth": true,
         "derivedFrom": [],
         "synonyms": [
@@ -12218,7 +12218,8 @@
           "Every task belongs to exactly one todo group.",
           "sequence is an optional stable identifier unique within a group; sort_position is mutable presentation order.",
           "scheduled_at_utc places work on the calendar, due_at_utc is its deadline, and completed_at_utc records actual completion.",
-          "The single text field contains the complete task wording; there is no title-description split.",
+          "The single text field contains the concrete plan for this occurrence and may differ from its parent routine text.",
+          "Editing an occurrence does not rewrite its linked routine definition.",
           "unplanned is an active status for an item that still needs a concrete plan.",
           "planning_prompt_text is nullable and independent of status."
         ],
@@ -12294,7 +12295,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": null,
+            "meaning": "Optional parent routine definition that generated this actual task occurrence.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -14480,7 +14481,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE reminders (\n    reminder_id         INTEGER PRIMARY KEY,\n    calendar_event_id   INTEGER REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE CASCADE,\n    title               TEXT,\n    remind_at_utc       TEXT NOT NULL,\n    delivery_method     TEXT NOT NULL DEFAULT 'agent'\n                        CHECK (delivery_method IN (\n                            'agent', 'webhook', 'notification',\n                            'email', 'sms', 'other'\n                        )),\n    delivery_target     TEXT,\n    status              TEXT NOT NULL DEFAULT 'pending'\n                        CHECK (status IN (\n                            'pending', 'processing', 'delivered',\n                            'snoozed', 'cancelled', 'error'\n                        )),\n    attempt_count       INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),\n    last_attempt_at_utc TEXT,\n    delivered_at_utc   TEXT,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n) STRICT",
+        "definition": "CREATE TABLE reminders (\n    reminder_id         INTEGER PRIMARY KEY,\n    calendar_event_id   INTEGER REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,\n    personal_task_id    INTEGER REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,\n    title               TEXT,\n    remind_at_utc       TEXT NOT NULL,\n    delivery_method     TEXT NOT NULL DEFAULT 'agent'\n                        CHECK (delivery_method IN (\n                            'agent', 'webhook', 'notification',\n                            'email', 'sms', 'other'\n                        )),\n    delivery_target     TEXT,\n    status              TEXT NOT NULL DEFAULT 'pending'\n                        CHECK (status IN (\n                            'pending', 'processing', 'delivered',\n                            'snoozed', 'cancelled', 'error'\n                        )),\n    attempt_count       INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),\n    last_attempt_at_utc TEXT,\n    delivered_at_utc   TEXT,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    updated_at_utc      TEXT\n) STRICT",
         "indexes": [
           {
             "name": "reminders_due",
@@ -15011,14 +15012,14 @@
             ]
           }
         },
-        "fk:personal_task_id->personal_tasks.personal_task_id": {
+        "fk:personal_task_id->todo_personal.personal_task_id": {
           "mechanics": {
             "present": true,
-            "id": "fk:personal_task_id->personal_tasks.personal_task_id",
+            "id": "fk:personal_task_id->todo_personal.personal_task_id",
             "columns": [
               "personal_task_id"
             ],
-            "targetObject": "personal_tasks",
+            "targetObject": "todo_personal",
             "targetColumns": [
               "personal_task_id"
             ],
@@ -15502,8 +15503,8 @@
         "indexes": []
       },
       "semantics": {
-        "purpose": "Stores reusable RRULE-backed definitions that generate ordinary personal task occurrences.",
-        "rowMeaning": "One row represents one recurring task definition, its original schedule anchor, optional deadline offset, time zone, and enabled state.",
+        "purpose": "Stores authoritative reusable definitions for standing calendar routines and completion-driven recurring personal tasks.",
+        "rowMeaning": "One row represents one reusable routine definition, including its publication behavior, destination group, default occurrence content, schedule anchor, and recurrence rule.",
         "sourceOfTruth": true,
         "derivedFrom": [],
         "synonyms": [
@@ -15522,10 +15523,11 @@
         ],
         "routingWeight": 0.9,
         "importantRules": [
-          "The single text field contains the complete routine wording; there is no title-description split.",
+          "A calendar routine is a definition, not a hidden personal task; publishing creates dated tasks linked by todo_routine_id.",
+          "An on_completion routine generates its next actual task when the current linked occurrence is completed or ignored.",
+          "Editing a linked task occurrence does not rewrite the parent routine definition.",
           "RRULE determines recurrence from first_scheduled_at_utc in time_zone.",
-          "Completing or ignoring an occurrence generates the next future occurrence without accumulating missed work.",
-          "planning_prompt_text is copied into each generated occurrence; a routine whose template task is unplanned keeps future occurrences unplanned."
+          "Default status, contact, duration, guide, and planning prompt are copied into newly generated occurrences."
         ],
         "sensitivity": "Contains the user's private recurring responsibilities and schedules."
       },
@@ -15584,11 +15586,41 @@
             "sensitivity": null
           }
         },
+        "publication_mode": {
+          "mechanics": {
+            "present": true,
+            "name": "publication_mode",
+            "ordinal": 2,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'on_completion'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": [
+              "calendar",
+              "on_completion"
+            ]
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Controls whether dated occurrences are published into calendar ranges or generated after completion of the prior occurrence.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
         "text": {
           "mechanics": {
             "present": true,
             "name": "text",
-            "ordinal": 2,
+            "ordinal": 3,
             "type": "TEXT",
             "nullable": false,
             "default": null,
@@ -15611,11 +15643,42 @@
             "sensitivity": "May contain private recurring plans and instructions."
           }
         },
+        "default_status": {
+          "mechanics": {
+            "present": true,
+            "name": "default_status",
+            "ordinal": 4,
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'todo'",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": [
+              "unplanned",
+              "todo",
+              "ai_suggested"
+            ]
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Initial lifecycle status assigned to each new task occurrence.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
         "first_scheduled_at_utc": {
           "mechanics": {
             "present": true,
             "name": "first_scheduled_at_utc",
-            "ordinal": 3,
+            "ordinal": 5,
             "type": "TEXT",
             "nullable": false,
             "default": null,
@@ -15642,7 +15705,7 @@
           "mechanics": {
             "present": true,
             "name": "first_due_at_utc",
-            "ordinal": 4,
+            "ordinal": 6,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -15669,7 +15732,7 @@
           "mechanics": {
             "present": true,
             "name": "time_zone",
-            "ordinal": 5,
+            "ordinal": 7,
             "type": "TEXT",
             "nullable": false,
             "default": null,
@@ -15696,7 +15759,7 @@
           "mechanics": {
             "present": true,
             "name": "recurrence_rule",
-            "ordinal": 6,
+            "ordinal": 8,
             "type": "TEXT",
             "nullable": false,
             "default": null,
@@ -15719,11 +15782,65 @@
             "sensitivity": null
           }
         },
+        "related_contact_id": {
+          "mechanics": {
+            "present": true,
+            "name": "related_contact_id",
+            "ordinal": 9,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Optional contact copied to each newly generated task occurrence.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "duration_minutes": {
+          "mechanics": {
+            "present": true,
+            "name": "duration_minutes",
+            "ordinal": 10,
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Positive planned duration copied to each task occurrence.",
+            "units": null,
+            "format": "Positive whole minutes",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
         "disabled_at_utc": {
           "mechanics": {
             "present": true,
             "name": "disabled_at_utc",
-            "ordinal": 7,
+            "ordinal": 11,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -15746,11 +15863,38 @@
             "sensitivity": null
           }
         },
+        "source_event_id": {
+          "mechanics": {
+            "present": true,
+            "name": "source_event_id",
+            "ordinal": 12,
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Activity event that created this routine definition.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
         "created_at_utc": {
           "mechanics": {
             "present": true,
             "name": "created_at_utc",
-            "ordinal": 8,
+            "ordinal": 13,
             "type": "TEXT",
             "nullable": false,
             "default": "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
@@ -15777,7 +15921,7 @@
           "mechanics": {
             "present": true,
             "name": "updated_at_utc",
-            "ordinal": 9,
+            "ordinal": 14,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -15804,7 +15948,7 @@
           "mechanics": {
             "present": true,
             "name": "is_all_day",
-            "ordinal": 10,
+            "ordinal": 15,
             "type": "INTEGER",
             "nullable": false,
             "default": "0",
@@ -15814,7 +15958,7 @@
             "allowedValues": []
           },
           "semantics": {
-            "inheritsFrom": "personal_tasks.is_all_day",
+            "inheritsFrom": "todo_personal.is_all_day",
             "meaning": null,
             "units": null,
             "format": null,
@@ -15831,7 +15975,7 @@
           "mechanics": {
             "present": true,
             "name": "interaction_guide_id",
-            "ordinal": 11,
+            "ordinal": 16,
             "type": "INTEGER",
             "nullable": true,
             "default": null,
@@ -15860,7 +16004,7 @@
           "mechanics": {
             "present": true,
             "name": "planning_prompt_text",
-            "ordinal": 12,
+            "ordinal": 17,
             "type": "TEXT",
             "nullable": true,
             "default": null,
@@ -15915,6 +16059,48 @@
             "importantRules": [
               "Deleting a guide clears this optional reference without deleting the recurring to-do."
             ]
+          }
+        },
+        "fk:related_contact_id->contacts.contact_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:related_contact_id->contacts.contact_id",
+            "columns": [
+              "related_contact_id"
+            ],
+            "targetObject": "contacts",
+            "targetColumns": [
+              "contact_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "SET NULL"
+          },
+          "semantics": {
+            "meaning": "Associates a routine definition with the optional contact copied to each new task occurrence.",
+            "cardinality": "Each routine references zero or one contact; one contact may be referenced by multiple routines.",
+            "importantRules": [
+              "Deleting a contact clears this optional reference without deleting the routine."
+            ]
+          }
+        },
+        "fk:source_event_id->activity_events.event_id": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:source_event_id->activity_events.event_id",
+            "columns": [
+              "source_event_id"
+            ],
+            "targetObject": "activity_events",
+            "targetColumns": [
+              "event_id"
+            ],
+            "onUpdate": "NO ACTION",
+            "onDelete": "SET NULL"
+          },
+          "semantics": {
+            "meaning": "Links the routine definition to the activity event that created it.",
+            "cardinality": "Each routine references zero or one source event.",
+            "importantRules": []
           }
         },
         "fk:todo_group_id->todo_groups.todo_group_id": {
@@ -16798,7 +16984,7 @@
       "mechanics": {
         "present": true,
         "kind": "table",
-        "definition": "CREATE TABLE video_jobs (\n    video_job_id        INTEGER PRIMARY KEY,\n    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    source_turn_id      TEXT,\n    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,\n    renderer            TEXT NOT NULL DEFAULT 'remotion'\n                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),\n    template            TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'queued'\n                        CHECK (status IN (\n                            'queued', 'preparing', 'rendering',\n                            'complete', 'error', 'cancelled'\n                        )),\n    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),\n    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    started_at_utc      TEXT,\n    completed_at_utc    TEXT,\n    updated_at_utc      TEXT,\n    personal_task_id    INTEGER REFERENCES personal_tasks(personal_task_id) ON DELETE SET NULL,\n    video_script_id     INTEGER REFERENCES video_scripts(video_script_id) ON DELETE SET NULL\n) STRICT",
+        "definition": "CREATE TABLE video_jobs (\n    video_job_id        INTEGER PRIMARY KEY,\n    request_event_id    TEXT REFERENCES activity_events(event_id) ON DELETE SET NULL,\n    source_turn_id      TEXT,\n    content_id          INTEGER REFERENCES content_items(content_id) ON DELETE SET NULL,\n    renderer            TEXT NOT NULL DEFAULT 'remotion'\n                        CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),\n    template            TEXT NOT NULL,\n    status              TEXT NOT NULL DEFAULT 'queued'\n                        CHECK (status IN (\n                            'queued', 'preparing', 'rendering',\n                            'complete', 'error', 'cancelled'\n                        )),\n    input_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_json)),\n    output_file_id      INTEGER REFERENCES files(file_id) ON DELETE SET NULL,\n    error_text          TEXT,\n    created_at_utc      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n    started_at_utc      TEXT,\n    completed_at_utc    TEXT,\n    updated_at_utc      TEXT,\n    personal_task_id    INTEGER REFERENCES todo_personal(personal_task_id) ON DELETE SET NULL,\n    video_script_id     INTEGER REFERENCES video_scripts(video_script_id) ON DELETE SET NULL\n) STRICT",
         "indexes": [
           {
             "name": "video_jobs_one_active_script",
@@ -17378,14 +17564,14 @@
             ]
           }
         },
-        "fk:personal_task_id->personal_tasks.personal_task_id": {
+        "fk:personal_task_id->todo_personal.personal_task_id": {
           "mechanics": {
             "present": true,
-            "id": "fk:personal_task_id->personal_tasks.personal_task_id",
+            "id": "fk:personal_task_id->todo_personal.personal_task_id",
             "columns": [
               "personal_task_id"
             ],
-            "targetObject": "personal_tasks",
+            "targetObject": "todo_personal",
             "targetColumns": [
               "personal_task_id"
             ],

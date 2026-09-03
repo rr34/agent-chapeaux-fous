@@ -3,7 +3,7 @@
 Chapeaux Fous is a small, inspectable model-and-tools application. The internal
 repository and compatibility identifiers still use `agent-slayer`. It is not an
 agent framework and has no plugin host. The request compiler, tool registry,
-SQLite ledger, and web client are provider-neutral. The installed transport is the
+MariaDB ledger, and web client are provider-neutral. The installed transport is the
 directly billed OpenAI Responses API because it supports first-class image
 input, response chains, structured outputs, and application-defined functions.
 
@@ -188,7 +188,7 @@ returns a normalized final response, usage report, and provider trace.
 
 The installed adapter is `openai-responses`. The provider-neutral contract is
 retained deliberately: another provider should require a protocol adapter while
-modality-independent context, SQLite, tools, queueing, and ledger behavior
+modality-independent context, database, tools, queueing, and ledger behavior
 remain owned by Slayer. This is an explicit application boundary, not a plugin
 system.
 
@@ -243,7 +243,7 @@ uses its own strong effort. These are configurable with
 
 Local tools are ordinary JavaScript functions:
 
-Native database-backed tool results preserve SQLite column names and attach the
+Native database-backed tool results preserve stored column names and attach the
 schema-semantic compiler's operation-specific projection. The tracked semantic
 form is therefore the single human-authored source for explaining stored fields
 to the model; UI transport objects remain an independent browser concern.
@@ -261,7 +261,8 @@ capability selector, which controls which exact tool schemas are callable.
   local network targets are rejected, DNS is pinned for the request, and binary
   responses are not returned to the model.
 - `todo_group_list`, `todo_group_create`, `todo_group_rename`,
-  `todo_group_archive`, `todo_list`, `todo_add`, `todo_recurrence_set`,
+  `todo_group_archive`, `todo_list`, `routine_list`, `routine_add`,
+  `routine_update`, `todo_add`, `todo_recurrence_set`,
   `todo_interaction_guide_set`, `todo_position_set`, and `todo_update` provide the native personal to-do path
   without requiring the model to invent SQL. The agent inspects existing groups before
   assigning an otherwise ungrouped task; Inbox is the catchall when no group is
@@ -349,7 +350,7 @@ capability selector, which controls which exact tool schemas are callable.
   the exact projection compiled from the tracked schema-semantic form.
 - `tool_receipt_list` and `tool_receipt_read` expose bounded, paginated access
   to exact historical call/result receipts. Tool results larger than
-  `SLAYER_MAX_INLINE_TOOL_RESULT_CHARACTERS` remain whole in SQLite while the
+  `SLAYER_MAX_INLINE_TOOL_RESULT_CHARACTERS` remain whole in MariaDB while the
   live model exchange receives a first chunk and receipt cursor. The model can
   retrieve additional chunks without repeating the original read or write.
 - `history_recent`, `history_search`, and `history_range` read the
@@ -372,7 +373,7 @@ capability selector, which controls which exact tool schemas are callable.
   path. Compact searches keep Inbox triage bounded. Cleanup previews retain an
   exact candidate set for 30 minutes; applying one uses its Email state token to
   reject stale writes and moves the reviewed set to Trash or Archive in one
-  recoverable operation. Reads go to the live mail store rather than a SQLite
+  recoverable operation. Reads go to the live mail store rather than a database
   cache. Draft creation never implies delivery; `email_send` is a separate
   externally effective operation and moves successful submissions from Drafts
   to Sent. Durable cleanup receipts reconstruct exact affected messages from
@@ -412,7 +413,7 @@ those types. Each row has a stable ID and self-contained natural-language text
 identifying its person or item. The model replaces an exact row by ID when that
 same real-world fact changes, or adds another row for a different person or
 item. No extra model call is made, and no profile section is sent when no
-standard type is relevant. Answers live only in SQLite; the repository contains
+standard type is relevant. Answers live only in MariaDB; the repository contains
 no user's profile values.
 
 Remote MCP tools are discovered by Agent Slayer from
@@ -472,12 +473,12 @@ back to unrelated local database tools.
 
 ## Database and schema changes
 
-No database is committed. Put the latest consistent SQLite snapshot at
-`data/agent.sqlite`, run `npm run schema:migrate`, then run `npm run db:verify`.
-The migration runner creates a timestamped backup before applying explicitly
-approved migrations from `db/migrations.sql`. It applies each migration in a
-transaction, checks SQLite integrity, and synchronizes the mechanical portion
-of `db/schema-semantics.json` while preserving its human-authored meanings.
+No database is committed. The live application database is MariaDB. After
+creating a current MariaDB dump, rehearse an application schema upgrade with
+`npm run db:mariadb:schema:migrate -- --database chapeauxfous_rehearsal`.
+Apply the same tracked migration to production only with the explicit live and
+backup acknowledgements documented by the command's `--help` output. The
+application does not migrate or write an old SQLite snapshot during this flow.
 
 `profile_facts` is the authoritative store for durable user facts. Multiple
 active rows may share a broad type such as `vehicle`; their text identifies the

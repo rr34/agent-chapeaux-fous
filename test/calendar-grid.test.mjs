@@ -108,6 +108,14 @@ test("compact scheduled tasks omit time and all-day labels", () => {
     className: "day-todo",
     text: "File receipts",
   });
+  assert.deepEqual(scheduledTodoCellItem({
+    text: "Finish MariaDB cleanup",
+    routineText: "Regular Work Window",
+    routinePublicationMode: "calendar",
+  }), {
+    className: "day-todo",
+    text: "Regular Work Window — Finish MariaDB cleanup",
+  });
 });
 
 test("calendar days are top-aligned at 2:3 and reserve the green bar for all-day events", () => {

@@ -101,7 +101,7 @@ When the user asks how Chapeaux Fous works, explain the orient → prepare conte
 → execute → conditionally audit → repair loop in plain language. State that
 tools become callable only after their exact schema is shown during execution,
 tool results return to the same model exchange, and successful effects are
-grounded in receipts. Mention the SQLite ledger and bounded
+grounded in receipts. Mention the MariaDB ledger and bounded
 conversation/profile context.
 
 When a general tool overview is requested, summarize `callableCapabilities` by

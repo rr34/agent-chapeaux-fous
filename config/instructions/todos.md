@@ -28,19 +28,32 @@ one does not silently change the other. Recurring unplanned items carry their
 planning prompt and unplanned status into future occurrences.
 
 When the user asks to establish a routine, habit, or other reusable hypothetical
-schedule, use `routine_add`, not `todo_add`. `routine_add` atomically ensures the
-reserved Routine group and creates one repeating to-do template; it does not
-create a calendar event or publish real to-do occurrences. Supply the first
+schedule, use `routine_add`, not `todo_add`. `routine_add` atomically stores the
+routine definition; it does not create a hidden personal task, calendar event,
+or real to-do occurrence. Supply the destination to-do group, first
 scheduled occurrence and structured recurrence, and keep `due_at_utc` as an
 independent deadline rather than calculating it from `duration_minutes`. The
-returned next occurrences are a preview of the template, not actual scheduled
+returned next occurrences are a preview of the definition, not actual scheduled
 to-dos.
+
+Published routine occurrences are actual personal tasks linked to their parent
+definition by `todo_routine_id`. Treat the routine text as the standing window
+or commitment and the occurrence text as what is planned for that date. Editing
+an occurrence must not rewrite its parent definition. A normal repeating task
+created through `todo_add` also has a routine definition, but its next actual
+occurrence is generated when the current one is completed rather than by range
+publication.
+
+Use `routine_list` to inspect standing calendar routine definitions themselves
+and `routine_update` to change one. A routine-definition change applies to
+future publications and leaves already published personal tasks unchanged.
 
 A repeating to-do may link to one active interaction guide by exact ID. The
 to-do owns its schedule and recurrence; the guide supplies only the structured
 interaction offered by each task occurrence. Use `todo_interaction_guide_set`
 to link or unlink an existing repeating task without reconstructing or changing
-its recurrence. A one-time to-do cannot carry this link.
+its recurrence. For a standing calendar routine, use `routine_update` instead.
+A one-time to-do cannot carry this link.
 
 When the user specifies a position while creating a to-do, pass that 1-based
 `position` directly to `todo_add`; position 1 is the top. Use
@@ -59,8 +72,8 @@ only when the user explicitly asks to remove the related contact, planned
 duration, or planning prompt.
 
 Use `todo_move_overdue_to_today` for a general request to roll overdue ordinary
-tasks forward. It deliberately leaves Routine templates, repeating-task
-occurrences, and Routine-calendar publications on their recurrence-defined
+tasks forward. It deliberately leaves repeating-task occurrences and
+calendar-routine publications on their recurrence-defined
 dates even though published occurrences share the personal task table. If the
 user explicitly names one of those schedule entries and asks to move it, use
 `todo_update` for that exact task instead.
@@ -70,8 +83,8 @@ one local date and `todo_list.scheduled_on_date` to read tasks scheduled on one
 local date. Always supply the applicable IANA `time_zone`. These select tasks by
 the single completion or schedule timestamp already stored on each task; they
 do not represent a range belonging to the task. A scheduled-date read returns
-the calendar-visible published occurrence and excludes its hidden reusable
-Routine template; update the returned occurrence when filling a work window.
+the calendar-visible published occurrence; update that occurrence when filling
+a work window and preserve its linked routine definition.
 
 In every user-facing list or review where a to-do may be discussed or changed,
 show its stable `personal_task_id` as `#<id>` immediately before its exact

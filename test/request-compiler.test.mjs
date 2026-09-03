@@ -446,7 +446,7 @@ test("routine and habit requests select the dedicated reusable-routine tool", ()
   const routineCatalog = requestCapabilityCatalog(registry.toolDefinitions())
     .find(({ capability }) => capability === "todos")
     .tools.find(({ name }) => name === "routine_add");
-  assert.match(routineCatalog.summary, /Unlike todo_add/);
+  assert.match(routineCatalog.summary, /without creating an occurrence/);
   assert.match(routineCatalog.summary, /Actions: CREATE\. Effects: MUTATING\.$/);
   assert.equal(routineCatalog.summary.length <= 400, true);
 });

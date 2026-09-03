@@ -409,7 +409,8 @@ let calendarSearchSequence = 0;
 let activeTodos = [];
 let selectedRoutineDate = new Date();
 let routineOccurrences = [];
-let routineTemplates = [];
+let routineDefinitions = [];
+let editingRoutineDefinition = false;
 let calendarSchedulingTodo = null;
 let calendarSchedulingBusy = false;
 let eventInviteEventId = null;
@@ -2092,20 +2093,14 @@ function occursOnDay(calendarEvent, day) {
   return occursDuringCalendarDay(calendarEvent.startsAtUtc, calendarEvent.endsAtUtc, day);
 }
 
-function isRoutineTemplate(todo) {
-  return todo?.groupName?.toLowerCase() === "routine";
-}
-
 function todosDueOnDay(day) {
   const key = localDateKey(day);
-  return activeTodos.filter((todo) => !isRoutineTemplate(todo)
-    && todo.dueAtUtc && localDateKey(todo.dueAtUtc) === key);
+  return activeTodos.filter((todo) => todo.dueAtUtc && localDateKey(todo.dueAtUtc) === key);
 }
 
 function todosScheduledOnDay(day) {
   const key = localDateKey(day);
-  return activeTodos.filter((todo) => !isRoutineTemplate(todo)
-    && todo.scheduledAtUtc && localDateKey(todo.scheduledAtUtc) === key);
+  return activeTodos.filter((todo) => todo.scheduledAtUtc && localDateKey(todo.scheduledAtUtc) === key);
 }
 
 function formatEventTime(calendarEvent) {
@@ -2298,15 +2293,14 @@ async function refreshRoutine() {
   const from = startOfDay(dates[0]);
   const to = addDays(startOfDay(dates.at(-1)), 1);
   try {
-    const [previewBody, todoBody, groupBody, contactBody, guideBody] = await Promise.all([
+    const [previewBody, groupBody, contactBody, guideBody] = await Promise.all([
       api(`/api/routines/preview?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`),
-      api("/api/todos?scope=active&limit=1000"),
       api("/api/todo-groups"),
       api("/api/contacts?scope=all&limit=10000"),
       api("/api/interaction-guides?status=active&limit=500"),
     ]);
     routineOccurrences = previewBody.occurrences;
-    routineTemplates = todoBody.todos.filter(isRoutineTemplate);
+    routineDefinitions = previewBody.routines;
     todoGroups = groupBody.groups;
     todoContacts = contactBody.contacts;
     todoGuides = guideBody.guides;
@@ -2352,7 +2346,7 @@ function renderRoutineAgenda() {
     return;
   }
   for (const occurrence of occurrences) {
-    const template = routineTemplates.find(({ id }) => id === occurrence.templateTodoId);
+    const routine = routineDefinitions.find(({ id }) => id === occurrence.routineId);
     const item = node("div", "agenda-event");
     const button = node("button", "agenda-item todo");
     button.type = "button";
@@ -2360,12 +2354,15 @@ function renderRoutineAgenda() {
       node("strong", "", occurrence.text),
       node("span", "", `${plannedTimeLabel(occurrence, selectedRoutineDate)} · ${describeTodoRecurrence(occurrence.recurrenceRule)}`),
     );
-    button.disabled = !template;
-    if (template) button.addEventListener("click", () => openTodoEditor(template));
+    button.disabled = !routine;
+    if (routine) button.addEventListener("click", () => openTodoEditor(routine, null, { routine: true }));
     item.append(button);
-    if (template) {
+    if (routine) {
       const actions = node("div", "agenda-event-actions");
-      actions.append(agentReferenceButton(todoIdentity(template), `task ${template.text}`));
+      actions.append(agentReferenceButton(
+        `Routine: ${routine.text}\ntodo_routine_id: ${routine.id}`,
+        `routine ${routine.text}`,
+      ));
       item.append(actions);
     }
     elements.routineAgendaList.append(item);
@@ -2396,31 +2393,25 @@ function renderRoutine() {
 }
 
 async function openNewRoutine() {
-  try {
-    const { group } = await api("/api/routines/ensure-group", { method: "POST" });
-    if (!todoGroups.some(({ id }) => id === group.id)) todoGroups.push(group);
-    openTodoEditor(null, group.id);
-    elements.todoDialogTitle.textContent = "New routine";
-    todoTimingEditor.load({
-      start: new Date(
-        selectedRoutineDate.getFullYear(),
-        selectedRoutineDate.getMonth(),
-        selectedRoutineDate.getDate(),
-      ),
-      isAllDay: true,
-    });
-    elements.todoRepeatEnabled.checked = true;
-    elements.todoRepeatFrequency.value = "WEEKLY";
-    const weekday = repeatAnchorWeekday(todoTimingEditor.values().start);
-    for (const checkbox of elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
-      checkbox.checked = checkbox.value === weekday;
-    }
-    todoRecurrenceDirty = true;
-    updateTodoRecurrenceEditor();
-    updateTodoClearScheduledVisibility();
-  } catch (error) {
-    elements.routinePublishStatus.textContent = error.message || "Could not create a routine.";
+  const inbox = todoGroups.find(({ name }) => name.toLowerCase() === "inbox") ?? todoGroups[0];
+  openTodoEditor(null, inbox?.id ?? null, { routine: true });
+  todoTimingEditor.load({
+    start: new Date(
+      selectedRoutineDate.getFullYear(),
+      selectedRoutineDate.getMonth(),
+      selectedRoutineDate.getDate(),
+    ),
+    isAllDay: true,
+  });
+  elements.todoRepeatEnabled.checked = true;
+  elements.todoRepeatFrequency.value = "WEEKLY";
+  const weekday = repeatAnchorWeekday(todoTimingEditor.values().start);
+  for (const checkbox of elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
+    checkbox.checked = checkbox.value === weekday;
   }
+  todoRecurrenceDirty = true;
+  updateTodoRecurrenceEditor();
+  updateTodoClearScheduledVisibility();
 }
 
 async function publishRoutineRange(from, to) {
@@ -2707,7 +2698,17 @@ function agendaTodoItem(todo, timing) {
     const item = node("div", "agenda-event");
     const button = node("button", "agenda-item todo");
     button.type = "button";
-    button.append(node("strong", "", todo.text), node("span", "", `${timing} · ${todo.status.replaceAll("_", " ")}`));
+    if (todo.routinePublicationMode === "calendar" && todo.routineText) {
+      button.append(
+        node("strong", "", todo.routineText),
+        node("span", "agenda-item-description", todo.text === todo.routineText && todo.status === "unplanned"
+          ? "Plan not set"
+          : todo.text),
+      );
+    } else {
+      button.append(node("strong", "", todo.text));
+    }
+    button.append(node("span", "", `${timing} · ${todo.status.replaceAll("_", " ")}`));
     button.addEventListener("click", () => openTodoEditor(todo));
     const actions = node("div", "agenda-event-actions");
     actions.append(agentReferenceButton(todoIdentity(todo), `task ${todo.text}`));
@@ -3011,7 +3012,7 @@ async function refreshTodos() {
       api("/api/contacts?scope=all&limit=10000"),
       api("/api/interaction-guides?status=active&limit=500"),
     ]);
-    displayedTodos = body.todos.filter((todo) => !isRoutineTemplate(todo));
+    displayedTodos = body.todos;
     todoGroups = groupBody.groups;
     todoContacts = contactBody.contacts;
     todoGuides = guideBody.guides;
@@ -3381,10 +3382,13 @@ async function assignNextTodoSequence(todo, button) {
   }
 }
 
-function openTodoEditor(todo = null, groupId = null) {
+function openTodoEditor(todo = null, groupId = null, { routine = false } = {}) {
+  editingRoutineDefinition = routine;
   elements.todoForm.reset();
   elements.todoFormError.textContent = "";
-  elements.todoDialogTitle.textContent = todo ? "Edit todo" : "New todo";
+  elements.todoDialogTitle.textContent = routine
+    ? (todo ? "Edit routine" : "New routine")
+    : (todo?.routineText ? `${todo.routineText} · Edit todo` : (todo ? "Edit todo" : "New todo"));
   elements.todoId.value = todo?.id ?? "";
   elements.todoVersion.value = todo?.version ?? "";
   populateTodoGroupEditor(todo?.groupId ?? groupId ?? (elements.todoGroupFilter.value || todoGroups[0]?.id || ""));
@@ -3393,6 +3397,7 @@ function openTodoEditor(todo = null, groupId = null) {
   elements.todoText.value = todo?.text ?? "";
   elements.todoPlanningPrompt.value = todo?.planningPromptText ?? "";
   elements.todoSequence.value = todo?.sequence ?? "";
+  elements.todoSequence.disabled = routine;
   todoTimingEditor.load({
     start: todo?.scheduledAtUtc ?? null,
     duration: todo?.durationMinutes ?? null,
@@ -3402,7 +3407,13 @@ function openTodoEditor(todo = null, groupId = null) {
   elements.todoDue.value = due.date;
   elements.todoDueTime.value = due.time;
   elements.todoStatus.value = todo?.status ?? "todo";
-  loadTodoRecurrenceEditor(todo?.recurrenceRule ?? null, todo?.recurrenceTimeZone ?? null);
+  for (const option of elements.todoStatus.options) {
+    option.disabled = routine && !["unplanned", "todo", "ai_suggested"].includes(option.value);
+  }
+  loadTodoRecurrenceEditor(
+    !routine && todo?.routinePublicationMode === "calendar" ? null : (todo?.recurrenceRule ?? null),
+    !routine && todo?.routinePublicationMode === "calendar" ? null : (todo?.recurrenceTimeZone ?? null),
+  );
   updateTodoClearScheduledVisibility();
   elements.todoDialog.showModal();
   elements.todoText.focus();
@@ -3542,7 +3553,11 @@ async function saveTodo(event) {
     }
     const id = elements.todoId.value;
     if (id) payload.version = elements.todoVersion.value;
-    await api(id ? `/api/todos/${id}` : "/api/todos", {
+    if (editingRoutineDefinition) delete payload.sequence;
+    const endpoint = editingRoutineDefinition
+      ? (id ? `/api/routines/${id}` : "/api/routines")
+      : (id ? `/api/todos/${id}` : "/api/todos");
+    await api(endpoint, {
       method: id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
     elements.todoDialog.close();

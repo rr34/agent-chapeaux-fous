@@ -523,27 +523,29 @@ test("grouped and recurring todos use the existing task tables", () => {
   }
 });
 
-test("reserved routine templates preview and publish as idempotent one-time todos", () => {
+test("routine definitions preview and publish as linked idempotent task occurrences", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);
   try {
-    const routineGroup = organizer.ensureRoutineGroup();
-    assert.equal(routineGroup.name, "Routine");
-    assert.equal(organizer.ensureRoutineGroup().id, routineGroup.id);
-    const template = organizer.createTodo({
+    const inbox = organizer.listTodoGroups().find(({ name }) => name === "Inbox");
+    const created = organizer.createRoutine({
       text: "Monthly finance review",
-      groupId: routineGroup.id,
+      groupId: inbox.id,
       scheduledAtUtc: "2026-09-04T13:00:00.000Z",
       durationMinutes: 90,
       recurrenceRule: "FREQ=MONTHLY;INTERVAL=1;BYDAY=FR;BYSETPOS=1",
       recurrenceTimeZone: "UTC",
     });
+    assert.equal(created.routine.publicationMode, "calendar");
+    assert.equal(organizer.database.prepare(
+      "SELECT COUNT(*) AS count FROM todo_personal",
+    ).get().count, 0);
     const preview = organizer.previewRoutines({
       from: "2026-09-01T00:00:00.000Z",
       to: "2026-10-01T00:00:00.000Z",
     });
     assert.equal(preview.occurrences.length, 1);
-    assert.equal(preview.occurrences[0].templateTodoId, template.id);
+    assert.equal(preview.occurrences[0].routineId, created.routine.id);
     assert.equal(preview.occurrences[0].scheduledAtUtc, "2026-09-04T13:00:00.000Z");
     assert.equal(preview.occurrences[0].durationMinutes, 90);
     const earlierRepresentativeMonth = organizer.previewRoutines({
@@ -559,12 +561,14 @@ test("reserved routine templates preview and publish as idempotent one-time todo
     });
     assert.equal(first.createdCount, 1);
     assert.equal(first.existingCount, 0);
-    assert.equal(first.todos[0].routineId, null);
+    assert.equal(first.todos[0].routineId, created.routine.id);
+    assert.equal(first.todos[0].routineText, "Monthly finance review");
+    assert.equal(first.todos[0].routinePublicationMode, "calendar");
     assert.equal(first.todos[0].source, "routine_publish");
     assert.equal(first.todos[0].groupName, "Inbox");
     assert.equal(first.todos[0].durationMinutes, 90);
     assert.ok(organizer.database.prepare(
-      "SELECT source_event_id FROM personal_tasks WHERE personal_task_id = ?",
+      "SELECT source_event_id FROM todo_personal WHERE personal_task_id = ?",
     ).get(first.todos[0].id).source_event_id);
     const second = organizer.publishRoutines({
       from: "2026-09-01T00:00:00.000Z",
@@ -575,11 +579,16 @@ test("reserved routine templates preview and publish as idempotent one-time todo
     assert.equal(organizer.database.prepare(
       "SELECT COUNT(*) AS count FROM calendar_events",
     ).get().count, 0);
-    assert.throws(
-      () => organizer.renameTodoGroup(routineGroup.id, { name: "Habits" }),
-      /cannot be renamed/,
-    );
-    assert.throws(() => organizer.archiveTodoGroup(routineGroup.id), /cannot be archived/);
+    const updatedRoutine = organizer.updateRoutine(created.routine.id, {
+      version: created.routine.version,
+      text: "Monthly books review",
+    });
+    assert.equal(updatedRoutine.text, "Monthly books review");
+    assert.equal(organizer.getTodo(first.todos[0].id).text, "Monthly finance review");
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events
+      WHERE event_type = 'personal_routine.updated'
+    `).get().count, 1);
   } finally {
     organizer.close();
     temporary.cleanup();
@@ -590,10 +599,8 @@ test("routine previews include an occurrence that began before the range and rem
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);
   try {
-    const routineGroup = organizer.ensureRoutineGroup();
-    organizer.createTodo({
+    organizer.createRoutine({
       text: "Daddy time",
-      groupId: routineGroup.id,
       scheduledAtUtc: "2026-08-31T21:00:00.000Z",
       durationMinutes: 1_620,
       recurrenceRule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO",
@@ -614,29 +621,44 @@ test("routine previews include an occurrence that began before the range and rem
   }
 });
 
-test("agent routine creation atomically ensures the reserved group", () => {
+test("editing a published occurrence does not rewrite its routine definition", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.filename);
   try {
-    organizer.database.exec(`
-      CREATE TRIGGER reject_test_routine_task
-      BEFORE INSERT ON personal_tasks
-      WHEN NEW.text = 'Force rollback'
-      BEGIN
-        SELECT RAISE(ABORT, 'forced routine task failure');
-      END;
-    `);
-    assert.throws(() => organizer.createRoutine({
-      text: "Force rollback",
-      scheduledAtUtc: "2026-09-04T13:00:00.000Z",
-      recurrenceRule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=FR",
-      recurrenceTimeZone: "UTC",
-    }), /forced routine task failure/);
-    assert.equal(organizer.database.prepare(`
-      SELECT COUNT(*) AS count FROM todo_groups WHERE name = 'Routine' COLLATE NOCASE
-    `).get().count, 0);
-    assert.equal(organizer.database.prepare("SELECT COUNT(*) AS count FROM todo_routines").get().count, 0);
+    const created = organizer.createRoutine({
+      text: "Regular work window",
+      scheduledAtUtc: "2026-09-03T11:00:00.000Z",
+      durationMinutes: 420,
+      recurrenceRule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=TH",
+      recurrenceTimeZone: "America/New_York",
+      status: "unplanned",
+    });
+    const published = organizer.publishRoutines({
+      from: "2026-09-03T00:00:00.000Z",
+      to: "2026-09-04T00:00:00.000Z",
+    }).todos[0];
+    const updated = organizer.updateTodo(published.id, {
+      version: published.version,
+      text: "Finish MariaDB cleanup",
+      status: "todo",
+    });
+    assert.equal(updated.routineId, created.routine.id);
+    assert.equal(updated.routineText, "Regular work window");
+    assert.equal(updated.text, "Finish MariaDB cleanup");
+    assert.equal(updated.status, "todo");
+    const definition = organizer.getRoutine(created.routine.id);
+    assert.equal(definition.text, "Regular work window");
+    assert.equal(definition.status, "unplanned");
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
 
+test("agent routine creation stores one definition and no hidden task", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.filename);
+  try {
     const created = organizer.createRoutine({
       text: "Friday planning",
       scheduledAtUtc: "2026-09-04T13:00:00.000Z",
@@ -645,9 +667,12 @@ test("agent routine creation atomically ensures the reserved group", () => {
       recurrenceRule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=FR",
       recurrenceTimeZone: "UTC",
     }, { requestId: "routine-request", callId: "routine-call" });
-    assert.equal(created.group.name, "Routine");
-    assert.equal(created.groupCreated, true);
-    assert.equal(created.template.durationMinutes, 45);
+    assert.equal(created.routine.groupName, "Inbox");
+    assert.equal(created.routine.publicationMode, "calendar");
+    assert.equal(created.routine.durationMinutes, 45);
+    assert.equal(organizer.database.prepare(
+      "SELECT COUNT(*) AS count FROM todo_personal",
+    ).get().count, 0);
     assert.deepEqual(created.nextOccurrences, [
       "2026-09-04T13:00:00.000Z",
       "2026-09-11T13:00:00.000Z",
@@ -699,7 +724,7 @@ test("overdue one-time todos move as one batch while routine publications stay s
       status: "complete",
     });
     const publishedRoutineId = Number(organizer.database.prepare(`
-      INSERT INTO personal_tasks (
+      INSERT INTO todo_personal (
         todo_group_id, text, status, scheduled_at_utc, source, external_id
       ) VALUES (?, 'Published routine occurrence', 'todo', ?, 'routine_publish', ?)
     `).run(

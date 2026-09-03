@@ -36,7 +36,7 @@ test("todo_list filters single completion and schedule timestamps by local date"
   context.after(() => store.close());
   const database = store.requireReady();
   const insert = database.prepare(`
-    INSERT INTO personal_tasks (
+    INSERT INTO todo_personal (
       todo_group_id, text, status, scheduled_at_utc, completed_at_utc
     ) VALUES (1, ?, ?, ?, ?)
   `);
@@ -109,15 +109,16 @@ test("todo_list filters single completion and schedule timestamps by local date"
     },
   });
   const published = database.prepare(`
-    INSERT INTO personal_tasks (
-      todo_group_id, text, status, scheduled_at_utc, is_all_day,
+    INSERT INTO todo_personal (
+      todo_group_id, todo_routine_id, text, status, scheduled_at_utc, is_all_day,
       duration_minutes, planning_prompt_text, source, external_id
-    ) VALUES (1, ?, 'unplanned', ?, 0, 420, ?, 'routine_publish', ?)
+    ) VALUES (1, ?, ?, 'unplanned', ?, 0, 420, ?, 'routine_publish', ?)
   `).run(
+    routine.routine.todo_routine_id,
     "Regular Work Window",
     "2026-03-08T11:00:00.000Z",
     "What would you like to work on during this time window?",
-    `routine:${routine.template.todo_routine_id}:2026-03-08T11:00:00.000Z`,
+    `routine:${routine.routine.todo_routine_id}:2026-03-08T11:00:00.000Z`,
   );
   const workWindows = await registry.execute("todo_list", {
     group: null,
@@ -130,10 +131,7 @@ test("todo_list filters single completion and schedule timestamps by local date"
   assert.deepEqual(workWindows.tasks.map(({ personal_task_id }) => personal_task_id), [
     Number(published.lastInsertRowid),
   ]);
-  assert.equal(
-    workWindows.tasks.some(({ personal_task_id }) => personal_task_id === routine.template.personal_task_id),
-    false,
-  );
+  assert.equal(workWindows.tasks[0].todo_routine_id, routine.routine.todo_routine_id);
 
   await assert.rejects(
     registry.execute("todo_list", {
@@ -201,7 +199,7 @@ test("native todo tools place new and existing tasks at exact 1-based positions"
 
   const rows = store.requireReady().prepare(`
     SELECT personal_task_id, sort_position
-    FROM personal_tasks WHERE todo_group_id = 2
+    FROM todo_personal WHERE todo_group_id = 2
     ORDER BY sort_position, personal_task_id
   `).all().map((row) => ({ ...row }));
   assert.deepEqual(rows, [
@@ -228,7 +226,7 @@ test("native todo tools place new and existing tasks at exact 1-based positions"
   assert.equal(unchanged.changed, false);
 });
 
-test("routine_add creates one reusable template and ensures Routine atomically", async (context) => {
+test("routine_add creates one reusable definition without a hidden task", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.filename);
@@ -260,21 +258,38 @@ test("routine_add creates one reusable template and ensures Routine atomically",
     },
   }, { requestId: "routine-tool-request", callId: "routine-tool-call" });
   assert.equal(schemaProblem(result, definition.outputSchema), null);
-  assert.equal(result.routine_group.name, "Routine");
-  assert.equal(result.routine_group.created, true);
-  assert.equal(result.template.duration_minutes, 90);
-  assert.equal(result.template.recurrence_rule, "FREQ=MONTHLY;INTERVAL=1;BYDAY=FR;BYSETPOS=1");
+  assert.equal(result.routine.publication_mode, "calendar");
+  assert.equal(result.routine.duration_minutes, 90);
+  assert.equal(result.routine.recurrence_rule, "FREQ=MONTHLY;INTERVAL=1;BYDAY=FR;BYSETPOS=1");
   assert.deepEqual(result.next_occurrences, [
     "2026-09-04T13:00:00.000Z",
     "2026-10-02T13:00:00.000Z",
     "2026-11-06T13:00:00.000Z",
   ]);
-  assert.equal(store.requireReady().prepare(`
-    SELECT COUNT(*) AS count FROM todo_groups WHERE name = 'Routine' COLLATE NOCASE
-  `).get().count, 1);
+  assert.equal(store.requireReady().prepare(
+    "SELECT COUNT(*) AS count FROM todo_personal",
+  ).get().count, 0);
   assert.equal(store.requireReady().prepare(`
     SELECT COUNT(*) AS count FROM activity_events
     WHERE event_type = 'personal_routine.created' AND actor_name = 'routine_add'
+  `).get().count, 1);
+
+  const listed = await registry.execute("routine_list", { limit: 20 });
+  assert.equal(listed.count, 1);
+  assert.equal(listed.routines[0].todo_routine_id, result.routine.todo_routine_id);
+  const updated = await registry.execute("routine_update", {
+    todo_routine_id: result.routine.todo_routine_id,
+    text: "First Friday books review",
+    status: "unplanned",
+  }, { requestId: "routine-tool-request", callId: "routine-update-call" });
+  assert.equal(updated.routine.text, "First Friday books review");
+  assert.equal(updated.routine.default_status, "unplanned");
+  assert.equal(store.requireReady().prepare(
+    "SELECT COUNT(*) AS count FROM todo_personal",
+  ).get().count, 0);
+  assert.equal(store.requireReady().prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'personal_routine.updated' AND actor_name = 'routine_update'
   `).get().count, 1);
 });
 
@@ -307,7 +322,7 @@ test("sequenced groups backfill tasks and assign the next number through native 
   assert.equal(third.task.sequence, 3);
   assert.deepEqual(
     store.requireReady().prepare(`
-      SELECT sequence FROM personal_tasks WHERE todo_group_id = 2 ORDER BY sort_position
+      SELECT sequence FROM todo_personal WHERE todo_group_id = 2 ORDER BY sort_position
     `).all().map(({ sequence }) => sequence),
     [1, 2, 3],
   );
@@ -354,7 +369,7 @@ test("todo_group_archive rejects active groups and preserves terminal-only group
   assert.equal(archived.retained_terminal_task_count, 1);
   const task = store.requireReady().prepare(`
     SELECT todo_group.name, todo_group.archived_at_utc
-    FROM personal_tasks AS task JOIN todo_groups AS todo_group USING (todo_group_id)
+    FROM todo_personal AS task JOIN todo_groups AS todo_group USING (todo_group_id)
     WHERE task.personal_task_id = ?
   `).get(created.task.personal_task_id);
   assert.equal(task.name, "Development");
@@ -438,7 +453,7 @@ test("todo_update schedules a 37-item batch atomically and uses the same schema 
   registerTodoTools(registry, store, ledger);
 
   const insert = database.prepare(`
-    INSERT INTO personal_tasks (
+    INSERT INTO todo_personal (
       todo_group_id, text, status, sort_position, scheduled_at_utc, is_all_day, source
     ) VALUES (2, ?, 'todo', ?, '2026-08-31T04:00:00.000Z', 1, 'test')
   `);
@@ -469,7 +484,7 @@ test("todo_update schedules a 37-item batch atomically and uses the same schema 
   assert.equal(updated.updated_count, 37);
   assert.equal(updated.items.length, 37);
   assert.equal(database.prepare(`
-    SELECT COUNT(*) AS count FROM personal_tasks
+    SELECT COUNT(*) AS count FROM todo_personal
     WHERE scheduled_at_utc = '2026-08-31T20:00:00.000Z' AND is_all_day = 0
       AND personal_task_id IN (${taskIds.map(() => "?").join(", ")})
   `).get(...taskIds).count, 37);
@@ -485,7 +500,7 @@ test("todo_update schedules a 37-item batch atomically and uses the same schema 
     ],
   }), /To-do 999999 does not exist/);
   assert.equal(database.prepare(`
-    SELECT scheduled_at_utc FROM personal_tasks WHERE personal_task_id = ?
+    SELECT scheduled_at_utc FROM todo_personal WHERE personal_task_id = ?
   `).get(taskIds[0]).scheduled_at_utc, "2026-08-31T20:00:00.000Z");
 
   await assert.rejects(registry.execute("todo_update", {
@@ -513,7 +528,7 @@ test("todo_update schedules a 37-item batch atomically and uses the same schema 
     temporalResolutions: sundayTarget,
   }), /outside the source-authorized temporal target/);
   assert.equal(database.prepare(`
-    SELECT scheduled_at_utc FROM personal_tasks WHERE personal_task_id = ?
+    SELECT scheduled_at_utc FROM todo_personal WHERE personal_task_id = ?
   `).get(taskIds[0]).scheduled_at_utc, "2026-08-31T21:00:00.000Z");
 
   const sunday = await registry.execute("todo_update", {
@@ -548,7 +563,7 @@ test("todo_add associates a newly resolved contact with the task", async (contex
 
   assert.equal(created.task.related_contact_id, Number(contact.contact_id));
   assert.equal(database.prepare(`
-    SELECT related_contact_id FROM personal_tasks WHERE personal_task_id = ?
+    SELECT related_contact_id FROM todo_personal WHERE personal_task_id = ?
   `).get(created.task.personal_task_id).related_contact_id, Number(contact.contact_id));
   const cleared = await registry.execute("todo_update", {
     updates: [{
@@ -618,7 +633,7 @@ test("native todo tools accept structured recurrence and generate the next task"
   }, { requestId: "recurring", callId: "complete-recurring" });
   assert.ok(completed.items[0].generated_task.personal_task_id);
   assert.equal(store.requireReady().prepare(
-    "SELECT todo_routine_id FROM personal_tasks WHERE personal_task_id = ?",
+    "SELECT todo_routine_id FROM todo_personal WHERE personal_task_id = ?",
   ).get(completed.items[0].generated_task.personal_task_id).todo_routine_id, created.task.todo_routine_id);
   assert.equal(store.requireReady().prepare(`
     SELECT COUNT(*) AS count FROM activity_events
@@ -682,7 +697,7 @@ test("unplanned recurring to-dos retain their planning prompt across occurrences
   );
 });
 
-test("native todo tools keep Routine entries as repeating templates", async (context) => {
+test("a group named Routine behaves like any ordinary task group", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.filename);
@@ -691,12 +706,13 @@ test("native todo tools keep Routine entries as repeating templates", async (con
   registerTodoTools(registry, store, new Ledger(store));
 
   await registry.execute("todo_group_create", { name: "Routine" });
-  await assert.rejects(registry.execute("todo_add", {
+  const oneTime = await registry.execute("todo_add", {
     text: "One-time item in the wrong place",
     group: "Routine",
     scheduled_at_utc: "2026-09-04T13:00:00.000Z",
     due_at_utc: null,
-  }), /must repeat/);
+  });
+  assert.equal(oneTime.task.todo_groups.name, "Routine");
   const created = await registry.execute("todo_add", {
     text: "First Friday review",
     group: "Routine",
@@ -712,13 +728,15 @@ test("native todo tools keep Routine entries as repeating templates", async (con
     created.task.todo_routines.recurrence_rule,
     "FREQ=MONTHLY;INTERVAL=1;BYDAY=FR;BYSETPOS=1",
   );
-  await assert.rejects(registry.execute("todo_update", {
+  const completed = await registry.execute("todo_update", {
     updates: [{
       personal_task_id: created.task.personal_task_id,
       text: null, group: null, status: "complete",
       scheduled_at_utc: null, due_at_utc: null,
     }],
-  }), /must remain active repeating templates/);
+  });
+  assert.equal(completed.items[0].task.status, "complete");
+  assert.ok(completed.items[0].generated_task);
 });
 
 test("native todo tools preserve an explicit all-day schedule", async (context) => {
@@ -852,7 +870,7 @@ test("todo_move_overdue_to_today shifts overdue one-time tasks but preserves rou
     },
   }, { requestId: "move-overdue", callId: "add-repeating" });
   const publishedRoutineId = Number(store.requireReady().prepare(`
-    INSERT INTO personal_tasks (
+    INSERT INTO todo_personal (
       todo_group_id, text, status, scheduled_at_utc, source, external_id
     ) VALUES (1, 'Published leg day', 'todo', ?, 'routine_publish', ?)
   `).run(
@@ -893,13 +911,13 @@ test("todo_move_overdue_to_today shifts overdue one-time tasks but preserves rou
   assert.equal(result.tasks[0].due_at_utc, "2026-08-18T14:00:00.000Z");
   assert.equal(
     store.requireReady().prepare(`
-      SELECT scheduled_at_utc FROM personal_tasks WHERE personal_task_id = ?
+      SELECT scheduled_at_utc FROM todo_personal WHERE personal_task_id = ?
     `).get(repeating.task.personal_task_id).scheduled_at_utc,
     "2026-08-15T11:00:00.000Z",
   );
   assert.equal(
     store.requireReady().prepare(`
-      SELECT scheduled_at_utc FROM personal_tasks WHERE personal_task_id = ?
+      SELECT scheduled_at_utc FROM todo_personal WHERE personal_task_id = ?
     `).get(publishedRoutineId).scheduled_at_utc,
     "2026-08-16T00:30:00.000Z",
   );
@@ -973,7 +991,7 @@ test("todo_add uses Inbox when a requested group is missing, then supports a con
   assert.equal(
     database.prepare(`
       SELECT COUNT(*) AS count
-      FROM personal_tasks AS task
+      FROM todo_personal AS task
       JOIN todo_groups AS todo_group USING (todo_group_id)
       WHERE todo_group.name = 'Development' AND task.text = 'Verify Agent Slayer cutover'
     `).get().count,

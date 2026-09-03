@@ -5,7 +5,7 @@ export const agentSelfTopicKnowledge = Object.freeze({
       "The name ‘Chapeaux Fous’ is French for ‘crazy hats’: ‘chapeaux’ means hats, and ‘fous’ means crazy or mad.",
       "Chapeaux Fous is the user's private language-model interface to their own tools and data.",
       "Its working whole includes the private browser client, the Agent Slayer application, the selected OpenAI language model, bounded memory and context, the callable tool registry, and connected services.",
-      "It runs as a Node.js service on an Ubuntu 24.04 HostWinds VPS, is privately published through Tailscale Serve to a loopback listener, uses local faster-whisper for recorded voice requests, and stores its ledger and bounded memory in SQLite.",
+      "It runs as a Node.js service on an Ubuntu 24.04 HostWinds VPS, is privately published through Tailscale Serve to a loopback listener, uses local faster-whisper for recorded voice requests, and stores its ledger and bounded memory in MariaDB.",
     ]),
     sourceRefs: Object.freeze(["agent:system-prompt", "agent:hats", "agent:architecture", "agent:manifesto"]),
   }),
@@ -69,7 +69,7 @@ export const agentSelfKnowledge = Object.freeze({
       "Application layer: the Node HTTP service serves the client and routes authenticated requests. Typed text is POSTed to /api/requests. Voice audio is uploaded to /api/voice, stored durably, and transcribed by the local faster-whisper worker. Both enter the same strict FIFO queue.",
       "Agent layer: orientation receives the exact request, bounded source-referenced context, the TurnBrief schema, and a catalog of connected capability families. Execution receives the accepted brief and only the exact schemas of selected callable tools. Tool results return to the same model exchange; receipts support conditional audit and repair.",
       "Outbound service layer: when language work is needed, Chapeaux Fous's server—not the phone—opens a separate DNS/TCP/TLS/HTTPS connection to the configured OpenAI Responses API using a server-held key. Remote tool integrations can create their own separately authenticated HTTPS connections. Local tools stay within the process or its local data services.",
-      "Return path: Chapeaux Fous stores the final response and trace in SQLite. The browser polls the authenticated request feed, currently every 1.5 seconds, receives the completed response through the reverse path, renders sanitized Markdown, and may speak it with device-native browser speech synthesis.",
+      "Return path: Chapeaux Fous stores the final response and trace in MariaDB. The browser polls the authenticated request feed, currently every 1.5 seconds, receives the completed response through the reverse path, renders sanitized Markdown, and may speak it with device-native browser speech synthesis.",
     ],
     tailscaleBoundary: "The application can observe whether a request was queued as web or voice and can inspect its configured public-origin class. It does not directly observe whether Tailscale negotiated a direct, DERP-relayed, or peer-relayed connection for that individual request. Tailscale status or packet telemetry would be separate evidence.",
     publicRouteObservation: {
@@ -114,7 +114,7 @@ export const agentSelfKnowledge = Object.freeze({
   },
   localRuntime: {
     httpService: "One loopback Node.js service serves the mobile-friendly client and authenticated health, request, voice, file, trace, domain, and integration endpoints.",
-    persistence: "The Agent database is SQLite. It holds the append-oriented activity ledger, requests and responses, file metadata, bounded history, durable profile facts, and native organizer domains. Original recordings and other media live in configured filesystem storage with database metadata.",
+    persistence: "The Agent database is MariaDB. It holds the append-oriented activity ledger, requests and responses, file metadata, bounded history, durable profile facts, and native organizer domains. Original recordings and other media live in configured filesystem storage with database metadata.",
     model: "The installed model transport calls the separately billed OpenAI Responses API with a server-side API key. The selected model performs language work; the surrounding application owns authorization, schemas, queueing, context, tool dispatch, receipts, and traces.",
     responseSpeech: "Ordinary completed responses are spoken, unless silenced, by browser-native speech synthesis on the user's device. Server-side OpenAI speech generation is reserved for explicitly disclosed video narration.",
     serviceManager: "The checked-in deployment reference runs the Node process as a restartable user systemd service. Deployment and service restart remain deliberate operations outside an ordinary agent request.",

@@ -44,6 +44,20 @@ CREATE VIEW sample_view AS SELECT * FROM sample;
   ]);
 });
 
+test("routine normalization is a MariaDB-only v29 migration", () => {
+  const schema = fs.readFileSync(
+    path.join(repositoryRoot, "db/mariadb/0002-todo-routine-normalization.sql"),
+    "utf8",
+  );
+  const statements = parseMariaDbScript(schema);
+  assert.ok(statements.some((statement) => statement === "RENAME TABLE personal_tasks TO todo_personal"));
+  assert.ok(statements.some((statement) => /ADD COLUMN publication_mode/.test(statement)));
+  assert.ok(statements.some((statement) => /CREATE TRIGGER todo_personal_assign_sequence_before_insert/.test(statement)));
+  assert.ok(statements.some((statement) => /CREATE VIEW open_todo_personal/.test(statement)));
+  assert.ok(statements.some((statement) => /schema_version = 29/.test(statement)));
+  assert.doesNotMatch(schema, /PRAGMA|sqlite_schema|CREATE TABLE personal_tasks/);
+});
+
 test("row digests distinguish null and binary values while normalizing driver numeric representations", () => {
   const columns = ["a", "b"];
   const first = hashRows([{ a: null, b: Buffer.from("1") }], columns).digest("hex");

@@ -72,7 +72,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /Do not spend one model tool call per task/);
   assert.match(instructions, /call\s+`history_range`/);
   assert.match(instructions, /date and\s+topic are filtered in one lookup/);
-  assert.match(instructions, /stored SQLite field names/);
+  assert.match(instructions, /stored database field names/);
   assert.match(instructions, /schema-semantic compiler projection/);
   assert.match(instructions, /previous Monday-through-Monday interval/);
   assert.match(instructions, /never ask the user to\s+write RRULE syntax/);

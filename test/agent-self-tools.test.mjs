@@ -140,7 +140,7 @@ test("focused self-knowledge returns facts and sources without prepared answer t
   const videoForUser = await registry.execute("agent_self_knowledge", { topic: "video_user_creation" });
   assert.match(identity.facts.join("\n"), /public name is Chapeaux Fous/);
   assert.match(identity.facts.join("\n"), /French for ‘crazy hats’/);
-  assert.match(identity.facts.join("\n"), /SQLite/);
+  assert.match(identity.facts.join("\n"), /MariaDB/);
   assert.match(interaction.facts.join("\n"), /does not need a hat/);
   assert.match(interaction.facts.join("\n"), /Chapeaux Fous, as my \{hat\}, \{request\}/);
   assert.match(interaction.facts.join("\n"), /email hat[^\n]+currently backed by a callable tool family/);
