@@ -31,11 +31,14 @@ Required MariaDB environment variables:
   MARIADB_USER, MARIADB_PASSWORD
 
 Optional:
-  MARIADB_HOST (default localhost), MARIADB_PORT (default 3306), MARIADB_SOCKET`);
+  MARIADB_HOST (default localhost), MARIADB_PORT (default 3306), MARIADB_SOCKET
+  --allow-live   Permit verification against a database that does not end in _rehearsal.`);
   process.exit(0);
 }
 
-const databaseName = assertMigrationTarget(optionValue("--database") ?? "");
+const databaseName = assertMigrationTarget(optionValue("--database") ?? "", {
+  allowLive: process.argv.includes("--allow-live"),
+});
 const user = process.env.MARIADB_USER?.trim();
 const password = process.env.MARIADB_PASSWORD;
 if (!user || password == null) throw new Error("MARIADB_USER and MARIADB_PASSWORD are required");

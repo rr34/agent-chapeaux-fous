@@ -64,6 +64,7 @@ try {
   const sourceFilename = path.resolve(options.source);
   if (!fs.existsSync(sourceFilename)) throw new Error(`SQLite source is missing: ${sourceFilename}`);
   const databaseName = assertMigrationTarget(options.database, { allowLive: options.allowLive });
+  const isLiveTarget = !databaseName.endsWith("_rehearsal");
   const user = process.env.MARIADB_USER?.trim();
   const password = process.env.MARIADB_PASSWORD;
   if (!user || password == null) throw new Error(`MARIADB_USER and MARIADB_PASSWORD are required.\n\n${usage()}`);
@@ -142,8 +143,10 @@ try {
   }
 
   const totalRows = reports.reduce((sum, report) => sum + report.count, 0);
-  console.log(`Rehearsal passed: ${tables.length} tables, ${totalRows} rows, all row digests equal, no foreign-key orphans.`);
-  console.log("The live database was not touched.");
+  console.log(`${isLiveTarget ? "Migration" : "Rehearsal"} passed: ${tables.length} tables, ${totalRows} rows, all row digests equal, no foreign-key orphans.`);
+  console.log(isLiveTarget
+    ? `Live database ${databaseName} was imported and verified.`
+    : "The live database was not touched.");
 } catch (error) {
   console.error(error instanceof Error ? error.stack ?? error.message : String(error));
   process.exitCode = 1;
