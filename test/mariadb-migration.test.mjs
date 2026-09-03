@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   assertMigrationTarget,
   chunkRows,
@@ -7,6 +10,8 @@ import {
   parseMariaDbScript,
   quoteMariaDbIdentifier,
 } from "../scripts/mariadb-migration.mjs";
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("MariaDB migration target is rehearsal-only by default", () => {
   assert.equal(assertMigrationTarget("chapeauxfous_rehearsal"), "chapeauxfous_rehearsal");
@@ -55,4 +60,14 @@ test("row chunks respect count and approximate byte bounds without dropping over
     [{ value: "c" }],
   ]);
   assert.deepEqual(chunkRows([{ value: "oversized" }], { maximumBytes: 1 }), [[{ value: "oversized" }]]);
+});
+
+test("active video-job uniqueness does not derive a generated column from its foreign key", () => {
+  const schema = fs.readFileSync(path.join(repositoryRoot, "db/mariadb/0001-baseline.sql"), "utf8");
+  assert.match(
+    schema,
+    /active_script_status TINYINT UNSIGNED AS \(IF\(status IN \('queued', 'preparing', 'rendering'\), 1, NULL\)\) PERSISTENT/,
+  );
+  assert.match(schema, /UNIQUE KEY video_jobs_one_active_script \(video_script_id, active_script_status\)/);
+  assert.doesNotMatch(schema, /AS \([^\n]*video_script_id[^\n]*\) PERSISTENT/);
 });
