@@ -82,3 +82,10 @@ test("MariaDB birth-date constraint accepts both SQLite date representations", (
   assert.match(schema, /CREATE TRIGGER contacts_validate_birth_date_before_update/);
   assert.match(schema, /MOD\(CAST\(SUBSTRING\(NEW\.birth_date, 1, 4\) AS UNSIGNED\), 400\) = 0/);
 });
+
+test("tag slug identity remains binary under a case-insensitive database default", () => {
+  const schema = fs.readFileSync(path.join(repositoryRoot, "db/mariadb/0001-baseline.sql"), "utf8");
+  const tagsTable = schema.match(/CREATE TABLE tags \([\s\S]*?\n\) ENGINE=InnoDB;/)?.[0] ?? "";
+  assert.match(tagsTable, /slug\s+VARCHAR\(255\) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL/);
+  assert.match(tagsTable, /UNIQUE KEY tags_slug \(slug\)/);
+});

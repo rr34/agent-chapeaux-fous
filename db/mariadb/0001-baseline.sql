@@ -197,7 +197,7 @@ CREATE TABLE contact_methods (
 
 CREATE TABLE tags (
     tag_id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    slug            VARCHAR(255) NOT NULL,
+    slug            VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     label           VARCHAR(255) NOT NULL,
     is_active       TINYINT NOT NULL DEFAULT 1,
     created_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
