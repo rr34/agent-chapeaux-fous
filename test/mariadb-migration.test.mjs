@@ -71,3 +71,10 @@ test("active video-job uniqueness does not derive a generated column from its fo
   assert.match(schema, /UNIQUE KEY video_jobs_one_active_script \(video_script_id, active_script_status\)/);
   assert.doesNotMatch(schema, /AS \([^\n]*video_script_id[^\n]*\) PERSISTENT/);
 });
+
+test("MariaDB birth-date constraint accepts both SQLite date representations", () => {
+  const schema = fs.readFileSync(path.join(repositoryRoot, "db/mariadb/0001-baseline.sql"), "utf8");
+  assert.match(schema, /birth_date REGEXP '\^\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}\$'/);
+  assert.match(schema, /birth_date REGEXP '\^--\[0-9\]\{2\}-\[0-9\]\{2\}\$'/);
+  assert.match(schema, /CONCAT\('2000-', SUBSTRING\(birth_date, 3\)\)/);
+});

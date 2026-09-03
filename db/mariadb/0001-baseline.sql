@@ -168,7 +168,20 @@ CREATE TABLE contacts (
     CONSTRAINT contacts_kind CHECK (contact_kind IN ('person', 'organization', 'service')),
     CONSTRAINT contacts_is_self CHECK (is_self IN (0, 1)),
     CONSTRAINT contacts_status CHECK (status IN ('active', 'inactive', 'blocked', 'deceased')),
-    CONSTRAINT contacts_birth_date CHECK (birth_date IS NULL OR birth_date REGEXP '^([0-9]{4}|--)-[0-9]{2}-[0-9]{2}$')
+    CONSTRAINT contacts_birth_date CHECK (
+      birth_date IS NULL
+      OR (
+        birth_date REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+        AND DATE_FORMAT(STR_TO_DATE(birth_date, '%Y-%m-%d'), '%Y-%m-%d') = birth_date
+      )
+      OR (
+        birth_date REGEXP '^--[0-9]{2}-[0-9]{2}$'
+        AND DATE_FORMAT(
+          STR_TO_DATE(CONCAT('2000-', SUBSTRING(birth_date, 3)), '%Y-%m-%d'),
+          '%Y-%m-%d'
+        ) = CONCAT('2000-', SUBSTRING(birth_date, 3))
+      )
+    )
 ) ENGINE=InnoDB;
 
 CREATE TABLE contact_methods (
