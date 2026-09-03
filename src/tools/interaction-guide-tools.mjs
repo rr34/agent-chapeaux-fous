@@ -76,8 +76,75 @@ function stepResult(schemaSemantics, context, result, name, purpose) {
   });
 }
 
+function boundedContextField(value, maximumCharacters) {
+  if (value == null) return { text: null, truncated: false };
+  const text = String(value);
+  return text.length <= maximumCharacters
+    ? { text, truncated: false }
+    : { text: text.slice(0, maximumCharacters), truncated: true };
+}
+
+export function activeBriefingRunContext(interactionGuides, limit = 8) {
+  const snapshot = interactionGuides.activeRuns({ limit });
+  const runs = snapshot.runs.map(({ guide, run, currentStep }) => {
+    const opening = boundedContextField(currentStep.openingText, 10_000);
+    const instructions = boundedContextField(currentStep.instructionsText, 12_000);
+    const answers = boundedContextField(JSON.stringify(currentStep.answers), 4_000);
+    return {
+      interactionGuideId: guide.id,
+      briefingName: guide.name,
+      guideVersion: guide.version,
+      runId: run.id,
+      currentExchange: {
+        interactionGuideStepId: currentStep.id,
+        stepNumber: currentStep.stepNumber,
+        openingText: opening.text,
+        instructionsText: instructions.text,
+        answersJson: answers.text,
+        progressState: currentStep.progressState,
+        completionMode: currentStep.completionMode,
+        truncatedFields: [
+          ...(opening.truncated ? ["openingText"] : []),
+          ...(instructions.truncated ? ["instructionsText"] : []),
+          ...(answers.truncated ? ["answersJson"] : []),
+        ],
+      },
+    };
+  });
+  return {
+    heading: "Active briefing runs",
+    text: runs.length ? [
+      "Use an active run below only when the current request unambiguously answers its exact current opening. Preserve terse supplied values literally and do not infer omitted units. If a required field is marked truncated, fetch that exact briefing before acting.",
+      ...runs.flatMap((entry) => [
+        `- Briefing: ${entry.briefingName} [interaction_guide_id=${entry.interactionGuideId}; run_id=${entry.runId}; guide_version=${entry.guideVersion}]`,
+        `  Current exchange ${entry.currentExchange.stepNumber} [interaction_guide_step_id=${entry.currentExchange.interactionGuideStepId}; completion_mode=${entry.currentExchange.completionMode}; progress_state=${entry.currentExchange.progressState}]`,
+        `  Opening: ${entry.currentExchange.openingText}`,
+        `  Instructions: ${entry.currentExchange.instructionsText ?? "None"}`,
+        `  Existing answers: ${entry.currentExchange.answersJson}`,
+        ...(entry.currentExchange.truncatedFields.length
+          ? [`  Truncated fields: ${entry.currentExchange.truncatedFields.join(", ")}`]
+          : []),
+      ]),
+      ...(snapshot.omittedCount ? [`[${snapshot.omittedCount} additional active briefing run(s) omitted]`] : []),
+    ].join("\n") : "No active briefing runs exist.",
+    data: {
+      runs,
+      totalCount: snapshot.totalCount,
+      omittedCount: snapshot.omittedCount,
+    },
+  };
+}
+
 export function registerInteractionGuideTools(registry, interactionGuides, schemaSemantics = null) {
+  const rootRegistry = registry;
   registry = registry.withCapability?.("interaction-guides") ?? registry;
+  rootRegistry.registerContextView?.("interaction-guides", {
+    id: "interaction-guides.active_runs",
+    title: "Active briefing runs",
+    description: "Bounded active briefing run identities and each exact current exchange opening, instructions, answers, progress, and completion mode.",
+    maximumItems: 8,
+    execute: () => activeBriefingRunContext(interactionGuides),
+  });
   registry.register({
     name: "interaction_guide_list",
     description: "List briefing metadata without loading its numbered exchanges. Use this to discover the exact internal guide ID and briefing name before fetching, editing, scheduling, or starting one.",

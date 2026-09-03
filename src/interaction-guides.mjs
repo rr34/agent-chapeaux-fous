@@ -222,6 +222,70 @@ export class InteractionGuides {
     });
   }
 
+  activeRuns({ limit = 8 } = {}) {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) {
+      throw new Error("Active briefing run limit must be an integer from 1 through 20");
+    }
+    const database = this.store.requireReady();
+    const activeRunCondition = `
+      started.event_type = 'interaction_guide.run_started'
+      AND started.subject_type = 'interaction_guide_run'
+      AND json_extract(started.payload_json, '$.interactionGuideId') = guide.interaction_guide_id
+      AND NOT EXISTS (
+        SELECT 1 FROM activity_events AS terminal
+        WHERE terminal.subject_type = 'interaction_guide_run'
+          AND terminal.subject_id = started.subject_id
+          AND terminal.event_type IN (
+            'interaction_guide.run_completed', 'interaction_guide.run_cancelled'
+          )
+      )
+    `;
+    const totalCount = Number(database.prepare(`
+      SELECT COUNT(*) AS count
+      FROM interaction_guides AS guide
+      WHERE guide.status = 'active'
+        AND EXISTS (
+          SELECT 1 FROM activity_events AS started
+          WHERE ${activeRunCondition}
+        )
+    `).get().count);
+    const rows = database.prepare(`
+      SELECT guide.*
+      FROM interaction_guides AS guide
+      WHERE guide.status = 'active'
+        AND EXISTS (
+          SELECT 1 FROM activity_events AS started
+          WHERE ${activeRunCondition}
+        )
+      ORDER BY (
+        SELECT MAX(started.event_seq) FROM activity_events AS started
+        WHERE ${activeRunCondition}
+      ) DESC, guide.interaction_guide_id
+      LIMIT ?
+    `).all(limit);
+    const runs = rows.map((row) => {
+      const guideId = Number(row.interaction_guide_id);
+      const activeRun = this.#activeRun(database, guideId);
+      const current = activeRun ? this.#currentRunStep(database, activeRun.id, guideId) : null;
+      return {
+        guide: publicGuide(row),
+        run: activeRun ? {
+          id: activeRun.id,
+          interactionGuideId: guideId,
+          guideVersion: Number(activeRun.guideVersion),
+          status: "active",
+          currentStepNumber: current ? Number(current.step_number) : null,
+        } : null,
+        currentStep: publicStep(current),
+      };
+    }).filter(({ run, currentStep }) => run && currentStep);
+    return {
+      runs,
+      totalCount,
+      omittedCount: Math.max(0, totalCount - runs.length),
+    };
+  }
+
   addStep({
     guideId, expectedVersion, stepNumber, openingText,
     instructionsText = null, completionMode = "response_valid", enabled = true,

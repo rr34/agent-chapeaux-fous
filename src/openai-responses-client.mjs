@@ -295,6 +295,7 @@ export class OpenAIResponsesClient {
     };
     const messages = [];
     const events = [];
+    const controlTransfers = [];
     let response;
     let previousResponseId = conversationId;
     let nextInput = [{
@@ -304,105 +305,136 @@ export class OpenAIResponsesClient {
     let toolCallCount = 0;
     let latestInputTokens = 0;
     const deadlineAt = runTimeoutMs === null ? null : Date.now() + runTimeoutMs;
-    while (true) {
-      const requestBody = {
-        model,
-        instructions,
-        input: nextInput,
-        tools: callableTools,
-        ...(callableTools.length ? { tool_choice: "auto", parallel_tool_calls: true } : {}),
-        store: true,
-        ...(providerOutputSchema ? {
-          text: {
-            format: {
-              type: "json_schema",
-              name: "agent_slayer_structured_output",
-              strict: true,
-              schema: providerOutputSchema,
+    const observedUsage = () => ({
+      provider: "openai",
+      tokenUsage: { ...totalUsage },
+      contextInputTokens: latestInputTokens,
+      contextWindowTokens: this.modelContextWindowTokens,
+      estimatedCostUsd: estimatedCost(totalUsage, this.pricing),
+      pricing: this.pricing,
+    });
+    try {
+      while (true) {
+        const requestBody = {
+          model,
+          instructions,
+          input: nextInput,
+          tools: callableTools,
+          ...(callableTools.length ? { tool_choice: "auto", parallel_tool_calls: true } : {}),
+          store: true,
+          ...(providerOutputSchema ? {
+            text: {
+              format: {
+                type: "json_schema",
+                name: "agent_slayer_structured_output",
+                strict: true,
+                schema: providerOutputSchema,
+              },
             },
-          },
-        } : {}),
-        ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-        ...(effort ? { reasoning: { effort: effort === "off" ? "none" : effort } } : {}),
-      };
-      const remainingMs = deadlineAt === null ? null : deadlineAt - Date.now();
-      if (remainingMs !== null && remainingMs <= 0) {
-        const error = new Error(`OpenAI model turn exceeded its ${runTimeoutMs}ms run deadline`);
-        error.code = "RUN_DEADLINE_EXCEEDED";
-        throw error;
-      }
-      response = await this.request(requestBody, remainingMs);
-      const currentUsage = usageFor(response);
-      latestInputTokens = currentUsage.inputTokens;
-      addUsage(totalUsage, currentUsage);
-      const responseEvent = {
-        type: "response.completed",
-        responseId: response.id ?? null,
-        status: response.status ?? null,
-        usage: currentUsage,
-        outputTypes: (response.output ?? []).map((item) => item.type),
-      };
-      events.push(responseEvent);
-      await onEvent?.(responseEvent);
-      messages.push(...normalizedMessages(response));
-      if (response.status !== "completed") {
-        throw new Error(response.error?.message || `OpenAI response ended with status ${response.status}`);
-      }
-      const calls = functionCalls(response);
-      if (calls.length === 0) break;
-      previousResponseId = response.id;
-      nextInput = [];
-      for (const call of calls) {
-        toolCallCount += 1;
-        if (maxToolCalls !== null && toolCallCount > maxToolCalls + 8) {
-          throw new Error(`OpenAI continued requesting tools after the ${maxToolCalls}-call budget was exhausted`);
+          } : {}),
+          ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+          ...(effort ? { reasoning: { effort: effort === "off" ? "none" : effort } } : {}),
+        };
+        const remainingMs = deadlineAt === null ? null : deadlineAt - Date.now();
+        if (remainingMs !== null && remainingMs <= 0) {
+          const error = new Error(`OpenAI model turn exceeded its ${runTimeoutMs}ms run deadline`);
+          error.code = "RUN_DEADLINE_EXCEEDED";
+          throw error;
         }
-        let result;
-        if (maxToolCalls !== null && toolCallCount > maxToolCalls) {
-          result = {
-            ok: false,
-            error: `Tool-call budget exhausted after ${maxToolCalls} calls. Return a final answer without another tool call.`,
-          };
-        } else {
-          result = await onToolCall({
-            callId: call.call_id,
-            tool: call.name,
-            arguments: call.arguments,
+        response = null;
+        response = await this.request(requestBody, remainingMs);
+        const currentUsage = usageFor(response);
+        latestInputTokens = currentUsage.inputTokens;
+        addUsage(totalUsage, currentUsage);
+        const responseEvent = {
+          type: "response.completed",
+          responseId: response.id ?? null,
+          status: response.status ?? null,
+          usage: currentUsage,
+          outputTypes: (response.output ?? []).map((item) => item.type),
+        };
+        events.push(responseEvent);
+        await onEvent?.(responseEvent);
+        messages.push(...normalizedMessages(response));
+        if (response.status !== "completed") {
+          throw new Error(response.error?.message || `OpenAI response ended with status ${response.status}`);
+        }
+        const calls = functionCalls(response);
+        if (calls.length === 0) break;
+        previousResponseId = response.id;
+        nextInput = [];
+        for (const call of calls) {
+          toolCallCount += 1;
+          if (maxToolCalls !== null && toolCallCount > maxToolCalls + 8) {
+            throw new Error(`OpenAI continued requesting tools after the ${maxToolCalls}-call budget was exhausted`);
+          }
+          let result;
+          if (maxToolCalls !== null && toolCallCount > maxToolCalls) {
+            result = {
+              ok: false,
+              error: `Tool-call budget exhausted after ${maxToolCalls} calls. Return a final answer without another tool call.`,
+            };
+          } else {
+            result = await onToolCall({
+              callId: call.call_id,
+              tool: call.name,
+              arguments: call.arguments,
+            });
+          }
+          if (
+            result?.ok === true
+            && ["request_tools", "request_capabilities"].includes(call.name)
+          ) {
+            controlTransfers.push({ tool: call.name, callId: call.call_id });
+          }
+          nextInput.push({
+            type: "function_call_output",
+            call_id: call.call_id,
+            output: JSON.stringify(result ?? null),
           });
         }
-        nextInput.push({
-          type: "function_call_output",
-          call_id: call.call_id,
-          output: JSON.stringify(result ?? null),
-        });
       }
-    }
-    const text = responseText(response);
-    if (!text) throw new Error("OpenAI completed without a final response");
-    return {
-      text,
-      conversationId: response.id,
-      providerTurnId: response.id,
-      status: response.status,
-      messages,
-      tokenUsage: totalUsage,
-      usage: {
-        provider: "openai",
+      const text = responseText(response);
+      if (!text && controlTransfers.length === 0) {
+        throw new Error("OpenAI completed without a final response");
+      }
+      return {
+        text,
+        conversationId: response.id,
+        providerTurnId: response.id,
+        status: response.status,
+        messages,
         tokenUsage: totalUsage,
-        contextInputTokens: latestInputTokens,
-        contextWindowTokens: this.modelContextWindowTokens,
-        estimatedCostUsd: estimatedCost(totalUsage, this.pricing),
-        pricing: this.pricing,
-      },
-      events,
-      protocol: {
-        endpoint: `${this.baseUrl}/responses`,
-        responseId: response.id,
-        toolSchemaCount: callableTools.length,
-        structuredOutput: Boolean(providerOutputSchema),
-        imageDetail: requestAttachmentInput?.mediaKind === "image" ? this.imageDetail : null,
-      },
-    };
+        usage: observedUsage(),
+        events,
+        controlTransfers,
+        protocol: {
+          endpoint: `${this.baseUrl}/responses`,
+          responseId: response.id,
+          toolSchemaCount: callableTools.length,
+          structuredOutput: Boolean(providerOutputSchema),
+          imageDetail: requestAttachmentInput?.mediaKind === "image" ? this.imageDetail : null,
+          controlTransfer: controlTransfers.length > 0,
+        },
+      };
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      const existingData = failure.data && typeof failure.data === "object" && !Array.isArray(failure.data)
+        ? failure.data
+        : {};
+      failure.data = redactValue({
+        ...existingData,
+        transport: this.id,
+        conversationId: response?.id ?? previousResponseId ?? null,
+        providerTurnId: response?.id ?? null,
+        status: response?.status ?? null,
+        messages,
+        protocolEvents: events,
+        controlTransfers,
+        usage: observedUsage(),
+      });
+      throw failure;
+    }
   }
 }
 

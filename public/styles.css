@@ -533,6 +533,19 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .agenda-item { width: 100%; padding: .7rem; text-align: left; }
 .agenda-item strong, .agenda-item span { display: block; }
 .agenda-item span { margin-top: .25rem; color: var(--muted); font-size: .74rem; }
+.agenda-item .agenda-item-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text);
+  font-size: .8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.agenda-item .agenda-item-details { font-size: .7rem; }
 .agenda-event-copy { align-self: stretch; white-space: nowrap; }
 .agenda-item.todo { border-left: 3px solid var(--brand-mid); }
 .agenda-empty { color: var(--muted); font-size: .83rem; line-height: 1.45; }

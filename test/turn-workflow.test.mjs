@@ -55,6 +55,7 @@ function brief({ auditRequired = true, confirmedActionReferenceIds = [] } = {}) 
     requiredTools: ["todo_create"],
     confirmedActionReferenceIds,
     contextRequests: [],
+    receiptReferences: [],
     temporalResolutions: [],
     requestedActions: [source],
     prohibitedActions: [],
@@ -179,6 +180,153 @@ test("a TurnBrief can skip the audit for declared read-only work and the trace s
   ));
   assert.equal(skipped.name, "Audit skipped");
   assert.match(skipped.content, /declared read-only effects/);
+});
+
+test("a number-only reply continues the active briefing from selected live context", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  ledger.recentConversation = () => [{
+    eventSeq: 7, requestId: "request-start", occurredAtUtc: "2026-09-03T03:19:31Z",
+    role: "user", content: "Let's do the evening briefing.",
+  }, {
+    eventSeq: 8, requestId: "request-start", occurredAtUtc: "2026-09-03T03:19:50Z",
+    role: "assistant", content: "What is your current weight?",
+  }];
+  ledger.latestConversationState = () => ({
+    activeObjective: "Continue the Evening Briefing.",
+    openCommitments: [], durableConstraints: [], unresolvedQuestions: [],
+    relevantRequestIds: ["request-start"],
+  });
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  const runId = "run-evening-briefing-1";
+  registry.registerContextView("interaction-guides", {
+    id: "interaction-guides.active_runs",
+    title: "Active briefing runs",
+    description: "Bounded current exchanges for active briefing runs.",
+    maximumItems: 8,
+    async execute() {
+      return {
+        heading: "Active briefing runs",
+        text: [
+          `- Briefing: Evening Briefing [interaction_guide_id=1; run_id=${runId}]`,
+          "  Current exchange 1 [completion_mode=response_valid; progress_state=active]",
+          "  Opening: What is your current weight?",
+          "  Instructions: Record the supplied numeric value exactly without inferring a unit.",
+        ].join("\n"),
+        data: { runs: [{ runId, currentExchange: { stepNumber: 1 } }] },
+      };
+    },
+  });
+  let receivedArguments = null;
+  registry.withCapability("interaction-guides").register({
+    name: "interaction_guide_step_answer",
+    description: "Record an answer in the exact active briefing exchange.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        run_id: { type: "string" }, step_number: { type: "integer" },
+        answers: { type: "object" }, step_complete: { type: "boolean" },
+        user_confirmed_advance: { type: "boolean" },
+        completion_receipt_event_seq: { type: ["integer", "null"] },
+      },
+      required: [
+        "run_id", "step_number", "answers", "step_complete",
+        "user_confirmed_advance", "completion_receipt_event_seq",
+      ],
+    },
+    async execute(argumentsObject) {
+      receivedArguments = structuredClone(argumentsObject);
+      return {
+        recorded: true, step_complete: true, run_complete: false,
+        run: { run_id: runId, current_step_number: 2 },
+        current_step: { step_number: 2, opening_text: "How was your day?" },
+      };
+    },
+  });
+  const source = { text: "Record 74.8 as the current-weight answer.", sourceEventSeqs: [9] };
+  const answerBrief = {
+    ...brief(),
+    requestType: "continuation",
+    objective: "Continue the active Evening Briefing with the user's current-weight answer.",
+    summary: "Record the exact number-only answer without inferring a unit.",
+    requiredCapabilities: ["interaction-guides"],
+    requiredTools: ["interaction_guide_step_answer"],
+    contextRequests: ["interaction-guides.active_runs"],
+    receiptReferences: [],
+    requestedActions: [source],
+    prohibitedActions: ["Do not infer a weight unit."],
+    constraints: [source],
+    completionCriteria: ["The active weight exchange records exactly 74.8 and advances."],
+    evidence: [
+      { text: "The assistant asked for current weight.", sourceEventSeqs: [8] },
+      { text: "The user answered 74.8.", sourceEventSeqs: [9] },
+    ],
+    conversationState: {
+      activeObjective: "Continue the Evening Briefing.",
+      openCommitments: [], durableConstraints: [], unresolvedQuestions: [],
+      relevantRequestIds: ["request-start"],
+    },
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      assert.equal(payload.input, "74.8");
+      assert.match(payload.developerInstructions, /What is your current weight\?/);
+      assert.match(payload.developerInstructions, /interaction-guides\.active_runs/);
+      return completed(JSON.stringify(answerBrief), 20);
+    }
+    if (index === 1) {
+      assert.match(payload.developerInstructions, new RegExp(runId));
+      const answer = await payload.onToolCall({
+        callId: "answer-weight",
+        tool: "interaction_guide_step_answer",
+        arguments: {
+          run_id: runId,
+          step_number: 1,
+          answers: { current_weight: 74.8 },
+          step_complete: true,
+          user_confirmed_advance: false,
+          completion_receipt_event_seq: null,
+        },
+      });
+      assert.equal(answer.ok, true);
+      return completed("Recorded 74.8. How was your day?", 25);
+    }
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "The current-weight answer was recorded and the briefing advanced.",
+      satisfiedCriteria: ["The active weight exchange records exactly 74.8 and advances."],
+      remainingActions: [],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-weight", requestEventId: "event-current", text: "74.8",
+  }), "Recorded 74.8. How was your day?");
+  assert.deepEqual(receivedArguments, {
+    run_id: runId,
+    step_number: 1,
+    answers: { current_weight: 74.8 },
+    step_complete: true,
+    user_confirmed_advance: false,
+    completion_receipt_event_seq: null,
+  });
+  assert.equal(requests.length, 3);
+  assert.equal(ledger.events.some(({ type, name }) => (
+    type === "tool.call" && name === "tool_receipt_list"
+  )), false);
 });
 
 test("structured execution starts with orientation-selected tools and expands exactly within the accepted capability", async () => {
@@ -1568,6 +1716,11 @@ test("a continuation recovers an opaque provider job ID from the receipt index w
     summary: "Use the prior provider receipt instead of asking the user for an opaque identifier.",
     requiredCapabilities: ["database", "integration:accounting"],
     requiredTools: ["tool_receipt_read", "remote_accounting_preview_transaction_import_job"],
+    receiptReferences: [{
+      receiptEventSeq: priorReceiptEventSeq,
+      tool: "remote_accounting_preview_transaction_import_job",
+      reason: "Recover the existing provider import job identifier.",
+    }],
     requestedActions: [source],
     completionCriteria: ["A fresh valid provider-owned approval reference is preserved."],
     evidence: [source],
@@ -1580,6 +1733,8 @@ test("a continuation recovers an opaque provider job ID from the receipt index w
       return completed(JSON.stringify(recoveryBrief), 20);
     }
     if (index === 1) {
+      assert.match(payload.developerInstructions, /"receiptEventSeq": 42/);
+      assert.match(payload.developerInstructions, /"tool": "remote_accounting_preview_transaction_import_job"/);
       const receipt = await payload.onToolCall({
         callId: "read-prior-preview",
         tool: "tool_receipt_read",

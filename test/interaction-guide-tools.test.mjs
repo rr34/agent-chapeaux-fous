@@ -532,6 +532,39 @@ test("numbered interaction steps persist answers and resume at the exact active 
   assert.deepEqual(nextRun.guide.steps.map(({ progress_state }) => progress_state), ["active", "pending"]);
 });
 
+test("the active briefing context view exposes only bounded current-run state", async (context) => {
+  const { registry } = harness(context);
+  const created = await registry.execute("interaction_guide_create", {
+    name: "Evening Briefing",
+  }, { requestId: "context-build", callId: "create" });
+  await registry.execute("interaction_guide_step_add", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    expected_version: created.guide.version,
+    step_number: 1,
+    opening_text: "What is your current weight?",
+    instructions_text: "Record the supplied numeric value exactly without inferring a unit.",
+    completion_mode: "response_valid",
+    enabled: true,
+  }, { requestId: "context-build", callId: "add" });
+  const started = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+  }, { requestId: "context-start", callId: "start" });
+
+  const prepared = await registry.prepareContext(["interaction-guides.active_runs"], {
+    requestId: "context-answer", requestText: "74.8",
+  });
+  assert.equal(prepared.length, 1);
+  assert.equal(prepared[0].view, "interaction-guides.active_runs");
+  assert.equal(prepared[0].data.totalCount, 1);
+  assert.equal(prepared[0].data.runs[0].runId, started.run.run_id);
+  assert.equal(prepared[0].data.runs[0].currentExchange.stepNumber, 1);
+  assert.equal(prepared[0].data.runs[0].currentExchange.openingText, "What is your current weight?");
+  assert.match(prepared[0].text, new RegExp(started.run.run_id));
+  assert.match(prepared[0].text, /do not infer omitted units/i);
+});
+
 test("an explicitly cancelled run resets current state and releases its guide for editing", async (context) => {
   const { registry } = harness(context);
   const created = await registry.execute("interaction_guide_create", {

@@ -18,6 +18,7 @@ function validBrief() {
     requiredTools: ["todo_create"],
     confirmedActionReferenceIds: [],
     contextRequests: [],
+    receiptReferences: [],
     temporalResolutions: [],
     requestedActions: [sourced],
     prohibitedActions: [],
@@ -95,6 +96,31 @@ test("TurnBrief parsing enforces source references and unique capability selecti
     () => parseStructuredModelOutput(JSON.stringify(contextual), contextSchema, "Orientation"),
     /contextRequests\[0\] must be one of/,
   );
+
+  const receiptSchema = turnBriefSchema(
+    ["todos", "database"],
+    [],
+    [],
+    ["todo_create", "tool_receipt_read"],
+    [{ receiptEventSeq: 42, tool: "todo_create" }],
+  );
+  const withReceipt = validBrief();
+  withReceipt.requiredCapabilities = ["todos", "database"];
+  withReceipt.requiredTools = ["tool_receipt_read"];
+  withReceipt.receiptReferences = [{
+    receiptEventSeq: 42,
+    tool: "todo_create",
+    reason: "Recover the exact prior creation result.",
+  }];
+  assert.deepEqual(
+    parseStructuredModelOutput(JSON.stringify(withReceipt), receiptSchema, "Orientation"),
+    withReceipt,
+  );
+  withReceipt.receiptReferences[0].receiptEventSeq = 43;
+  assert.throws(
+    () => parseStructuredModelOutput(JSON.stringify(withReceipt), receiptSchema, "Orientation"),
+    /receiptEventSeq must be one of 42/,
+  );
 });
 
 test("orientation treats conversation and focused knowledge as evidence for an actual answer", () => {
@@ -102,4 +128,6 @@ test("orientation treats conversation and focused knowledge as evidence for an a
   assert.match(orientationInstructions, /leave requiredTools empty/);
   assert.match(orientationInstructions, /focused knowledge tool supplies evidence, not final wording/);
   assert.match(orientationInstructions, /answering the user's actual question/);
+  assert.match(orientationInstructions, /immediately preceding assistant question or active exchange/);
+  assert.match(orientationInstructions, /never invent omitted units/);
 });

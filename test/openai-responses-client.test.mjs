@@ -111,6 +111,81 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
   assert.equal(result.usage.estimatedCostUsd, estimatedCost(result.usage.tokenUsage, client.pricing));
 });
 
+test("OpenAI Responses accepts an empty completion after a successful tool-expansion control transfer", async () => {
+  const responses = [
+    {
+      id: "resp_expand",
+      status: "completed",
+      output: [{
+        type: "function_call", id: "fc_expand", call_id: "call_expand",
+        name: "request_tools", arguments: '{"tools":["tool_receipt_list"]}',
+      }],
+      usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+    },
+    {
+      id: "resp_control_only",
+      status: "completed",
+      output: [{ type: "reasoning", id: "reasoning_control_only", summary: [] }],
+      usage: { input_tokens: 8, output_tokens: 1, total_tokens: 9 },
+    },
+  ];
+  const client = new OpenAIResponsesClient({
+    apiKey: "sk_test_secret_value_123456",
+    fetchImpl: async () => jsonResponse(responses.shift()),
+  });
+  const result = await client.runTurn({
+    model: "gpt-5.6-terra", effort: "high", conversationId: null,
+    baseInstructions: "BASE", developerInstructions: "CONTEXT", input: "Continue.",
+    tools: [{
+      name: "request_tools",
+      description: "Request exact additional tool schemas.",
+      inputSchema: {
+        type: "object", additionalProperties: false,
+        properties: { tools: { type: "array", items: { type: "string" } } },
+        required: ["tools"],
+      },
+    }],
+    onToolCall: async () => ({
+      ok: true,
+      result: { requested_tools: ["tool_receipt_list"], continuation: "Continue execution." },
+    }),
+  });
+
+  assert.equal(result.text, "");
+  assert.deepEqual(result.controlTransfers, [{ tool: "request_tools", callId: "call_expand" }]);
+  assert.equal(result.protocol.controlTransfer, true);
+  assert.equal(result.usage.tokenUsage.totalTokens, 21);
+  assert.deepEqual(result.events.map(({ outputTypes }) => outputTypes), [
+    ["function_call"],
+    ["reasoning"],
+  ]);
+});
+
+test("OpenAI Responses rejects an ordinary empty completion with accumulated diagnostics", async () => {
+  const client = new OpenAIResponsesClient({
+    apiKey: "sk_test_secret_value_123456",
+    fetchImpl: async () => jsonResponse({
+      id: "resp_empty",
+      status: "completed",
+      output: [{ type: "reasoning", id: "reasoning_empty", summary: [] }],
+      usage: { input_tokens: 14, output_tokens: 3, total_tokens: 17 },
+    }),
+  });
+
+  await assert.rejects(client.runTurn({
+    model: "gpt-5.6-terra", effort: "high", conversationId: null,
+    baseInstructions: "BASE", developerInstructions: "CONTEXT", input: "Answer me.",
+    tools: [], onToolCall: async () => null,
+  }), (error) => {
+    assert.match(error.message, /without a final response/);
+    assert.equal(error.data.providerTurnId, "resp_empty");
+    assert.equal(error.data.status, "completed");
+    assert.equal(error.data.usage.tokenUsage.totalTokens, 17);
+    assert.deepEqual(error.data.protocolEvents[0].outputTypes, ["reasoning"]);
+    return true;
+  });
+});
+
 test("OpenAI request descriptions expose schemas and image metadata without bytes or credentials", () => {
   const client = new OpenAIResponsesClient({ apiKey: "sk_test_secret_value_123456" });
   const description = client.describeRequest({

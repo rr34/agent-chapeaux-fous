@@ -183,6 +183,58 @@ test("the first model turn contains the exact request, context, and callable too
   assert.equal(toolExecutionContext.attachment, attachment);
 });
 
+test("failed model responses retain provider diagnostics and observed usage in the trace", async () => {
+  const events = [];
+  const modelTransport = fakeTransport(async () => {
+    const error = new Error("OpenAI completed without a final response");
+    error.data = {
+      transport: "openai-responses",
+      providerTurnId: "resp_failed",
+      status: "completed",
+      protocolEvents: [{
+        type: "response.completed",
+        responseId: "resp_failed",
+        status: "completed",
+        outputTypes: ["reasoning"],
+      }],
+      usage: {
+        provider: "openai",
+        tokenUsage: { inputTokens: 20, outputTokens: 2, totalTokens: 22 },
+        contextInputTokens: 20,
+        contextWindowTokens: 1000,
+        estimatedCostUsd: 0.001,
+      },
+    };
+    throw error;
+  });
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry: new ToolRegistry(),
+    contextBuilder: {
+      async build() {
+        return {
+          text: "bounded context", profileFacts: [], activeProfileFactCount: 0,
+          relevantProfileTypes: [], relevantProfileQuestions: [], history: [],
+          contextBudget: { truncated: false }, attachment: null,
+        };
+      },
+    },
+    ledger: { append(event) { events.push(event); } },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+
+  await assert.rejects(runtime.run({
+    requestId: "failed-response", requestEventId: "failed-event", text: "Answer me.",
+  }), /without a final response/);
+  const response = events.find(({ type }) => type === "model.response");
+  const usage = events.find(({ type }) => type === "model.usage");
+  assert.equal(response.payload.providerTurnId, "resp_failed");
+  assert.deepEqual(response.payload.protocolEvents[0].outputTypes, ["reasoning"]);
+  assert.equal(usage.payload.tokenUsage.totalTokens, 22);
+  assert.equal(usage.payload.responseFailed, true);
+});
+
 test("tools.sent records the exact provider-facing callable schemas instead of registry definitions", async () => {
   const events = [];
   const registry = new ToolRegistry();
@@ -563,7 +615,7 @@ test("late capability expansion preserves earlier same-request tool receipts wit
         arguments: { capabilities: ["beta"] },
       });
       assert.equal(expansion.ok, true);
-      return completedTurn({ text: "Continuing.", threadId: "first-thread" });
+      return completedTurn({ text: "", threadId: "first-thread" });
     }
     assert.match(payload.developerInstructions, /Earlier execution evidence from this same user request/);
     assert.match(payload.developerInstructions, /"tool":"alpha_read"/);

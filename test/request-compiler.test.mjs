@@ -335,10 +335,10 @@ test("a terse answer to a guide question retains the guided interaction capabili
   const extendedTools = [...tools, tool("todo_interaction_guide_set")];
   const selection = selectRequestCapabilities({
     tools: extendedTools,
-    text: "7 hours",
+    text: "74.8",
     recentConversation: [
-      { role: "user", content: 'Start the "Morning Check-in" interaction guide.' },
-      { role: "assistant", content: "How long did you sleep?" },
+      { role: "user", content: 'Start the "Evening Briefing" interaction guide.' },
+      { role: "assistant", content: "What is your current weight?" },
     ],
     previousCapabilities: ["database", "interaction-guides", "profile", "todos"],
   });

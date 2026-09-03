@@ -2577,11 +2577,11 @@ function agendaEventItem(calendarEvent, { allDay = false } = {}) {
     const item = node("div", "agenda-event");
     const button = node("button", "agenda-item");
     button.type = "button";
+    const description = String(calendarEvent.description ?? "").trim();
     const details = [allDay ? "All-day event" : null, calendarEvent.location].filter(Boolean).join(" · ");
-    button.append(
-      node("strong", "", calendarEvent.title),
-      node("span", "", details),
-    );
+    button.append(node("strong", "", calendarEvent.title));
+    if (description) button.append(node("span", "agenda-item-description", description));
+    if (details) button.append(node("span", "agenda-item-details", details));
     if (calendarEvent.seriesId) {
       button.title = "Edit this recurring event series.";
       button.addEventListener("click", () => openEventEditor({

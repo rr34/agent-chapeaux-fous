@@ -107,6 +107,39 @@ function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 24
   return receipts;
 }
 
+function receiptReferenceFindings(brief, recentToolReceipts) {
+  const indexed = new Map(recentToolReceipts.map((receipt) => [receipt.receiptEventSeq, receipt]));
+  const seen = new Set();
+  const findings = [];
+  for (const [index, reference] of (brief.receiptReferences ?? []).entries()) {
+    const receipt = indexed.get(reference.receiptEventSeq);
+    if (seen.has(reference.receiptEventSeq)) {
+      findings.push({
+        code: "duplicate_receipt_reference",
+        path: `brief.receiptReferences[${index}].receiptEventSeq`,
+        message: `Receipt ${reference.receiptEventSeq} is selected more than once`,
+      });
+      continue;
+    }
+    seen.add(reference.receiptEventSeq);
+    if (!receipt || receipt.tool !== reference.tool) {
+      findings.push({
+        code: "receipt_reference_not_indexed",
+        path: `brief.receiptReferences[${index}]`,
+        message: `Receipt ${reference.receiptEventSeq} for ${reference.tool} is not an exact entry in the supplied receipt index`,
+      });
+    }
+  }
+  if ((brief.receiptReferences ?? []).length > 0 && !brief.requiredTools.includes("tool_receipt_read")) {
+    findings.push({
+      code: "receipt_reader_not_selected",
+      path: "brief.requiredTools",
+      message: "receiptReferences requires tool_receipt_read in requiredTools",
+    });
+  }
+  return findings;
+}
+
 const toolFailureKinds = new Set([
   "authentication_failure",
   "contract_mismatch",
@@ -465,12 +498,27 @@ export class SlayerRuntime {
       return { value, result };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const diagnostics = error?.data && typeof error.data === "object" && !Array.isArray(error.data)
+        ? error.data
+        : {};
       if (!responseRecorded) {
         this.ledger.append({
           type: "model.response", phase: "error", status: "error", actorType: "external",
           actorName: this.modelTransport.displayName, channel, turnId: requestId,
-          operationId, name: `${label} model response failed`, error: message,
+          operationId, name: `${label} model response failed`, payload: diagnostics, error: message,
         });
+        if (diagnostics.usage) {
+          this.ledger.append({
+            type: "model.usage", status: "complete", actorType: "service",
+            actorName: `${this.modelTransport.displayName} usage`, channel, turnId: requestId,
+            operationId, name: `${label} model usage before failure`,
+            payload: {
+              ...diagnostics.usage,
+              workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort,
+              responseFailed: true,
+            },
+          });
+        }
       }
       this.ledger.append({
         type: "agent.step", phase: "error", status: "error", actorType: "service",
@@ -607,6 +655,7 @@ export class SlayerRuntime {
       activeActionReferences.map(({ referenceId }) => referenceId),
       catalog.flatMap(({ contextViews = [] }) => contextViews.map(({ id }) => id)),
       catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
+      recentToolReceipts,
     );
     const orientationDeveloperInstructions = joinedInstructions(
       orientationBaseContext.developerInstructions ?? orientationBaseContext.text,
@@ -650,7 +699,13 @@ export class SlayerRuntime {
         candidate.requiredCapabilities,
         [...candidate.requiredTools, ...confirmedTargetTools(candidate)],
       );
-      return { temporalFindings, capabilityFindings, findings: [...temporalFindings, ...capabilityFindings] };
+      const receiptFindings = receiptReferenceFindings(candidate, recentToolReceipts);
+      return {
+        temporalFindings,
+        capabilityFindings,
+        receiptFindings,
+        findings: [...temporalFindings, ...capabilityFindings, ...receiptFindings],
+      };
     };
     let brief = orientation.value;
     let validation = validateBrief(brief);
@@ -675,6 +730,7 @@ export class SlayerRuntime {
           temporalResolutions: candidate.temporalResolutions,
           requiredCapabilities: candidate.requiredCapabilities,
           requiredTools: candidate.requiredTools,
+          receiptReferences: candidate.receiptReferences,
         },
         ...(valid ? {} : { error: content }),
       });
@@ -697,6 +753,13 @@ export class SlayerRuntime {
             : null,
           validation.capabilityFindings.length
             ? requiredToolCapabilityRepairContext(brief, validation.capabilityFindings)
+            : null,
+          validation.receiptFindings.length
+            ? [
+                "# Receipt-reference validation requires repair",
+                JSON.stringify(validation.receiptFindings, null, 2),
+                "Select only exact receiptEventSeq and tool pairs from the supplied recent receipt index. Include tool_receipt_read whenever receiptReferences is nonempty.",
+              ].join("\n")
             : null,
         ),
         requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
@@ -1679,12 +1742,28 @@ export class SlayerRuntime {
           },
         });
       } catch (error) {
+        const diagnostics = error?.data && typeof error.data === "object" && !Array.isArray(error.data)
+          ? error.data
+          : {};
         this.ledger.append({
           type: "model.response", phase: "error", status: "error", actorType: "external",
           actorName: this.modelTransport.displayName, channel, turnId: requestId, operationId,
-          name: "Model response failed", payload: error.data ?? {},
+          name: "Model response failed", payload: diagnostics,
           error: error instanceof Error ? error.message : String(error),
         });
+        if (diagnostics.usage) {
+          this.ledger.append({
+            type: "model.usage", status: "complete", actorType: "service",
+            actorName: `${this.modelTransport.displayName} usage`, channel, turnId: requestId,
+            operationId, name: "Model usage before failure",
+            payload: {
+              ...diagnostics.usage,
+              workflowStep, workflowStepLabel, stepIndex, reasoningEffort: selectedEffort,
+              attempt,
+              responseFailed: true,
+            },
+          });
+        }
         throw error;
       }
 

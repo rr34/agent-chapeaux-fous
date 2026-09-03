@@ -364,6 +364,7 @@ test("the interaction video retains the complete chat history as it scrolls", ()
 test("the standalone client restores calendar, routine, grouped to-do, grouped content, and personal log surfaces", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
   assert.match(document, /data-view="calendar"/);
   assert.match(document, /data-view="todos"/);
@@ -417,6 +418,8 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(application, /selectedCalendarDate = addCalendarMonths\(selectedCalendarDate, -12\)/);
   assert.match(application, /selectedCalendarDate = addCalendarMonths\(selectedCalendarDate, 12\)/);
   assert.match(application, /function agendaTimelineTime/);
+  assert.match(application, /if \(description\) button\.append\(node\("span", "agenda-item-description", description\)\)/);
+  assert.match(styles, /\.agenda-item \.agenda-item-description \{[\s\S]+-webkit-line-clamp: 2;[\s\S]+line-clamp: 2;/);
   assert.match(application, /events\.filter\(\(\{ isAllDay \}\) => isAllDay\)/);
   assert.match(application, /timedEntries = \[/);
   assert.match(application, /renderCalendarGrid/);

@@ -45,11 +45,23 @@ const temporalResolution = {
   ],
 };
 
-export function turnBriefSchema(capabilities, actionReferenceIds = [], contextViewIds = [], toolNames = []) {
+export function turnBriefSchema(
+  capabilities,
+  actionReferenceIds = [],
+  contextViewIds = [],
+  toolNames = [],
+  toolReceipts = [],
+) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
   const allowedReferenceIds = [...new Set(actionReferenceIds)].sort();
   const allowedContextViews = [...new Set(contextViewIds)].sort();
   const allowedTools = [...new Set(toolNames)].sort();
+  const allowedReceiptEventSeqs = [...new Set(toolReceipts
+    .map(({ receiptEventSeq }) => receiptEventSeq)
+    .filter((value) => Number.isSafeInteger(value) && value > 0))].sort((left, right) => left - right);
+  const allowedReceiptTools = [...new Set(toolReceipts
+    .map(({ tool }) => tool)
+    .filter((value) => typeof value === "string" && value))].sort();
   return {
     type: "object",
     additionalProperties: false,
@@ -95,6 +107,25 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
         items: allowedContextViews.length
           ? { type: "string", enum: allowedContextViews }
           : { type: "string" },
+      },
+      receiptReferences: {
+        type: "array",
+        maxItems: allowedReceiptEventSeqs.length,
+        description: "Only the bounded receipt-index entries execution must read. These references identify immutable receipts but do not include or prove their results.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            receiptEventSeq: allowedReceiptEventSeqs.length
+              ? { type: "integer", enum: allowedReceiptEventSeqs }
+              : { type: "integer", minimum: 1 },
+            tool: allowedReceiptTools.length
+              ? { type: "string", enum: allowedReceiptTools }
+              : { type: "string", minLength: 1, maxLength: 200 },
+            reason: text(500),
+          },
+          required: ["receiptEventSeq", "tool", "reason"],
+        },
       },
       temporalResolutions: {
         type: "array",
@@ -142,7 +173,7 @@ export function turnBriefSchema(capabilities, actionReferenceIds = [], contextVi
     required: [
       "contractVersion", "requestType", "responseMode", "objective", "summary",
       "requiredCapabilities", "requiredTools", "confirmedActionReferenceIds", "requestedActions",
-      "contextRequests", "temporalResolutions",
+      "contextRequests", "receiptReferences", "temporalResolutions",
       "prohibitedActions", "deferredActions",
       "constraints", "unresolvedQuestions", "completionCriteria", "evidence", "audit",
       "conversationState",
@@ -311,6 +342,8 @@ export const orientationInstructions = [
   "A short yes can confirm a concrete prior offer without repeating its wording. A correction changes only what it explicitly changes. An addition preserves the earlier objective. A question does not confirm a write.",
   "When the user confirms a prepared MCP change, select its exact active reference in confirmedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",
   "Use contextRequests to ask the application for small advertised read-only datasets that execution needs up front, such as existing tag, group, or tracker names and IDs. Do not request unrelated views.",
+  "When a continuation needs an exact prior tool receipt, copy only each required receiptEventSeq and tool from the supplied recent receipt index into receiptReferences and state why execution needs it. Do not copy unrelated receipt entries. Prefer an advertised live domain context view when it directly supplies the current state; receipt recovery is the fallback for state unavailable from a selected view.",
+  "Treat a nonempty reply that is incomplete by itself as a continuation when the immediately preceding assistant question or active exchange gives it one unambiguous interpretation. Preserve the exact supplied value and never invent omitted units, identities, dates, or intent; use responseMode clarify when more than one interpretation remains plausible.",
   "When an action request names a weekday, add its exact source phrase, event number, IANA time zone, weekday, resolved YYYY-MM-DD local date, target-or-reference role, and affected temporal field to temporalResolutions. Use the supplied local calendar table; never infer that today has the requested weekday merely because prior work moved records to today. Application code rejects inconsistent weekday/date pairs before execution, and native scheduling tools enforce target dates.",
   "Select every capability family the executor may need. Keep the output concise, source-grounded, and explicit about completion.",
 ].join("\n");
