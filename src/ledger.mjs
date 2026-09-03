@@ -585,12 +585,12 @@ export class Ledger {
 
   activeDeferredActionReferences({ afterEventSeq = 0 } = {}) {
     const rows = this.store.requireReady().prepare(`
-      SELECT result.*, call.payload_json AS call_payload_json
+      SELECT result.*, tool_call.payload_json AS call_payload_json
       FROM activity_events AS result
-      LEFT JOIN activity_events AS call
-        ON call.operation_id = result.operation_id
-       AND call.event_type = 'tool.call'
-       AND call.name = result.name
+      LEFT JOIN activity_events AS tool_call
+        ON tool_call.operation_id = result.operation_id
+       AND tool_call.event_type = 'tool.call'
+       AND tool_call.name = result.name
       WHERE result.event_type = 'tool.result'
         AND result.event_seq > ?
       ORDER BY result.event_seq
@@ -1043,12 +1043,12 @@ export class Ledger {
       throw new Error("Tool receipt requestId must be a non-empty string or null");
     }
     const rows = this.store.requireReady().prepare(`
-      SELECT result.*, call.payload_json AS call_payload_json
+      SELECT result.*, tool_call.payload_json AS call_payload_json
       FROM activity_events AS result
-      LEFT JOIN activity_events AS call
-        ON call.operation_id = result.operation_id
-       AND call.event_type = 'tool.call'
-       AND call.name = result.name
+      LEFT JOIN activity_events AS tool_call
+        ON tool_call.operation_id = result.operation_id
+       AND tool_call.event_type = 'tool.call'
+       AND tool_call.name = result.name
       WHERE result.event_type = 'tool.result'
         AND (? IS NULL OR result.turn_id = ?)
         AND (? IS NULL OR result.event_seq < ?)
@@ -1096,12 +1096,12 @@ export class Ledger {
       throw new Error("maxCharacters must be an integer from 1 to 32768");
     }
     const row = this.store.requireReady().prepare(`
-      SELECT result.*, call.payload_json AS call_payload_json
+      SELECT result.*, tool_call.payload_json AS call_payload_json
       FROM activity_events AS result
-      LEFT JOIN activity_events AS call
-        ON call.operation_id = result.operation_id
-       AND call.event_type = 'tool.call'
-       AND call.name = result.name
+      LEFT JOIN activity_events AS tool_call
+        ON tool_call.operation_id = result.operation_id
+       AND tool_call.event_type = 'tool.call'
+       AND tool_call.name = result.name
       WHERE result.event_type = 'tool.result'
         AND result.event_seq = ?
       LIMIT 1

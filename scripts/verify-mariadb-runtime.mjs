@@ -73,6 +73,8 @@ try {
   assert.ok(Array.isArray(organizer.listContentGroups({ includeArchived: true })));
   assert.ok(Array.isArray(organizer.listLogTrackers({ includeArchived: true })));
   assert.ok(ledger.listFiles({ limit: 2 }).files.length <= 2);
+  assert.ok(Array.isArray(ledger.activeDeferredActionReferences()));
+  assert.ok(Array.isArray(ledger.toolReceiptList({ limit: 2 }).receipts));
 
   const coordinator = createNativeSearchCoordinator({ store, organizer, ledger });
   const search = await coordinator.search({
