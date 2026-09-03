@@ -424,6 +424,16 @@ test("common plural request words select their focused tool families", () => {
   }
 });
 
+test("a named calendar work window selects native to-dos even when the work mentions a property", () => {
+  const selection = selectRequestCapabilities({
+    tools,
+    text: "Fill today's regular work window with loose toilet at Lesko's place.",
+  });
+  assert.equal(selection.capabilities.includes("todos"), true);
+  assert.equal(names(selection).includes("todo_list"), true);
+  assert.ok(selection.reasons.includes("todos:request") || selection.reasons.includes("todos:declared-alias"));
+});
+
 test("routine and habit requests select the dedicated reusable-routine tool", () => {
   const registry = new ToolRegistry();
   registerTodoTools(registry, {}, {}, null);

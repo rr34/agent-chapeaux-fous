@@ -46,7 +46,7 @@ const capabilityPatterns = new Map([
   ["web", /https?:\/\/|\b(?:web ?page|website|url|link)\b/iu],
   ["calendar", /\b(?:calendar|schedule|agenda|appointment|meeting|event|birthday|invite)\b/iu],
   ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b/iu],
-  ["todos", /\b(?:to[ -]?do|todo|task|remind(?:er)?|chore|overdue|routines?|habits?)\b/iu],
+  ["todos", /\b(?:to[ -]?do|todo|task|remind(?:er)?|chore|overdue|routines?|habits?|(?:regular |unplanned )?work window)\b/iu],
   ["logs", /\b(?:personal logs?|log entr(?:y|ies)|(?:my|the) logs?|food log|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
   ["interaction-guides", /\b(?:briefings?|interaction guides?|guided interactions?)\b|\b(?:start|use|update|change|edit|create|make|show|list|archive|schedule).{0,60}\bguide\b/iu],
   ["profile", /\b(?:remember that|remember my|keep on file|profile fact|forget (?:that|my)|my preference|i prefer|i am allergic|my address|my phone|my vehicle|my car|my time ?zone|my\b.{0,80}\b(?:is|are|changed))\b/iu],
@@ -70,9 +70,9 @@ const personalActionPattern = /\b(?:my|mine|current|latest|today|now|look up|fin
 
 const capabilitySummaries = new Map([
   ["web", "Read specific web pages supplied by URL."],
-  ["calendar", "Read and manage calendar events and schedules."],
+  ["calendar", "Read and manage native calendar events. The Calendar screen also displays scheduled personal to-dos, which belong to the to-dos capability."],
   ["contacts", "Search, import, tag, and merge contacts."],
-  ["todos", "Read and manage native personal to-do items, reusable routines, and groups."],
+  ["todos", "Read and manage native personal to-dos, including Calendar-screen scheduled tasks and unplanned work windows."],
   ["logs", "Read, record, and correct personal logs and trackers."],
   ["interaction-guides", "Create, inspect, update, and conduct user-owned briefings and their ordered exchanges."],
   ["profile", "Read and maintain durable profile facts."],

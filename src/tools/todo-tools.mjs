@@ -451,7 +451,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_list",
-    description: "List the user's native personal to-do items. Set status to unplanned for the authoritative list of items that still need planning. Use completed_on_date to select tasks completed on one local calendar date and scheduled_on_date to select tasks scheduled on one local calendar date; these are query filters and do not add ranges to task records. Supply time_zone whenever either date filter is used. With no status and no completed date, terminal tasks remain excluded as before.",
+    description: "List the user's native personal to-do items, including entries rendered as Scheduled task or All-day task on the Calendar screen. Set status to unplanned for the authoritative list of work windows and other items that still need planning, even when their eventual work concerns a property or external system. Use completed_on_date to select tasks completed on one local calendar date and scheduled_on_date to select tasks scheduled on one local calendar date; these are query filters and do not add ranges to task records. Supply time_zone whenever either date filter is used. With no status and no completed date, terminal tasks remain excluded as before.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1333,7 +1333,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_update",
-    description: "Atomically update 1 through 500 native personal to-dos by ID in one call. A one-item request uses the same updates array. Every target and change is validated before any update is retained; duplicate IDs or one invalid item roll back the complete batch. Each item may associate or clear its exact contact, move groups, change scheduling, planned duration_minutes, status including unplanned, or planning_prompt_text. For planning_prompt_text, omit the property to leave it unchanged and use null or an empty string to clear it. duration_minutes is measured from scheduled_at_utc and requires an exact-time, non-all-day schedule.",
+    description: "Atomically update 1 through 500 native personal to-dos by ID in one call. Use this after todo_list to fill a scheduled unplanned work window: replace its placeholder text/plan and set the intended status while preserving its existing schedule and duration unless the user asked to change them. A one-item request uses the same updates array. Every target and change is validated before any update is retained; duplicate IDs or one invalid item roll back the complete batch. Each item may associate or clear its exact contact, move groups, change scheduling, planned duration_minutes, status including unplanned, or planning_prompt_text. For planning_prompt_text, omit the property to leave it unchanged and use null or an empty string to clear it. duration_minutes is measured from scheduled_at_utc and requires an exact-time, non-all-day schedule.",
     parameters: {
       type: "object",
       additionalProperties: false,

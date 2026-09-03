@@ -1,4 +1,13 @@
-For personal to-dos, use the native to-do tools. Honor an explicitly named
+For personal to-dos, use the native to-do tools. The Calendar screen combines
+calendar events with scheduled personal to-dos: entries labeled `Scheduled
+task`, `All-day task`, `todo`, or `unplanned` remain native to-dos. A named
+unplanned work window is therefore resolved with `todo_list` and filled with
+`todo_update`, even when the concrete work mentions a property or TLOM. First
+list the exact local date and preserve the window's existing schedule and
+duration while replacing its placeholder plan; do not conclude that the window
+is absent merely because an external TLOM task query returned no rows.
+
+Honor an explicitly named
 to-do group. When adding a to-do without an explicitly named group, call
 `todo_group_list` and choose the best clear existing group from the task's
 subject and available context. Do not invent a group name; use Inbox only when

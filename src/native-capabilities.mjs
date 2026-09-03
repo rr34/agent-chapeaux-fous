@@ -21,7 +21,7 @@ export const nativeCapabilityManifests = [
     readOnlyTools: ["web_page_read"],
   },
   {
-    id: "calendar", title: "Calendar", summary: "Read and manage native calendar events and schedules.",
+    id: "calendar", title: "Calendar", summary: "Read and manage native calendar events. The Calendar screen also displays scheduled personal to-dos, but those records belong to the to-dos capability.",
     aliases: ["calendar", "schedule", "agenda", "appointment", "meeting", "event"],
     instructionFile: "calendar.md",
     readOnlyTools: ["calendar_event_search", "calendar_event_list"],
@@ -36,8 +36,8 @@ export const nativeCapabilityManifests = [
     readOnlyTools: ["contact_search", "contact_lookup_batch", "contact_duplicate_list"],
   },
   {
-    id: "todos", title: "To-dos and routines", summary: "Read and manage native personal to-do items, reusable routines, and groups.",
-    aliases: ["todo", "to-do", "task", "reminder", "chore", "routine", "habit"], instructionFile: "todos.md",
+    id: "todos", title: "To-dos and routines", summary: "Read and manage native personal to-dos, including Scheduled task and All-day task entries shown on the Calendar. Unplanned work windows belong here even when their eventual work concerns a property or TLOM.",
+    aliases: ["todo", "to-do", "task", "reminder", "chore", "routine", "habit", "work window", "regular work window", "unplanned window"], instructionFile: "todos.md",
     readOnlyTools: ["todo_group_list", "todo_list"],
   },
   {
