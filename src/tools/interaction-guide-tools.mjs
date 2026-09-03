@@ -44,8 +44,28 @@ function databaseGuide(guide) {
         guide_version: guide.activeRun.guideVersion,
         status: guide.activeRun.status,
         current_step_number: guide.activeRun.currentStepNumber,
+        started_at_utc: guide.activeRun.startedAtUtc,
+        started_local_date: guide.activeRun.startedLocalDate,
+        current_local_date: guide.activeRun.currentLocalDate,
+        time_zone: guide.activeRun.timeZone,
+        requires_daily_choice: guide.activeRun.requiresDailyChoice,
       },
     } : {}),
+  };
+}
+
+function databaseRun(run) {
+  return {
+    run_id: run.id,
+    interaction_guide_id: run.interactionGuideId,
+    guide_version: run.guideVersion,
+    status: run.status,
+    current_step_number: run.currentStepNumber,
+    started_at_utc: run.startedAtUtc,
+    started_local_date: run.startedLocalDate,
+    current_local_date: run.currentLocalDate,
+    time_zone: run.timeZone,
+    requires_daily_choice: run.requiresDailyChoice,
   };
 }
 
@@ -95,6 +115,10 @@ export function activeBriefingRunContext(interactionGuides, limit = 8) {
       briefingName: guide.name,
       guideVersion: guide.version,
       runId: run.id,
+      startedLocalDate: run.startedLocalDate,
+      currentLocalDate: run.currentLocalDate,
+      timeZone: run.timeZone,
+      requiresDailyChoice: run.requiresDailyChoice,
       currentExchange: {
         interactionGuideStepId: currentStep.id,
         stepNumber: currentStep.stepNumber,
@@ -114,9 +138,9 @@ export function activeBriefingRunContext(interactionGuides, limit = 8) {
   return {
     heading: "Active briefing runs",
     text: runs.length ? [
-      "Use an active run below only when the current request unambiguously answers its exact current opening. Preserve terse supplied values literally and do not infer omitted units. If a required field is marked truncated, fetch that exact briefing before acting.",
+      "Use an active run below only when the current request unambiguously answers its exact current opening. If requires_daily_choice is true, do not process an answer or run other exchange tools until the user explicitly chooses to resume or start over. Preserve terse supplied values literally and do not infer omitted units. If a required field is marked truncated, fetch that exact briefing before acting.",
       ...runs.flatMap((entry) => [
-        `- Briefing: ${entry.briefingName} [interaction_guide_id=${entry.interactionGuideId}; run_id=${entry.runId}; guide_version=${entry.guideVersion}]`,
+        `- Briefing: ${entry.briefingName} [interaction_guide_id=${entry.interactionGuideId}; run_id=${entry.runId}; guide_version=${entry.guideVersion}; started_local_date=${entry.startedLocalDate}; current_local_date=${entry.currentLocalDate}; time_zone=${entry.timeZone}; requires_daily_choice=${entry.requiresDailyChoice}]`,
         `  Current exchange ${entry.currentExchange.stepNumber} [interaction_guide_step_id=${entry.currentExchange.interactionGuideStepId}; completion_mode=${entry.currentExchange.completionMode}; progress_state=${entry.currentExchange.progressState}]`,
         `  Opening: ${entry.currentExchange.openingText}`,
         `  Instructions: ${entry.currentExchange.instructionsText ?? "None"}`,
@@ -304,7 +328,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_start",
-    description: "Start or resume one exact briefing. An unfinished run resumes its active exchange. Set restart true only when the user explicitly asks to discard that run and begin again. Completed runs are preserved in the ledger while their reusable exchange state is already reset for this next run.",
+    description: "Start or resume one exact briefing. For an ordinary request, set stale_run_action to ask: an unfinished run from the current local day resumes, while an earlier-day run returns choice_required without advancing. Set stale_run_action to resume only after the user explicitly chooses to keep the earlier run. Set restart true only when the user explicitly asks to discard the unfinished run and start over. Completed runs remain in the ledger while their reusable exchange state is reset.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -312,24 +336,21 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
         name: { type: ["string", "null"], minLength: 1, maxLength: 200 },
         restart: { type: "boolean" },
+        stale_run_action: { type: "string", enum: ["ask", "resume"] },
       },
-      required: ["interaction_guide_id", "name", "restart"],
+      required: ["interaction_guide_id", "name", "restart", "stale_run_action"],
     },
-    async execute({ interaction_guide_id: guideId, name, restart }, context) {
-      const result = interactionGuides.begin({ guideId, name, restart }, context);
+    async execute({ interaction_guide_id: guideId, name, restart, stale_run_action: staleRunAction }, context) {
+      const result = interactionGuides.begin({ guideId, name, restart, staleRunAction }, context);
       return stepResult(schemaSemantics, context, {
         started: result.started,
         resumed: result.resumed,
-        run: {
-          run_id: result.run.id,
-          interaction_guide_id: result.run.interactionGuideId,
-          guide_version: result.run.guideVersion,
-          status: result.run.status,
-          current_step_number: result.run.currentStepNumber,
-        },
+        choice_required: result.choiceRequired,
+        available_choices: result.choiceRequired ? ["resume", "start_over"] : [],
+        run: databaseRun(result.run),
         guide: databaseGuide(result.guide),
         current_step: databaseStep(result.currentStep),
-      }, "interaction_guide_start", "Return the durable run identity and exact current numbered exchange");
+      }, "interaction_guide_start", "Return either the required earlier-run choice or the durable run identity and exact current numbered exchange");
     },
   });
 
@@ -365,13 +386,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         recorded: result.recorded,
         step_complete: result.stepComplete,
         run_complete: result.runCompleted,
-        run: {
-          run_id: result.run.id,
-          interaction_guide_id: result.run.interactionGuideId,
-          guide_version: result.run.guideVersion,
-          status: result.run.status,
-          current_step_number: result.run.currentStepNumber,
-        },
+        run: databaseRun(result.run),
         step: databaseStep(result.step),
         current_step: databaseStep(result.currentStep),
       }, "interaction_guide_step_answer", "Return saved answers and the exact current or next numbered exchange");

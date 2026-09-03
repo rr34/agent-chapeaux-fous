@@ -291,6 +291,30 @@ export function orientationContext({
   ].join("\n");
 }
 
+export function preparedContextOrientationContext({
+  brief,
+  preparedCapabilityContext,
+  capabilityCatalog,
+}) {
+  return [
+    "# Finalize orientation from selected read-only context",
+    "The initial schema-valid TurnBrief selected the bounded context below. Return one complete replacement TurnBrief before execution. Preserve the exact user objective and authorization. Use the prepared context to correct capability and initial-tool selection; do not perform the work or claim that a context view performed a domain action.",
+    "",
+    "For an active receipt-gated briefing exchange, `interaction_guide_step_answer` only saves answers and advances briefing progress. It does not perform any destination action described by the exchange. Include every destination tool required by the current exchange in `requiredTools` and include each tool's owning capability in `requiredCapabilities`. Keep `interaction_guide_step_answer` when the user's reply must also be recorded or the briefing must advance. The receipt gate remains required; do not weaken completion criteria merely because the initial TurnBrief omitted a tool.",
+    "",
+    "Keep `contextRequests` exactly equal to the initial TurnBrief's selected set. Do not request another context view in this refinement.",
+    "",
+    "## Initial TurnBrief candidate",
+    JSON.stringify(brief, null, 2),
+    "",
+    "## Prepared context selected by that candidate",
+    JSON.stringify(preparedCapabilityContext, null, 2),
+    "",
+    "## Connected capability families",
+    orientationCapabilityCatalog(capabilityCatalog),
+  ].join("\n");
+}
+
 export function turnBriefInstructions(brief, confirmedActionReferences = []) {
   return [
     "# Accepted TurnBrief",

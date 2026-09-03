@@ -188,6 +188,11 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(application, /method: "DELETE"/);
   assert.match(application, /Resume this briefing/);
   assert.match(application, /Start this briefing/);
+  assert.match(application, /Resume previous run/);
+  assert.match(application, /"Start over"/);
+  assert.match(application, /requiresDailyChoice/);
+  assert.match(application, /I explicitly choose to keep its unfinished answers/);
+  assert.match(application, /I explicitly authorize discarding its unfinished current-run answers/);
   assert.doesNotMatch(application, /Resume in Agent|Start in Agent/);
   assert.doesNotMatch(application, /node\("button", "secondary compact", "Copy exchange identity"\)/);
   assert.doesNotMatch(application, /function openInteractionStepMoveEditor|function moveInteractionStep/);
@@ -831,7 +836,7 @@ test("clicking a to-do item's text copies the complete task text", () => {
 test("hard-coded UI datetimes use the TLOM 24-hour display convention", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const presentation = fs.readFileSync(path.join(root, "public", "presentation-format.js"), "utf8");
-  assert.match(application, /import \{ formatDisplayDate, formatDisplayTime \} from "\.\/presentation-format\.js"/);
+  assert.match(application, /import \{ formatDisplayDate, formatDisplayTime, formatLocalDate \} from "\.\/presentation-format\.js"/);
   assert.match(presentation, /export function formatDisplayDate/);
   assert.match(presentation, /export function formatDisplayTime/);
   assert.match(presentation, /weekday: "short", day: "2-digit", month: "short", year: "numeric"/);

@@ -84,7 +84,7 @@ const descriptions = new Map(Object.entries({
   interaction_guide_step_add: create("Add one numbered exchange to a selected briefing or atomically append it to the generic Exchange Inbox."),
   interaction_guide_step_update: update("Replace the complete definition of one numbered briefing exchange using the parent briefing's current version."),
   interaction_guide_step_move: update("Move one exchange into a different active briefing after reading both current versions."),
-  interaction_guide_start: update("Start or resume one briefing; restart only when the user explicitly asks to discard the unfinished run."),
+  interaction_guide_start: update("Start or resume one briefing; require an explicit resume or start-over choice when an unfinished run began on an earlier local day."),
   interaction_guide_step_answer: update("Merge answers into the active briefing exchange and advance only when its completion rule is satisfied."),
   interaction_guide_run_cancel: destructive("Cancel one active briefing run, resetting current progress and answers while retaining ledger history."),
   interaction_guide_create: create("Create one named durable user-owned briefing. Add its numbered exchanges separately before starting it."),

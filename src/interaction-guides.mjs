@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { localDateForInstant } from "./temporal-consistency.mjs";
 
 const guideStatuses = new Set(["active", "archived"]);
 const completionModes = new Set(["response_valid", "user_advances", "tool_receipt"]);
+const staleRunActions = new Set(["ask", "resume"]);
 
 export const defaultInteractionGuideName = "Exchange Inbox";
 
@@ -75,9 +77,49 @@ function ledgerActor(context, toolName) {
 }
 
 export class InteractionGuides {
-  constructor({ store, ledger }) {
+  constructor({ store, ledger, clock = () => new Date(), timeZone = () => "UTC" }) {
+    if (typeof clock !== "function") throw new Error("Briefing clock must be a function");
+    if (typeof timeZone !== "function") throw new Error("Briefing time-zone provider must be a function");
     this.store = store;
     this.ledger = ledger;
+    this.clock = clock;
+    this.timeZone = timeZone;
+  }
+
+  #currentTiming() {
+    const now = this.clock();
+    if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+      throw new Error("Briefing clock must return a valid Date");
+    }
+    const timeZone = String(this.timeZone() ?? "").trim();
+    const currentLocalDate = localDateForInstant(now, timeZone);
+    return { now, timeZone, currentLocalDate };
+  }
+
+  #runTiming(database, startedRow, started) {
+    const current = this.#currentTiming();
+    const startedAtUtc = started.startedAtUtc ?? startedRow.occurred_at_utc;
+    const startedLocalDate = started.startedLocalDate
+      ?? localDateForInstant(startedAtUtc, current.timeZone);
+    const resumedRow = database.prepare(`
+      SELECT payload_json
+      FROM activity_events
+      WHERE subject_type = 'interaction_guide_run' AND subject_id = ?
+        AND event_type = 'interaction_guide.run_resumed'
+      ORDER BY event_seq DESC
+      LIMIT 1
+    `).get(startedRow.subject_id);
+    const resumed = resumedRow ? JSON.parse(resumedRow.payload_json) : null;
+    const resumeAcknowledgedLocalDate = resumed?.localDate ?? null;
+    return {
+      startedAtUtc,
+      startedLocalDate,
+      timeZone: current.timeZone,
+      currentLocalDate: current.currentLocalDate,
+      resumeAcknowledgedLocalDate,
+      requiresDailyChoice: startedLocalDate < current.currentLocalDate
+        && resumeAcknowledgedLocalDate !== current.currentLocalDate,
+    };
   }
 
   list({ status = "active", limit = 200 } = {}) {
@@ -107,6 +149,11 @@ export class InteractionGuides {
           guideVersion: Number(activeRun.guideVersion),
           status: "active",
           currentStepNumber: current ? Number(current.step_number) : null,
+          startedAtUtc: activeRun.startedAtUtc,
+          startedLocalDate: activeRun.startedLocalDate,
+          currentLocalDate: activeRun.currentLocalDate,
+          timeZone: activeRun.timeZone,
+          requiresDailyChoice: activeRun.requiresDailyChoice,
         } : null,
       });
     });
@@ -172,7 +219,12 @@ export class InteractionGuides {
       LIMIT 1
     `).get(guideId);
     if (!row) return null;
-    return { id: row.subject_id, ...JSON.parse(row.payload_json) };
+    const started = JSON.parse(row.payload_json);
+    return {
+      id: row.subject_id,
+      ...started,
+      ...this.#runTiming(database, row, started),
+    };
   }
 
   #currentRunStep(database, _runId, guideId) {
@@ -218,6 +270,11 @@ export class InteractionGuides {
         guideVersion: Number(activeRun.guideVersion),
         status: "active",
         currentStepNumber: current ? Number(current.step_number) : null,
+        startedAtUtc: activeRun.startedAtUtc,
+        startedLocalDate: activeRun.startedLocalDate,
+        currentLocalDate: activeRun.currentLocalDate,
+        timeZone: activeRun.timeZone,
+        requiresDailyChoice: activeRun.requiresDailyChoice,
       } : null,
     });
   }
@@ -275,6 +332,11 @@ export class InteractionGuides {
           guideVersion: Number(activeRun.guideVersion),
           status: "active",
           currentStepNumber: current ? Number(current.step_number) : null,
+          startedAtUtc: activeRun.startedAtUtc,
+          startedLocalDate: activeRun.startedLocalDate,
+          currentLocalDate: activeRun.currentLocalDate,
+          timeZone: activeRun.timeZone,
+          requiresDailyChoice: activeRun.requiresDailyChoice,
         } : null,
         currentStep: publicStep(current),
       };
@@ -653,8 +715,13 @@ export class InteractionGuides {
     }
   }
 
-  begin({ guideId = null, name = null, restart = false } = {}, context = {}) {
+  begin({
+    guideId = null, name = null, restart = false, staleRunAction = "ask",
+  } = {}, context = {}) {
     if (typeof restart !== "boolean") throw new Error("Restart must be true or false");
+    if (!staleRunActions.has(staleRunAction)) {
+      throw new Error(`Unknown stale briefing action: ${staleRunAction}`);
+    }
     const guide = this.get({ guideId, name });
     if (!guide) throw new Error("Briefing not found");
     if (guide.status !== "active") throw conflict("Archived briefings cannot be started");
@@ -666,12 +733,52 @@ export class InteractionGuides {
         if (Number(activeRun.guideVersion) !== guide.version) {
           throw conflict("The active briefing uses a different version and must be restarted");
         }
+        if (activeRun.requiresDailyChoice && staleRunAction === "ask") {
+          database.exec("COMMIT");
+          return {
+            started: false,
+            resumed: false,
+            choiceRequired: true,
+            run: {
+              ...activeRun,
+              status: "active",
+              currentStepNumber: guide.activeRun?.currentStepNumber ?? null,
+            },
+            guide,
+            currentStep: null,
+          };
+        }
+        if (activeRun.requiresDailyChoice && staleRunAction === "resume") {
+          this.ledger.append({
+            type: "interaction_guide.run_resumed", status: "processing",
+            ...ledgerActor(context, "interaction_guide_start"), turnId: context.requestId,
+            operationId: context.callId, name: "Earlier briefing resumed",
+            content: guide.name,
+            payload: {
+              interactionGuideId: guide.id,
+              startedLocalDate: activeRun.startedLocalDate,
+              localDate: activeRun.currentLocalDate,
+              timeZone: activeRun.timeZone,
+            },
+            subjectType: "interaction_guide_run", subjectId: activeRun.id,
+          });
+          activeRun.requiresDailyChoice = false;
+          activeRun.resumeAcknowledgedLocalDate = activeRun.currentLocalDate;
+        }
         const current = this.#currentRunStep(database, activeRun.id, guide.id);
+        const resumedGuide = guide.activeRun ? {
+          ...guide,
+          activeRun: {
+            ...guide.activeRun,
+            currentLocalDate: activeRun.currentLocalDate,
+            requiresDailyChoice: activeRun.requiresDailyChoice,
+          },
+        } : guide;
         database.exec("COMMIT");
         return {
-          started: false, resumed: true,
+          started: false, resumed: true, choiceRequired: false,
           run: { ...activeRun, status: "active", currentStepNumber: current?.step_number ?? null },
-          guide, currentStep: publicStep(current),
+          guide: resumedGuide, currentStep: publicStep(current),
         };
       }
       if (activeRun) {
@@ -686,6 +793,7 @@ export class InteractionGuides {
       const enabledSteps = this.#steps(database, guide.id, { enabledOnly: true });
       if (!enabledSteps.length) throw conflict("This briefing has no enabled exchanges");
       this.#resetRunState(database, guide.id);
+      const timing = this.#currentTiming();
       const runId = randomUUID();
       const current = database.prepare(`
         UPDATE interaction_guide_steps
@@ -697,6 +805,9 @@ export class InteractionGuides {
       const run = {
         id: runId, interactionGuideId: guide.id, guideVersion: guide.version,
         status: "active", currentStepNumber: Number(current.step_number),
+        startedAtUtc: timing.now.toISOString(), startedLocalDate: timing.currentLocalDate,
+        currentLocalDate: timing.currentLocalDate, timeZone: timing.timeZone,
+        resumeAcknowledgedLocalDate: null, requiresDailyChoice: false,
       };
       this.ledger.append({
         type: "interaction_guide.run_started", status: "processing",
@@ -705,6 +816,9 @@ export class InteractionGuides {
         content: guide.name,
         payload: {
           interactionGuideId: guide.id, guideVersion: guide.version,
+          startedAtUtc: run.startedAtUtc,
+          startedLocalDate: run.startedLocalDate,
+          timeZone: run.timeZone,
           stepSnapshot: enabledSteps.map((row, index) => publicStep({
             ...row,
             answers_json: "{}",
@@ -715,7 +829,7 @@ export class InteractionGuides {
       });
       database.exec("COMMIT");
       return {
-        started: true, resumed: false, run,
+        started: true, resumed: false, choiceRequired: false, run,
         guide: {
           ...guide,
           steps: guide.steps.map((step) => ({
@@ -764,6 +878,12 @@ export class InteractionGuides {
       ).get(started.interactionGuideId);
       if (!guide || Number(guide.version) !== Number(started.guideVersion)) {
         throw conflict("The briefing definition changed after this run started; restart it before continuing");
+      }
+      const runTiming = this.#runTiming(database, startedRow, started);
+      if (runTiming.requiresDailyChoice) {
+        throw conflict(
+          `This unfinished briefing began on ${runTiming.startedLocalDate} in ${runTiming.timeZone}. Choose whether to resume it or start over before recording another answer.`,
+        );
       }
       const current = this.#currentRunStep(database, selectedRunId, guide.interaction_guide_id);
       if (!current) throw conflict("This structured-interaction run has no remaining enabled step");

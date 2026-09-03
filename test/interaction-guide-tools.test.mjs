@@ -9,13 +9,18 @@ import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
-function harness(context) {
+function harness(context, { clock, timeZone } = {}) {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.filename);
   context.after(() => store.close());
   const ledger = new Ledger(store);
-  const guides = new InteractionGuides({ store, ledger });
+  const guides = new InteractionGuides({
+    store,
+    ledger,
+    ...(clock ? { clock } : {}),
+    ...(timeZone ? { timeZone } : {}),
+  });
   const registry = new ToolRegistry();
   registerInteractionGuideTools(registry, guides);
   registerTodoTools(registry, store, ledger);
@@ -330,6 +335,7 @@ test("one exchange moves between briefings without a schema change or shared own
     interaction_guide_id: source.guide.interaction_guide_id,
     name: null,
     restart: false,
+    stale_run_action: "ask",
   });
   await registry.execute("interaction_guide_step_answer", {
     run_id: started.run.run_id,
@@ -376,6 +382,7 @@ test("one exchange moves between briefings without a schema change or shared own
     interaction_guide_id: target.guide.interaction_guide_id,
     name: null,
     restart: false,
+    stale_run_action: "ask",
   });
   await assert.rejects(
     registry.execute("interaction_guide_step_move", {
@@ -426,6 +433,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
     interaction_guide_id: created.guide.interaction_guide_id,
     name: null,
     restart: false,
+    stale_run_action: "ask",
   }, { requestId: "brief-run-1", callId: "start-brief" });
   assert.equal(started.started, true);
   assert.equal(started.current_step.step_number, 1);
@@ -449,6 +457,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
     interaction_guide_id: created.guide.interaction_guide_id,
     name: null,
     restart: false,
+    stale_run_action: "ask",
   }, { requestId: "brief-run-3", callId: "resume-brief" });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.run.run_id, runId);
@@ -526,6 +535,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
     interaction_guide_id: created.guide.interaction_guide_id,
     name: null,
     restart: false,
+    stale_run_action: "ask",
   }, { requestId: "brief-run-6", callId: "start-next-brief" });
   assert.notEqual(nextRun.run.run_id, runId);
   assert.deepEqual(nextRun.current_step.answers_json, {});
@@ -550,6 +560,7 @@ test("the active briefing context view exposes only bounded current-run state", 
     interaction_guide_id: created.guide.interaction_guide_id,
     name: null,
     restart: false,
+    stale_run_action: "ask",
   }, { requestId: "context-start", callId: "start" });
 
   const prepared = await registry.prepareContext(["interaction-guides.active_runs"], {
@@ -563,6 +574,107 @@ test("the active briefing context view exposes only bounded current-run state", 
   assert.equal(prepared[0].data.runs[0].currentExchange.openingText, "What is your current weight?");
   assert.match(prepared[0].text, new RegExp(started.run.run_id));
   assert.match(prepared[0].text, /do not infer omitted units/i);
+});
+
+test("an unfinished briefing crossing a local day requires resume or start-over choice", async (context) => {
+  let now = new Date("2026-09-03T03:30:00.000Z");
+  const { store, registry } = harness(context, {
+    clock: () => now,
+    timeZone: () => "America/New_York",
+  });
+  const created = await registry.execute("interaction_guide_create", {
+    name: "Daily Check-in",
+  });
+  await registry.execute("interaction_guide_step_add", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    expected_version: created.guide.version,
+    step_number: 1,
+    opening_text: "What should be recorded today?",
+    instructions_text: "Keep partial answers until the user decides whether to resume.",
+    completion_mode: "response_valid",
+    enabled: true,
+  });
+  const started = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+    stale_run_action: "ask",
+  });
+  await registry.execute("interaction_guide_step_answer", {
+    run_id: started.run.run_id,
+    step_number: 1,
+    answers: { partial: "keep me" },
+    step_complete: false,
+    user_confirmed_advance: false,
+    completion_receipt_event_seq: null,
+  });
+
+  now = new Date("2026-09-03T04:15:00.000Z");
+  const staleContext = await registry.prepareContext(["interaction-guides.active_runs"], {
+    requestId: "next-day-answer",
+    requestText: "another answer",
+  });
+  assert.equal(staleContext[0].data.runs[0].requiresDailyChoice, true);
+  assert.match(staleContext[0].text, /requires_daily_choice=true/);
+  const offered = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+    stale_run_action: "ask",
+  });
+  assert.equal(offered.choice_required, true);
+  assert.equal(offered.resumed, false);
+  assert.deepEqual(offered.available_choices, ["resume", "start_over"]);
+  assert.equal(offered.run.started_local_date, "2026-09-02");
+  assert.equal(offered.run.current_local_date, "2026-09-03");
+  assert.equal(offered.run.time_zone, "America/New_York");
+  assert.equal(offered.run.requires_daily_choice, true);
+  assert.equal(offered.current_step, null);
+  assert.equal(offered.guide.steps[0].progress_state, "active");
+  assert.deepEqual(offered.guide.steps[0].answers_json, { partial: "keep me" });
+
+  await assert.rejects(
+    registry.execute("interaction_guide_step_answer", {
+      run_id: started.run.run_id,
+      step_number: 1,
+      answers: { another: "answer" },
+      step_complete: false,
+      user_confirmed_advance: false,
+      completion_receipt_event_seq: null,
+    }),
+    /Choose whether to resume it or start over/,
+  );
+
+  const resumed = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+    stale_run_action: "resume",
+  }, { requestId: "resume-next-day", callId: "resume" });
+  assert.equal(resumed.choice_required, false);
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.run.run_id, started.run.run_id);
+  assert.equal(resumed.run.requires_daily_choice, false);
+  assert.deepEqual(resumed.current_step.answers_json, { partial: "keep me" });
+  assert.equal(resumed.guide.active_run.requires_daily_choice, false);
+  const resumeEvent = store.requireReady().prepare(`
+    SELECT payload_json
+    FROM activity_events
+    WHERE event_type = 'interaction_guide.run_resumed' AND subject_id = ?
+  `).get(started.run.run_id);
+  assert.equal(JSON.parse(resumeEvent.payload_json).localDate, "2026-09-03");
+
+  now = new Date("2026-09-04T04:15:00.000Z");
+  const restarted = await registry.execute("interaction_guide_start", {
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+    restart: true,
+    stale_run_action: "ask",
+  });
+  assert.equal(restarted.started, true);
+  assert.notEqual(restarted.run.run_id, started.run.run_id);
+  assert.equal(restarted.run.started_local_date, "2026-09-04");
+  assert.deepEqual(restarted.current_step.answers_json, {});
 });
 
 test("an explicitly cancelled run resets current state and releases its guide for editing", async (context) => {
@@ -580,7 +692,10 @@ test("an explicitly cancelled run resets current state and releases its guide fo
     enabled: true,
   });
   const started = await registry.execute("interaction_guide_start", {
-    interaction_guide_id: created.guide.interaction_guide_id, name: null, restart: false,
+    interaction_guide_id: created.guide.interaction_guide_id,
+    name: null,
+    restart: false,
+    stale_run_action: "ask",
   });
   await registry.execute("interaction_guide_step_answer", {
     run_id: started.run.run_id,

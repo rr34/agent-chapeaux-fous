@@ -329,6 +329,193 @@ test("a number-only reply continues the active briefing from selected live conte
   )), false);
 });
 
+test("a receipt-gated briefing answer finalizes tool selection from active-run context", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  ledger.recentConversation = () => [{
+    eventSeq: 8, requestId: "request-briefing", occurredAtUtc: "2026-09-03T03:41:45Z",
+    role: "assistant",
+    content: "Please provide your Abs reps, Leg reps, Pull-ups reps, Push-ups reps, and Stretching minutes.",
+  }];
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  const runId = "run-evening-exercise-1";
+  registry.registerContextView("interaction-guides", {
+    id: "interaction-guides.active_runs",
+    title: "Active briefing runs",
+    description: "Bounded current exchanges for active briefing runs.",
+    maximumItems: 8,
+    async execute() {
+      return {
+        heading: "Active briefing runs",
+        text: [
+          `- Briefing: Evening Briefing [run_id=${runId}]`,
+          "  Current exchange 3 [completion_mode=tool_receipt; progress_state=active]",
+          "  Opening: Please provide your exercise values.",
+          "  Instructions: Call `log_add` once for each supplied value, then complete this exchange using a successful receipt.",
+        ].join("\n"),
+        data: {
+          runs: [{
+            runId,
+            currentExchange: {
+              stepNumber: 3,
+              completionMode: "tool_receipt",
+              instructionsText: "Call `log_add` once for each supplied value.",
+            },
+          }],
+        },
+      };
+    },
+  });
+  const logged = [];
+  registry.withCapability("logs").register({
+    name: "log_add",
+    description: "Record one exercise log entry.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        tracker: { type: "string" }, number_value: { type: "number" }, unit: { type: "string" },
+      },
+      required: ["tracker", "number_value", "unit"],
+    },
+    async execute(argumentsObject) {
+      logged.push(structuredClone(argumentsObject));
+      return { created: true, entry: argumentsObject };
+    },
+  });
+  let completionReceiptEventSeq = null;
+  registry.withCapability("interaction-guides").register({
+    name: "interaction_guide_step_answer",
+    description: "Record an answer and advance a receipt-gated briefing exchange.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        run_id: { type: "string" }, step_number: { type: "integer" },
+        answers: { type: "object" }, step_complete: { type: "boolean" },
+        user_confirmed_advance: { type: "boolean" },
+        completion_receipt_event_seq: { type: ["integer", "null"] },
+      },
+      required: [
+        "run_id", "step_number", "answers", "step_complete",
+        "user_confirmed_advance", "completion_receipt_event_seq",
+      ],
+    },
+    async execute(argumentsObject) {
+      completionReceiptEventSeq = argumentsObject.completion_receipt_event_seq;
+      return {
+        recorded: true, step_complete: true, run_complete: false,
+        run: { run_id: runId, current_step_number: 4 },
+        current_step: { step_number: 4, opening_text: "How was your sleep?" },
+      };
+    },
+  });
+  const source = {
+    text: "Record all five exercise values and continue the briefing.", sourceEventSeqs: [9],
+  };
+  const initialBrief = {
+    ...brief(),
+    requestType: "continuation",
+    objective: "Record the supplied exercise values and continue the Evening Briefing.",
+    summary: "The user answered the current exercise exchange.",
+    requiredCapabilities: ["interaction-guides"],
+    requiredTools: ["interaction_guide_step_answer"],
+    contextRequests: ["interaction-guides.active_runs"],
+    requestedActions: [source],
+    completionCriteria: ["Five exercise log entries are created and the briefing advances."],
+    evidence: [source],
+  };
+  const refinedBrief = {
+    ...initialBrief,
+    requiredCapabilities: ["interaction-guides", "logs"],
+    requiredTools: ["interaction_guide_step_answer", "log_add"],
+  };
+  const values = [
+    ["Abs", 100, "reps"],
+    ["Leg reps", 50, "reps"],
+    ["Pull-ups", 30, "reps"],
+    ["Push-ups", 20, "reps"],
+    ["Stretching", 10, "minutes"],
+  ];
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(initialBrief), 20);
+    if (index === 1) {
+      assert.match(payload.developerInstructions, /Finalize orientation from selected read-only context/);
+      assert.match(payload.developerInstructions, /Call `log_add` once for each supplied value/);
+      assert.equal(payload.outputSchema.properties.contextRequests.minItems, 1);
+      assert.deepEqual(
+        payload.outputSchema.properties.contextRequests.items.enum,
+        ["interaction-guides.active_runs"],
+      );
+      return completed(JSON.stringify(refinedBrief), 20);
+    }
+    if (index === 2) {
+      assert.deepEqual(
+        new Set(payload.tools.map(({ name }) => name)),
+        new Set(["interaction_guide_step_answer", "log_add"]),
+      );
+      for (const [tracker, numberValue, unit] of values) {
+        const result = await payload.onToolCall({
+          callId: `log-${tracker}`,
+          tool: "log_add",
+          arguments: { tracker, number_value: numberValue, unit },
+        });
+        assert.equal(result.ok, true);
+      }
+      const receiptEventSeq = ledger.events.filter(({ type, name }) => (
+        type === "tool.result" && name === "log_add"
+      )).at(-1).eventSeq;
+      const answer = await payload.onToolCall({
+        callId: "advance-exercise-exchange",
+        tool: "interaction_guide_step_answer",
+        arguments: {
+          run_id: runId,
+          step_number: 3,
+          answers: {
+            abs_reps: 100, leg_reps: 50, pull_ups_reps: 30,
+            push_ups_reps: 20, stretching_minutes: 10,
+          },
+          step_complete: true,
+          user_confirmed_advance: false,
+          completion_receipt_event_seq: receiptEventSeq,
+        },
+      });
+      assert.equal(answer.ok, true);
+      return completed("Recorded all five exercise entries. How was your sleep?", 30);
+    }
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "All exercise logs were created and the briefing advanced.",
+      satisfiedCriteria: refinedBrief.completionCriteria,
+      remainingActions: [],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: { ...workflowConfig(), maxToolCalls: 8 },
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-exercise", requestEventId: "event-current",
+    text: "100 abs, 50 leg reps, 30 pull-up reps, 20 push-up reps, 10 minutes of stretching",
+  }), "Recorded all five exercise entries. How was your sleep?");
+  assert.equal(requests.length, 4);
+  assert.equal(logged.length, 5);
+  assert.equal(Number.isSafeInteger(completionReceiptEventSeq), true);
+  assert.deepEqual(
+    ledger.events.find(({ type }) => type === "turn.brief").payload.brief.requiredCapabilities,
+    ["interaction-guides", "logs"],
+  );
+});
+
 test("structured execution starts with orientation-selected tools and expands exactly within the accepted capability", async () => {
   const requests = [];
   const ledger = fakeLedger();

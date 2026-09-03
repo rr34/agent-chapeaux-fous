@@ -49,6 +49,7 @@ import { registerVideoScriptTools } from "./tools/video-script-tools.mjs";
 import { VideoScripts } from "./video-scripts.mjs";
 import { VideoContent } from "./video-content.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
+import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 
 const config = loadConfig();
 const identity = runtimeIdentity(config.repositoryRoot);
@@ -56,7 +57,13 @@ const store = new SlayerDatabase(config.databasePath);
 const ledger = new Ledger(store);
 const organizer = store.status.ready ? new OrganizerStore(config.databasePath) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
-const interactionGuides = new InteractionGuides({ store, ledger });
+const interactionGuides = new InteractionGuides({
+  store,
+  ledger,
+  timeZone: () => timeZoneFromProfileFacts(
+    profileFacts.list({ status: "active", limit: null }).facts,
+  ),
+});
 const videoScripts = store.status.ready ? new VideoScripts({ store, ledger }) : null;
 const videoContent = store.status.ready ? new VideoContent({ videoScripts, organizer }) : null;
 let videoRenderWorker = null;

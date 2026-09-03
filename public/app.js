@@ -2,7 +2,7 @@ import {
   combineLocalDateTime,
   splitLocalDateTime,
 } from "./event-date-time.js";
-import { formatDisplayDate, formatDisplayTime } from "./presentation-format.js";
+import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "./presentation-format.js";
 import { markdownToSpeech, renderMarkdown } from "./markdown.js";
 import {
   calendarEventCellItem,
@@ -4623,8 +4623,10 @@ function renderInteractionGuideList() {
     if (selectedInteractionGuide?.id === guide.id) button.setAttribute("aria-current", "true");
     const title = node("strong", "", guide.name);
     const metadata = node("span", "interaction-guide-list-meta");
-    metadata.textContent = guide.activeRun
-      ? `Exchange ${guide.activeRun.currentStepNumber ?? "—"} in progress · version ${guide.version}`
+    metadata.textContent = guide.activeRun?.requiresDailyChoice
+      ? `Exchange ${guide.activeRun.currentStepNumber ?? "—"} paused from ${formatLocalDate(guide.activeRun.startedLocalDate)} · choose resume or start over`
+      : guide.activeRun
+        ? `Exchange ${guide.activeRun.currentStepNumber ?? "—"} in progress · version ${guide.version}`
       : `${guide.status} · version ${guide.version}`;
     button.append(title, metadata);
     button.addEventListener("click", () => void loadInteractionGuide(guide.id));
@@ -4778,6 +4780,7 @@ function renderInteractionGuideDetail() {
   }
   elements.interactionGuideDetail.replaceChildren();
   const editable = guide.status === "active" && !guide.activeRun;
+  const needsDailyChoice = Boolean(guide.activeRun?.requiresDailyChoice);
   const header = node("header", "interaction-detail-heading");
   const identity = node("div", "interaction-detail-identity");
   identity.append(
@@ -4785,14 +4788,35 @@ function renderInteractionGuideDetail() {
     node("h3", "", guide.name),
     node("p", "interaction-guide-meta", `${guide.status} · version ${guide.version} · ${guide.steps.length} ${guide.steps.length === 1 ? "exchange" : "exchanges"}`),
   );
+  if (needsDailyChoice) {
+    identity.append(node(
+      "p",
+      "interaction-guide-meta",
+      `This unfinished run began on ${formatLocalDate(guide.activeRun.startedLocalDate)}. Resume it or start over.`,
+    ));
+  }
   const actions = node("div", "interaction-detail-actions");
   if (guide.status === "active") {
-    const start = node("button", "", guide.activeRun ? "Resume this briefing" : "Start this briefing");
+    const start = node(
+      "button",
+      "",
+      needsDailyChoice ? "Resume previous run" : guide.activeRun ? "Resume this briefing" : "Start this briefing",
+    );
     start.type = "button";
     start.disabled = !guide.steps.some(({ enabled }) => enabled);
     if (start.disabled) start.title = "Add and enable at least one exchange before starting.";
-    start.addEventListener("click", () => void startInteractionGuide(guide, start));
+    start.addEventListener("click", () => void startInteractionGuide(guide, start, {
+      resumePrevious: needsDailyChoice,
+    }));
     actions.append(start);
+    if (needsDailyChoice) {
+      const restart = node("button", "secondary", "Start over");
+      restart.type = "button";
+      restart.addEventListener("click", () => void startInteractionGuide(guide, restart, {
+        restart: true,
+      }));
+      actions.append(restart);
+    }
   }
   const edit = node("button", "secondary", "Edit briefing");
   edit.type = "button";
@@ -5093,16 +5117,21 @@ async function deleteEditedInteractionStep() {
   }
 }
 
-async function startInteractionGuide(guide, button) {
+async function startInteractionGuide(guide, button, { restart = false, resumePrevious = false } = {}) {
   button.disabled = true;
   const respondSilently = elements.respondSilently.checked;
   prepareSpeechOutput(respondSilently);
   try {
+    const action = restart
+      ? `Start briefing ${guide.id} ("${guide.name}") over from the beginning. I explicitly authorize discarding its unfinished current-run answers. Do not resume the old run.`
+      : resumePrevious
+        ? `Resume the existing run of briefing ${guide.id} ("${guide.name}"). I explicitly choose to keep its unfinished answers from ${guide.activeRun.startedLocalDate} and continue where it stopped. Do not restart it.`
+        : `Start or resume briefing ${guide.id} ("${guide.name}"). Follow its ordered exchanges and persist each answer through the internal interaction-guide tools.`;
     const created = await api("/api/requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text: `Start or resume briefing ${guide.id} ("${guide.name}"). Follow its ordered exchanges and persist each answer through the internal interaction-guide tools. Use the user-facing terms briefing, exchange, and opening.`,
+        text: `${action} Use the user-facing terms briefing, exchange, and opening.`,
       }),
     });
     expectSpokenResponse(created.requestId, respondSilently);

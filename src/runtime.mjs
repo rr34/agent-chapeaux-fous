@@ -30,6 +30,7 @@ import {
   orientationContext,
   orientationInstructions,
   parseStructuredModelOutput,
+  preparedContextOrientationContext,
   turnBriefInstructions,
   turnBriefSchema,
 } from "./turn-brief.mjs";
@@ -79,6 +80,14 @@ function canonicalToolArguments(value) {
 
 function toolAttemptKey(name, args) {
   return `${name}\n${JSON.stringify(canonicalToolArguments(args))}`;
+}
+
+function hasReceiptGatedActiveBriefing(preparedCapabilityContext) {
+  return preparedCapabilityContext.some(({ view, data }) => (
+    view === "interaction-guides.active_runs"
+    && Array.isArray(data?.runs)
+    && data.runs.some(({ currentExchange }) => currentExchange?.completionMode === "tool_receipt")
+  ));
 }
 
 function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 24) {
@@ -773,33 +782,6 @@ export class SlayerRuntime {
         throw new Error(`TurnBrief validation failed after repair: ${validation.findings.map(({ message }) => message).join("; ")}`);
       }
     }
-    const confirmedActionReferences = activeActionReferences
-      .filter(({ referenceId }) => brief.confirmedActionReferenceIds.includes(referenceId))
-      .map((reference) => ({ ...reference, state: "confirmed" }));
-    const confirmedReferenceIds = new Set(
-      confirmedActionReferences.map(({ referenceId }) => referenceId),
-    );
-    const pendingTargetTools = new Set(activeActionReferences
-      .filter(({ referenceId }) => !confirmedReferenceIds.has(referenceId))
-      .map(({ targetTool }) => targetTool));
-    this.ledger.append({
-      type: "turn.brief", status: "complete", actorType: "service",
-      actorName: "Turn orienter", channel, turnId: args.requestId,
-      name: "Accepted TurnBrief", content: brief.summary,
-      payload: { brief, sourceRequestId: args.requestId },
-      subjectType: "turn_brief", subjectId: args.requestId,
-    });
-    this.ledger.append({
-      type: "conversation.state", status: "complete", actorType: "service",
-      actorName: "Turn orienter", channel, turnId: args.requestId,
-      name: "Rolling conversation state", content: brief.summary,
-      payload: {
-        state: brief.conversationState,
-        sourceTurnBrief: brief,
-        sourceRequestId: args.requestId,
-      },
-      subjectType: "conversation_state", subjectId: "main",
-    });
     const contextOperationId = `${this.modelTransport.id}:${args.requestId}:context_preparation`;
     this.ledger.append({
       type: "agent.step", phase: "start", status: "processing", actorType: "service",
@@ -855,6 +837,106 @@ export class SlayerRuntime {
       });
       throw error;
     }
+    if (hasReceiptGatedActiveBriefing(preparedCapabilityContext)) {
+      const refinementSchema = turnBriefSchema(
+        catalog.map(({ capability }) => capability),
+        activeActionReferences.map(({ referenceId }) => referenceId),
+        brief.contextRequests,
+        catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
+        recentToolReceipts,
+      );
+      refinementSchema.properties.contextRequests.minItems = brief.contextRequests.length;
+      const refinementDeveloperInstructions = joinedInstructions(
+        orientationBaseContext.developerInstructions ?? orientationBaseContext.text,
+        preparedContextOrientationContext({
+          brief,
+          preparedCapabilityContext,
+          capabilityCatalog: catalog,
+        }),
+        args.supplementalInstructions,
+      );
+      orientation = await this.#runStructuredStep({
+        requestId: args.requestId,
+        channel,
+        step: "orientation_context",
+        label: "Finalize orientation from prepared context",
+        stepIndex: 2,
+        model: args.model || this.config.model,
+        effort: this.config.orientationReasoningEffort ?? "medium",
+        input: args.text,
+        developerInstructions: refinementDeveloperInstructions,
+        requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
+        outputSchema: refinementSchema,
+        runTimeoutMs: remainingTimeoutMs(),
+      });
+      brief = orientation.value;
+      validation = validateBrief(brief);
+      recordBriefValidation(validation.findings, brief);
+      if (validation.findings.length) {
+        orientation = await this.#runStructuredStep({
+          requestId: args.requestId,
+          channel,
+          step: "orientation_context_repair",
+          label: "Repair context-informed orientation",
+          stepIndex: 2,
+          model: args.model || this.config.model,
+          effort: this.config.orientationReasoningEffort ?? "medium",
+          input: args.text,
+          developerInstructions: joinedInstructions(
+            refinementDeveloperInstructions,
+            validation.temporalFindings.length
+              ? temporalRepairContext(brief, validation.temporalFindings)
+              : null,
+            validation.capabilityFindings.length
+              ? requiredToolCapabilityRepairContext(brief, validation.capabilityFindings)
+              : null,
+            validation.receiptFindings.length
+              ? [
+                  "# Receipt-reference validation requires repair",
+                  JSON.stringify(validation.receiptFindings, null, 2),
+                  "Select only exact receiptEventSeq and tool pairs from the supplied recent receipt index. Include tool_receipt_read whenever receiptReferences is nonempty.",
+                ].join("\n")
+              : null,
+          ),
+          requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
+          outputSchema: refinementSchema,
+          runTimeoutMs: remainingTimeoutMs(),
+        });
+        brief = orientation.value;
+        validation = validateBrief(brief);
+        recordBriefValidation(validation.findings, brief, true);
+        if (validation.findings.length) {
+          throw new Error(`Context-informed TurnBrief validation failed after repair: ${validation.findings.map(({ message }) => message).join("; ")}`);
+        }
+      }
+    }
+    const confirmedActionReferences = activeActionReferences
+      .filter(({ referenceId }) => brief.confirmedActionReferenceIds.includes(referenceId))
+      .map((reference) => ({ ...reference, state: "confirmed" }));
+    const confirmedReferenceIds = new Set(
+      confirmedActionReferences.map(({ referenceId }) => referenceId),
+    );
+    const pendingTargetTools = new Set(activeActionReferences
+      .filter(({ referenceId }) => !confirmedReferenceIds.has(referenceId))
+      .map(({ targetTool }) => targetTool));
+    this.ledger.append({
+      type: "turn.brief", status: "complete", actorType: "service",
+      actorName: "Turn orienter", channel, turnId: args.requestId,
+      name: "Accepted TurnBrief", content: brief.summary,
+      payload: { brief, sourceRequestId: args.requestId },
+      subjectType: "turn_brief", subjectId: args.requestId,
+    });
+    this.ledger.append({
+      type: "conversation.state", status: "complete", actorType: "service",
+      actorName: "Turn orienter", channel, turnId: args.requestId,
+      name: "Rolling conversation state", content: brief.summary,
+      payload: {
+        state: brief.conversationState,
+        sourceTurnBrief: brief,
+        sourceRequestId: args.requestId,
+      },
+      subjectType: "conversation_state", subjectId: "main",
+    });
     const contextCapabilities = brief.contextRequests.map((viewId) => (
       this.registry.contextView(viewId)?.capabilityId
     )).filter(Boolean);

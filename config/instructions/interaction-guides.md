@@ -61,8 +61,15 @@ or `completed`. Do not try to write it directly through definition tools.
 
 For a guide with numbered steps, call `interaction_guide_start`. With
 `restart: false`, an interrupted active run resumes; do not clear or replace its
-answers. Use `restart: true` only when the user explicitly asks to discard the
-active run and begin again. A completed run is preserved in the ledger and
+answers when it began on the current local day. For the first ordinary start
+request, set `stale_run_action` to `ask`. If the unfinished run began on an
+earlier local day, the tool returns `choice_required` without resuming or
+presenting an opening. Ask the user whether to resume that saved run or start
+over. After an explicit resume choice, call again with `restart: false` and
+`stale_run_action: "resume"`. After an explicit start-over choice, call with
+`restart: true`; never discard unfinished answers without that authorization.
+The service records an earlier-run resume choice for the current local day, so
+subsequent answers that day can continue without asking again. A completed run is preserved in the ledger and
 immediately clears the child rows' current answers and resets their progress to
 `pending`, leaving the briefing ready for its next use. Starting that next run
 marks the first enabled step active. Present `current_step` by starting with its
@@ -78,6 +85,12 @@ enabled step, and begin with that step's exact opening text. If `run_complete`
 is true, summarize completion instead of inventing another question. The
 returned completed step is the receipt for that just-finished call; subsequent
 briefing reads show clean `pending` exchanges for the next run.
+
+The active-run context marks `requires_daily_choice` when a saved run crossed a
+local calendar-day boundary without a resume decision for today. Do not process
+the user's next exchange answer or call its destination tools until that choice
+has been made. Same-local-day interruptions resume normally without an extra
+question.
 
 `interaction_guide_list` and `interaction_guide_get` include compact active-run
 metadata when a guide is interrupted, allowing a later request to discover the
