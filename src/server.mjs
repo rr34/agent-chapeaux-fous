@@ -455,7 +455,9 @@ const server = http.createServer(async (request, response) => {
       }
       const body = await readJson(request);
       const source = ledger.interactionReplaySource(resolved.requestId);
-      const text = structuredInteractionGenerationPrompt(source);
+      const text = structuredInteractionGenerationPrompt(source, {
+        toolDefinitions: registry.toolDefinitions(),
+      });
       const runLimits = normalizeRunLimits(body.runLimits);
       const created = ledger.createRequest({
         text,

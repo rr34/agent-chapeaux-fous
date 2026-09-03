@@ -86,8 +86,26 @@ function hasReceiptGatedActiveBriefing(preparedCapabilityContext) {
   return preparedCapabilityContext.some(({ view, data }) => (
     view === "interaction-guides.active_runs"
     && Array.isArray(data?.runs)
-    && data.runs.some(({ currentExchange }) => currentExchange?.completionMode === "tool_receipt")
+    && data.runs.some(({ currentExchange }) => (
+      currentExchange?.contractSummary?.completionMode === "tool_receipt"
+      || currentExchange?.contract?.completion?.mode === "tool_receipt"
+    ))
   ));
+}
+
+function activeBriefingDestinationTools(preparedCapabilityContext) {
+  return [...new Set(preparedCapabilityContext.flatMap(({ view, data }) => (
+    view === "interaction-guides.active_runs" && Array.isArray(data?.runs)
+      ? data.runs.flatMap(({ currentExchange }) => (
+          currentExchange?.contractSummary
+            ? [
+                ...(currentExchange.contractSummary.operationTools ?? []),
+                ...(currentExchange.contractSummary.legacyInstructionTools ?? []),
+              ]
+            : currentExchange?.contract?.operations?.map(({ tool }) => tool).filter(Boolean) ?? []
+        ))
+      : []
+  )))];
 }
 
 function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 24) {
@@ -698,7 +716,7 @@ export class SlayerRuntime {
     const confirmedTargetTools = (candidate) => activeActionReferences
       .filter(({ referenceId }) => candidate.confirmedActionReferenceIds.includes(referenceId))
       .map(({ targetTool }) => targetTool);
-    const validateBrief = (candidate) => {
+    const validateBrief = (candidate, requiredContractTools = []) => {
       const temporalFindings = temporalConsistencyFindings(candidate, {
         requestText: args.text,
         requestEventSeq,
@@ -706,14 +724,25 @@ export class SlayerRuntime {
       const capabilityFindings = requiredToolCapabilityFindings(
         availableTools,
         candidate.requiredCapabilities,
-        [...candidate.requiredTools, ...confirmedTargetTools(candidate)],
+        [...candidate.requiredTools, ...confirmedTargetTools(candidate), ...requiredContractTools],
       );
+      const selectedToolNames = new Set(candidate.requiredTools);
+      const contractToolFindings = requiredContractTools
+        .filter((tool) => !selectedToolNames.has(tool))
+        .map((tool) => ({
+          code: "contract_tool_not_selected",
+          path: "brief.requiredTools",
+          message: `${tool} is a declared destination operation for the active exchange but is absent from requiredTools`,
+          tool,
+        }));
       const receiptFindings = receiptReferenceFindings(candidate, recentToolReceipts);
       return {
         temporalFindings,
-        capabilityFindings,
+        capabilityFindings: [...capabilityFindings, ...contractToolFindings],
         receiptFindings,
-        findings: [...temporalFindings, ...capabilityFindings, ...receiptFindings],
+        findings: [
+          ...temporalFindings, ...capabilityFindings, ...contractToolFindings, ...receiptFindings,
+        ],
       };
     };
     let brief = orientation.value;
@@ -838,6 +867,7 @@ export class SlayerRuntime {
       throw error;
     }
     if (hasReceiptGatedActiveBriefing(preparedCapabilityContext)) {
+      const requiredContractTools = activeBriefingDestinationTools(preparedCapabilityContext);
       const refinementSchema = turnBriefSchema(
         catalog.map(({ capability }) => capability),
         activeActionReferences.map(({ referenceId }) => referenceId),
@@ -870,7 +900,7 @@ export class SlayerRuntime {
         runTimeoutMs: remainingTimeoutMs(),
       });
       brief = orientation.value;
-      validation = validateBrief(brief);
+      validation = validateBrief(brief, requiredContractTools);
       recordBriefValidation(validation.findings, brief);
       if (validation.findings.length) {
         orientation = await this.#runStructuredStep({
@@ -903,7 +933,7 @@ export class SlayerRuntime {
           runTimeoutMs: remainingTimeoutMs(),
         });
         brief = orientation.value;
-        validation = validateBrief(brief);
+        validation = validateBrief(brief, requiredContractTools);
         recordBriefValidation(validation.findings, brief, true);
         if (validation.findings.length) {
           throw new Error(`Context-informed TurnBrief validation failed after repair: ${validation.findings.map(({ message }) => message).join("; ")}`);

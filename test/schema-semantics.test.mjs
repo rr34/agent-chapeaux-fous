@@ -272,8 +272,14 @@ test("native database-backed tools return stored field names with semantic proje
     expected_version: guide.guide.version,
     step_number: 1,
     opening_text: "1. What outcome do you need?",
-    instructions_text: "Capture the exact desired outcome.",
-    completion_mode: "response_valid",
+    contract: {
+      version: 1,
+      instructions: "Capture the exact desired outcome.",
+      inputs: [],
+      operations: [],
+      recoveryReads: [],
+      completion: { mode: "response_valid" },
+    },
     enabled: true,
   }, toolContext);
   assert.equal(step.step.opening_text, "1. What outcome do you need?");

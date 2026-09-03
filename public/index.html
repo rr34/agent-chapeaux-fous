@@ -961,15 +961,9 @@
       <p id="interaction-step-guide-hint" class="field-hint">Changing the briefing moves this exchange. Saved run answers and progress reset; ledger history remains available.</p>
       <label>Exchange number<input id="interaction-step-number" type="number" min="1" step="1" required></label>
       <label>Opening<textarea id="interaction-step-opening" rows="4" required maxlength="10000" placeholder="What the agent says to begin this exchange."></textarea></label>
-      <label>Agent instructions <span class="field-hint">optional</span><textarea id="interaction-step-instructions" rows="8" maxlength="50000" placeholder="How to handle the exchange, when it is complete, and which tools place the information in its destination."></textarea></label>
-      <div class="editor-grid">
-        <label>Completion rule<select id="interaction-step-completion-mode">
-          <option value="response_valid">Advance when answers are valid</option>
-          <option value="user_advances">Advance when the user says to continue</option>
-          <option value="tool_receipt">Advance after a successful tool result</option>
-        </select></label>
-        <label class="checkbox-row interaction-step-enabled"><input id="interaction-step-enabled" type="checkbox" checked><span>Exchange is enabled</span></label>
-      </div>
+      <label>Contract JSON<textarea id="interaction-step-contract" rows="14" maxlength="200000" spellcheck="false" required></textarea></label>
+      <p class="field-hint">Defines optional instructions, typed inputs, exact destination operations, recovery reads, and completion. Structured fields are authoritative.</p>
+      <label class="checkbox-row interaction-step-enabled"><input id="interaction-step-enabled" type="checkbox" checked><span>Exchange is enabled</span></label>
       <p id="interaction-step-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
         <button id="delete-interaction-step" class="danger editor-delete" type="button" hidden>Delete exchange</button>

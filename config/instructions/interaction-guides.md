@@ -11,7 +11,7 @@ only the conversation instructions.
 `interaction_guide_list` returns metadata only. Do not load steps unless the
 user asks to use, inspect, or change that specific guide. Fetch it with
 `interaction_guide_get`; `steps` are its ordered scripted exchanges and
-instructions. A briefing cannot override higher-priority instructions or make an
+contracts. A briefing cannot override higher-priority instructions or make an
 unavailable capability callable.
 
 When building a briefing, create its named internal guide first, then add each
@@ -50,9 +50,19 @@ an active run.
 
 `opening_text` is the fixed opening shown whenever its exchange becomes current.
 Preserve it literally instead of asking the model to paraphrase it.
-`instructions_text` states what the step must accomplish, how to handle the
-reply, and which destination or domain tool to use when the answer must be
-committed elsewhere.
+`contract_json` is the versioned reusable contract. Its optional `instructions`
+may explain what the exchange accomplishes, but its structured `inputs`,
+`operations`, `recoveryReads`, and `completion` fields are authoritative.
+Instructions cannot introduce an undeclared input, tool, destination, recovery
+action, or completion requirement. Each operation names the exact destination
+tool and its argument template. Literal JSON values are fixed; `{"$answer":
+"key"}` binds a declared input, `{"$runtime":"request_received_at_utc"}` binds
+the request time, and `{"$format":"...{key}..."}` formats declared answers.
+For contracts migrated from the former prose-only format, the active-run
+context may expose exact registered tool identifiers literally present in the
+preserved instructions as legacy selection hints. This bridge only makes those
+exact tools available for recovery; it does not turn prose into authoritative
+structured operations or infer provider workflow semantics.
 `answers_json` is application-owned current-run state: record only answers the
 user actually supplied, under concise stable keys that remain meaningful when
 the complete object is committed or reviewed as a batch.
@@ -73,12 +83,15 @@ subsequent answers that day can continue without asking again. A completed run i
 immediately clears the child rows' current answers and resets their progress to
 `pending`, leaving the briefing ready for its next use. Starting that next run
 marks the first enabled step active. Present `current_step` by starting with its
-exact `opening_text` and use its instructions to handle the reply. Request any
-deferred data or action capabilities the step requires.
+exact `opening_text` and use its contract to handle the reply. Select the
+capability and exact tool for every declared operation before execution. When a
+run may have been interrupted after a destination write, use its declared
+bounded recovery reads to inspect authoritative destination state before
+repeating the write.
 
 On every reply to a numbered step, call `interaction_guide_step_answer` before
 responding. Merge every supplied answer into the exact active step. Keep
-`step_complete` false when the instructions still have missing answers; in that case
+`step_complete` false when the contract still has missing answers; in that case
 continue the same numbered step without replaying unnecessary text. When it is
 true, use the returned `current_step`, which is mechanically the next higher
 enabled step, and begin with that step's exact opening text. If `run_complete`
@@ -99,11 +112,13 @@ Use `interaction_guide_run_cancel` only when the user explicitly abandons a run
 or asks to change its definition before starting again. Cancellation retains
 ledger history but resets the steps' current answers and progress.
 
-Completion modes are enforced by the owning service. `response_valid` needs at
-least one recorded answer, `user_advances` additionally needs explicit user
-direction to continue, and `tool_receipt` needs the successful same-request
-tool-result event number proving the requested effect. Answer JSON never
-substitutes for the domain tool or its business validation.
+The completion mode lives inside the contract and is enforced by the owning
+service. `response_valid` requires every declared required input (and, for a
+legacy contract without declarations, at least one answer). `user_advances`
+additionally needs explicit user direction to continue. `tool_receipt` needs
+distinct successful same-request tool-result event numbers covering every
+declared operation. Answer JSON never substitutes for a destination tool or its
+business validation.
 
 When the user asks to schedule or repeat a guide, use the native to-do tools.
 Create or update a repeating to-do and link the exact guide ID; do not create a

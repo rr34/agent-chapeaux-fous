@@ -229,11 +229,11 @@ test("a number-only reply continues the active briefing from selected live conte
         run_id: { type: "string" }, step_number: { type: "integer" },
         answers: { type: "object" }, step_complete: { type: "boolean" },
         user_confirmed_advance: { type: "boolean" },
-        completion_receipt_event_seq: { type: ["integer", "null"] },
+        completion_receipt_event_seqs: { type: "array", items: { type: "integer" } },
       },
       required: [
         "run_id", "step_number", "answers", "step_complete",
-        "user_confirmed_advance", "completion_receipt_event_seq",
+        "user_confirmed_advance", "completion_receipt_event_seqs",
       ],
     },
     async execute(argumentsObject) {
@@ -287,7 +287,7 @@ test("a number-only reply continues the active briefing from selected live conte
           answers: { current_weight: 74.8 },
           step_complete: true,
           user_confirmed_advance: false,
-          completion_receipt_event_seq: null,
+          completion_receipt_event_seqs: [],
         },
       });
       assert.equal(answer.ok, true);
@@ -321,7 +321,7 @@ test("a number-only reply continues the active briefing from selected live conte
     answers: { current_weight: 74.8 },
     step_complete: true,
     user_confirmed_advance: false,
-    completion_receipt_event_seq: null,
+    completion_receipt_event_seqs: [],
   });
   assert.equal(requests.length, 3);
   assert.equal(ledger.events.some(({ type, name }) => (
@@ -350,17 +350,26 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
         heading: "Active briefing runs",
         text: [
           `- Briefing: Evening Briefing [run_id=${runId}]`,
-          "  Current exchange 3 [completion_mode=tool_receipt; progress_state=active]",
+          "  Current exchange 3 [progress_state=active]",
           "  Opening: Please provide your exercise values.",
-          "  Instructions: Call `log_add` once for each supplied value, then complete this exchange using a successful receipt.",
+          "  Contract: five exact log_add operations with tool_receipt completion.",
         ].join("\n"),
         data: {
           runs: [{
             runId,
             currentExchange: {
               stepNumber: 3,
-              completionMode: "tool_receipt",
-              instructionsText: "Call `log_add` once for each supplied value.",
+              contract: {
+                instructions: "Call `log_add` once for each supplied value.",
+                completion: { mode: "tool_receipt" },
+                operations: [],
+              },
+              contractSummary: {
+                completionMode: "tool_receipt",
+                operationTools: [],
+                recoveryReadTools: [],
+                legacyInstructionTools: ["log_add"],
+              },
             },
           }],
         },
@@ -384,7 +393,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
       return { created: true, entry: argumentsObject };
     },
   });
-  let completionReceiptEventSeq = null;
+  let completionReceiptEventSeqs = [];
   registry.withCapability("interaction-guides").register({
     name: "interaction_guide_step_answer",
     description: "Record an answer and advance a receipt-gated briefing exchange.",
@@ -395,15 +404,15 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
         run_id: { type: "string" }, step_number: { type: "integer" },
         answers: { type: "object" }, step_complete: { type: "boolean" },
         user_confirmed_advance: { type: "boolean" },
-        completion_receipt_event_seq: { type: ["integer", "null"] },
+        completion_receipt_event_seqs: { type: "array", items: { type: "integer" } },
       },
       required: [
         "run_id", "step_number", "answers", "step_complete",
-        "user_confirmed_advance", "completion_receipt_event_seq",
+        "user_confirmed_advance", "completion_receipt_event_seqs",
       ],
     },
     async execute(argumentsObject) {
-      completionReceiptEventSeq = argumentsObject.completion_receipt_event_seq;
+      completionReceiptEventSeqs = argumentsObject.completion_receipt_event_seqs;
       return {
         recorded: true, step_complete: true, run_complete: false,
         run: { run_id: runId, current_step_number: 4 },
@@ -442,7 +451,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
     if (index === 0) return completed(JSON.stringify(initialBrief), 20);
     if (index === 1) {
       assert.match(payload.developerInstructions, /Finalize orientation from selected read-only context/);
-      assert.match(payload.developerInstructions, /Call `log_add` once for each supplied value/);
+      assert.match(payload.developerInstructions, /"legacyInstructionTools": \[\s*"log_add"/);
       assert.equal(payload.outputSchema.properties.contextRequests.minItems, 1);
       assert.deepEqual(
         payload.outputSchema.properties.contextRequests.items.enum,
@@ -463,9 +472,9 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
         });
         assert.equal(result.ok, true);
       }
-      const receiptEventSeq = ledger.events.filter(({ type, name }) => (
+      const receiptEventSeqs = ledger.events.filter(({ type, name }) => (
         type === "tool.result" && name === "log_add"
-      )).at(-1).eventSeq;
+      )).map(({ eventSeq }) => eventSeq);
       const answer = await payload.onToolCall({
         callId: "advance-exercise-exchange",
         tool: "interaction_guide_step_answer",
@@ -478,7 +487,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
           },
           step_complete: true,
           user_confirmed_advance: false,
-          completion_receipt_event_seq: receiptEventSeq,
+          completion_receipt_event_seqs: receiptEventSeqs,
         },
       });
       assert.equal(answer.ok, true);
@@ -509,7 +518,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
   }), "Recorded all five exercise entries. How was your sleep?");
   assert.equal(requests.length, 4);
   assert.equal(logged.length, 5);
-  assert.equal(Number.isSafeInteger(completionReceiptEventSeq), true);
+  assert.equal(completionReceiptEventSeqs.length, 5);
   assert.deepEqual(
     ledger.events.find(({ type }) => type === "turn.brief").payload.brief.requiredCapabilities,
     ["interaction-guides", "logs"],

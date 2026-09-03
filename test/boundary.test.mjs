@@ -164,11 +164,13 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(document, /id="delete-interaction-step"[^>]*class="danger editor-delete"[^>]*>Delete exchange<\/button>/);
   assert.doesNotMatch(document, /id="interaction-step-move-dialog"|id="interaction-step-move-target"/);
   assert.match(document, /id="interaction-step-opening"/);
-  assert.match(document, /id="interaction-step-instructions"/);
+  assert.match(document, /id="interaction-step-contract"/);
+  assert.doesNotMatch(document, /id="interaction-step-instructions"|id="interaction-step-completion-mode"/);
   assert.doesNotMatch(document, /id="interaction-guide-text"|id="interaction-step-name"|id="interaction-step-objective"/);
   assert.match(document, /class="save-structured-interaction secondary compact"[^>]*>Make this exchange repeatable<\/button>/);
   assert.match(document, />Briefing exchange<\/p>/);
   assert.match(document, /<label>Opening<textarea/);
+  assert.match(document, /<label>Contract JSON<textarea/);
   assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
   assert.match(application, /function renderInteractionGuideDetail/);
   assert.match(application, /function openInteractionStepEditor/);

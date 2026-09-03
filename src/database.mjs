@@ -66,8 +66,8 @@ export const requiredDatabaseShape = {
   ],
   interaction_guide_steps: [
     "interaction_guide_step_id", "interaction_guide_id", "step_number",
-    "opening_text", "instructions_text", "answers_json", "progress_state",
-    "completion_mode", "enabled", "created_at_utc", "updated_at_utc",
+    "opening_text", "contract_json", "answers_json", "progress_state",
+    "enabled", "created_at_utc", "updated_at_utc",
   ],
   todo_routines: [
     "todo_routine_id", "todo_group_id", "text", "first_scheduled_at_utc",

@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { localDateForInstant } from "./temporal-consistency.mjs";
+import {
+  contractArgumentsMatch,
+  normalizeInteractionGuideContract,
+} from "./interaction-guide-contract.mjs";
 
 const guideStatuses = new Set(["active", "archived"]);
-const completionModes = new Set(["response_valid", "user_advances", "tool_receipt"]);
 const staleRunActions = new Set(["ask", "resume"]);
 
 export const defaultInteractionGuideName = "Exchange Inbox";
@@ -18,11 +21,6 @@ function requiredText(value, label, maximum) {
   if (!result) throw new Error(`${label} cannot be empty`);
   if (result.length > maximum) throw new Error(`${label} cannot exceed ${maximum} characters`);
   return result;
-}
-
-function optionalText(value, label, maximum) {
-  if (value === null || value === undefined) return null;
-  return requiredText(value, label, maximum);
 }
 
 function answersObject(value, label = "Step answers") {
@@ -41,10 +39,9 @@ function publicStep(row) {
     guideId: Number(row.interaction_guide_id),
     stepNumber: Number(row.step_number),
     openingText: row.opening_text,
-    instructionsText: row.instructions_text,
+    contract: JSON.parse(row.contract_json),
     answers: JSON.parse(row.answers_json),
     progressState: row.progress_state,
-    completionMode: row.completion_mode,
     enabled: Boolean(row.enabled),
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
@@ -350,7 +347,7 @@ export class InteractionGuides {
 
   addStep({
     guideId, expectedVersion, stepNumber, openingText,
-    instructionsText = null, completionMode = "response_valid", enabled = true,
+    contract, enabled = true,
   }, context = {}) {
     const useDefaultGuide = guideId == null;
     if (useDefaultGuide && (expectedVersion != null || stepNumber != null)) {
@@ -359,11 +356,10 @@ export class InteractionGuides {
     const selectedStepNumber = useDefaultGuide
       ? null
       : identifier(stepNumber, "Briefing exchange number");
-    if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
     if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
     const values = {
       openingText: requiredText(openingText, "Briefing exchange opening", 10_000),
-      instructionsText: optionalText(instructionsText, "Briefing exchange instructions", 50_000),
+      contract: normalizeInteractionGuideContract(contract),
     };
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
@@ -421,13 +417,12 @@ export class InteractionGuides {
       }
       const row = database.prepare(`
         INSERT INTO interaction_guide_steps (
-          interaction_guide_id, step_number, opening_text, instructions_text,
-          completion_mode, enabled
-        ) VALUES (?, ?, ?, ?, ?, ?)
+          interaction_guide_id, step_number, opening_text, contract_json, enabled
+        ) VALUES (?, ?, ?, ?, ?)
         RETURNING *
       `).get(
         guideBefore.interaction_guide_id, assignedStepNumber, values.openingText,
-        values.instructionsText, completionMode, enabled ? 1 : 0,
+        values.contract.serialized, enabled ? 1 : 0,
       );
       const guide = publicGuide(this.#bumpGuideVersion(
         database, guideBefore.interaction_guide_id, Number(guideBefore.version),
@@ -538,7 +533,7 @@ export class InteractionGuides {
 
   updateStep({
     stepId, expectedVersion, stepNumber, openingText,
-    instructionsText, completionMode, enabled,
+    contract, enabled,
     targetGuideId = null, expectedTargetVersion = null,
   }, context = {}) {
     const selectedStepId = identifier(stepId, "Briefing exchange ID");
@@ -546,11 +541,10 @@ export class InteractionGuides {
     const selectedTargetGuideId = targetGuideId == null
       ? null
       : identifier(targetGuideId, "Destination briefing ID");
-    if (!completionModes.has(completionMode)) throw new Error(`Unknown completion mode: ${completionMode}`);
     if (typeof enabled !== "boolean") throw new Error("Step enabled must be true or false");
     const values = {
       openingText: requiredText(openingText, "Briefing exchange opening", 10_000),
-      instructionsText: optionalText(instructionsText, "Briefing exchange instructions", 50_000),
+      contract: normalizeInteractionGuideContract(contract),
     };
     const database = this.store.requireReady();
     database.exec("BEGIN IMMEDIATE");
@@ -576,8 +570,8 @@ export class InteractionGuides {
         : selectedStepNumber;
       const row = database.prepare(`
         UPDATE interaction_guide_steps
-        SET interaction_guide_id = ?, step_number = ?, opening_text = ?, instructions_text = ?,
-            completion_mode = ?, enabled = ?,
+        SET interaction_guide_id = ?, step_number = ?, opening_text = ?, contract_json = ?,
+            enabled = ?,
             answers_json = CASE WHEN ? THEN '{}' ELSE answers_json END,
             progress_state = CASE WHEN ? THEN 'pending' ELSE progress_state END,
             updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -585,8 +579,8 @@ export class InteractionGuides {
         RETURNING *
       `).get(
         moving ? selectedTargetGuideId : sourceGuideId,
-        destinationStepNumber, values.openingText, values.instructionsText,
-        completionMode, enabled ? 1 : 0, moving ? 1 : 0, moving ? 1 : 0, selectedStepId,
+        destinationStepNumber, values.openingText, values.contract.serialized,
+        enabled ? 1 : 0, moving ? 1 : 0, moving ? 1 : 0, selectedStepId,
       );
       const sourceGuide = publicGuide(this.#bumpGuideVersion(
         database, sourceGuideId, expectedVersion,
@@ -848,7 +842,7 @@ export class InteractionGuides {
 
   answerStep({
     runId, stepNumber, answers, stepComplete,
-    userConfirmedAdvance = false, completionReceiptEventSeq = null,
+    userConfirmedAdvance = false, completionReceiptEventSeqs = [],
   }, context = {}) {
     const selectedRunId = requiredText(runId, "Briefing run ID", 100);
     const selectedStepNumber = identifier(stepNumber, "Briefing exchange number");
@@ -893,24 +887,76 @@ export class InteractionGuides {
       const beforeAnswers = JSON.parse(current.answers_json);
       const mergedAnswers = { ...beforeAnswers, ...suppliedAnswers };
       const normalizedAnswers = answersObject(mergedAnswers);
-      if (stepComplete && current.completion_mode === "response_valid" && Object.keys(mergedAnswers).length === 0) {
+      const contract = normalizeInteractionGuideContract(JSON.parse(current.contract_json)).value;
+      const completionMode = contract.completion.mode;
+      if (stepComplete) {
+        const missing = contract.inputs.filter((input) => input.required && !(input.key in mergedAnswers));
+        if (missing.length) throw conflict(`Required answers are missing: ${missing.map(({ key }) => key).join(", ")}`);
+        for (const input of contract.inputs.filter(({ key }) => key in mergedAnswers)) {
+          const value = mergedAnswers[input.key];
+          const valid = input.type === "integer"
+            ? Number.isSafeInteger(value)
+            : input.type === "number"
+              ? typeof value === "number" && Number.isFinite(value)
+              : typeof value === input.type;
+          if (!valid) throw conflict(`Answer ${input.key} must be a ${input.type}`);
+        }
+      }
+      if (stepComplete && completionMode === "response_valid" && contract.inputs.length === 0 && Object.keys(mergedAnswers).length === 0) {
         throw conflict("A response-valid exchange needs at least one recorded answer before completion");
       }
-      if (stepComplete && current.completion_mode === "user_advances" && !userConfirmedAdvance) {
+      if (stepComplete && completionMode === "user_advances" && !userConfirmedAdvance) {
         throw conflict("This exchange advances only after the user explicitly says to continue");
       }
-      let completionReceipt = null;
-      if (stepComplete && current.completion_mode === "tool_receipt") {
-        if (!Number.isSafeInteger(completionReceiptEventSeq) || completionReceiptEventSeq < 1) {
-          throw conflict("This exchange needs the successful tool-result event number that proves completion");
+      let completionReceipts = [];
+      if (stepComplete && completionMode === "tool_receipt") {
+        if (!Array.isArray(completionReceiptEventSeqs) || completionReceiptEventSeqs.length === 0
+          || completionReceiptEventSeqs.some((eventSeq) => !Number.isSafeInteger(eventSeq) || eventSeq < 1)
+          || new Set(completionReceiptEventSeqs).size !== completionReceiptEventSeqs.length) {
+          throw conflict("This exchange needs distinct successful tool-result event numbers that prove completion");
         }
-        completionReceipt = database.prepare(`
-          SELECT event_seq, event_id, event_type, status, name, turn_id
+        const receiptStatement = database.prepare(`
+          SELECT event_seq, event_id, event_type, status, name, turn_id, operation_id
           FROM activity_events
           WHERE event_seq = ? AND event_type = 'tool.result' AND status = 'complete'
             AND (? IS NULL OR turn_id = ?)
-        `).get(completionReceiptEventSeq, context.requestId ?? null, context.requestId ?? null);
-        if (!completionReceipt) throw conflict("The supplied event is not a successful current-request tool receipt");
+        `);
+        completionReceipts = completionReceiptEventSeqs.map((eventSeq) => receiptStatement.get(
+          eventSeq, context.requestId ?? null, context.requestId ?? null,
+        ));
+        if (completionReceipts.some((receipt) => !receipt)) {
+          throw conflict("A supplied event is not a successful current-request tool receipt");
+        }
+        if (contract.operations.length) {
+          const receiptsWithArguments = completionReceipts.map((receipt) => {
+            const call = database.prepare(`
+              SELECT payload_json FROM activity_events
+              WHERE event_type = 'tool.call' AND operation_id = ? AND name = ?
+                AND (? IS NULL OR turn_id = ?)
+              ORDER BY event_seq DESC LIMIT 1
+            `).get(
+              receipt.operation_id, receipt.name,
+              context.requestId ?? null, context.requestId ?? null,
+            );
+            let callPayload = null;
+            try { callPayload = call ? JSON.parse(call.payload_json) : null; } catch {}
+            return { ...receipt, arguments: callPayload?.arguments ?? null };
+          });
+          const remainingReceipts = [...receiptsWithArguments];
+          const missingOperations = contract.operations.filter((operation) => {
+            const index = remainingReceipts.findIndex((receipt) => (
+              receipt.name === operation.tool
+              && contractArgumentsMatch(operation.arguments, receipt.arguments, mergedAnswers)
+            ));
+            if (index < 0) return true;
+            remainingReceipts.splice(index, 1);
+            return false;
+          });
+          if (missingOperations.length) {
+            throw conflict(`Successful matching receipts are missing for contract operations: ${missingOperations.map(({ id }) => id).join(", ")}`);
+          }
+          completionReceipts = receiptsWithArguments;
+        }
       }
       const saved = database.prepare(`
         UPDATE interaction_guide_steps
@@ -932,8 +978,8 @@ export class InteractionGuides {
         content: `${guide.name} exchange ${selectedStepNumber}`,
         payload: {
           interactionGuideId: Number(guide.interaction_guide_id), stepNumber: selectedStepNumber,
-          answers: mergedAnswers, completionMode: current.completion_mode,
-          completionReceipt,
+          answers: mergedAnswers, completionMode,
+          completionReceipts,
         },
         subjectType: "interaction_guide_run", subjectId: selectedRunId,
       });

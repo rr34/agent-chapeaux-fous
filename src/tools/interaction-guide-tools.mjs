@@ -1,4 +1,5 @@
 import { withSchemaProjection } from "./schema-result.mjs";
+import { interactionGuideContractSchema } from "../interaction-guide-contract.mjs";
 
 const interactionGuideFields = [
   "interaction_guide_id", "name", "status", "version",
@@ -7,8 +8,8 @@ const interactionGuideFields = [
 
 const interactionGuideStepFields = [
   "interaction_guide_step_id", "interaction_guide_id", "step_number",
-  "opening_text", "instructions_text", "answers_json", "progress_state",
-  "completion_mode", "enabled", "created_at_utc", "updated_at_utc",
+  "opening_text", "contract_json", "answers_json", "progress_state",
+  "enabled", "created_at_utc", "updated_at_utc",
 ];
 
 function databaseStep(step) {
@@ -18,10 +19,9 @@ function databaseStep(step) {
     interaction_guide_id: step.guideId,
     step_number: step.stepNumber,
     opening_text: step.openingText,
-    instructions_text: step.instructionsText,
+    contract_json: step.contract,
     answers_json: step.answers,
     progress_state: step.progressState,
-    completion_mode: step.completionMode,
     enabled: step.enabled,
     created_at_utc: step.createdAtUtc,
     updated_at_utc: step.updatedAtUtc,
@@ -104,12 +104,22 @@ function boundedContextField(value, maximumCharacters) {
     : { text: text.slice(0, maximumCharacters), truncated: true };
 }
 
-export function activeBriefingRunContext(interactionGuides, limit = 8) {
+function referencedRegisteredTools(instructions, registeredToolNames) {
+  if (!instructions || !Array.isArray(registeredToolNames)) return [];
+  return registeredToolNames.filter((name) => new RegExp(
+    `(^|[^A-Za-z0-9_])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^A-Za-z0-9_]|$)`,
+  ).test(instructions));
+}
+
+export function activeBriefingRunContext(interactionGuides, limit = 8, registeredToolNames = []) {
   const snapshot = interactionGuides.activeRuns({ limit });
   const runs = snapshot.runs.map(({ guide, run, currentStep }) => {
     const opening = boundedContextField(currentStep.openingText, 10_000);
-    const instructions = boundedContextField(currentStep.instructionsText, 12_000);
+    const contract = boundedContextField(JSON.stringify(currentStep.contract), 24_000);
     const answers = boundedContextField(JSON.stringify(currentStep.answers), 4_000);
+    const legacyInstructionTools = currentStep.contract.operations.length === 0
+      ? referencedRegisteredTools(currentStep.contract.instructions, registeredToolNames)
+      : [];
     return {
       interactionGuideId: guide.id,
       briefingName: guide.name,
@@ -123,13 +133,19 @@ export function activeBriefingRunContext(interactionGuides, limit = 8) {
         interactionGuideStepId: currentStep.id,
         stepNumber: currentStep.stepNumber,
         openingText: opening.text,
-        instructionsText: instructions.text,
+        contractJson: contract.text,
+        contract: contract.truncated ? null : currentStep.contract,
+        contractSummary: {
+          completionMode: currentStep.contract.completion.mode,
+          operationTools: [...new Set(currentStep.contract.operations.map(({ tool }) => tool))],
+          recoveryReadTools: [...new Set(currentStep.contract.recoveryReads.map(({ tool }) => tool))],
+          legacyInstructionTools,
+        },
         answersJson: answers.text,
         progressState: currentStep.progressState,
-        completionMode: currentStep.completionMode,
         truncatedFields: [
           ...(opening.truncated ? ["openingText"] : []),
-          ...(instructions.truncated ? ["instructionsText"] : []),
+          ...(contract.truncated ? ["contractJson"] : []),
           ...(answers.truncated ? ["answersJson"] : []),
         ],
       },
@@ -141,9 +157,10 @@ export function activeBriefingRunContext(interactionGuides, limit = 8) {
       "Use an active run below only when the current request unambiguously answers its exact current opening. If requires_daily_choice is true, do not process an answer or run other exchange tools until the user explicitly chooses to resume or start over. Preserve terse supplied values literally and do not infer omitted units. If a required field is marked truncated, fetch that exact briefing before acting.",
       ...runs.flatMap((entry) => [
         `- Briefing: ${entry.briefingName} [interaction_guide_id=${entry.interactionGuideId}; run_id=${entry.runId}; guide_version=${entry.guideVersion}; started_local_date=${entry.startedLocalDate}; current_local_date=${entry.currentLocalDate}; time_zone=${entry.timeZone}; requires_daily_choice=${entry.requiresDailyChoice}]`,
-        `  Current exchange ${entry.currentExchange.stepNumber} [interaction_guide_step_id=${entry.currentExchange.interactionGuideStepId}; completion_mode=${entry.currentExchange.completionMode}; progress_state=${entry.currentExchange.progressState}]`,
+        `  Current exchange ${entry.currentExchange.stepNumber} [interaction_guide_step_id=${entry.currentExchange.interactionGuideStepId}; progress_state=${entry.currentExchange.progressState}]`,
         `  Opening: ${entry.currentExchange.openingText}`,
-        `  Instructions: ${entry.currentExchange.instructionsText ?? "None"}`,
+        `  Contract summary: ${JSON.stringify(entry.currentExchange.contractSummary)}`,
+        `  Contract: ${entry.currentExchange.contractJson}`,
         `  Existing answers: ${entry.currentExchange.answersJson}`,
         ...(entry.currentExchange.truncatedFields.length
           ? [`  Truncated fields: ${entry.currentExchange.truncatedFields.join(", ")}`]
@@ -165,9 +182,13 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
   rootRegistry.registerContextView?.("interaction-guides", {
     id: "interaction-guides.active_runs",
     title: "Active briefing runs",
-    description: "Bounded active briefing run identities and each exact current exchange opening, instructions, answers, progress, and completion mode.",
+    description: "Bounded active briefing run identities and each exact current exchange opening, structured contract, answers, and progress.",
     maximumItems: 8,
-    execute: () => activeBriefingRunContext(interactionGuides),
+    execute: () => activeBriefingRunContext(
+      interactionGuides,
+      8,
+      rootRegistry.toolDefinitions().map(({ name }) => name),
+    ),
   });
   registry.register({
     name: "interaction_guide_list",
@@ -215,7 +236,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_step_add",
-    description: "Add one numbered exchange to a briefing. For an explicitly selected briefing, supply its ID, current version, and requested number. When no briefing is specified, set interaction_guide_id, expected_version, and step_number to null; the owning service atomically uses or creates the generic Exchange Inbox and appends the exchange at its next number. The parent version increments and answers_json starts as an empty object.",
+    description: "Add one numbered exchange with a literal opening and versioned structured contract. The contract contains optional explanatory instructions plus authoritative typed inputs, exact destination operations and argument bindings, bounded recovery reads, and completion. For an explicitly selected briefing, supply its ID, current version, and requested number. When no briefing is specified, set interaction_guide_id, expected_version, and step_number to null; the owning service atomically uses or creates the generic Exchange Inbox and appends the exchange at its next number. The parent version increments and answers_json starts as an empty object.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -224,15 +245,12 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         expected_version: { type: ["integer", "null"], minimum: 1 },
         step_number: { type: ["integer", "null"], minimum: 1 },
         opening_text: { type: "string", minLength: 1, maxLength: 10_000 },
-        instructions_text: { type: ["string", "null"], minLength: 1, maxLength: 50_000 },
-        completion_mode: {
-          type: "string", enum: ["response_valid", "user_advances", "tool_receipt"],
-        },
+        contract: interactionGuideContractSchema,
         enabled: { type: "boolean" },
       },
       required: [
         "interaction_guide_id", "expected_version", "step_number",
-        "opening_text", "instructions_text", "completion_mode", "enabled",
+        "opening_text", "contract", "enabled",
       ],
     },
     async execute(argumentsObject, context) {
@@ -241,8 +259,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         expectedVersion: argumentsObject.expected_version,
         stepNumber: argumentsObject.step_number,
         openingText: argumentsObject.opening_text,
-        instructionsText: argumentsObject.instructions_text,
-        completionMode: argumentsObject.completion_mode,
+        contract: argumentsObject.contract,
         enabled: argumentsObject.enabled,
       }, context);
       return stepResult(schemaSemantics, context, {
@@ -257,7 +274,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_step_update",
-    description: "Replace the complete definition of one numbered exchange after fetching its briefing. Supply the parent internal guide's current version; successful changes increment only that version. This does not change answers_json.",
+    description: "Replace the literal opening and complete structured contract of one numbered exchange after fetching its briefing. Supply the parent internal guide's current version; successful changes increment only that version. This does not change answers_json.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -266,15 +283,12 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         expected_version: { type: "integer", minimum: 1 },
         step_number: { type: "integer", minimum: 1 },
         opening_text: { type: "string", minLength: 1, maxLength: 10_000 },
-        instructions_text: { type: ["string", "null"], minLength: 1, maxLength: 50_000 },
-        completion_mode: {
-          type: "string", enum: ["response_valid", "user_advances", "tool_receipt"],
-        },
+        contract: interactionGuideContractSchema,
         enabled: { type: "boolean" },
       },
       required: [
         "interaction_guide_step_id", "expected_version", "step_number",
-        "opening_text", "instructions_text", "completion_mode", "enabled",
+        "opening_text", "contract", "enabled",
       ],
     },
     async execute(argumentsObject, context) {
@@ -283,8 +297,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         expectedVersion: argumentsObject.expected_version,
         stepNumber: argumentsObject.step_number,
         openingText: argumentsObject.opening_text,
-        instructionsText: argumentsObject.instructions_text,
-        completionMode: argumentsObject.completion_mode,
+        contract: argumentsObject.contract,
         enabled: argumentsObject.enabled,
       }, context);
       return stepResult(schemaSemantics, context, {
@@ -356,7 +369,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_step_answer",
-    description: "Merge the user's answers into answers_json for the active numbered exchange. Keep step_complete false while required answers remain. Completion advances to the next enabled exchange and returns its fixed opening. Modes enforce answers, user advancement, or a same-request tool receipt.",
+    description: "Merge the user's answers into answers_json for the active numbered exchange. Keep step_complete false while required contract inputs remain. Completion advances to the next enabled exchange and returns its fixed opening. The contract mode enforces validated answers, user advancement, or distinct same-request receipts whose paired calls match every declared destination operation.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -366,11 +379,14 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         answers: { type: "object" },
         step_complete: { type: "boolean" },
         user_confirmed_advance: { type: "boolean" },
-        completion_receipt_event_seq: { type: ["integer", "null"], minimum: 1 },
+        completion_receipt_event_seqs: {
+          type: "array", maxItems: 100, uniqueItems: true,
+          items: { type: "integer", minimum: 1 },
+        },
       },
       required: [
         "run_id", "step_number", "answers", "step_complete",
-        "user_confirmed_advance", "completion_receipt_event_seq",
+        "user_confirmed_advance", "completion_receipt_event_seqs",
       ],
     },
     async execute(argumentsObject, context) {
@@ -380,7 +396,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         answers: argumentsObject.answers,
         stepComplete: argumentsObject.step_complete,
         userConfirmedAdvance: argumentsObject.user_confirmed_advance,
-        completionReceiptEventSeq: argumentsObject.completion_receipt_event_seq,
+        completionReceiptEventSeqs: argumentsObject.completion_receipt_event_seqs,
       }, context);
       return stepResult(schemaSemantics, context, {
         recorded: result.recorded,
@@ -422,7 +438,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
 
   registry.register({
     name: "interaction_guide_create",
-    description: "Create one named durable, user-owned briefing. Add its user-visible openings and agent instructions as numbered exchanges before starting it.",
+    description: "Create one named durable, user-owned briefing. Add its user-visible openings and structured contracts as numbered exchanges before starting it.",
     parameters: {
       type: "object",
       additionalProperties: false,

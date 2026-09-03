@@ -377,8 +377,7 @@ const elements = {
   interactionStepGuideHint: document.querySelector("#interaction-step-guide-hint"),
   interactionStepNumber: document.querySelector("#interaction-step-number"),
   interactionStepOpening: document.querySelector("#interaction-step-opening"),
-  interactionStepInstructions: document.querySelector("#interaction-step-instructions"),
-  interactionStepCompletionMode: document.querySelector("#interaction-step-completion-mode"),
+  interactionStepContract: document.querySelector("#interaction-step-contract"),
   interactionStepEnabled: document.querySelector("#interaction-step-enabled"),
   interactionStepFormError: document.querySelector("#interaction-step-form-error"),
   deleteInteractionStep: document.querySelector("#delete-interaction-step"),
@@ -4874,7 +4873,7 @@ function renderInteractionGuideDetail() {
           "span",
           `interaction-turn-state${step.enabled ? "" : " disabled"}`,
           step.enabled
-            ? `${interactionProgressLabels[step.progressState] ?? step.progressState} · ${interactionCompletionLabels[step.completionMode]}`
+            ? `${interactionProgressLabels[step.progressState] ?? step.progressState} · ${interactionCompletionLabels[step.contract?.completion?.mode] ?? "Contract"}`
             : "Disabled",
         ),
       );
@@ -4891,6 +4890,11 @@ function renderInteractionGuideDetail() {
       stepHeading.append(stepIdentity, stepActions);
 
       card.append(stepHeading);
+      const contractDetails = node("details", "interaction-turn-answers");
+      const contractJson = node("pre");
+      contractJson.textContent = JSON.stringify(step.contract, null, 2);
+      contractDetails.append(node("summary", "", "Contract"), contractJson);
+      card.append(contractDetails);
       const answerKeys = Object.keys(step.answers ?? {});
       if (answerKeys.length) {
         const answers = node("details", "interaction-turn-answers");
@@ -5041,8 +5045,14 @@ function openInteractionStepEditor(step = null) {
   elements.interactionStepNumber.value = step?.stepNumber
     ?? Math.max(0, ...guide.steps.map(({ stepNumber }) => stepNumber)) + 1;
   elements.interactionStepOpening.value = step?.openingText ?? "";
-  elements.interactionStepInstructions.value = step?.instructionsText ?? "";
-  elements.interactionStepCompletionMode.value = step?.completionMode ?? "response_valid";
+  elements.interactionStepContract.value = JSON.stringify(step?.contract ?? {
+    version: 1,
+    instructions: null,
+    inputs: [],
+    operations: [],
+    recoveryReads: [],
+    completion: { mode: "response_valid" },
+  }, null, 2);
   elements.interactionStepEnabled.checked = step?.enabled ?? true;
   elements.interactionStepDialog.showModal();
   elements.interactionStepNumber.focus();
@@ -5060,12 +5070,17 @@ async function saveInteractionStep(event) {
     const targetOption = elements.interactionStepGuide.selectedOptions[0];
     const targetGuideId = Number(elements.interactionStepGuide.value);
     const targetVersion = Number(targetOption?.dataset.version);
+    let contract;
+    try {
+      contract = JSON.parse(elements.interactionStepContract.value);
+    } catch {
+      throw new Error("Contract JSON is not valid JSON.");
+    }
     const payload = {
       expectedVersion: stepId ? guide.version : targetVersion,
       stepNumber: Number(elements.interactionStepNumber.value),
       openingText: elements.interactionStepOpening.value,
-      instructionsText: elements.interactionStepInstructions.value || null,
-      completionMode: elements.interactionStepCompletionMode.value,
+      contract,
       enabled: elements.interactionStepEnabled.checked,
     };
     if (stepId && targetGuideId !== guide.id) {

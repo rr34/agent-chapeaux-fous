@@ -30,7 +30,9 @@ test("a successful exchange becomes bounded source data for one Exchange Inbox e
   assert.match(prompt, /Do not call interaction_guide_create/);
   assert.match(prompt, /interaction_guide_id, expected_version, and step_number all set to null/);
   assert.match(prompt, /agent-initiated conversation/);
-  assert.match(prompt, /one concise stable answers_json key per changing value/);
+  assert.match(prompt, /one typed input per changing value/);
+  assert.match(prompt, /Create one contract operation for every destination mutation/);
+  assert.match(prompt, /structured contract fields are authoritative/i);
   assert.match(prompt, /Generalize only values that naturally change/);
   assert.match(prompt, /do not generalize the subject set into a category/);
   assert.match(prompt, /Ask for every changing value together in one concise opening/);
@@ -104,15 +106,34 @@ test("repeatable exchange generation preserves exact named slots and completed d
         error: "failed",
       },
     ],
+  }, {
+    toolDefinitions: [
+      {
+        name: "log_add", capabilityId: "logs", description: "Add a log entry.",
+        annotations: { readOnlyHint: false }, inputSchema: { type: "object", properties: { tracker: { type: "string" } } },
+      },
+      {
+        name: "log_list", capabilityId: "logs", description: "List bounded log entries.",
+        annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: { tracker: { type: ["string", "null"] } } },
+      },
+      {
+        name: "todo_list", capabilityId: "todos", description: "List to-dos.",
+        annotations: { readOnlyHint: true }, inputSchema: { type: "object" },
+      },
+    ],
   });
 
   assert.match(prompt, /exactly those four measurements/);
   assert.match(prompt, /Never replace concrete names with a broad question/);
-  assert.match(prompt, /Do not add discovery, listing, tracker creation, setup, or confirmation work/);
+  assert.match(prompt, /Do not add discovery, tracker creation, setup, or confirmation work/);
   assert.match(prompt, /<completed_source_tool_calls>/);
   assert.match(prompt, /"tracker": "Weight"/);
   assert.match(prompt, /"tracker": "Push-ups"/);
   assert.doesNotMatch(prompt, /Something else/);
+  assert.match(prompt, /<destination_contract_catalog>/);
+  assert.match(prompt, /"name": "log_list"/);
+  assert.doesNotMatch(prompt, /"name": "todo_list"/);
+  assert.match(prompt, /not callable during this creation request/i);
   assert.match(prompt, /call only interaction_guide_step_add/);
 });
 

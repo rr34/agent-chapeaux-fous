@@ -4,10 +4,25 @@ import { SlayerDatabase } from "../src/database.mjs";
 import { InteractionGuides } from "../src/interaction-guides.mjs";
 import { Ledger } from "../src/ledger.mjs";
 import { OrganizerStore } from "../src/organizer-store.mjs";
-import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
+import {
+  activeBriefingRunContext,
+  registerInteractionGuideTools,
+} from "../src/tools/interaction-guide-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
+
+function exchangeContract(instructions = null, mode = "response_valid", overrides = {}) {
+  return {
+    version: 1,
+    instructions,
+    inputs: [],
+    operations: [],
+    recoveryReads: [],
+    completion: { mode },
+    ...overrides,
+  };
+}
 
 function harness(context, { clock, timeZone } = {}) {
   const temporary = temporaryDatabase();
@@ -37,8 +52,7 @@ test("page-managed guide definitions are recorded as user actions rather than to
     expectedVersion: created.guide.version,
     stepNumber: 1,
     openingText: "1. What outcome should this produce?",
-    instructionsText: "Record one concrete outcome.",
-    completionMode: "response_valid",
+    contract: exchangeContract("Record one concrete outcome.", "response_valid"),
     enabled: true,
   }, { actorType: "user", actorName: "structured_interactions_page" });
 
@@ -63,8 +77,7 @@ test("the page atomically edits an exchange and appends it to its new briefing",
     expectedVersion: target.guide.version,
     stepNumber: 2,
     openingText: "Already in the destination.",
-    instructionsText: null,
-    completionMode: "response_valid",
+    contract: exchangeContract(null, "response_valid"),
     enabled: true,
   });
   const added = guides.addStep({
@@ -72,8 +85,7 @@ test("the page atomically edits an exchange and appends it to its new briefing",
     expectedVersion: source.guide.version,
     stepNumber: 2,
     openingText: "What should move?",
-    instructionsText: "Old instructions.",
-    completionMode: "response_valid",
+    contract: exchangeContract("Old instructions.", "response_valid"),
     enabled: true,
   });
   const run = guides.begin({ guideId: source.guide.id, restart: false });
@@ -91,8 +103,7 @@ test("the page atomically edits an exchange and appends it to its new briefing",
     expectedTargetVersion: targetFirst.guide.version,
     stepNumber: 2,
     openingText: "What should move now?",
-    instructionsText: "Revised instructions.",
-    completionMode: "user_advances",
+    contract: exchangeContract("Revised instructions.", "user_advances"),
     enabled: false,
   }, { actorType: "user", actorName: "structured_interactions_page" });
 
@@ -104,10 +115,10 @@ test("the page atomically edits an exchange and appends it to its new briefing",
   assert.equal(result.step.guideId, target.guide.id);
   assert.equal(result.step.stepNumber, 3);
   assert.equal(result.step.openingText, "What should move now?");
-  assert.equal(result.step.instructionsText, "Revised instructions.");
+  assert.equal(result.step.contract.instructions, "Revised instructions.");
   assert.deepEqual(result.step.answers, {});
   assert.equal(result.step.progressState, "pending");
-  assert.equal(result.step.completionMode, "user_advances");
+  assert.equal(result.step.contract.completion.mode, "user_advances");
   assert.equal(result.step.enabled, false);
   assert.deepEqual(guides.get({ guideId: source.guide.id }).steps, []);
   assert.deepEqual(
@@ -138,8 +149,7 @@ test("the page deletes one exact exchange with version protection and a literal 
     expectedVersion: created.guide.version,
     stepNumber: 3,
     openingText: "Delete this opening?",
-    instructionsText: "This entire exchange should be removable.",
-    completionMode: "response_valid",
+    contract: exchangeContract("This entire exchange should be removable.", "response_valid"),
     enabled: true,
   });
 
@@ -175,15 +185,15 @@ test("the page atomically reorders every exchange and records one literal receip
   const created = guides.create({ name: "Sortable briefing" });
   const first = guides.addStep({
     guideId: created.guide.id, expectedVersion: created.guide.version, stepNumber: 2,
-    openingText: "First opening", completionMode: "response_valid", enabled: true,
+    openingText: "First opening", contract: exchangeContract(), enabled: true,
   });
   const second = guides.addStep({
     guideId: created.guide.id, expectedVersion: first.guide.version, stepNumber: 5,
-    openingText: "Second opening", completionMode: "response_valid", enabled: true,
+    openingText: "Second opening", contract: exchangeContract(), enabled: true,
   });
   const third = guides.addStep({
     guideId: created.guide.id, expectedVersion: second.guide.version, stepNumber: 9,
-    openingText: "Third opening", completionMode: "response_valid", enabled: false,
+    openingText: "Third opening", contract: exchangeContract(), enabled: false,
   });
 
   const result = guides.reorderSteps({
@@ -246,8 +256,7 @@ test("unspecified briefing additions reuse the generic Exchange Inbox and append
     expected_version: null,
     step_number: null,
     opening_text,
-    instructions_text: null,
-    completion_mode: "response_valid",
+    contract: exchangeContract(null, "response_valid"),
     enabled: true,
   });
 
@@ -318,8 +327,7 @@ test("one exchange moves between briefings without a schema change or shared own
     expected_version: 1,
     step_number: 1,
     opening_text: "What is already here?",
-    instructions_text: null,
-    completion_mode: "response_valid",
+    contract: exchangeContract(null, "response_valid"),
     enabled: true,
   });
   const sourceStep = await registry.execute("interaction_guide_step_add", {
@@ -327,8 +335,7 @@ test("one exchange moves between briefings without a schema change or shared own
     expected_version: 1,
     step_number: 4,
     opening_text: "What should move?",
-    instructions_text: "Collect the answer before moving this reusable exchange.",
-    completion_mode: "response_valid",
+    contract: exchangeContract("Collect the answer before moving this reusable exchange.", "response_valid"),
     enabled: true,
   });
   const started = await registry.execute("interaction_guide_start", {
@@ -343,7 +350,7 @@ test("one exchange moves between briefings without a schema change or shared own
     answers: { answer: "Prior run state" },
     step_complete: true,
     user_confirmed_advance: false,
-    completion_receipt_event_seq: null,
+    completion_receipt_event_seqs: [],
   });
 
   const moved = await registry.execute("interaction_guide_step_move", {
@@ -374,8 +381,7 @@ test("one exchange moves between briefings without a schema change or shared own
     expected_version: moved.source_guide.version,
     step_number: 1,
     opening_text: "This exchange must stay put while the destination is running.",
-    instructions_text: null,
-    completion_mode: "response_valid",
+    contract: exchangeContract(null, "response_valid"),
     enabled: true,
   });
   await registry.execute("interaction_guide_start", {
@@ -405,8 +411,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
     expected_version: 1,
     step_number: 1,
     opening_text: "1. What must be accomplished tonight?",
-    instructions_text: "Capture one concrete outcome and how success will be recognized. Remain on step 1 until it is concrete.",
-    completion_mode: "response_valid",
+    contract: exchangeContract("Capture one concrete outcome and how success will be recognized. Remain on step 1 until it is concrete.", "response_valid"),
     enabled: true,
   }, { requestId: "brief-build", callId: "add-step-1" });
   assert.equal(first.guide.version, 2);
@@ -415,8 +420,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
     expected_version: 2,
     step_number: 3,
     opening_text: "3. What information and decisions are already available?",
-    instructions_text: "Collect the bounded inputs needed to execute the brief.",
-    completion_mode: "response_valid",
+    contract: exchangeContract("Collect the bounded inputs needed to execute the brief.", "response_valid"),
     enabled: true,
   }, { requestId: "brief-build", callId: "add-step-3" });
   assert.equal(second.guide.version, 3);
@@ -447,7 +451,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
     answers: { outcome: "Prepare tomorrow's customer proposal" },
     step_complete: false,
     user_confirmed_advance: false,
-    completion_receipt_event_seq: null,
+    completion_receipt_event_seqs: [],
   }, { requestId: "brief-run-2", callId: "answer-step-1-partial" });
   assert.equal(partial.current_step.step_number, 1);
   assert.equal(partial.current_step.progress_state, "active");
@@ -474,8 +478,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
       expected_version: 3,
       step_number: 1,
       opening_text: "Changed",
-      instructions_text: null,
-      completion_mode: "response_valid",
+      contract: exchangeContract(null, "response_valid"),
       enabled: true,
     }),
     /active briefing/,
@@ -487,7 +490,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
     answers: { success: "Proposal is ready for review" },
     step_complete: true,
     user_confirmed_advance: false,
-    completion_receipt_event_seq: null,
+    completion_receipt_event_seqs: [],
   }, { requestId: "brief-run-4", callId: "complete-step-1" });
   assert.equal(advanced.run.current_step_number, 3);
   assert.equal(advanced.step.progress_state, "completed");
@@ -500,7 +503,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
     answers: { inputs: "Customer notes and the existing estimate" },
     step_complete: true,
     user_confirmed_advance: false,
-    completion_receipt_event_seq: null,
+    completion_receipt_event_seqs: [],
   }, { requestId: "brief-run-5", callId: "complete-step-3" });
   assert.equal(completed.run_complete, true);
   assert.equal(completed.step.progress_state, "completed");
@@ -543,7 +546,7 @@ test("numbered interaction steps persist answers and resume at the exact active 
 });
 
 test("the active briefing context view exposes only bounded current-run state", async (context) => {
-  const { registry } = harness(context);
+  const { guides, registry } = harness(context);
   const created = await registry.execute("interaction_guide_create", {
     name: "Evening Briefing",
   }, { requestId: "context-build", callId: "create" });
@@ -552,8 +555,7 @@ test("the active briefing context view exposes only bounded current-run state", 
     expected_version: created.guide.version,
     step_number: 1,
     opening_text: "What is your current weight?",
-    instructions_text: "Record the supplied numeric value exactly without inferring a unit.",
-    completion_mode: "response_valid",
+    contract: exchangeContract("Call log_add to record the supplied numeric value exactly without inferring a unit.", "response_valid"),
     enabled: true,
   }, { requestId: "context-build", callId: "add" });
   const started = await registry.execute("interaction_guide_start", {
@@ -574,6 +576,71 @@ test("the active briefing context view exposes only bounded current-run state", 
   assert.equal(prepared[0].data.runs[0].currentExchange.openingText, "What is your current weight?");
   assert.match(prepared[0].text, new RegExp(started.run.run_id));
   assert.match(prepared[0].text, /do not infer omitted units/i);
+  const legacyContext = activeBriefingRunContext(guides, 8, ["log_add", "log_list"]);
+  assert.deepEqual(
+    legacyContext.data.runs[0].currentExchange.contractSummary.legacyInstructionTools,
+    ["log_add"],
+  );
+});
+
+test("receipt completion covers every destination operation declared by the contract", async (context) => {
+  const { store, guides } = harness(context);
+  const created = guides.create({ name: "Exercise log" });
+  const contract = exchangeContract("Record both values in their exact trackers.", "tool_receipt", {
+    inputs: [
+      { key: "abs_reps", type: "integer", required: true, description: null },
+      { key: "stretch_minutes", type: "number", required: true, description: null },
+    ],
+    operations: [
+      { id: "log_abs", tool: "log_add", arguments: { tracker: "Abs", number_value: { $answer: "abs_reps" } } },
+      { id: "log_stretch", tool: "log_add", arguments: { tracker: "Stretching", number_value: { $answer: "stretch_minutes" } } },
+    ],
+  });
+  guides.addStep({
+    guideId: created.guide.id,
+    expectedVersion: created.guide.version,
+    stepNumber: 1,
+    openingText: "How many abs reps and stretching minutes?",
+    contract,
+    enabled: true,
+  });
+  const started = guides.begin({ guideId: created.guide.id });
+  const requestId = "exercise-answer";
+  const receiptSeqs = [
+    ["log-abs", { tracker: "Abs", number_value: 100 }],
+    ["log-stretch", { tracker: "Stretching", number_value: 10 }],
+  ].map(([operationId, argumentsObject]) => {
+    guides.ledger.append({
+      type: "tool.call", phase: "start", status: "processing", actorType: "model",
+      actorName: "test", turnId: requestId, operationId, name: "log_add",
+      payload: { arguments: argumentsObject },
+    });
+    guides.ledger.append({
+      type: "tool.result", phase: "end", status: "complete", actorType: "tool",
+      actorName: "log_add", turnId: requestId, operationId, name: "log_add",
+      payload: { result: { created: true } },
+    });
+    return Number(store.requireReady().prepare(`
+      SELECT event_seq FROM activity_events WHERE operation_id = ? AND event_type = 'tool.result'
+    `).get(operationId).event_seq);
+  });
+
+  assert.throws(() => guides.answerStep({
+    runId: started.run.id,
+    stepNumber: 1,
+    answers: { abs_reps: 100, stretch_minutes: 10 },
+    stepComplete: true,
+    completionReceiptEventSeqs: [receiptSeqs[0]],
+  }, { requestId }), /missing for contract operations: log_stretch/);
+
+  const completed = guides.answerStep({
+    runId: started.run.id,
+    stepNumber: 1,
+    answers: { abs_reps: 100, stretch_minutes: 10 },
+    stepComplete: true,
+    completionReceiptEventSeqs: receiptSeqs,
+  }, { requestId });
+  assert.equal(completed.runCompleted, true);
 });
 
 test("an unfinished briefing crossing a local day requires resume or start-over choice", async (context) => {
@@ -590,8 +657,7 @@ test("an unfinished briefing crossing a local day requires resume or start-over 
     expected_version: created.guide.version,
     step_number: 1,
     opening_text: "What should be recorded today?",
-    instructions_text: "Keep partial answers until the user decides whether to resume.",
-    completion_mode: "response_valid",
+    contract: exchangeContract("Keep partial answers until the user decides whether to resume.", "response_valid"),
     enabled: true,
   });
   const started = await registry.execute("interaction_guide_start", {
@@ -606,7 +672,7 @@ test("an unfinished briefing crossing a local day requires resume or start-over 
     answers: { partial: "keep me" },
     step_complete: false,
     user_confirmed_advance: false,
-    completion_receipt_event_seq: null,
+    completion_receipt_event_seqs: [],
   });
 
   now = new Date("2026-09-03T04:15:00.000Z");
@@ -640,7 +706,7 @@ test("an unfinished briefing crossing a local day requires resume or start-over 
       answers: { another: "answer" },
       step_complete: false,
       user_confirmed_advance: false,
-      completion_receipt_event_seq: null,
+      completion_receipt_event_seqs: [],
     }),
     /Choose whether to resume it or start over/,
   );
@@ -687,8 +753,7 @@ test("an explicitly cancelled run resets current state and releases its guide fo
     expected_version: 1,
     step_number: 1,
     opening_text: "1. What is the answer?",
-    instructions_text: "Record one answer.",
-    completion_mode: "response_valid",
+    contract: exchangeContract("Record one answer.", "response_valid"),
     enabled: true,
   });
   const started = await registry.execute("interaction_guide_start", {
@@ -703,7 +768,7 @@ test("an explicitly cancelled run resets current state and releases its guide fo
     answers: { answer: "Keep this" },
     step_complete: false,
     user_confirmed_advance: false,
-    completion_receipt_event_seq: null,
+    completion_receipt_event_seqs: [],
   });
   const cancelled = await registry.execute("interaction_guide_run_cancel", {
     run_id: started.run.run_id,
@@ -715,8 +780,7 @@ test("an explicitly cancelled run resets current state and releases its guide fo
     expected_version: 2,
     step_number: 1,
     opening_text: "1. What is the revised answer?",
-    instructions_text: "Record one revised answer.",
-    completion_mode: "response_valid",
+    contract: exchangeContract("Record one revised answer.", "response_valid"),
     enabled: true,
   });
   assert.equal(updated.guide.version, 3);

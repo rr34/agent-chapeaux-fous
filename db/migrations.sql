@@ -5,6 +5,79 @@
 -- migrations oldest-first. It owns transactions, backups, integrity checks,
 -- schema-version updates, and schema-semantic synchronization.
 
+-- migration 0028: structured-interaction-contracts
+-- Consolidate reusable exchange instructions, inputs, destinations, recovery
+-- reads, and completion requirements into one versioned contract document.
+
+PRAGMA defer_foreign_keys = ON;
+
+ALTER TABLE interaction_guide_steps RENAME TO migration_0028_interaction_guide_steps;
+
+CREATE TABLE interaction_guide_steps (
+    interaction_guide_step_id INTEGER PRIMARY KEY,
+    interaction_guide_id      INTEGER NOT NULL
+                              REFERENCES interaction_guides(interaction_guide_id)
+                              ON DELETE CASCADE,
+    step_number               INTEGER NOT NULL CHECK (step_number > 0),
+    opening_text              TEXT NOT NULL
+                              CHECK (length(trim(opening_text)) BETWEEN 1 AND 10000),
+    contract_json             TEXT NOT NULL
+                              DEFAULT '{"version":1,"instructions":null,"inputs":[],"operations":[],"recoveryReads":[],"completion":{"mode":"response_valid"}}'
+                              CHECK (
+                                  length(contract_json) <= 200000
+                                  AND json_valid(contract_json)
+                                  AND json_type(contract_json) = 'object'
+                                  AND json_extract(contract_json, '$.version') = 1
+                                  AND json_type(contract_json, '$.inputs') = 'array'
+                                  AND json_type(contract_json, '$.operations') = 'array'
+                                  AND json_type(contract_json, '$.recoveryReads') = 'array'
+                                  AND json_type(contract_json, '$.completion') = 'object'
+                                  AND json_extract(contract_json, '$.completion.mode') IN (
+                                      'response_valid', 'user_advances', 'tool_receipt'
+                                  )
+                              ),
+    answers_json              TEXT NOT NULL DEFAULT '{}'
+                              CHECK (
+                                  length(answers_json) <= 100000
+                                  AND json_valid(answers_json)
+                                  AND json_type(answers_json) = 'object'
+                              ),
+    enabled                   INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at_utc            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at_utc            TEXT,
+    progress_state            TEXT NOT NULL DEFAULT 'pending'
+                              CHECK (progress_state IN ('pending', 'active', 'completed')),
+    UNIQUE (interaction_guide_id, step_number)
+) STRICT;
+
+INSERT INTO interaction_guide_steps (
+    interaction_guide_step_id, interaction_guide_id, step_number, opening_text,
+    contract_json, answers_json, enabled, created_at_utc, updated_at_utc,
+    progress_state
+)
+SELECT
+    interaction_guide_step_id, interaction_guide_id, step_number, opening_text,
+    json_object(
+        'version', 1,
+        'instructions', instructions_text,
+        'inputs', json('[]'),
+        'operations', json('[]'),
+        'recoveryReads', json('[]'),
+        'completion', json_object('mode', completion_mode)
+    ),
+    answers_json, enabled, created_at_utc, updated_at_utc, progress_state
+FROM migration_0028_interaction_guide_steps;
+
+DROP TABLE migration_0028_interaction_guide_steps;
+
+CREATE INDEX interaction_guide_steps_guide_order
+    ON interaction_guide_steps(interaction_guide_id, enabled, step_number);
+
+CREATE INDEX interaction_guide_steps_guide_progress
+    ON interaction_guide_steps(interaction_guide_id, progress_state, enabled, step_number);
+
+-- end migration 0028
+
 -- migration 0027: unplanned-planning-prompts
 -- Distinguish active work that still needs a plan and preserve the exact
 -- question the Agent should ask on tasks, routine definitions, and events.
