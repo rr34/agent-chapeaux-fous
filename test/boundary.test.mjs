@@ -160,6 +160,10 @@ test("the client pauses on the final TurnBrief with only Continue and Cancel dec
   assert.doesNotMatch(document, /Change plan/iu);
   assert.match(application, /function decideTurnBrief/);
   assert.match(application, /turn-brief\/\$\{decision\}/);
+  assert.doesNotMatch(application, /selectionTouchesRequests/);
+  assert.doesNotMatch(application, /if \(!force && .*\) return;/);
+  assert.match(application, /approvalPanel\.dataset\.approvalId !== approval\.approvalId/);
+  assert.match(application, /function setTextContent/);
   assert.match(styles, /\.turn-brief-approval/);
   assert.match(server, /turn-brief\\\/\(continue\|cancel\)/);
 });

@@ -92,6 +92,49 @@ test("todo_list filters single completion and schedule timestamps by local date"
   ]);
   assert.equal(scheduled.filters.scheduled_on_date, "2026-03-08");
 
+  const routine = await registry.execute("routine_add", {
+    text: "Regular Work Window",
+    status: "unplanned",
+    planning_prompt_text: "What would you like to work on during this time window?",
+    related_contact_id: null,
+    interaction_guide_id: null,
+    scheduled_at_utc: "2026-03-08T11:00:00.000Z",
+    is_all_day: false,
+    duration_minutes: 420,
+    due_at_utc: null,
+    recurrence: {
+      frequency: "WEEKLY", interval: 1, weekdays: ["SU"], month: null,
+      month_day: null, ordinal_weekday: null, count: null, until_date: null,
+      time_zone: "America/New_York",
+    },
+  });
+  const published = database.prepare(`
+    INSERT INTO personal_tasks (
+      todo_group_id, text, status, scheduled_at_utc, is_all_day,
+      duration_minutes, planning_prompt_text, source, external_id
+    ) VALUES (1, ?, 'unplanned', ?, 0, 420, ?, 'routine_publish', ?)
+  `).run(
+    "Regular Work Window",
+    "2026-03-08T11:00:00.000Z",
+    "What would you like to work on during this time window?",
+    `routine:${routine.template.todo_routine_id}:2026-03-08T11:00:00.000Z`,
+  );
+  const workWindows = await registry.execute("todo_list", {
+    group: null,
+    status: "unplanned",
+    completed_on_date: null,
+    scheduled_on_date: "2026-03-08",
+    time_zone: "America/New_York",
+    limit: 20,
+  });
+  assert.deepEqual(workWindows.tasks.map(({ personal_task_id }) => personal_task_id), [
+    Number(published.lastInsertRowid),
+  ]);
+  assert.equal(
+    workWindows.tasks.some(({ personal_task_id }) => personal_task_id === routine.template.personal_task_id),
+    false,
+  );
+
   await assert.rejects(
     registry.execute("todo_list", {
       group: null,
@@ -513,6 +556,7 @@ test("todo_add associates a newly resolved contact with the task", async (contex
       text: null,
       group: null,
       related_contact_id: null,
+      clear_related_contact: true,
       status: null,
       scheduled_at_utc: null,
       due_at_utc: null,
@@ -708,7 +752,7 @@ test("native todo tools preserve an explicit all-day schedule", async (context) 
   assert.equal(updated.items[0].task.is_all_day, 0);
 });
 
-test("native todo tools store and clear planned duration separately from due time", async (context) => {
+test("native todo tools preserve null optional fields and clear them only explicitly", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.filename);
@@ -722,23 +766,49 @@ test("native todo tools store and clear planned duration separately from due tim
     scheduled_at_utc: "2026-08-31T13:00:00.000Z",
     duration_minutes: 90,
     due_at_utc: "2026-09-02T21:00:00.000Z",
+    planning_prompt_text: "What belongs in this work window?",
   });
   assert.equal(created.task.duration_minutes, 90);
   assert.equal(created.task.due_at_utc, "2026-09-02T21:00:00.000Z");
 
-  const updated = await registry.execute("todo_update", {
+  const preserved = await registry.execute("todo_update", {
+    updates: [{
+      personal_task_id: created.task.personal_task_id,
+      text: "Focused work revised",
+      group: null,
+      related_contact_id: null,
+      status: null,
+      scheduled_at_utc: null,
+      is_all_day: null,
+      duration_minutes: null,
+      due_at_utc: null,
+      planning_prompt_text: null,
+    }],
+  });
+  assert.equal(preserved.items[0].task.duration_minutes, 90);
+  assert.equal(preserved.items[0].task.planning_prompt_text, "What belongs in this work window?");
+  assert.equal(preserved.items[0].task.due_at_utc, "2026-09-02T21:00:00.000Z");
+
+  const cleared = await registry.execute("todo_update", {
     updates: [{
       personal_task_id: created.task.personal_task_id,
       text: null,
       group: null,
+      related_contact_id: null,
+      clear_related_contact: false,
       status: null,
       scheduled_at_utc: null,
+      is_all_day: null,
       duration_minutes: null,
+      clear_duration: true,
       due_at_utc: null,
+      planning_prompt_text: null,
+      clear_planning_prompt: true,
     }],
   });
-  assert.equal(updated.items[0].task.duration_minutes, null);
-  assert.equal(updated.items[0].task.due_at_utc, "2026-09-02T21:00:00.000Z");
+  assert.equal(cleared.items[0].task.duration_minutes, null);
+  assert.equal(cleared.items[0].task.planning_prompt_text, null);
+  assert.equal(cleared.items[0].task.due_at_utc, "2026-09-02T21:00:00.000Z");
 
   await assert.rejects(registry.execute("todo_add", {
     text: "Impossible all-day duration",

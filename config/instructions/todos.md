@@ -54,6 +54,9 @@ possibly different changes and applies the complete collection atomically; a
 one-task request is a one-item array. Do not spend one model tool call per task.
 One duplicate ID, missing task, invalid contact, invalid group, or invalid
 resulting schedule rejects the whole batch without retaining earlier updates.
+Null optional values are no-change placeholders. Use the dedicated clear flags
+only when the user explicitly asks to remove the related contact, planned
+duration, or planning prompt.
 
 Use `todo_move_overdue_to_today` for a general request to roll overdue ordinary
 tasks forward. It deliberately leaves Routine templates, repeating-task
@@ -66,7 +69,9 @@ For a daily review, use `todo_list.completed_on_date` to read tasks completed on
 one local date and `todo_list.scheduled_on_date` to read tasks scheduled on one
 local date. Always supply the applicable IANA `time_zone`. These select tasks by
 the single completion or schedule timestamp already stored on each task; they
-do not represent a range belonging to the task.
+do not represent a range belonging to the task. A scheduled-date read returns
+the calendar-visible published occurrence and excludes its hidden reusable
+Routine template; update the returned occurrence when filling a work window.
 
 In every user-facing list or review where a to-do may be discussed or changed,
 show its stable `personal_task_id` as `#<id>` immediately before its exact

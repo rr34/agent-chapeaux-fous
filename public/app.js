@@ -592,6 +592,11 @@ function node(tag, className = "", textContent = "") {
   return element;
 }
 
+function setTextContent(element, value = "") {
+  const text = String(value ?? "");
+  if (element.textContent !== text) element.textContent = text;
+}
+
 const svgNamespace = "http://www.w3.org/2000/svg";
 
 function hatSvg(hat) {
@@ -622,6 +627,9 @@ function hatSvg(hat) {
 
 function renderAgentMascot(target, hats = []) {
   const explicitHats = Array.isArray(hats) ? hats.filter((hat) => hat?.id) : [];
+  const fingerprint = JSON.stringify(explicitHats);
+  if (target.dataset.hats === fingerprint) return;
+  target.dataset.hats = fingerprint;
   target.replaceChildren();
   target.hidden = explicitHats.length === 0;
   if (explicitHats.length === 0) {
@@ -1325,6 +1333,9 @@ function requestUsageLabel(usage) {
 }
 
 function renderRequestSteps(container, steps = []) {
+  const fingerprint = JSON.stringify(steps);
+  if (container.dataset.steps === fingerprint) return;
+  container.dataset.steps = fingerprint;
   container.replaceChildren();
   for (const step of steps) {
     const item = document.createElement("li");
@@ -1434,13 +1445,6 @@ async function loadAiUsage() {
   } catch (error) {
     elements.aiUsageStatus.textContent = error.message;
   }
-}
-
-function selectionTouchesRequests() {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
-  const range = selection.getRangeAt(0);
-  return elements.list.contains(range.commonAncestorContainer) || range.intersectsNode(elements.list);
 }
 
 function updateVideoScriptSelection() {
@@ -1687,35 +1691,35 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   node.dataset.scriptSelectable = String(Boolean(request.scriptSelectable));
   node.querySelector(".conversation-separator").hidden = !request.conversationStarted;
   const requestNumber = node.querySelector(".request-number");
-  requestNumber.textContent = `Request ${request.requestId.slice(0, 8)}`;
+  setTextContent(requestNumber, `Request ${request.requestId.slice(0, 8)}`);
   requestNumber.title = `Copy request ID ${request.requestId}`;
   requestNumber.setAttribute("aria-label", `Copy request ID ${request.requestId}`);
-  node.querySelector(".request-channel").textContent = request.channel === "voice" ? "Voice" : "Typed";
-  node.querySelector(".request-status").textContent = request.status;
+  setTextContent(node.querySelector(".request-channel"), request.channel === "voice" ? "Voice" : "Typed");
+  setTextContent(node.querySelector(".request-status"), request.status);
   const replyButton = node.querySelector(".reply-to-exchange");
   replyButton.hidden = !["complete", "error"].includes(request.status);
   replyButton.title = `Reference exchange ${request.requestId} in Agent`;
   replyButton.setAttribute("aria-label", replyButton.title);
   const time = node.querySelector("time");
   time.dateTime = new Date(request.submittedAtMs).toISOString();
-  time.textContent = formatTime(request.submittedAtMs);
+  setTextContent(time, formatTime(request.submittedAtMs));
   const elapsed = node.querySelector(".request-elapsed");
-  elapsed.textContent = Number.isFinite(request.elapsedMs) ? `${formatDuration(request.elapsedMs)} elapsed` : "";
+  setTextContent(elapsed, Number.isFinite(request.elapsedMs) ? `${formatDuration(request.elapsedMs)} elapsed` : "");
   elapsed.hidden = !elapsed.textContent;
-  node.querySelector(".user-request").textContent = request.request;
+  setTextContent(node.querySelector(".user-request"), request.request);
   const attachment = node.querySelector(".request-attachment");
   const file = request.attachment;
   attachment.hidden = !file;
   if (file) {
     const reference = attachment.querySelector(".request-file-reference");
     reference.dataset.fileId = String(file.fileId);
-    reference.textContent = `File #${file.fileId} · ${file.title}`;
+    setTextContent(reference, `File #${file.fileId} · ${file.title}`);
     reference.title = `Copy reference: file ${file.fileId}`;
     const original = attachment.querySelector(".request-file-original");
-    original.textContent = file.originalFilename ? `Original filename: ${file.originalFilename}` : "";
+    setTextContent(original, file.originalFilename ? `Original filename: ${file.originalFilename}` : "");
     original.hidden = !original.textContent;
     const description = attachment.querySelector(".request-file-description");
-    description.textContent = file.description || "";
+    setTextContent(description, file.description || "");
     description.hidden = !description.textContent;
     attachment.querySelector(".edit-request-file").dataset.fileId = String(file.fileId);
   }
@@ -1725,11 +1729,11 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   const approvalPanel = node.querySelector(".turn-brief-approval");
   const approval = request.turnBriefApproval;
   approvalPanel.hidden = !approval;
-  if (approval) {
+  if (approval && approvalPanel.dataset.approvalId !== approval.approvalId) {
     approvalPanel.dataset.approvalId = approval.approvalId;
-    approvalPanel.querySelector(".turn-brief-objective").textContent = approval.objective;
-    approvalPanel.querySelector(".turn-brief-description").textContent = approval.summary;
-    approvalPanel.querySelector(".turn-brief-decision-status").textContent = "";
+    setTextContent(approvalPanel.querySelector(".turn-brief-objective"), approval.objective);
+    setTextContent(approvalPanel.querySelector(".turn-brief-description"), approval.summary);
+    setTextContent(approvalPanel.querySelector(".turn-brief-decision-status"), "");
     approvalPanel.querySelectorAll("button").forEach((button) => { button.disabled = false; });
     renderTurnBriefItems(approvalPanel.querySelector(".turn-brief-capabilities"), approval.capabilities, {
       identity: ({ capability }) => capability,
@@ -1756,17 +1760,17 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   }
   const error = node.querySelector(".request-error");
   error.hidden = !request.error;
-  error.textContent = request.error || "";
+  setTextContent(error, request.error || "");
   renderRequestSteps(node.querySelector(".request-steps"), request.steps);
   const usage = node.querySelector(".request-usage");
-  usage.textContent = requestUsageLabel(request.usage);
+  setTextContent(usage, requestUsageLabel(request.usage));
   usage.hidden = !usage.textContent;
   const progress = node.querySelector(".request-progress");
   progress.hidden = !request.progress;
   if (request.progress) {
     progress.dataset.progress = JSON.stringify(request.progress);
-    progress.querySelector(".progress-label").textContent = request.progress.label;
-    progress.querySelector(".progress-detail").textContent = progressDetail(request.progress);
+    setTextContent(progress.querySelector(".progress-label"), request.progress.label);
+    setTextContent(progress.querySelector(".progress-detail"), progressDetail(request.progress));
   } else {
     delete progress.dataset.progress;
   }
@@ -1875,7 +1879,6 @@ function scrollChatToLatest({ behavior = "auto" } = {}) {
 }
 
 async function loadRequests({ force = false, followLatest = false } = {}) {
-  if (!force && selectionTouchesRequests()) return;
   const initialLoad = requestNodes.size === 0;
   const previousListHeight = elements.list.offsetHeight;
   const previousPageHeight = document.documentElement.scrollHeight;

@@ -262,12 +262,15 @@ const todoUpdateProperties = {
   text: optionalText,
   group: optionalText,
   related_contact_id: { type: ["integer", "null"], minimum: 1 },
+  clear_related_contact: { type: "boolean" },
   status: { type: ["string", "null"], enum: [...todoStatuses, null] },
   scheduled_at_utc: optionalText,
   is_all_day: { type: ["boolean", "null"] },
   duration_minutes: { type: ["integer", "null"], minimum: 1 },
+  clear_duration: { type: "boolean" },
   due_at_utc: optionalText,
   planning_prompt_text: optionalText,
+  clear_planning_prompt: { type: "boolean" },
 };
 
 const todoUpdateRequired = [
@@ -287,8 +290,13 @@ function prepareTodoUpdate(database, input, { completedAtUtc, updatedAtUtc }) {
     values.todo_group_id = group.todo_group_id;
     targetGroupName = group.name;
   }
-  if (input.related_contact_id !== undefined) {
-    if (input.related_contact_id !== null && !database.prepare(`
+  if (input.clear_related_contact && input.related_contact_id !== null && input.related_contact_id !== undefined) {
+    throw new Error("related_contact_id and clear_related_contact cannot both change the to-do");
+  }
+  if (input.clear_related_contact) {
+    values.related_contact_id = null;
+  } else if (input.related_contact_id !== null && input.related_contact_id !== undefined) {
+    if (!database.prepare(`
       SELECT 1 FROM contacts WHERE contact_id = ?
     `).get(input.related_contact_id)) {
       throw new Error(`Related contact ${input.related_contact_id} does not exist`);
@@ -305,15 +313,25 @@ function prepareTodoUpdate(database, input, { completedAtUtc, updatedAtUtc }) {
   if (input.is_all_day !== null && input.is_all_day !== undefined) {
     values.is_all_day = input.is_all_day ? 1 : 0;
   }
-  if (input.duration_minutes !== undefined) {
-    if (input.duration_minutes !== null
-      && (!Number.isSafeInteger(input.duration_minutes) || input.duration_minutes < 1)) {
-      throw new Error("duration_minutes must be a positive whole number or null");
+  if (input.clear_duration && input.duration_minutes !== null && input.duration_minutes !== undefined) {
+    throw new Error("duration_minutes and clear_duration cannot both change the to-do");
+  }
+  if (input.clear_duration) {
+    values.duration_minutes = null;
+  } else if (input.duration_minutes !== null && input.duration_minutes !== undefined) {
+    if (!Number.isSafeInteger(input.duration_minutes) || input.duration_minutes < 1) {
+      throw new Error("duration_minutes must be a positive whole number");
     }
     values.duration_minutes = input.duration_minutes;
   }
   if (input.due_at_utc !== null) values.due_at_utc = input.due_at_utc || null;
-  if (input.planning_prompt_text !== undefined) {
+  if (input.clear_planning_prompt && input.planning_prompt_text !== null
+    && input.planning_prompt_text !== undefined) {
+    throw new Error("planning_prompt_text and clear_planning_prompt cannot both change the to-do");
+  }
+  if (input.clear_planning_prompt) {
+    values.planning_prompt_text = null;
+  } else if (input.planning_prompt_text !== null && input.planning_prompt_text !== undefined) {
     values.planning_prompt_text = input.planning_prompt_text?.trim() || null;
   }
   if (Object.keys(values).length === 0) throw new Error(`No changes were supplied for to-do ${taskId}`);
@@ -451,7 +469,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_list",
-    description: "List the user's native personal to-do items, including entries rendered as Scheduled task or All-day task on the Calendar screen. Set status to unplanned for the authoritative list of work windows and other items that still need planning, even when their eventual work concerns a property or external system. Use completed_on_date to select tasks completed on one local calendar date and scheduled_on_date to select tasks scheduled on one local calendar date; these are query filters and do not add ranges to task records. Supply time_zone whenever either date filter is used. With no status and no completed date, terminal tasks remain excluded as before.",
+    description: "List the user's native personal to-do items, including entries rendered as Scheduled task or All-day task on the Calendar screen. Set status to unplanned for the authoritative list of work windows and other items that still need planning, even when their eventual work concerns a property or external system. Use completed_on_date to select tasks completed on one local calendar date and scheduled_on_date to select calendar-visible task instances scheduled on one local date; scheduled_on_date excludes hidden Routine templates so an occurrence can be planned without rewriting its reusable template. These are query filters and do not add ranges to task records. Supply time_zone whenever either date filter is used. With no status and no completed date, terminal tasks remain excluded as before.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -494,6 +512,9 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         const bounds = localDateUtcBounds({ localDate, timeZone });
         conditions.push(`task.${column} >= ? AND task.${column} < ?`);
         values.push(bounds.startsAtUtc, bounds.endsAtUtc);
+      }
+      if (scheduledOnDate !== null) {
+        conditions.push("todo_group.name <> 'Routine' COLLATE NOCASE");
       }
       const order = completedOnDate !== null
         ? "task.completed_at_utc DESC, task.personal_task_id DESC"
@@ -1333,7 +1354,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
 
   registry.register({
     name: "todo_update",
-    description: "Atomically update 1 through 500 native personal to-dos by ID in one call. Use this after todo_list to fill a scheduled unplanned work window: replace its placeholder text/plan and set the intended status while preserving its existing schedule and duration unless the user asked to change them. A one-item request uses the same updates array. Every target and change is validated before any update is retained; duplicate IDs or one invalid item roll back the complete batch. Each item may associate or clear its exact contact, move groups, change scheduling, planned duration_minutes, status including unplanned, or planning_prompt_text. For planning_prompt_text, omit the property to leave it unchanged and use null or an empty string to clear it. duration_minutes is measured from scheduled_at_utc and requires an exact-time, non-all-day schedule.",
+    description: "Atomically update 1 through 500 native personal to-dos by ID in one call. Use this after todo_list to fill a scheduled unplanned work window: replace its placeholder text/plan and set the intended status while preserving its existing schedule, duration, related contact, and planning prompt unless the user asked to change them. A one-item request uses the same updates array. Every target and change is validated before any update is retained; duplicate IDs or one invalid item roll back the complete batch. Null optional values are no-change placeholders. Use clear_related_contact, clear_duration, or clear_planning_prompt only when the user explicitly asks to clear that field. duration_minutes is measured from scheduled_at_utc and requires an exact-time, non-all-day schedule.",
     parameters: {
       type: "object",
       additionalProperties: false,
