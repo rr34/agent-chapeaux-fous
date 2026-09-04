@@ -479,9 +479,11 @@ No database is committed. MariaDB is the application's only database engine,
 and `db/mariadb/0001-baseline.sql` is the authoritative schema for a fresh
 installation. `npm run db:verify` checks the configured database's required
 shape, schema version, FULLTEXT indexes, and tracked semantic mechanics without
-mutating data. Future schema changes must be implemented as explicit,
-reviewable MariaDB migrations with their own preconditions, backup procedure,
-postconditions, and foreign-key verification.
+mutating data. Incremental changes are stacked newest-first in the single
+`db/migrations.sql` ledger and applied oldest-first by `npm run db:migrate`.
+`database_meta.schema_version` records the last completed migration, so an
+already-applied block is skipped. See `db/MIGRATIONS.md` for the required
+backup, downtime, verification, and recovery procedure.
 
 Closed vocabularies are native MariaDB `ENUM` columns. `CHECK` constraints are
 reserved for booleans, ranges, JSON validity, and rules involving more than one
@@ -631,7 +633,9 @@ cd /home/nate/code/agent-chapeaux-fous
 systemctl --user stop agent-slayer.service
 npm ci
 
-# Apply the release's reviewed MariaDB migration procedure here.
+SLAYER_MIGRATION_BACKUP_CONFIRMED=1 \
+SLAYER_MIGRATION_WRITERS_STOPPED=1 \
+npm run db:migrate
 npm run db:verify
 
 systemctl --user start agent-slayer.service

@@ -8,6 +8,7 @@ import {
   parseMariaDbScript,
   quoteMariaDbIdentifier,
 } from "../scripts/mariadb-schema.mjs";
+import { readMigrationLedger, splitMariaDbStatements } from "../scripts/database-migrations.mjs";
 import { requiredEnumColumns } from "../src/database.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -66,7 +67,7 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 30", () => {
+test("the authoritative MariaDB baseline is complete at schema version 31", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 32);
@@ -93,17 +94,33 @@ test("the authoritative MariaDB baseline is complete at schema version 30", () =
     /status\s+ENUM\('tentative', 'confirmed', 'cancelled'\) NOT NULL DEFAULT 'confirmed'/u,
   );
   assert.doesNotMatch(source, /calendar_events_status|ENUM\([^\n]*'completed'[^\n]*\) NOT NULL DEFAULT 'confirmed'/u);
-  assert.match(statements.at(-1), /VALUES \(1, 30, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 31, 'Chapeaux Fous MariaDB database'\)$/);
 });
 
-test("the version 30 enum migration is reviewable and safely replayable", () => {
-  const source = fs.readFileSync(path.join(root, "db", "mariadb", "0030-enum-columns.sql"), "utf8");
-  const statements = parseMariaDbScript(source);
-  assert.match(source, /Stop every application writer/u);
-  assert.match(source, /current mariadb-dump/u);
+test("the version 30 enum migration is a reviewable ledger block", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 30);
+  const statements = splitMariaDbStatements(migration.sql);
+  assert.equal(migration.label, "0030:native-enum-columns");
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.match(migration.sql, /recovery: MariaDB DDL commits implicitly/u);
+  assert.match(migration.sql, /resumable block/u);
+  const source = migration.sql;
   assert.match(source, /WHERE status = 'completed'/u);
   assert.equal(source.match(/DROP CONSTRAINT IF EXISTS/gu)?.length, 33);
   assert.equal(source.match(/\bMODIFY [a-z_]+ ENUM\(/gu)?.length, 33);
-  assert.match(statements.at(-2), /SET schema_version = 30/u);
   assert.match(statements.at(-1), /SET SESSION sql_mode = @chapeaux_fous_previous_sql_mode/u);
+  assert.doesNotMatch(source, /UPDATE database_meta/u);
+});
+
+test("the version 31 migration normalizes legacy todo_personal constraint names", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 31);
+  assert.equal(migration.label, "0031:normalize-todo-personal-constraint-names");
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.match(migration.sql, /DROP CONSTRAINT IF EXISTS personal_tasks_group/u);
+  assert.match(migration.sql, /DROP INDEX IF EXISTS personal_tasks_source/u);
+  assert.match(migration.sql, /ADD CONSTRAINT todo_personal_source/u);
+  assert.match(migration.sql, /ADD CONSTRAINT todo_personal_prompt/u);
+  assert.doesNotMatch(migration.sql, /UPDATE database_meta/u);
 });

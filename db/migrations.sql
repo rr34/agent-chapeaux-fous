@@ -1,21 +1,84 @@
--- Chapeaux Fous MariaDB schema migration: version 29 -> 30.
+-- Chapeaux Fous MariaDB migration ledger.
 --
--- Preconditions:
---   1. Stop every application writer.
---   2. Create and retain a current mariadb-dump of the application database.
---   3. Verify schema version 29 with the pre-upgrade application revision.
+-- Add new migrations directly below this header, newest first. The runner
+-- validates newest-first file order and applies pending migrations oldest
+-- first. database_meta.schema_version is the durable completion marker, and
+-- migration versions are immutable once applied.
 --
--- Recovery:
---   MariaDB DDL commits implicitly. If this migration fails, keep writers
---   stopped, correct the reported statement, and rerun this file. Every
---   constraint drop is guarded and every column modification is idempotent.
---   Restore the pre-migration dump if recovery requires rolling back.
+-- Applied blocks remain in this ledger. Pending versions must begin at the
+-- database's next schema version and remain sequential and contiguous.
 --
--- Postconditions:
---   1. Synchronize db/schema-semantics.json, then run npm run db:verify and tests.
---   2. Confirm database_meta.schema_version = 30.
---   3. Confirm information_schema.COLUMNS reports 33 enum columns on base tables.
---   4. Confirm CHECK_CONSTRAINTS contains no removed vocabulary checks.
+-- Every new block must document writer downtime, locking/long-running
+-- behavior, and recovery after a partial MariaDB DDL commit.
+--
+-- Marker format:
+--   -- migration 0032: short-description
+--   <schema and data SQL>
+--   -- end migration 0032
+
+-- migration 0031: normalize-todo-personal-constraint-names
+-- writer downtime: required; this replaces constraints on todo_personal.
+-- locking: ALTER TABLE takes a metadata lock and may briefly rebuild indexes.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped after a
+-- failure and rerun this idempotent block; it removes both the legacy and
+-- canonical names before restoring the canonical constraints.
+-- postconditions: the runner verifies the canonical foreign keys, checks, and
+-- source index before recording schema version 31. Then run npm run db:verify.
+
+ALTER TABLE todo_personal
+  DROP CONSTRAINT IF EXISTS personal_tasks_group,
+  DROP CONSTRAINT IF EXISTS personal_tasks_routine,
+  DROP CONSTRAINT IF EXISTS personal_tasks_contact_fk,
+  DROP CONSTRAINT IF EXISTS personal_tasks_source,
+  DROP CONSTRAINT IF EXISTS todo_personal_group,
+  DROP CONSTRAINT IF EXISTS todo_personal_routine,
+  DROP CONSTRAINT IF EXISTS todo_personal_contact_fk,
+  DROP CONSTRAINT IF EXISTS todo_personal_source;
+
+ALTER TABLE todo_personal
+  DROP INDEX IF EXISTS personal_tasks_source;
+
+ALTER TABLE todo_personal
+  DROP CONSTRAINT IF EXISTS personal_tasks_sequence,
+  DROP CONSTRAINT IF EXISTS personal_tasks_status,
+  DROP CONSTRAINT IF EXISTS personal_tasks_all_day,
+  DROP CONSTRAINT IF EXISTS personal_tasks_duration,
+  DROP CONSTRAINT IF EXISTS personal_tasks_prompt,
+  DROP CONSTRAINT IF EXISTS todo_personal_sequence,
+  DROP CONSTRAINT IF EXISTS todo_personal_status,
+  DROP CONSTRAINT IF EXISTS todo_personal_all_day,
+  DROP CONSTRAINT IF EXISTS todo_personal_duration,
+  DROP CONSTRAINT IF EXISTS todo_personal_prompt;
+
+ALTER TABLE todo_personal
+  ADD CONSTRAINT todo_personal_group
+    FOREIGN KEY (todo_group_id) REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
+  ADD CONSTRAINT todo_personal_routine
+    FOREIGN KEY (todo_routine_id) REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,
+  ADD CONSTRAINT todo_personal_contact_fk
+    FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
+  ADD CONSTRAINT todo_personal_source
+    FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+  ADD CONSTRAINT todo_personal_sequence
+    CHECK (sequence IS NULL OR sequence > 0),
+  ADD CONSTRAINT todo_personal_all_day
+    CHECK (is_all_day IN (0, 1)),
+  ADD CONSTRAINT todo_personal_duration
+    CHECK (duration_minutes IS NULL OR duration_minutes > 0),
+  ADD CONSTRAINT todo_personal_prompt
+    CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000);
+
+-- end migration 0031
+
+-- migration 0030: native-enum-columns
+-- writer downtime: required; this rebuilds columns used by active writers.
+-- locking: ALTER TABLE takes metadata locks and may rebuild affected tables.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped after a
+-- failure, inspect which statements committed, and rerun this resumable block.
+-- Every constraint drop is guarded and every column modification is
+-- idempotent. Restore the pre-migration dump when recovery requires rollback.
+-- postconditions: the runner verifies table and foreign-key integrity before
+-- recording schema version 30. Then run npm run db:verify and the test suite.
 
 SET @chapeaux_fous_previous_sql_mode = @@SESSION.sql_mode;
 SET SESSION sql_mode = IF(
@@ -24,27 +87,6 @@ SET SESSION sql_mode = IF(
   @@SESSION.sql_mode,
   CONCAT_WS(',', NULLIF(@@SESSION.sql_mode, ''), 'STRICT_TRANS_TABLES')
 );
-
-DELIMITER //
-
-DROP PROCEDURE IF EXISTS chapeaux_fous_require_schema_29_or_30//
-CREATE PROCEDURE chapeaux_fous_require_schema_29_or_30()
-BEGIN
-  DECLARE current_version INT;
-  SELECT schema_version INTO current_version
-  FROM database_meta
-  WHERE singleton = 1;
-
-  IF current_version IS NULL OR current_version NOT IN (29, 30) THEN
-    SIGNAL SQLSTATE '45000'
-      SET MESSAGE_TEXT = 'enum migration requires schema version 29 or 30';
-  END IF;
-END//
-
-CALL chapeaux_fous_require_schema_29_or_30()//
-DROP PROCEDURE chapeaux_fous_require_schema_29_or_30//
-
-DELIMITER ;
 
 -- VEVENT has no completed state. Preserve already-happened events as confirmed.
 UPDATE calendar_events
@@ -159,8 +201,6 @@ ALTER TABLE correspondence_participants
   DROP CONSTRAINT IF EXISTS correspondence_participants_role,
   MODIFY participant_role ENUM('from', 'to', 'cc', 'bcc', 'reply_to', 'sender', 'recipient') NOT NULL;
 
-UPDATE database_meta
-SET schema_version = 30
-WHERE singleton = 1;
-
 SET SESSION sql_mode = @chapeaux_fous_previous_sql_mode;
+
+-- end migration 0030
