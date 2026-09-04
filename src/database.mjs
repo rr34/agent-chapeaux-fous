@@ -77,6 +77,62 @@ export const requiredDatabaseShape = {
   ],
 };
 
+export const requiredEnumColumns = {
+  files: {
+    media_kind: ["audio", "video", "image", "document", "archive", "other"],
+    title_source: ["original_filename", "ai", "user"],
+  },
+  activity_events: {
+    event_phase: ["point", "start", "end", "error"],
+    actor_type: ["user", "agent", "model", "tool", "system", "service", "external"],
+  },
+  activity_event_files: { file_role: ["attachment", "input", "output", "other"] },
+  agent_turn_attempts: {
+    correlation_method: ["prompt_sha256", "gateway_result"],
+    status: ["processing", "complete", "error", "interrupted"],
+  },
+  contacts: {
+    contact_kind: ["person", "organization", "service"],
+    status: ["active", "inactive", "blocked", "deceased"],
+  },
+  contact_methods: { method_kind: ["email", "phone", "postal_address", "handle", "url", "other"] },
+  interaction_guides: { status: ["active", "archived"] },
+  calendar_events: { status: ["tentative", "confirmed", "cancelled"] },
+  calendar_event_contacts: { participant_role: ["organizer", "attendee", "customer", "other"] },
+  interaction_guide_steps: { progress_state: ["pending", "active", "completed"] },
+  todo_routines: {
+    publication_mode: ["on_completion", "calendar"],
+    default_status: ["unplanned", "todo", "ai_suggested"],
+  },
+  todo_personal: { status: ["unplanned", "todo", "complete", "ignore", "archive", "ai_suggested"] },
+  reminders: {
+    delivery_method: ["agent", "webhook", "notification", "email", "sms", "other"],
+    status: ["pending", "processing", "delivered", "snoozed", "cancelled", "error"],
+  },
+  content_items: {
+    content_type: ["mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad", "video_ad", "podcast", "image", "unknown"],
+    content_host: ["youtube", "vimeo", "spotify", "mytlomdotcom", "none"],
+    content_status: ["active", "obsolete", "unused", "queued"],
+    relationship_to_user: ["mine", "reference"],
+  },
+  video_scripts: { status: ["draft", "archived"] },
+  video_jobs: {
+    renderer: ["remotion", "adobe_premiere", "other"],
+    status: ["queued", "preparing", "rendering", "complete", "error", "cancelled"],
+  },
+  profile_facts: { fact_status: ["active", "archived"] },
+  notes: {
+    note_kind: ["personal", "journal", "reference", "idea", "other"],
+    status: ["active", "archived", "deleted"],
+  },
+  correspondence: {
+    medium: ["email", "sms", "mms", "imessage", "chat", "voicemail", "other"],
+    direction: ["inbound", "outbound", "draft", "internal"],
+  },
+  correspondence_files: { attachment_role: ["attachment", "inline", "recording", "other"] },
+  correspondence_participants: { participant_role: ["from", "to", "cc", "bcc", "reply_to", "sender", "recipient"] },
+};
+
 // Transitional model-write surface. Every focused native domain table is
 // default-deny and must be mutated through its owning service/tool. Content has
 // no focused model mutation tools yet, so it remains explicitly available.
@@ -104,6 +160,14 @@ function normalizeValue(value) {
   return value;
 }
 
+function enumValues(columnType) {
+  const values = [];
+  for (const match of String(columnType ?? "").matchAll(/'((?:''|\\'|[^'])*)'/gu)) {
+    values.push(match[1].replaceAll("\\'", "'").replaceAll("''", "'"));
+  }
+  return values;
+}
+
 export function inspectDatabase(database) {
   const problems = [];
   const objects = database.prepare(`
@@ -128,11 +192,31 @@ export function inspectDatabase(database) {
       if (!columns.has(column)) problems.push(`Missing required column: ${name}.${column}`);
     }
   }
+  const enumColumns = database.prepare(`
+    SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name,
+           DATA_TYPE AS data_type, COLUMN_TYPE AS column_type
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+  `).all();
+  const enumsByName = new Map(enumColumns.map((column) => [
+    `${column.table_name}.${column.column_name}`,
+    column,
+  ]));
+  for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
+    for (const [fieldName, expectedValues] of Object.entries(fields)) {
+      const qualifiedName = `${tableName}.${fieldName}`;
+      const actual = enumsByName.get(qualifiedName);
+      const actualValues = enumValues(actual?.column_type);
+      if (actual?.data_type !== "enum" || JSON.stringify(actualValues) !== JSON.stringify(expectedValues)) {
+        problems.push(`Expected MariaDB enum ${qualifiedName}(${expectedValues.join(", ")})`);
+      }
+    }
+  }
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 29) {
-    problems.push(`Expected MariaDB schema version 29, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 30) {
+    problems.push(`Expected MariaDB schema version 30, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

@@ -5,7 +5,7 @@ import { searchCalendarEventRows } from "../calendar-search.mjs";
 import { localDateForInstant } from "../temporal-consistency.mjs";
 import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
 
-const statuses = ["tentative", "confirmed", "cancelled", "completed"];
+const statuses = ["tentative", "confirmed", "cancelled"];
 const calendarEventFields = [
   "calendar_event_id", "ical_uid", "ical_recurrence_id", "title", "description",
   "location_text", "starts_at_utc", "ends_at_utc", "time_zone", "is_all_day",

@@ -103,6 +103,12 @@ async function handle(request) {
       decimalNumbers: true,
     });
     await connection.query("SET time_zone = '+00:00'");
+    const [[modeRow]] = await connection.query("SELECT @@SESSION.sql_mode AS sql_mode");
+    const sqlModes = String(modeRow?.sql_mode ?? "").split(",").filter(Boolean);
+    if (!sqlModes.includes("STRICT_ALL_TABLES") && !sqlModes.includes("STRICT_TRANS_TABLES")) {
+      sqlModes.push("STRICT_TRANS_TABLES");
+      await connection.query("SET SESSION sql_mode = ?", [sqlModes.join(",")]);
+    }
     return { version: (await connection.query("SELECT VERSION() AS version"))[0][0].version };
   }
   if (!connection) throw new Error("MariaDB worker is not connected");

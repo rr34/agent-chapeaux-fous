@@ -892,7 +892,7 @@ export class OrganizerStore {
     const methods = this.database.prepare(`
       SELECT * FROM contact_methods
       WHERE contact_id = ?
-      ORDER BY is_primary DESC, method_kind, contact_method_id
+      ORDER BY is_primary DESC, CAST(method_kind AS CHAR), contact_method_id
     `).all(id).map(publicContactMethod);
     const tags = this.database.prepare(`
       SELECT tag.label
@@ -976,7 +976,7 @@ export class OrganizerStore {
     const methods = this.database.prepare(`
       SELECT * FROM contact_methods
       WHERE contact_id IN (${placeholders})
-      ORDER BY is_primary DESC, method_kind, contact_method_id
+      ORDER BY is_primary DESC, CAST(method_kind AS CHAR), contact_method_id
     `).all(...rows.map(({ contact_id: id }) => id));
     for (const method of methods) {
       const values = methodsByContact.get(method.contact_id) ?? [];

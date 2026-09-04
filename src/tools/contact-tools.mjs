@@ -128,7 +128,7 @@ function contactFromDatabase(database, contactId) {
   const methods = database.prepare(`
     SELECT * FROM contact_methods
     WHERE contact_id = ?
-    ORDER BY method_kind, normalized_value, contact_method_id
+    ORDER BY CAST(method_kind AS CHAR), normalized_value, contact_method_id
   `).all(contactId).map((method) => selectedFields(method, methodFields));
   const tags = database.prepare(`
     SELECT tag.* FROM tags AS tag

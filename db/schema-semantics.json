@@ -3522,26 +3522,26 @@
             "allowedValues": [
               "tentative",
               "confirmed",
-              "cancelled",
-              "completed"
+              "cancelled"
             ]
           },
           "semantics": {
             "inheritsFrom": null,
             "meaning": "Current scheduling state of the event.",
             "units": null,
-            "format": null,
+            "format": "RFC 5545 VEVENT status",
             "allowedValueMeanings": {
               "tentative": "Event is proposed but not firmly confirmed.",
               "confirmed": "Event is scheduled to occur.",
-              "cancelled": "Event will not occur.",
-              "completed": "Event occurred or was deliberately marked finished."
+              "cancelled": "Event will not occur."
             },
             "synonyms": [],
             "keywords": [],
             "routingWeight": null,
             "examples": [],
-            "importantRules": [],
+            "importantRules": [
+              "Calendar events happen; completion is represented only by the passage of time, not a stored event status."
+            ],
             "sensitivity": null
           }
         },

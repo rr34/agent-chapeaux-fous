@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 29.
+-- Target: MariaDB 10.11, schema version 30.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -22,7 +22,7 @@ CREATE TABLE files (
     storage_path       TEXT NOT NULL,
     storage_path_hash  BINARY(32) AS (UNHEX(SHA2(storage_path, 256))) PERSISTENT,
     original_filename  TEXT,
-    media_kind         VARCHAR(32) NOT NULL DEFAULT 'other',
+    media_kind         ENUM('audio', 'video', 'image', 'document', 'archive', 'other') NOT NULL DEFAULT 'other',
     mime_type          VARCHAR(255),
     sha256             CHAR(64) CHARACTER SET ascii COLLATE ascii_bin,
     byte_size          BIGINT,
@@ -34,19 +34,17 @@ CREATE TABLE files (
                        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
     title              VARCHAR(200),
     description        TEXT,
-    title_source       VARCHAR(32) NOT NULL DEFAULT 'original_filename',
+    title_source       ENUM('original_filename', 'ai', 'user') NOT NULL DEFAULT 'original_filename',
     updated_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     PRIMARY KEY (file_id),
     UNIQUE KEY files_storage_path (storage_path_hash),
     UNIQUE KEY files_sha256_unique (sha256),
     KEY files_created (created_at_utc, file_id),
     FULLTEXT KEY files_fulltext (title, description, original_filename),
-    CONSTRAINT files_media_kind CHECK (media_kind IN ('audio', 'video', 'image', 'document', 'archive', 'other')),
     CONSTRAINT files_byte_size CHECK (byte_size IS NULL OR byte_size >= 0),
     CONSTRAINT files_duration CHECK (duration_ms IS NULL OR duration_ms >= 0),
     CONSTRAINT files_width CHECK (width IS NULL OR width > 0),
-    CONSTRAINT files_height CHECK (height IS NULL OR height > 0),
-    CONSTRAINT files_title_source CHECK (title_source IN ('original_filename', 'ai', 'user'))
+    CONSTRAINT files_height CHECK (height IS NULL OR height > 0)
 ) ENGINE=InnoDB;
 
 CREATE TABLE activity_events (
@@ -58,9 +56,9 @@ CREATE TABLE activity_events (
     occurred_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
                      DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
     event_type       VARCHAR(255) NOT NULL,
-    event_phase      VARCHAR(16) NOT NULL DEFAULT 'point',
+    event_phase      ENUM('point', 'start', 'end', 'error') NOT NULL DEFAULT 'point',
     status           VARCHAR(64),
-    actor_type       VARCHAR(32) NOT NULL,
+    actor_type       ENUM('user', 'agent', 'model', 'tool', 'system', 'service', 'external') NOT NULL,
     actor_name       VARCHAR(255),
     source           VARCHAR(255) NOT NULL,
     channel          VARCHAR(255),
@@ -91,21 +89,18 @@ CREATE TABLE activity_events (
     FULLTEXT KEY activity_events_fulltext (name, content_text, source),
     CONSTRAINT activity_events_primary_file
       FOREIGN KEY (primary_file_id) REFERENCES files(file_id) ON DELETE SET NULL,
-    CONSTRAINT activity_events_phase CHECK (event_phase IN ('point', 'start', 'end', 'error')),
-    CONSTRAINT activity_events_actor CHECK (actor_type IN ('user', 'agent', 'model', 'tool', 'system', 'service', 'external')),
     CONSTRAINT activity_events_payload_json CHECK (JSON_VALID(payload_json))
 ) ENGINE=InnoDB;
 
 CREATE TABLE activity_event_files (
     event_id   VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     file_id    BIGINT UNSIGNED NOT NULL,
-    file_role  VARCHAR(32) NOT NULL DEFAULT 'attachment',
+    file_role  ENUM('attachment', 'input', 'output', 'other') NOT NULL DEFAULT 'attachment',
     ordinal    BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (event_id, file_id),
     KEY activity_event_files_file (file_id, event_id),
     CONSTRAINT activity_event_files_event FOREIGN KEY (event_id) REFERENCES activity_events(event_id) ON DELETE CASCADE,
     CONSTRAINT activity_event_files_file_fk FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE,
-    CONSTRAINT activity_event_files_role CHECK (file_role IN ('attachment', 'input', 'output', 'other')),
     CONSTRAINT activity_event_files_ordinal CHECK (ordinal >= 0)
 ) ENGINE=InnoDB;
 
@@ -119,8 +114,8 @@ CREATE TABLE agent_turn_attempts (
     agent_operation_id     VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     openclaw_run_id        VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
     request_content_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    correlation_method     VARCHAR(32),
-    status                 VARCHAR(32) NOT NULL DEFAULT 'processing',
+    correlation_method     ENUM('prompt_sha256', 'gateway_result'),
+    status                 ENUM('processing', 'complete', 'error', 'interrupted') NOT NULL DEFAULT 'processing',
     started_at_ms          BIGINT NOT NULL,
     correlated_at_ms       BIGINT,
     completed_at_ms        BIGINT,
@@ -136,8 +131,6 @@ CREATE TABLE agent_turn_attempts (
     CONSTRAINT agent_turn_attempts_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE RESTRICT,
     CONSTRAINT agent_turn_attempts_attempt CHECK (attempt_number > 0),
     CONSTRAINT agent_turn_attempts_hash CHECK (CHAR_LENGTH(request_content_sha256) = 64),
-    CONSTRAINT agent_turn_attempts_correlation CHECK (correlation_method IS NULL OR correlation_method IN ('prompt_sha256', 'gateway_result')),
-    CONSTRAINT agent_turn_attempts_status CHECK (status IN ('processing', 'complete', 'error', 'interrupted')),
     CONSTRAINT agent_turn_attempts_correlation_state CHECK (
       (openclaw_run_id IS NULL AND correlation_method IS NULL AND correlated_at_ms IS NULL)
       OR (openclaw_run_id IS NOT NULL AND correlation_method IS NOT NULL AND correlated_at_ms IS NOT NULL)
@@ -146,13 +139,13 @@ CREATE TABLE agent_turn_attempts (
 
 CREATE TABLE contacts (
     contact_id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    contact_kind       VARCHAR(32) NOT NULL DEFAULT 'person',
+    contact_kind       ENUM('person', 'organization', 'service') NOT NULL DEFAULT 'person',
     display_name       VARCHAR(500) NOT NULL,
     given_name         VARCHAR(255),
     family_name        VARCHAR(255),
     organization_name  VARCHAR(500),
     is_self            TINYINT NOT NULL DEFAULT 0,
-    status             VARCHAR(32) NOT NULL DEFAULT 'active',
+    status             ENUM('active', 'inactive', 'blocked', 'deceased') NOT NULL DEFAULT 'active',
     notes              TEXT,
     source             VARCHAR(255),
     external_id        VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin,
@@ -164,9 +157,7 @@ CREATE TABLE contacts (
     PRIMARY KEY (contact_id),
     UNIQUE KEY contacts_one_self (active_self_guard),
     KEY contacts_display_name (display_name),
-    CONSTRAINT contacts_kind CHECK (contact_kind IN ('person', 'organization', 'service')),
     CONSTRAINT contacts_is_self CHECK (is_self IN (0, 1)),
-    CONSTRAINT contacts_status CHECK (status IN ('active', 'inactive', 'blocked', 'deceased')),
     CONSTRAINT contacts_birth_date CHECK (
       birth_date IS NULL
       OR birth_date REGEXP '^([0-9]{4}-|--)((0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|(0[469]|11)-(0[1-9]|[12][0-9]|30)|02-(0[1-9]|1[0-9]|2[0-9]))$'
@@ -176,7 +167,7 @@ CREATE TABLE contacts (
 CREATE TABLE contact_methods (
     contact_method_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     contact_id         BIGINT UNSIGNED NOT NULL,
-    method_kind        VARCHAR(32) NOT NULL,
+    method_kind        ENUM('email', 'phone', 'postal_address', 'handle', 'url', 'other') NOT NULL,
     label              VARCHAR(255),
     value              TEXT NOT NULL,
     normalized_value   VARCHAR(512),
@@ -189,7 +180,6 @@ CREATE TABLE contact_methods (
     UNIQUE KEY contact_methods_value (contact_id, method_kind, value_hash),
     KEY contact_methods_lookup (method_kind, normalized_value),
     CONSTRAINT contact_methods_contact FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE CASCADE,
-    CONSTRAINT contact_methods_kind CHECK (method_kind IN ('email', 'phone', 'postal_address', 'handle', 'url', 'other')),
     CONSTRAINT contact_methods_primary CHECK (is_primary IN (0, 1)),
     CONSTRAINT contact_methods_receive CHECK (can_receive IN (0, 1))
 ) ENGINE=InnoDB;
@@ -246,7 +236,7 @@ CREATE TABLE log_groups (
 CREATE TABLE interaction_guides (
     interaction_guide_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     name                  VARCHAR(200) NOT NULL,
-    status                VARCHAR(32) NOT NULL DEFAULT 'active',
+    status                ENUM('active', 'archived') NOT NULL DEFAULT 'active',
     version               BIGINT NOT NULL DEFAULT 1,
     created_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
                           DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
@@ -255,7 +245,6 @@ CREATE TABLE interaction_guides (
     UNIQUE KEY interaction_guides_name (name),
     KEY interaction_guides_status_name (status, name, interaction_guide_id),
     CONSTRAINT interaction_guides_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200),
-    CONSTRAINT interaction_guides_status CHECK (status IN ('active', 'archived')),
     CONSTRAINT interaction_guides_version CHECK (version > 0)
 ) ENGINE=InnoDB;
 
@@ -302,7 +291,7 @@ CREATE TABLE calendar_events (
     ends_at_utc         VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     time_zone           VARCHAR(255),
     is_all_day          TINYINT NOT NULL DEFAULT 0,
-    status              VARCHAR(32) NOT NULL DEFAULT 'confirmed',
+    status              ENUM('tentative', 'confirmed', 'cancelled') NOT NULL DEFAULT 'confirmed',
     recurrence_rule     TEXT,
     source_event_id     VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin,
     created_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
@@ -317,7 +306,6 @@ CREATE TABLE calendar_events (
     KEY calendar_events_start (starts_at_utc, status),
     CONSTRAINT calendar_events_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT calendar_events_all_day CHECK (is_all_day IN (0, 1)),
-    CONSTRAINT calendar_events_status CHECK (status IN ('tentative', 'confirmed', 'cancelled', 'completed')),
     CONSTRAINT calendar_events_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
 ) ENGINE=InnoDB;
 
@@ -332,12 +320,11 @@ CREATE TABLE calendar_event_exclusions (
 CREATE TABLE calendar_event_contacts (
     calendar_event_id  BIGINT UNSIGNED NOT NULL,
     contact_id         BIGINT UNSIGNED NOT NULL,
-    participant_role   VARCHAR(32) NOT NULL DEFAULT 'attendee',
+    participant_role   ENUM('organizer', 'attendee', 'customer', 'other') NOT NULL DEFAULT 'attendee',
     response_status    VARCHAR(64),
     PRIMARY KEY (calendar_event_id, contact_id, participant_role),
     CONSTRAINT calendar_event_contacts_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
-    CONSTRAINT calendar_event_contacts_contact FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE CASCADE,
-    CONSTRAINT calendar_event_contacts_role CHECK (participant_role IN ('organizer', 'attendee', 'customer', 'other'))
+    CONSTRAINT calendar_event_contacts_contact FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE interaction_guide_steps (
@@ -352,7 +339,7 @@ CREATE TABLE interaction_guide_steps (
     created_at_utc             VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
                                DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
     updated_at_utc             VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
-    progress_state             VARCHAR(32) NOT NULL DEFAULT 'pending',
+    progress_state             ENUM('pending', 'active', 'completed') NOT NULL DEFAULT 'pending',
     PRIMARY KEY (interaction_guide_step_id),
     UNIQUE KEY interaction_guide_steps_number (interaction_guide_id, step_number),
     KEY interaction_guide_steps_guide_order (interaction_guide_id, enabled, step_number),
@@ -362,16 +349,15 @@ CREATE TABLE interaction_guide_steps (
     CONSTRAINT interaction_guide_steps_opening CHECK (CHAR_LENGTH(TRIM(opening_text)) BETWEEN 1 AND 10000),
     CONSTRAINT interaction_guide_steps_contract CHECK (JSON_VALID(contract_json)),
     CONSTRAINT interaction_guide_steps_answers CHECK (JSON_VALID(answers_json)),
-    CONSTRAINT interaction_guide_steps_enabled CHECK (enabled IN (0, 1)),
-    CONSTRAINT interaction_guide_steps_progress CHECK (progress_state IN ('pending', 'active', 'completed'))
+    CONSTRAINT interaction_guide_steps_enabled CHECK (enabled IN (0, 1))
 ) ENGINE=InnoDB;
 
 CREATE TABLE todo_routines (
     todo_routine_id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     todo_group_id           BIGINT UNSIGNED NOT NULL,
-    publication_mode        VARCHAR(32) NOT NULL DEFAULT 'on_completion',
+    publication_mode        ENUM('on_completion', 'calendar') NOT NULL DEFAULT 'on_completion',
     text                    TEXT NOT NULL,
-    default_status          VARCHAR(32) NOT NULL DEFAULT 'todo',
+    default_status          ENUM('unplanned', 'todo', 'ai_suggested') NOT NULL DEFAULT 'todo',
     first_scheduled_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     first_due_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     time_zone               VARCHAR(255) NOT NULL,
@@ -391,8 +377,6 @@ CREATE TABLE todo_routines (
     CONSTRAINT todo_routines_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL,
     CONSTRAINT todo_routines_contact FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
     CONSTRAINT todo_routines_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
-    CONSTRAINT todo_routines_publication_mode CHECK (publication_mode IN ('on_completion', 'calendar')),
-    CONSTRAINT todo_routines_default_status CHECK (default_status IN ('unplanned', 'todo', 'ai_suggested')),
     CONSTRAINT todo_routines_duration CHECK (duration_minutes IS NULL OR duration_minutes > 0),
     CONSTRAINT todo_routines_all_day CHECK (is_all_day IN (0, 1)),
     CONSTRAINT todo_routines_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
@@ -405,7 +389,7 @@ CREATE TABLE todo_personal (
     sequence             BIGINT,
     related_contact_id   BIGINT UNSIGNED,
     text                 TEXT NOT NULL,
-    status               VARCHAR(32) NOT NULL DEFAULT 'todo',
+    status               ENUM('unplanned', 'todo', 'complete', 'ignore', 'archive', 'ai_suggested') NOT NULL DEFAULT 'todo',
     sort_position        BIGINT NOT NULL DEFAULT 0,
     scheduled_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     due_at_utc           VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
@@ -431,7 +415,6 @@ CREATE TABLE todo_personal (
     CONSTRAINT todo_personal_contact_fk FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_sequence CHECK (sequence IS NULL OR sequence > 0),
-    CONSTRAINT todo_personal_status CHECK (status IN ('unplanned', 'todo', 'complete', 'ignore', 'archive', 'ai_suggested')),
     CONSTRAINT todo_personal_all_day CHECK (is_all_day IN (0, 1)),
     CONSTRAINT todo_personal_duration CHECK (duration_minutes IS NULL OR duration_minutes > 0),
     CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
@@ -443,9 +426,9 @@ CREATE TABLE reminders (
     personal_task_id     BIGINT UNSIGNED,
     title                TEXT,
     remind_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    delivery_method      VARCHAR(32) NOT NULL DEFAULT 'agent',
+    delivery_method      ENUM('agent', 'webhook', 'notification', 'email', 'sms', 'other') NOT NULL DEFAULT 'agent',
     delivery_target      TEXT,
-    status               VARCHAR(32) NOT NULL DEFAULT 'pending',
+    status               ENUM('pending', 'processing', 'delivered', 'snoozed', 'cancelled', 'error') NOT NULL DEFAULT 'pending',
     attempt_count        BIGINT NOT NULL DEFAULT 0,
     last_attempt_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     delivered_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
@@ -457,8 +440,6 @@ CREATE TABLE reminders (
     KEY reminders_due (status, remind_at_utc),
     CONSTRAINT reminders_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
     CONSTRAINT reminders_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
-    CONSTRAINT reminders_delivery CHECK (delivery_method IN ('agent', 'webhook', 'notification', 'email', 'sms', 'other')),
-    CONSTRAINT reminders_status CHECK (status IN ('pending', 'processing', 'delivered', 'snoozed', 'cancelled', 'error')),
     CONSTRAINT reminders_attempt CHECK (attempt_count >= 0)
 ) ENGINE=InnoDB;
 
@@ -489,16 +470,16 @@ CREATE TABLE content_items (
     content_id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     content_group_id      BIGINT UNSIGNED NOT NULL,
     sequence              BIGINT,
-    content_type          VARCHAR(64) NOT NULL DEFAULT 'mobileUGC_tutorial',
+    content_type          ENUM('mobileUGC_tutorial', 'mobileUGC_ad', 'webUGC_tutorial', 'webUGC_ad', 'video_ad', 'podcast', 'image', 'unknown') NOT NULL DEFAULT 'mobileUGC_tutorial',
     title                 TEXT NOT NULL,
     transcript            LONGTEXT,
     description           LONGTEXT,
     published_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
                           DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
-    content_host          VARCHAR(64) NOT NULL DEFAULT 'youtube',
-    content_status        VARCHAR(32) NOT NULL DEFAULT 'active',
+    content_host          ENUM('youtube', 'vimeo', 'spotify', 'mytlomdotcom', 'none') NOT NULL DEFAULT 'youtube',
+    content_status        ENUM('active', 'obsolete', 'unused', 'queued') NOT NULL DEFAULT 'active',
     content_url           TEXT,
-    relationship_to_user  VARCHAR(32) NOT NULL DEFAULT 'mine',
+    relationship_to_user  ENUM('mine', 'reference') NOT NULL DEFAULT 'mine',
     creator_contact_id    BIGINT UNSIGNED,
     personal_notes        LONGTEXT,
     external_id           VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin,
@@ -517,17 +498,13 @@ CREATE TABLE content_items (
     CONSTRAINT content_items_creator_fk FOREIGN KEY (creator_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
     CONSTRAINT content_items_file FOREIGN KEY (primary_file_id) REFERENCES files(file_id) ON DELETE SET NULL,
     CONSTRAINT content_items_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
-    CONSTRAINT content_items_sequence CHECK (sequence IS NULL OR sequence > 0),
-    CONSTRAINT content_items_type CHECK (content_type IN ('mobileUGC_tutorial', 'mobileUGC_ad', 'webUGC_tutorial', 'webUGC_ad', 'video_ad', 'podcast', 'image', 'unknown')),
-    CONSTRAINT content_items_host CHECK (content_host IN ('youtube', 'vimeo', 'spotify', 'mytlomdotcom', 'none')),
-    CONSTRAINT content_items_status CHECK (content_status IN ('active', 'obsolete', 'unused', 'queued')),
-    CONSTRAINT content_items_relationship CHECK (relationship_to_user IN ('mine', 'reference'))
+    CONSTRAINT content_items_sequence CHECK (sequence IS NULL OR sequence > 0)
 ) ENGINE=InnoDB;
 
 CREATE TABLE video_scripts (
     video_script_id      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     title                VARCHAR(200) NOT NULL,
-    status               VARCHAR(32) NOT NULL DEFAULT 'draft',
+    status               ENUM('draft', 'archived') NOT NULL DEFAULT 'draft',
     schema_version       BIGINT NOT NULL DEFAULT 1,
     script_json          LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     script_text          LONGTEXT NOT NULL,
@@ -542,7 +519,6 @@ CREATE TABLE video_scripts (
     KEY video_scripts_status_created (status, created_at_utc, video_script_id),
     CONSTRAINT video_scripts_event FOREIGN KEY (created_by_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT video_scripts_title CHECK (CHAR_LENGTH(TRIM(title)) BETWEEN 1 AND 200),
-    CONSTRAINT video_scripts_status CHECK (status IN ('draft', 'archived')),
     CONSTRAINT video_scripts_schema CHECK (schema_version = 1),
     CONSTRAINT video_scripts_json CHECK (CHAR_LENGTH(script_json) <= 500000 AND JSON_VALID(script_json)),
     CONSTRAINT video_scripts_text CHECK (CHAR_LENGTH(TRIM(script_text)) BETWEEN 1 AND 500000),
@@ -567,9 +543,9 @@ CREATE TABLE video_jobs (
     request_event_id   VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin,
     source_turn_id     VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
     content_id         BIGINT UNSIGNED,
-    renderer           VARCHAR(32) NOT NULL DEFAULT 'remotion',
+    renderer           ENUM('remotion', 'adobe_premiere', 'other') NOT NULL DEFAULT 'remotion',
     template           VARCHAR(255) NOT NULL,
-    status             VARCHAR(32) NOT NULL DEFAULT 'queued',
+    status             ENUM('queued', 'preparing', 'rendering', 'complete', 'error', 'cancelled') NOT NULL DEFAULT 'queued',
     input_json         LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT '{}',
     output_file_id     BIGINT UNSIGNED,
     error_text         LONGTEXT,
@@ -589,8 +565,6 @@ CREATE TABLE video_jobs (
     CONSTRAINT video_jobs_file FOREIGN KEY (output_file_id) REFERENCES files(file_id) ON DELETE SET NULL,
     CONSTRAINT video_jobs_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE SET NULL,
     CONSTRAINT video_jobs_script FOREIGN KEY (video_script_id) REFERENCES video_scripts(video_script_id) ON DELETE SET NULL,
-    CONSTRAINT video_jobs_renderer CHECK (renderer IN ('remotion', 'adobe_premiere', 'other')),
-    CONSTRAINT video_jobs_status CHECK (status IN ('queued', 'preparing', 'rendering', 'complete', 'error', 'cancelled')),
     CONSTRAINT video_jobs_json CHECK (JSON_VALID(input_json))
 ) ENGINE=InnoDB;
 
@@ -598,7 +572,7 @@ CREATE TABLE profile_facts (
     profile_fact_id      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     fact_type            VARCHAR(200) NOT NULL,
     fact_text            TEXT NOT NULL,
-    fact_status          VARCHAR(32) NOT NULL DEFAULT 'active',
+    fact_status          ENUM('active', 'archived') NOT NULL DEFAULT 'active',
     source_event_id      VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin,
     archived_by_event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin,
     created_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
@@ -611,7 +585,6 @@ CREATE TABLE profile_facts (
     CONSTRAINT profile_facts_archiver FOREIGN KEY (archived_by_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT profile_facts_type CHECK (CHAR_LENGTH(TRIM(fact_type)) BETWEEN 1 AND 200),
     CONSTRAINT profile_facts_text CHECK (CHAR_LENGTH(TRIM(fact_text)) BETWEEN 1 AND 10000),
-    CONSTRAINT profile_facts_status CHECK (fact_status IN ('active', 'archived')),
     CONSTRAINT profile_facts_archive_state CHECK ((fact_status = 'active' AND archived_at_utc IS NULL) OR (fact_status = 'archived' AND archived_at_utc IS NOT NULL))
 ) ENGINE=InnoDB;
 
@@ -619,8 +592,8 @@ CREATE TABLE notes (
     note_id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     title            TEXT,
     body_text        LONGTEXT NOT NULL,
-    note_kind        VARCHAR(32) NOT NULL DEFAULT 'personal',
-    status           VARCHAR(32) NOT NULL DEFAULT 'active',
+    note_kind        ENUM('personal', 'journal', 'reference', 'idea', 'other') NOT NULL DEFAULT 'personal',
+    status           ENUM('active', 'archived', 'deleted') NOT NULL DEFAULT 'active',
     subject_type     VARCHAR(128),
     subject_id       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
     source_event_id  VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin,
@@ -630,9 +603,7 @@ CREATE TABLE notes (
     updated_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     PRIMARY KEY (note_id),
     KEY notes_subject (subject_type, subject_id, created_at_utc),
-    CONSTRAINT notes_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
-    CONSTRAINT notes_kind CHECK (note_kind IN ('personal', 'journal', 'reference', 'idea', 'other')),
-    CONSTRAINT notes_status CHECK (status IN ('active', 'archived', 'deleted'))
+    CONSTRAINT notes_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE record_links (
@@ -655,8 +626,8 @@ CREATE TABLE record_links (
 
 CREATE TABLE correspondence (
     correspondence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    medium            VARCHAR(32) NOT NULL,
-    direction         VARCHAR(32) NOT NULL,
+    medium            ENUM('email', 'sms', 'mms', 'imessage', 'chat', 'voicemail', 'other') NOT NULL,
+    direction         ENUM('inbound', 'outbound', 'draft', 'internal') NOT NULL,
     account_key       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
     thread_key        VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
     external_id       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
@@ -675,24 +646,21 @@ CREATE TABLE correspondence (
     KEY correspondence_thread (medium, account_key, thread_key),
     KEY correspondence_timeline_index (correspondence_id),
     CONSTRAINT correspondence_reply FOREIGN KEY (in_reply_to_id) REFERENCES correspondence(correspondence_id) ON DELETE SET NULL,
-    CONSTRAINT correspondence_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
-    CONSTRAINT correspondence_medium CHECK (medium IN ('email', 'sms', 'mms', 'imessage', 'chat', 'voicemail', 'other')),
-    CONSTRAINT correspondence_direction CHECK (direction IN ('inbound', 'outbound', 'draft', 'internal'))
+    CONSTRAINT correspondence_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE correspondence_files (
     correspondence_id BIGINT UNSIGNED NOT NULL,
     file_id            BIGINT UNSIGNED NOT NULL,
-    attachment_role    VARCHAR(32) NOT NULL DEFAULT 'attachment',
+    attachment_role    ENUM('attachment', 'inline', 'recording', 'other') NOT NULL DEFAULT 'attachment',
     PRIMARY KEY (correspondence_id, file_id),
     CONSTRAINT correspondence_files_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
-    CONSTRAINT correspondence_files_file FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE,
-    CONSTRAINT correspondence_files_role CHECK (attachment_role IN ('attachment', 'inline', 'recording', 'other'))
+    CONSTRAINT correspondence_files_file FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE correspondence_participants (
     correspondence_id  BIGINT UNSIGNED NOT NULL,
-    participant_role   VARCHAR(32) NOT NULL,
+    participant_role   ENUM('from', 'to', 'cc', 'bcc', 'reply_to', 'sender', 'recipient') NOT NULL,
     contact_id         BIGINT UNSIGNED,
     contact_method_id  BIGINT UNSIGNED,
     address_value      VARCHAR(512) NOT NULL,
@@ -701,8 +669,7 @@ CREATE TABLE correspondence_participants (
     KEY correspondence_participants_contact (contact_id, correspondence_id),
     CONSTRAINT correspondence_participants_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
     CONSTRAINT correspondence_participants_contact_fk FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
-    CONSTRAINT correspondence_participants_method FOREIGN KEY (contact_method_id) REFERENCES contact_methods(contact_method_id) ON DELETE SET NULL,
-    CONSTRAINT correspondence_participants_role CHECK (participant_role IN ('from', 'to', 'cc', 'bcc', 'reply_to', 'sender', 'recipient'))
+    CONSTRAINT correspondence_participants_method FOREIGN KEY (contact_method_id) REFERENCES contact_methods(contact_method_id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE VIEW activity_operation_latency AS
@@ -859,4 +826,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 29, 'Chapeaux Fous MariaDB database');
+VALUES (1, 30, 'Chapeaux Fous MariaDB database');

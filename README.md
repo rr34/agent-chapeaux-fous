@@ -483,6 +483,11 @@ mutating data. Future schema changes must be implemented as explicit,
 reviewable MariaDB migrations with their own preconditions, backup procedure,
 postconditions, and foreign-key verification.
 
+Closed vocabularies are native MariaDB `ENUM` columns. `CHECK` constraints are
+reserved for booleans, ranges, JSON validity, and rules involving more than one
+value. Application database sessions require a strict SQL mode so invalid enum
+input fails instead of being coerced to MariaDB's special empty enum value.
+
 `profile_facts` is the authoritative store for durable user facts. Multiple
 active rows may share a broad type such as `vehicle`; their text identifies the
 person or item. Replacement and deletion target one stable row ID and archive

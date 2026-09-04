@@ -8,6 +8,7 @@ import {
   parseMariaDbScript,
   quoteMariaDbIdentifier,
 } from "../scripts/mariadb-schema.mjs";
+import { requiredEnumColumns } from "../src/database.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -65,11 +66,44 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 29", () => {
+test("the authoritative MariaDB baseline is complete at schema version 30", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 32);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
-  assert.match(statements.at(-1), /VALUES \(1, 29, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 33);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 53);
+  assert.equal(
+    Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
+    33,
+  );
+  for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
+    const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
+    assert.ok(table, `missing table ${tableName}`);
+    const normalizedTable = table.replace(/\s+/gu, " ");
+    for (const [fieldName, values] of Object.entries(fields)) {
+      const declaration = `${fieldName} ENUM(${values.map((value) => `'${value}'`).join(", ")})`;
+      assert.ok(normalizedTable.includes(declaration), `missing enum declaration ${tableName}.${declaration}`);
+    }
+  }
+  assert.doesNotMatch(source, /CHECK \([^\n]*(?:IS NULL OR )?[a-z_]+ IN \('[^\n]+\)\)/u);
+  assert.match(
+    source,
+    /status\s+ENUM\('tentative', 'confirmed', 'cancelled'\) NOT NULL DEFAULT 'confirmed'/u,
+  );
+  assert.doesNotMatch(source, /calendar_events_status|ENUM\([^\n]*'completed'[^\n]*\) NOT NULL DEFAULT 'confirmed'/u);
+  assert.match(statements.at(-1), /VALUES \(1, 30, 'Chapeaux Fous MariaDB database'\)$/);
+});
+
+test("the version 30 enum migration is reviewable and safely replayable", () => {
+  const source = fs.readFileSync(path.join(root, "db", "mariadb", "0030-enum-columns.sql"), "utf8");
+  const statements = parseMariaDbScript(source);
+  assert.match(source, /Stop every application writer/u);
+  assert.match(source, /current mariadb-dump/u);
+  assert.match(source, /WHERE status = 'completed'/u);
+  assert.equal(source.match(/DROP CONSTRAINT IF EXISTS/gu)?.length, 33);
+  assert.equal(source.match(/\bMODIFY [a-z_]+ ENUM\(/gu)?.length, 33);
+  assert.match(statements.at(-2), /SET schema_version = 30/u);
+  assert.match(statements.at(-1), /SET SESSION sql_mode = @chapeaux_fous_previous_sql_mode/u);
 });
