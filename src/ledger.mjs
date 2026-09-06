@@ -380,7 +380,8 @@ export class Ledger {
 
   trace(requestId) {
     return this.store.requireReady().prepare(`
-      SELECT * FROM activity_events WHERE turn_id = ? ORDER BY event_seq
+      SELECT * FROM activity_events FORCE INDEX (activity_events_turn)
+      WHERE turn_id = ? ORDER BY event_seq
     `).all(requestId).map(publicEvent);
   }
 
@@ -399,7 +400,7 @@ export class Ledger {
     return { status: "resolved", requestId: rows[0].turn_id };
   }
 
-  #requestDetails(request, { includeVideo = true } = {}) {
+  #requestDetails(request, { includeVideo = true, recentVideoRequests = null } = {}) {
     const events = this.trace(request.turnId);
     const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
@@ -459,7 +460,7 @@ export class Ledger {
           error: null,
         }
       : includeVideo && requestKind !== "interaction_video"
-        ? this.videoForSourceRequest(request.turnId)
+        ? this.videoForSourceRequest(request.turnId, recentVideoRequests)
         : null;
     return {
       requestId: request.turnId,
@@ -839,7 +840,8 @@ export class Ledger {
       WHERE event_type IN (${placeholders(receivedEventTypes)})
       ORDER BY event_seq DESC LIMIT ?
     `).all(...receivedEventTypes, bounded).map(publicEvent);
-    return received.map((request) => this.#requestDetails(request));
+    const recentVideoRequests = this.#recentVideoRequests();
+    return received.map((request) => this.#requestDetails(request, { recentVideoRequests }));
   }
 
   interactionReplaySource(requestId) {
@@ -914,13 +916,17 @@ export class Ledger {
     return source;
   }
 
-  videoForSourceRequest(sourceRequestId) {
-    const rows = this.store.requireReady().prepare(`
+  #recentVideoRequests() {
+    return this.store.requireReady().prepare(`
       SELECT * FROM activity_events
       WHERE event_type = 'request.received'
       ORDER BY event_seq DESC
       LIMIT 1000
     `).all().map(publicEvent);
+  }
+
+  videoForSourceRequest(sourceRequestId, recentVideoRequests = null) {
+    const rows = recentVideoRequests ?? this.#recentVideoRequests();
     const videoRequest = rows.find((event) => (
       event.payload?.requestKind === "interaction_video"
       && event.payload?.sourceRequestId === sourceRequestId
