@@ -14,6 +14,7 @@ import {
   sixWeekMonthDates,
 } from "./calendar-grid.js";
 import { createTimingEditor } from "./timing-editor.js";
+import { groupUsageByRequest, usageFromTrace } from "./ai-usage.js";
 
 const elements = {
   composer: document.querySelector("#chat-composer"),
@@ -1419,12 +1420,98 @@ function renderAiUsage() {
   elements.aiUsageTotalTokens.textContent = `${total.tokens.toLocaleString()} tokens`;
   elements.aiUsageCurrentModel.textContent = `${aiUsageData.current.model} via ${aiUsageData.current.transport}`;
   elements.aiUsageEntryCount.textContent = `${entries.length.toLocaleString()} recorded model ${entries.length === 1 ? "call" : "calls"}`;
+  const openRequests = new Set([...elements.aiUsageRows.children]
+    .filter((item) => item.open).map((item) => item.dataset.key));
   elements.aiUsageRows.replaceChildren();
+  for (const group of groupUsageByRequest(entries)) {
+    const details = node("details", "ai-usage-request");
+    details.dataset.key = group.key;
+    const summary = node("summary", "");
+    const title = node("strong", "ai-usage-request-title", group.requestId
+      ? `Request ${group.requestId.slice(0, 8)}` : "Unlinked model call");
+    const metadata = node("span", "ai-usage-request-meta");
+    const updateSummary = (calls) => {
+      const usage = summarize(calls);
+      metadata.textContent = `${formatDisplayDate(calls.at(-1)?.occurredAtUtc)} · ${calls.length} model ${calls.length === 1 ? "call" : "calls"} · ${usage.tokens.toLocaleString()} tokens · ${formatUsd(usage.cost)} estimated`;
+    };
+    updateSummary(group.entries);
+    summary.append(title, metadata);
+    const content = node("div", "ai-usage-request-content");
+    details.append(summary, content);
+    let loaded = false;
+    let loading = false;
+    const load = async () => {
+      if (loading || loaded || !details.open) return;
+      if (!group.requestId) {
+        content.replaceChildren(node("p", "empty", "This usage record has no linked request."), aiUsageCallTable(group.entries, pricing));
+        loaded = true;
+        return;
+      }
+      loading = true;
+      content.replaceChildren(node("p", "status", "Loading full request…"));
+      try {
+        const body = await api(`/api/requests/${encodeURIComponent(group.requestId)}/trace`);
+        const events = body.events;
+        const request = events.find((event) => ["request.received", "voice.request.received"].includes(event.type));
+        const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
+        const response = [...events].reverse().find((event) => ["assistant.response", "agent.turn.end"].includes(event.type));
+        const terminal = [...events].reverse().find((event) => ["request.complete", "request.error", "request.cancelled", "agent.turn.end", "agent.turn.error", "voice.request.interrupted", "voice.transcription.error"].includes(event.type));
+        const requestText = request?.content || transcript?.content || "Request text unavailable";
+        title.textContent = requestText;
+        title.title = requestText;
+        content.replaceChildren(node("p", "empty", `Request ${group.requestId} · ${terminal?.status || "In progress"}`));
+        content.append(node("h4", "", "Request"), node("div", "ai-usage-request-text", requestText));
+        content.append(node("h4", "", "Response"), node("div", "ai-usage-request-text", response?.content || "No final response recorded."));
+        if (terminal?.error || terminal?.status === "error") {
+          content.append(node("p", "status", terminal.error || terminal.content || "Request failed."));
+        }
+        const calls = usageFromTrace(events).filter(meteredAiEntry);
+        if (calls.length) updateSummary(calls);
+        content.append(node("h4", "", "Model calls"), aiUsageCallTable(calls, pricing));
+        const trace = node("details", "ai-usage-full-trace");
+        trace.append(node("summary", "", `Full chronological trace · ${events.length} events`));
+        const traceEvents = node("div", "trace-events");
+        for (const [index, event] of events.entries()) {
+          const item = node("details", "trace-event");
+          item.append(node("summary", "", traceLabel(event, index)), node("pre", "", JSON.stringify(event, null, 2)));
+          traceEvents.append(item);
+        }
+        trace.append(traceEvents);
+        content.append(trace);
+        loaded = true;
+      } catch (error) {
+        const retry = node("button", "secondary compact", "Retry");
+        retry.type = "button";
+        retry.addEventListener("click", load);
+        content.replaceChildren(node("p", "status", error.message), retry);
+      } finally {
+        loading = false;
+      }
+    };
+    details.addEventListener("toggle", load);
+    elements.aiUsageRows.append(details);
+    details.open = openRequests.has(group.key);
+  }
+  elements.aiUsageEmpty.hidden = entries.length > 0;
+}
+
+function aiUsageCallTable(entries, pricing) {
+  const scroll = node("div", "table-scroll");
+  const table = node("table", "");
+  const head = node("thead", "");
+  const headings = node("tr", "");
+  for (const label of ["When", "Model / step", "Input", "Cached", "Cache write", "Output", "Estimated cost"]) {
+    const heading = node("th", "", label);
+    heading.scope = "col";
+    headings.append(heading);
+  }
+  head.append(headings);
+  const rows = node("tbody", "");
   for (const entry of entries) {
     const row = document.createElement("tr");
     const values = [
       formatDisplayDate(entry.occurredAtUtc),
-      entry.model || entry.transport || "Unknown",
+      [entry.model || entry.transport || "Unknown", entry.workflowStep, entry.reasoningEffort].filter(Boolean).join(" · "),
       Number(entry.inputTokens).toLocaleString(),
       Number(entry.cachedInputTokens).toLocaleString(),
       Number(entry.cacheWriteTokens).toLocaleString(),
@@ -1432,9 +1519,11 @@ function renderAiUsage() {
       formatUsd(aiEntryCost(entry, pricing)),
     ];
     for (const value of values) row.append(node("td", "", value));
-    elements.aiUsageRows.append(row);
+    rows.append(row);
   }
-  elements.aiUsageEmpty.hidden = entries.length > 0;
+  table.append(head, rows);
+  scroll.append(table);
+  return scroll;
 }
 
 async function loadAiUsage() {

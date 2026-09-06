@@ -425,6 +425,17 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .ai-pricing-form h3, .ai-pricing-form p { margin: 0; }
 .ai-pricing-form label { display: grid; gap: .35rem; color: var(--muted); font-size: .82rem; }
 .ai-usage-history { padding: 1rem; }
+.ai-usage-requests { display: grid; gap: .65rem; }
+.ai-usage-request { min-width: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.ai-usage-request > summary { padding: .85rem; cursor: pointer; background: var(--panel-raised); }
+.ai-usage-request-title { font-weight: 500; overflow-wrap: anywhere; display: inline-block; max-width: calc(100% - 2rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.ai-usage-request-meta { display: block; margin-top: .35rem; color: var(--muted); font-size: .8rem; }
+.ai-usage-request-content { padding: .85rem; border-top: 1px solid var(--line); }
+.ai-usage-request-content h4 { margin: 1rem 0 .5rem; }
+.ai-usage-request-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-usage-full-trace { margin-top: 1rem; }
+.ai-usage-full-trace > summary { padding: .65rem 0; cursor: pointer; }
+.ai-usage-request summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .table-scroll { overflow-x: auto; }
 .ai-usage-history table { width: 100%; border-collapse: collapse; }
 .ai-usage-history th, .ai-usage-history td { padding: .65rem .5rem; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }

@@ -447,14 +447,10 @@
       </form>
       <section class="organizer-panel ai-usage-history" aria-labelledby="ai-usage-history-heading">
         <div class="section-heading">
-          <div><p class="eyebrow">Literal token records</p><h3 id="ai-usage-history-heading">Recent model calls</h3></div>
+          <div><p class="eyebrow">Usage by request</p><h3 id="ai-usage-history-heading">Recent requests</h3></div>
         </div>
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>When</th><th>Model</th><th>Input</th><th>Cached</th><th>Cache write</th><th>Output</th><th>Estimated cost</th></tr></thead>
-            <tbody id="ai-usage-rows"></tbody>
-          </table>
-        </div>
+        <p class="empty">Expand a request for its full text, response, model usage, and trace. Overview totals cover up to 10,000 recent usage records.</p>
+        <div id="ai-usage-rows" class="ai-usage-requests"></div>
         <p id="ai-usage-empty" class="empty">No metered model usage has been recorded yet.</p>
         <p id="ai-usage-status" class="status" role="status"></p>
       </section>
