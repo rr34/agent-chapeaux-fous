@@ -201,11 +201,11 @@ export class InteractionGuides {
   #activeRun(database, guideId) {
     const row = database.prepare(`
       SELECT started.*
-      FROM activity_events AS started
+      FROM activity_events AS started FORCE INDEX (activity_events_type)
       WHERE started.event_type = 'interaction_guide.run_started'
         AND json_extract(started.payload_json, '$.interactionGuideId') = ?
         AND NOT EXISTS (
-          SELECT 1 FROM activity_events AS terminal
+          SELECT 1 FROM activity_events AS terminal FORCE INDEX (activity_events_subject)
           WHERE terminal.subject_type = 'interaction_guide_run'
             AND terminal.subject_id = started.subject_id
             AND terminal.event_type IN (

@@ -390,7 +390,7 @@ export class Ledger {
     if (!/^[0-9a-f][0-9a-f-]{7,35}$/.test(candidate)) return { status: "invalid", requestId: null };
     const rows = this.store.requireReady().prepare(`
       SELECT DISTINCT turn_id
-      FROM activity_events
+      FROM activity_events FORCE INDEX (activity_events_turn)
       WHERE turn_id LIKE ?
       ORDER BY turn_id
       LIMIT 2
@@ -680,14 +680,14 @@ export class Ledger {
   modelUsage({ limit = 1000 } = {}) {
     const selectedLimit = Math.max(1, Math.min(10_000, Number.parseInt(String(limit), 10) || 1000));
     const rows = this.store.requireReady().prepare(`
-      SELECT usage.*, response.actor_name AS response_model,
+      SELECT usage_event.*, response.actor_name AS response_model,
              response.payload_json AS response_payload_json
-      FROM activity_events AS usage
-      LEFT JOIN activity_events AS response
-        ON response.operation_id = usage.operation_id
+      FROM activity_events AS usage_event FORCE INDEX (activity_events_type)
+      LEFT JOIN activity_events AS response FORCE INDEX (activity_events_operation)
+        ON response.operation_id = usage_event.operation_id
        AND response.event_type = 'model.response'
-      WHERE usage.event_type = 'model.usage'
-      ORDER BY usage.event_seq DESC
+      WHERE usage_event.event_type = 'model.usage'
+      ORDER BY usage_event.event_seq DESC
       LIMIT ?
     `).all(selectedLimit);
     return rows.map((row) => {
@@ -836,7 +836,7 @@ export class Ledger {
   recentRequests(limit = 100) {
     const bounded = Math.min(200, Math.max(1, Number(limit) || 100));
     const received = this.store.requireReady().prepare(`
-      SELECT * FROM activity_events
+      SELECT * FROM activity_events FORCE INDEX (activity_events_type)
       WHERE event_type IN (${placeholders(receivedEventTypes)})
       ORDER BY event_seq DESC LIMIT ?
     `).all(...receivedEventTypes, bounded).map(publicEvent);
@@ -918,7 +918,8 @@ export class Ledger {
 
   #recentVideoRequests() {
     return this.store.requireReady().prepare(`
-      SELECT * FROM activity_events
+      SELECT turn_id, payload_json
+      FROM activity_events FORCE INDEX (activity_events_type)
       WHERE event_type = 'request.received'
       ORDER BY event_seq DESC
       LIMIT 1000
@@ -932,15 +933,20 @@ export class Ledger {
       && event.payload?.sourceRequestId === sourceRequestId
     ));
     if (!videoRequest) return null;
-    const details = this.#requestDetails(videoRequest, { includeVideo: false });
-    const rendered = [...this.trace(videoRequest.turnId)].reverse().find((event) => event.type === "video.render.completed");
+    const events = this.trace(videoRequest.turnId);
+    const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
+    const status = terminal?.status || (events.some((event) => [
+      "request.processing", "agent.turn.start", "voice.transcription.start",
+    ].includes(event.type)) ? "processing" : "queued");
+    const error = terminal?.error || (terminal?.status === "error" ? terminal.content : null);
+    const rendered = [...events].reverse().find((event) => event.type === "video.render.completed");
     const fileId = rendered?.primaryFileId ?? rendered?.payload?.fileId ?? null;
     return {
       requestId: videoRequest.turnId,
-      status: details.status === "complete" && !fileId ? "error" : details.status,
+      status: status === "complete" && !fileId ? "error" : status,
       fileId,
       downloadUrl: fileId == null ? null : `/api/videos/${fileId}/download`,
-      error: details.error || (details.status === "complete" && !fileId ? "Video request completed without producing an MP4" : null),
+      error: error || (status === "complete" && !fileId ? "Video request completed without producing an MP4" : null),
     };
   }
 
