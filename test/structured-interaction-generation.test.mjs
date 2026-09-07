@@ -71,30 +71,30 @@ test("repeatable exchange generation preserves exact named slots and completed d
     requestId,
     status: "complete",
     requestKind: null,
-    rawTranscript: "Log my weight, push-up reps, pull-up reps, and squat reps.",
-    response: "Logged all four measurements.",
+    rawTranscript: "Journal my weight, push-up reps, pull-up reps, and squat reps.",
+    response: "Recorded all four measurements.",
     error: null,
     events: [
       {
-        type: "tool.call", phase: "start", operationId: "weight-call", name: "log_add",
+        type: "tool.call", phase: "start", operationId: "weight-call", name: "journal_add",
         payload: { arguments: {
           tracker: "Weight", group: "Health", content_text: "Weight: 180 pounds",
           number_value: 180, tracker_unit: null, occurred_at_utc: null, create_if_missing: false,
         } },
       },
       {
-        type: "tool.result", status: "complete", operationId: "weight-call", name: "log_add",
+        type: "tool.result", status: "complete", operationId: "weight-call", name: "journal_add",
         payload: { result: { created: true } },
       },
       {
-        type: "tool.call", phase: "start", operationId: "push-up-call", name: "log_add",
+        type: "tool.call", phase: "start", operationId: "push-up-call", name: "journal_add",
         payload: { arguments: {
           tracker: "Push-ups", group: "Exercise", content_text: "Push-ups: 40 reps",
           number_value: 40, tracker_unit: null, occurred_at_utc: null, create_if_missing: false,
         } },
       },
       {
-        type: "tool.result", status: "complete", operationId: "push-up-call", name: "log_add",
+        type: "tool.result", status: "complete", operationId: "push-up-call", name: "journal_add",
         payload: { result: { created: true } },
       },
       {
@@ -109,11 +109,11 @@ test("repeatable exchange generation preserves exact named slots and completed d
   }, {
     toolDefinitions: [
       {
-        name: "log_add", capabilityId: "logs", description: "Add a log entry.",
+        name: "journal_add", capabilityId: "journal", description: "Add a journal entry.",
         annotations: { readOnlyHint: false }, inputSchema: { type: "object", properties: { tracker: { type: "string" } } },
       },
       {
-        name: "log_list", capabilityId: "logs", description: "List bounded log entries.",
+        name: "journal_list", capabilityId: "journal", description: "List bounded journal entries.",
         annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: { tracker: { type: ["string", "null"] } } },
       },
       {
@@ -131,7 +131,7 @@ test("repeatable exchange generation preserves exact named slots and completed d
   assert.match(prompt, /"tracker": "Push-ups"/);
   assert.doesNotMatch(prompt, /Something else/);
   assert.match(prompt, /<destination_contract_catalog>/);
-  assert.match(prompt, /"name": "log_list"/);
+  assert.match(prompt, /"name": "journal_list"/);
   assert.doesNotMatch(prompt, /"name": "todo_list"/);
   assert.match(prompt, /not callable during this creation request/i);
   assert.match(prompt, /call only interaction_guide_step_add/);

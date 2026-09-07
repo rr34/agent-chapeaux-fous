@@ -126,7 +126,7 @@ speech generation.
 schema, user isolation, authorization, and internal instrumentation.
 
 **35. Agent database** — The MariaDB database containing Agent Slayer's ledger,
-history, files, durable profile facts, personal to-dos, personal logs, and any
+history, files, durable profile facts, personal to-dos, journal entries, and any
 compatible domain tables and views.
 
 **36. Publishable-content filter** — The initial video-script boundary that

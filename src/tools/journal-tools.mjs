@@ -24,36 +24,36 @@ function normalizedInstant(value, { useNow = false, label = "Timestamp" } = {}) 
   return date.toISOString();
 }
 
-const logGroupFields = ["log_group_id", "name", "archived_at_utc"];
+const journalGroupFields = ["journal_group_id", "name", "archived_at_utc"];
 const trackerFields = [
-  "tracker_id", "log_group_id", "name", "unit", "archived_at_utc", "created_at_utc", "updated_at_utc",
+  "tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "created_at_utc", "updated_at_utc",
 ];
-const logEntryFields = [
-  "log_entry_id", "tracker_id", "occurred_at_utc", "content_text", "number_value",
+const journalEntryFields = [
+  "journal_entry_id", "tracker_id", "occurred_at_utc", "content_text", "number_value",
   "source_event_id", "created_at_utc", "updated_at_utc", "source", "external_id",
 ];
-const logProjection = {
-  schemaObjects: ["log_entries", "trackers", "log_groups"],
+const journalProjection = {
+  schemaObjects: ["journal_entries", "trackers", "journal_groups"],
   fields: {
-    log_entries: logEntryFields,
+    journal_entries: journalEntryFields,
     trackers: trackerFields,
-    log_groups: logGroupFields,
+    journal_groups: journalGroupFields,
   },
 };
-const logEntryProjection = {
-  schemaObjects: ["log_entries", "trackers", "log_groups"],
+const journalEntryProjection = {
+  schemaObjects: ["journal_entries", "trackers", "journal_groups"],
   fields: {
-    log_entries: logEntryFields,
-    trackers: ["tracker_id", "log_group_id", "name", "unit"],
-    log_groups: ["log_group_id", "name"],
+    journal_entries: journalEntryFields,
+    trackers: ["tracker_id", "journal_group_id", "name", "unit"],
+    journal_groups: ["journal_group_id", "name"],
   },
 };
 const trackerProjection = {
-  schemaObjects: ["trackers", "log_groups", "log_entries"],
+  schemaObjects: ["trackers", "journal_groups", "journal_entries"],
   fields: {
     trackers: trackerFields,
-    log_groups: logGroupFields,
-    log_entries: ["log_entry_id", "tracker_id", "occurred_at_utc"],
+    journal_groups: journalGroupFields,
+    journal_entries: ["journal_entry_id", "tracker_id", "occurred_at_utc"],
   },
 };
 
@@ -61,54 +61,54 @@ function databaseTracker(row) {
   if (!row) return null;
   return {
     ...selectedFields(row, trackerFields),
-    log_groups: {
-      log_group_id: row.log_group_id,
+    journal_groups: {
+      journal_group_id: row.journal_group_id,
       name: row.group_name ?? null,
       archived_at_utc: row.group_archived_at_utc ?? null,
     },
     ...(row.entry_count === undefined ? {} : { entry_count: Number(row.entry_count) }),
-    ...(row.last_logged_at_utc === undefined ? {} : { last_logged_at_utc: row.last_logged_at_utc }),
+    ...(row.last_recorded_at_utc === undefined ? {} : { last_recorded_at_utc: row.last_recorded_at_utc }),
   };
 }
 
 function databaseEntry(row) {
   if (!row) return null;
   return {
-    ...selectedFields(row, logEntryFields),
+    ...selectedFields(row, journalEntryFields),
     trackers: {
       tracker_id: row.tracker_id,
-      log_group_id: row.log_group_id ?? null,
+      journal_group_id: row.journal_group_id ?? null,
       name: row.tracker_name ?? null,
       unit: row.tracker_unit ?? null,
     },
-    log_groups: {
-      log_group_id: row.log_group_id ?? null,
+    journal_groups: {
+      journal_group_id: row.journal_group_id ?? null,
       name: row.group_name ?? null,
     },
   };
 }
 
-function logResult(schemaSemantics, context, result, {
+function journalResult(schemaSemantics, context, result, {
   name, purpose, trackersOnly = false, entriesOnly = false,
 }) {
   return withSchemaProjection(schemaSemantics, context, result, {
     name,
     purpose,
-    ...(trackersOnly ? trackerProjection : entriesOnly ? logEntryProjection : logProjection),
+    ...(trackersOnly ? trackerProjection : entriesOnly ? journalEntryProjection : journalProjection),
   });
 }
 
-export function logCapabilityContext(store, limit = 200) {
+export function journalCapabilityContext(store, limit = 200) {
   const trackers = !store?.status?.ready ? [] : store.requireReady().prepare(`
     SELECT tracker.tracker_id, tracker.name, tracker.unit,
-           log_group.name AS group_name,
-           COUNT(entry.log_entry_id) AS entry_count,
-           MAX(entry.occurred_at_utc) AS last_logged_at_utc
+           journal_group.name AS group_name,
+           COUNT(entry.journal_entry_id) AS entry_count,
+           MAX(entry.occurred_at_utc) AS last_recorded_at_utc
     FROM trackers AS tracker
-    JOIN log_groups AS log_group USING (log_group_id)
-    LEFT JOIN log_entries AS entry USING (tracker_id)
+    JOIN journal_groups AS journal_group USING (journal_group_id)
+    LEFT JOIN journal_entries AS entry USING (tracker_id)
     WHERE tracker.archived_at_utc IS NULL
-      AND log_group.archived_at_utc IS NULL
+      AND journal_group.archived_at_utc IS NULL
     GROUP BY tracker.tracker_id
     ORDER BY tracker.name
     LIMIT ?
@@ -118,7 +118,7 @@ export function logCapabilityContext(store, limit = 200) {
     group: row.group_name,
     unit: row.unit,
     entryCount: Number(row.entry_count),
-    lastLoggedAtUtc: row.last_logged_at_utc,
+    lastRecordedAtUtc: row.last_recorded_at_utc,
   }));
   const rows = trackers.length
     ? trackers.map((tracker) => [
@@ -127,9 +127,9 @@ export function logCapabilityContext(store, limit = 200) {
         `entries: ${tracker.entryCount}`,
         `unit: ${tracker.unit}`,
       ].join(" | ")).join("\n")
-    : "No active personal-log trackers exist.";
+    : "No active personal-journal trackers exist.";
   return {
-    heading: "Active personal-log trackers",
+    heading: "Active personal-journal trackers",
     text: [
       "These names are authoritative. Reuse the most plausible existing tracker verbatim when the user's wording is synonymous; do not create a paraphrased duplicate.",
       rows,
@@ -140,23 +140,23 @@ export function logCapabilityContext(store, limit = 200) {
 
 function joinedTracker(database, trackerId) {
   return database.prepare(`
-    SELECT tracker.*, log_group.name AS group_name,
-           log_group.archived_at_utc AS group_archived_at_utc
+    SELECT tracker.*, journal_group.name AS group_name,
+           journal_group.archived_at_utc AS group_archived_at_utc
     FROM trackers AS tracker
-    JOIN log_groups AS log_group USING (log_group_id)
+    JOIN journal_groups AS journal_group USING (journal_group_id)
     WHERE tracker.tracker_id = ?
   `).get(trackerId);
 }
 
 function joinedEntry(database, entryId) {
   return database.prepare(`
-    SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+    SELECT entry.*, tracker.name AS tracker_name, tracker.journal_group_id,
            tracker.unit AS tracker_unit,
-           log_group.name AS group_name
-    FROM log_entries AS entry
+           journal_group.name AS group_name
+    FROM journal_entries AS entry
     JOIN trackers AS tracker USING (tracker_id)
-    JOIN log_groups AS log_group USING (log_group_id)
-    WHERE entry.log_entry_id = ?
+    JOIN journal_groups AS journal_group USING (journal_group_id)
+    WHERE entry.journal_entry_id = ?
   `).get(entryId);
 }
 
@@ -188,12 +188,12 @@ function aliasTracker(database, name) {
   const family = trackerAliasFamily(name);
   if (!family) return null;
   const rows = database.prepare(`
-    SELECT tracker.*, log_group.name AS group_name,
-           log_group.archived_at_utc AS group_archived_at_utc,
-           COUNT(entry.log_entry_id) AS entry_count
+    SELECT tracker.*, journal_group.name AS group_name,
+           journal_group.archived_at_utc AS group_archived_at_utc,
+           COUNT(entry.journal_entry_id) AS entry_count
     FROM trackers AS tracker
-    JOIN log_groups AS log_group USING (log_group_id)
-    LEFT JOIN log_entries AS entry USING (tracker_id)
+    JOIN journal_groups AS journal_group USING (journal_group_id)
+    LEFT JOIN journal_entries AS entry USING (tracker_id)
     GROUP BY tracker.tracker_id
   `).all().filter((row) => trackerAliasFamily(row.name) === family);
   rows.sort((left, right) => {
@@ -221,10 +221,10 @@ function findTracker(database, name) {
     };
   }
   const exact = database.prepare(`
-    SELECT tracker.*, log_group.name AS group_name,
-           log_group.archived_at_utc AS group_archived_at_utc
+    SELECT tracker.*, journal_group.name AS group_name,
+           journal_group.archived_at_utc AS group_archived_at_utc
     FROM trackers AS tracker
-    JOIN log_groups AS log_group USING (log_group_id)
+    JOIN journal_groups AS journal_group USING (journal_group_id)
     WHERE tracker.name = ?
   `).get(name);
   return exact ? { row: exact, matchType: "exact" } : { row: null, matchType: "none" };
@@ -232,12 +232,12 @@ function findTracker(database, name) {
 
 function ensureGroup(database, name, now) {
   const existing = database.prepare(`
-    SELECT * FROM log_groups WHERE name = ?
+    SELECT * FROM journal_groups WHERE name = ?
   `).get(name);
   if (!existing) {
     return {
       row: database.prepare(`
-        INSERT INTO log_groups (name, updated_at_utc) VALUES (?, ?) RETURNING *
+        INSERT INTO journal_groups (name, updated_at_utc) VALUES (?, ?) RETURNING *
       `).get(name, now),
       created: true,
       reactivated: false,
@@ -248,36 +248,36 @@ function ensureGroup(database, name, now) {
   }
   return {
     row: database.prepare(`
-      UPDATE log_groups
+      UPDATE journal_groups
       SET archived_at_utc = NULL, updated_at_utc = ?
-      WHERE log_group_id = ?
+      WHERE journal_group_id = ?
       RETURNING *
-    `).get(now, existing.log_group_id),
+    `).get(now, existing.journal_group_id),
     created: false,
     reactivated: true,
   };
 }
 
-function normalizedLogInput(argumentsObject, { requireOccurredAt = false } = {}) {
+function normalizedJournalInput(argumentsObject, { requireOccurredAt = false } = {}) {
   const trackerName = requiredText(argumentsObject.tracker, "Tracker name", 200);
   const requestedGroupWasNull = argumentsObject.group === null;
   const requestedGroup = requestedGroupWasNull
     ? "General"
-    : requiredText(argumentsObject.group, "Log group name", 200);
-  const content = requiredText(argumentsObject.content_text, "Log content", 10000);
+    : requiredText(argumentsObject.group, "Journal group name", 200);
+  const content = requiredText(argumentsObject.content_text, "Journal content", 10000);
   const number = argumentsObject.number_value;
   if (number !== null && (typeof number !== "number" || !Number.isFinite(number))) {
-    throw new Error("Log number must be a finite number or null");
+    throw new Error("Journal number must be a finite number or null");
   }
   const trackerUnit = optionalUnit(argumentsObject.tracker_unit);
   if (requireOccurredAt && (argumentsObject.occurred_at_utc === null
     || argumentsObject.occurred_at_utc === undefined
     || argumentsObject.occurred_at_utc === "")) {
-    throw new Error("Imported logs require an occurrence time");
+    throw new Error("Imported journal entries require an occurrence time");
   }
   const occurredAtUtc = normalizedInstant(argumentsObject.occurred_at_utc, {
     useNow: !requireOccurredAt,
-    label: "Log occurrence time",
+    label: "Journal occurrence time",
   });
   return {
     trackerName,
@@ -292,12 +292,12 @@ function normalizedLogInput(argumentsObject, { requireOccurredAt = false } = {})
 
 function normalizedExternalId(value) {
   if (typeof value === "number" && !Number.isSafeInteger(value)) {
-    throw new Error("External log IDs supplied as numbers must be safe integers");
+    throw new Error("External journal IDs supplied as numbers must be safe integers");
   }
   if (!["string", "number"].includes(typeof value)) {
-    throw new Error("External log ID must be a string or integer");
+    throw new Error("External journal ID must be a string or integer");
   }
-  return requiredText(value, "External log ID", 1000);
+  return requiredText(value, "External journal ID", 1000);
 }
 
 function resolveTracker(database, input, now, { createIfMissing = false } = {}) {
@@ -322,14 +322,14 @@ function resolveTracker(database, input, now, { createIfMissing = false } = {}) 
       };
     }
     if (input.trackerUnit === null) {
-      throw new Error("New log trackers require a canonical unit");
+      throw new Error("New journal trackers require a canonical unit");
     }
     const selectedGroup = ensureGroup(database, input.requestedGroup, now);
     const row = database.prepare(`
-      INSERT INTO trackers (log_group_id, name, unit, updated_at_utc)
+      INSERT INTO trackers (journal_group_id, name, unit, updated_at_utc)
       VALUES (?, ?, ?, ?)
       RETURNING *
-    `).get(selectedGroup.row.log_group_id, input.trackerName, input.trackerUnit, now);
+    `).get(selectedGroup.row.journal_group_id, input.trackerName, input.trackerUnit, now);
     tracker = {
       ...row,
       group_name: selectedGroup.row.name,
@@ -368,10 +368,10 @@ function resolveTracker(database, input, now, { createIfMissing = false } = {}) 
     }
     if (tracker.group_archived_at_utc !== null) {
       database.prepare(`
-        UPDATE log_groups
+        UPDATE journal_groups
         SET archived_at_utc = NULL, updated_at_utc = ?
-        WHERE log_group_id = ?
-      `).run(now, tracker.log_group_id);
+        WHERE journal_group_id = ?
+      `).run(now, tracker.journal_group_id);
     }
     tracker = joinedTracker(database, tracker.tracker_id);
     groupResolution = {
@@ -400,7 +400,7 @@ function insertEntry(database, input, tracker, {
     throw new Error(`Set the canonical unit for tracker ${tracker.name} before recording another entry`);
   }
   const row = database.prepare(`
-    INSERT INTO log_entries (
+    INSERT INTO journal_entries (
       tracker_id, occurred_at_utc, content_text, number_value,
       source_event_id, updated_at_utc, source, external_id
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -419,19 +419,19 @@ function insertEntry(database, input, tracker, {
     ...row,
     tracker_name: tracker.name,
     tracker_unit: tracker.unit,
-    log_group_id: tracker.log_group_id,
+    journal_group_id: tracker.journal_group_id,
     group_name: tracker.group_name,
   });
 }
 
 function existingImportedEntry(database, source, externalId) {
   return database.prepare(`
-    SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+    SELECT entry.*, tracker.name AS tracker_name, tracker.journal_group_id,
            tracker.unit AS tracker_unit,
-           log_group.name AS group_name
-    FROM log_entries AS entry
+           journal_group.name AS group_name
+    FROM journal_entries AS entry
     JOIN trackers AS tracker USING (tracker_id)
-    JOIN log_groups AS log_group USING (log_group_id)
+    JOIN journal_groups AS journal_group USING (journal_group_id)
     WHERE entry.source = ? AND entry.external_id = ?
   `).get(source, externalId);
 }
@@ -444,19 +444,19 @@ function sameImportedEntry(row, input) {
     && (input.trackerUnit === null || row.tracker_unit === input.trackerUnit);
 }
 
-export function registerLogTools(registry, store, ledger, schemaSemantics = null) {
+export function registerJournalTools(registry, store, ledger, schemaSemantics = null) {
   const rootRegistry = registry;
-  registry = registry.withCapability?.("logs") ?? registry;
-  rootRegistry.registerContextView?.("logs", {
-    id: "logs.active_trackers",
-    title: "Active personal-log trackers",
+  registry = registry.withCapability?.("journal") ?? registry;
+  rootRegistry.registerContextView?.("journal", {
+    id: "journal.active_trackers",
+    title: "Active personal-journal trackers",
     description: "Active tracker names and IDs with their groups, units, and entry counts.",
     maximumItems: 200,
-    execute: () => logCapabilityContext(store),
+    execute: () => journalCapabilityContext(store),
   });
   registry.register({
-    name: "log_add",
-    description: "Record one entry in the user's authoritative personal log. The content must remain complete human-readable text; number_value is an optional trend projection whose canonical unit belongs to the tracker, never the entry. Supply tracker_unit when creating a tracker or replacing the migration marker; otherwise use null and the existing tracker unit remains authoritative. Reuse the most plausible existing tracker. If none matches and create_if_missing is false, return an unrecorded proposal for confirmation.",
+    name: "journal_add",
+    description: "Record one entry in the user's authoritative personal journal. The content must remain complete human-readable text; number_value is an optional trend projection whose canonical unit belongs to the tracker, never the entry. Supply tracker_unit when creating a tracker or replacing the migration marker; otherwise use null and the existing tracker unit remains authoritative. Reuse the most plausible existing tracker. If none matches and create_if_missing is false, return an unrecorded proposal for confirmation.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -472,7 +472,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       required: ["tracker", "group", "content_text", "number_value", "tracker_unit", "occurred_at_utc", "create_if_missing"],
     },
     async execute(argumentsObject, context) {
-      const input = normalizedLogInput(argumentsObject);
+      const input = normalizedJournalInput(argumentsObject);
       const database = store.requireReady();
       const now = new Date().toISOString();
       database.exec("START TRANSACTION");
@@ -496,8 +496,8 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
               number_value: input.number,
             },
           };
-          const semanticResult = logResult(schemaSemantics, context, result, {
-            name: "log_add",
+          const semanticResult = journalResult(schemaSemantics, context, result, {
+            name: "journal_add",
             purpose: "Report that no existing tracker matched and return the unrecorded proposed tracker and entry for confirmation.",
           });
           database.exec("COMMIT");
@@ -526,14 +526,14 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
           entry,
         };
         ledger.append({
-          type: "personal_log.created", status: "complete", actorType: "tool", actorName: "log_add",
-          turnId: context.requestId, operationId: context.callId, name: "Personal log recorded",
+          type: "personal_journal.created", status: "complete", actorType: "tool", actorName: "journal_add",
+          turnId: context.requestId, operationId: context.callId, name: "Personal journal recorded",
           content: entry.content_text, payload: result,
-          subjectType: "log_entry", subjectId: String(entry.log_entry_id),
+          subjectType: "journal_entry", subjectId: String(entry.journal_entry_id),
         });
-        const semanticResult = logResult(schemaSemantics, context, result, {
-          name: "log_add",
-          purpose: "Return the stored log entry together with its tracker and log group database fields.",
+        const semanticResult = journalResult(schemaSemantics, context, result, {
+          name: "journal_add",
+          purpose: "Return the stored journal entry together with its tracker and journal group database fields.",
         });
         database.exec("COMMIT");
         return semanticResult;
@@ -545,8 +545,8 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
   });
 
   registry.register({
-    name: "log_import",
-    description: "Import a bounded batch of 1 through 100 personal-log entries from any external source. Each entry requires an occurrence time and a stable external_id supplied by the source or deterministically derived when the source has none. The pair of source and external_id is idempotent: exact replays are reported unchanged, while conflicting replays are reported and never overwrite the existing entry. New entries and any required groups or trackers are created in one transaction.",
+    name: "journal_import",
+    description: "Import a bounded batch of 1 through 100 personal-journal entries from any external source. Each entry requires an occurrence time and a stable external_id supplied by the source or deterministically derived when the source has none. The pair of source and external_id is idempotent: exact replays are reported unchanged, while conflicting replays are reported and never overwrite the existing entry. New entries and any required groups or trackers are created in one transaction.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -585,18 +585,18 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
     async execute({ source, entries }, context) {
       const selectedSource = requiredText(source, "Import source", 200);
       if (!Array.isArray(entries) || entries.length < 1 || entries.length > 100) {
-        throw new Error("Log imports require between 1 and 100 entries");
+        throw new Error("Journal imports require between 1 and 100 entries");
       }
       const seenExternalIds = new Set();
       const inputs = entries.map((entry) => {
         const externalId = normalizedExternalId(entry.external_id);
         if (seenExternalIds.has(externalId)) {
-          throw new Error(`Duplicate external log ID in import batch: ${externalId}`);
+          throw new Error(`Duplicate external journal ID in import batch: ${externalId}`);
         }
         seenExternalIds.add(externalId);
         return {
           externalId,
-          log: normalizedLogInput(entry, { requireOccurredAt: true }),
+          journal: normalizedJournalInput(entry, { requireOccurredAt: true }),
         };
       });
       const database = store.requireReady();
@@ -607,18 +607,18 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         for (const input of inputs) {
           const existingRow = existingImportedEntry(database, selectedSource, input.externalId);
           if (existingRow) {
-            const unchanged = sameImportedEntry(existingRow, input.log);
+            const unchanged = sameImportedEntry(existingRow, input.journal);
             items.push({
               status: unchanged ? "unchanged" : "conflict",
               entry: databaseEntry(existingRow),
               ...(unchanged ? {} : {
-                reason: "The source and external ID already identify a different stored log entry",
+                reason: "The source and external ID already identify a different stored journal entry",
               }),
             });
             continue;
           }
-          const trackerResult = resolveTracker(database, input.log, now, { createIfMissing: true });
-          const entry = insertEntry(database, input.log, trackerResult.tracker, {
+          const trackerResult = resolveTracker(database, input.journal, now, { createIfMissing: true });
+          const entry = insertEntry(database, input.journal, trackerResult.tracker, {
             source: selectedSource,
             externalId: input.externalId,
             requestEventId: context.requestEventId || null,
@@ -648,9 +648,9 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
           items,
         };
         ledger.append({
-          type: "personal_logs.imported", status: "complete", actorType: "tool",
-          actorName: "log_import", turnId: context.requestId, operationId: context.callId,
-          name: "Personal log import processed",
+          type: "personal_journal.imported", status: "complete", actorType: "tool",
+          actorName: "journal_import", turnId: context.requestId, operationId: context.callId,
+          name: "Personal journal import processed",
           content: `${importedCount} imported, ${unchangedCount} unchanged, ${conflictCount} conflicting from ${selectedSource}`,
           payload: {
             source: selectedSource,
@@ -659,11 +659,11 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
             unchangedCount,
             conflictCount,
           },
-          subjectType: "log_import", subjectId: selectedSource,
+          subjectType: "journal_import", subjectId: selectedSource,
         });
-        const semanticResult = logResult(schemaSemantics, context, result, {
-          name: "log_import",
-          purpose: "Return imported, unchanged, or conflicting stored log entries with their database field semantics.",
+        const semanticResult = journalResult(schemaSemantics, context, result, {
+          name: "journal_import",
+          purpose: "Return imported, unchanged, or conflicting stored journal entries with their database field semantics.",
           entriesOnly: true,
         });
         database.exec("COMMIT");
@@ -676,8 +676,8 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
   });
 
   registry.register({
-    name: "log_list",
-    description: "List recent entries from the user's authoritative personal log, optionally filtered by tracker, group, provenance source, or inclusive UTC occurrence-time bounds.",
+    name: "journal_list",
+    description: "List recent entries from the user's authoritative personal journal, optionally filtered by tracker, group, provenance source, or inclusive UTC occurrence-time bounds.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -699,15 +699,15 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         values.push(requiredText(tracker, "Tracker name", 200));
       }
       if (group !== null) {
-        conditions.push("log_group.name = ?");
-        values.push(requiredText(group, "Log group name", 200));
+        conditions.push("journal_group.name = ?");
+        values.push(requiredText(group, "Journal group name", 200));
       }
       if (source !== null) {
         conditions.push("entry.source = ?");
-        values.push(requiredText(source, "Log source", 200));
+        values.push(requiredText(source, "Journal source", 200));
       }
-      const selectedFrom = normalizedInstant(fromUtc, { label: "Log range start" });
-      const selectedThrough = normalizedInstant(throughUtc, { label: "Log range end" });
+      const selectedFrom = normalizedInstant(fromUtc, { label: "Journal range start" });
+      const selectedThrough = normalizedInstant(throughUtc, { label: "Journal range end" });
       if (selectedFrom) {
         conditions.push("entry.occurred_at_utc >= ?");
         values.push(selectedFrom);
@@ -718,43 +718,43 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       }
       const boundedLimit = Math.min(200, Math.max(1, Number(limit) || 50));
       const rows = store.requireReady().prepare(`
-        SELECT entry.*, tracker.name AS tracker_name, tracker.log_group_id,
+        SELECT entry.*, tracker.name AS tracker_name, tracker.journal_group_id,
                tracker.unit AS tracker_unit,
-               log_group.name AS group_name
-        FROM log_entries AS entry
+               journal_group.name AS group_name
+        FROM journal_entries AS entry
         JOIN trackers AS tracker USING (tracker_id)
-        JOIN log_groups AS log_group USING (log_group_id)
+        JOIN journal_groups AS journal_group USING (journal_group_id)
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
-        ORDER BY entry.occurred_at_utc DESC, entry.log_entry_id DESC
+        ORDER BY entry.occurred_at_utc DESC, entry.journal_entry_id DESC
         LIMIT ?
       `).all(...values, boundedLimit).map(databaseEntry);
-      return logResult(schemaSemantics, context, { count: rows.length, entries: rows }, {
-        name: "log_list",
-        purpose: "List stored personal log entries together with their tracker and log group database fields.",
+      return journalResult(schemaSemantics, context, { count: rows.length, entries: rows }, {
+        name: "journal_list",
+        purpose: "List stored personal journal entries together with their tracker and journal group database fields.",
         entriesOnly: true,
       });
     },
   });
 
   registry.register({
-    name: "log_update",
-    description: "Correct one existing personal-log entry by its exact log_entry_id. Null leaves content_text, number_value, or occurred_at_utc unchanged. Set clear_number_value true to clear the optional numeric trend projection. The canonical unit belongs to the tracker and cannot be changed through an entry correction.",
+    name: "journal_update",
+    description: "Correct one existing personal-journal entry by its exact journal_entry_id. Null leaves content_text, number_value, or occurred_at_utc unchanged. Set clear_number_value true to clear the optional numeric trend projection. The canonical unit belongs to the tracker and cannot be changed through an entry correction.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        log_entry_id: { type: "integer", minimum: 1 },
+        journal_entry_id: { type: "integer", minimum: 1 },
         content_text: nullableString,
         number_value: { type: ["number", "null"] },
         clear_number_value: { type: "boolean" },
         occurred_at_utc: nullableString,
       },
       required: [
-        "log_entry_id", "content_text", "number_value", "clear_number_value", "occurred_at_utc",
+        "journal_entry_id", "content_text", "number_value", "clear_number_value", "occurred_at_utc",
       ],
     },
     async execute({
-      log_entry_id: entryId,
+      journal_entry_id: entryId,
       content_text: contentText,
       number_value: numberValue,
       clear_number_value: clearNumberValue,
@@ -764,9 +764,9 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       database.exec("START TRANSACTION");
       try {
         const beforeRow = joinedEntry(database, entryId);
-        if (!beforeRow) throw new Error(`Log entry ${entryId} does not exist`);
+        if (!beforeRow) throw new Error(`Journal entry ${entryId} does not exist`);
         const values = {};
-        if (contentText !== null) values.content_text = requiredText(contentText, "Log content", 10000);
+        if (contentText !== null) values.content_text = requiredText(contentText, "Journal content", 10000);
         if (clearNumberValue) {
           if (numberValue !== null) {
             throw new Error("clear_number_value cannot be combined with a new number_value");
@@ -776,29 +776,29 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
           if (numberValue !== null) values.number_value = numberValue;
         }
         if (occurredAtUtc !== null) {
-          const selectedOccurrence = normalizedInstant(occurredAtUtc, { label: "Log occurrence time" });
-          if (selectedOccurrence === null) throw new Error("Log occurrence time cannot be empty");
+          const selectedOccurrence = normalizedInstant(occurredAtUtc, { label: "Journal occurrence time" });
+          if (selectedOccurrence === null) throw new Error("Journal occurrence time cannot be empty");
           values.occurred_at_utc = selectedOccurrence;
         }
-        if (Object.keys(values).length === 0) throw new Error("No log entry changes were supplied");
+        if (Object.keys(values).length === 0) throw new Error("No journal entry changes were supplied");
         if (numberValue !== null && beforeRow.tracker_unit.toLowerCase() === "set me") {
           throw new Error(`Set the canonical unit for tracker ${beforeRow.tracker_name} before changing its number`);
         }
         values.updated_at_utc = new Date().toISOString();
         const assignments = Object.keys(values).map((column) => `\`${column}\` = ?`).join(", ");
-        database.prepare(`UPDATE log_entries SET ${assignments} WHERE log_entry_id = ?`)
+        database.prepare(`UPDATE journal_entries SET ${assignments} WHERE journal_entry_id = ?`)
           .run(...Object.values(values), entryId);
         const entry = databaseEntry(joinedEntry(database, entryId));
         const result = { updated: true, before: databaseEntry(beforeRow), entry };
         ledger.append({
-          type: "personal_log.updated", status: "complete", actorType: "tool",
-          actorName: "log_update", turnId: context.requestId, operationId: context.callId,
-          name: "Personal log entry updated", content: entry.content_text, payload: result,
-          subjectType: "log_entry", subjectId: String(entry.log_entry_id),
+          type: "personal_journal.updated", status: "complete", actorType: "tool",
+          actorName: "journal_update", turnId: context.requestId, operationId: context.callId,
+          name: "Personal journal entry updated", content: entry.content_text, payload: result,
+          subjectType: "journal_entry", subjectId: String(entry.journal_entry_id),
         });
-        const semanticResult = logResult(schemaSemantics, context, result, {
-          name: "log_update",
-          purpose: "Return the personal log entry before and after an exact-ID correction.",
+        const semanticResult = journalResult(schemaSemantics, context, result, {
+          name: "journal_update",
+          purpose: "Return the personal journal entry before and after an exact-ID correction.",
           entriesOnly: true,
         });
         database.exec("COMMIT");
@@ -812,7 +812,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
 
   registry.register({
     name: "tracker_list",
-    description: "List personal-log trackers with their groups, canonical units, entry counts, and most recent occurrence times.",
+    description: "List personal-journal trackers with their groups, canonical units, entry counts, and most recent occurrence times.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -828,29 +828,29 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
       const values = [];
       if (!includeArchived) {
         conditions.push("tracker.archived_at_utc IS NULL");
-        conditions.push("log_group.archived_at_utc IS NULL");
+        conditions.push("journal_group.archived_at_utc IS NULL");
       }
       if (group !== null) {
-        conditions.push("log_group.name = ?");
-        values.push(requiredText(group, "Log group name", 200));
+        conditions.push("journal_group.name = ?");
+        values.push(requiredText(group, "Journal group name", 200));
       }
       const boundedLimit = Math.min(200, Math.max(1, Number(limit) || 50));
       const rows = store.requireReady().prepare(`
-        SELECT tracker.*, log_group.name AS group_name,
-               log_group.archived_at_utc AS group_archived_at_utc,
-               COUNT(entry.log_entry_id) AS entry_count,
-               MAX(entry.occurred_at_utc) AS last_logged_at_utc
+        SELECT tracker.*, journal_group.name AS group_name,
+               journal_group.archived_at_utc AS group_archived_at_utc,
+               COUNT(entry.journal_entry_id) AS entry_count,
+               MAX(entry.occurred_at_utc) AS last_recorded_at_utc
         FROM trackers AS tracker
-        JOIN log_groups AS log_group USING (log_group_id)
-        LEFT JOIN log_entries AS entry USING (tracker_id)
+        JOIN journal_groups AS journal_group USING (journal_group_id)
+        LEFT JOIN journal_entries AS entry USING (tracker_id)
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
         GROUP BY tracker.tracker_id
-        ORDER BY log_group.name, tracker.name
+        ORDER BY journal_group.name, tracker.name
         LIMIT ?
       `).all(...values, boundedLimit).map(databaseTracker);
-      return logResult(schemaSemantics, context, { count: rows.length, trackers: rows }, {
+      return journalResult(schemaSemantics, context, { count: rows.length, trackers: rows }, {
         name: "tracker_list",
-        purpose: "List stored trackers and log groups with computed entry counts and latest occurrence times.",
+        purpose: "List stored trackers and journal groups with computed entry counts and latest occurrence times.",
         trackersOnly: true,
       });
     },
@@ -858,7 +858,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
 
   registry.register({
     name: "tracker_update",
-    description: "Update one personal-log tracker by ID. Rename it, move it to a group, replace its migration marker with a canonical unit, or archive/reactivate it. A canonical unit cannot be cleared and cannot change after numeric entries exist.",
+    description: "Update one personal-journal tracker by ID. Rename it, move it to a group, replace its migration marker with a canonical unit, or archive/reactivate it. A canonical unit cannot be cleared and cannot change after numeric entries exist.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -881,14 +881,14 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
         const values = {};
         if (name !== null) values.name = requiredText(name, "Tracker name", 200);
         if (group !== null) {
-          const selectedGroup = ensureGroup(database, requiredText(group, "Log group name", 200), now);
-          values.log_group_id = selectedGroup.row.log_group_id;
+          const selectedGroup = ensureGroup(database, requiredText(group, "Journal group name", 200), now);
+          values.journal_group_id = selectedGroup.row.journal_group_id;
         } else if (archived === false && beforeRow.group_archived_at_utc !== null) {
           database.prepare(`
-            UPDATE log_groups
+            UPDATE journal_groups
             SET archived_at_utc = NULL, updated_at_utc = ?
-            WHERE log_group_id = ?
-          `).run(now, beforeRow.log_group_id);
+            WHERE journal_group_id = ?
+          `).run(now, beforeRow.journal_group_id);
         }
         if (unit !== null) values.unit = requiredText(unit, "Tracker unit", 100);
         if (archived !== null) values.archived_at_utc = archived ? now : null;
@@ -905,7 +905,7 @@ export function registerLogTools(registry, store, ledger, schemaSemantics = null
           name: "Personal tracker updated", content: tracker.name, payload: result,
           subjectType: "tracker", subjectId: String(tracker.tracker_id),
         });
-        const semanticResult = logResult(schemaSemantics, context, result, {
+        const semanticResult = journalResult(schemaSemantics, context, result, {
           name: "tracker_update",
           purpose: "Return the tracker before and after an update using stored database field names.",
           trackersOnly: true,

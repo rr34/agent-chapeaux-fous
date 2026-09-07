@@ -17,7 +17,7 @@ import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerJmapEmailTools } from "../src/tools/jmap-email-tools.mjs";
 import { registerEmailReceiptTools } from "../src/tools/email-receipts.mjs";
 import { registerFileTools } from "../src/tools/file-tools.mjs";
-import { registerLogTools } from "../src/tools/log-tools.mjs";
+import { registerJournalTools } from "../src/tools/journal-tools.mjs";
 import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
 import { registerSearchTools } from "../src/tools/search-tools.mjs";
@@ -48,7 +48,7 @@ const tools = [
   tool("contact_search"),
   tool("contact_lookup_batch"),
   tool("todo_list"),
-  tool("log_add"),
+  tool("journal_add"),
   tool("interaction_guide_get"),
   tool("profile_fact_list"),
   tool("profile_fact_set"),
@@ -71,8 +71,8 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("calendar_event_list")), "calendar");
   assert.equal(capabilityForTool(tool("contact_merge")), "contacts");
   assert.equal(capabilityForTool(tool("todo_add")), "todos");
-  assert.equal(capabilityForTool(tool("tracker_update")), "logs");
-  assert.equal(capabilityForTool(tool("log_update")), "logs");
+  assert.equal(capabilityForTool(tool("tracker_update")), "journal");
+  assert.equal(capabilityForTool(tool("journal_update")), "journal");
   assert.equal(capabilityForTool(tool("interaction_guide_update")), "interaction-guides");
   assert.equal(capabilityForTool(tool("database_read")), "database");
   assert.equal(capabilityForTool(tool("database_write")), "database-write");
@@ -256,7 +256,7 @@ test("every currently registered local tool belongs to an explicit capability", 
   registerCalendarTools(registry, {}, {}, {}, null);
   registerContactTools(registry, {}, {}, {}, null);
   registerTodoTools(registry, {}, {}, null);
-  registerLogTools(registry, {}, {}, null);
+  registerJournalTools(registry, {}, {}, null);
   registerInteractionGuideTools(registry, {}, null);
   registerProfileFactTools(registry, {}, null);
   registerDatabaseTools(registry, {}, {}, null);
@@ -365,7 +365,7 @@ test("guided to-do reviews compile stable handles and forward-only progress rule
   assert.match(compiled.instructions, /do not ask the\s+next unaddressed record/);
 });
 
-test("one natural answer to an all-tracker guide checklist retains log tools", () => {
+test("one natural answer to an all-tracker guide checklist retains journal tools", () => {
   const selection = selectRequestCapabilities({
     tools,
     text: "Weight is 185 pounds, left-arm pain is 3 out of 10, and I slept 7 hours.",
@@ -376,11 +376,11 @@ test("one natural answer to an all-tracker guide checklist retains log tools", (
         content: "For weight, left-arm pain, and sleep: what should I record for each tonight?",
       },
     ],
-    previousCapabilities: ["database", "interaction-guides", "logs", "profile", "todos"],
+    previousCapabilities: ["database", "interaction-guides", "journal", "profile", "todos"],
   });
   assert.equal(selection.followsPriorTurn, true);
-  assert.equal(selection.capabilities.includes("logs"), true);
-  assert.equal(names(selection).includes("log_add"), true);
+  assert.equal(selection.capabilities.includes("journal"), true);
+  assert.equal(names(selection).includes("journal_add"), true);
   assert.ok(selection.reasons.includes("interaction-guides:question-answer-continuation"));
 });
 
@@ -410,7 +410,7 @@ test("common plural request words select their focused tool families", () => {
     ["Read these webpages.", "web", "web_page_read"],
     ["Show my appointments.", "calendar", "calendar_event_list"],
     ["List my tasks.", "todos", "todo_list"],
-    ["Show my trackers.", "logs", "log_add"],
+    ["Show my trackers.", "journal", "journal_add"],
     ["Inspect the database tables.", "database", "database_read"],
     ["Search previous conversations.", "history", "history_range"],
     ["Find my AbeBooks emails.", "email", "email_search"],
@@ -451,16 +451,16 @@ test("routine and habit requests select the dedicated reusable-routine tool", ()
   assert.equal(routineCatalog.summary.length <= 400, true);
 });
 
-test("a request to correct records in the logs selects the personal-log capability directly", () => {
+test("a request to correct records in the journal selects the personal-journal capability directly", () => {
   const registry = new ToolRegistry();
-  registerLogTools(registry, {}, {}, null);
+  registerJournalTools(registry, {}, {}, null);
   const selection = selectRequestCapabilities({
     tools: registry.toolDefinitions(),
-    text: "Some records in the logs have no unit; update those so they all say out of 10.",
+    text: "Some records in the journal have no unit; update those so they all say out of 10.",
   });
-  assert.equal(selection.capabilities.includes("logs"), true);
-  assert.equal(names(selection).includes("log_list"), true);
-  assert.equal(names(selection).includes("log_update"), true);
+  assert.equal(selection.capabilities.includes("journal"), true);
+  assert.equal(names(selection).includes("journal_list"), true);
+  assert.equal(names(selection).includes("journal_update"), true);
   assert.equal(selection.fallbackAll, false);
 });
 
@@ -495,15 +495,15 @@ test("an explicit plural email request does not inherit an unrelated prior topic
     tools,
     text: "can you check for abebooks emails and tell me what days my books are supposed to arrive? there is one order with two books on it coming from two different places",
     recentConversation: [
-      { role: "user", content: "Log my weight for today." },
+      { role: "user", content: "Journal my weight for today." },
       { role: "assistant", content: "I recorded today's weight." },
     ],
-    previousCapabilities: ["logs", "profile"],
+    previousCapabilities: ["journal", "profile"],
   });
 
   assert.deepEqual(selection.capabilities, ["database", "email", "profile"]);
   assert.equal(names(selection).includes("email_search"), true);
-  assert.equal(names(selection).includes("log_add"), false);
+  assert.equal(names(selection).includes("journal_add"), false);
   assert.equal(selection.followsPriorTurn, false);
   assert.equal(selection.fallbackAll, false);
 });

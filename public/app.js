@@ -117,7 +117,7 @@ const elements = {
   fileEmpty: document.querySelector("#file-empty"),
   fileSelectionStatus: document.querySelector("#file-selection-status"),
   contactsView: document.querySelector("#contacts-view"),
-  logsView: document.querySelector("#logs-view"),
+  journalView: document.querySelector("#journal-view"),
   interactionsView: document.querySelector("#interactions-view"),
   aiUsageView: document.querySelector("#ai-usage-view"),
   refreshAiUsage: document.querySelector("#refresh-ai-usage"),
@@ -338,23 +338,23 @@ const elements = {
   contactFormError: document.querySelector("#contact-form-error"),
   contactDuplicatesDialog: document.querySelector("#contact-duplicates-dialog"),
   contactDuplicateList: document.querySelector("#contact-duplicate-list"),
-  logGroupFilter: document.querySelector("#log-group-filter"),
-  logTrackerFilter: document.querySelector("#log-tracker-filter"),
-  logCount: document.querySelector("#log-count"),
-  logList: document.querySelector("#log-list"),
-  newLogEntry: document.querySelector("#new-log-entry"),
-  logDialog: document.querySelector("#log-dialog"),
-  logForm: document.querySelector("#log-form"),
-  logTracker: document.querySelector("#log-tracker"),
-  newLogTrackerFields: document.querySelector("#new-log-tracker-fields"),
-  logTrackerName: document.querySelector("#log-tracker-name"),
-  logGroupName: document.querySelector("#log-group-name"),
-  logGroupOptions: document.querySelector("#log-group-options"),
-  logContent: document.querySelector("#log-content"),
-  logNumber: document.querySelector("#log-number"),
-  logTrackerUnit: document.querySelector("#log-tracker-unit"),
-  logOccurred: document.querySelector("#log-occurred"),
-  logFormError: document.querySelector("#log-form-error"),
+  journalGroupFilter: document.querySelector("#journal-group-filter"),
+  journalTrackerFilter: document.querySelector("#journal-tracker-filter"),
+  journalCount: document.querySelector("#journal-count"),
+  journalList: document.querySelector("#journal-list"),
+  newJournalEntry: document.querySelector("#new-journal-entry"),
+  journalDialog: document.querySelector("#journal-dialog"),
+  journalForm: document.querySelector("#journal-form"),
+  journalTracker: document.querySelector("#journal-tracker"),
+  newJournalTrackerFields: document.querySelector("#new-journal-tracker-fields"),
+  journalTrackerName: document.querySelector("#journal-tracker-name"),
+  journalGroupName: document.querySelector("#journal-group-name"),
+  journalGroupOptions: document.querySelector("#journal-group-options"),
+  journalContent: document.querySelector("#journal-content"),
+  journalNumber: document.querySelector("#journal-number"),
+  journalTrackerUnit: document.querySelector("#journal-tracker-unit"),
+  journalOccurred: document.querySelector("#journal-occurred"),
+  journalFormError: document.querySelector("#journal-form-error"),
   interactionGuideStatus: document.querySelector("#interaction-guide-status"),
   interactionGuideCount: document.querySelector("#interaction-guide-count"),
   interactionGuideList: document.querySelector("#interaction-guide-list"),
@@ -436,8 +436,8 @@ let moveOverdueFeedbackTimer = null;
 let contacts = [];
 let contactDuplicateReview = { groups: [], hasMore: false };
 const selectedContactIds = new Set();
-let logTrackers = [];
-let logEntries = [];
+let journalTrackers = [];
+let journalEntries = [];
 let interactionGuideSummaries = [];
 let selectedInteractionGuide = null;
 let interactionGuideLoadSequence = 0;
@@ -2259,7 +2259,7 @@ function switchView(view) {
   elements.videoScriptsView.hidden = view !== "video-scripts";
   elements.filesView.hidden = view !== "files";
   elements.contactsView.hidden = view !== "contacts";
-  elements.logsView.hidden = view !== "logs";
+  elements.journalView.hidden = view !== "journal";
   elements.interactionsView.hidden = view !== "interactions";
   elements.aiUsageView.hidden = view !== "ai-usage";
   for (const button of elements.navButtons) {
@@ -2278,7 +2278,7 @@ function switchView(view) {
   if (view === "video-scripts") void refreshVideoScripts();
   if (view === "files") void loadFiles();
   if (view === "contacts") void refreshContacts();
-  if (view === "logs") void refreshLogs();
+  if (view === "journal") void refreshJournal();
   if (view === "interactions") void refreshInteractionGuides();
   if (view === "ai-usage") void loadAiUsage();
   if (view === "agent" && previousView !== "agent") scrollChatToLatest();
@@ -5379,7 +5379,7 @@ async function cancelInteractionGuideRun(guide, button) {
   }
 }
 
-async function refreshLogs() {
+async function refreshJournal() {
   try {
     const trackerParameters = new URLSearchParams({
       limit: "500",
@@ -5387,75 +5387,75 @@ async function refreshLogs() {
       localDate: localDateKey(new Date()),
     });
     const [trackerBody, entryBody] = await Promise.all([
-      api(`/api/log-trackers?${trackerParameters}`),
-      api("/api/log-entries?limit=500"),
+      api(`/api/journal-trackers?${trackerParameters}`),
+      api("/api/journal-entries?limit=500"),
     ]);
-    logTrackers = trackerBody.trackers;
-    logEntries = entryBody.entries;
-    populateLogFilters();
-    renderLogs();
+    journalTrackers = trackerBody.trackers;
+    journalEntries = entryBody.entries;
+    populateJournalFilters();
+    renderJournal();
   } catch (error) {
-    elements.logList.replaceChildren(node("p", "empty", error.message || "Logs unavailable."));
+    elements.journalList.replaceChildren(node("p", "empty", error.message || "Journal unavailable."));
   }
 }
 
-function logGroups() {
+function journalGroups() {
   const groups = new Map();
-  for (const tracker of logTrackers) groups.set(tracker.groupId, tracker.groupName);
+  for (const tracker of journalTrackers) groups.set(tracker.groupId, tracker.groupName);
   return [...groups].sort((left, right) => left[1].localeCompare(right[1]));
 }
 
-function populateLogFilters() {
-  const selectedGroup = elements.logGroupFilter.value;
-  const selectedTracker = elements.logTrackerFilter.value;
-  elements.logGroupFilter.replaceChildren(node("option", "", "All groups"));
-  elements.logGroupFilter.firstElementChild.value = "";
-  for (const [groupId, name] of logGroups()) {
+function populateJournalFilters() {
+  const selectedGroup = elements.journalGroupFilter.value;
+  const selectedTracker = elements.journalTrackerFilter.value;
+  elements.journalGroupFilter.replaceChildren(node("option", "", "All groups"));
+  elements.journalGroupFilter.firstElementChild.value = "";
+  for (const [groupId, name] of journalGroups()) {
     const option = node("option", "", name);
     option.value = String(groupId);
-    elements.logGroupFilter.append(option);
+    elements.journalGroupFilter.append(option);
   }
-  elements.logGroupFilter.value = selectedGroup;
-  if (!elements.logGroupFilter.value) elements.logGroupFilter.value = "";
-  populateLogTrackerFilter(selectedTracker);
+  elements.journalGroupFilter.value = selectedGroup;
+  if (!elements.journalGroupFilter.value) elements.journalGroupFilter.value = "";
+  populateJournalTrackerFilter(selectedTracker);
 }
 
-function populateLogTrackerFilter(selectedTracker = elements.logTrackerFilter.value) {
-  const groupId = Number(elements.logGroupFilter.value) || null;
-  const visibleTrackers = logTrackers.filter((tracker) => groupId === null || tracker.groupId === groupId);
-  elements.logTrackerFilter.replaceChildren(node("option", "", "All trackers"));
-  elements.logTrackerFilter.firstElementChild.value = "";
+function populateJournalTrackerFilter(selectedTracker = elements.journalTrackerFilter.value) {
+  const groupId = Number(elements.journalGroupFilter.value) || null;
+  const visibleTrackers = journalTrackers.filter((tracker) => groupId === null || tracker.groupId === groupId);
+  elements.journalTrackerFilter.replaceChildren(node("option", "", "All trackers"));
+  elements.journalTrackerFilter.firstElementChild.value = "";
   for (const tracker of visibleTrackers) {
     const option = node("option", "", tracker.name);
     option.value = String(tracker.id);
-    elements.logTrackerFilter.append(option);
+    elements.journalTrackerFilter.append(option);
   }
-  elements.logTrackerFilter.value = selectedTracker;
-  if (!elements.logTrackerFilter.value) elements.logTrackerFilter.value = "";
+  elements.journalTrackerFilter.value = selectedTracker;
+  if (!elements.journalTrackerFilter.value) elements.journalTrackerFilter.value = "";
 }
 
-function formatLogAverage(average, unit) {
+function formatJournalAverage(average, unit) {
   if (average?.value === null || average?.value === undefined) return "—";
   const value = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(average.value);
   return `${value} ${unit}`;
 }
 
-function logAverageGrid(tracker) {
-  const grid = node("div", "log-average-grid");
+function journalAverageGrid(tracker) {
+  const grid = node("div", "journal-average-grid");
   const averages = [
     ["7-day average", tracker.numericAverages?.sevenDay],
     ["1-year average", tracker.numericAverages?.oneYear],
     ["All-time average", tracker.numericAverages?.allTime],
   ];
   for (const [label, average] of averages) {
-    const statistic = node("div", "log-average-stat");
+    const statistic = node("div", "journal-average-stat");
     statistic.append(
       node("span", "", label),
-      node("strong", "", formatLogAverage(average, tracker.unit)),
+      node("strong", "", formatJournalAverage(average, tracker.unit)),
       node(
         "small",
         "",
-        `${average?.dayCount ?? 0} ${(average?.dayCount ?? 0) === 1 ? "logged day" : "logged days"}`,
+        `${average?.dayCount ?? 0} ${(average?.dayCount ?? 0) === 1 ? "recorded day" : "recorded days"}`,
       ),
     );
     grid.append(statistic);
@@ -5463,20 +5463,20 @@ function logAverageGrid(tracker) {
   return grid;
 }
 
-function renderLogs() {
-  elements.logList.replaceChildren();
-  const selectedGroupId = Number(elements.logGroupFilter.value) || null;
-  const selectedTrackerId = Number(elements.logTrackerFilter.value) || null;
-  const visibleTrackers = logTrackers.filter((tracker) => (
+function renderJournal() {
+  elements.journalList.replaceChildren();
+  const selectedGroupId = Number(elements.journalGroupFilter.value) || null;
+  const selectedTrackerId = Number(elements.journalTrackerFilter.value) || null;
+  const visibleTrackers = journalTrackers.filter((tracker) => (
     (selectedGroupId === null || tracker.groupId === selectedGroupId)
     && (selectedTrackerId === null || tracker.id === selectedTrackerId)
   ));
   const visibleTrackerIds = new Set(visibleTrackers.map(({ id }) => id));
-  const visibleEntries = logEntries.filter(({ trackerId }) => visibleTrackerIds.has(trackerId));
+  const visibleEntries = journalEntries.filter(({ trackerId }) => visibleTrackerIds.has(trackerId));
   const totalEntries = visibleTrackers.reduce((total, tracker) => total + tracker.entryCount, 0);
-  elements.logCount.textContent = `${totalEntries} ${totalEntries === 1 ? "entry" : "entries"} · ${visibleTrackers.length} ${visibleTrackers.length === 1 ? "tracker" : "trackers"}`;
+  elements.journalCount.textContent = `${totalEntries} ${totalEntries === 1 ? "entry" : "entries"} · ${visibleTrackers.length} ${visibleTrackers.length === 1 ? "tracker" : "trackers"}`;
   if (visibleTrackers.length === 0) {
-    elements.logList.append(node("p", "empty", "No trackers in this view. Add an entry to create one."));
+    elements.journalList.append(node("p", "empty", "No trackers in this view. Add an entry to create one."));
     return;
   }
 
@@ -5487,138 +5487,138 @@ function renderLogs() {
     grouped.set(tracker.groupId, group);
   }
   for (const [, group] of grouped) {
-    const section = node("section", "log-group-section");
-    const heading = node("header", "log-group-heading");
+    const section = node("section", "journal-group-section");
+    const heading = node("header", "journal-group-heading");
     heading.append(
       node("h3", "", group.name),
       node("span", "", `${group.trackers.length} ${group.trackers.length === 1 ? "tracker" : "trackers"}`),
     );
-    const cards = node("div", "log-tracker-grid");
+    const cards = node("div", "journal-tracker-grid");
     for (const tracker of group.trackers) {
-      const card = node("article", "log-tracker-card");
-      const cardHeading = node("header", "log-tracker-heading");
+      const card = node("article", "journal-tracker-card");
+      const cardHeading = node("header", "journal-tracker-heading");
       const headingText = node("div");
       headingText.append(node("h4", "", tracker.name));
-      const trackerMeta = node("p", "log-tracker-meta");
+      const trackerMeta = node("p", "journal-tracker-meta");
       trackerMeta.textContent = `${tracker.entryCount} ${tracker.entryCount === 1 ? "entry" : "entries"}`
         + ` · ${tracker.unit}`;
       headingText.append(trackerMeta);
-      const add = node("button", "secondary compact", "Log entry");
+      const add = node("button", "secondary compact", "Add entry");
       add.type = "button";
-      add.addEventListener("click", () => openLogEditor(tracker.id));
+      add.addEventListener("click", () => openJournalEditor(tracker.id));
       cardHeading.append(headingText, add);
       const entries = visibleEntries.filter(({ trackerId }) => trackerId === tracker.id);
-      const entryList = node("div", "log-entry-list");
+      const entryList = node("div", "journal-entry-list");
       if (entries.length === 0) {
         entryList.append(node("p", "empty", "No recent entries."));
       } else {
         for (const entry of entries) {
-          const item = node("article", "log-entry");
-          const metadata = node("div", "log-entry-meta");
+          const item = node("article", "journal-entry");
+          const metadata = node("div", "journal-entry-meta");
           metadata.append(node("time", "", formatDisplayDate(entry.occurredAtUtc)));
           if (entry.numberValue !== null) {
-            metadata.append(node("span", "log-value", `${entry.numberValue} ${tracker.unit}`));
+            metadata.append(node("span", "journal-value", `${entry.numberValue} ${tracker.unit}`));
           }
           item.append(metadata, node("p", "", entry.contentText));
           entryList.append(item);
         }
       }
-      const entryDisclosure = node("details", "log-entry-disclosure");
-      const entrySummary = node("summary", "log-entry-summary");
+      const entryDisclosure = node("details", "journal-entry-disclosure");
+      const entrySummary = node("summary", "journal-entry-summary");
       entrySummary.append(
         node("span", "", "Recent entries"),
         node(
           "span",
-          "log-entry-summary-count",
+          "journal-entry-summary-count",
           entries.length === tracker.entryCount
             ? String(entries.length)
             : `${entries.length} of ${tracker.entryCount}`,
         ),
       );
       entryDisclosure.append(entrySummary, entryList);
-      card.append(cardHeading, logAverageGrid(tracker), entryDisclosure);
+      card.append(cardHeading, journalAverageGrid(tracker), entryDisclosure);
       cards.append(card);
     }
     section.append(heading, cards);
-    elements.logList.append(section);
+    elements.journalList.append(section);
   }
 }
 
-function populateLogTrackerEditor(selectedTrackerId = null) {
-  elements.logTracker.replaceChildren();
-  for (const [groupId, groupName] of logGroups()) {
+function populateJournalTrackerEditor(selectedTrackerId = null) {
+  elements.journalTracker.replaceChildren();
+  for (const [groupId, groupName] of journalGroups()) {
     const optgroup = document.createElement("optgroup");
     optgroup.label = groupName;
-    for (const tracker of logTrackers.filter((item) => item.groupId === groupId)) {
+    for (const tracker of journalTrackers.filter((item) => item.groupId === groupId)) {
       const option = node("option", "", tracker.name);
       option.value = String(tracker.id);
       optgroup.append(option);
     }
-    elements.logTracker.append(optgroup);
+    elements.journalTracker.append(optgroup);
   }
   const newOption = node("option", "", "Create a new tracker…");
   newOption.value = "new";
-  elements.logTracker.append(newOption);
-  elements.logTracker.value = selectedTrackerId == null ? "new" : String(selectedTrackerId);
-  if (!elements.logTracker.value) elements.logTracker.value = "new";
+  elements.journalTracker.append(newOption);
+  elements.journalTracker.value = selectedTrackerId == null ? "new" : String(selectedTrackerId);
+  if (!elements.journalTracker.value) elements.journalTracker.value = "new";
 
-  elements.logGroupOptions.replaceChildren();
-  for (const [, name] of logGroups()) {
+  elements.journalGroupOptions.replaceChildren();
+  for (const [, name] of journalGroups()) {
     const option = document.createElement("option");
     option.value = name;
-    elements.logGroupOptions.append(option);
+    elements.journalGroupOptions.append(option);
   }
-  updateLogTrackerEditor();
+  updateJournalTrackerEditor();
 }
 
-function updateLogTrackerEditor() {
-  const isNew = elements.logTracker.value === "new";
-  elements.newLogTrackerFields.hidden = !isNew;
-  elements.logTrackerName.required = isNew;
-  elements.logGroupName.required = isNew;
-  const tracker = logTrackers.find(({ id }) => id === Number(elements.logTracker.value));
+function updateJournalTrackerEditor() {
+  const isNew = elements.journalTracker.value === "new";
+  elements.newJournalTrackerFields.hidden = !isNew;
+  elements.journalTrackerName.required = isNew;
+  elements.journalGroupName.required = isNew;
+  const tracker = journalTrackers.find(({ id }) => id === Number(elements.journalTracker.value));
   const unitNeedsReview = tracker?.unit?.toLowerCase() === "set me";
-  elements.logTrackerUnit.value = unitNeedsReview ? "" : tracker?.unit ?? "";
-  elements.logTrackerUnit.readOnly = Boolean(tracker && !unitNeedsReview);
-  elements.logTrackerUnit.required = isNew || unitNeedsReview;
-  elements.logTrackerUnit.placeholder = unitNeedsReview ? "Replace ‘set me’" : "e.g. kg, reps, out of 10";
+  elements.journalTrackerUnit.value = unitNeedsReview ? "" : tracker?.unit ?? "";
+  elements.journalTrackerUnit.readOnly = Boolean(tracker && !unitNeedsReview);
+  elements.journalTrackerUnit.required = isNew || unitNeedsReview;
+  elements.journalTrackerUnit.placeholder = unitNeedsReview ? "Replace ‘set me’" : "e.g. kg, reps, out of 10";
 }
 
-function openLogEditor(trackerId = null) {
-  elements.logForm.reset();
-  elements.logFormError.textContent = "";
-  elements.logOccurred.value = localDateTimeInput(new Date());
-  elements.logGroupName.value = "General";
-  populateLogTrackerEditor(trackerId);
-  elements.logDialog.showModal();
-  (trackerId == null ? elements.logTrackerName : elements.logContent).focus();
+function openJournalEditor(trackerId = null) {
+  elements.journalForm.reset();
+  elements.journalFormError.textContent = "";
+  elements.journalOccurred.value = localDateTimeInput(new Date());
+  elements.journalGroupName.value = "General";
+  populateJournalTrackerEditor(trackerId);
+  elements.journalDialog.showModal();
+  (trackerId == null ? elements.journalTrackerName : elements.journalContent).focus();
 }
 
-async function saveLogEntry(event) {
+async function saveJournalEntry(event) {
   event.preventDefault();
-  elements.logFormError.textContent = "";
-  const submit = elements.logForm.querySelector('[type="submit"]');
+  elements.journalFormError.textContent = "";
+  const submit = elements.journalForm.querySelector('[type="submit"]');
   submit.disabled = true;
   try {
-    const creatingTracker = elements.logTracker.value === "new";
+    const creatingTracker = elements.journalTracker.value === "new";
     const payload = {
-      trackerId: creatingTracker ? null : Number(elements.logTracker.value),
-      trackerName: creatingTracker ? elements.logTrackerName.value : null,
-      groupName: creatingTracker ? elements.logGroupName.value : null,
-      contentText: elements.logContent.value,
-      numberValue: elements.logNumber.value === "" ? null : Number(elements.logNumber.value),
-      trackerUnit: elements.logTrackerUnit.value || null,
-      occurredAtUtc: inputToIso(elements.logOccurred.value),
+      trackerId: creatingTracker ? null : Number(elements.journalTracker.value),
+      trackerName: creatingTracker ? elements.journalTrackerName.value : null,
+      groupName: creatingTracker ? elements.journalGroupName.value : null,
+      contentText: elements.journalContent.value,
+      numberValue: elements.journalNumber.value === "" ? null : Number(elements.journalNumber.value),
+      trackerUnit: elements.journalTrackerUnit.value || null,
+      occurredAtUtc: inputToIso(elements.journalOccurred.value),
     };
-    await api("/api/log-entries", {
+    await api("/api/journal-entries", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    elements.logDialog.close();
-    await refreshLogs();
+    elements.journalDialog.close();
+    await refreshJournal();
   } catch (error) {
-    elements.logFormError.textContent = error.message || "Could not save the log entry.";
+    elements.journalFormError.textContent = error.message || "Could not save the journal entry.";
   } finally {
     submit.disabled = false;
   }
@@ -6096,14 +6096,14 @@ elements.addContactMethod.addEventListener("click", () => {
   addContactMethodRow().querySelector(".contact-method-input").focus();
 });
 elements.contactForm.addEventListener("submit", saveContact);
-elements.newLogEntry.addEventListener("click", () => openLogEditor());
-elements.logGroupFilter.addEventListener("change", () => {
-  populateLogTrackerFilter("");
-  renderLogs();
+elements.newJournalEntry.addEventListener("click", () => openJournalEditor());
+elements.journalGroupFilter.addEventListener("change", () => {
+  populateJournalTrackerFilter("");
+  renderJournal();
 });
-elements.logTrackerFilter.addEventListener("change", renderLogs);
-elements.logTracker.addEventListener("change", updateLogTrackerEditor);
-elements.logForm.addEventListener("submit", saveLogEntry);
+elements.journalTrackerFilter.addEventListener("change", renderJournal);
+elements.journalTracker.addEventListener("change", updateJournalTrackerEditor);
+elements.journalForm.addEventListener("submit", saveJournalEntry);
 elements.newInteractionGuide.addEventListener("click", () => openInteractionGuideEditor());
 elements.refreshInteractionGuides.addEventListener("click", () => void refreshInteractionGuides());
 elements.interactionGuideStatus.addEventListener("change", () => {

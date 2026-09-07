@@ -16,6 +16,145 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0032: rename-personal-log-to-journal
+-- writer downtime: required; deploy the matching Journal application after migration.
+-- locking: table/column renames and constraint/index changes take metadata locks;
+-- constraint validation can scan entries. No entries or activity receipts are rewritten.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped on failure and
+-- rerun this resumable block. Renames check for the original object; constraints
+-- and triggers are restored explicitly. Restore the verified backup to roll back.
+-- postconditions: the runner checks names, relationships, indexes, and triggers
+-- before recording version 32. Sync schema semantics, then run npm run db:verify.
+
+DROP TRIGGER IF EXISTS log_entries_require_tracker_unit_before_insert;
+DROP TRIGGER IF EXISTS log_entries_require_tracker_unit_before_update;
+DROP TRIGGER IF EXISTS journal_entries_require_tracker_unit_before_insert;
+DROP TRIGGER IF EXISTS journal_entries_require_tracker_unit_before_update;
+DROP TRIGGER IF EXISTS trackers_preserve_numeric_unit_before_update;
+ALTER TABLE trackers DROP CONSTRAINT IF EXISTS trackers_group;
+
+SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'log_groups' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE log_groups TO journal_groups', 'DO 0');
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'log_entries' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE log_entries TO journal_entries', 'DO 0');
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_groups' AND COLUMN_NAME = 'log_group_id'), 'ALTER TABLE journal_groups CHANGE COLUMN log_group_id journal_group_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT', 'DO 0');
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trackers' AND COLUMN_NAME = 'log_group_id'), 'ALTER TABLE trackers CHANGE COLUMN log_group_id journal_group_id BIGINT UNSIGNED NOT NULL', 'DO 0');
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_entries' AND COLUMN_NAME = 'log_entry_id'), 'ALTER TABLE journal_entries CHANGE COLUMN log_entry_id journal_entry_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT', 'DO 0');
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_groups' AND INDEX_NAME = 'log_groups_name'), 'ALTER TABLE journal_groups RENAME INDEX log_groups_name TO journal_groups_name', 'DO 0');
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_entries' AND INDEX_NAME = 'log_entries_source_external'), 'ALTER TABLE journal_entries RENAME INDEX log_entries_source_external TO journal_entries_source_external', 'DO 0');
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_entries' AND INDEX_NAME = 'log_entries_tracker_occurred'), 'ALTER TABLE journal_entries RENAME INDEX log_entries_tracker_occurred TO journal_entries_tracker_occurred', 'DO 0');
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_entries' AND INDEX_NAME = 'log_entries_event'), 'ALTER TABLE journal_entries RENAME INDEX log_entries_event TO journal_entries_event', 'DO 0');
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+ALTER TABLE journal_groups
+  DROP CONSTRAINT IF EXISTS log_groups_name_length,
+  DROP CONSTRAINT IF EXISTS journal_groups_name_length,
+  ADD CONSTRAINT journal_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200);
+
+ALTER TABLE journal_entries
+  DROP CONSTRAINT IF EXISTS log_entries_tracker,
+  DROP CONSTRAINT IF EXISTS journal_entries_tracker,
+  ADD CONSTRAINT journal_entries_tracker FOREIGN KEY (tracker_id) REFERENCES trackers(tracker_id) ON DELETE RESTRICT;
+
+ALTER TABLE journal_entries
+  DROP CONSTRAINT IF EXISTS log_entries_event,
+  DROP CONSTRAINT IF EXISTS journal_entries_event,
+  ADD CONSTRAINT journal_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL;
+
+ALTER TABLE journal_entries
+  DROP CONSTRAINT IF EXISTS log_entries_content,
+  DROP CONSTRAINT IF EXISTS journal_entries_content,
+  ADD CONSTRAINT journal_entries_content CHECK (CHAR_LENGTH(TRIM(content_text)) BETWEEN 1 AND 10000);
+
+ALTER TABLE journal_entries
+  DROP CONSTRAINT IF EXISTS log_entries_source_length,
+  DROP CONSTRAINT IF EXISTS journal_entries_source_length,
+  ADD CONSTRAINT journal_entries_source_length CHECK (CHAR_LENGTH(TRIM(source)) BETWEEN 1 AND 200);
+
+ALTER TABLE journal_entries
+  DROP CONSTRAINT IF EXISTS log_entries_external_length,
+  DROP CONSTRAINT IF EXISTS journal_entries_external_length,
+  ADD CONSTRAINT journal_entries_external_length CHECK (external_id IS NULL OR CHAR_LENGTH(TRIM(external_id)) BETWEEN 1 AND 1000);
+
+ALTER TABLE trackers ADD CONSTRAINT trackers_group FOREIGN KEY (journal_group_id) REFERENCES journal_groups(journal_group_id) ON DELETE RESTRICT;
+
+SET @journal_migration_sql = 'CREATE TRIGGER journal_entries_require_tracker_unit_before_insert
+BEFORE INSERT ON journal_entries
+FOR EACH ROW
+BEGIN
+  IF NEW.number_value IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
+  THEN
+    SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''numeric journal entries require a tracker unit'';
+  END IF;
+END';
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = 'CREATE TRIGGER journal_entries_require_tracker_unit_before_update
+BEFORE UPDATE ON journal_entries
+FOR EACH ROW
+BEGIN
+  IF NEW.number_value IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
+  THEN
+    SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''numeric journal entries require a tracker unit'';
+  END IF;
+END';
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+SET @journal_migration_sql = 'CREATE TRIGGER trackers_preserve_numeric_unit_before_update
+BEFORE UPDATE ON trackers
+FOR EACH ROW
+BEGIN
+  IF NOT (OLD.unit <=> NEW.unit)
+     AND LOWER(OLD.unit) <> ''set me''
+     AND EXISTS (SELECT 1 FROM journal_entries WHERE tracker_id = OLD.tracker_id AND number_value IS NOT NULL)
+  THEN
+    SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''a tracker unit cannot change after numeric entries exist'';
+  END IF;
+END';
+PREPARE journal_migration_statement FROM @journal_migration_sql;
+EXECUTE journal_migration_statement;
+DEALLOCATE PREPARE journal_migration_statement;
+
+-- end migration 0032
+
 -- migration 0031: normalize-todo-personal-constraint-names
 -- writer downtime: required; this replaces constraints on todo_personal.
 -- locking: ALTER TABLE takes a metadata lock and may briefly rebuild indexes.

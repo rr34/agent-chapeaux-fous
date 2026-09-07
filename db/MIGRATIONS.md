@@ -47,6 +47,7 @@ export SLAYER_MIGRATION_WRITERS_STOPPED=1
 npm run db:migrate
 unset SLAYER_MIGRATION_BACKUP_CONFIRMED SLAYER_MIGRATION_WRITERS_STOPPED
 
+npm run schema:semantics:sync
 npm run db:verify
 npm test
 
@@ -57,3 +58,22 @@ systemctl --user status agent-slayer.service --no-pager
 Do not restart the service when migration or verification fails. If no
 migrations are pending, `npm run db:migrate` is a read-only integrity check and
 does not require the confirmation variables.
+
+## Version 32: Journal
+
+Version 32 renames the personal journal tables, primary-key columns, tracker
+group reference, indexes, constraints, and triggers. It retains existing entry
+and tracker IDs, content, timestamps, import provenance, and source-event links.
+Historical activity receipts remain literal records of the tools originally
+called and are not rewritten.
+
+Deploy this migration and the matching Journal application together during the
+approved writer downtime. The application requires schema version 32 and uses
+`journal_add`, `journal_import`, `journal_list`, `journal_update`,
+`journal.active_trackers`, `/api/journal-trackers`, and `/api/journal-entries`.
+The tracked semantic form describes the planned version 32 schema; synchronize
+it against the migrated database and inspect the diff before verification.
+
+Trigger bodies use prepared SQL so the ledger retains complete compound
+statements with the existing statement splitter. This is supported by the
+MariaDB 10.11 baseline target; see the [MariaDB PREPARE documentation](https://mariadb.com/docs/server/reference/sql-statements/prepared-statements/prepare-statement).

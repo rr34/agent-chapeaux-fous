@@ -11,7 +11,7 @@ import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
 import { registerContactTools } from "../src/tools/contact-tools.mjs";
-import { registerLogTools } from "../src/tools/log-tools.mjs";
+import { registerJournalTools } from "../src/tools/journal-tools.mjs";
 import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
@@ -105,8 +105,8 @@ test("structured database reads return an exact schema-semantic projection", asy
     true,
   );
 
-  const logResult = await registry.execute("database_read", {
-    objectName: "log_entries",
+  const journalResult = await registry.execute("database_read", {
+    objectName: "journal_entries",
     columns: ["content_text", "number_value", "source", "external_id"],
     where: {},
     orderBy: "occurred_at_utc",
@@ -115,12 +115,12 @@ test("structured database reads return an exact schema-semantic projection", asy
   }, {
     requestId: request.requestId,
     requestEventId: request.eventId,
-    callId: "log-schema-read",
+    callId: "journal-schema-read",
   });
-  const logFields = logResult.schemaProjection.schemaProjection.schemaObjects.log_entries.fields;
-  assert.match(logFields.content_text.meaning, /Complete self-contained natural-language content/);
-  assert.match(logFields.number_value.meaning, /Optional numeric projection/);
-  assert.match(logFields.external_id.meaning, /make imports idempotent/);
+  const journalFields = journalResult.schemaProjection.schemaProjection.schemaObjects.journal_entries.fields;
+  assert.match(journalFields.content_text.meaning, /Complete self-contained natural-language content/);
+  assert.match(journalFields.number_value.meaning, /Optional numeric projection/);
+  assert.match(journalFields.external_id.meaning, /make imports idempotent/);
 
   await assert.rejects(
     registry.execute("database_read", {
@@ -180,7 +180,7 @@ test("native database-backed tools return stored field names with semantic proje
   registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);
   registerContactTools(registry, store, organizer, ledger, schemaSemantics);
   registerTodoTools(registry, store, ledger, schemaSemantics);
-  registerLogTools(registry, store, ledger, schemaSemantics);
+  registerJournalTools(registry, store, ledger, schemaSemantics);
   registerInteractionGuideTools(
     registry,
     new InteractionGuides({ store, ledger }),
@@ -194,11 +194,11 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.todo_add, "scheduledAtUtc"), false);
   assert.equal(Object.hasOwn(definitions.routine_add, "recurrence"), true);
   assert.equal(Object.hasOwn(definitions.routine_add, "group"), true);
-  assert.equal(Object.hasOwn(definitions.log_add, "content_text"), true);
-  assert.equal(Object.hasOwn(definitions.log_add, "tracker_unit"), true);
-  assert.equal(Object.hasOwn(definitions.log_add, "unit"), false);
-  assert.equal(Object.hasOwn(definitions.log_add, "content"), false);
-  assert.equal(Object.hasOwn(definitions.log_update, "log_entry_id"), true);
+  assert.equal(Object.hasOwn(definitions.journal_add, "content_text"), true);
+  assert.equal(Object.hasOwn(definitions.journal_add, "tracker_unit"), true);
+  assert.equal(Object.hasOwn(definitions.journal_add, "unit"), false);
+  assert.equal(Object.hasOwn(definitions.journal_add, "content"), false);
+  assert.equal(Object.hasOwn(definitions.journal_update, "journal_entry_id"), true);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "fact_type"), true);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "factType"), false);
   assert.equal(Object.hasOwn(definitions.interaction_guide_update, "guide_text"), false);
@@ -234,18 +234,18 @@ test("native database-backed tools return stored field names with semantic proje
     /Complete human-facing name/,
   );
 
-  const logged = await registry.execute("log_add", {
+  const recorded = await registry.execute("journal_add", {
     tracker: "Weight", group: "Health", content_text: "72.1 kg", number_value: 72.1,
     tracker_unit: "kg", occurred_at_utc: "2026-08-16T12:00:00Z", create_if_missing: true,
   }, toolContext);
-  assert.equal(logged.entry.content_text, "72.1 kg");
-  assert.equal(Object.hasOwn(logged.entry, "content"), false);
+  assert.equal(recorded.entry.content_text, "72.1 kg");
+  assert.equal(Object.hasOwn(recorded.entry, "content"), false);
   assert.match(
-    logged.schemaProjection.schemaProjection.schemaObjects.log_entries.fields.content_text.meaning,
+    recorded.schemaProjection.schemaProjection.schemaObjects.journal_entries.fields.content_text.meaning,
     /Complete self-contained natural-language content/,
   );
   assert.match(
-    logged.schemaProjection.schemaProjection.schemaObjects.trackers.fields.unit.meaning,
+    recorded.schemaProjection.schemaProjection.schemaObjects.trackers.fields.unit.meaning,
     /Canonical unit shared by every numeric entry/,
   );
 

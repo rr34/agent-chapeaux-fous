@@ -370,7 +370,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
           `- Briefing: Evening Briefing [run_id=${runId}]`,
           "  Current exchange 3 [progress_state=active]",
           "  Opening: Please provide your exercise values.",
-          "  Contract: five exact log_add operations with tool_receipt completion.",
+          "  Contract: five exact journal_add operations with tool_receipt completion.",
         ].join("\n"),
         data: {
           runs: [{
@@ -378,7 +378,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
             currentExchange: {
               stepNumber: 3,
               contract: {
-                instructions: "Call `log_add` once for each supplied value.",
+                instructions: "Call `journal_add` once for each supplied value.",
                 completion: { mode: "tool_receipt" },
                 operations: [],
               },
@@ -386,7 +386,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
                 completionMode: "tool_receipt",
                 operationTools: [],
                 recoveryReadTools: [],
-                legacyInstructionTools: ["log_add"],
+                legacyInstructionTools: ["journal_add"],
               },
             },
           }],
@@ -394,10 +394,10 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
       };
     },
   });
-  const logged = [];
-  registry.withCapability("logs").register({
-    name: "log_add",
-    description: "Record one exercise log entry.",
+  const recorded = [];
+  registry.withCapability("journal").register({
+    name: "journal_add",
+    description: "Record one exercise journal entry.",
     annotations: { readOnlyHint: false, destructiveHint: false },
     parameters: {
       type: "object", additionalProperties: false,
@@ -407,7 +407,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
       required: ["tracker", "number_value", "unit"],
     },
     async execute(argumentsObject) {
-      logged.push(structuredClone(argumentsObject));
+      recorded.push(structuredClone(argumentsObject));
       return { created: true, entry: argumentsObject };
     },
   });
@@ -450,13 +450,13 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
     requiredTools: ["interaction_guide_step_answer"],
     contextRequests: ["interaction-guides.active_runs"],
     requestedActions: [source],
-    completionCriteria: ["Five exercise log entries are created and the briefing advances."],
+    completionCriteria: ["Five exercise journal entries are created and the briefing advances."],
     evidence: [source],
   };
   const refinedBrief = {
     ...initialBrief,
-    requiredCapabilities: ["interaction-guides", "logs"],
-    requiredTools: ["interaction_guide_step_answer", "log_add"],
+    requiredCapabilities: ["interaction-guides", "journal"],
+    requiredTools: ["interaction_guide_step_answer", "journal_add"],
   };
   const values = [
     ["Abs", 100, "reps"],
@@ -469,7 +469,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
     if (index === 0) return completed(JSON.stringify(initialBrief), 20);
     if (index === 1) {
       assert.match(payload.developerInstructions, /Finalize orientation from selected read-only context/);
-      assert.match(payload.developerInstructions, /"legacyInstructionTools": \[\s*"log_add"/);
+      assert.match(payload.developerInstructions, /"legacyInstructionTools": \[\s*"journal_add"/);
       assert.equal(payload.outputSchema.properties.contextRequests.minItems, 1);
       assert.deepEqual(
         payload.outputSchema.properties.contextRequests.items.enum,
@@ -480,18 +480,18 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
     if (index === 2) {
       assert.deepEqual(
         new Set(payload.tools.map(({ name }) => name)),
-        new Set(["interaction_guide_step_answer", "log_add"]),
+        new Set(["interaction_guide_step_answer", "journal_add"]),
       );
       for (const [tracker, numberValue, unit] of values) {
         const result = await payload.onToolCall({
-          callId: `log-${tracker}`,
-          tool: "log_add",
+          callId: `journal-${tracker}`,
+          tool: "journal_add",
           arguments: { tracker, number_value: numberValue, unit },
         });
         assert.equal(result.ok, true);
       }
       const receiptEventSeqs = ledger.events.filter(({ type, name }) => (
-        type === "tool.result" && name === "log_add"
+        type === "tool.result" && name === "journal_add"
       )).map(({ eventSeq }) => eventSeq);
       const answer = await payload.onToolCall({
         callId: "advance-exercise-exchange",
@@ -514,7 +514,7 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
     return completed(JSON.stringify({
       contractVersion: 1,
       outcome: "complete",
-      summary: "All exercise logs were created and the briefing advanced.",
+      summary: "All exercise journal entries were created and the briefing advanced.",
       satisfiedCriteria: refinedBrief.completionCriteria,
       remainingActions: [],
       repairInstructions: [],
@@ -535,11 +535,11 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
     text: "100 abs, 50 leg reps, 30 pull-up reps, 20 push-up reps, 10 minutes of stretching",
   }), "Recorded all five exercise entries. How was your sleep?");
   assert.equal(requests.length, 4);
-  assert.equal(logged.length, 5);
+  assert.equal(recorded.length, 5);
   assert.equal(completionReceiptEventSeqs.length, 5);
   assert.deepEqual(
     ledger.events.find(({ type }) => type === "turn.brief").payload.brief.requiredCapabilities,
-    ["interaction-guides", "logs"],
+    ["interaction-guides", "journal"],
   );
 });
 

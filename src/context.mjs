@@ -157,7 +157,7 @@ export class ContextBuilder {
     const questionInstructions = profileFactQuestionInstructions(relevantProfileQuestions);
     const capabilitySections = preparedCapabilityContext ?? [];
     const activeTrackers = capabilitySections
-      .find(({ capability }) => capability === "logs")?.data?.trackers ?? [];
+      .find(({ capability }) => capability === "journal")?.data?.trackers ?? [];
     const historyText = boundedRecentHistory(history);
     const continuationAnchor = continuingConversation
       ? boundedContinuationAnchor(history)

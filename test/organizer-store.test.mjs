@@ -786,11 +786,11 @@ test("overdue one-time todos move as one batch while routine publications stay s
   }
 });
 
-test("personal log entries and grouped trackers are available to the web organizer", () => {
+test("personal journal entries and grouped trackers are available to the web organizer", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);
   try {
-    const first = organizer.createLogEntry({
+    const first = organizer.createJournalEntry({
       trackerName: "Weight",
       groupName: "Health",
       contentText: "72.1 kg after dinner",
@@ -803,7 +803,7 @@ test("personal log entries and grouped trackers are available to the web organiz
     assert.equal(first.source, "tailnet_web");
     assert.equal(first.numberValue, 72.1);
 
-    const second = organizer.createLogEntry({
+    const second = organizer.createJournalEntry({
       trackerId: first.trackerId,
       contentText: "71.8 kg before breakfast",
       numberValue: 71.8,
@@ -812,16 +812,16 @@ test("personal log entries and grouped trackers are available to the web organiz
     });
     assert.equal(second.trackerUnit, "kg");
     assert.deepEqual(
-      organizer.listLogEntries({ trackerId: first.trackerId }).map(({ contentText }) => contentText),
+      organizer.listJournalEntries({ trackerId: first.trackerId }).map(({ contentText }) => contentText),
       ["71.8 kg before breakfast", "72.1 kg after dinner"],
     );
 
-    const trackers = organizer.listLogTrackers();
+    const trackers = organizer.listJournalTrackers();
     assert.equal(trackers.length, 1);
     assert.equal(trackers[0].entryCount, 2);
-    assert.equal(trackers[0].lastLoggedAtUtc, "2026-08-16T08:00:00.000Z");
+    assert.equal(trackers[0].lastRecordedAtUtc, "2026-08-16T08:00:00.000Z");
     assert.throws(
-      () => organizer.createLogEntry({
+      () => organizer.createJournalEntry({
         trackerName: "Mood",
         contentText: "Calm",
         numberValue: null,
@@ -830,10 +830,10 @@ test("personal log entries and grouped trackers are available to the web organiz
       (error) => error instanceof OrganizerInputError && /require a canonical unit/.test(error.message),
     );
     assert.equal(organizer.database.prepare(
-      "SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_log.created'",
+      "SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_journal.created'",
     ).get().count, 2);
     assert.equal(organizer.database.prepare(
-      "SELECT COUNT(*) AS count FROM log_entries WHERE source_event_id IS NOT NULL",
+      "SELECT COUNT(*) AS count FROM journal_entries WHERE source_event_id IS NOT NULL",
     ).get().count, 2);
   } finally {
     organizer.close();
@@ -841,11 +841,11 @@ test("personal log entries and grouped trackers are available to the web organiz
   }
 });
 
-test("numeric log averages give each logged local day one equal weight", () => {
+test("numeric journal averages give each recorded local day one equal weight", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);
   try {
-    const first = organizer.createLogEntry({
+    const first = organizer.createJournalEntry({
       trackerName: "Weight",
       groupName: "Health",
       contentText: "First reading",
@@ -859,7 +859,7 @@ test("numeric log averages give each logged local day one equal weight", () => {
       ["Eight local days ago", 100, "2026-08-23T12:00:00.000Z"],
       ["Old history", 50, "2020-01-01T12:00:00.000Z"],
     ]) {
-      organizer.createLogEntry({
+      organizer.createJournalEntry({
         trackerId: first.trackerId,
         contentText,
         numberValue,
@@ -867,7 +867,7 @@ test("numeric log averages give each logged local day one equal weight", () => {
       });
     }
 
-    const tracker = organizer.listLogTrackers({
+    const tracker = organizer.listJournalTrackers({
       timeZone: "America/New_York",
       localDate: "2026-08-31",
     })[0];
@@ -875,7 +875,7 @@ test("numeric log averages give each logged local day one equal weight", () => {
     assert.deepEqual(tracker.numericAverages.oneYear, { value: 84, dayCount: 3 });
     assert.deepEqual(tracker.numericAverages.allTime, { value: 75.5, dayCount: 4 });
 
-    const temperature = organizer.createLogEntry({
+    const temperature = organizer.createJournalEntry({
       trackerName: "Temperature",
       groupName: "Health",
       contentText: "Just after midnight UTC",
@@ -883,17 +883,17 @@ test("numeric log averages give each logged local day one equal weight", () => {
       trackerUnit: "°C",
       occurredAtUtc: "2026-08-31T00:30:00.000Z",
     });
-    organizer.createLogEntry({
+    organizer.createJournalEntry({
       trackerId: temperature.trackerId,
       contentText: "Late that UTC day",
       numberValue: 20,
       occurredAtUtc: "2026-08-31T23:30:00.000Z",
     });
-    const newYorkTemperature = organizer.listLogTrackers({
+    const newYorkTemperature = organizer.listJournalTrackers({
       timeZone: "America/New_York",
       localDate: "2026-08-31",
     }).find(({ id }) => id === temperature.trackerId);
-    const utcTemperature = organizer.listLogTrackers({
+    const utcTemperature = organizer.listJournalTrackers({
       timeZone: "UTC",
       localDate: "2026-08-31",
     }).find(({ id }) => id === temperature.trackerId);

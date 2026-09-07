@@ -9,7 +9,7 @@ const localCapabilityMatchers = [
   ["calendar", (tool) => tool.name.startsWith("calendar_")],
   ["contacts", (tool) => tool.name.startsWith("contact_")],
   ["todos", (tool) => tool.name.startsWith("todo_")],
-  ["logs", (tool) => tool.name.startsWith("log_") || tool.name.startsWith("tracker_")],
+  ["journal", (tool) => tool.name.startsWith("journal_") || tool.name.startsWith("tracker_")],
   ["interaction-guides", (tool) => tool.name.startsWith("interaction_guide_")],
   ["profile", (tool) => tool.name.startsWith("profile_fact_")],
   ["files", (tool) => tool.name.startsWith("file_")],
@@ -29,7 +29,7 @@ const instructionFiles = new Map([
   ["calendar", "calendar.md"],
   ["contacts", "contacts.md"],
   ["todos", "todos.md"],
-  ["logs", "logs.md"],
+  ["journal", "journal.md"],
   ["interaction-guides", "interaction-guides.md"],
   ["profile", "profile.md"],
   ["files", "files.md"],
@@ -47,7 +47,7 @@ const capabilityPatterns = new Map([
   ["calendar", /\b(?:calendar|schedule|agenda|appointment|meeting|event|birthday|invite)\b/iu],
   ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b/iu],
   ["todos", /\b(?:to[ -]?do|todo|task|remind(?:er)?|chore|overdue|routines?|habits?|(?:regular |unplanned )?work window)\b/iu],
-  ["logs", /\b(?:personal logs?|log entr(?:y|ies)|(?:my|the) logs?|food log|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
+  ["journal", /\b(?:personal journals?|journal entr(?:y|ies)|(?:my|the) journals?|food journal|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
   ["interaction-guides", /\b(?:briefings?|interaction guides?|guided interactions?)\b|\b(?:start|use|update|change|edit|create|make|show|list|archive|schedule).{0,60}\bguide\b/iu],
   ["profile", /\b(?:remember that|remember my|keep on file|profile fact|forget (?:that|my)|my preference|i prefer|i am allergic|my address|my phone|my vehicle|my car|my time ?zone|my\b.{0,80}\b(?:is|are|changed))\b/iu],
   ["files", /\b(?:file\s*#?\s*\d+|file id|uploaded file|previous upload|past upload|attachment|document|csv|tsv|tab[ -]separated|json lines?|jsonl|delimited (?:text|file)|original filename)\b/iu],
@@ -73,7 +73,7 @@ const capabilitySummaries = new Map([
   ["calendar", "Read and manage native calendar events. The Calendar screen also displays scheduled personal to-dos, which belong to the to-dos capability."],
   ["contacts", "Search, import, tag, and merge contacts."],
   ["todos", "Read and manage native personal to-dos, including Calendar-screen scheduled tasks and unplanned work windows."],
-  ["logs", "Read, record, and correct personal logs and trackers."],
+  ["journal", "Read, record, and correct journal entries and trackers."],
   ["interaction-guides", "Create, inspect, update, and conduct user-owned briefings and their ordered exchanges."],
   ["profile", "Read and maintain durable profile facts."],
   ["files", "Find, retrieve, inspect, and safely transform durable text and tabular uploads."],
@@ -154,7 +154,7 @@ function attachmentCapabilities(attachment, grouped = new Map()) {
       return { capabilities: ["files", "contacts"], uncertain: false };
     }
     if (/\b(?:tracker|occurred_at|number_value|content_text|unit)\b/u.test(preview)) {
-      return { capabilities: ["files", "logs"], uncertain: false };
+      return { capabilities: ["files", "journal"], uncertain: false };
     }
     if (/\b(?:content_type|content_status|content_url|published_at|relationship_to_user)\b/u.test(preview)) {
       return { capabilities: ["files", "database", "database-write"], uncertain: false };

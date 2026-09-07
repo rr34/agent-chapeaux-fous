@@ -23,10 +23,11 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31]);
-  assert.deepEqual(validatePendingMigrations(migrations, 29).map(({ version }) => version), [30, 31]);
-  assert.deepEqual(validatePendingMigrations(migrations, 30).map(({ version }) => version), [31]);
-  assert.deepEqual(validatePendingMigrations(migrations, 31), []);
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32]);
+  assert.deepEqual(validatePendingMigrations(migrations, 29).map(({ version }) => version), [30, 31, 32]);
+  assert.deepEqual(validatePendingMigrations(migrations, 30).map(({ version }) => version), [31, 32]);
+  assert.deepEqual(validatePendingMigrations(migrations, 31).map(({ version }) => version), [32]);
+  assert.deepEqual(validatePendingMigrations(migrations, 32), []);
 });
 
 test("ledger parser rejects reordered, duplicate, missing, malformed, and outside SQL", () => {

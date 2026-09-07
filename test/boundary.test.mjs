@@ -88,10 +88,10 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /schema-semantic compiler projection/);
   assert.match(instructions, /previous Monday-through-Monday interval/);
   assert.match(instructions, /never ask the user to\s+write RRULE syntax/);
-  assert.match(instructions, /personal-log tools/);
-  assert.match(instructions, /complete natural-language log\s+content/);
-  assert.match(instructions, /use `log_import` in bounded batches/);
-  assert.match(instructions, /call `log_update` on each intended entry/);
+  assert.match(instructions, /personal-journal tools/);
+  assert.match(instructions, /complete natural-language journal\s+content/);
+  assert.match(instructions, /use `journal_import` in bounded batches/);
+  assert.match(instructions, /call `journal_update` on each intended entry/);
   assert.match(instructions, /contact_file_import/);
   assert.match(instructions, /full verified file in one\s+call/);
   assert.match(instructions, /Use `contact_import` in bounded batches\s+only/);
@@ -150,7 +150,7 @@ test("the client exposes a live user manual generated from the explicit hat cata
   assert.match(server, /\["\/hats\.svg", \["hats\.svg", "image\/svg\+xml"\]\]/);
   assert.match(server, /hatCatalog\.publicManual\(registry\.toolDefinitions\(\), capabilityForTool\)/);
   assert.equal(catalog.hats.some(({ id, capability }) => id === "weatherman" && capability === "integration:weather"), true);
-  assert.equal(catalog.hats.some(({ id }) => id === "accountant"), false);
+  assert.equal(catalog.hats.some(({ id, capability }) => id === "accountant" && capability === "integration:accounting"), true);
   for (const hat of catalog.hats) {
     assert.match(hatsSvg, new RegExp(`id="hat-${hat.icon}"`));
   }
@@ -409,7 +409,7 @@ test("the interaction video retains the complete chat history as it scrolls", ()
   assert.match(composition, /translateY\(\$\{translateY\}px\) scale\(\$\{scale\}\)/);
 });
 
-test("the standalone client restores calendar, routine, grouped to-do, grouped content, and personal log surfaces", () => {
+test("the standalone client restores calendar, routine, grouped to-do, grouped content, and personal journal surfaces", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
@@ -422,7 +422,7 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(document, /<h2>To do<\/h2>/);
   assert.match(document, /id="agent-view-button"[^>]*>[\s\S]*?<span>Agent<\/span>[\s\S]*?<\/button>/);
   assert.doesNotMatch(document, /id="view-selector"/);
-  for (const view of ["agent", "hats", "calendar", "routine", "todos", "content", "video-scripts", "files", "contacts", "logs", "interactions", "ai-usage"]) {
+  for (const view of ["agent", "hats", "calendar", "routine", "todos", "content", "video-scripts", "files", "contacts", "journal", "interactions", "ai-usage"]) {
     assert.match(document, new RegExp(`<button[^>]+data-view="${view}"`));
   }
   assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="settings-menu"'));
@@ -433,8 +433,8 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(application, /api\("\/api\/integrations\/mcp\/refresh", \{ method: "POST" \}\)/);
   assert.match(server, /url\.pathname === "\/api\/integrations\/mcp\/refresh"/);
   assert.match(document, /data-view="content"/);
-  assert.match(document, /data-view="logs"/);
-  assert.match(application, /node\("details", "log-entry-disclosure"\)/);
+  assert.match(document, /data-view="journal"/);
+  assert.match(application, /node\("details", "journal-entry-disclosure"\)/);
   assert.match(application, /"7-day average"/);
   assert.match(application, /"1-year average"/);
   assert.match(application, /"All-time average"/);
@@ -494,10 +494,10 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.doesNotMatch(application, /openContentEditor\(\);/);
   assert.match(application, /elements\.contentGroupForm\.addEventListener\("submit", saveContentGroup\)/);
   assert.match(application, /function archiveEditedContentGroup/);
-  assert.match(application, /refreshLogs/);
-  assert.match(document, /id="log-tracker-unit"[^>]*required/);
-  assert.doesNotMatch(document, /id="log-unit"/);
-  assert.match(application, /trackerUnit: elements\.logTrackerUnit\.value \|\| null/);
+  assert.match(application, /refreshJournal/);
+  assert.match(document, /id="journal-tracker-unit"[^>]*required/);
+  assert.doesNotMatch(document, /id="journal-unit"/);
+  assert.match(application, /trackerUnit: elements\.journalTrackerUnit\.value \|\| null/);
   assert.match(application, /`\$\{entry\.numberValue\} \$\{tracker\.unit\}`/);
   assert.match(application, /todo-group-heading/);
   assert.match(application, /todo-group-sequence-marker/);
@@ -550,8 +550,8 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(server, /\/api\/content-groups/);
   assert.match(server, /reorderContentGroups/);
   assert.match(server, /archiveContentGroup/);
-  assert.match(server, /\/api\/log-trackers/);
-  assert.match(server, /\/api\/log-entries/);
+  assert.match(server, /\/api\/journal-trackers/);
+  assert.match(server, /\/api\/journal-entries/);
 });
 
 test("the standalone client provides a native contacts address book", () => {

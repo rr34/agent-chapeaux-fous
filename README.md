@@ -80,7 +80,7 @@ test administrator as shown in `.env.example`.
 Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and
 stores it only in that browser. The same client includes the Agent request
 feed, the calendar, the grouped to-do list, a searchable contacts address book,
-grouped personal logs with native entry creation, and a dedicated **Briefings**
+a grouped personal journal with native entry creation, and a dedicated **Briefings**
 screen for maintaining reusable, agent-led conversations and their numbered
 exchanges. Starting or resuming a briefing from that screen queues a normal
 Agent request, so the conversation still passes through orientation, TurnBrief
@@ -289,8 +289,8 @@ capability selector, which controls which exact tool schemas are callable.
   it never sends the message, writes to a remote calendar, or changes the local
   calendar's authority. Every displayed agenda event also has a phone-friendly
   copy action for sharing its saved details through another app.
-- `log_add`, `log_import`, `log_list`, `log_update`, `tracker_list`, and `tracker_update`
-  provide the native grouped personal-log path. Each entry keeps complete
+- `journal_add`, `journal_import`, `journal_list`, `journal_update`, `tracker_list`, and `tracker_update`
+  provide the native grouped personal-journal path. Each entry keeps complete
   natural-language content with an optional numeric projection for calculation
   and trends. Each tracker owns the one canonical unit shared by its numeric
   series; entries do not duplicate it. Exact-ID corrections update an original entry without

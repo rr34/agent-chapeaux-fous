@@ -3,11 +3,11 @@ import test from "node:test";
 import { ContextBuilder } from "../src/context.mjs";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
-import { registerLogTools } from "../src/tools/log-tools.mjs";
+import { registerJournalTools } from "../src/tools/journal-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
-function loggingHarness(context, requestText = "Log my weight") {
+function journalHarness(context, requestText = "Journal my weight") {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.target);
@@ -16,13 +16,13 @@ function loggingHarness(context, requestText = "Log my weight") {
   const ledger = new Ledger(store);
   const request = ledger.createRequest({ text: requestText });
   const registry = new ToolRegistry();
-  registerLogTools(registry, store, ledger);
+  registerJournalTools(registry, store, ledger);
   return { store, ledger, request, registry };
 }
 
-test("log_add exposes one complete content field and no boolean or mandatory value type", (context) => {
-  const { registry } = loggingHarness(context);
-  const definition = registry.toolDefinitions().find((tool) => tool.name === "log_add");
+test("journal_add exposes one complete content field and no boolean or mandatory value type", (context) => {
+  const { registry } = journalHarness(context);
+  const definition = registry.toolDefinitions().find((tool) => tool.name === "journal_add");
   assert.deepEqual(Object.keys(definition.inputSchema.properties), [
     "tracker",
     "group",
@@ -37,11 +37,11 @@ test("log_add exposes one complete content field and no boolean or mandatory val
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "valueKind"), false);
 });
 
-test("log_update exposes exact-ID partial corrections without tracker or provenance fields", (context) => {
-  const { registry } = loggingHarness(context);
-  const definition = registry.toolDefinitions().find((tool) => tool.name === "log_update");
+test("journal_update exposes exact-ID partial corrections without tracker or provenance fields", (context) => {
+  const { registry } = journalHarness(context);
+  const definition = registry.toolDefinitions().find((tool) => tool.name === "journal_update");
   assert.deepEqual(Object.keys(definition.inputSchema.properties), [
-    "log_entry_id",
+    "journal_entry_id",
     "content_text",
     "number_value",
     "clear_number_value",
@@ -52,10 +52,10 @@ test("log_update exposes exact-ID partial corrections without tracker or provena
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "external_id"), false);
 });
 
-test("log_add creates and reuses a grouped numeric tracker while preserving complete content", async (context) => {
-  const { store, ledger, request, registry } = loggingHarness(context);
+test("journal_add creates and reuses a grouped numeric tracker while preserving complete content", async (context) => {
+  const { store, ledger, request, registry } = journalHarness(context);
 
-  const first = await registry.execute("log_add", {
+  const first = await registry.execute("journal_add", {
     tracker: "Weight",
     group: "Health",
     content_text: "72.1 kg after dinner",
@@ -63,11 +63,11 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
     tracker_unit: "kg",
     occurred_at_utc: "2026-08-15T20:30:00-04:00",
     create_if_missing: true,
-  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-first" });
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "journal-first" });
 
   assert.equal(first.tracker_created, true);
   assert.equal(first.group_resolution.group_created, true);
-  assert.equal(first.tracker.log_groups.name, "Health");
+  assert.equal(first.tracker.journal_groups.name, "Health");
   assert.equal(first.tracker.unit, "kg");
   assert.equal(first.entry.content_text, "72.1 kg after dinner");
   assert.equal(first.entry.number_value, 72.1);
@@ -77,7 +77,7 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
   assert.equal(first.entry.external_id, null);
   assert.equal(first.entry.occurred_at_utc, "2026-08-16T00:30:00.000Z");
 
-  const second = await registry.execute("log_add", {
+  const second = await registry.execute("journal_add", {
     tracker: "weight",
     group: null,
     content_text: "71.8 kg before breakfast",
@@ -85,18 +85,18 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
     tracker_unit: null,
     occurred_at_utc: "2026-08-16T08:00:00Z",
     create_if_missing: false,
-  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-second" });
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "journal-second" });
 
   assert.equal(second.tracker_created, false);
   assert.equal(second.entry.tracker_id, first.entry.tracker_id);
-  assert.equal(second.entry.log_groups.name, "Health");
+  assert.equal(second.entry.journal_groups.name, "Health");
   assert.equal(second.entry.trackers.unit, "kg");
   assert.equal(
-    store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_groups").get().count,
+    store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_groups").get().count,
     1,
   );
 
-  const listed = await registry.execute("log_list", {
+  const listed = await registry.execute("journal_list", {
     tracker: "Weight",
     group: "health",
     source: null,
@@ -116,17 +116,17 @@ test("log_add creates and reuses a grouped numeric tracker while preserving comp
   });
   assert.equal(trackers.count, 1);
   assert.equal(trackers.trackers[0].entry_count, 2);
-  assert.equal(trackers.trackers[0].last_logged_at_utc, "2026-08-16T08:00:00.000Z");
+  assert.equal(trackers.trackers[0].last_recorded_at_utc, "2026-08-16T08:00:00.000Z");
   assert.equal(
-    ledger.trace(request.requestId).filter((event) => event.type === "personal_log.created").length,
+    ledger.trace(request.requestId).filter((event) => event.type === "personal_journal.created").length,
     2,
   );
 });
 
-test("log_add records text-only events without a boolean or value kind", async (context) => {
-  const { request, registry } = loggingHarness(context, "Log a bowel movement");
+test("journal_add records text-only events without a boolean or value kind", async (context) => {
+  const { request, registry } = journalHarness(context, "Journal a bowel movement");
 
-  const result = await registry.execute("log_add", {
+  const result = await registry.execute("journal_add", {
     tracker: "Bowel movement",
     group: "Health",
     content_text: "Normal bowel movement, Bristol type 4",
@@ -134,14 +134,14 @@ test("log_add records text-only events without a boolean or value kind", async (
     tracker_unit: "Bristol type",
     occurred_at_utc: null,
     create_if_missing: true,
-  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-event" });
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "journal-event" });
 
   assert.equal(result.entry.content_text, "Normal bowel movement, Bristol type 4");
   assert.equal(result.entry.number_value, 4);
   assert.equal(result.entry.trackers.unit, "Bristol type");
   assert.ok(result.entry.occurred_at_utc);
 
-  const medication = await registry.execute("log_add", {
+  const medication = await registry.execute("journal_add", {
     tracker: "Medication",
     group: "Health",
     content_text: "Took morning medication",
@@ -149,13 +149,13 @@ test("log_add records text-only events without a boolean or value kind", async (
     tracker_unit: "dose",
     occurred_at_utc: null,
     create_if_missing: true,
-  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-medication" });
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "journal-medication" });
   assert.equal(medication.entry.number_value, null);
 });
 
-test("log_update corrects one historical entry without owning its tracker's unit", async (context) => {
-  const { store, ledger, request, registry } = loggingHarness(context, "Correct my old pain entry");
-  const oldEntry = await registry.execute("log_add", {
+test("journal_update corrects one historical entry without owning its tracker's unit", async (context) => {
+  const { store, ledger, request, registry } = journalHarness(context, "Correct my old pain entry");
+  const oldEntry = await registry.execute("journal_add", {
     tracker: "Left arm pain",
     group: "Biometrics",
     content_text: "Left arm pain value: 8. It was as bad as it has ever been.",
@@ -164,7 +164,7 @@ test("log_update corrects one historical entry without owning its tracker's unit
     occurred_at_utc: "2026-08-16T04:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "pain-old" });
-  await registry.execute("log_add", {
+  await registry.execute("journal_add", {
     tracker: "Left arm pain",
     group: null,
     content_text: "Left arm pain is 4 out of 10.",
@@ -174,15 +174,15 @@ test("log_update corrects one historical entry without owning its tracker's unit
     create_if_missing: false,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "pain-new" });
 
-  const corrected = await registry.execute("log_update", {
-    log_entry_id: oldEntry.entry.log_entry_id,
+  const corrected = await registry.execute("journal_update", {
+    journal_entry_id: oldEntry.entry.journal_entry_id,
     content_text: "Left arm pain was 8 out of 10.",
     number_value: null,
     clear_number_value: false,
     occurred_at_utc: null,
   }, { requestId: request.requestId, callId: "pain-correct" });
 
-  assert.equal(corrected.entry.log_entry_id, oldEntry.entry.log_entry_id);
+  assert.equal(corrected.entry.journal_entry_id, oldEntry.entry.journal_entry_id);
   assert.equal(corrected.entry.content_text, "Left arm pain was 8 out of 10.");
   assert.equal(corrected.entry.number_value, 8);
   assert.equal(corrected.entry.trackers.unit, "out of 10");
@@ -191,16 +191,16 @@ test("log_update corrects one historical entry without owning its tracker's unit
   assert.equal(corrected.entry.source, oldEntry.entry.source);
   assert.equal(corrected.entry.source_event_id, oldEntry.entry.source_event_id);
   assert.ok(corrected.entry.updated_at_utc);
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 2);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 2);
   assert.equal(
-    ledger.trace(request.requestId).filter((event) => event.type === "personal_log.updated").length,
+    ledger.trace(request.requestId).filter((event) => event.type === "personal_journal.updated").length,
     1,
   );
 });
 
-test("tracker units are canonical and log_update clears only the numeric projection", async (context) => {
-  const { request, registry } = loggingHarness(context, "Correct a log entry");
-  const textEntry = await registry.execute("log_add", {
+test("tracker units are canonical and journal_update clears only the numeric projection", async (context) => {
+  const { request, registry } = journalHarness(context, "Correct a journal entry");
+  const textEntry = await registry.execute("journal_add", {
     tracker: "Medication",
     group: "Biometrics",
     content_text: "Took morning medication.",
@@ -211,7 +211,7 @@ test("tracker units are canonical and log_update clears only the numeric project
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "text-entry" });
   assert.equal(Object.hasOwn(textEntry.entry, "unit"), false);
 
-  const numericEntry = await registry.execute("log_add", {
+  const numericEntry = await registry.execute("journal_add", {
     tracker: "Pain",
     group: "Biometrics",
     content_text: "Pain was present.",
@@ -220,8 +220,8 @@ test("tracker units are canonical and log_update clears only the numeric project
     occurred_at_utc: "2026-08-17T12:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "numeric-entry" });
-  const cleared = await registry.execute("log_update", {
-    log_entry_id: numericEntry.entry.log_entry_id,
+  const cleared = await registry.execute("journal_update", {
+    journal_entry_id: numericEntry.entry.journal_entry_id,
     content_text: null,
     number_value: null,
     clear_number_value: true,
@@ -229,15 +229,15 @@ test("tracker units are canonical and log_update clears only the numeric project
   }, { requestId: request.requestId, callId: "clear-number" });
   assert.equal(cleared.entry.number_value, null);
   assert.equal(cleared.entry.trackers.unit, "out of 10");
-  await assert.rejects(registry.execute("log_add", {
+  await assert.rejects(registry.execute("journal_add", {
     tracker: "Pain", group: null, content_text: "Pain was 4.", number_value: 4,
     tracker_unit: "percent", occurred_at_utc: null, create_if_missing: false,
   }, { requestId: request.requestId, callId: "mismatched-unit" }), /uses out of 10/);
 });
 
 test("tracker_update preserves canonical units after numeric history", async (context) => {
-  const { request, registry } = loggingHarness(context);
-  const created = await registry.execute("log_add", {
+  const { request, registry } = journalHarness(context);
+  const created = await registry.execute("journal_add", {
     tracker: "Weight",
     group: "Health",
     content_text: "72.1 kg",
@@ -245,7 +245,7 @@ test("tracker_update preserves canonical units after numeric history", async (co
     tracker_unit: "kg",
     occurred_at_utc: null,
     create_if_missing: true,
-  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "log-create" });
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "journal-create" });
 
   const updated = await registry.execute("tracker_update", {
     tracker_id: created.tracker.tracker_id,
@@ -256,7 +256,7 @@ test("tracker_update preserves canonical units after numeric history", async (co
   }, { requestId: request.requestId, callId: "tracker-update" });
 
   assert.equal(updated.tracker.name, "Body weight");
-  assert.equal(updated.tracker.log_groups.name, "Fitness");
+  assert.equal(updated.tracker.journal_groups.name, "Fitness");
   assert.equal(updated.tracker.unit, "kg");
   assert.ok(updated.tracker.archived_at_utc);
   const active = await registry.execute("tracker_list", {
@@ -281,9 +281,9 @@ test("tracker_update preserves canonical units after numeric history", async (co
 });
 
 test("every new tracker requires a canonical unit, including text-only trackers", async (context) => {
-  const { store, request, registry } = loggingHarness(context);
+  const { store, request, registry } = journalHarness(context);
   await assert.rejects(
-    registry.execute("log_add", {
+    registry.execute("journal_add", {
       tracker: "Mood",
       group: "Health",
       content_text: "Calm",
@@ -291,21 +291,21 @@ test("every new tracker requires a canonical unit, including text-only trackers"
       tracker_unit: null,
       occurred_at_utc: null,
       create_if_missing: true,
-    }, { requestId: request.requestId, requestEventId: request.eventId, callId: "bad-log" }),
+    }, { requestId: request.requestId, requestEventId: request.eventId, callId: "bad-journal" }),
     /require a canonical unit/,
   );
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM trackers").get().count, 0);
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 0);
-  const created = await registry.execute("log_add", {
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 0);
+  const created = await registry.execute("journal_add", {
     tracker: "Mood", group: "Health", content_text: "Calm", number_value: null,
     tracker_unit: "out of 10", occurred_at_utc: null, create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "text-unit" });
   assert.equal(created.tracker.unit, "out of 10");
 });
 
-test("log_add reuses an established tracker through a synonymous name", async (context) => {
-  const { store, request, registry } = loggingHarness(context, "Log a poop");
-  const poop = await registry.execute("log_add", {
+test("journal_add reuses an established tracker through a synonymous name", async (context) => {
+  const { store, request, registry } = journalHarness(context, "Journal a poop");
+  const poop = await registry.execute("journal_add", {
     tracker: "Poop",
     group: "Health",
     content_text: "Poop.",
@@ -314,7 +314,7 @@ test("log_add reuses an established tracker through a synonymous name", async (c
     occurred_at_utc: "2026-08-17T12:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-first" });
-  await registry.execute("log_add", {
+  await registry.execute("journal_add", {
     tracker: "Poop",
     group: "Health",
     content_text: "Another poop.",
@@ -324,7 +324,7 @@ test("log_add reuses an established tracker through a synonymous name", async (c
     create_if_missing: false,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-second" });
 
-  const alias = await registry.execute("log_add", {
+  const alias = await registry.execute("journal_add", {
     tracker: "Bowel Movements",
     group: "Health",
     content_text: "Poop.",
@@ -344,9 +344,9 @@ test("log_add reuses an established tracker through a synonymous name", async (c
   );
 });
 
-test("log_add proposes a missing tracker without writing until creation is confirmed", async (context) => {
-  const { store, request, registry } = loggingHarness(context, "Log my mood");
-  const proposed = await registry.execute("log_add", {
+test("journal_add proposes a missing tracker without writing until creation is confirmed", async (context) => {
+  const { store, request, registry } = journalHarness(context, "Journal my mood");
+  const proposed = await registry.execute("journal_add", {
     tracker: "Mood",
     group: "Health",
     content_text: "Calm.",
@@ -361,9 +361,9 @@ test("log_add proposes a missing tracker without writing until creation is confi
   assert.equal(proposed.confirmation_required, true);
   assert.equal(proposed.proposed_tracker.name, "Mood");
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM trackers").get().count, 0);
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 0);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 0);
 
-  const created = await registry.execute("log_add", {
+  const created = await registry.execute("journal_add", {
     tracker: "Mood",
     group: "Health",
     content_text: "Calm.",
@@ -376,9 +376,9 @@ test("log_add proposes a missing tracker without writing until creation is confi
   assert.equal(created.tracker_created, true);
 });
 
-test("log context includes authoritative active tracker names", async (context) => {
-  const { store, ledger, request, registry } = loggingHarness(context, "Log a poop");
-  await registry.execute("log_add", {
+test("journal context includes authoritative active tracker names", async (context) => {
+  const { store, ledger, request, registry } = journalHarness(context, "Journal a poop");
+  await registry.execute("journal_add", {
     tracker: "Poop",
     group: "Health",
     content_text: "Poop.",
@@ -387,24 +387,24 @@ test("log context includes authoritative active tracker names", async (context) 
     occurred_at_utc: "2026-08-18T12:00:00Z",
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-context" });
-  const next = ledger.createRequest({ text: "Log a bowel movement" });
-  const preparedCapabilityContext = await registry.prepareContext(["logs.active_trackers"]);
+  const next = ledger.createRequest({ text: "Journal a bowel movement" });
+  const preparedCapabilityContext = await registry.prepareContext(["journal.active_trackers"]);
   const built = await new ContextBuilder({
     ledger,
     store,
     profileFacts: { list() { return { facts: [] }; } },
-  }).build(next.requestId, "Log a bowel movement", {
-    capabilities: ["logs"],
+  }).build(next.requestId, "Journal a bowel movement", {
+    capabilities: ["journal"],
     preparedCapabilityContext,
   });
 
-  assert.match(built.text, /# Active personal-log trackers/);
+  assert.match(built.text, /# Active personal-journal trackers/);
   assert.match(built.text, /name: Poop \| group: Health \| entries: 1/);
   assert.deepEqual(built.activeTrackers.map(({ name }) => name), ["Poop"]);
 });
 
-test("log_import is source-agnostic, idempotent, and reports conflicting replays", async (context) => {
-  const { store, request, registry } = loggingHarness(context, "Import an external history page");
+test("journal_import is source-agnostic, idempotent, and reports conflicting replays", async (context) => {
+  const { store, request, registry } = journalHarness(context, "Import an external history page");
   const batch = {
     source: "external-health-export",
     entries: [
@@ -429,7 +429,7 @@ test("log_import is source-agnostic, idempotent, and reports conflicting replays
     ],
   };
 
-  const imported = await registry.execute("log_import", batch, {
+  const imported = await registry.execute("journal_import", batch, {
     requestId: request.requestId,
     requestEventId: request.eventId,
     callId: "import-first",
@@ -447,7 +447,7 @@ test("log_import is source-agnostic, idempotent, and reports conflicting replays
     "4182",
   ]);
 
-  const replayed = await registry.execute("log_import", batch, {
+  const replayed = await registry.execute("journal_import", batch, {
     requestId: request.requestId,
     requestEventId: request.eventId,
     callId: "import-replay",
@@ -456,9 +456,9 @@ test("log_import is source-agnostic, idempotent, and reports conflicting replays
     [replayed.imported_count, replayed.unchanged_count, replayed.conflict_count],
     [0, 2, 0],
   );
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 2);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 2);
 
-  const conflict = await registry.execute("log_import", {
+  const conflict = await registry.execute("journal_import", {
     source: batch.source,
     entries: [{ ...batch.entries[0], content_text: "Changed upstream representation" }],
   }, {
@@ -472,7 +472,7 @@ test("log_import is source-agnostic, idempotent, and reports conflicting replays
   );
   assert.equal(conflict.items[0].entry.content_text, "72.4 kg in the morning");
 
-  const anotherSource = await registry.execute("log_import", {
+  const anotherSource = await registry.execute("journal_import", {
     source: "another-export",
     entries: [batch.entries[0]],
   }, {
@@ -481,8 +481,8 @@ test("log_import is source-agnostic, idempotent, and reports conflicting replays
     callId: "import-other-source",
   });
   assert.equal(anotherSource.imported_count, 1);
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 3);
-  const sourceEntries = await registry.execute("log_list", {
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 3);
+  const sourceEntries = await registry.execute("journal_list", {
     tracker: null,
     group: null,
     source: "external-health-export",
@@ -493,8 +493,8 @@ test("log_import is source-agnostic, idempotent, and reports conflicting replays
   assert.equal(sourceEntries.count, 2);
 });
 
-test("log_import rejects duplicate IDs within a batch and missing occurrence times", async (context) => {
-  const { store, request, registry } = loggingHarness(context, "Import invalid history");
+test("journal_import rejects duplicate IDs within a batch and missing occurrence times", async (context) => {
+  const { store, request, registry } = journalHarness(context, "Import invalid history");
   const entry = {
     external_id: "duplicate",
     tracker: "Mood",
@@ -505,18 +505,18 @@ test("log_import rejects duplicate IDs within a batch and missing occurrence tim
     occurred_at_utc: "2026-08-14T12:00:00Z",
   };
   await assert.rejects(
-    registry.execute("log_import", {
+    registry.execute("journal_import", {
       source: "test-export",
       entries: [entry, entry],
     }, { requestId: request.requestId, requestEventId: request.eventId, callId: "duplicate-batch" }),
-    /Duplicate external log ID/,
+    /Duplicate external journal ID/,
   );
   await assert.rejects(
-    registry.execute("log_import", {
+    registry.execute("journal_import", {
       source: "test-export",
       entries: [{ ...entry, external_id: "missing-time", occurred_at_utc: null }],
     }, { requestId: request.requestId, requestEventId: request.eventId, callId: "missing-time" }),
     /occurred_at_utc must be string/,
   );
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM log_entries").get().count, 0);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 0);
 });

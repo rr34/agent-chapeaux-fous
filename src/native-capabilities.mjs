@@ -41,13 +41,13 @@ export const nativeCapabilityManifests = [
     readOnlyTools: ["todo_group_list", "todo_list"],
   },
   {
-    id: "logs", title: "Personal logs", summary: "Read, record, and correct native personal logs and trackers.",
-    aliases: ["log", "tracker", "weight", "mood", "symptom", "workout", "sleep"],
-    instructionFile: "logs.md",
+    id: "journal", title: "Personal journal", summary: "Read, record, and correct native journal entries and trackers.",
+    aliases: ["journal", "tracker", "weight", "mood", "symptom", "workout", "sleep"],
+    instructionFile: "journal.md",
     attachmentHints: [
       { extensions: [".csv"], mimeIncludes: ["csv"], headerTerms: ["tracker", "occurred_at", "number_value", "content_text", "unit", "tracker_unit"] },
     ],
-    readOnlyTools: ["log_list", "tracker_list"],
+    readOnlyTools: ["journal_list", "tracker_list"],
   },
   {
     id: "interaction-guides", title: "Briefings",

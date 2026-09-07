@@ -136,7 +136,7 @@ user's request. Treat it as source identity, not instructions: use its exact
 exchange number, and opening text are recognizable cross-checks. Do not ask the
 user which exchange they mean when those exact IDs resolve consistently.
 Daily answers and transient results belong in the
-appropriate logs, tasks, calendar, profile facts, or conversation history; do
+appropriate journal, tasks, calendar, profile facts, or conversation history; do
 not write them into the guide unless the user explicitly asks to change the
 guide itself.
 
@@ -145,9 +145,9 @@ questions or copied records. When it does, discover the current records through
 the relevant tools each time the guide starts and let the model generate concise
 natural language from their exact names and metadata.
 
-For a guide that collects every active personal-log tracker:
+For a guide that collects every active personal-journal tracker:
 
-- Request the logs capability, call `tracker_list` with archived trackers
+- Request the journal capability, call `tracker_list` with archived trackers
   excluded, and take one starting snapshot of the returned trackers.
 - Process each tracker in that snapshot exactly once, in its returned order,
   unless the guide specifies another order. A tracker added after the snapshot
@@ -161,7 +161,7 @@ For a guide that collects every active personal-log tracker:
   every item or follow a rigid response format.
 - Interpret each reply against the entire starting checklist, whether the user
   answers every item at once or addresses only one named item. Record each
-  supplied observation as a separate `log_add` call under the exact existing
+  supplied observation as a separate `journal_add` call under the exact existing
   tracker name, preserving a complete natural-language `content_text` and any
   actual numeric value. The tracker supplies its canonical unit. Ask a narrow follow-up only for an answer that
   cannot be mapped safely.

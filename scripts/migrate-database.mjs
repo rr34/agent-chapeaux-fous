@@ -208,9 +208,77 @@ async function assertVersion31Integrity(connection, databaseName) {
   }
 }
 
+async function assertVersion32Integrity(connection, databaseName) {
+  const [columns] = await connection.query(
+    `SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ?
+        AND TABLE_NAME IN ('log_groups', 'log_entries', 'journal_groups', 'journal_entries', 'trackers')`,
+    [databaseName],
+  );
+  const columnNames = new Set(columns.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}`));
+  for (const name of ["journal_groups.journal_group_id", "journal_entries.journal_entry_id", "trackers.journal_group_id"]) {
+    if (!columnNames.has(name)) throw new Error(`Migration 0032 did not establish ${name}`);
+  }
+  if (columns.some((row) => row.TABLE_NAME.startsWith("log_") || row.COLUMN_NAME.startsWith("log_"))) {
+    throw new Error("Migration 0032 left legacy personal journal table or column names");
+  }
+
+  const [constraints] = await connection.query(
+    `SELECT CONSTRAINT_NAME, CONSTRAINT_TYPE FROM information_schema.TABLE_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME IN ('journal_groups', 'journal_entries', 'trackers')`,
+    [databaseName],
+  );
+  const constraintTypes = new Map(constraints.map((row) => [row.CONSTRAINT_NAME, row.CONSTRAINT_TYPE]));
+  for (const [name, type] of [
+    ["journal_groups_name_length", "CHECK"],
+    ["journal_entries_content", "CHECK"],
+    ["journal_entries_source_length", "CHECK"],
+    ["journal_entries_external_length", "CHECK"],
+    ["journal_entries_tracker", "FOREIGN KEY"],
+    ["journal_entries_event", "FOREIGN KEY"],
+    ["trackers_group", "FOREIGN KEY"],
+  ]) {
+    if (constraintTypes.get(name) !== type) throw new Error(`Migration 0032 did not establish ${type} ${name}`);
+  }
+  if (constraints.some((row) => row.CONSTRAINT_NAME.startsWith("log_"))) {
+    throw new Error("Migration 0032 left legacy personal journal constraint names");
+  }
+
+  const [indexes] = await connection.query(
+    `SELECT DISTINCT INDEX_NAME FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('journal_groups', 'journal_entries')`,
+    [databaseName],
+  );
+  const indexNames = new Set(indexes.map((row) => row.INDEX_NAME));
+  for (const name of ["journal_groups_name", "journal_entries_event", "journal_entries_source_external", "journal_entries_tracker_occurred"]) {
+    if (!indexNames.has(name)) throw new Error(`Migration 0032 did not establish index ${name}`);
+  }
+  if (indexes.some((row) => row.INDEX_NAME.startsWith("log_"))) {
+    throw new Error("Migration 0032 left legacy personal journal index names");
+  }
+
+  const [triggers] = await connection.query(
+    `SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_STATEMENT FROM information_schema.TRIGGERS
+      WHERE TRIGGER_SCHEMA = ? AND EVENT_OBJECT_TABLE IN ('journal_entries', 'trackers')`,
+    [databaseName],
+  );
+  const triggerTables = new Map(triggers.map((row) => [row.TRIGGER_NAME, row.EVENT_OBJECT_TABLE]));
+  for (const [name, table] of [
+    ["journal_entries_require_tracker_unit_before_insert", "journal_entries"],
+    ["journal_entries_require_tracker_unit_before_update", "journal_entries"],
+    ["trackers_preserve_numeric_unit_before_update", "trackers"],
+  ]) {
+    if (triggerTables.get(name) !== table) throw new Error(`Migration 0032 did not restore trigger ${name}`);
+  }
+  if (triggers.some((row) => row.TRIGGER_NAME.startsWith("log_") || /\blog_entries\b/u.test(row.ACTION_STATEMENT))) {
+    throw new Error("Migration 0032 left legacy personal journal trigger references");
+  }
+}
+
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
   if (migration.version === 30) await assertVersion30Integrity(connection, databaseName);
   if (migration.version === 31) await assertVersion31Integrity(connection, databaseName);
+  if (migration.version === 32) await assertVersion32Integrity(connection, databaseName);
 }
 
 export async function assertGeneralMariaDbIntegrity(connection, expectedVersion, databaseName) {

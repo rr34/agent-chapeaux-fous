@@ -31,6 +31,10 @@ test("the versioned hat catalog recognizes only explicitly spoken hats in their 
     ["property-manager"],
   );
   assert.deepEqual(catalog.explicitHats("As my landlord, add a roof inspection task."), []);
+  assert.deepEqual(
+    catalog.explicitHats("As my journal, record my weight.").map(({ id, capability }) => ({ id, capability })),
+    [{ id: "journal", capability: "journal" }],
+  );
 });
 
 test("the public manual derives availability and backing tools from the callable registry", async () => {

@@ -555,7 +555,7 @@ test("the active briefing context view exposes only bounded current-run state", 
     expected_version: created.guide.version,
     step_number: 1,
     opening_text: "What is your current weight?",
-    contract: exchangeContract("Call log_add to record the supplied numeric value exactly without inferring a unit.", "response_valid"),
+    contract: exchangeContract("Call journal_add to record the supplied numeric value exactly without inferring a unit.", "response_valid"),
     enabled: true,
   }, { requestId: "context-build", callId: "add" });
   const started = await registry.execute("interaction_guide_start", {
@@ -576,24 +576,24 @@ test("the active briefing context view exposes only bounded current-run state", 
   assert.equal(prepared[0].data.runs[0].currentExchange.openingText, "What is your current weight?");
   assert.match(prepared[0].text, new RegExp(started.run.run_id));
   assert.match(prepared[0].text, /do not infer omitted units/i);
-  const legacyContext = activeBriefingRunContext(guides, 8, ["log_add", "log_list"]);
+  const legacyContext = activeBriefingRunContext(guides, 8, ["journal_add", "journal_list"]);
   assert.deepEqual(
     legacyContext.data.runs[0].currentExchange.contractSummary.legacyInstructionTools,
-    ["log_add"],
+    ["journal_add"],
   );
 });
 
 test("receipt completion covers every destination operation declared by the contract", async (context) => {
   const { store, guides } = harness(context);
-  const created = guides.create({ name: "Exercise log" });
+  const created = guides.create({ name: "Exercise journal" });
   const contract = exchangeContract("Record both values in their exact trackers.", "tool_receipt", {
     inputs: [
       { key: "abs_reps", type: "integer", required: true, description: null },
       { key: "stretch_minutes", type: "number", required: true, description: null },
     ],
     operations: [
-      { id: "log_abs", tool: "log_add", arguments: { tracker: "Abs", number_value: { $answer: "abs_reps" } } },
-      { id: "log_stretch", tool: "log_add", arguments: { tracker: "Stretching", number_value: { $answer: "stretch_minutes" } } },
+      { id: "journal_abs", tool: "journal_add", arguments: { tracker: "Abs", number_value: { $answer: "abs_reps" } } },
+      { id: "journal_stretch", tool: "journal_add", arguments: { tracker: "Stretching", number_value: { $answer: "stretch_minutes" } } },
     ],
   });
   guides.addStep({
@@ -607,17 +607,17 @@ test("receipt completion covers every destination operation declared by the cont
   const started = guides.begin({ guideId: created.guide.id });
   const requestId = "exercise-answer";
   const receiptSeqs = [
-    ["log-abs", { tracker: "Abs", number_value: 100 }],
-    ["log-stretch", { tracker: "Stretching", number_value: 10 }],
+    ["journal-abs", { tracker: "Abs", number_value: 100 }],
+    ["journal-stretch", { tracker: "Stretching", number_value: 10 }],
   ].map(([operationId, argumentsObject]) => {
     guides.ledger.append({
       type: "tool.call", phase: "start", status: "processing", actorType: "model",
-      actorName: "test", turnId: requestId, operationId, name: "log_add",
+      actorName: "test", turnId: requestId, operationId, name: "journal_add",
       payload: { arguments: argumentsObject },
     });
     guides.ledger.append({
       type: "tool.result", phase: "end", status: "complete", actorType: "tool",
-      actorName: "log_add", turnId: requestId, operationId, name: "log_add",
+      actorName: "journal_add", turnId: requestId, operationId, name: "journal_add",
       payload: { result: { created: true } },
     });
     return Number(store.requireReady().prepare(`
@@ -631,7 +631,7 @@ test("receipt completion covers every destination operation declared by the cont
     answers: { abs_reps: 100, stretch_minutes: 10 },
     stepComplete: true,
     completionReceiptEventSeqs: [receiptSeqs[0]],
-  }, { requestId }), /missing for contract operations: log_stretch/);
+  }, { requestId }), /missing for contract operations: journal_stretch/);
 
   const completed = guides.answerStep({
     runId: started.run.id,

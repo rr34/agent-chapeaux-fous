@@ -72,7 +72,7 @@ targets are carried into participating domain tools, which reject scheduled
 timestamps outside the authorized local dates before retaining any mutation.
 
 Context views are small, live, domain-owned reference datasets such as active
-contact tags, to-do groups, or log trackers. Each view is advertised in the
+contact tags, to-do groups, or journal trackers. Each view is advertised in the
 capability catalog, selected through `contextRequests`, read through its owning
 domain service, recorded literally, and supplied to execution without another
 model call.
@@ -463,7 +463,7 @@ explicitly for correction at the owning boundary. Application-owned metadata
 never replaces, rewrites, or broadens a provider-published description, schema,
 authorization boundary, or workflow meaning.
 
-Native calendar, contact, to-do, log, email, profile, file, guide, search, and
+Native calendar, contact, to-do, journal, email, profile, file, guide, search, and
 video tools use the same domain services as their HTTP and UI adapters. Generic
 database mutation is limited to an explicit allowlist of transitional tables
 whose mutation ownership has been deliberately assigned.

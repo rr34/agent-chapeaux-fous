@@ -34,7 +34,7 @@ import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
 import { registerEmailReceiptTools } from "./tools/email-receipts.mjs";
 import { registerCalendarTools } from "./tools/calendar-tools.mjs";
 import { registerContactTools } from "./tools/contact-tools.mjs";
-import { registerLogTools } from "./tools/log-tools.mjs";
+import { registerJournalTools } from "./tools/journal-tools.mjs";
 import { registerInteractionGuideTools } from "./tools/interaction-guide-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
 import { ProfileFacts } from "./profile-facts.mjs";
@@ -103,7 +103,7 @@ if (store.status.ready) {
   registerCalendarTools(registry, store, organizer, ledger, schemaSemantics, searchCoordinator);
   registerContactTools(registry, store, organizer, ledger, schemaSemantics, searchCoordinator);
   registerTodoTools(registry, store, ledger, schemaSemantics);
-  registerLogTools(registry, store, ledger, schemaSemantics);
+  registerJournalTools(registry, store, ledger, schemaSemantics);
   registerInteractionGuideTools(registry, interactionGuides, schemaSemantics);
   registerProfileFactTools(registry, profileFacts, schemaSemantics);
   registerDatabaseTools(registry, store, ledger, schemaSemantics, searchCoordinator);
@@ -952,9 +952,9 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, organizer.deleteContent(contentMatch[1], await readJson(request)));
       return;
     }
-    if (request.method === "GET" && url.pathname === "/api/log-trackers") {
+    if (request.method === "GET" && url.pathname === "/api/journal-trackers") {
       sendJson(response, 200, {
-        trackers: organizer.listLogTrackers({
+        trackers: organizer.listJournalTrackers({
           groupId: url.searchParams.get("groupId"),
           includeArchived: url.searchParams.get("includeArchived") === "true",
           limit: url.searchParams.get("limit") || 200,
@@ -964,9 +964,9 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
-    if (request.method === "GET" && url.pathname === "/api/log-entries") {
+    if (request.method === "GET" && url.pathname === "/api/journal-entries") {
       sendJson(response, 200, {
-        entries: organizer.listLogEntries({
+        entries: organizer.listJournalEntries({
           trackerId: url.searchParams.get("trackerId"),
           groupId: url.searchParams.get("groupId"),
           limit: url.searchParams.get("limit") || 200,
@@ -974,8 +974,8 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
-    if (request.method === "POST" && url.pathname === "/api/log-entries") {
-      sendJson(response, 201, { entry: organizer.createLogEntry(await readJson(request)) });
+    if (request.method === "POST" && url.pathname === "/api/journal-entries") {
+      sendJson(response, 201, { entry: organizer.createJournalEntry(await readJson(request)) });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/files") {

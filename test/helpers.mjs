@@ -12,7 +12,7 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
-export function temporaryDatabase() {
+export function temporaryDatabase({ schema = schemaSource } = {}) {
   const databaseName = `agent_slayer_test_${process.pid}_${randomBytes(6).toString("hex")}`;
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agent-slayer-test-"));
   const adminConnection = databaseConnectionFromEnvironment(process.env, { database: "mysql", test: true });
@@ -22,7 +22,7 @@ export function temporaryDatabase() {
     admin.exec(`CREATE DATABASE ${quoteMariaDbIdentifier(databaseName)} CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci`);
     const connection = { ...adminConnection, database: databaseName };
     database = new MariaDatabaseSync(connection);
-    for (const statement of parseMariaDbScript(schemaSource)) database.exec(statement);
+    for (const statement of parseMariaDbScript(schema)) database.exec(statement);
     database.prepare("INSERT INTO todo_groups (name, sort_position) VALUES ('Inbox', 20), ('Development', 10)").run();
     database.prepare("INSERT INTO content_groups (name, sort_position) VALUES ('General', 10)").run();
     database.close();

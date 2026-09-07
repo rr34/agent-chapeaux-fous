@@ -91,12 +91,12 @@ const descriptions = new Map(Object.entries({
   interaction_guide_update: update("Rename one exact briefing using its current version without changing its exchanges."),
   interaction_guide_archive: update("Archive one exact briefing using its current version when no enabled repeating to-do still links to it."),
 
-  log_add: create("Record one authoritative personal-log entry, optionally with a numeric trend value using the tracker's canonical unit."),
-  log_import: create("Idempotently import up to 100 personal-log entries with stable source IDs and explicit occurrence times."),
-  log_list: read("List recent personal-log entries, optionally filtered by tracker, group, source, or UTC occurrence range."),
-  log_update: update("Correct one personal-log entry by stable ID without changing the tracker's canonical unit."),
-  tracker_list: read("List personal-log trackers with groups, canonical units, entry counts, and latest occurrence times."),
-  tracker_update: update("Rename, regroup, archive, reactivate, or establish the canonical unit of one personal-log tracker."),
+  journal_add: create("Record one authoritative personal-journal entry, optionally with a numeric trend value using the tracker's canonical unit."),
+  journal_import: create("Idempotently import up to 100 personal-journal entries with stable source IDs and explicit occurrence times."),
+  journal_list: read("List recent personal-journal entries, optionally filtered by tracker, group, source, or UTC occurrence range."),
+  journal_update: update("Correct one personal-journal entry by stable ID without changing the tracker's canonical unit."),
+  tracker_list: read("List personal-journal trackers with groups, canonical units, entry counts, and latest occurrence times."),
+  tracker_update: update("Rename, regroup, archive, reactivate, or establish the canonical unit of one personal-journal tracker."),
 
   profile_fact_list: read("List active or archived durable profile facts with stable IDs."),
   profile_fact_set: update("Add or replace one durable cross-task fact, relationship, or lasting preference."),

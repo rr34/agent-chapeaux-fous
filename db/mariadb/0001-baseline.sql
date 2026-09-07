@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 31.
+-- Target: MariaDB 10.11, schema version 32.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -221,16 +221,16 @@ CREATE TABLE content_groups (
     CONSTRAINT content_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)
 ) ENGINE=InnoDB;
 
-CREATE TABLE log_groups (
-    log_group_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+CREATE TABLE journal_groups (
+    journal_group_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     name             VARCHAR(200) NOT NULL,
     archived_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     created_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
                      DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
     updated_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
-    PRIMARY KEY (log_group_id),
-    UNIQUE KEY log_groups_name (name),
-    CONSTRAINT log_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)
+    PRIMARY KEY (journal_group_id),
+    UNIQUE KEY journal_groups_name (name),
+    CONSTRAINT journal_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)
 ) ENGINE=InnoDB;
 
 CREATE TABLE interaction_guides (
@@ -265,7 +265,7 @@ CREATE TABLE todo_groups (
 
 CREATE TABLE trackers (
     tracker_id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    log_group_id     BIGINT UNSIGNED NOT NULL,
+    journal_group_id     BIGINT UNSIGNED NOT NULL,
     name             VARCHAR(200) NOT NULL,
     unit             VARCHAR(100) NOT NULL,
     archived_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
@@ -274,8 +274,8 @@ CREATE TABLE trackers (
     updated_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     PRIMARY KEY (tracker_id),
     UNIQUE KEY trackers_name (name),
-    KEY trackers_group_name (log_group_id, archived_at_utc, name),
-    CONSTRAINT trackers_group FOREIGN KEY (log_group_id) REFERENCES log_groups(log_group_id) ON DELETE RESTRICT,
+    KEY trackers_group_name (journal_group_id, archived_at_utc, name),
+    CONSTRAINT trackers_group FOREIGN KEY (journal_group_id) REFERENCES journal_groups(journal_group_id) ON DELETE RESTRICT,
     CONSTRAINT trackers_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200),
     CONSTRAINT trackers_unit_length CHECK (CHAR_LENGTH(TRIM(unit)) BETWEEN 1 AND 100)
 ) ENGINE=InnoDB;
@@ -443,8 +443,8 @@ CREATE TABLE reminders (
     CONSTRAINT reminders_attempt CHECK (attempt_count >= 0)
 ) ENGINE=InnoDB;
 
-CREATE TABLE log_entries (
-    log_entry_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+CREATE TABLE journal_entries (
+    journal_entry_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     tracker_id       BIGINT UNSIGNED NOT NULL,
     occurred_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
                      DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
@@ -456,14 +456,14 @@ CREATE TABLE log_entries (
     updated_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     source           VARCHAR(200) NOT NULL DEFAULT 'agent-slayer',
     external_id      VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin,
-    PRIMARY KEY (log_entry_id),
-    UNIQUE KEY log_entries_source_external (source, external_id),
-    KEY log_entries_tracker_occurred (tracker_id, occurred_at_utc, log_entry_id),
-    CONSTRAINT log_entries_tracker FOREIGN KEY (tracker_id) REFERENCES trackers(tracker_id) ON DELETE RESTRICT,
-    CONSTRAINT log_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
-    CONSTRAINT log_entries_content CHECK (CHAR_LENGTH(TRIM(content_text)) BETWEEN 1 AND 10000),
-    CONSTRAINT log_entries_source_length CHECK (CHAR_LENGTH(TRIM(source)) BETWEEN 1 AND 200),
-    CONSTRAINT log_entries_external_length CHECK (external_id IS NULL OR CHAR_LENGTH(TRIM(external_id)) BETWEEN 1 AND 1000)
+    PRIMARY KEY (journal_entry_id),
+    UNIQUE KEY journal_entries_source_external (source, external_id),
+    KEY journal_entries_tracker_occurred (tracker_id, occurred_at_utc, journal_entry_id),
+    CONSTRAINT journal_entries_tracker FOREIGN KEY (tracker_id) REFERENCES trackers(tracker_id) ON DELETE RESTRICT,
+    CONSTRAINT journal_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT journal_entries_content CHECK (CHAR_LENGTH(TRIM(content_text)) BETWEEN 1 AND 10000),
+    CONSTRAINT journal_entries_source_length CHECK (CHAR_LENGTH(TRIM(source)) BETWEEN 1 AND 200),
+    CONSTRAINT journal_entries_external_length CHECK (external_id IS NULL OR CHAR_LENGTH(TRIM(external_id)) BETWEEN 1 AND 1000)
 ) ENGINE=InnoDB;
 
 CREATE TABLE content_items (
@@ -789,25 +789,25 @@ BEGIN
   END IF;
 END//
 
-CREATE TRIGGER log_entries_require_tracker_unit_before_insert
-BEFORE INSERT ON log_entries
+CREATE TRIGGER journal_entries_require_tracker_unit_before_insert
+BEFORE INSERT ON journal_entries
 FOR EACH ROW
 BEGIN
   IF NEW.number_value IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
   THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'numeric log entries require a tracker unit';
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'numeric journal entries require a tracker unit';
   END IF;
 END//
 
-CREATE TRIGGER log_entries_require_tracker_unit_before_update
-BEFORE UPDATE ON log_entries
+CREATE TRIGGER journal_entries_require_tracker_unit_before_update
+BEFORE UPDATE ON journal_entries
 FOR EACH ROW
 BEGIN
   IF NEW.number_value IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
   THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'numeric log entries require a tracker unit';
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'numeric journal entries require a tracker unit';
   END IF;
 END//
 
@@ -817,7 +817,7 @@ FOR EACH ROW
 BEGIN
   IF NOT (OLD.unit <=> NEW.unit)
      AND LOWER(OLD.unit) <> 'set me'
-     AND EXISTS (SELECT 1 FROM log_entries WHERE tracker_id = OLD.tracker_id AND number_value IS NOT NULL)
+     AND EXISTS (SELECT 1 FROM journal_entries WHERE tracker_id = OLD.tracker_id AND number_value IS NOT NULL)
   THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'a tracker unit cannot change after numeric entries exist';
   END IF;
@@ -826,4 +826,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 31, 'Chapeaux Fous MariaDB database');
+VALUES (1, 32, 'Chapeaux Fous MariaDB database');

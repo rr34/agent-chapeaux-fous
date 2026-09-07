@@ -48,10 +48,10 @@ export const requiredDatabaseShape = {
     "scheduled_at_utc", "is_all_day", "duration_minutes", "due_at_utc", "completed_at_utc", "source_event_id",
     "planning_prompt_text",
   ],
-  log_groups: ["log_group_id", "name", "archived_at_utc"],
-  trackers: ["tracker_id", "log_group_id", "name", "unit", "archived_at_utc"],
-  log_entries: [
-    "log_entry_id", "tracker_id", "occurred_at_utc", "content_text",
+  journal_groups: ["journal_group_id", "name", "archived_at_utc"],
+  trackers: ["tracker_id", "journal_group_id", "name", "unit", "archived_at_utc"],
+  journal_entries: [
+    "journal_entry_id", "tracker_id", "occurred_at_utc", "content_text",
     "number_value", "source_event_id", "source", "external_id",
   ],
   profile_facts: [
@@ -215,8 +215,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 31) {
-    problems.push(`Expected MariaDB schema version 31, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 32) {
+    problems.push(`Expected MariaDB schema version 32, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

@@ -36,13 +36,13 @@
       "example": "Chapeaux Fous, as my to-do, add a task to replace the furnace filter."
     },
     {
-      "id": "log",
-      "label": "log",
-      "icon": "log",
-      "aliases": ["logs", "tracker"],
-      "capability": "logs",
-      "description": "Record and review grouped personal logs and trackers.",
-      "example": "Chapeaux Fous, as my log, record that I weigh 180 pounds today."
+      "id": "journal",
+      "label": "journal",
+      "icon": "journal",
+      "aliases": ["diary", "tracker"],
+      "capability": "journal",
+      "description": "Record and review grouped journal entries and trackers.",
+      "example": "Chapeaux Fous, as my journal, record that I weigh 180 pounds today."
     },
     {
       "id": "calendar",
@@ -52,6 +52,15 @@
       "capability": "calendar",
       "description": "Read and manage calendar events and schedules.",
       "example": "Chapeaux Fous, as my calendar, add a dentist appointment Tuesday at 14:00."
+    },
+    {
+      "id": "accountant",
+      "label": "accountant",
+      "icon": "accountant",
+      "aliases": ["accounting", "bookkeeper", "bookkeeping"],
+      "capability": "integration:accounting",
+      "description": "Work with accounts, transactions, and financial records through the connected accounting tools.",
+      "example": "Chapeaux Fous, as my accountant, show me this month's transactions."
     },
     {
       "id": "property-manager",

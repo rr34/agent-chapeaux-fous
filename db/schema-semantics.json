@@ -8,8 +8,8 @@
   "database": {
     "engine": "mariadb",
     "name": "chapeauxfous",
-    "schemaVersion": 31,
-    "schemaFingerprint": "903c8812386e55ccd9bb72974e13a6d8769cab4e905d18c68f398eb2bc613881",
+    "schemaVersion": 32,
+    "schemaFingerprint": "cbc945ba6458e0f93647d8044c7ad6c1ece5628965c11c2f01f3ef7426a4694b",
     "extractedAt": "2026-09-04T13:47:45.368Z"
   },
   "instructions": {
@@ -9175,14 +9175,14 @@
       },
       "relationships": {}
     },
-    "log_entries": {
+    "journal_entries": {
       "mechanics": {
         "present": true,
         "kind": "table",
         "definition": null,
         "indexes": [
           {
-            "name": "log_entries_event",
+            "name": "journal_entries_event",
             "columns": [
               "source_event_id"
             ],
@@ -9191,7 +9191,7 @@
             "origin": "BTREE"
           },
           {
-            "name": "log_entries_source_external",
+            "name": "journal_entries_source_external",
             "columns": [
               "source",
               "external_id"
@@ -9201,11 +9201,11 @@
             "origin": "BTREE"
           },
           {
-            "name": "log_entries_tracker_occurred",
+            "name": "journal_entries_tracker_occurred",
             "columns": [
               "tracker_id",
               "occurred_at_utc",
-              "log_entry_id"
+              "journal_entry_id"
             ],
             "unique": false,
             "partial": false,
@@ -9214,7 +9214,7 @@
           {
             "name": "PRIMARY",
             "columns": [
-              "log_entry_id"
+              "journal_entry_id"
             ],
             "unique": true,
             "partial": false,
@@ -9228,12 +9228,12 @@
         "sourceOfTruth": true,
         "derivedFrom": [],
         "synonyms": [
-          "personal logs",
+          "personal journal",
           "tracking entries",
           "observations"
         ],
         "keywords": [
-          "log",
+          "journal",
           "track",
           "record",
           "weight",
@@ -9253,10 +9253,10 @@
         "sensitivity": "Contains private personal observations that may include health, nutrition, habits, symptoms, and daily activities."
       },
       "fields": {
-        "log_entry_id": {
+        "journal_entry_id": {
           "mechanics": {
             "present": true,
-            "name": "log_entry_id",
+            "name": "journal_entry_id",
             "ordinal": 0,
             "type": "bigint(20) unsigned",
             "nullable": false,
@@ -9268,7 +9268,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Stable local identifier for one personal log entry.",
+            "meaning": "Stable local identifier for one personal journal entry.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -9322,7 +9322,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "UTC instant when the logged observation or event occurred.",
+            "meaning": "UTC instant when the recorded observation or event occurred.",
             "units": null,
             "format": "ISO 8601 UTC timestamp",
             "allowedValueMeanings": {},
@@ -9331,7 +9331,7 @@
             "routingWeight": null,
             "examples": [],
             "importantRules": [
-              "This may differ from created_at_utc when the user logs something retrospectively."
+              "This may differ from created_at_utc when the user records something retrospectively."
             ],
             "sensitivity": null
           }
@@ -9381,7 +9381,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Optional numeric projection extracted from the complete log content for calculation, comparison, and trends.",
+            "meaning": "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -9411,7 +9411,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Optional activity event for the user request that caused this log entry to be recorded.",
+            "meaning": "Optional activity event for the user request that caused this journal entry to be recorded.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -9438,7 +9438,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "UTC timestamp when this log row was created.",
+            "meaning": "UTC timestamp when this journal row was created.",
             "units": null,
             "format": "ISO 8601 UTC timestamp",
             "allowedValueMeanings": {},
@@ -9465,7 +9465,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "UTC timestamp of the most recent modification to this log row, when modified.",
+            "meaning": "UTC timestamp of the most recent modification to this journal row, when modified.",
             "units": null,
             "format": "ISO 8601 UTC timestamp",
             "allowedValueMeanings": {},
@@ -9492,7 +9492,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Stable generic name of the application, export, or local path from which this log entry originated.",
+            "meaning": "Stable generic name of the application, export, or local path from which this journal entry originated.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -9501,7 +9501,7 @@
             "routingWeight": null,
             "examples": [],
             "importantRules": [
-              "Use agent-slayer for ordinary native log writes and a consistent source name for every page of one external import."
+              "Use agent-slayer for ordinary native journal writes and a consistent source name for every page of one external import."
             ],
             "sensitivity": "May identify a private external application or data export."
           }
@@ -9530,7 +9530,7 @@
             "routingWeight": null,
             "examples": [],
             "importantRules": [
-              "Required by the generic import tool and null for ordinary native logs without an upstream identity.",
+              "Required by the generic import tool and null for ordinary native journal entries without an upstream identity.",
               "The pair of source and external_id is unique whenever external_id is present."
             ],
             "sensitivity": "May expose an identifier from a private external data source."
@@ -9538,10 +9538,10 @@
         }
       },
       "relationships": {
-        "fk:log_entries_event": {
+        "fk:journal_entries_event": {
           "mechanics": {
             "present": true,
-            "id": "fk:log_entries_event",
+            "id": "fk:journal_entries_event",
             "columns": [
               "source_event_id"
             ],
@@ -9553,17 +9553,17 @@
             "onDelete": "SET NULL"
           },
           "semantics": {
-            "meaning": "Connects this log entry to the observable request event that created it.",
-            "cardinality": "Each log entry may reference zero or one activity event; one activity event may create multiple log entries.",
+            "meaning": "Connects this journal entry to the observable request event that created it.",
+            "cardinality": "Each journal entry may reference zero or one activity event; one activity event may create multiple journal entries.",
             "importantRules": [
-              "Deleting the source event preserves the log entry and clears this reference."
+              "Deleting the source event preserves the journal entry and clears this reference."
             ]
           }
         },
-        "fk:log_entries_tracker": {
+        "fk:journal_entries_tracker": {
           "mechanics": {
             "present": true,
-            "id": "fk:log_entries_tracker",
+            "id": "fk:journal_entries_tracker",
             "columns": [
               "tracker_id"
             ],
@@ -9576,7 +9576,7 @@
           },
           "semantics": {
             "meaning": "Connects this observation to the reusable tracker that gives it identity and organization.",
-            "cardinality": "Each log entry belongs to exactly one tracker; one tracker may contain many log entries.",
+            "cardinality": "Each journal entry belongs to exactly one tracker; one tracker may contain many journal entries.",
             "importantRules": [
               "A tracker with historical entries cannot be deleted through this restricted relationship."
             ]
@@ -9584,14 +9584,14 @@
         }
       }
     },
-    "log_groups": {
+    "journal_groups": {
       "mechanics": {
         "present": true,
         "kind": "table",
         "definition": null,
         "indexes": [
           {
-            "name": "log_groups_name",
+            "name": "journal_groups_name",
             "columns": [
               "name"
             ],
@@ -9602,7 +9602,7 @@
           {
             "name": "PRIMARY",
             "columns": [
-              "log_group_id"
+              "journal_group_id"
             ],
             "unique": true,
             "partial": false,
@@ -9617,10 +9617,10 @@
         "derivedFrom": [],
         "synonyms": [
           "tracker groups",
-          "log categories"
+          "journal categories"
         ],
         "keywords": [
-          "log group",
+          "journal group",
           "tracker group",
           "category",
           "health"
@@ -9633,10 +9633,10 @@
         "sensitivity": "Group names may reveal private areas of the user's life and health."
       },
       "fields": {
-        "log_group_id": {
+        "journal_group_id": {
           "mechanics": {
             "present": true,
-            "name": "log_group_id",
+            "name": "journal_group_id",
             "ordinal": 0,
             "type": "bigint(20) unsigned",
             "nullable": false,
@@ -9648,7 +9648,7 @@
           },
           "semantics": {
             "inheritsFrom": null,
-            "meaning": "Stable local identifier for one personal-log group.",
+            "meaning": "Stable local identifier for one personal-journal group.",
             "units": null,
             "format": null,
             "allowedValueMeanings": {},
@@ -14092,7 +14092,7 @@
           {
             "name": "trackers_group_name",
             "columns": [
-              "log_group_id",
+              "journal_group_id",
               "archived_at_utc",
               "name"
             ],
@@ -14119,18 +14119,18 @@
         "synonyms": [
           "tracked subjects",
           "personal trackers",
-          "log types"
+          "journal types"
         ],
         "keywords": [
           "tracker",
           "track",
-          "logging",
+          "journaling",
           "measurement",
           "observation"
         ],
         "routingWeight": 0.9,
         "importantRules": [
-          "Tracker names are globally unique without regard to letter case so a natural-language log request has one unambiguous target.",
+          "Tracker names are globally unique without regard to letter case so a natural-language journal request has one unambiguous target.",
           "Every tracker has one canonical unit shared by its complete numeric series.",
           "The migration marker set me must be replaced before another entry is recorded.",
           "A canonical unit cannot be changed after numeric entries exist, except when replacing the set me migration marker."
@@ -14165,10 +14165,10 @@
             "sensitivity": null
           }
         },
-        "log_group_id": {
+        "journal_group_id": {
           "mechanics": {
             "present": true,
-            "name": "log_group_id",
+            "name": "journal_group_id",
             "ordinal": 1,
             "type": "bigint(20) unsigned",
             "nullable": false,
@@ -14340,18 +14340,18 @@
             "present": true,
             "id": "fk:trackers_group",
             "columns": [
-              "log_group_id"
+              "journal_group_id"
             ],
-            "targetObject": "log_groups",
+            "targetObject": "journal_groups",
             "targetColumns": [
-              "log_group_id"
+              "journal_group_id"
             ],
             "onUpdate": "RESTRICT",
             "onDelete": "RESTRICT"
           },
           "semantics": {
             "meaning": "Connects this tracker to the group that organizes it.",
-            "cardinality": "Each tracker belongs to exactly one log group; one log group may contain many trackers.",
+            "cardinality": "Each tracker belongs to exactly one journal group; one journal group may contain many trackers.",
             "importantRules": [
               "A group containing trackers cannot be deleted through this restricted relationship."
             ]

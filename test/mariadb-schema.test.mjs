@@ -67,7 +67,7 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 31", () => {
+test("the authoritative MariaDB baseline is complete at schema version 32", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 32);
@@ -94,7 +94,7 @@ test("the authoritative MariaDB baseline is complete at schema version 31", () =
     /status\s+ENUM\('tentative', 'confirmed', 'cancelled'\) NOT NULL DEFAULT 'confirmed'/u,
   );
   assert.doesNotMatch(source, /calendar_events_status|ENUM\([^\n]*'completed'[^\n]*\) NOT NULL DEFAULT 'confirmed'/u);
-  assert.match(statements.at(-1), /VALUES \(1, 31, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 32, 'Chapeaux Fous MariaDB database'\)$/);
 });
 
 test("the version 30 enum migration is a reviewable ledger block", () => {
@@ -123,4 +123,20 @@ test("the version 31 migration normalizes legacy todo_personal constraint names"
   assert.match(migration.sql, /ADD CONSTRAINT todo_personal_source/u);
   assert.match(migration.sql, /ADD CONSTRAINT todo_personal_prompt/u);
   assert.doesNotMatch(migration.sql, /UPDATE database_meta/u);
+});
+
+test("the Journal migration preserves the baseline's tracker-unit guards as complete prepared statements", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 32);
+  const statements = splitMariaDbStatements(migration.sql);
+  const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
+  const normalize = (sql) => sql.replace(/\s+/gu, " ").trim();
+  const triggerStatements = statements.filter((sql) => sql.startsWith("SET @journal_migration_sql = 'CREATE TRIGGER"));
+  assert.equal(triggerStatements.length, 3);
+  for (const statement of triggerStatements) {
+    const sql = statement.slice("SET @journal_migration_sql = '".length, -2).replaceAll("''", "'");
+    assert.ok(baseline.some((candidate) => normalize(candidate) === normalize(sql)));
+  }
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.doesNotMatch(migration.sql, /\b(?:DELETE FROM|TRUNCATE|DROP TABLE|UPDATE activity_events|UPDATE database_meta)\b/iu);
 });
