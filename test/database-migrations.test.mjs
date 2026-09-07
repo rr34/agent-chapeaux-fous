@@ -11,6 +11,7 @@ import {
 } from "../scripts/database-migrations.mjs";
 import {
   acquireMigrationLock,
+  assertMigrationSpecificIntegrity,
   migrationsFilename,
   readCurrentSchemaVersion,
   runDatabaseMigrations,
@@ -20,6 +21,34 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   const label = String(version).padStart(4, "0");
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
+
+test("Journal migration failures identify the exact leftover constraint without advancing the schema", async () => {
+  const calls = [];
+  const connection = {
+    async query(sql) {
+      calls.push(sql);
+      if (sql.includes("information_schema.COLUMNS")) return [[
+        { TABLE_NAME: "journal_groups", COLUMN_NAME: "journal_group_id" },
+        { TABLE_NAME: "journal_entries", COLUMN_NAME: "journal_entry_id" },
+        { TABLE_NAME: "trackers", COLUMN_NAME: "journal_group_id" },
+      ]];
+      if (sql.includes("information_schema.TABLE_CONSTRAINTS")) return [[
+        ...["journal_groups_name_length", "journal_entries_content", "journal_entries_source_length", "journal_entries_external_length"]
+          .map((name) => ({ TABLE_NAME: name.startsWith("journal_groups") ? "journal_groups" : "journal_entries", CONSTRAINT_NAME: name, CONSTRAINT_TYPE: "CHECK" })),
+        ...["journal_entries_tracker", "journal_entries_event", "trackers_group"]
+          .map((name) => ({ TABLE_NAME: name === "trackers_group" ? "trackers" : "journal_entries", CONSTRAINT_NAME: name, CONSTRAINT_TYPE: "FOREIGN KEY" })),
+        { TABLE_NAME: "journal_entries", CONSTRAINT_NAME: "log_entries_legacy_check", CONSTRAINT_TYPE: "CHECK" },
+      ]];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection, { version: 32 }, "test_database"),
+    /legacy personal journal constraint names: journal_entries\.log_entries_legacy_check \(CHECK\)/u,
+  );
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((sql) => /^SELECT\b/u.test(sql)));
+});
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);

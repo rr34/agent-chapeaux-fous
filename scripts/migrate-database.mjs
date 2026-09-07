@@ -224,7 +224,7 @@ async function assertVersion32Integrity(connection, databaseName) {
   }
 
   const [constraints] = await connection.query(
-    `SELECT CONSTRAINT_NAME, CONSTRAINT_TYPE FROM information_schema.TABLE_CONSTRAINTS
+    `SELECT TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE FROM information_schema.TABLE_CONSTRAINTS
       WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME IN ('journal_groups', 'journal_entries', 'trackers')`,
     [databaseName],
   );
@@ -240,8 +240,13 @@ async function assertVersion32Integrity(connection, databaseName) {
   ]) {
     if (constraintTypes.get(name) !== type) throw new Error(`Migration 0032 did not establish ${type} ${name}`);
   }
-  if (constraints.some((row) => row.CONSTRAINT_NAME.startsWith("log_"))) {
-    throw new Error("Migration 0032 left legacy personal journal constraint names");
+  const legacyConstraints = constraints.filter((row) => row.CONSTRAINT_NAME.startsWith("log_"));
+  if (legacyConstraints.length > 0) {
+    const details = legacyConstraints
+      .map((row) => `${row.TABLE_NAME}.${row.CONSTRAINT_NAME} (${row.CONSTRAINT_TYPE})`)
+      .sort()
+      .join(", ");
+    throw new Error(`Migration 0032 left legacy personal journal constraint names: ${details}`);
   }
 
   const [indexes] = await connection.query(
