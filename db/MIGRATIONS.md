@@ -74,6 +74,15 @@ approved writer downtime. The application requires schema version 32 and uses
 The tracked semantic form describes the planned version 32 schema; synchronize
 it against the migrated database and inspect the diff before verification.
 
+If an earlier attempt stopped with `log_entries_event` and
+`log_entries_tracker` still present on `journal_entries`, keep writers stopped
+and rerun migration 0032 with the corrected ledger. It explicitly drops both
+legacy and replacement foreign keys before recreating the replacements in
+separate statements, addressing [MariaDB MDEV-32270](https://jira.mariadb.org/browse/MDEV-32270).
+The runner records version 32 only after integrity checks pass; do not advance
+the version manually. Then synchronize schema semantics and run `db:verify`
+before starting the application.
+
 Trigger bodies use prepared SQL so the ledger retains complete compound
 statements with the existing statement splitter. This is supported by the
 MariaDB 10.11 baseline target; see the [MariaDB PREPARE documentation](https://mariadb.com/docs/server/reference/sql-statements/prepared-statements/prepare-statement).

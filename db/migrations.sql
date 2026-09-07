@@ -31,7 +31,7 @@ DROP TRIGGER IF EXISTS log_entries_require_tracker_unit_before_update;
 DROP TRIGGER IF EXISTS journal_entries_require_tracker_unit_before_insert;
 DROP TRIGGER IF EXISTS journal_entries_require_tracker_unit_before_update;
 DROP TRIGGER IF EXISTS trackers_preserve_numeric_unit_before_update;
-ALTER TABLE trackers DROP CONSTRAINT IF EXISTS trackers_group;
+ALTER TABLE trackers DROP FOREIGN KEY IF EXISTS trackers_group;
 
 SET @journal_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'log_groups' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE log_groups TO journal_groups', 'DO 0');
 PREPARE journal_migration_statement FROM @journal_migration_sql;
@@ -83,14 +83,21 @@ ALTER TABLE journal_groups
   DROP CONSTRAINT IF EXISTS journal_groups_name_length,
   ADD CONSTRAINT journal_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200);
 
+-- MDEV-32270: DROP CONSTRAINT combined with ADD CONSTRAINT can retain old
+-- foreign keys. Use typed drops and finish them before adding replacements.
+-- Drop both names so replay also repairs a previous partially completed run.
 ALTER TABLE journal_entries
-  DROP CONSTRAINT IF EXISTS log_entries_tracker,
-  DROP CONSTRAINT IF EXISTS journal_entries_tracker,
+  DROP FOREIGN KEY IF EXISTS log_entries_tracker,
+  DROP FOREIGN KEY IF EXISTS journal_entries_tracker;
+
+ALTER TABLE journal_entries
   ADD CONSTRAINT journal_entries_tracker FOREIGN KEY (tracker_id) REFERENCES trackers(tracker_id) ON DELETE RESTRICT;
 
 ALTER TABLE journal_entries
-  DROP CONSTRAINT IF EXISTS log_entries_event,
-  DROP CONSTRAINT IF EXISTS journal_entries_event,
+  DROP FOREIGN KEY IF EXISTS log_entries_event,
+  DROP FOREIGN KEY IF EXISTS journal_entries_event;
+
+ALTER TABLE journal_entries
   ADD CONSTRAINT journal_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL;
 
 ALTER TABLE journal_entries

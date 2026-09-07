@@ -140,3 +140,23 @@ test("the Journal migration preserves the baseline's tracker-unit guards as comp
   assert.match(migration.sql, /writer downtime: required/u);
   assert.doesNotMatch(migration.sql, /\b(?:DELETE FROM|TRUNCATE|DROP TABLE|UPDATE activity_events|UPDATE database_meta)\b/iu);
 });
+
+test("Journal migration drops foreign keys explicitly before separate replacement statements", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 32);
+  const statements = splitMariaDbStatements(migration.sql).map((sql) => sql.replace(/^--.*$/gmu, ""));
+  for (const [table, current, previous] of [
+    ["trackers", "trackers_group", null],
+    ["journal_entries", "journal_entries_tracker", "log_entries_tracker"],
+    ["journal_entries", "journal_entries_event", "log_entries_event"],
+  ]) {
+    const addIndex = statements.findIndex((sql) => sql.includes(`ADD CONSTRAINT ${current} FOREIGN KEY`));
+    assert.ok(addIndex >= 0);
+    for (const name of [current, previous].filter(Boolean)) {
+      const dropIndex = statements.findIndex((sql) => sql.includes(`DROP FOREIGN KEY IF EXISTS ${name}`));
+      assert.ok(dropIndex >= 0 && dropIndex < addIndex, `${table}.${name} must be dropped before its replacement`);
+      assert.doesNotMatch(statements[dropIndex], /\bADD CONSTRAINT\b/u);
+      assert.ok(!migration.sql.includes(`DROP CONSTRAINT IF EXISTS ${name}`));
+    }
+  }
+});

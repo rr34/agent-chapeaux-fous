@@ -47,6 +47,19 @@ test("the Journal upgrade and replay preserve existing IDs, import provenance, a
       (tracker_id, content_text, source, external_id) VALUES (42, 'Duplicate', 'legacy-import', 'weight-1')`), /Duplicate entry/iu);
   };
   assertPreserved();
+  // Reproduce the observed failed upgrade: both old and new foreign keys
+  // coexist, all renamed objects exist, and the version is still 31.
+  database.exec(`ALTER TABLE journal_entries
+    ADD CONSTRAINT log_entries_tracker FOREIGN KEY (tracker_id) REFERENCES trackers(tracker_id) ON DELETE RESTRICT,
+    ADD CONSTRAINT log_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL`);
+  database.exec("UPDATE database_meta SET schema_version = 31 WHERE singleton = 1");
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [32]);
+  assertPreserved();
+  const legacyKeys = database.prepare(`SELECT CONSTRAINT_NAME
+    FROM information_schema.TABLE_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_entries'
+      AND LEFT(CONSTRAINT_NAME, 4) = 'log_'`).all();
+  assert.deepEqual(legacyKeys, []);
   // Replay the DDL itself, as recovery does after a partial implicit commit.
   const migration = readMigrationLedger(migrationsFilename).find(({ version }) => version === 32);
   for (const statement of splitMariaDbStatements(migration.sql)) database.exec(statement);
