@@ -187,6 +187,7 @@ const queue = new RequestQueue({
 const staticFiles = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
   ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
+  ["/ai-usage.js", ["ai-usage.js", "text/javascript; charset=utf-8"]],
   ["/calendar-grid.js", ["calendar-grid.js", "text/javascript; charset=utf-8"]],
   ["/event-date-time.js", ["event-date-time.js", "text/javascript; charset=utf-8"]],
   ["/presentation-format.js", ["presentation-format.js", "text/javascript; charset=utf-8"]],
