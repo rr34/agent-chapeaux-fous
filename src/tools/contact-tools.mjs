@@ -132,7 +132,7 @@ function contactFromDatabase(database, contactId) {
   `).all(contactId).map((method) => selectedFields(method, methodFields));
   const tags = database.prepare(`
     SELECT tag.* FROM tags AS tag
-    JOIN record_tags AS assignment USING (tag_id)
+    JOIN contacts_tags_join AS assignment USING (tag_id)
     WHERE assignment.record_type = 'contact' AND assignment.record_id = ?
     ORDER BY tag.slug, tag.tag_id
   `).all(String(contactId)).map((tag) => selectedFields(tag, tagFields));
@@ -185,12 +185,12 @@ function contactResult(schemaSemantics, context, result, {
   return withSchemaProjection(schemaSemantics, context, result, {
     name,
     purpose,
-    schemaObjects: ["contacts", "contact_methods", "tags", "record_tags"],
+    schemaObjects: ["contacts", "contact_methods", "tags", "contacts_tags_join"],
     fields: {
       contacts: contactFields,
       contact_methods: methodFields,
       tags: tagFields,
-      record_tags: ["tag_id", "record_type", "record_id", "created_at_utc"],
+      contacts_tags_join: ["tag_id", "record_type", "record_id", "created_at_utc"],
     },
   });
 }
@@ -260,7 +260,7 @@ function importNormalizedContacts({
         );
       }
       const assignTag = database.prepare(`
-        INSERT IGNORE INTO record_tags (tag_id, record_type, record_id)
+        INSERT IGNORE INTO contacts_tags_join (tag_id, record_type, record_id)
         VALUES (?, 'contact', ?)
       `);
       for (const tag of input.tags) {
@@ -373,7 +373,7 @@ export function contactTagContext(store, limit = 200) {
     SELECT tag.tag_id, tag.slug, tag.label,
            COUNT(assignment.record_id) AS contact_count
     FROM tags AS tag
-    LEFT JOIN record_tags AS assignment
+    LEFT JOIN contacts_tags_join AS assignment
       ON assignment.tag_id = tag.tag_id
      AND assignment.record_type = 'contact'
     WHERE tag.is_active = 1
@@ -683,7 +683,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_tag_add_batch",
-    description: "Atomically add one tag to 1 through 10,000 existing contacts by ID in a single tool call. The operation validates every contact before writing, preserves all existing tags, is safe to replay, and reports newly tagged versus already-tagged counts. Use this after one contact_lookup_batch call; never insert record_tags one row at a time.",
+    description: "Atomically add one tag to 1 through 10,000 existing contacts by ID in a single tool call. The operation validates every contact before writing, preserves all existing tags, is safe to replay, and reports newly tagged versus already-tagged counts. Use this after one contact_lookup_batch call; never insert contacts_tags_join one row at a time.",
     parameters: {
       type: "object",
       additionalProperties: false,

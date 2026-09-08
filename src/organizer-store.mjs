@@ -896,7 +896,7 @@ export class OrganizerStore {
     `).all(id).map(publicContactMethod);
     const tags = this.database.prepare(`
       SELECT tag.label
-      FROM record_tags AS assignment
+      FROM contacts_tags_join AS assignment
       JOIN tags AS tag USING (tag_id)
       WHERE assignment.record_type = 'contact'
         AND assignment.record_id = ?
@@ -935,10 +935,10 @@ export class OrganizerStore {
     if (tags === null) return;
     const recordId = String(contactId);
     this.database.prepare(
-      "DELETE FROM record_tags WHERE record_type = 'contact' AND record_id = ?",
+      "DELETE FROM contacts_tags_join WHERE record_type = 'contact' AND record_id = ?",
     ).run(recordId);
     const assign = this.database.prepare(`
-      INSERT INTO record_tags (tag_id, record_type, record_id)
+      INSERT INTO contacts_tags_join (tag_id, record_type, record_id)
       VALUES (?, 'contact', ?)
     `);
     for (const tag of tags) {
@@ -985,7 +985,7 @@ export class OrganizerStore {
     }
     const assignments = this.database.prepare(`
       SELECT assignment.record_id, tag.label
-      FROM record_tags AS assignment
+      FROM contacts_tags_join AS assignment
       JOIN tags AS tag USING (tag_id)
       WHERE assignment.record_type = 'contact'
         AND assignment.record_id IN (${placeholders})
@@ -1254,7 +1254,7 @@ export class OrganizerStore {
       if (action === "add_tag") {
         const storedTag = this.#ensureContactTag(tag);
         const assign = this.database.prepare(`
-          INSERT IGNORE INTO record_tags (tag_id, record_type, record_id)
+          INSERT IGNORE INTO contacts_tags_join (tag_id, record_type, record_id)
           VALUES (?, 'contact', ?)
         `);
         const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
@@ -1268,7 +1268,7 @@ export class OrganizerStore {
         }
       } else {
         const removeTags = this.database.prepare(
-          "DELETE FROM record_tags WHERE record_type = 'contact' AND record_id = ?",
+          "DELETE FROM contacts_tags_join WHERE record_type = 'contact' AND record_id = ?",
         );
         const removeContact = this.database.prepare("DELETE FROM contacts WHERE contact_id = ?");
         for (const record of records) {
@@ -1318,7 +1318,7 @@ export class OrganizerStore {
       });
       const storedTag = this.#ensureContactTag(tag);
       const assign = this.database.prepare(`
-        INSERT IGNORE INTO record_tags (tag_id, record_type, record_id)
+        INSERT IGNORE INTO contacts_tags_join (tag_id, record_type, record_id)
         VALUES (?, 'contact', ?)
       `);
       const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
@@ -1373,7 +1373,7 @@ export class OrganizerStore {
       const contacts = this.database.prepare(`
         SELECT contact.contact_id, contact.created_at_utc, contact.updated_at_utc
         FROM contacts AS contact
-        JOIN record_tags AS assignment
+        JOIN contacts_tags_join AS assignment
           ON assignment.record_type = 'contact'
           AND assignment.record_id = CAST(contact.contact_id AS TEXT)
         WHERE assignment.tag_id = ?
@@ -1392,16 +1392,16 @@ export class OrganizerStore {
         const target = this.#ensureContactTag(renamedInput);
         targetId = target.tag_id;
         this.database.prepare(`
-          INSERT IGNORE INTO record_tags (tag_id, record_type, record_id)
+          INSERT IGNORE INTO contacts_tags_join (tag_id, record_type, record_id)
           SELECT ?, record_type, record_id
-          FROM record_tags
+          FROM contacts_tags_join
           WHERE tag_id = ? AND record_type = 'contact'
         `).run(targetId, previous.tag_id);
         this.database.prepare(
-          "DELETE FROM record_tags WHERE tag_id = ? AND record_type = 'contact'",
+          "DELETE FROM contacts_tags_join WHERE tag_id = ? AND record_type = 'contact'",
         ).run(previous.tag_id);
         const remainingAssignments = Number(this.database.prepare(
-          "SELECT COUNT(*) AS count FROM record_tags WHERE tag_id = ?",
+          "SELECT COUNT(*) AS count FROM contacts_tags_join WHERE tag_id = ?",
         ).get(previous.tag_id).count);
         if (remainingAssignments === 0) {
           this.database.prepare("DELETE FROM tags WHERE tag_id = ?").run(previous.tag_id);

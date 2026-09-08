@@ -20,7 +20,7 @@ export const requiredDatabaseShape = {
     "normalized_value", "is_primary", "can_receive",
   ],
   tags: ["tag_id", "slug", "label", "is_active"],
-  record_tags: ["tag_id", "record_type", "record_id"],
+  contacts_tags_join: ["tag_id", "record_type", "record_id"],
   content_groups: ["content_group_id", "name", "sort_position", "archived_at_utc"],
   content_items: [
     "content_id", "content_group_id", "sequence", "content_type", "title",
@@ -211,8 +211,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 33) {
-    problems.push(`Expected MariaDB schema version 33, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 34) {
+    problems.push(`Expected MariaDB schema version 34, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

@@ -9,10 +9,10 @@ import { inspectDatabase } from "../src/database.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
 // Reconstruct the pre-rename schema to exercise the upgrade with existing data.
-const previousSchema = fs.readFileSync(baselineFilename, "utf8")
+const previousSchema = fs.readFileSync(baselineFilename, "utf8").replaceAll("contacts_tags_join", "record_tags")
   .replaceAll("journal_", "log_")
   .replaceAll("numeric journal entries", "numeric log entries")
-  .replace("VALUES (1, 33,", "VALUES (1, 31,");
+  .replace("VALUES (1, 34,", "VALUES (1, 31,");
 
 test("the Journal upgrade and replay preserve existing IDs, import provenance, and numeric-unit invariants", async (context) => {
   const temporary = temporaryDatabase({ schema: previousSchema });
@@ -31,7 +31,7 @@ test("the Journal upgrade and replay preserve existing IDs, import provenance, a
     output: { write() {} },
   };
   const result = await runDatabaseMigrations(settings);
-  assert.deepEqual(result.applied, [32, 33]);
+  assert.deepEqual(result.applied, [32, 33, 34]);
   const assertPreserved = () => {
     assert.equal(inspectDatabase(database).ready, true);
     const row = database.prepare(`SELECT entry.journal_entry_id, tracker.tracker_id,
@@ -53,7 +53,7 @@ test("the Journal upgrade and replay preserve existing IDs, import provenance, a
     ADD CONSTRAINT log_entries_tracker FOREIGN KEY (tracker_id) REFERENCES trackers(tracker_id) ON DELETE RESTRICT,
     ADD CONSTRAINT log_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL`);
   database.exec("UPDATE database_meta SET schema_version = 31 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [32, 33]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [32, 33, 34]);
   assertPreserved();
   const legacyKeys = database.prepare(`SELECT CONSTRAINT_NAME
     FROM information_schema.TABLE_CONSTRAINTS

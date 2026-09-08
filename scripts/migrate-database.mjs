@@ -292,6 +292,17 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
     );
     if (rows.length > 0) throw new Error("Migration 0033 left the notes table in place");
   }
+  if (migration.version === 34) {
+    const [rows] = await connection.query(
+      `SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = ?
+          AND TABLE_NAME IN ('record_tags', 'contacts_tags_join', 'record_links')`,
+      [databaseName],
+    );
+    if (rows.length !== 1 || rows[0].TABLE_NAME !== "contacts_tags_join" || rows[0].TABLE_TYPE !== "BASE TABLE") {
+      throw new Error("Migration 0034 must leave contacts_tags_join and remove record_tags and record_links");
+    }
+  }
 }
 
 export async function assertGeneralMariaDbIntegrity(connection, expectedVersion, databaseName) {

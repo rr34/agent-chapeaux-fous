@@ -8,8 +8,8 @@
   "database": {
     "engine": "mariadb",
     "name": "chapeauxfous",
-    "schemaVersion": 33,
-    "schemaFingerprint": "673f6180115f08a31d1d27d6e41bba249a5d82faf87be77e0ec3c50171319af4",
+    "schemaVersion": 34,
+    "schemaFingerprint": "a665db278db5b77a2523dacae1ee3e94d220fd661263de6ea908639ced17ca51",
     "extractedAt": "2026-09-04T13:47:45.368Z"
   },
   "instructions": {
@@ -4788,6 +4788,191 @@
         }
       },
       "relationships": {}
+    },
+    "contacts_tags_join": {
+      "mechanics": {
+        "present": true,
+        "kind": "table",
+        "definition": null,
+        "indexes": [
+          {
+            "name": "PRIMARY",
+            "columns": [
+              "tag_id",
+              "record_type",
+              "record_id"
+            ],
+            "unique": true,
+            "partial": false,
+            "origin": "BTREE"
+          },
+          {
+            "name": "record_tags_record",
+            "columns": [
+              "record_type",
+              "record_id"
+            ],
+            "unique": false,
+            "partial": false,
+            "origin": "BTREE"
+          }
+        ]
+      },
+      "semantics": {
+        "purpose": "Stores the tag assignments used by Contacts, retaining the legacy record type and record ID columns.",
+        "rowMeaning": "One row assigns one tag to one typed record; Contacts uses record_type contact.",
+        "sourceOfTruth": true,
+        "derivedFrom": [],
+        "synonyms": [
+          "contact tags",
+          "contact tag assignments"
+        ],
+        "keywords": [
+          "tagged record",
+          "record tag",
+          "categorize"
+        ],
+        "routingWeight": 0.3,
+        "importantRules": [
+          "record_type and record_id form a polymorphic reference that MariaDB cannot validate with a foreign key.",
+          "The table rename preserves existing assignments of every record type; contact operations select record_type contact."
+        ],
+        "sensitivity": "Tag assignments may reveal private categorization of people, communications, work, or content."
+      },
+      "fields": {
+        "tag_id": {
+          "mechanics": {
+            "present": true,
+            "name": "tag_id",
+            "ordinal": 0,
+            "type": "bigint(20) unsigned",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 1,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Tag assigned to the record.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "record_type": {
+          "mechanics": {
+            "present": true,
+            "name": "record_type",
+            "ordinal": 1,
+            "type": "varchar(128)",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 2,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Type of record receiving the tag.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "record_id": {
+          "mechanics": {
+            "present": true,
+            "name": "record_id",
+            "ordinal": 2,
+            "type": "varchar(255)",
+            "nullable": false,
+            "default": null,
+            "primaryKeyPosition": 3,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "Text representation of the identifier for the record named by record_type.",
+            "units": null,
+            "format": null,
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        },
+        "created_at_utc": {
+          "mechanics": {
+            "present": true,
+            "name": "created_at_utc",
+            "ordinal": 3,
+            "type": "varchar(32)",
+            "nullable": false,
+            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
+            "primaryKeyPosition": 0,
+            "generated": false,
+            "hidden": false,
+            "allowedValues": []
+          },
+          "semantics": {
+            "inheritsFrom": null,
+            "meaning": "UTC timestamp when the tag was assigned.",
+            "units": null,
+            "format": "ISO 8601 UTC timestamp",
+            "allowedValueMeanings": {},
+            "synonyms": [],
+            "keywords": [],
+            "routingWeight": null,
+            "examples": [],
+            "importantRules": [],
+            "sensitivity": null
+          }
+        }
+      },
+      "relationships": {
+        "fk:record_tags_tag": {
+          "mechanics": {
+            "present": true,
+            "id": "fk:record_tags_tag",
+            "columns": [
+              "tag_id"
+            ],
+            "targetObject": "tags",
+            "targetColumns": [
+              "tag_id"
+            ],
+            "onUpdate": "RESTRICT",
+            "onDelete": "CASCADE"
+          },
+          "semantics": {
+            "meaning": "Connects this tag assignment to the tag identified by tag_id.",
+            "cardinality": "Each tag assignment references exactly one tag; one referenced record may be used by many tag assignment records.",
+            "importantRules": [
+              "Deleting the referenced row also deletes this dependent row."
+            ]
+          }
+        }
+      }
     },
     "content_groups": {
       "mechanics": {
@@ -10708,532 +10893,6 @@
             "cardinality": "Each profile fact version may reference zero or one source event; one event may create multiple profile fact versions.",
             "importantRules": [
               "Deleting an old event clears this pointer without deleting the profile fact."
-            ]
-          }
-        }
-      }
-    },
-    "record_links": {
-      "mechanics": {
-        "present": true,
-        "kind": "table",
-        "definition": null,
-        "indexes": [
-          {
-            "name": "PRIMARY",
-            "columns": [
-              "record_link_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "BTREE"
-          },
-          {
-            "name": "record_links_event",
-            "columns": [
-              "source_event_id"
-            ],
-            "unique": false,
-            "partial": false,
-            "origin": "BTREE"
-          },
-          {
-            "name": "record_links_identity",
-            "columns": [
-              "left_record_type",
-              "left_record_id",
-              "relationship_type",
-              "right_record_type",
-              "right_record_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "BTREE"
-          },
-          {
-            "name": "record_links_right",
-            "columns": [
-              "right_record_type",
-              "right_record_id",
-              "relationship_type"
-            ],
-            "unique": false,
-            "partial": false,
-            "origin": "BTREE"
-          }
-        ]
-      },
-      "semantics": {
-        "purpose": "Represents directed relationships between arbitrary agent records when adding a dedicated foreign-key column would be excessive.",
-        "rowMeaning": "One row states that one typed record has one named relationship to another typed record.",
-        "sourceOfTruth": true,
-        "derivedFrom": [],
-        "synonyms": [
-          "generic record links",
-          "cross-record relationships"
-        ],
-        "keywords": [
-          "record relationship",
-          "linked record",
-          "related record",
-          "association"
-        ],
-        "routingWeight": 0.2,
-        "importantRules": [
-          "Direction matters: left and right records are not interchangeable unless the relationship type explicitly says so.",
-          "The text identifiers are polymorphic and are not enforced by MariaDB foreign keys."
-        ],
-        "sensitivity": "May reveal private relationships among contacts, notes, content, work, and events."
-      },
-      "fields": {
-        "record_link_id": {
-          "mechanics": {
-            "present": true,
-            "name": "record_link_id",
-            "ordinal": 0,
-            "type": "bigint(20) unsigned",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 1,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Stable local identifier for this directed record relationship.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "left_record_type": {
-          "mechanics": {
-            "present": true,
-            "name": "left_record_type",
-            "ordinal": 1,
-            "type": "varchar(64)",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Type of record from whose perspective relationship_type is stated.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "left_record_id": {
-          "mechanics": {
-            "present": true,
-            "name": "left_record_id",
-            "ordinal": 2,
-            "type": "varchar(191)",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Text representation of the identifier for the record named by left_record_type.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "relationship_type": {
-          "mechanics": {
-            "present": true,
-            "name": "relationship_type",
-            "ordinal": 3,
-            "type": "varchar(64)",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Directional phrase describing how the left record relates to the right record.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "right_record_type": {
-          "mechanics": {
-            "present": true,
-            "name": "right_record_type",
-            "ordinal": 4,
-            "type": "varchar(64)",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Type of record that is the target of the relationship.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "right_record_id": {
-          "mechanics": {
-            "present": true,
-            "name": "right_record_id",
-            "ordinal": 5,
-            "type": "varchar(191)",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Text representation of the identifier for the record named by right_record_type.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "notes": {
-          "mechanics": {
-            "present": true,
-            "name": "notes",
-            "ordinal": 6,
-            "type": "text",
-            "nullable": true,
-            "default": "NULL",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Free-text qualification or evidence needed to understand the relationship.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "source_event_id": {
-          "mechanics": {
-            "present": true,
-            "name": "source_event_id",
-            "ordinal": 7,
-            "type": "varchar(128)",
-            "nullable": true,
-            "default": "NULL",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Ledger event from which this relationship was learned or requested when known.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "created_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "created_at_utc",
-            "ordinal": 8,
-            "type": "varchar(32)",
-            "nullable": false,
-            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC timestamp when this record relationship was inserted.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        }
-      },
-      "relationships": {
-        "fk:record_links_event": {
-          "mechanics": {
-            "present": true,
-            "id": "fk:record_links_event",
-            "columns": [
-              "source_event_id"
-            ],
-            "targetObject": "activity_events",
-            "targetColumns": [
-              "event_id"
-            ],
-            "onUpdate": "RESTRICT",
-            "onDelete": "SET NULL"
-          },
-          "semantics": {
-            "meaning": "Connects this directed record relationship to the observable event identified by source_event_id.",
-            "cardinality": "Each directed record relationship may reference zero or one observable event; one referenced record may be used by many directed record relationship records.",
-            "importantRules": [
-              "Deleting the referenced row preserves this row and clears the reference."
-            ]
-          }
-        }
-      }
-    },
-    "record_tags": {
-      "mechanics": {
-        "present": true,
-        "kind": "table",
-        "definition": null,
-        "indexes": [
-          {
-            "name": "PRIMARY",
-            "columns": [
-              "tag_id",
-              "record_type",
-              "record_id"
-            ],
-            "unique": true,
-            "partial": false,
-            "origin": "BTREE"
-          },
-          {
-            "name": "record_tags_record",
-            "columns": [
-              "record_type",
-              "record_id"
-            ],
-            "unique": false,
-            "partial": false,
-            "origin": "BTREE"
-          }
-        ]
-      },
-      "semantics": {
-        "purpose": "Assigns reusable tags to arbitrary typed records without requiring a separate join table for every record type.",
-        "rowMeaning": "One row assigns one tag to one typed record.",
-        "sourceOfTruth": true,
-        "derivedFrom": [],
-        "synonyms": [
-          "tagged records",
-          "generic tag assignments"
-        ],
-        "keywords": [
-          "tagged record",
-          "record tag",
-          "categorize"
-        ],
-        "routingWeight": 0.3,
-        "importantRules": [
-          "record_type and record_id form a polymorphic reference that MariaDB cannot validate with a foreign key."
-        ],
-        "sensitivity": "Tag assignments may reveal private categorization of people, communications, work, or content."
-      },
-      "fields": {
-        "tag_id": {
-          "mechanics": {
-            "present": true,
-            "name": "tag_id",
-            "ordinal": 0,
-            "type": "bigint(20) unsigned",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 1,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Tag assigned to the record.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "record_type": {
-          "mechanics": {
-            "present": true,
-            "name": "record_type",
-            "ordinal": 1,
-            "type": "varchar(128)",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 2,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Type of record receiving the tag.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "record_id": {
-          "mechanics": {
-            "present": true,
-            "name": "record_id",
-            "ordinal": 2,
-            "type": "varchar(255)",
-            "nullable": false,
-            "default": null,
-            "primaryKeyPosition": 3,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "Text representation of the identifier for the record named by record_type.",
-            "units": null,
-            "format": null,
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        },
-        "created_at_utc": {
-          "mechanics": {
-            "present": true,
-            "name": "created_at_utc",
-            "ordinal": 3,
-            "type": "varchar(32)",
-            "nullable": false,
-            "default": "concat(left(date_format(utc_timestamp(3),'%Y-%m-%dT%H:%i:%s.%f'),23),'Z')",
-            "primaryKeyPosition": 0,
-            "generated": false,
-            "hidden": false,
-            "allowedValues": []
-          },
-          "semantics": {
-            "inheritsFrom": null,
-            "meaning": "UTC timestamp when the tag was assigned.",
-            "units": null,
-            "format": "ISO 8601 UTC timestamp",
-            "allowedValueMeanings": {},
-            "synonyms": [],
-            "keywords": [],
-            "routingWeight": null,
-            "examples": [],
-            "importantRules": [],
-            "sensitivity": null
-          }
-        }
-      },
-      "relationships": {
-        "fk:record_tags_tag": {
-          "mechanics": {
-            "present": true,
-            "id": "fk:record_tags_tag",
-            "columns": [
-              "tag_id"
-            ],
-            "targetObject": "tags",
-            "targetColumns": [
-              "tag_id"
-            ],
-            "onUpdate": "RESTRICT",
-            "onDelete": "CASCADE"
-          },
-          "semantics": {
-            "meaning": "Connects this tag assignment to the tag identified by tag_id.",
-            "cardinality": "Each tag assignment references exactly one tag; one referenced record may be used by many tag assignment records.",
-            "importantRules": [
-              "Deleting the referenced row also deletes this dependent row."
             ]
           }
         }

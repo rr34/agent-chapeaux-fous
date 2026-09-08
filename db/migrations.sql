@@ -16,6 +16,24 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0034: rename-contact-tags-and-remove-record-links
+-- writer downtime: required; contact readers and writers must switch to the
+-- matching application code when record_tags is renamed.
+-- locking: the rename and drop take metadata locks; tag rows are not rewritten.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped and rerun
+-- this block after a partial commit. The rename checks for the old table and
+-- never overwrites the destination. Restore record_links from the verified
+-- backup to recover its intentionally discarded contents.
+
+SET @contact_tags_migration_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'record_tags' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE record_tags TO contacts_tags_join', 'DO 0');
+PREPARE contact_tags_migration_statement FROM @contact_tags_migration_sql;
+EXECUTE contact_tags_migration_statement;
+DEALLOCATE PREPARE contact_tags_migration_statement;
+
+DROP TABLE IF EXISTS record_links;
+
+-- end migration 0034
+
 -- migration 0033: remove-unused-notes
 -- writer downtime: not required; no application feature reads or writes notes.
 -- locking: DROP TABLE takes a metadata lock on notes only; no other table is rebuilt.

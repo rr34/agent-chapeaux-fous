@@ -59,12 +59,26 @@ Do not restart the service when migration or verification fails. If no
 migrations are pending, `npm run db:migrate` is a read-only integrity check and
 does not require the confirmation variables.
 
+## Version 34: Contact tag join table
+
+Version 34 renames `record_tags` to `contacts_tags_join` and drops `record_links`
+with its contents. The rename preserves every tag assignment, timestamp, column,
+index, and foreign key. It retains `record_type` and `record_id`; converting
+those legacy columns into a contact foreign key is a separate schema change.
+The existing index and constraint names also remain intact.
+
+Apply this migration and the matching application during approved writer
+downtime using the operator sequence above. The application requires schema
+version 34. Synchronize schema semantics and verify before starting writers.
+If the rename commits before the migration finishes, rerunning skips that
+rename and completes the drop. An existing destination is never overwritten.
+
 ## Version 33: Remove unused notes
 
 Version 33 drops the standalone `notes` table and its contents. Personal writing
 uses the existing Journal feature and `journal_entries.content_text`. Journal
 entries, trackers, contact notes, and historical activity receipts are unchanged.
-The application now requires schema version 33.
+That application version requires schema version 33.
 
 This block does not require writer downtime because no application feature
 reads or writes `notes`. Create and test a recoverable backup as above, then run

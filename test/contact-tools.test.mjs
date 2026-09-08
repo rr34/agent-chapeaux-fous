@@ -265,7 +265,7 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
     }, { ...toolContext, callId: "batch-contact-tag-invalid" }),
     /Contact 999999 was not found/,
   );
-  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM record_tags").get().count, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts_tags_join").get().count, 0);
 
   const tagged = await registry.execute("contact_tag_add_batch", {
     tag: "Big Batch",
@@ -283,7 +283,7 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
     [replay.selected_contact_count, replay.tagged_contact_count, replay.already_tagged_contact_count],
     [1000, 0, 1000],
   );
-  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM record_tags").get().count, 1000);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts_tags_join").get().count, 1000);
   assert.equal(database.prepare(`
     SELECT COUNT(*) AS count FROM activity_events
     WHERE event_type = 'contacts.tag_added_batch'
@@ -313,7 +313,7 @@ test("contact_import accepts more than 100 rows in one bounded transaction", asy
   assert.equal(result.imported_count, 125);
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM contacts").get().count, 125);
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM tags").get().count, 2);
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM record_tags").get().count, 125);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM contacts_tags_join").get().count, 125);
 });
 
 test("contact_file_import completes a partial import and replays a 1,200-row CSV in one call", async (context) => {

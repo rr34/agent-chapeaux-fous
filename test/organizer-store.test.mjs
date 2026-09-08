@@ -245,7 +245,7 @@ test("bulk contact tagging and deletion are version-checked and atomic", () => {
     assert.equal(organizer.getContact(second.id), null);
     assert.equal(organizer.getContact(retained.id).displayName, "Retained Contact");
     assert.equal(organizer.database.prepare(`
-      SELECT COUNT(*) AS count FROM record_tags
+      SELECT COUNT(*) AS count FROM contacts_tags_join
       WHERE record_type = 'contact' AND record_id IN (?, ?)
     `).get(String(first.id), String(second.id)).count, 0);
     assert.equal(organizer.database.prepare(`
@@ -267,7 +267,7 @@ test("contact tag rename merges existing destinations without touching other rec
     const third = organizer.createContact({ displayName: "Third", tags: ["Target"] });
     const oldTag = organizer.database.prepare("SELECT tag_id FROM tags WHERE slug = 'old-tag'").get();
     organizer.database.prepare(`
-      INSERT INTO record_tags (tag_id, record_type, record_id)
+      INSERT INTO contacts_tags_join (tag_id, record_type, record_id)
       VALUES (?, 'future_record', 'example')
     `).run(oldTag.tag_id);
 
@@ -282,11 +282,11 @@ test("contact tag rename merges existing destinations without touching other rec
     assert.deepEqual(organizer.getContact(second.id).tags, ["Target"]);
     assert.deepEqual(organizer.getContact(third.id).tags, ["Target"]);
     assert.equal(organizer.database.prepare(`
-      SELECT COUNT(*) AS count FROM record_tags
+      SELECT COUNT(*) AS count FROM contacts_tags_join
       WHERE tag_id = ? AND record_type = 'contact'
     `).get(oldTag.tag_id).count, 0);
     assert.equal(organizer.database.prepare(`
-      SELECT COUNT(*) AS count FROM record_tags
+      SELECT COUNT(*) AS count FROM contacts_tags_join
       WHERE tag_id = ? AND record_type = 'future_record'
     `).get(oldTag.tag_id).count, 1);
     assert.equal(organizer.database.prepare(`

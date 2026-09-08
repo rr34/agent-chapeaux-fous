@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 33.
+-- Target: MariaDB 10.11, schema version 34.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -196,7 +196,7 @@ CREATE TABLE tags (
     CONSTRAINT tags_active CHECK (is_active IN (0, 1))
 ) ENGINE=InnoDB;
 
-CREATE TABLE record_tags (
+CREATE TABLE contacts_tags_join (
     tag_id          BIGINT UNSIGNED NOT NULL,
     record_type     VARCHAR(128) NOT NULL,
     record_id       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -588,24 +588,6 @@ CREATE TABLE profile_facts (
     CONSTRAINT profile_facts_archive_state CHECK ((fact_status = 'active' AND archived_at_utc IS NULL) OR (fact_status = 'archived' AND archived_at_utc IS NOT NULL))
 ) ENGINE=InnoDB;
 
-CREATE TABLE record_links (
-    record_link_id    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    left_record_type  VARCHAR(64) NOT NULL,
-    left_record_id    VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    relationship_type VARCHAR(64) NOT NULL,
-    right_record_type VARCHAR(64) NOT NULL,
-    right_record_id   VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    notes             TEXT,
-    source_event_id   VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin,
-    created_at_utc    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                      DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
-    PRIMARY KEY (record_link_id),
-    UNIQUE KEY record_links_identity (left_record_type, left_record_id, relationship_type, right_record_type, right_record_id),
-    KEY record_links_right (right_record_type, right_record_id, relationship_type),
-    CONSTRAINT record_links_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
-    CONSTRAINT record_links_distinct CHECK (left_record_type <> right_record_type OR left_record_id <> right_record_id)
-) ENGINE=InnoDB;
-
 CREATE TABLE correspondence (
     correspondence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     medium            ENUM('email', 'sms', 'mms', 'imessage', 'chat', 'voicemail', 'other') NOT NULL,
@@ -808,4 +790,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 33, 'Chapeaux Fous MariaDB database');
+VALUES (1, 34, 'Chapeaux Fous MariaDB database');
