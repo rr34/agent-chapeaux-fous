@@ -284,6 +284,14 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
   if (migration.version === 30) await assertVersion30Integrity(connection, databaseName);
   if (migration.version === 31) await assertVersion31Integrity(connection, databaseName);
   if (migration.version === 32) await assertVersion32Integrity(connection, databaseName);
+  if (migration.version === 33) {
+    const [rows] = await connection.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'notes'`,
+      [databaseName],
+    );
+    if (rows.length > 0) throw new Error("Migration 0033 left the notes table in place");
+  }
 }
 
 export async function assertGeneralMariaDbIntegrity(connection, expectedVersion, databaseName) {

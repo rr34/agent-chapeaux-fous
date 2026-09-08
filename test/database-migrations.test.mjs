@@ -22,6 +22,24 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("the notes removal integrity check rejects a surviving table and scopes its read to the target database", async () => {
+  let rows = [{ TABLE_NAME: "notes" }];
+  const connection = {
+    async query(sql, parameters) {
+      assert.match(sql, /SELECT TABLE_NAME FROM information_schema\.TABLES/u);
+      assert.match(sql, /TABLE_SCHEMA = \? AND TABLE_NAME = 'notes'/u);
+      assert.deepEqual(parameters, ["test_database"]);
+      return [rows];
+    },
+  };
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection, { version: 33 }, "test_database"),
+    /Migration 0033 left the notes table in place/u,
+  );
+  rows = [];
+  await assertMigrationSpecificIntegrity(connection, { version: 33 }, "test_database");
+});
+
 test("Journal migration failures identify the exact leftover constraint without advancing the schema", async () => {
   const calls = [];
   const connection = {
@@ -52,11 +70,12 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32]);
-  assert.deepEqual(validatePendingMigrations(migrations, 29).map(({ version }) => version), [30, 31, 32]);
-  assert.deepEqual(validatePendingMigrations(migrations, 30).map(({ version }) => version), [31, 32]);
-  assert.deepEqual(validatePendingMigrations(migrations, 31).map(({ version }) => version), [32]);
-  assert.deepEqual(validatePendingMigrations(migrations, 32), []);
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33]);
+  assert.deepEqual(validatePendingMigrations(migrations, 29).map(({ version }) => version), [30, 31, 32, 33]);
+  assert.deepEqual(validatePendingMigrations(migrations, 30).map(({ version }) => version), [31, 32, 33]);
+  assert.deepEqual(validatePendingMigrations(migrations, 31).map(({ version }) => version), [32, 33]);
+  assert.deepEqual(validatePendingMigrations(migrations, 32).map(({ version }) => version), [33]);
+  assert.deepEqual(validatePendingMigrations(migrations, 33), []);
 });
 
 test("ledger parser rejects reordered, duplicate, missing, malformed, and outside SQL", () => {

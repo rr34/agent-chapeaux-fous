@@ -121,10 +121,6 @@ export const requiredEnumColumns = {
     status: ["queued", "preparing", "rendering", "complete", "error", "cancelled"],
   },
   profile_facts: { fact_status: ["active", "archived"] },
-  notes: {
-    note_kind: ["personal", "journal", "reference", "idea", "other"],
-    status: ["active", "archived", "deleted"],
-  },
   correspondence: {
     medium: ["email", "sms", "mms", "imessage", "chat", "voicemail", "other"],
     direction: ["inbound", "outbound", "draft", "internal"],
@@ -215,8 +211,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 32) {
-    problems.push(`Expected MariaDB schema version 32, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 33) {
+    problems.push(`Expected MariaDB schema version 33, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

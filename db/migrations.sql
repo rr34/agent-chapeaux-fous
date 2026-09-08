@@ -16,6 +16,17 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0033: remove-unused-notes
+-- writer downtime: not required; no application feature reads or writes notes.
+-- locking: DROP TABLE takes a metadata lock on notes only; no other table is rebuilt.
+-- recovery: MariaDB DDL commits implicitly. Rerun this block if the table was
+-- dropped before the version advanced. Restore notes from the verified backup
+-- to recover its contents. This intentionally discards notes without copying rows.
+
+DROP TABLE IF EXISTS notes;
+
+-- end migration 0033
+
 -- migration 0032: rename-personal-log-to-journal
 -- writer downtime: required; deploy the matching Journal application after migration.
 -- locking: table/column renames and constraint/index changes take metadata locks;

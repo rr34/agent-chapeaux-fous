@@ -59,6 +59,23 @@ Do not restart the service when migration or verification fails. If no
 migrations are pending, `npm run db:migrate` is a read-only integrity check and
 does not require the confirmation variables.
 
+## Version 33: Remove unused notes
+
+Version 33 drops the standalone `notes` table and its contents. Personal writing
+uses the existing Journal feature and `journal_entries.content_text`. Journal
+entries, trackers, contact notes, and historical activity receipts are unchanged.
+The application now requires schema version 33.
+
+This block does not require writer downtime because no application feature
+reads or writes `notes`. Create and test a recoverable backup as above, then run
+`npm run db:migrate` with `SLAYER_MIGRATION_BACKUP_CONFIRMED=1`, synchronize
+schema semantics, and run `npm run db:verify`. Do not assert that writers were
+stopped when applying this block online. Earlier pending migrations may still
+require the downtime described in their own blocks.
+
+The drop is replayable if it commits before the version marker advances.
+Recovering discarded notes requires restoring them from the verified backup.
+
 ## Version 32: Journal
 
 Version 32 renames the personal journal tables, primary-key columns, tracker
@@ -68,11 +85,12 @@ Historical activity receipts remain literal records of the tools originally
 called and are not rewritten.
 
 Deploy this migration and the matching Journal application together during the
-approved writer downtime. The application requires schema version 32 and uses
+approved writer downtime. That application version requires schema version 32
+and uses
 `journal_add`, `journal_import`, `journal_list`, `journal_update`,
 `journal.active_trackers`, `/api/journal-trackers`, and `/api/journal-entries`.
-The tracked semantic form describes the planned version 32 schema; synchronize
-it against the migrated database and inspect the diff before verification.
+Synchronize the tracked semantic form against the migrated database and inspect
+the diff before verification.
 
 If an earlier attempt stopped with `log_entries_event` and
 `log_entries_tracker` still present on `journal_entries`, keep writers stopped

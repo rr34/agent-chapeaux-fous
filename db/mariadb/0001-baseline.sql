@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 32.
+-- Target: MariaDB 10.11, schema version 33.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -588,24 +588,6 @@ CREATE TABLE profile_facts (
     CONSTRAINT profile_facts_archive_state CHECK ((fact_status = 'active' AND archived_at_utc IS NULL) OR (fact_status = 'archived' AND archived_at_utc IS NOT NULL))
 ) ENGINE=InnoDB;
 
-CREATE TABLE notes (
-    note_id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    title            TEXT,
-    body_text        LONGTEXT NOT NULL,
-    note_kind        ENUM('personal', 'journal', 'reference', 'idea', 'other') NOT NULL DEFAULT 'personal',
-    status           ENUM('active', 'archived', 'deleted') NOT NULL DEFAULT 'active',
-    subject_type     VARCHAR(128),
-    subject_id       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
-    source_event_id  VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin,
-    occurred_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
-    created_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                     DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')),
-    updated_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
-    PRIMARY KEY (note_id),
-    KEY notes_subject (subject_type, subject_id, created_at_utc),
-    CONSTRAINT notes_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL
-) ENGINE=InnoDB;
-
 CREATE TABLE record_links (
     record_link_id    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     left_record_type  VARCHAR(64) NOT NULL,
@@ -826,4 +808,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 32, 'Chapeaux Fous MariaDB database');
+VALUES (1, 33, 'Chapeaux Fous MariaDB database');
