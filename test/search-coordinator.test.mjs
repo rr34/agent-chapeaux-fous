@@ -115,9 +115,9 @@ test("existing domain tools preserve their results when routed through search pr
   registerContactTools(direct, store, organizer, ledger);
   registerDatabaseTools(direct, store, ledger);
   const coordinated = new ToolRegistry();
-  registerCalendarTools(coordinated, store, organizer, ledger, null, coordinator);
-  registerContactTools(coordinated, store, organizer, ledger, null, coordinator);
-  registerDatabaseTools(coordinated, store, ledger, null, coordinator);
+  registerCalendarTools(coordinated, store, organizer, ledger, coordinator);
+  registerContactTools(coordinated, store, organizer, ledger, coordinator);
+  registerDatabaseTools(coordinated, store, ledger, coordinator);
 
   const calls = [
     ["calendar_event_search", { query: "library East", include_archived: false, limit: 20 }],

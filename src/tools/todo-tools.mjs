@@ -7,7 +7,68 @@ import {
   buildTodoRecurrenceRule, todoRecurrenceSchema, validateTimeZone,
 } from "../todo-recurrence.mjs";
 import { localDateForInstant } from "../temporal-consistency.mjs";
-import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
+import { selectedFields } from "./record-fields.mjs";
+
+const todoRoutineRecordSchema = {
+  type: ["object", "null"],
+  description: "Stores authoritative reusable definitions for standing calendar routines and completion-driven recurring personal tasks.",
+  properties: {
+    todo_routine_id: { description: "Stable internal identifier for one reusable to-do routine definition." },
+    todo_group_id: { description: "Required destination group for task occurrences generated from this routine." },
+    publication_mode: { description: "Controls whether dated occurrences are published into calendar ranges or generated after completion of the prior occurrence." },
+    text: { description: "Complete wording copied into every generated task occurrence; there is no title-description split." },
+    default_status: { description: "Initial lifecycle status assigned to each new task occurrence." },
+    first_scheduled_at_utc: { description: "UTC instant anchoring the RRULE and the first scheduled task occurrence." },
+    first_due_at_utc: { description: "Optional first deadline; its offset from first_scheduled_at_utc is preserved for generated occurrences." },
+    time_zone: { description: "IANA time-zone name used to preserve local wall-clock recurrence across daylight-saving changes." },
+    recurrence_rule: { description: "RFC 5545 RRULE that defines daily, day-of-week, monthly, quarterly, or other recurrence." },
+    related_contact_id: { description: "Optional contact copied to each newly generated task occurrence." },
+    duration_minutes: { description: "Positive planned duration copied to each task occurrence." },
+    disabled_at_utc: { description: "UTC instant when this routine stopped generating new occurrences; null while enabled." },
+    source_event_id: { description: "Activity event that created this routine definition." },
+    created_at_utc: { description: "UTC instant when this routine definition was created." },
+    updated_at_utc: { description: "UTC instant of this routine definition’s most recent material update; null until first updated." },
+    interaction_guide_id: { description: "Optional interaction guide offered when the user starts an occurrence of this recurring to-do. This reference does not schedule or repeat the guide; the containing to-do routine owns recurrence." },
+    planning_prompt_text: { description: "Optional proactive planning question copied into each task occurrence generated from this routine. Null means generated occurrences have no routine-supplied planning question." },
+  },
+};
+
+const todoGroupRecordSchema = {
+  type: ["object", "null"],
+  description: "Defines the named groups that organize the user's one authoritative personal To-Do List.",
+  properties: {
+    todo_group_id: { description: "Stable internal identifier for one personal to-do group." },
+    name: { description: "Complete human-facing name of the group; the schema intentionally has no separate description. Unique without regard to letter case." },
+    archived_at_utc: { description: "UTC instant when the group was archived; null while the group is active." },
+    created_at_utc: { description: "UTC instant when the group record was created." },
+    updated_at_utc: { description: "UTC instant of the group record’s most recent material update; null until first updated." },
+    sort_position: { description: "Mutable presentation order used to place this group and all of its tasks in the to-do list. Lower values appear first; moving a group does not change task membership or task order within the group." },
+    uses_sequence: { description: "Whether this group automatically assigns the next unique positive sequence number to tasks added without one. Disabling automatic sequencing preserves numbers already assigned. 0: Sequence numbers are optional and are not assigned automatically. 1: Unnumbered tasks receive the next number after the group's current maximum." },
+  },
+};
+
+const todoTaskRecordSchema = {
+  type: ["object", "null"],
+  description: "Stores actual actionable and historical occurrences in the user’s authoritative personal To-Do List.",
+  properties: {
+    personal_task_id: { description: "Stable internal identifier for one personal task." },
+    todo_group_id: { description: "Required group that contains and orders this personal task." },
+    todo_routine_id: { description: "Optional parent routine definition that generated this actual task occurrence." },
+    sequence: { description: "Stable positive number that identifies this task within its group when that group uses numbered work. Unique within todo_group_id when present; unlike sort_position, it does not change when the list is reordered. Units: sequence number." },
+    related_contact_id: { description: "Optional contact that this task concerns; it does not assign ownership of the task." },
+    text: { description: "Complete wording of the task, serving as both its short label and any longer explanation." },
+    status: { description: "Compact lifecycle state controlling whether and how the task appears in the user's list. unplanned: The item is active but still needs a concrete plan. todo: the user intends to do this task. complete: The task was finished. ignore: The task was intentionally skipped without completion. archive: The task is retained as history but removed from ordinary views. ai_suggested: The agent proposed the task and the user has not yet accepted or dismissed it." },
+    sort_position: { description: "Mutable ordering value used to place tasks directly within a group; it conveys no importance or priority. Lower values appear first within the same group." },
+    scheduled_at_utc: { description: "UTC instant when the user intends to work on the task; this projects the task onto the calendar." },
+    due_at_utc: { description: "UTC deadline by which the task should be complete, distinct from its scheduled work time." },
+    completed_at_utc: { description: "UTC instant when the task entered complete status; null for tasks not currently complete." },
+    created_at_utc: { description: "UTC instant when this task occurrence was created." },
+    updated_at_utc: { description: "UTC instant of this task occurrence’s most recent material update; null until first updated." },
+    is_all_day: { description: "1 when the task is assigned to its scheduled calendar date without an exact clock time; otherwise 0." },
+    duration_minutes: { description: "Optional positive planned duration for this task occurrence. Units: minutes." },
+    planning_prompt_text: { description: "Optional question the agent should proactively ask to help turn this task into a concrete plan. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status." },
+  },
+};
 
 const todoStatuses = ["unplanned", "todo", "complete", "ignore", "archive", "ai_suggested"];
 
@@ -88,13 +149,6 @@ const personalTaskFields = [
   "scheduled_at_utc", "is_all_day", "duration_minutes", "due_at_utc", "completed_at_utc",
   "planning_prompt_text", "created_at_utc", "updated_at_utc",
 ];
-const todoRoutineFields = [
-  "todo_routine_id", "todo_group_id", "publication_mode", "text", "default_status",
-  "first_scheduled_at_utc", "first_due_at_utc", "time_zone", "recurrence_rule",
-  "related_contact_id", "is_all_day", "duration_minutes", "interaction_guide_id",
-  "planning_prompt_text", "disabled_at_utc", "source_event_id",
-];
-const interactionGuideFields = ["interaction_guide_id", "name", "status", "version"];
 
 const routineAddOutputSchema = {
   type: "object",
@@ -104,20 +158,20 @@ const routineAddOutputSchema = {
     routine: {
       type: "object", additionalProperties: false,
       properties: {
-        todo_routine_id: { type: "integer", minimum: 1 },
-        todo_group_id: { type: "integer", minimum: 1 },
-        publication_mode: { type: "string", const: "calendar" },
-        text: { type: "string" },
-        default_status: { type: "string", enum: ["unplanned", "todo", "ai_suggested"] },
-        planning_prompt_text: { type: ["string", "null"] },
-        first_scheduled_at_utc: { type: "string" },
-        is_all_day: { type: "integer", enum: [0, 1] },
-        duration_minutes: { type: ["integer", "null"], minimum: 1 },
-        first_due_at_utc: { type: ["string", "null"] },
-        recurrence_rule: { type: "string" },
-        time_zone: { type: "string" },
-        related_contact_id: { type: ["integer", "null"], minimum: 1 },
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+        todo_routine_id: { type: "integer", minimum: 1, description: "Optional parent routine definition that generated this actual task occurrence." },
+        todo_group_id: { type: "integer", minimum: 1, description: "Required group that contains and orders this personal task." },
+        publication_mode: { type: "string", const: "calendar", description: "Controls whether dated occurrences are published into calendar ranges or generated after completion of the prior occurrence." },
+        text: { type: "string", description: "Complete wording of the task, serving as both its short label and any longer explanation." },
+        default_status: { type: "string", enum: ["unplanned", "todo", "ai_suggested"], description: "Initial lifecycle status assigned to each new task occurrence." },
+        planning_prompt_text: { type: ["string", "null"], description: "Optional question the agent should proactively ask to help turn this task into a concrete plan. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status." },
+        first_scheduled_at_utc: { type: "string", description: "UTC instant anchoring the RRULE and the first scheduled task occurrence." },
+        is_all_day: { type: "integer", enum: [0, 1], description: "1 when the task is assigned to its scheduled calendar date without an exact clock time; otherwise 0." },
+        duration_minutes: { type: ["integer", "null"], minimum: 1, description: "Optional positive planned duration for this task occurrence. Units: minutes." },
+        first_due_at_utc: { type: ["string", "null"], description: "Optional first deadline; its offset from first_scheduled_at_utc is preserved for generated occurrences." },
+        recurrence_rule: { type: "string", description: "RFC 5545 RRULE that defines daily, day-of-week, monthly, quarterly, or other recurrence." },
+        time_zone: { type: "string", description: "IANA time-zone name used to preserve local wall-clock recurrence across daylight-saving changes." },
+        related_contact_id: { type: ["integer", "null"], minimum: 1, description: "Optional contact that this task concerns; it does not assign ownership of the task." },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Optional interaction guide offered when the user starts an occurrence of this recurring to-do. This reference does not schedule or repeat the guide; the containing to-do routine owns recurrence." },
       },
       required: [
         "todo_routine_id", "todo_group_id", "publication_mode", "text", "default_status",
@@ -129,35 +183,8 @@ const routineAddOutputSchema = {
     next_occurrences: {
       type: "array", maxItems: 3, items: { type: "string" },
     },
-    schemaProjection: { type: ["object", "null"] },
   },
-  required: ["created", "routine", "next_occurrences", "schemaProjection"],
-};
-
-const todoGroupProjection = {
-  schemaObjects: ["todo_groups"],
-  fields: { todo_groups: todoGroupFields },
-};
-const activeTodoGroupProjection = {
-  schemaObjects: ["todo_groups"],
-  fields: { todo_groups: ["todo_group_id", "name", "uses_sequence", "archived_at_utc"] },
-};
-const todoTaskProjection = {
-  schemaObjects: ["todo_personal", "todo_groups", "todo_routines", "interaction_guides"],
-  fields: {
-    todo_personal: personalTaskFields,
-    todo_groups: ["todo_group_id", "name"],
-    todo_routines: todoRoutineFields,
-    interaction_guides: interactionGuideFields,
-  },
-};
-const routineProjection = {
-  schemaObjects: ["todo_routines", "todo_groups", "interaction_guides"],
-  fields: {
-    todo_routines: todoRoutineFields,
-    todo_groups: ["todo_group_id", "name"],
-    interaction_guides: interactionGuideFields,
-  },
+  required: ["created", "routine", "next_occurrences"],
 };
 
 function databaseGroup(row) {
@@ -268,17 +295,6 @@ function setTodoPosition(database, taskId, position) {
     taskCount: orderedTaskIds.length,
     orderedTaskIds,
   };
-}
-
-function todoResult(schemaSemantics, context, result, {
-  name, purpose, groupOnly = false, projection = null,
-}) {
-  const selected = projection ?? (groupOnly ? todoGroupProjection : todoTaskProjection);
-  return withSchemaProjection(schemaSemantics, context, result, {
-    name,
-    purpose,
-    ...selected,
-  });
 }
 
 const optionalText = { type: ["string", "null"] };
@@ -439,7 +455,7 @@ export function todoGroupContext(store, limit = 100) {
   };
 }
 
-export function registerTodoTools(registry, store, ledger, schemaSemantics = null) {
+export function registerTodoTools(registry, store, ledger) {
   const rootRegistry = registry;
   registry = registry.withCapability?.("todos") ?? registry;
   rootRegistry.registerContextView?.("todos", {
@@ -452,6 +468,12 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_group_list",
     description: "List active native to-do groups and their open task counts. Before adding a to-do without an explicitly named group, use this to choose the best clear existing group from the task's subject and context. Use Inbox only when no existing group is a reasonable match.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        groups: { type: "array", items: todoGroupRecordSchema },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -460,29 +482,31 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
     },
     async execute(_argumentsObject, context) {
       const rows = activeTodoGroupRows(store);
-      return todoResult(schemaSemantics, context, {
+      return {
         count: rows.length,
         groups: rows.map((row) => ({
           ...databaseGroup(row),
           open_task_count: Number(row.open_task_count),
         })),
-      }, {
-        name: "todo_group_list",
-        purpose: "List active to-do groups and the computed count of open tasks in each group.",
-        projection: activeTodoGroupProjection,
-      });
+      };
     },
   });
 
   registry.register({
     name: "todo_list",
     description: "List the user's native personal to-do items, including entries rendered as Scheduled task or All-day task on the Calendar screen. Set status to unplanned for the authoritative list of work windows and other items that still need planning, even when their eventual work concerns a property or external system. Use completed_on_date to select tasks completed on one local calendar date and scheduled_on_date to select actual task occurrences scheduled on one local date. These are query filters and do not add ranges to task records. Supply time_zone whenever either date filter is used. With no status and no completed date, terminal tasks remain excluded as before.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        tasks: { type: "array", items: todoTaskRecordSchema },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         group: optionalText,
-        status: { type: ["string", "null"], enum: [...todoStatuses, null] },
+        status: { type: ["string", "null"], enum: [...todoStatuses, null], description: "Compact lifecycle state controlling whether and how the task appears in the user's list. unplanned: The item is active but still needs a concrete plan. todo: the user intends to do this task. complete: The task was finished. ignore: The task was intentionally skipped without completion. archive: The task is retained as history but removed from ordinary views. ai_suggested: The agent proposed the task and the user has not yet accepted or dismissed it." },
         completed_on_date: { type: ["string", "null"], description: "Local completion date in YYYY-MM-DD form." },
         scheduled_on_date: { type: ["string", "null"], description: "Local scheduled date in YYYY-MM-DD form." },
         time_zone: { type: ["string", "null"], description: "IANA time zone used to interpret date filters." },
@@ -547,7 +571,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         ORDER BY ${order}
         LIMIT ?
       `).all(...values, Math.min(200, Math.max(1, Number(limit) || 50))).map(databaseTask);
-      return todoResult(schemaSemantics, context, {
+      return {
         filters: {
           group: groupName ?? null,
           status: status ?? null,
@@ -557,16 +581,19 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         },
         count: rows.length,
         tasks: rows,
-      }, {
-        name: "todo_list",
-        purpose: "List personal tasks together with their to-do group and optional routine fields.",
-      });
+      };
     },
   });
 
   registry.register({
     name: "routine_list",
     description: "List the active reusable calendar routine definitions themselves. These are standing windows or commitments, not dated personal task occurrences. Use todo_list to read the actual dated tasks produced from them.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        routines: { type: "array", items: todoRoutineRecordSchema },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -593,11 +620,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         const routines = organizer.listRoutines({ publicationMode: "calendar" })
           .slice(0, Math.min(500, Math.max(1, Number(limit) || 100)))
           .map(databaseRoutine);
-        return todoResult(schemaSemantics, context, { count: routines.length, routines }, {
-          name: "routine_list",
-          purpose: "Return active reusable calendar routine definitions without task occurrences.",
-          projection: routineProjection,
-        });
+        return { count: routines.length, routines };
       } finally {
         organizer.close();
       }
@@ -612,17 +635,17 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
       type: "object",
       additionalProperties: false,
       properties: {
-        text: { type: "string", minLength: 1, maxLength: 10000 },
+        text: { type: "string", minLength: 1, maxLength: 10000, description: "Complete wording of the task, serving as both its short label and any longer explanation." },
         group: optionalText,
-        status: { type: "string", enum: ["unplanned", "todo"] },
-        planning_prompt_text: optionalText,
-        related_contact_id: { type: ["integer", "null"], minimum: 1 },
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+        status: { type: "string", enum: ["unplanned", "todo"], description: "Compact lifecycle state controlling whether and how the task appears in the user's list. unplanned: The item is active but still needs a concrete plan. todo: the user intends to do this task. complete: The task was finished. ignore: The task was intentionally skipped without completion. archive: The task is retained as history but removed from ordinary views. ai_suggested: The agent proposed the task and the user has not yet accepted or dismissed it." },
+        planning_prompt_text: { ...optionalText, description: "Optional question the agent should proactively ask to help turn this task into a concrete plan. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status." },
+        related_contact_id: { type: ["integer", "null"], minimum: 1, description: "Optional contact that this task concerns; it does not assign ownership of the task." },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Optional interaction guide offered when the user starts an occurrence of this recurring to-do. This reference does not schedule or repeat the guide; the containing to-do routine owns recurrence." },
         scheduled_at_utc: {
           type: "string", minLength: 1,
           description: "First scheduled occurrence as an ISO 8601 timestamp.",
         },
-        is_all_day: { type: "boolean" },
+        is_all_day: { type: "boolean", description: "True when the task is assigned to its scheduled calendar date without an exact clock time; false otherwise." },
         duration_minutes: {
           type: ["integer", "null"], minimum: 1,
           description: "Planned work duration from the scheduled start; null for all-day routines.",
@@ -704,15 +727,11 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           related_contact_id: result.routine.relatedContactId,
           interaction_guide_id: result.routine.interactionGuideId,
         };
-        return todoResult(schemaSemantics, context, {
+        return {
           created: true,
           routine,
           next_occurrences: result.nextOccurrences,
-        }, {
-          name: "routine_add",
-          purpose: "Return the reusable routine definition and its next hypothetical occurrences.",
-          projection: routineProjection,
-        });
+        };
       } finally {
         organizer.close();
       }
@@ -722,21 +741,25 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "routine_update",
     description: "Update one reusable calendar routine definition. This changes the standing routine used for future publication and does not rewrite personal task occurrences that were already published.",
+    outputSchema: {
+      type: "object",
+      properties: { routine: todoRoutineRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        todo_routine_id: { type: "integer", minimum: 1 },
-        text: { type: "string", minLength: 1, maxLength: 10000 },
+        todo_routine_id: { type: "integer", minimum: 1, description: "Optional parent routine definition that generated this actual task occurrence." },
+        text: { type: "string", minLength: 1, maxLength: 10000, description: "Complete wording of the task, serving as both its short label and any longer explanation." },
         group: { type: "string", minLength: 1, maxLength: 10000 },
-        status: { type: "string", enum: ["unplanned", "todo", "ai_suggested"] },
-        planning_prompt_text: optionalText,
-        related_contact_id: { type: ["integer", "null"], minimum: 1 },
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
-        scheduled_at_utc: { type: "string", minLength: 1 },
-        is_all_day: { type: "boolean" },
-        duration_minutes: { type: ["integer", "null"], minimum: 1 },
-        due_at_utc: optionalText,
+        status: { type: "string", enum: ["unplanned", "todo", "ai_suggested"], description: "Compact lifecycle state controlling whether and how the task appears in the user's list. unplanned: The item is active but still needs a concrete plan. todo: the user intends to do this task. complete: The task was finished. ignore: The task was intentionally skipped without completion. archive: The task is retained as history but removed from ordinary views. ai_suggested: The agent proposed the task and the user has not yet accepted or dismissed it." },
+        planning_prompt_text: { ...optionalText, description: "Question to ask about this scheduled time. Null leaves it unchanged; an empty string clears it." },
+        related_contact_id: { type: ["integer", "null"], minimum: 1, description: "Optional contact that this task concerns; it does not assign ownership of the task." },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Optional interaction guide offered when the user starts an occurrence of this recurring to-do. This reference does not schedule or repeat the guide; the containing to-do routine owns recurrence." },
+        scheduled_at_utc: { type: "string", minLength: 1, description: "UTC instant when the user intends to work on the task; this projects the task onto the calendar." },
+        is_all_day: { type: "boolean", description: "True when the task is assigned to its scheduled calendar date without an exact clock time; false otherwise." },
+        duration_minutes: { type: ["integer", "null"], minimum: 1, description: "Optional positive planned duration for this task occurrence. Units: minutes." },
+        due_at_utc: { ...optionalText, description: "UTC deadline by which the task should be complete, distinct from its scheduled work time." },
         recurrence: { ...todoRecurrenceSchema, type: "object" },
       },
       required: ["todo_routine_id"],
@@ -793,14 +816,10 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           source: "agent-slayer",
           channel: "model_tool",
         });
-        return todoResult(schemaSemantics, context, {
+        return {
           updated: routine.version !== before.version,
           routine: databaseRoutine(routine),
-        }, {
-          name: "routine_update",
-          purpose: "Return the updated reusable calendar routine definition.",
-          projection: routineProjection,
-        });
+        };
       } finally {
         organizer.close();
       }
@@ -810,20 +829,24 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_add",
     description: "Add one actual native personal to-do item. Use status unplanned when the item still needs a concrete plan and preserve the exact question in planning_prompt_text. The item may also have an exact 1-based group position, contact, all-day schedule, duration, due date, or structured recurrence. A recurrence creates one routine definition plus this first actual occurrence; later completion generates the next occurrence. Use routine_add instead for a standing calendar routine whose occurrences are published in ranges. duration_minutes is the positive planned work length from scheduled_at_utc and is separate from due_at_utc. Honor an explicitly named group; when none is named, inspect existing groups and use Inbox only when no group is reasonably implied.",
+    outputSchema: {
+      type: "object",
+      properties: { task: todoTaskRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        text: { type: "string", minLength: 1, maxLength: 10000 },
-        status: { type: "string", enum: todoStatuses },
-        planning_prompt_text: optionalText,
+        text: { type: "string", minLength: 1, maxLength: 10000, description: "Complete wording of the task, serving as both its short label and any longer explanation." },
+        status: { type: "string", enum: todoStatuses, description: "Compact lifecycle state controlling whether and how the task appears in the user's list. unplanned: The item is active but still needs a concrete plan. todo: the user intends to do this task. complete: The task was finished. ignore: The task was intentionally skipped without completion. archive: The task is retained as history but removed from ordinary views. ai_suggested: The agent proposed the task and the user has not yet accepted or dismissed it." },
+        planning_prompt_text: { ...optionalText, description: "Optional question the agent should proactively ask to help turn this task into a concrete plan. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status." },
         group: optionalText,
-        related_contact_id: { type: ["integer", "null"], minimum: 1 },
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
-        scheduled_at_utc: optionalText,
-        is_all_day: { type: "boolean" },
-        duration_minutes: { type: ["integer", "null"], minimum: 1 },
-        due_at_utc: optionalText,
+        related_contact_id: { type: ["integer", "null"], minimum: 1, description: "Optional contact that this task concerns; it does not assign ownership of the task." },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Optional interaction guide offered when the user starts an occurrence of this recurring to-do. This reference does not schedule or repeat the guide; the containing to-do routine owns recurrence." },
+        scheduled_at_utc: { ...optionalText, description: "UTC instant when the user intends to work on the task; this projects the task onto the calendar." },
+        is_all_day: { type: "boolean", description: "True when the task is assigned to its scheduled calendar date without an exact clock time; false otherwise." },
+        duration_minutes: { type: ["integer", "null"], minimum: 1, description: "Optional positive planned duration for this task occurrence. Units: minutes." },
+        due_at_utc: { ...optionalText, description: "UTC deadline by which the task should be complete, distinct from its scheduled work time." },
         recurrence: todoRecurrenceSchema,
         position: { type: ["integer", "null"], minimum: 1, maximum: 1_000_000_000 },
       },
@@ -945,14 +968,11 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           payload: { task, groupResolution },
           subjectType: "personal_task", subjectId: String(task.personal_task_id),
         });
-        const result = todoResult(schemaSemantics, context, {
+        const result = {
           created: true,
           group_resolution: groupResolution,
           task,
-        }, {
-          name: "todo_add",
-          purpose: "Return the personal task created by the native to-do tool and its selected group and routine fields.",
-        });
+        };
         database.exec("COMMIT");
         return result;
       } catch (error) {
@@ -965,11 +985,15 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_position_set",
     description: "Move one native personal to-do to an exact 1-based position in its group's manual sort order. Position 1 is the top. The group is atomically normalized to positions 10, 20, 30, and so on, matching the UI reorder controls. This does not change stable sequence numbers, which remain the primary display order in groups that use sequence numbering.",
+    outputSchema: {
+      type: "object",
+      properties: { task: todoTaskRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        personal_task_id: { type: "integer", minimum: 1 },
+        personal_task_id: { type: "integer", minimum: 1, description: "Stable internal identifier for one personal task." },
         position: { type: "integer", minimum: 1, maximum: 1_000_000_000 },
       },
       required: ["personal_task_id", "position"],
@@ -998,12 +1022,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
             subjectType: "personal_task", subjectId: String(task.personal_task_id),
           });
         }
-        const semanticResult = todoResult(schemaSemantics, context, result, {
-          name: "todo_position_set",
-          purpose: "Return the repositioned personal task and its exact old and new positions in the group.",
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -1014,11 +1034,15 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_group_create",
     description: "Create or reactivate a native personal to-do group after the user has confirmed that they want it. Use todo_update afterward to move an Inbox task into the new group.",
+    outputSchema: {
+      type: "object",
+      properties: { group: todoGroupRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        name: { type: "string", minLength: 1, maxLength: 200 },
+        name: { type: "string", minLength: 1, maxLength: 200, description: "Complete human-facing name of the group; the schema intentionally has no separate description. Unique without regard to letter case." },
       },
       required: ["name"],
     },
@@ -1045,13 +1069,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           content: selectedGroup.row.name, payload: result,
           subjectType: "todo_group", subjectId: String(selectedGroup.row.todo_group_id),
         });
-        const semanticResult = todoResult(schemaSemantics, context, result, {
-          name: "todo_group_create",
-          purpose: "Return the to-do group created, reactivated, or found unchanged.",
-          groupOnly: true,
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -1062,6 +1081,10 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_group_rename",
     description: "Rename one active native to-do group. Tasks and routine definitions retain the same stable group ID. Inbox cannot be renamed.",
+    outputSchema: {
+      type: "object",
+      properties: { group: todoGroupRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1092,13 +1115,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           payload: result,
           subjectType: "todo_group", subjectId: String(result.group.todo_group_id),
         });
-        const semanticResult = todoResult(schemaSemantics, context, result, {
-          name: "todo_group_rename",
-          purpose: "Return the renamed to-do group using its stored database fields.",
-          groupOnly: true,
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -1109,12 +1127,16 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_group_sequence_set",
     description: "Turn automatic sequence assignment on or off for one active native to-do group. Enabling it assigns stable unique numbers to existing unnumbered tasks in their current order; future tasks added without a number receive max(sequence) + 1. Disabling it preserves existing numbers but stops automatic assignment.",
+    outputSchema: {
+      type: "object",
+      properties: { group: todoGroupRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        name: { type: "string", minLength: 1, maxLength: 200 },
-        uses_sequence: { type: "boolean" },
+        name: { type: "string", minLength: 1, maxLength: 200, description: "Complete human-facing name of the group; the schema intentionally has no separate description. Unique without regard to letter case." },
+        uses_sequence: { type: "boolean", description: "Whether this group automatically assigns the next unique positive sequence number to tasks added without one. Disabling automatic sequencing preserves numbers already assigned. 0: Sequence numbers are optional and are not assigned automatically. 1: Unnumbered tasks receive the next number after the group's current maximum." },
       },
       required: ["name", "uses_sequence"],
     },
@@ -1142,13 +1164,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           payload: result,
           subjectType: "todo_group", subjectId: String(groupRow.todo_group_id),
         });
-        const semanticResult = todoResult(schemaSemantics, context, result, {
-          name: "todo_group_sequence_set",
-          purpose: "Return the to-do group's automatic sequence setting and the number of existing tasks assigned a sequence.",
-          groupOnly: true,
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -1159,11 +1176,15 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_group_archive",
     description: "Archive one native to-do group by name so it leaves active group lists. This fails while the group contains active unplanned, todo, or ai_suggested tasks. Completed, ignored, and archived tasks retain their historical group. Inbox cannot be archived.",
+    outputSchema: {
+      type: "object",
+      properties: { group: todoGroupRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        name: { type: "string", minLength: 1, maxLength: 200 },
+        name: { type: "string", minLength: 1, maxLength: 200, description: "Complete human-facing name of the group; the schema intentionally has no separate description. Unique without regard to letter case." },
       },
       required: ["name"],
     },
@@ -1186,13 +1207,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           name: "Personal to-do group archived", content: result.group.name, payload: result,
           subjectType: "todo_group", subjectId: String(result.group.todo_group_id),
         });
-        const semanticResult = todoResult(schemaSemantics, context, result, {
-          name: "todo_group_archive",
-          purpose: "Return the archived to-do group using its stored database fields.",
-          groupOnly: true,
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -1203,12 +1219,16 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_interaction_guide_set",
     description: "Link or unlink one exact active briefing on an existing repeating native to-do without changing recurrence. The to-do owns its schedule and recurrence. Set interaction_guide_id to null to remove the briefing.",
+    outputSchema: {
+      type: "object",
+      properties: { task: todoTaskRecordSchema, routine: todoRoutineRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        personal_task_id: { type: "integer", minimum: 1 },
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+        personal_task_id: { type: "integer", minimum: 1, description: "Stable internal identifier for one personal task." },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Optional interaction guide offered when the user starts an occurrence of this recurring to-do. This reference does not schedule or repeat the guide; the containing to-do routine owns recurrence." },
       },
       required: ["personal_task_id", "interaction_guide_id"],
     },
@@ -1226,14 +1246,11 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
         throw new Error(`Active briefing ${interactionGuideId} does not exist`);
       }
       if ((before.interaction_guide_id ?? null) === interactionGuideId) {
-        return todoResult(schemaSemantics, context, {
+        return {
           updated: false,
           unchanged: true,
           task: databaseTask(before),
-        }, {
-          name: "todo_interaction_guide_set",
-          purpose: "Return the unchanged repeating personal task and its briefing link.",
-        });
+        };
       }
       const updatedAt = new Date().toISOString();
       database.exec("START TRANSACTION");
@@ -1257,14 +1274,11 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           payload: { before: databaseTask(before), task },
           subjectType: "personal_task", subjectId: String(taskId),
         });
-        const result = todoResult(schemaSemantics, context, {
+        const result = {
           updated: true,
           unchanged: false,
           task,
-        }, {
-          name: "todo_interaction_guide_set",
-          purpose: "Return the repeating personal task after linking or unlinking its briefing.",
-        });
+        };
         database.exec("COMMIT");
         return result;
       } catch (error) {
@@ -1277,14 +1291,18 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_recurrence_set",
     description: "Add, change, or remove recurrence for an existing native to-do and optionally link or unlink one active briefing by exact ID. Use structured recurrence fields; never compose RRULE syntax. Recurrence requires scheduled_at_utc. Set enabled=false and recurrence=null to make the task one-time.",
+    outputSchema: {
+      type: "object",
+      properties: { task: todoTaskRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        personal_task_id: { type: "integer", minimum: 1 },
+        personal_task_id: { type: "integer", minimum: 1, description: "Stable internal identifier for one personal task." },
         enabled: { type: "boolean" },
         recurrence: todoRecurrenceSchema,
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Optional interaction guide offered when the user starts an occurrence of this recurring to-do. This reference does not schedule or repeat the guide; the containing to-do routine owns recurrence." },
       },
       required: ["personal_task_id", "enabled", "recurrence"],
     },
@@ -1409,10 +1427,7 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           payload: { before: databaseTask(before), task },
           subjectType: "personal_task", subjectId: String(task.personal_task_id),
         });
-        const result = todoResult(schemaSemantics, context, { updated: true, task }, {
-          name: "todo_recurrence_set",
-          purpose: "Return the personal task and stored routine fields after changing recurrence.",
-        });
+        const result = { updated: true, task };
         database.exec("COMMIT");
         return result;
       } catch (error) {
@@ -1425,12 +1440,18 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_move_overdue_to_today",
     description: "Move every active one-time native to-do scheduled before the specified local day onto that day in one batch. Use this when the user asks to move, roll, or stack overdue ordinary tasks onto today. The scheduled local time is preserved, and any due date moves by the same number of calendar days. Tasks linked to routine definitions keep their recurrence-defined dates. Completed, ignored, archived, unscheduled, and already-current tasks are also unchanged.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        tasks: { type: "array", items: todoTaskRecordSchema },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         local_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-        time_zone: { type: "string", minLength: 1, maxLength: 100 },
+        time_zone: { type: "string", minLength: 1, maxLength: 100, description: "IANA time-zone name used to preserve local wall-clock recurrence across daylight-saving changes." },
       },
       required: ["local_date", "time_zone"],
     },
@@ -1482,12 +1503,8 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
             subjectType: "personal_task_batch", subjectId: operation.localDate,
           });
         }
-        const semanticResult = todoResult(schemaSemantics, context, result, {
-          name: "todo_move_overdue_to_today",
-          purpose: "Return all active one-time personal tasks moved from past scheduled days onto the requested local day, including exact before-and-after timestamps for correction evidence.",
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -1498,6 +1515,19 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
   registry.register({
     name: "todo_update",
     description: "Atomically update 1 through 500 native personal to-dos by ID in one call. Use this after todo_list to fill a scheduled unplanned work window: replace its placeholder text/plan and set the intended status while preserving its existing schedule, duration, related contact, and planning prompt unless the user asked to change them. A one-item request uses the same updates array. Every target and change is validated before any update is retained; duplicate IDs or one invalid item roll back the complete batch. Null optional values are no-change placeholders. Use clear_related_contact, clear_duration, or clear_planning_prompt only when the user explicitly asks to clear that field. duration_minutes is measured from scheduled_at_utc and requires an exact-time, non-all-day schedule.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        updated_count: { type: "integer" },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { task: todoTaskRecordSchema },
+          },
+        },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1547,13 +1577,10 @@ export function registerTodoTools(registry, store, ledger, schemaSemantics = nul
           subjectType: items.length === 1 ? "personal_task" : "personal_task_batch",
           subjectId: items.length === 1 ? String(items[0].task.personal_task_id) : String(items.length),
         });
-        const result = todoResult(schemaSemantics, context, {
+        const result = {
           updated_count: items.length,
           items,
-        }, {
-          name: "todo_update",
-          purpose: "Return every atomically updated personal task and any next routine occurrences generated by the batch.",
-        });
+        };
         database.exec("COMMIT");
         return result;
       } catch (error) {

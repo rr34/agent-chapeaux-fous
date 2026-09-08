@@ -9,7 +9,8 @@ const excludedDirectories = new Set(["node_modules", ".git", "media", ".venv", "
 const excludedFiles = new Set([".env"]);
 const excludedRelativeFiles = new Set([
   "db/mariadb/0001-baseline.sql",
-  "db/schema-semantics.json",
+  // Storage migrations may name retained historical columns, just like the baseline.
+  "db/migrations.sql",
   "text.json",
 ]);
 
@@ -85,7 +86,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /call\s+`history_range`/);
   assert.match(instructions, /date and\s+topic are filtered in one lookup/);
   assert.match(instructions, /stored database field names/);
-  assert.match(instructions, /schema-semantic compiler projection/);
+  assert.match(instructions, /tool contracts explain their meaning/);
   assert.match(instructions, /previous Monday-through-Monday interval/);
   assert.match(instructions, /never ask the user to\s+write RRULE syntax/);
   assert.match(instructions, /personal-journal tools/);

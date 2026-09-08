@@ -177,10 +177,9 @@ interface.
 stores original audio, registers the file, creates a request, and wakes the FIFO
 worker.
 
-**49. Schema semantic compiler** — The deterministic schema-explanation package
-that combines MariaDB mechanics with human-authored meanings. It is pinned as a
-dependency and compiles exact projections for structured database operations;
-it neither accesses rows nor decides or enforces authorization.
+**49. Schema semantic compiler** — The retired integration with a separately
+maintained schema-explanation library. Agent Slayer no longer depends on it.
+MariaDB comments document storage; owning tool contracts explain inputs/results.
 
 **50. Agent request** — One user input and all processing until exactly one final
 user-visible response or error. Internally it is correlated by a request UUID

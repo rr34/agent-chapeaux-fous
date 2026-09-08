@@ -147,10 +147,9 @@ Provider-native search accesses provider-owned data. The Agent Slayer search
 layer mechanically bounds and shapes those provider results according to the
 LLM's structured instructions before they enter model context.
 
-When a structured retrieval path is explicitly integrated with the
-schema-semantics compiler, the compiler supplies exact projections and
-machine-readable rules that code can apply. The LLM, not the search engine,
-interprets the human-readable field meanings when evaluating the evidence.
+The owning tool publishes the meanings of its inputs and results in its exact
+contract. Search code applies explicit structured instructions; the LLM
+interprets the returned evidence using those published meanings.
 
 # 2C. Structured problem-solving method
 
@@ -468,46 +467,23 @@ video tools use the same domain services as their HTTP and UI adapters. Generic
 database mutation is limited to an explicit allowlist of transitional tables
 whose mutation ownership has been deliberately assigned.
 
-# 4. Schema-semantics compiler
+# 4. Database documentation and tool field contracts
 
-Schemas are inherent contracts of the blocks and boundaries that publish them;
-they are not a separate owner. The LLM data protocol owns its schemas, the MCP
-protocol carries provider and tool schemas, the search protocol owns its message
-schemas, and each MCP or native domain owns the schema and meanings of its data.
+Each native domain owns the schema and meanings of its data. MariaDB table and
+column COMMENT clauses document storage meaning at its source. The baseline
+and reviewed migrations version those comments with the schema. Longer notes,
+relationships, and view documentation live beside their SQL definitions.
 
-The schema-semantics compiler is a separate shared internal tool because it
-performs one concrete operation across participating structured database-backed
-tools. It is deterministic application code, not an LLM or a model-callable
-tool, and it does not become the owner of any schema it processes.
+The Tool Description contract owns model-facing meanings: layer 6 describes
+behavior and result interpretation, layers 7 and 8 describe input/output fields,
+and layer 10 enforces authorization, validation, and mutation invariants.
+Reusable field contracts live with the owning tools. Do not copy storage
+catalogs into orientation, append schema explanations to ordinary results, or
+introduce a generated semantic form or synchronization dependency.
 
-The Tool Description contract answers which tool or provider-owned operation
-can produce an outcome. The schema-semantics compiler answers what the selected
-structured objects and fields mean. An operations list must never absorb field
-semantics or replace an exact compiled schema projection; the compiler must
-never infer tool operations from field names.
-
-The compiler owns:
-
-- loading and validating the versioned schema-semantic form;
-- accepting an exact operation description naming the participating objects and
-  fields;
-- combining stored database mechanics with the human-authored meanings for only
-  those named objects and fields;
-- compiling the smallest exact schema-semantic projection for that operation;
-- returning the projection to the participating tool so it can accompany the
-  structured result; and
-- recording each compiled projection literally in the request trace.
-
-The compiler does not access data rows, choose sources or tools, construct
-queries, rank or filter results, authorize access, enforce domain validation,
-mutate data, or interpret field meaning. Application code may mechanically use
-explicit machine-readable projection fields; the LLM interprets human-readable
-meanings supplied with a result.
-
-The current implementation integrates the compiler with participating native
-database-backed tools. Use by another block or protocol requires an explicit
-integration and trace path; shared availability must not be described as use by
-every block when no such integration exists.
+The read-only database_schema tool exposes live MariaDB comments when explicitly
+called. Database compatibility checks remain read-only and independent of
+human-authored prose. Comments never authorize access or enforce business rules.
 
 # 5. MCP protocol
 
@@ -852,7 +828,7 @@ Every search input contains:
   validation but not interpreted or executed by the search engine;
 - the original query text plus normalized concepts and filters;
 - authorized source, capability, context-view, or tool references;
-- requested fields and schema-semantics references;
+- requested fields and owning tool-contract references;
 - candidate, evidence, time, and model-token bounds; and
 - pagination or continuation state when present.
 
@@ -864,7 +840,7 @@ Every search output contains:
 - ranked evidence items with stable source and entity references;
 - the matched fields, match reasons, score, and compact returned data;
 - candidate, returned, and pruned counts with pruning reasons;
-- schema-semantics references used to interpret the evidence; and
+- owning tool-contract references used to interpret the evidence; and
 - partial-source errors and continuation state.
 
 The query, sources, filters, requested fields, matching options, and limits are

@@ -1,4 +1,50 @@
-import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
+import { selectedFields } from "./record-fields.mjs";
+
+const journalGroupRecordSchema = {
+  type: ["object", "null"],
+  description: "Defines broad named groups that organize the user's personal trackers.",
+  properties: {
+    journal_group_id: { description: "Stable local identifier for one personal-journal group." },
+    name: { description: "Complete human-facing name of the group. Unique without regard to letter case." },
+    archived_at_utc: { description: "UTC timestamp when this group was archived, or null while it is active." },
+    created_at_utc: { description: "UTC timestamp when this group was created." },
+    updated_at_utc: { description: "UTC timestamp of the most recent change to this group, when changed." },
+  },
+};
+
+const trackerRecordSchema = {
+  type: ["object", "null"],
+  description: "Defines the reusable subjects under which the user records personal observations over time.",
+  properties: {
+    tracker_id: { description: "Stable local identifier for one personal tracker." },
+    journal_group_id: { description: "Organizational group containing this tracker." },
+    name: { description: "Complete human-facing name of the tracked subject. Unique globally without regard to letter case." },
+    unit: { description: "Canonical unit shared by every numeric entry in this tracker's trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me." },
+    archived_at_utc: { description: "UTC timestamp when tracking was archived, or null while the tracker is active." },
+    created_at_utc: { description: "UTC timestamp when this tracker was first defined." },
+    updated_at_utc: { description: "UTC timestamp of the most recent change to this tracker, when changed." },
+    journal_groups: journalGroupRecordSchema,
+  },
+};
+
+const journalEntryRecordSchema = {
+  type: ["object", "null"],
+  description: "Stores the user's authoritative time-stamped personal observations under reusable trackers.",
+  properties: {
+    journal_entry_id: { description: "Stable local identifier for one personal journal entry." },
+    tracker_id: { description: "Tracker under which this observation is recorded." },
+    occurred_at_utc: { description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
+    content_text: { description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
+    number_value: { description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
+    source_event_id: { description: "Optional activity event for the user request that caused this journal entry to be recorded." },
+    created_at_utc: { description: "UTC timestamp when this journal row was created." },
+    updated_at_utc: { description: "UTC timestamp of the most recent modification to this journal row, when modified." },
+    source: { description: "Stable generic name of the application, export, or local path from which this journal entry originated. Use agent-slayer for ordinary native journal writes and a consistent source name for every page of one external import." },
+    external_id: { description: "Optional stable record identifier assigned by source and used with source to make imports idempotent. Required by the generic import tool and null for ordinary native journal entries without an upstream identity. The pair of source and external_id is unique whenever external_id is present." },
+    trackers: trackerRecordSchema,
+    journal_groups: journalGroupRecordSchema,
+  },
+};
 
 const nullableString = { type: ["string", "null"] };
 
@@ -24,7 +70,6 @@ function normalizedInstant(value, { useNow = false, label = "Timestamp" } = {}) 
   return date.toISOString();
 }
 
-const journalGroupFields = ["journal_group_id", "name", "archived_at_utc"];
 const trackerFields = [
   "tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "created_at_utc", "updated_at_utc",
 ];
@@ -32,30 +77,6 @@ const journalEntryFields = [
   "journal_entry_id", "tracker_id", "occurred_at_utc", "content_text", "number_value",
   "source_event_id", "created_at_utc", "updated_at_utc", "source", "external_id",
 ];
-const journalProjection = {
-  schemaObjects: ["journal_entries", "trackers", "journal_groups"],
-  fields: {
-    journal_entries: journalEntryFields,
-    trackers: trackerFields,
-    journal_groups: journalGroupFields,
-  },
-};
-const journalEntryProjection = {
-  schemaObjects: ["journal_entries", "trackers", "journal_groups"],
-  fields: {
-    journal_entries: journalEntryFields,
-    trackers: ["tracker_id", "journal_group_id", "name", "unit"],
-    journal_groups: ["journal_group_id", "name"],
-  },
-};
-const trackerProjection = {
-  schemaObjects: ["trackers", "journal_groups", "journal_entries"],
-  fields: {
-    trackers: trackerFields,
-    journal_groups: journalGroupFields,
-    journal_entries: ["journal_entry_id", "tracker_id", "occurred_at_utc"],
-  },
-};
 
 function databaseTracker(row) {
   if (!row) return null;
@@ -86,16 +107,6 @@ function databaseEntry(row) {
       name: row.group_name ?? null,
     },
   };
-}
-
-function journalResult(schemaSemantics, context, result, {
-  name, purpose, trackersOnly = false, entriesOnly = false,
-}) {
-  return withSchemaProjection(schemaSemantics, context, result, {
-    name,
-    purpose,
-    ...(trackersOnly ? trackerProjection : entriesOnly ? journalEntryProjection : journalProjection),
-  });
 }
 
 export function journalCapabilityContext(store, limit = 200) {
@@ -444,7 +455,7 @@ function sameImportedEntry(row, input) {
     && (input.trackerUnit === null || row.tracker_unit === input.trackerUnit);
 }
 
-export function registerJournalTools(registry, store, ledger, schemaSemantics = null) {
+export function registerJournalTools(registry, store, ledger) {
   const rootRegistry = registry;
   registry = registry.withCapability?.("journal") ?? registry;
   rootRegistry.registerContextView?.("journal", {
@@ -457,16 +468,20 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
   registry.register({
     name: "journal_add",
     description: "Record one entry in the user's authoritative personal journal. The content must remain complete human-readable text; number_value is an optional trend projection whose canonical unit belongs to the tracker, never the entry. Supply tracker_unit when creating a tracker or replacing the migration marker; otherwise use null and the existing tracker unit remains authoritative. Reuse the most plausible existing tracker. If none matches and create_if_missing is false, return an unrecorded proposal for confirmation.",
+    outputSchema: {
+      type: "object",
+      properties: { entry: journalEntryRecordSchema, tracker: trackerRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        tracker: { type: "string", minLength: 1, maxLength: 200 },
+        tracker: { type: "string", minLength: 1, maxLength: 200, description: "Name of the reusable subject under which this observation is recorded." },
         group: nullableString,
-        content_text: { type: "string", minLength: 1, maxLength: 10000 },
-        number_value: { type: ["number", "null"] },
-        tracker_unit: { ...nullableString, maxLength: 100 },
-        occurred_at_utc: nullableString,
+        content_text: { type: "string", minLength: 1, maxLength: 10000, description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
+        number_value: { type: ["number", "null"], description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
+        tracker_unit: { ...nullableString, maxLength: 100, description: "Canonical unit shared by every numeric entry in this tracker's trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me." },
+        occurred_at_utc: { ...nullableString, description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
         create_if_missing: { type: "boolean" },
       },
       required: ["tracker", "group", "content_text", "number_value", "tracker_unit", "occurred_at_utc", "create_if_missing"],
@@ -496,12 +511,8 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
               number_value: input.number,
             },
           };
-          const semanticResult = journalResult(schemaSemantics, context, result, {
-            name: "journal_add",
-            purpose: "Report that no existing tracker matched and return the unrecorded proposed tracker and entry for confirmation.",
-          });
           database.exec("COMMIT");
-          return semanticResult;
+          return result;
         }
         const entry = insertEntry(database, input, trackerResult.tracker, {
           requestEventId: context.requestEventId || null,
@@ -531,12 +542,8 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
           content: entry.content_text, payload: result,
           subjectType: "journal_entry", subjectId: String(entry.journal_entry_id),
         });
-        const semanticResult = journalResult(schemaSemantics, context, result, {
-          name: "journal_add",
-          purpose: "Return the stored journal entry together with its tracker and journal group database fields.",
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -547,11 +554,23 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
   registry.register({
     name: "journal_import",
     description: "Import a bounded batch of 1 through 100 personal-journal entries from any external source. Each entry requires an occurrence time and a stable external_id supplied by the source or deterministically derived when the source has none. The pair of source and external_id is idempotent: exact replays are reported unchanged, while conflicting replays are reported and never overwrite the existing entry. New entries and any required groups or trackers are created in one transaction.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { entry: journalEntryRecordSchema },
+          },
+        },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        source: { type: "string", minLength: 1, maxLength: 200 },
+        source: { type: "string", minLength: 1, maxLength: 200, description: "Stable generic name of the application, export, or local path from which this journal entry originated. Use agent-slayer for ordinary native journal writes and a consistent source name for every page of one external import." },
         entries: {
           type: "array",
           minItems: 1,
@@ -560,13 +579,13 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
             type: "object",
             additionalProperties: false,
             properties: {
-              external_id: { type: ["string", "integer"], maxLength: 1000 },
-              tracker: { type: "string", minLength: 1, maxLength: 200 },
+              external_id: { type: ["string", "integer"], maxLength: 1000, description: "Optional stable record identifier assigned by source and used with source to make imports idempotent. Required by the generic import tool and null for ordinary native journal entries without an upstream identity. The pair of source and external_id is unique whenever external_id is present." },
+              tracker: { type: "string", minLength: 1, maxLength: 200, description: "Name of the reusable subject under which this observation is recorded." },
               group: nullableString,
-              content_text: { type: "string", minLength: 1, maxLength: 10000 },
-              number_value: { type: ["number", "null"] },
-              tracker_unit: { ...nullableString, maxLength: 100 },
-              occurred_at_utc: { type: "string" },
+              content_text: { type: "string", minLength: 1, maxLength: 10000, description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
+              number_value: { type: ["number", "null"], description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
+              tracker_unit: { ...nullableString, maxLength: 100, description: "Canonical unit shared by every numeric entry in this tracker's trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me." },
+              occurred_at_utc: { type: "string", description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
             },
             required: [
               "external_id",
@@ -661,13 +680,8 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
           },
           subjectType: "journal_import", subjectId: selectedSource,
         });
-        const semanticResult = journalResult(schemaSemantics, context, result, {
-          name: "journal_import",
-          purpose: "Return imported, unchanged, or conflicting stored journal entries with their database field semantics.",
-          entriesOnly: true,
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -678,13 +692,19 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
   registry.register({
     name: "journal_list",
     description: "List recent entries from the user's authoritative personal journal, optionally filtered by tracker, group, provenance source, or inclusive UTC occurrence-time bounds.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        entries: { type: "array", items: journalEntryRecordSchema },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        tracker: nullableString,
+        tracker: { ...nullableString, description: "Name of the reusable subject under which this observation is recorded." },
         group: nullableString,
-        source: nullableString,
+        source: { ...nullableString, description: "Stable generic name of the application, export, or local path from which this journal entry originated. Use agent-slayer for ordinary native journal writes and a consistent source name for every page of one external import." },
         from_utc: nullableString,
         through_utc: nullableString,
         limit: { type: "integer", minimum: 1, maximum: 200 },
@@ -728,26 +748,26 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
         ORDER BY entry.occurred_at_utc DESC, entry.journal_entry_id DESC
         LIMIT ?
       `).all(...values, boundedLimit).map(databaseEntry);
-      return journalResult(schemaSemantics, context, { count: rows.length, entries: rows }, {
-        name: "journal_list",
-        purpose: "List stored personal journal entries together with their tracker and journal group database fields.",
-        entriesOnly: true,
-      });
+      return { count: rows.length, entries: rows };
     },
   });
 
   registry.register({
     name: "journal_update",
     description: "Correct one existing personal-journal entry by its exact journal_entry_id. Null leaves content_text, number_value, or occurred_at_utc unchanged. Set clear_number_value true to clear the optional numeric trend projection. The canonical unit belongs to the tracker and cannot be changed through an entry correction.",
+    outputSchema: {
+      type: "object",
+      properties: { entry: journalEntryRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        journal_entry_id: { type: "integer", minimum: 1 },
-        content_text: nullableString,
-        number_value: { type: ["number", "null"] },
+        journal_entry_id: { type: "integer", minimum: 1, description: "Stable local identifier for one personal journal entry." },
+        content_text: { ...nullableString, description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
+        number_value: { type: ["number", "null"], description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
         clear_number_value: { type: "boolean" },
-        occurred_at_utc: nullableString,
+        occurred_at_utc: { ...nullableString, description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
       },
       required: [
         "journal_entry_id", "content_text", "number_value", "clear_number_value", "occurred_at_utc",
@@ -796,13 +816,8 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
           name: "Personal journal entry updated", content: entry.content_text, payload: result,
           subjectType: "journal_entry", subjectId: String(entry.journal_entry_id),
         });
-        const semanticResult = journalResult(schemaSemantics, context, result, {
-          name: "journal_update",
-          purpose: "Return the personal journal entry before and after an exact-ID correction.",
-          entriesOnly: true,
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
@@ -813,6 +828,12 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
   registry.register({
     name: "tracker_list",
     description: "List personal-journal trackers with their groups, canonical units, entry counts, and most recent occurrence times.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        trackers: { type: "array", items: trackerRecordSchema },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -848,25 +869,25 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
         ORDER BY journal_group.name, tracker.name
         LIMIT ?
       `).all(...values, boundedLimit).map(databaseTracker);
-      return journalResult(schemaSemantics, context, { count: rows.length, trackers: rows }, {
-        name: "tracker_list",
-        purpose: "List stored trackers and journal groups with computed entry counts and latest occurrence times.",
-        trackersOnly: true,
-      });
+      return { count: rows.length, trackers: rows };
     },
   });
 
   registry.register({
     name: "tracker_update",
     description: "Update one personal-journal tracker by ID. Rename it, move it to a group, replace its migration marker with a canonical unit, or archive/reactivate it. A canonical unit cannot be cleared and cannot change after numeric entries exist.",
+    outputSchema: {
+      type: "object",
+      properties: { tracker: trackerRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        tracker_id: { type: "integer", minimum: 1 },
-        name: nullableString,
+        tracker_id: { type: "integer", minimum: 1, description: "Tracker under which this observation is recorded." },
+        name: { ...nullableString, description: "Complete human-facing name of the tracked subject. Unique globally without regard to letter case." },
         group: nullableString,
-        unit: nullableString,
+        unit: { ...nullableString, description: "Canonical unit shared by every numeric entry in this tracker's trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me." },
         archived: { type: ["boolean", "null"] },
       },
       required: ["tracker_id", "name", "group", "unit", "archived"],
@@ -905,13 +926,8 @@ export function registerJournalTools(registry, store, ledger, schemaSemantics = 
           name: "Personal tracker updated", content: tracker.name, payload: result,
           subjectType: "tracker", subjectId: String(tracker.tracker_id),
         });
-        const semanticResult = journalResult(schemaSemantics, context, result, {
-          name: "tracker_update",
-          purpose: "Return the tracker before and after an update using stored database field names.",
-          trackersOnly: true,
-        });
         database.exec("COMMIT");
-        return semanticResult;
+        return result;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;

@@ -1,33 +1,14 @@
 const nullableString = { type: ["string", "null"] };
 
-function fieldsForRead(argumentsObject) {
-  const fields = new Set(argumentsObject.columns ?? []);
-  for (const key of Object.keys(argumentsObject.where ?? {})) fields.add(key);
-  if (argumentsObject.orderBy) fields.add(argumentsObject.orderBy);
-  return fields.size ? [...fields] : null;
-}
-
-function fieldsForWrite(argumentsObject) {
-  const fields = new Set([
-    ...Object.keys(argumentsObject.values ?? {}),
-    ...Object.keys(argumentsObject.where ?? {}),
-  ]);
-  return fields.size ? [...fields] : null;
-}
-
-function projection(schemaSemantics, operation, context) {
-  return schemaSemantics?.compile(operation, context) ?? null;
-}
-
 export function registerDatabaseTools(
-  registry, store, ledger, schemaSemantics = null, searchCoordinator = null,
+  registry, store, ledger, searchCoordinator = null,
 ) {
   const databaseRegistry = registry.withCapability?.("database") ?? registry;
   const writeRegistry = registry.withCapability?.("database-write") ?? registry;
   const historyRegistry = registry.withCapability?.("history") ?? registry;
   databaseRegistry.register({
     name: "database_schema",
-    description: "Inspect the existing native database tables, views, columns, and foreign keys. This never changes schema.",
+    description: "Inspect the existing native database tables, views, columns, foreign keys, and MariaDB table/column comments. This never changes schema.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -38,14 +19,7 @@ export function registerDatabaseTools(
       const objects = objectName
         ? [store.objectInfo(objectName)]
         : store.objects().map((object) => store.objectInfo(object.name));
-      const schemaProjection = objectName
-        ? projection(schemaSemantics, {
-            name: "inspect_database_object",
-            purpose: "Inspect one database object's mechanics and meaning.",
-            schemaObjects: [objectName],
-          }, context)
-        : null;
-      return { objects, schemaProjection };
+      return { objects };
     },
   });
 
@@ -71,15 +45,7 @@ export function registerDatabaseTools(
       if (["interaction_guides", "interaction_guide_steps"].includes(argumentsObject.objectName)) {
         throw new Error("Use the focused briefing tools for one explicitly requested briefing; generic database reads do not load private briefing or answer rows");
       }
-      const schemaProjection = projection(schemaSemantics, {
-        name: "bounded_database_read",
-        purpose: "Read bounded rows through Agent Slayer's structured database interface.",
-        schemaObjects: [argumentsObject.objectName],
-        ...(fieldsForRead(argumentsObject)
-          ? { fields: { [argumentsObject.objectName]: fieldsForRead(argumentsObject) } }
-          : {}),
-      }, context);
-      return { ...store.read(argumentsObject), schemaProjection };
+      return store.read(argumentsObject);
     },
   });
 
@@ -99,21 +65,13 @@ export function registerDatabaseTools(
       },
     },
     async execute(argumentsObject, context) {
-      const schemaProjection = projection(schemaSemantics, {
-        name: `bounded_database_${argumentsObject.action}`,
-        purpose: `${argumentsObject.action} rows through Agent Slayer's structured database interface.`,
-        schemaObjects: [argumentsObject.table],
-        ...(fieldsForWrite(argumentsObject)
-          ? { fields: { [argumentsObject.table]: fieldsForWrite(argumentsObject) } }
-          : {}),
-      }, context);
       const result = store.write(argumentsObject);
       ledger.append({
         type: "database.write", status: "complete", actorType: "tool", actorName: "database_write",
         turnId: context.requestId, operationId: context.callId, name: `${argumentsObject.action} ${argumentsObject.table}`,
-        payload: { ...result, schemaProjection },
+        payload: result,
       });
-      return { ...result, schemaProjection };
+      return result;
     },
   });
 

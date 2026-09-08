@@ -47,7 +47,6 @@ export SLAYER_MIGRATION_WRITERS_STOPPED=1
 npm run db:migrate
 unset SLAYER_MIGRATION_BACKUP_CONFIRMED SLAYER_MIGRATION_WRITERS_STOPPED
 
-npm run schema:semantics:sync
 npm run db:verify
 npm test
 
@@ -59,6 +58,35 @@ Do not restart the service when migration or verification fails. If no
 migrations are pending, `npm run db:migrate` is a read-only integrity check and
 does not require the confirmation variables.
 
+## Version 35: Native database comments
+
+This migration moves storage descriptions into MariaDB table and column
+comments. It repeats the version 34 column definitions with COMMENT clauses;
+rows, constraints, indexes, defaults, and generated expressions are preserved.
+It requires writer downtime and uses ALGORITHM=INSTANT to refuse a table rebuild.
+Generated-column descriptions remain SQL source comments: modifying those
+columns even for a comment can require a table rebuild.
+If the algorithm is refused, inspect the actual column definitions for drift;
+do not remove the guard to force the migration through. Rerunning after a partial
+DDL commit safely sets the same comments again. Restore prior comments from the
+backup if their previous text must be recovered.
+
+The matching application requires schema version 35 and removes the schema
+compiler dependency and generated semantic file. Pull the application, install
+its locked dependencies, apply migrations, and run `npm run db:verify` before
+starting it. There is no semantic synchronization step. If a previous server
+sync left the formerly tracked JSON locally modified, preserve that file outside
+the checkout or stash it before pulling; inspect any local authored notes before
+discarding the saved copy. Do not reapply old generated mechanics after upgrade.
+
+Table/column comments in the baseline and migration ledger own storage prose.
+Longer notes and view descriptions are SQL source comments. Tool execution
+instructions and input/output schemas own model-facing behavior and meanings.
+Legacy keyword and synonym notes are retained beside the SQL definitions;
+compiler fingerprints, timestamps, and routing weights are intentionally retired.
+
+The comment migration uses MariaDB [COMMENT clauses and ALTER TABLE](https://mariadb.com/docs/server/reference/sql-statements/data-definition/alter/alter-table); column definitions must be retained when using MODIFY.
+
 ## Version 34: Contact tag join table
 
 Version 34 renames `record_tags` to `contacts_tags_join` and drops `record_links`
@@ -69,7 +97,7 @@ The existing index and constraint names also remain intact.
 
 Apply this migration and the matching application during approved writer
 downtime using the operator sequence above. The application requires schema
-version 34. Synchronize schema semantics and verify before starting writers.
+version 34. Verify before starting writers.
 If the rename commits before the migration finishes, rerunning skips that
 rename and completes the drop. An existing destination is never overwritten.
 
@@ -82,8 +110,7 @@ That application version requires schema version 33.
 
 This block does not require writer downtime because no application feature
 reads or writes `notes`. Create and test a recoverable backup as above, then run
-`npm run db:migrate` with `SLAYER_MIGRATION_BACKUP_CONFIRMED=1`, synchronize
-schema semantics, and run `npm run db:verify`. Do not assert that writers were
+`npm run db:migrate` with `SLAYER_MIGRATION_BACKUP_CONFIRMED=1`, run `npm run db:verify`. Do not assert that writers were
 stopped when applying this block online. Earlier pending migrations may still
 require the downtime described in their own blocks.
 
@@ -103,8 +130,7 @@ approved writer downtime. That application version requires schema version 32
 and uses
 `journal_add`, `journal_import`, `journal_list`, `journal_update`,
 `journal.active_trackers`, `/api/journal-trackers`, and `/api/journal-entries`.
-Synchronize the tracked semantic form against the migrated database and inspect
-the diff before verification.
+Verify the migrated database before starting the application.
 
 If an earlier attempt stopped with `log_entries_event` and
 `log_entries_tracker` still present on `journal_entries`, keep writers stopped
@@ -112,7 +138,7 @@ and rerun migration 0032 with the corrected ledger. It explicitly drops both
 legacy and replacement foreign keys before recreating the replacements in
 separate statements, addressing [MariaDB MDEV-32270](https://jira.mariadb.org/browse/MDEV-32270).
 The runner records version 32 only after integrity checks pass; do not advance
-the version manually. Then synchronize schema semantics and run `db:verify`
+the version manually. Then run `db:verify`
 before starting the application.
 
 Trigger bodies use prepared SQL so the ledger retains complete compound

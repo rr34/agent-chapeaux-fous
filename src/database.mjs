@@ -211,8 +211,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 34) {
-    problems.push(`Expected MariaDB schema version 34, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 35) {
+    problems.push(`Expected MariaDB schema version 35, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }
@@ -266,7 +266,7 @@ export class SlayerDatabase {
   objects() {
     return this.requireReady().prepare(`
       SELECT CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 'table' ELSE 'view' END AS type,
-             TABLE_NAME AS name, NULL AS \`sql\`
+             TABLE_NAME AS name, TABLE_COMMENT AS comment, NULL AS \`sql\`
       FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = DATABASE()
       ORDER BY type, name
@@ -283,7 +283,7 @@ export class SlayerDatabase {
     const columns = this.requireReady().prepare(`
           SELECT ORDINAL_POSITION - 1 AS cid, COLUMN_NAME AS name, COLUMN_TYPE AS type,
                  CASE WHEN IS_NULLABLE = 'NO' THEN 1 ELSE 0 END AS notnull,
-                 COLUMN_DEFAULT AS dflt_value,
+                 COLUMN_DEFAULT AS dflt_value, COLUMN_COMMENT AS comment,
                  CASE WHEN COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END AS pk
           FROM information_schema.COLUMNS
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?

@@ -1,18 +1,14 @@
 import assert from "node:assert/strict";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
 import { OrganizerStore } from "../src/organizer-store.mjs";
-import { SchemaSemantics } from "../src/schema-semantics.mjs";
 import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function calendarFixture(context, { semantics = false } = {}) {
+function calendarFixture(context) {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.target);
@@ -20,17 +16,13 @@ function calendarFixture(context, { semantics = false } = {}) {
   const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());
   const ledger = new Ledger(store);
-  const schemaSemantics = semantics ? new SchemaSemantics({
-    filename: path.join(repositoryRoot, "db", "schema-semantics.json"),
-    ledger,
-  }) : null;
   const registry = new ToolRegistry();
-  registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);
+  registerCalendarTools(registry, store, organizer, ledger);
   return { store, ledger, registry };
 }
 
 test("calendar_event_search returns exact stored fields with strict bounded arguments", async (context) => {
-  const { store, registry } = calendarFixture(context, { semantics: true });
+  const { store, registry } = calendarFixture(context);
   const database = store.requireReady();
   database.prepare(`
     INSERT INTO calendar_events (
@@ -65,7 +57,6 @@ test("calendar_event_search returns exact stored fields with strict bounded argu
   assert.equal(result.events[0].title, "Library planning");
   assert.equal(result.events[0].location_text, "East branch");
   assert.equal(Object.hasOwn(result.events[0], "startsAtUtc"), false);
-  assert.ok(result.schemaProjection.schemaProjection.schemaObjects.calendar_events);
 
   const archived = await registry.execute("calendar_event_search", {
     query: "archived library",
@@ -77,7 +68,7 @@ test("calendar_event_search returns exact stored fields with strict bounded argu
 });
 
 test("native calendar tools create, list, update, and cancel stored events", async (context) => {
-  const { ledger, registry } = calendarFixture(context, { semantics: true });
+  const { ledger, registry } = calendarFixture(context);
   const request = ledger.createRequest({ text: "Schedule a dentist visit" });
   const toolContext = {
     requestId: request.requestId,
@@ -99,10 +90,6 @@ test("native calendar tools create, list, update, and cancel stored events", asy
   assert.equal(created.event.location_text, "Main Street");
   assert.equal(Object.hasOwn(created.event, "startsAtUtc"), false);
   assert.ok(created.event.source_event_id);
-  assert.match(
-    created.schemaProjection.schemaProjection.schemaObjects.calendar_events.fields.starts_at_utc.meaning,
-    /UTC instant/,
-  );
 
   const listed = await registry.execute("calendar_event_list", {
     starts_at_utc: "2026-08-18T00:00:00Z",
@@ -253,7 +240,7 @@ test("calendar recurrence stays at local time across daylight saving changes", a
 });
 
 test("calendar range results preserve derived contact birthdays separately", async (context) => {
-  const { store, registry } = calendarFixture(context, { semantics: true });
+  const { store, registry } = calendarFixture(context);
   store.requireReady().prepare(`
     INSERT INTO contacts (display_name, birth_date) VALUES (?, ?)
   `).run("Alex", "1990-08-20");
@@ -265,5 +252,4 @@ test("calendar range results preserve derived contact birthdays separately", asy
   assert.equal(listed.occurrences[0].calendar_events, null);
   assert.equal(listed.occurrences[0].contacts.display_name, "Alex");
   assert.equal(listed.occurrences[0].occurrence.source_kind, "contact_birthday");
-  assert.ok(listed.schemaProjection.schemaProjection.schemaObjects.contacts);
 });

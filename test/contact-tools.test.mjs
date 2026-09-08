@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
 import { OrganizerStore } from "../src/organizer-store.mjs";
-import { SchemaSemantics } from "../src/schema-semantics.mjs";
 import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function harness(context) {
   const temporary = temporaryDatabase();
@@ -20,12 +16,8 @@ function harness(context) {
   const ledger = new Ledger(store);
   const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());
-  const schemaSemantics = new SchemaSemantics({
-    filename: path.join(root, "db", "schema-semantics.json"),
-    ledger,
-  });
   const registry = new ToolRegistry();
-  registerContactTools(registry, store, organizer, ledger, schemaSemantics);
+  registerContactTools(registry, store, organizer, ledger);
   const request = ledger.createRequest({ text: "Import the attached contacts" });
   return { store, organizer, ledger, registry, request };
 }
@@ -76,8 +68,7 @@ test("contact_import stores methods and overlapping tags and is replay-safe", as
     imported.items[0].contact.tags.map(({ slug }) => slug),
     ["family", "watch-customer", "wedding-attendee"],
   );
-  assert.ok(imported.schemaProjection.schemaProjection.schemaObjects.contacts);
-  assert.ok(imported.schemaProjection.schemaProjection.schemaObjects.tags);
+
 
   const replay = await registry.execute("contact_import", batch, {
     ...toolContext, callId: "contact-replay",

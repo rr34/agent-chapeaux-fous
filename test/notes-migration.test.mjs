@@ -9,7 +9,7 @@ import { inspectDatabase } from "../src/database.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
 test("removing a populated notes table preserves Journal and contact notes and supports recovery replay", async (context) => {
-  const schema = fs.readFileSync(baselineFilename, "utf8").replaceAll("contacts_tags_join", "record_tags").replace("VALUES (1, 34,", "VALUES (1, 32,");
+  const schema = fs.readFileSync(baselineFilename, "utf8").replaceAll("contacts_tags_join", "record_tags").replace("VALUES (1, 35,", "VALUES (1, 32,");
   const temporary = temporaryDatabase({ schema });
   context.after(temporary.cleanup);
   const database = new MariaDatabaseSync(temporary.target.connection);
@@ -38,12 +38,12 @@ test("removing a populated notes table preserves Journal and contact notes and s
     assert.deepEqual(database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'notes'`).all(), []);
   };
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [33, 34]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [33, 34, 35]);
   assertPreserved();
   assert.deepEqual((await runDatabaseMigrations(settings)).applied, []);
   // Simulate the drop committing before the durable version marker advances.
   database.exec("UPDATE database_meta SET schema_version = 32 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [33, 34]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [33, 34, 35]);
   const migration = readMigrationLedger(migrationsFilename).find(({ version }) => version === 33);
   for (const statement of splitMariaDbStatements(migration.sql)) database.exec(statement);
   assertPreserved();

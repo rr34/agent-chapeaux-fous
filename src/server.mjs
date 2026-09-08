@@ -23,7 +23,6 @@ import { receiveRequestAttachment, safeMediaPath } from "./request-attachments.m
 import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
-import { SchemaSemantics } from "./schema-semantics.mjs";
 import { structuredInteractionGenerationPrompt } from "./structured-interaction-generation.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { OpenAISpeechService } from "./openai-speech.mjs";
@@ -69,7 +68,6 @@ const videoContent = store.status.ready ? new VideoContent({ videoScripts, organ
 let videoRenderWorker = null;
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
-const schemaSemantics = new SchemaSemantics({ filename: config.schemaSemanticsPath, ledger });
 const registry = new ToolRegistry();
 registerNativeCapabilities(registry);
 const searchCoordinator = store.status.ready
@@ -100,13 +98,13 @@ const jmap = new JmapClient({
   timeoutMs: config.jmapTimeoutMs,
 });
 if (store.status.ready) {
-  registerCalendarTools(registry, store, organizer, ledger, schemaSemantics, searchCoordinator);
-  registerContactTools(registry, store, organizer, ledger, schemaSemantics, searchCoordinator);
-  registerTodoTools(registry, store, ledger, schemaSemantics);
-  registerJournalTools(registry, store, ledger, schemaSemantics);
-  registerInteractionGuideTools(registry, interactionGuides, schemaSemantics);
-  registerProfileFactTools(registry, profileFacts, schemaSemantics);
-  registerDatabaseTools(registry, store, ledger, schemaSemantics, searchCoordinator);
+  registerCalendarTools(registry, store, organizer, ledger, searchCoordinator);
+  registerContactTools(registry, store, organizer, ledger, searchCoordinator);
+  registerTodoTools(registry, store, ledger);
+  registerJournalTools(registry, store, ledger);
+  registerInteractionGuideTools(registry, interactionGuides);
+  registerProfileFactTools(registry, profileFacts);
+  registerDatabaseTools(registry, store, ledger, searchCoordinator);
   registerFileTools(registry, {
     ledger,
     searchCoordinator,
@@ -324,7 +322,6 @@ function health() {
     runtime: identity,
     model: { ...model, id: modelTransport.id, displayName: modelTransport.displayName, model: config.model },
     database: store.status,
-    schemaSemantics: schemaSemantics.health(),
     integrations: { ...mcp.health(), email: jmap.health() },
     tools: registry.list().map((tool) => ({
       name: tool.name,

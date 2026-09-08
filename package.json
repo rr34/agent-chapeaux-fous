@@ -8,7 +8,6 @@
   },
   "scripts": {
     "start": "node src/server.mjs",
-    "schema:semantics:sync": "node scripts/sync-agent-schema-semantics.mjs",
     "test": "node --test test/*.test.mjs",
     "db:migrate": "node scripts/migrate-database.mjs",
     "db:verify": "node scripts/verify-database.mjs"
@@ -26,7 +25,6 @@
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "remotion": "4.0.507",
-    "rrule": "2.8.1",
-    "schema-semantic-compiler": "https://github.com/rr34/schema-semantic-compiler/archive/32eddf41c26b31b3cab7706a4d6a4c13826e9063.tar.gz"
+    "rrule": "2.8.1"
   }
 }

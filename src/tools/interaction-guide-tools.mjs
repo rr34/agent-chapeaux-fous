@@ -1,16 +1,35 @@
-import { withSchemaProjection } from "./schema-result.mjs";
 import { interactionGuideContractSchema } from "../interaction-guide-contract.mjs";
 
-const interactionGuideFields = [
-  "interaction_guide_id", "name", "status", "version",
-  "created_at_utc", "updated_at_utc",
-];
+const guideStepRecordSchema = {
+  type: ["object", "null"],
+  description: "Stores each reusable exchange's literal opening, authoritative structured contract, current answers, and resumable progress.",
+  properties: {
+    interaction_guide_step_id: { description: "Stable local identifier for one numbered interaction-guide step." },
+    interaction_guide_id: { description: "Identifier of the parent interaction guide that owns this step and its definition version." },
+    step_number: { description: "Positive user-facing number ordering this step within its guide. Numbers may contain gaps; completion advances to the next higher enabled number rather than assuming current plus one. Units: ordinal number." },
+    opening_text: { description: "Fixed opening text that begins this step every time it becomes current. Present this text literally rather than asking the model to paraphrase it." },
+    contract_json: { description: "Versioned JSON contract containing optional explanatory instructions plus authoritative typed inputs, exact destination operations and argument bindings, bounded recovery reads, and the completion rule. Free-text instructions may explain structured fields but cannot introduce undeclared inputs, tools, destinations, recovery actions, or completion requirements. Every destination mutation names its exact application tool and argument template in operations. The completion mode is contract data, not a separate exchange column." },
+    answers_json: { description: "JSON object containing answers the user has actually supplied for this step in the current run, keyed by concise stable answer names. Merge partial answers without discarding answers already collected in the active run. A completed run clears this object only after that run's progress has been retained in activity_events. Answers do not replace business validation or successful receipts from the tools that own destination data." },
+    enabled: { description: "Whether new and active runs include this step when selecting the current and next higher numbered step. 0: The definition is retained but skipped by runs. 1: The step participates in runs." },
+    created_at_utc: { description: "UTC timestamp when this numbered interaction-guide step was created." },
+    updated_at_utc: { description: "UTC timestamp of the most recent definition or current-answer update to this step, when one has occurred." },
+    progress_state: { description: "Current-run progress for this step, used to resume an interrupted structured interaction at exactly one active step. The interaction-guide service owns transitions; definition tools do not write this field directly. Run completion or explicit cancellation resets current progress only after immutable history is retained in activity_events. pending: The current run has not yet completed this step. active: This is the current step to present or continue. completed: The current run completed this step and advanced beyond it." },
+  },
+};
 
-const interactionGuideStepFields = [
-  "interaction_guide_step_id", "interaction_guide_id", "step_number",
-  "opening_text", "contract_json", "answers_json", "progress_state",
-  "enabled", "created_at_utc", "updated_at_utc",
-];
+const guideRecordSchema = {
+  type: ["object", "null"],
+  description: "Stores named, versioned containers for durable user-owned structured interactions.",
+  properties: {
+    interaction_guide_id: { description: "Stable local identifier for one interaction guide." },
+    name: { description: "User-facing unique name used to select the guide without loading its text. Names are unique without regard to letter case." },
+    status: { description: "Lifecycle state controlling whether the guide is available for new guided interactions. active: The guide is available to inspect, edit, start, and link from a repeating to-do. archived: The guide is retained as history but unavailable for new links or starts." },
+    version: { description: "Monotonically increasing optimistic-concurrency version for agent and UI edits. An update or archive must match the current version and increments it on success. Units: revision number." },
+    created_at_utc: { description: "UTC timestamp when the interaction guide was created." },
+    updated_at_utc: { description: "UTC timestamp of the most recent successful guide update or archival, when one has occurred." },
+    steps: { type: "array", items: guideStepRecordSchema },
+  },
+};
 
 function databaseStep(step) {
   if (!step) return null;
@@ -67,33 +86,6 @@ function databaseRun(run) {
     time_zone: run.timeZone,
     requires_daily_choice: run.requiresDailyChoice,
   };
-}
-
-function guideResult(
-  schemaSemantics, context, result, name, purpose,
-  fields = interactionGuideFields, includeSteps = false,
-) {
-  return withSchemaProjection(schemaSemantics, context, result, {
-    name,
-    purpose,
-    schemaObjects: includeSteps ? ["interaction_guides", "interaction_guide_steps"] : ["interaction_guides"],
-    fields: {
-      interaction_guides: fields,
-      ...(includeSteps ? { interaction_guide_steps: interactionGuideStepFields } : {}),
-    },
-  });
-}
-
-function stepResult(schemaSemantics, context, result, name, purpose) {
-  return withSchemaProjection(schemaSemantics, context, result, {
-    name,
-    purpose,
-    schemaObjects: ["interaction_guides", "interaction_guide_steps"],
-    fields: {
-      interaction_guides: interactionGuideFields,
-      interaction_guide_steps: interactionGuideStepFields,
-    },
-  });
 }
 
 function boundedContextField(value, maximumCharacters) {
@@ -176,7 +168,7 @@ export function activeBriefingRunContext(interactionGuides, limit = 8, registere
   };
 }
 
-export function registerInteractionGuideTools(registry, interactionGuides, schemaSemantics = null) {
+export function registerInteractionGuideTools(registry, interactionGuides) {
   const rootRegistry = registry;
   registry = registry.withCapability?.("interaction-guides") ?? registry;
   rootRegistry.registerContextView?.("interaction-guides", {
@@ -193,60 +185,70 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
   registry.register({
     name: "interaction_guide_list",
     description: "List briefing metadata without loading its numbered exchanges. Use this to discover the exact internal guide ID and briefing name before fetching, editing, scheduling, or starting one.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        guides: { type: "array", items: guideRecordSchema },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        status: { type: "string", enum: ["active", "archived", "all"] },
+        status: { type: "string", enum: ["active", "archived", "all"], description: "Lifecycle state controlling whether the guide is available for new guided interactions. active: The guide is available to inspect, edit, start, and link from a repeating to-do. archived: The guide is retained as history but unavailable for new links or starts." },
         limit: { type: "integer", minimum: 1, maximum: 500 },
       },
       required: ["status", "limit"],
     },
     async execute({ status, limit }, context) {
       const result = interactionGuides.list({ status, limit });
-      return guideResult(schemaSemantics, context, {
+      return {
         ...result,
         guides: result.guides.map(databaseGuide),
-      }, "interaction_guide_list", "List briefing metadata without loading numbered exchanges", [
-        "interaction_guide_id", "name", "status", "version", "created_at_utc", "updated_at_utc",
-      ]);
+      };
     },
   });
 
   registry.register({
     name: "interaction_guide_get",
     description: "Fetch one exact briefing, including all numbered exchanges, current answers, and progress states. Call this only when the user asks to use, inspect, or change that briefing. Supply exactly one internal guide ID or name.",
+    outputSchema: {
+      type: "object",
+      properties: { guide: guideRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
-        name: { type: ["string", "null"], minLength: 1, maxLength: 200 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Stable local identifier for one interaction guide." },
+        name: { type: ["string", "null"], minLength: 1, maxLength: 200, description: "User-facing unique name used to select the guide without loading its text. Names are unique without regard to letter case." },
       },
       required: ["interaction_guide_id", "name"],
     },
     async execute({ interaction_guide_id: guideId, name }, context) {
       const guide = interactionGuides.get({ guideId, name });
       if (!guide) throw new Error("Briefing not found");
-      return guideResult(schemaSemantics, context, { guide: databaseGuide(guide) },
-        "interaction_guide_get", "Return one complete briefing and all numbered exchanges",
-        interactionGuideFields, true);
+      return { guide: databaseGuide(guide) };
     },
   });
 
   registry.register({
     name: "interaction_guide_step_add",
     description: "Add one numbered exchange with a literal opening and versioned structured contract. The contract contains optional explanatory instructions plus authoritative typed inputs, exact destination operations and argument bindings, bounded recovery reads, and completion. For an explicitly selected briefing, supply its ID, current version, and requested number. When no briefing is specified, set interaction_guide_id, expected_version, and step_number to null; the owning service atomically uses or creates the generic Exchange Inbox and appends the exchange at its next number. The parent version increments and answers_json starts as an empty object.",
+    outputSchema: {
+      type: "object",
+      properties: { guide: guideRecordSchema, step: guideStepRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Stable local identifier for one interaction guide." },
         expected_version: { type: ["integer", "null"], minimum: 1 },
-        step_number: { type: ["integer", "null"], minimum: 1 },
-        opening_text: { type: "string", minLength: 1, maxLength: 10_000 },
+        step_number: { type: ["integer", "null"], minimum: 1, description: "Positive user-facing number ordering this step within its guide. Numbers may contain gaps; completion advances to the next higher enabled number rather than assuming current plus one. Units: ordinal number." },
+        opening_text: { type: "string", minLength: 1, maxLength: 10_000, description: "Fixed opening text that begins this step every time it becomes current. Present this text literally rather than asking the model to paraphrase it." },
         contract: interactionGuideContractSchema,
-        enabled: { type: "boolean" },
+        enabled: { type: "boolean", description: "Whether new and active runs include this step when selecting the current and next higher numbered step. 0: The definition is retained but skipped by runs. 1: The step participates in runs." },
       },
       required: [
         "interaction_guide_id", "expected_version", "step_number",
@@ -262,29 +264,33 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         contract: argumentsObject.contract,
         enabled: argumentsObject.enabled,
       }, context);
-      return stepResult(schemaSemantics, context, {
+      return {
         created: result.created,
         default_briefing: result.defaultGuide,
         default_briefing_created: result.defaultGuideCreated,
         guide: databaseGuide(result.guide),
         step: databaseStep(result.step),
-      }, "interaction_guide_step_add", "Return the newly added numbered exchange and new parent version");
+      };
     },
   });
 
   registry.register({
     name: "interaction_guide_step_update",
     description: "Replace the literal opening and complete structured contract of one numbered exchange after fetching its briefing. Supply the parent internal guide's current version; successful changes increment only that version. This does not change answers_json.",
+    outputSchema: {
+      type: "object",
+      properties: { guide: guideRecordSchema, step: guideStepRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        interaction_guide_step_id: { type: "integer", minimum: 1 },
+        interaction_guide_step_id: { type: "integer", minimum: 1, description: "Stable local identifier for one numbered interaction-guide step." },
         expected_version: { type: "integer", minimum: 1 },
-        step_number: { type: "integer", minimum: 1 },
-        opening_text: { type: "string", minLength: 1, maxLength: 10_000 },
+        step_number: { type: "integer", minimum: 1, description: "Positive user-facing number ordering this step within its guide. Numbers may contain gaps; completion advances to the next higher enabled number rather than assuming current plus one. Units: ordinal number." },
+        opening_text: { type: "string", minLength: 1, maxLength: 10_000, description: "Fixed opening text that begins this step every time it becomes current. Present this text literally rather than asking the model to paraphrase it." },
         contract: interactionGuideContractSchema,
-        enabled: { type: "boolean" },
+        enabled: { type: "boolean", description: "Whether new and active runs include this step when selecting the current and next higher numbered step. 0: The definition is retained but skipped by runs. 1: The step participates in runs." },
       },
       required: [
         "interaction_guide_step_id", "expected_version", "step_number",
@@ -300,20 +306,24 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         contract: argumentsObject.contract,
         enabled: argumentsObject.enabled,
       }, context);
-      return stepResult(schemaSemantics, context, {
+      return {
         updated: result.updated, guide: databaseGuide(result.guide), step: databaseStep(result.step),
-      }, "interaction_guide_step_update", "Return the replaced numbered exchange and new parent version");
+      };
     },
   });
 
   registry.register({
     name: "interaction_guide_step_move",
     description: "Move one exchange from its current briefing into one different active briefing. Read both briefings first and supply both current versions. The exchange is appended after the destination's existing exchanges; current answers and progress reset while ledger history remains.",
+    outputSchema: {
+      type: "object",
+      properties: { source_guide: guideRecordSchema, target_guide: guideRecordSchema, step: guideStepRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        interaction_guide_step_id: { type: "integer", minimum: 1 },
+        interaction_guide_step_id: { type: "integer", minimum: 1, description: "Stable local identifier for one numbered interaction-guide step." },
         expected_source_version: { type: "integer", minimum: 1 },
         target_interaction_guide_id: { type: "integer", minimum: 1 },
         expected_target_version: { type: "integer", minimum: 1 },
@@ -330,24 +340,28 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         targetGuideId: argumentsObject.target_interaction_guide_id,
         expectedTargetVersion: argumentsObject.expected_target_version,
       }, context);
-      return stepResult(schemaSemantics, context, {
+      return {
         moved: result.moved,
         source_guide: databaseGuide(result.sourceGuide),
         target_guide: databaseGuide(result.targetGuide),
         step: databaseStep(result.step),
-      }, "interaction_guide_step_move", "Return the moved exchange and both newly versioned briefings");
+      };
     },
   });
 
   registry.register({
     name: "interaction_guide_start",
     description: "Start or resume one exact briefing. For an ordinary request, set stale_run_action to ask: an unfinished run from the current local day resumes, while an earlier-day run returns choice_required without advancing. Set stale_run_action to resume only after the user explicitly chooses to keep the earlier run. Set restart true only when the user explicitly asks to discard the unfinished run and start over. Completed runs remain in the ledger while their reusable exchange state is reset.",
+    outputSchema: {
+      type: "object",
+      properties: { guide: guideRecordSchema, step: guideStepRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
-        name: { type: ["string", "null"], minLength: 1, maxLength: 200 },
+        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Stable local identifier for one interaction guide." },
+        name: { type: ["string", "null"], minLength: 1, maxLength: 200, description: "User-facing unique name used to select the guide without loading its text. Names are unique without regard to letter case." },
         restart: { type: "boolean" },
         stale_run_action: { type: "string", enum: ["ask", "resume"] },
       },
@@ -355,7 +369,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
     },
     async execute({ interaction_guide_id: guideId, name, restart, stale_run_action: staleRunAction }, context) {
       const result = interactionGuides.begin({ guideId, name, restart, staleRunAction }, context);
-      return stepResult(schemaSemantics, context, {
+      return {
         started: result.started,
         resumed: result.resumed,
         choice_required: result.choiceRequired,
@@ -363,19 +377,23 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         run: databaseRun(result.run),
         guide: databaseGuide(result.guide),
         current_step: databaseStep(result.currentStep),
-      }, "interaction_guide_start", "Return either the required earlier-run choice or the durable run identity and exact current numbered exchange");
+      };
     },
   });
 
   registry.register({
     name: "interaction_guide_step_answer",
     description: "Merge the user's answers into answers_json for the active numbered exchange. Keep step_complete false while required contract inputs remain. Completion advances to the next enabled exchange and returns its fixed opening. The contract mode enforces validated answers, user advancement, or distinct same-request receipts whose paired calls match every declared destination operation.",
+    outputSchema: {
+      type: "object",
+      properties: { guide: guideRecordSchema, step: guideStepRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         run_id: { type: "string", minLength: 8, maxLength: 100 },
-        step_number: { type: "integer", minimum: 1 },
+        step_number: { type: "integer", minimum: 1, description: "Positive user-facing number ordering this step within its guide. Numbers may contain gaps; completion advances to the next higher enabled number rather than assuming current plus one. Units: ordinal number." },
         answers: { type: "object" },
         step_complete: { type: "boolean" },
         user_confirmed_advance: { type: "boolean" },
@@ -398,20 +416,24 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
         userConfirmedAdvance: argumentsObject.user_confirmed_advance,
         completionReceiptEventSeqs: argumentsObject.completion_receipt_event_seqs,
       }, context);
-      return stepResult(schemaSemantics, context, {
+      return {
         recorded: result.recorded,
         step_complete: result.stepComplete,
         run_complete: result.runCompleted,
         run: databaseRun(result.run),
         step: databaseStep(result.step),
         current_step: databaseStep(result.currentStep),
-      }, "interaction_guide_step_answer", "Return saved answers and the exact current or next numbered exchange");
+      };
     },
   });
 
   registry.register({
     name: "interaction_guide_run_cancel",
     description: "Cancel one exact active briefing, reset its current exchange progress and answers, and retain its prior state in ledger history. Use only when the user explicitly abandons it or needs to edit the briefing before starting again.",
+    outputSchema: {
+      type: "object",
+      properties: { guide: guideRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -423,7 +445,7 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
     },
     async execute({ run_id: runId, reason }, context) {
       const result = interactionGuides.cancelRun({ runId, reason }, context);
-      return stepResult(schemaSemantics, context, {
+      return {
         cancelled: result.cancelled,
         run: {
           run_id: result.run.id,
@@ -432,72 +454,84 @@ export function registerInteractionGuideTools(registry, interactionGuides, schem
           status: result.run.status,
           current_step_number: result.run.currentStepNumber,
         },
-      }, "interaction_guide_run_cancel", "Return the terminal status of the exact cancelled briefing");
+      };
     },
   });
 
   registry.register({
     name: "interaction_guide_create",
     description: "Create one named durable, user-owned briefing. Add its user-visible openings and structured contracts as numbered exchanges before starting it.",
+    outputSchema: {
+      type: "object",
+      properties: { guide: guideRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        name: { type: "string", minLength: 1, maxLength: 200 },
+        name: { type: "string", minLength: 1, maxLength: 200, description: "User-facing unique name used to select the guide without loading its text. Names are unique without regard to letter case." },
       },
       required: ["name"],
     },
     async execute({ name }, context) {
       const result = interactionGuides.create({ name }, context);
-      return guideResult(schemaSemantics, context, {
+      return {
         created: result.created,
         guide: databaseGuide(result.guide),
-      }, "interaction_guide_create", "Return the newly created briefing");
+      };
     },
   });
 
   registry.register({
     name: "interaction_guide_update",
     description: "Rename one exact briefing after reading it. Supply its current internal guide version for conflict protection. Its conversation content remains owned by its numbered exchanges.",
+    outputSchema: {
+      type: "object",
+      properties: { guide: guideRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        interaction_guide_id: { type: "integer", minimum: 1 },
+        interaction_guide_id: { type: "integer", minimum: 1, description: "Stable local identifier for one interaction guide." },
         expected_version: { type: "integer", minimum: 1 },
-        name: { type: "string", minLength: 1, maxLength: 200 },
+        name: { type: "string", minLength: 1, maxLength: 200, description: "User-facing unique name used to select the guide without loading its text. Names are unique without regard to letter case." },
       },
       required: ["interaction_guide_id", "expected_version", "name"],
     },
     async execute({ interaction_guide_id: guideId, expected_version: expectedVersion, name }, context) {
       const result = interactionGuides.update({ guideId, expectedVersion, name }, context);
-      return guideResult(schemaSemantics, context, {
+      return {
         updated: result.updated,
         unchanged: result.unchanged,
         guide: databaseGuide(result.guide),
-      }, "interaction_guide_update", "Return the versioned briefing after applying explicit changes");
+      };
     },
   });
 
   registry.register({
     name: "interaction_guide_archive",
     description: "Archive one exact briefing after reading it. Supply its current internal guide version. Archival is rejected while an enabled repeating to-do links to the briefing.",
+    outputSchema: {
+      type: "object",
+      properties: { guide: guideRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        interaction_guide_id: { type: "integer", minimum: 1 },
+        interaction_guide_id: { type: "integer", minimum: 1, description: "Stable local identifier for one interaction guide." },
         expected_version: { type: "integer", minimum: 1 },
       },
       required: ["interaction_guide_id", "expected_version"],
     },
     async execute({ interaction_guide_id: guideId, expected_version: expectedVersion }, context) {
       const result = interactionGuides.archive({ guideId, expectedVersion }, context);
-      return guideResult(schemaSemantics, context, {
+      return {
         archived: result.archived,
         already_archived: result.alreadyArchived,
         guide: databaseGuide(result.guide),
-      }, "interaction_guide_archive", "Return the archived briefing");
+      };
     },
   });
 }

@@ -245,10 +245,12 @@ uses its own strong effort. These are configurable with
 
 Local tools are ordinary JavaScript functions:
 
-Native database-backed tool results preserve stored column names and attach the
-schema-semantic compiler's operation-specific projection. The tracked semantic
-form is therefore the single human-authored source for explaining stored fields
-to the model; UI transport objects remain an independent browser concern.
+Native database-backed tool results preserve stored column names. Their owning
+tool's input/output schemas and execution description explain those fields.
+MariaDB table and column comments document storage meaning; longer notes and
+view descriptions live beside their definitions in the baseline SQL. Explicit
+`database_schema` calls can read live comments. Ordinary results carry no extra
+schema-description payload and no generated schema file is required.
 
 Native discovery also has one in-process search coordinator. Calendar,
 contacts, and conversation history keep their own matching and completeness
@@ -276,8 +278,8 @@ capability selector, which controls which exact tool schemas are callable.
   atomic call, using the same array schema for a singular update.
 - `calendar_event_search`, `calendar_event_list`, `calendar_event_add`, `calendar_event_update`, and
   `calendar_event_recurrence_set` provide the native model-facing calendar
-  path. Event records retain exact `calendar_events` column names and compiler
-  semantics, while range reads identify expanded recurrence and birthday
+  path. Event records retain exact `calendar_events` column names and tool-owned
+  field descriptions, while range reads identify expanded recurrence and birthday
   instances as computed occurrences. All-day scheduling is explicit and
   recurrence is supplied as structured concepts rather than raw RRULE. The
   product-facing event states are Active and Archived; iCalendar status values
@@ -348,8 +350,8 @@ capability selector, which controls which exact tool schemas are callable.
   capability available on every model request, including access to the native
   activity ledger. `database_write` is a separately routed capability, so broad
   database mutation authority is not sent merely to permit inspection. Ledger
-  and schema tables remain protected from model writes. Each operation returns
-  the exact projection compiled from the tracked schema-semantic form.
+  and schema tables remain protected from model writes. Explicit schema inspection
+  returns live MariaDB table and column comments.
 - `tool_receipt_list` and `tool_receipt_read` expose bounded, paginated access
   to exact historical call/result receipts. Tool results larger than
   `SLAYER_MAX_INLINE_TOOL_RESULT_CHARACTERS` remain whole in MariaDB while the
@@ -478,7 +480,8 @@ back to unrelated local database tools.
 No database is committed. MariaDB is the application's only database engine,
 and `db/mariadb/0001-baseline.sql` is the authoritative schema for a fresh
 installation. `npm run db:verify` checks the configured database's required
-shape, schema version, FULLTEXT indexes, and tracked semantic mechanics without
+shape, schema version, ENUM values, required FULLTEXT indexes, and migration
+integrity without
 mutating data. Incremental changes are stacked newest-first in the single
 `db/migrations.sql` ledger and applied oldest-first by `npm run db:migrate`.
 `database_meta.schema_version` records the last completed migration, so an
@@ -497,10 +500,10 @@ that row so prior versions remain observable without entering future model
 context. Do not seed personal facts in a tracked migration: populate each
 deployment through the profile-fact tools.
 
-The schema semantic compiler explains selected database objects and fields; it
-does not read rows, authorize access, choose tools, or execute SQL. The current
-runtime uses it on structured database tool operations. It does not perform
-pre-model enrichment or change which tools are supplied.
+Storage comments are maintained directly in the baseline and migration ledger.
+Changes to model-visible field meaning also belong in the owning tool's input
+or output schema. No deployment-time extraction, fingerprint, or comment sync
+is needed. The standalone schema compiler remains in its separate repository.
 
 ## Video
 
@@ -646,5 +649,5 @@ journalctl --user -u agent-slayer.service -n 100 --no-pager
 Do not start the service if migration or verification fails. MariaDB DDL may
 commit implicitly, so each migration must state its own safe replay and recovery
 rules rather than assuming a transaction can roll back the complete schema
-change. Schema-semantic changes should already be present in the deployed
-revision.
+change. Database comment changes are applied by the migration runner along with the
+deployed revision.

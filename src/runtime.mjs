@@ -308,6 +308,7 @@ function continuationEvidence(value) {
   if (Array.isArray(value)) return value.map(continuationEvidence);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).flatMap(([name, child]) => {
+    // Old receipts may contain retired schema attachments; keep them out of continuation context.
     if (["schema_contexts", "schemaProjection", "result_filter"].includes(name)) return [];
     if (name === "working_context") return [[name, compactWorkingContext(child)]];
     return [[name, continuationEvidence(child)]];

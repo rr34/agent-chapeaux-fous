@@ -90,13 +90,14 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34]);
-  assert.deepEqual(validatePendingMigrations(migrations, 29).map(({ version }) => version), [30, 31, 32, 33, 34]);
-  assert.deepEqual(validatePendingMigrations(migrations, 30).map(({ version }) => version), [31, 32, 33, 34]);
-  assert.deepEqual(validatePendingMigrations(migrations, 31).map(({ version }) => version), [32, 33, 34]);
-  assert.deepEqual(validatePendingMigrations(migrations, 32).map(({ version }) => version), [33, 34]);
-  assert.deepEqual(validatePendingMigrations(migrations, 33).map(({ version }) => version), [34]);
-  assert.deepEqual(validatePendingMigrations(migrations, 34), []);
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35]);
+  assert.deepEqual(validatePendingMigrations(migrations, 29).map(({ version }) => version), [30, 31, 32, 33, 34, 35]);
+  assert.deepEqual(validatePendingMigrations(migrations, 30).map(({ version }) => version), [31, 32, 33, 34, 35]);
+  assert.deepEqual(validatePendingMigrations(migrations, 31).map(({ version }) => version), [32, 33, 34, 35]);
+  assert.deepEqual(validatePendingMigrations(migrations, 32).map(({ version }) => version), [33, 34, 35]);
+  assert.deepEqual(validatePendingMigrations(migrations, 33).map(({ version }) => version), [34, 35]);
+  assert.deepEqual(validatePendingMigrations(migrations, 34).map(({ version }) => version), [35]);
+  assert.deepEqual(validatePendingMigrations(migrations, 35), []);
 });
 
 test("ledger parser rejects reordered, duplicate, missing, malformed, and outside SQL", () => {

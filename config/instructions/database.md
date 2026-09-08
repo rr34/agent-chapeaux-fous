@@ -1,6 +1,7 @@
-Native database-backed tool results use stored database field names and include a
-schema-semantic compiler projection. Interpret those fields from that projection
-rather than from a second set of hand-written aliases. This capability is
+Native database-backed tool results use stored database field names. Interpret
+inputs and results using the owning tool's published contracts. Use
+`database_schema` when live column definitions, relationships, or MariaDB
+comments are needed to understand a generic read. This capability is
 read-only and is always available. Continue a multi-page `database_read` with
 the returned `nextOffset` while `hasMore` is true, keeping the other arguments
 the same. Prefer a supplied native domain tool for domain-specific reads when it

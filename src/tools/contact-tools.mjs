@@ -1,5 +1,56 @@
 import { parseContactAttachment } from "../contact-file-import.mjs";
-import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
+import { selectedFields } from "./record-fields.mjs";
+
+const tagRecordSchema = {
+  type: ["object", "null"],
+  description: "Defines reusable human labels that can categorize many kinds of agent records.",
+  properties: {
+    tag_id: { description: "Stable local identifier for this tag." },
+    slug: { description: "Unique stable machine identifier used for matching and references." },
+    label: { description: "Human-readable text displayed for the tag." },
+    is_active: { description: "1 when the tag is available for normal use; otherwise 0." },
+    created_at_utc: { description: "UTC timestamp when the tag was defined." },
+  },
+};
+
+const contactMethodRecordSchema = {
+  type: ["object", "null"],
+  description: "Stores the email addresses, phone numbers, postal addresses, handles, URLs, and other reachable identities belonging to contacts.",
+  properties: {
+    contact_method_id: { description: "Stable local identifier for this contact method." },
+    contact_id: { description: "Contact that owns this address or reachable identity." },
+    method_kind: { description: "Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. other: Contact identity not covered by the named kinds." },
+    label: { description: "Human-facing qualifier such as home, work, mobile, or billing." },
+    value: { description: "Original address, number, handle, URL, or other contact value as supplied." },
+    normalized_value: { description: "Canonicalized representation used for reliable lookup and matching while value preserves the original." },
+    is_primary: { description: "1 when this is the preferred contact method of its kind for the contact; otherwise 0." },
+    can_receive: { description: "1 when the agent may use this method as a delivery destination; otherwise 0." },
+    created_at_utc: { description: "UTC timestamp when this contact method was inserted." },
+  },
+};
+
+const contactRecordSchema = {
+  type: ["object", "null"],
+  description: "Provides one address book for people, organizations, and services that other agent records need to identify or relate to.",
+  properties: {
+    contact_id: { description: "Stable local identifier for this person, organization, or service." },
+    contact_kind: { description: "Whether this contact represents a person, organization, or service identity. person: Individual human. organization: Company, group, agency, or other organization. service: Service or system represented as a contactable identity." },
+    display_name: { description: "Preferred human-readable name used to show and refer to the contact." },
+    given_name: { description: "Person's given or first name when the contact is a person." },
+    family_name: { description: "Person's family or last name when the contact is a person." },
+    organization_name: { description: "Organization name associated with this contact when applicable." },
+    is_self: { description: "1 only for the active contact record representing the user; otherwise 0." },
+    status: { description: "Current address-book status of the contact. active: Current usable contact. inactive: Retained contact not currently active. blocked: Contact from whom interaction is blocked or should be avoided. deceased: Person is known to be deceased." },
+    notes: { description: "Private free-text context about the contact that does not belong in a structured relationship or method." },
+    source: { description: "System or process from which this contact was imported or created." },
+    external_id: { description: "Identifier assigned to this contact by the source system." },
+    created_at_utc: { description: "UTC timestamp when the contact record was inserted." },
+    updated_at_utc: { description: "UTC timestamp of the latest recorded change to the contact." },
+    birth_date: { description: "Contact's birth date, with an explicitly optional year, used to derive birthday calendar entries and age when possible. Do not invent a birth year; use --MM-DD when only month and day are known. Age is derived only when the stored value includes a year. Generated birthday labels are projections and must not be written back as permanent age text." },
+    contact_methods: { type: "array", items: contactMethodRecordSchema },
+    tags: { type: "array", items: tagRecordSchema },
+  },
+};
 
 const nullableString = { type: ["string", "null"] };
 const contactKinds = new Set(["person", "organization", "service"]);
@@ -178,23 +229,6 @@ function ensureTag(database, tag) {
   return row;
 }
 
-function contactResult(schemaSemantics, context, result, {
-  name = "contact_import",
-  purpose = "Return imported, unchanged, or conflicting contacts with their methods, tags, and stored database field semantics.",
-} = {}) {
-  return withSchemaProjection(schemaSemantics, context, result, {
-    name,
-    purpose,
-    schemaObjects: ["contacts", "contact_methods", "tags", "contacts_tags_join"],
-    fields: {
-      contacts: contactFields,
-      contact_methods: methodFields,
-      tags: tagFields,
-      contacts_tags_join: ["tag_id", "record_type", "record_id", "created_at_utc"],
-    },
-  });
-}
-
 function importNormalizedContacts({
   selectedSource, inputs, store, ledger, context, actorName = "contact_import", includeItems = true,
 }) {
@@ -332,7 +366,7 @@ const mergeContactCandidateSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    contact_id: { type: "integer", minimum: 1 },
+    contact_id: { type: "integer", minimum: 1, description: "Stable local identifier for this person, organization, or service." },
     expected_version: { type: "string", minLength: 1, maxLength: 100 },
   },
   required: ["contact_id", "expected_version"],
@@ -399,7 +433,7 @@ export function contactTagContext(store, limit = 200) {
 }
 
 export function registerContactTools(
-  registry, store, organizer, ledger, schemaSemantics = null, searchCoordinator = null,
+  registry, store, organizer, ledger, searchCoordinator = null,
 ) {
   const rootRegistry = registry;
   registry = registry.withCapability?.("contacts") ?? registry;
@@ -413,35 +447,47 @@ export function registerContactTools(
   registry.register({
     name: "contact_import",
     description: "Import a bounded batch of 1 through 200 already-normalized contacts supplied as structured data without a file. Use contact_file_import for an attached CSV or vCard/VCF so the application processes the complete file directly. Supply a stable source name and one stable external_id per source record. Contacts may include multiple methods and overlapping tags. The source and external_id pair is idempotent: exact replays are unchanged, conflicting replays are reported without overwriting, and all new contacts, methods, tags, and tag assignments are written in one transaction.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { contact: contactRecordSchema },
+          },
+        },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        source: { type: "string", minLength: 1, maxLength: 200 },
+        source: { type: "string", minLength: 1, maxLength: 200, description: "System or process from which this contact was imported or created." },
         entries: {
           type: "array", minItems: 1, maxItems: 200,
           items: {
             type: "object", additionalProperties: false,
             properties: {
-              external_id: { type: ["string", "integer"] },
-              contact_kind: { type: "string", enum: ["person", "organization", "service"] },
-              display_name: { type: "string", minLength: 1, maxLength: 500 },
-              given_name: { ...nullableString, maxLength: 500 },
-              family_name: { ...nullableString, maxLength: 500 },
-              organization_name: { ...nullableString, maxLength: 500 },
-              status: { type: "string", enum: ["active", "inactive", "blocked", "deceased"] },
-              birth_date: { ...nullableString, maxLength: 10 },
-              notes: { ...nullableString, maxLength: 10000 },
+              external_id: { type: ["string", "integer"], description: "Identifier assigned to this contact by the source system." },
+              contact_kind: { type: "string", enum: ["person", "organization", "service"], description: "Whether this contact represents a person, organization, or service identity. person: Individual human. organization: Company, group, agency, or other organization. service: Service or system represented as a contactable identity." },
+              display_name: { type: "string", minLength: 1, maxLength: 500, description: "Preferred human-readable name used to show and refer to the contact." },
+              given_name: { ...nullableString, maxLength: 500, description: "Person's given or first name when the contact is a person." },
+              family_name: { ...nullableString, maxLength: 500, description: "Person's family or last name when the contact is a person." },
+              organization_name: { ...nullableString, maxLength: 500, description: "Organization name associated with this contact when applicable." },
+              status: { type: "string", enum: ["active", "inactive", "blocked", "deceased"], description: "Current address-book status of the contact. active: Current usable contact. inactive: Retained contact not currently active. blocked: Contact from whom interaction is blocked or should be avoided. deceased: Person is known to be deceased." },
+              birth_date: { ...nullableString, maxLength: 10, description: "Contact's birth date, with an explicitly optional year, used to derive birthday calendar entries and age when possible. Do not invent a birth year; use --MM-DD when only month and day are known. Age is derived only when the stored value includes a year. Generated birthday labels are projections and must not be written back as permanent age text." },
+              notes: { ...nullableString, maxLength: 10000, description: "Private free-text context about the contact that does not belong in a structured relationship or method." },
               methods: {
                 type: "array", maxItems: 100,
                 items: {
                   type: "object", additionalProperties: false,
                   properties: {
-                    method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"] },
-                    label: { ...nullableString, maxLength: 100 },
-                    value: { type: "string", minLength: 1, maxLength: 2000 },
-                    is_primary: { type: "boolean" },
-                    can_receive: { type: "boolean" },
+                    method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"], description: "Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. other: Contact identity not covered by the named kinds." },
+                    label: { ...nullableString, maxLength: 100, description: "Human-facing qualifier such as home, work, mobile, or billing." },
+                    value: { type: "string", minLength: 1, maxLength: 2000, description: "Original address, number, handle, URL, or other contact value as supplied." },
+                    is_primary: { type: "boolean", description: "True when this is the preferred contact method of its kind for the contact; false otherwise." },
+                    can_receive: { type: "boolean", description: "True when the agent may use this method as a delivery destination; false otherwise." },
                   },
                   required: ["method_kind", "label", "value", "is_primary", "can_receive"],
                 },
@@ -472,7 +518,7 @@ export function registerContactTools(
         return contact;
       });
       const result = importNormalizedContacts({ selectedSource, inputs, store, ledger, context });
-      return contactResult(schemaSemantics, context, result);
+      return result;
     },
   });
 
@@ -483,7 +529,7 @@ export function registerContactTools(
       type: "object",
       additionalProperties: false,
       properties: {
-        source: { type: "string", minLength: 1, maxLength: 200 },
+        source: { type: "string", minLength: 1, maxLength: 200, description: "System or process from which this contact was imported or created." },
         format: { type: "string", enum: ["auto", "csv", "vcard"] },
         default_tags: {
           type: "array", maxItems: 50,
@@ -517,10 +563,10 @@ export function registerContactTools(
                 additionalProperties: false,
                 properties: {
                   column: { type: "string", minLength: 1, maxLength: 500 },
-                  method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"] },
-                  label: { ...nullableString, maxLength: 100 },
-                  is_primary: { type: "boolean" },
-                  can_receive: { type: "boolean" },
+                  method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"], description: "Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. other: Contact identity not covered by the named kinds." },
+                  label: { ...nullableString, maxLength: 100, description: "Human-facing qualifier such as home, work, mobile, or billing." },
+                  is_primary: { type: "boolean", description: "True when this is the preferred contact method of its kind for the contact; false otherwise." },
+                  can_receive: { type: "boolean", description: "True when the agent may use this method as a delivery destination; false otherwise." },
                 },
                 required: ["column", "method_kind", "label", "is_primary", "can_receive"],
               },
@@ -566,23 +612,38 @@ export function registerContactTools(
         actorName: "contact_file_import",
         includeItems: false,
       });
-      return contactResult(schemaSemantics, context, {
+      return {
         ...imported,
         format: parsed.format,
         filename: context.attachment.filename,
         sha256: context.attachment.sha256,
         blank_rows_skipped: parsed.blankRows,
         ...(parsed.headers ? { csv_headers: parsed.headers } : {}),
-      }, {
-        name: "contact_file_import",
-        purpose: "Return a bounded summary of a whole-file contact import performed directly by the application.",
-      });
+      };
     },
   });
 
   registry.register({
     name: "contact_search",
     description: "Search contacts with the same case-insensitive substring behavior as the Contacts UI. Use this for descriptive keywords or partial details rather than exact known display names. The supplied queries are OR alternatives searched across display, given, and family names, organization, notes, tags, contact-method labels, email addresses, phone numbers, and other method values. Results include the matching contacts and completeness metadata; do not claim no contacts match when scan_truncated is true.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        matches: {
+          type: "array",
+          items: {
+            ...contactRecordSchema,
+            properties: {
+              ...contactRecordSchema.properties,
+              tags: {
+                type: "array",
+                items: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -602,7 +663,7 @@ export function registerContactTools(
             query: queries[0], queries, limit, options: { includeInactive },
           })).native
         : organizer.searchContacts({ queries, includeInactive, limit });
-      return contactResult(schemaSemantics, context, {
+      return {
         queries: search.queries,
         scanned_contact_count: search.scannedContactCount,
         scan_truncated: search.scanTruncated,
@@ -627,16 +688,39 @@ export function registerContactTools(
           methods: contact.methods,
           tags: contact.tags,
         })),
-      }, {
-        name: "contact_search",
-        purpose: "Return contacts matching UI-equivalent substring searches across identity, notes, tags, and contact methods.",
-      });
+      };
     },
   });
 
   registry.register({
     name: "contact_lookup_batch",
     description: "Look up 1 through 500 contact display names in one call using exact normalized-name matching across up to 10,000 stored contacts. Use this instead of repeated database reads when resolving a large user-supplied list. Each result reports all bounded matches with current IDs, versions, methods, tags, source, and status so a later bulk action can be precise.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        results: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              matches: {
+                type: "array",
+                items: {
+                  ...contactRecordSchema,
+                  properties: {
+                    ...contactRecordSchema.properties,
+                    tags: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -674,10 +758,7 @@ export function registerContactTools(
           })),
         })),
       };
-      return contactResult(schemaSemantics, context, result, {
-        name: "contact_lookup_batch",
-        purpose: "Resolve many exact normalized contact names in one bounded read for subsequent bulk operations.",
-      });
+      return result;
     },
   });
 
@@ -701,15 +782,12 @@ export function registerContactTools(
         { tag, contactIds },
         contactToolActivity(context, "contact_tag_add_batch"),
       );
-      return contactResult(schemaSemantics, context, {
+      return {
         tag: tagged.tag,
         selected_contact_count: tagged.selectedContactCount,
         tagged_contact_count: tagged.taggedContactCount,
         already_tagged_contact_count: tagged.alreadyTaggedContactCount,
-      }, {
-        name: "contact_tag_add_batch",
-        purpose: "Return a bounded receipt for one atomic, replay-safe tag assignment across many contacts.",
-      });
+      };
     },
   });
 
@@ -730,15 +808,12 @@ export function registerContactTools(
         { currentTag, newTag },
         contactToolActivity(context, "contact_tag_rename"),
       );
-      return contactResult(schemaSemantics, context, {
+      return {
         previous_tag: renamed.previousTag,
         tag: renamed.tag,
         affected_contact_count: renamed.affectedContactCount,
         merged_with_existing_tag: renamed.mergedWithExistingTag,
-      }, {
-        name: "contact_tag_rename",
-        purpose: "Return the result of an atomic contact tag rename, including collision merging and the number of affected contacts.",
-      });
+      };
     },
   });
 
@@ -776,16 +851,33 @@ export function registerContactTools(
           merged_contact_ids: item.mergedContactIds,
         })),
       };
-      return contactResult(schemaSemantics, context, result, {
-        name: "contact_dedupe_clear",
-        purpose: "Return a bounded receipt for conservative source-aware duplicate merges and summarize ambiguous groups left for AI review.",
-      });
+      return result;
     },
   });
 
   registry.register({
     name: "contact_duplicate_list",
     description: "List paginated groups of active contacts that may be duplicates. Candidates either share an exact normalized display name, or each different-name match shares both a normalized name word and an exact email address or phone number. Partial-name matches are review-only and are never handled by contact_dedupe_clear. Use compact detail and pages of about 50 groups for bulk work; use full only when complete notes and timestamps are necessary. Each candidate includes the expected_version required by contact_merge. Same-name evidence alone can be ambiguous. Continue with next_offset while has_more is true.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        groups: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              candidates: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { contact: contactRecordSchema },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -818,10 +910,7 @@ export function registerContactTools(
           }),
         })),
       };
-      return contactResult(schemaSemantics, context, result, {
-        name: "contact_duplicate_list",
-        purpose: "Review possible duplicate contacts with exact matching evidence and the current versions required for a safe merge.",
-      });
+      return result;
     },
   });
 
@@ -857,10 +946,7 @@ export function registerContactTools(
           merged_contact_ids: item.mergedContactIds,
         })),
       };
-      return contactResult(schemaSemantics, context, result, {
-        name: "contact_merge",
-        purpose: "Return compact retained and source contact IDs after an atomic batch of reviewed merges.",
-      });
+      return result;
     },
   });
 }

@@ -3,7 +3,40 @@ import {
 } from "../todo-recurrence.mjs";
 import { searchCalendarEventRows } from "../calendar-search.mjs";
 import { localDateForInstant } from "../temporal-consistency.mjs";
-import { selectedFields, withSchemaProjection } from "./schema-result.mjs";
+import { selectedFields } from "./record-fields.mjs";
+
+const contactRecordSchema = {
+  type: ["object", "null"],
+  description: "Provides one address book for people, organizations, and services that other agent records need to identify or relate to.",
+  properties: {
+    contact_id: { description: "Stable local identifier for this person, organization, or service." },
+    display_name: { description: "Preferred human-readable name used to show and refer to the contact." },
+    birth_date: { description: "Contact's birth date, with an explicitly optional year, used to derive birthday calendar entries and age when possible. Do not invent a birth year; use --MM-DD when only month and day are known. Age is derived only when the stored value includes a year. Generated birthday labels are projections and must not be written back as permanent age text." },
+  },
+};
+
+const calendarEventRecordSchema = {
+  type: ["object", "null"],
+  description: "Stores every commitment and scheduled event in the user's one authoritative agent calendar.",
+  properties: {
+    calendar_event_id: { description: "Stable local identifier for this calendar event." },
+    ical_uid: { description: "Persistent iCalendar UID used to identify an imported event or recurrence family and prevent duplicate imports. This identifies imported calendar data; it does not identify a separate calendar." },
+    ical_recurrence_id: { description: "Original iCalendar recurrence-instance identifier distinguishing this materialized occurrence within the shared UID. Together with ical_uid, this value prevents duplicate imports of the same recurring occurrence." },
+    title: { description: "Human-readable event name shown on the calendar." },
+    description: { description: "Complete available description or notes for the event." },
+    location_text: { description: "Human-readable physical, virtual, or meeting location." },
+    starts_at_utc: { description: "UTC instant when the event starts." },
+    ends_at_utc: { description: "UTC instant when the event ends, when an end is known." },
+    time_zone: { description: "IANA or provider time-zone name used to display the event in its intended local time." },
+    is_all_day: { description: "1 when the event represents a calendar day rather than a precise time; otherwise 0." },
+    status: { description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },
+    recurrence_rule: { description: "iCalendar RRULE describing how the event repeats." },
+    source_event_id: { description: "Ledger event that caused this calendar record to be created when known." },
+    created_at_utc: { description: "UTC timestamp when this local calendar record was inserted." },
+    updated_at_utc: { description: "UTC timestamp of the latest recorded change to this local calendar record." },
+    planning_prompt_text: { description: "Optional question the agent should proactively ask to help the user decide how this scheduled time will be used. Null means no proactive planning question is attached to this event." },
+  },
+};
 
 const statuses = ["tentative", "confirmed", "cancelled"];
 const calendarEventFields = [
@@ -14,22 +47,6 @@ const calendarEventFields = [
 ];
 const contactFields = ["contact_id", "display_name", "birth_date"];
 const optionalText = { type: ["string", "null"] };
-
-const calendarProjection = {
-  schemaObjects: ["calendar_events"],
-  fields: { calendar_events: calendarEventFields },
-};
-
-function calendarResult(schemaSemantics, context, result, { name, purpose, contacts = false }) {
-  return withSchemaProjection(schemaSemantics, context, result, {
-    name,
-    purpose,
-    schemaObjects: contacts ? ["calendar_events", "contacts"] : calendarProjection.schemaObjects,
-    fields: contacts
-      ? { ...calendarProjection.fields, contacts: contactFields }
-      : calendarProjection.fields,
-  });
-}
 
 function normalizedIso(value, label, { required = false } = {}) {
   if (value == null || value === "") {
@@ -142,12 +159,18 @@ function writeEvent(database, ledger, context, {
 }
 
 export function registerCalendarTools(
-  registry, store, organizer, ledger, schemaSemantics = null, searchCoordinator = null,
+  registry, store, organizer, ledger, searchCoordinator = null,
 ) {
   registry = registry.withCapability?.("calendar") ?? registry;
   registry.register({
     name: "calendar_event_search",
     description: "Search stored native calendar event series by title, description, and location. Every whitespace-separated query term must match at least one of those fields. Results are stored event records, not expanded recurrence occurrences or derived contact birthdays, and archived events are excluded unless explicitly requested.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        events: { type: "array", items: calendarEventRecordSchema },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -166,21 +189,37 @@ export function registerCalendarTools(
           })).native
         : searchCalendarEventRows(database, { query, includeArchived, limit });
       const events = search.rows.map((row) => selectedFields(row, calendarEventFields));
-      return calendarResult(schemaSemantics, context, {
+      return {
         query: search.query,
         include_archived: search.includeArchived,
         count: events.length,
         events,
-      }, {
-        name: "calendar_event_search",
-        purpose: "Return stored calendar event records matching title, description, or location search terms.",
-      });
+      };
     },
   });
 
   registry.register({
     name: "calendar_event_list",
     description: "List the user's calendar schedule in an explicit UTC range. Recurring events are expanded into computed occurrences and contact birthdays shown by the calendar are included. Stored records use exact calendar_events field names; occurrence_* fields describe the computed display instance.",
+    outputSchema: {
+      type: "object",
+      properties: {
+        occurrences: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              calendar_events: calendarEventRecordSchema,
+              contacts: contactRecordSchema,
+              occurrence: {
+                type: "object",
+                description: "Computed schedule instance. occurrence_starts_at_utc and occurrence_ends_at_utc are UTC instants for this occurrence; stored event times describe its series.",
+              },
+            },
+          },
+        },
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -194,35 +233,35 @@ export function registerCalendarTools(
       const database = store.requireReady();
       const occurrences = organizer.listCalendar({ from: startsAtUtc, to: endsAtUtc })
         .map((item) => displayOccurrence(database, item));
-      return calendarResult(schemaSemantics, context, {
+      return {
         starts_at_utc: normalizedIso(startsAtUtc, "starts_at_utc", { required: true }),
         ends_at_utc: normalizedIso(endsAtUtc, "ends_at_utc", { required: true }),
         count: occurrences.length,
         occurrences,
-      }, {
-        name: "calendar_event_list",
-        purpose: "Return stored calendar event records and computed occurrences visible in the requested schedule range.",
-        contacts: true,
-      });
+      };
     },
   });
 
   registry.register({
     name: "calendar_event_add",
     description: "Create one native calendar event with an optional planning_prompt_text containing the exact question to ask about still-unplanned time. Use is_all_day=true when the user names a day without a specific time, with starts_at_utc representing local midnight and time_zone preserving that local date. For repetition, supply structured recurrence concepts including numbered weekdays or days of the month; never write RRULE syntax.",
+    outputSchema: {
+      type: "object",
+      properties: { event: calendarEventRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        title: { type: "string", minLength: 1, maxLength: 500 },
-        description: optionalText,
-        location_text: optionalText,
-        planning_prompt_text: optionalText,
-        starts_at_utc: { type: "string" },
-        ends_at_utc: optionalText,
-        time_zone: optionalText,
-        is_all_day: { type: "boolean" },
-        status: { type: "string", enum: statuses },
+        title: { type: "string", minLength: 1, maxLength: 500, description: "Human-readable event name shown on the calendar." },
+        description: { ...optionalText, description: "Complete available description or notes for the event." },
+        location_text: { ...optionalText, description: "Human-readable physical, virtual, or meeting location." },
+        planning_prompt_text: { ...optionalText, description: "Optional question the agent should proactively ask to help the user decide how this scheduled time will be used. Null means no proactive planning question is attached to this event." },
+        starts_at_utc: { type: "string", description: "UTC instant when the event starts." },
+        ends_at_utc: { ...optionalText, description: "UTC instant when the event ends, when an end is known." },
+        time_zone: { ...optionalText, description: "IANA or provider time-zone name used to display the event in its intended local time." },
+        is_all_day: { type: "boolean", description: "True when the event represents a calendar day rather than a precise time; false otherwise." },
+        status: { type: "string", enum: statuses, description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },
         recurrence: recurrenceSchema,
       },
       required: [
@@ -275,10 +314,7 @@ export function registerCalendarTools(
           UPDATE calendar_events SET source_event_id = ? WHERE calendar_event_id = ?
         `).run(sourceEventId, event.calendar_event_id);
         event = calendarEvent(database, event.calendar_event_id);
-        const result = calendarResult(schemaSemantics, context, { created: true, event }, {
-          name: "calendar_event_add",
-          purpose: "Return the calendar event created by the native calendar tool.",
-        });
+        const result = { created: true, event };
         database.exec("COMMIT");
         return result;
       } catch (error) {
@@ -291,20 +327,24 @@ export function registerCalendarTools(
   registry.register({
     name: "calendar_event_update",
     description: "Update or cancel one native calendar event by calendar_event_id. Null means leave a field unchanged; use an empty string to clear description, location_text, planning_prompt_text, ends_at_utc, or time_zone. Change recurrence separately with calendar_event_recurrence_set.",
+    outputSchema: {
+      type: "object",
+      properties: { event: calendarEventRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        calendar_event_id: { type: "integer", minimum: 1 },
-        title: optionalText,
-        description: optionalText,
-        location_text: optionalText,
-        planning_prompt_text: optionalText,
-        starts_at_utc: optionalText,
-        ends_at_utc: optionalText,
-        time_zone: optionalText,
-        is_all_day: { type: ["boolean", "null"] },
-        status: { type: ["string", "null"], enum: [...statuses, null] },
+        calendar_event_id: { type: "integer", minimum: 1, description: "Stable local identifier for this calendar event." },
+        title: { ...optionalText, description: "Human-readable event name shown on the calendar." },
+        description: { ...optionalText, description: "Complete available description or notes for the event." },
+        location_text: { ...optionalText, description: "Human-readable physical, virtual, or meeting location." },
+        planning_prompt_text: { ...optionalText, description: "Question to ask about this scheduled time. Null leaves it unchanged; an empty string clears it." },
+        starts_at_utc: { ...optionalText, description: "UTC instant when the event starts." },
+        ends_at_utc: { ...optionalText, description: "UTC instant when the event ends, when an end is known." },
+        time_zone: { ...optionalText, description: "IANA or provider time-zone name used to display the event in its intended local time." },
+        is_all_day: { type: ["boolean", "null"], description: "True when the event represents a calendar day rather than a precise time; false otherwise." },
+        status: { type: ["string", "null"], enum: [...statuses, null], description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },
       },
       required: [
         "calendar_event_id", "title", "description", "location_text", "starts_at_utc",
@@ -350,10 +390,7 @@ export function registerCalendarTools(
           event,
           before,
         });
-        const result = calendarResult(schemaSemantics, context, { updated: true, event }, {
-          name: "calendar_event_update",
-          purpose: "Return the stored calendar event after updating it.",
-        });
+        const result = { updated: true, event };
         database.exec("COMMIT");
         return result;
       } catch (error) {
@@ -366,11 +403,15 @@ export function registerCalendarTools(
   registry.register({
     name: "calendar_event_recurrence_set",
     description: "Add, change, or remove recurrence for a native calendar event. Supply structured recurrence concepts and never write RRULE syntax. Set enabled=false and recurrence=null to make the event one-time.",
+    outputSchema: {
+      type: "object",
+      properties: { event: calendarEventRecordSchema },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        calendar_event_id: { type: "integer", minimum: 1 },
+        calendar_event_id: { type: "integer", minimum: 1, description: "Stable local identifier for this calendar event." },
         enabled: { type: "boolean" },
         recurrence: recurrenceSchema,
       },
@@ -400,10 +441,7 @@ export function registerCalendarTools(
           event,
           before,
         });
-        const result = calendarResult(schemaSemantics, context, { updated: true, event }, {
-          name: "calendar_event_recurrence_set",
-          purpose: "Return the stored calendar event after changing recurrence.",
-        });
+        const result = { updated: true, event };
         database.exec("COMMIT");
         return result;
       } catch (error) {

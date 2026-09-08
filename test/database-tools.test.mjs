@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
 import { InteractionGuides } from "../src/interaction-guides.mjs";
 import { ProfileFacts } from "../src/profile-facts.mjs";
-import { SchemaSemantics } from "../src/schema-semantics.mjs";
+
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
@@ -18,7 +16,6 @@ import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { OrganizerStore } from "../src/organizer-store.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("structured database reads expose bounded offset pagination", async (context) => {
   const temporary = temporaryDatabase();
@@ -64,18 +61,14 @@ test("structured database reads expose bounded offset pagination", async (contex
   assert.equal(second.nextOffset, null);
 });
 
-test("structured database reads return an exact schema-semantic projection", async (context) => {
+test("structured database reads preserve native fields and access boundaries", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
-  const schemaSemantics = new SchemaSemantics({
-    filename: path.join(repositoryRoot, "db", "schema-semantics.json"),
-    ledger,
-  });
   const registry = new ToolRegistry();
-  registerDatabaseTools(registry, store, ledger, schemaSemantics);
+  registerDatabaseTools(registry, store, ledger);
   const request = ledger.createRequest({ text: "Read active profile facts" });
 
   const result = await registry.execute("database_read", {
@@ -91,19 +84,8 @@ test("structured database reads return an exact schema-semantic projection", asy
     callId: "database-read",
   });
 
-  assert.equal(result.schemaProjection.product, "schema-semantic-compiler/schema-semantic-projection");
-  assert.deepEqual(
-    Object.keys(result.schemaProjection.schemaProjection.schemaObjects),
-    ["profile_facts"],
-  );
-  assert.equal(
-    result.schemaProjection.schemaProjection.schemaObjects.profile_facts.fields.fact_text.meaning,
-    "Self-contained natural-language statement identifying the fact's person or item.",
-  );
-  assert.equal(
-    ledger.trace(request.requestId).some((event) => event.type === "schema.semantics.compiled"),
-    true,
-  );
+  
+  
 
   const journalResult = await registry.execute("database_read", {
     objectName: "journal_entries",
@@ -117,10 +99,8 @@ test("structured database reads return an exact schema-semantic projection", asy
     requestEventId: request.eventId,
     callId: "journal-schema-read",
   });
-  const journalFields = journalResult.schemaProjection.schemaProjection.schemaObjects.journal_entries.fields;
-  assert.match(journalFields.content_text.meaning, /Complete self-contained natural-language content/);
-  assert.match(journalFields.number_value.meaning, /Optional numeric projection/);
-  assert.match(journalFields.external_id.meaning, /make imports idempotent/);
+  
+  
 
   await assert.rejects(
     registry.execute("database_read", {
@@ -163,30 +143,25 @@ test("structured database reads return an exact schema-semantic projection", asy
   );
 });
 
-test("native database-backed tools return stored field names with semantic projections", async (context) => {
+test("native database-backed tools preserve their records without result decoration", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const ledger = new Ledger(store);
-  const schemaSemantics = new SchemaSemantics({
-    filename: path.join(repositoryRoot, "db", "schema-semantics.json"),
-    ledger,
-  });
   const profileFacts = new ProfileFacts({ store, ledger });
   const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());
   const registry = new ToolRegistry();
-  registerCalendarTools(registry, store, organizer, ledger, schemaSemantics);
-  registerContactTools(registry, store, organizer, ledger, schemaSemantics);
-  registerTodoTools(registry, store, ledger, schemaSemantics);
-  registerJournalTools(registry, store, ledger, schemaSemantics);
+  registerCalendarTools(registry, store, organizer, ledger);
+  registerContactTools(registry, store, organizer, ledger);
+  registerTodoTools(registry, store, ledger);
+  registerJournalTools(registry, store, ledger);
   registerInteractionGuideTools(
     registry,
     new InteractionGuides({ store, ledger }),
-    schemaSemantics,
   );
-  registerProfileFactTools(registry, profileFacts, schemaSemantics);
+  registerProfileFactTools(registry, profileFacts);
   const definitions = Object.fromEntries(
     registry.toolDefinitions().map((definition) => [definition.name, definition.inputSchema.properties]),
   );
@@ -219,20 +194,16 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(Object.hasOwn(definitions.contact_dedupe_clear, "max_groups"), true);
   assert.equal(Object.hasOwn(definitions.contact_merge, "merges"), true);
   assert.equal(Object.hasOwn(definitions, "contact_merge_batch"), false);
-  const request = ledger.createRequest({ text: "Inspect native semantic results" });
+  const request = ledger.createRequest({ text: "Inspect native tool results" });
   const toolContext = {
     requestId: request.requestId,
     requestEventId: request.eventId,
-    callId: "native-semantics",
+    callId: "native-contracts",
   };
 
   const groups = await registry.execute("todo_group_list", {}, toolContext);
   assert.equal(groups.groups[0].todo_group_id, 2);
   assert.equal(Object.hasOwn(groups.groups[0], "id"), false);
-  assert.match(
-    groups.schemaProjection.schemaProjection.schemaObjects.todo_groups.fields.name.meaning,
-    /Complete human-facing name/,
-  );
 
   const recorded = await registry.execute("journal_add", {
     tracker: "Weight", group: "Health", content_text: "72.1 kg", number_value: 72.1,
@@ -240,33 +211,18 @@ test("native database-backed tools return stored field names with semantic proje
   }, toolContext);
   assert.equal(recorded.entry.content_text, "72.1 kg");
   assert.equal(Object.hasOwn(recorded.entry, "content"), false);
-  assert.match(
-    recorded.schemaProjection.schemaProjection.schemaObjects.journal_entries.fields.content_text.meaning,
-    /Complete self-contained natural-language content/,
-  );
-  assert.match(
-    recorded.schemaProjection.schemaProjection.schemaObjects.trackers.fields.unit.meaning,
-    /Canonical unit shared by every numeric entry/,
-  );
+  
 
   const fact = await registry.execute("profile_fact_set", {
     fact_type: "preferred_name", fact_text: "My preferred name is Nate.", replaces_profile_fact_id: null,
   }, toolContext);
   assert.equal(fact.fact.fact_text, "My preferred name is Nate.");
   assert.equal(Object.hasOwn(fact.fact, "text"), false);
-  assert.match(
-    fact.schemaProjection.schemaProjection.schemaObjects.profile_facts.fields.fact_text.meaning,
-    /Self-contained natural-language statement/,
-  );
 
   const guide = await registry.execute("interaction_guide_create", {
     name: "Morning Check-in",
   }, toolContext);
   assert.equal(guide.guide.name, "Morning Check-in");
-  assert.match(
-    guide.schemaProjection.schemaProjection.schemaObjects.interaction_guides.fields.name.meaning,
-    /User-facing unique name/,
-  );
   const step = await registry.execute("interaction_guide_step_add", {
     interaction_guide_id: guide.guide.interaction_guide_id,
     expected_version: guide.guide.version,
@@ -285,12 +241,5 @@ test("native database-backed tools return stored field names with semantic proje
   assert.equal(step.step.opening_text, "1. What outcome do you need?");
   assert.deepEqual(step.step.answers_json, {});
   assert.equal(step.step.progress_state, "pending");
-  assert.match(
-    step.schemaProjection.schemaProjection.schemaObjects.interaction_guide_steps.fields.answers_json.meaning,
-    /answers the user has actually supplied/,
-  );
-  assert.match(
-    step.schemaProjection.schemaProjection.schemaObjects.interaction_guide_steps.fields.progress_state.meaning,
-    /resume an interrupted structured interaction/,
-  );
+  
 });
