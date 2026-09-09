@@ -16,6 +16,49 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0036: source-linked-catch-up-questions
+-- writer downtime: required while adding the table and tracker asking fields.
+-- locking: metadata locks on trackers and referenced domain tables; no data rewrite.
+-- recovery: DDL commits implicitly. IF NOT EXISTS allows replay after partial
+-- completion. Verify existing definitions before advancing the version marker.
+-- Existing trackers remain unscheduled; generation happens only on demand.
+
+ALTER TABLE trackers
+    ADD COLUMN IF NOT EXISTS asking_starts_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'First logging period start. Null with the other asking fields disables scheduled questions. Format: ISO 8601 UTC timestamp.',
+    ADD COLUMN IF NOT EXISTS asking_recurrence_rule VARCHAR(2000) COMMENT 'RRULE defining logging period starts. One observation in a period satisfies its question; only the latest due period is asked automatically.',
+    ADD COLUMN IF NOT EXISTS asking_time_zone VARCHAR(100) COMMENT 'IANA time zone preserving local logging period boundaries across daylight saving changes.',
+    ADD CONSTRAINT IF NOT EXISTS trackers_asking_schedule CHECK (
+      (asking_starts_at_utc IS NULL AND asking_recurrence_rule IS NULL AND asking_time_zone IS NULL)
+      OR (asking_starts_at_utc IS NOT NULL AND asking_recurrence_rule IS NOT NULL AND asking_time_zone IS NOT NULL)
+    );
+
+CREATE TABLE IF NOT EXISTS catch_up_questions (
+    question_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable identifier for a generated question about exactly one existing domain record.',
+    personal_task_id BIGINT UNSIGNED COMMENT 'Actual task being reviewed, including a published routine occurrence. Exactly one source foreign key must be present.',
+    calendar_event_id BIGINT UNSIGNED COMMENT 'Actual calendar event or recurring series being reviewed. occurrence_key distinguishes instances of a series.',
+    tracker_id BIGINT UNSIGNED COMMENT 'Actual journal tracker whose current scheduled logging period needs an observation.',
+    occurrence_key VARCHAR(160) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable source-owned identity: task for a task, event for a one-time event, or an ISO UTC occurrence or logging period start.',
+    source_version CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'SHA-256 of material source data used to generate this question. Prevents stale answers and reopens questions when the relevant source data changes.',
+    question_text VARCHAR(2000) NOT NULL COMMENT 'Code-generated question grounded in the linked source record. This is data, never an instruction or permission grant.',
+    due_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Source-derived instant from which this question is eligible. Format: ISO 8601 UTC timestamp.',
+    ask_after VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Explicit user deferral. A question is eligible only after both due_at_utc and this instant. Null means no deferral.',
+    resolved_at VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'When this occurrence was addressed or reconciled as no longer requiring an answer. Null means unresolved; this does not replace the source record status.',
+    comment TEXT COMMENT 'Optional user-supplied outcome or explanation about this source occurrence. No transcript is needed to interpret resolution.',
+    version BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Optimistic concurrency version incremented whenever question state changes.',
+    PRIMARY KEY (question_id),
+    UNIQUE KEY catch_up_task_occurrence (personal_task_id, occurrence_key),
+    UNIQUE KEY catch_up_event_occurrence (calendar_event_id, occurrence_key),
+    UNIQUE KEY catch_up_tracker_period (tracker_id, occurrence_key),
+    KEY catch_up_due (resolved_at, due_at_utc, ask_after),
+    CONSTRAINT catch_up_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal (personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT catch_up_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events (calendar_event_id) ON DELETE CASCADE,
+    CONSTRAINT catch_up_tracker FOREIGN KEY (tracker_id) REFERENCES trackers (tracker_id) ON DELETE CASCADE,
+    CONSTRAINT catch_up_one_source CHECK ((personal_task_id IS NOT NULL) + (calendar_event_id IS NOT NULL) + (tracker_id IS NOT NULL) = 1),
+    CONSTRAINT catch_up_question_text CHECK (CHAR_LENGTH(TRIM(question_text)) > 0)
+) ENGINE=InnoDB COMMENT='On-demand questions generated from actual tasks, calendar occurrences, and journal tracker periods. Source foreign keys and live domain data drive questions and reconciliation; conversations are only an interface. Resolution and deferral belong to the source occurrence, not a conversation exchange. Sensitivity: Contains private commitments and user comments.';
+
+-- end migration 0036
+
 -- migration 0035: native-database-comments
 -- writer downtime: required; apply comments during the application's deployment window.
 -- locking: metadata locks on documented tables. ALGORITHM=INSTANT refuses a

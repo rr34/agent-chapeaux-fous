@@ -67,14 +67,14 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 35", () => {
+test("the authoritative MariaDB baseline is complete at schema version 36", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 30);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 31);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
   assert.equal(source.match(/\bENUM\(/gu)?.length, 31);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 52);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 55);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
     31,
@@ -94,7 +94,7 @@ test("the authoritative MariaDB baseline is complete at schema version 35", () =
     /status\s+ENUM\('tentative', 'confirmed', 'cancelled'\) NOT NULL DEFAULT 'confirmed'/u,
   );
   assert.doesNotMatch(source, /calendar_events_status|ENUM\([^\n]*'completed'[^\n]*\) NOT NULL DEFAULT 'confirmed'/u);
-  assert.match(statements.at(-1), /VALUES \(1, 35, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 36, 'Chapeaux Fous MariaDB database'\)$/);
 });
 
 test("the version 30 enum migration is a reviewable ledger block", () => {

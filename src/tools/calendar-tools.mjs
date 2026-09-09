@@ -401,6 +401,35 @@ export function registerCalendarTools(
   });
 
   registry.register({
+    name: "calendar_event_occurrence_update",
+    description: "Move, cancel, rename, or comment on exactly one occurrence of an active recurring calendar series. Read calendar_event_list or the source-linked catch-up question first. Supply the series calendar_event_id and exact original occurrence_starts_at_utc; never use a moved start as the occurrence identity. The calendar service atomically excludes the original occurrence and creates or updates its materialized exception, preserving other occurrences, participants, time zone, and duration. Repeating the same request reuses the exception. Null fields preserve current values; empty description clears it. To edit a one-time event use calendar_event_update.",
+    parameters: { type: "object", additionalProperties: false, properties: {
+      calendar_event_id: { type: "integer", minimum: 1 },
+      occurrence_starts_at_utc: { type: "string", description: "Exact original UTC occurrence identity from the calendar or catch-up occurrence_key." },
+      starts_at_utc: { ...optionalText, description: "New UTC start, or null to preserve. Duration is preserved unless ends_at_utc is supplied." },
+      ends_at_utc: optionalText,
+      title: optionalText, description: optionalText,
+      status: { type: ["string", "null"], enum: [...statuses, null] },
+    }, required: ["calendar_event_id", "occurrence_starts_at_utc", "starts_at_utc", "ends_at_utc", "title", "description", "status"] },
+    outputSchema: { type: "object", properties: {
+      event: calendarEventRecordSchema,
+      series_calendar_event_id: { type: "integer" },
+      original_occurrence_starts_at_utc: { type: "string" },
+    } },
+    async execute(input, context) {
+      if (input.starts_at_utc) validateCalendarTemporalTarget(normalizedIso(input.starts_at_utc, "starts_at_utc", { required: true }), context);
+      const result = organizer.updateCalendarOccurrence(input.calendar_event_id, {
+        occurrenceStartsAtUtc: input.occurrence_starts_at_utc,
+        startsAtUtc: input.starts_at_utc, endsAtUtc: input.ends_at_utc,
+        title: input.title, description: input.description, status: input.status,
+      }, { actorType: "tool", actorName: "calendar_event_occurrence_update", source: "agent-slayer",
+        turnId: context.requestId, operationId: context.callId });
+      return { event: { ...calendarEvent(store.requireReady(), result.event.id), calendar_event_id: Number(result.event.id) },
+        series_calendar_event_id: result.seriesId, original_occurrence_starts_at_utc: result.occurrenceStartsAtUtc };
+    },
+  });
+
+  registry.register({
     name: "calendar_event_recurrence_set",
     description: "Add, change, or remove recurrence for a native calendar event. Supply structured recurrence concepts and never write RRULE syntax. Set enabled=false and recurrence=null to make the event one-time.",
     outputSchema: {

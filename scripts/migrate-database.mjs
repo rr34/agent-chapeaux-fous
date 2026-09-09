@@ -281,6 +281,33 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 36) {
+    const [keys] = await connection.query(`SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);
+    for (const [name, column, table, target] of [
+      ["catch_up_task", "personal_task_id", "todo_personal", "personal_task_id"],
+      ["catch_up_event", "calendar_event_id", "calendar_events", "calendar_event_id"],
+      ["catch_up_tracker", "tracker_id", "trackers", "tracker_id"],
+    ]) {
+      if (!keys.some(row => row.CONSTRAINT_NAME === name && row.COLUMN_NAME === column
+        && row.REFERENCED_TABLE_NAME === table && row.REFERENCED_COLUMN_NAME === target)) {
+        throw new Error(`Migration 0036 did not establish source foreign key ${name}`);
+      }
+    }
+    const [checks] = await connection.query(`SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME IN ('catch_up_questions', 'trackers') AND CONSTRAINT_TYPE = 'CHECK'`, [databaseName]);
+    for (const name of ["catch_up_one_source", "catch_up_question_text", "trackers_asking_schedule"]) {
+      if (!checks.some(row => row.CONSTRAINT_NAME === name)) throw new Error(`Migration 0036 is missing check ${name}`);
+    }
+    const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
+      FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'
+      ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [databaseName]);
+    for (const [name, field] of [["catch_up_task_occurrence", "personal_task_id"],
+      ["catch_up_event_occurrence", "calendar_event_id"], ["catch_up_tracker_period", "tracker_id"]]) {
+      const columns = indexes.filter(row => row.INDEX_NAME === name && Number(row.NON_UNIQUE) === 0).map(row => row.COLUMN_NAME);
+      if (JSON.stringify(columns) !== JSON.stringify([field, "occurrence_key"])) throw new Error(`Migration 0036 is missing unique source/occurrence index ${name}`);
+    }
+  }
   if (migration.version === 30) await assertVersion30Integrity(connection, databaseName);
   if (migration.version === 31) await assertVersion31Integrity(connection, databaseName);
   if (migration.version === 32) await assertVersion32Integrity(connection, databaseName);

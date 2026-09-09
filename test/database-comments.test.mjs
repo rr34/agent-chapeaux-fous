@@ -8,7 +8,7 @@ import { MariaDatabaseSync } from "../src/mariadb-sync.mjs";
 import { SlayerDatabase } from "../src/database.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
-import { temporaryDatabase } from "./helpers.mjs";
+import { temporaryDatabase, baselineBeforeCatchUp } from "./helpers.mjs";
 
 function catalog(database) {
   const columns = database.prepare(`SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE,
@@ -21,11 +21,15 @@ function catalog(database) {
   const keys = database.prepare(`SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME,
     REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE
     WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`).all();
-  return { columns, indexes, keys };
+  return {
+    columns: columns.filter(row => row.TABLE_NAME !== "catch_up_questions" && !row.COLUMN_NAME.startsWith("asking_")),
+    indexes: indexes.filter(row => row.TABLE_NAME !== "catch_up_questions"),
+    keys: keys.filter(row => row.TABLE_NAME !== "catch_up_questions"),
+  };
 }
 
 test("comment migration preserves mechanics and rows, supports replay, and exposes comments on request", async context => {
-  const baseline = fs.readFileSync(baselineFilename, "utf8");
+  const baseline = baselineBeforeCatchUp(fs.readFileSync(baselineFilename, "utf8"));
   const oldSchema = baseline.replace(/ COMMENT\s*=?\s*'(?:[^']|'')*'/gu, "")
     .replace("VALUES (1, 35,", "VALUES (1, 34,");
   const temporary = temporaryDatabase({ schema: oldSchema });
@@ -39,14 +43,14 @@ test("comment migration preserves mechanics and rows, supports replay, and expos
     connectionSettings: temporary.target.connection,
     backupConfirmed: true, writersStopped: true, output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36]);
   assert.deepEqual(catalog(database), before);
   assert.deepEqual(database.prepare("SELECT * FROM files").all(), rows);
   await verifyDatabase(database);
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   // Simulate a DDL commit followed by interruption before the version marker.
   database.exec("UPDATE database_meta SET schema_version = 34 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36]);
   assert.deepEqual(catalog(database), before);
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());

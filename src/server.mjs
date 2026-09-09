@@ -33,6 +33,8 @@ import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
 import { registerEmailReceiptTools } from "./tools/email-receipts.mjs";
 import { registerCalendarTools } from "./tools/calendar-tools.mjs";
 import { registerContactTools } from "./tools/contact-tools.mjs";
+import { CatchUpService } from "./catch-up.mjs";
+import { registerCatchUpTools } from "./tools/catch-up-tools.mjs";
 import { registerJournalTools } from "./tools/journal-tools.mjs";
 import { registerInteractionGuideTools } from "./tools/interaction-guide-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
@@ -102,6 +104,7 @@ if (store.status.ready) {
   registerContactTools(registry, store, organizer, ledger, searchCoordinator);
   registerTodoTools(registry, store, ledger);
   registerJournalTools(registry, store, ledger);
+  registerCatchUpTools(registry, new CatchUpService(store, organizer, ledger));
   registerInteractionGuideTools(registry, interactionGuides);
   registerProfileFactTools(registry, profileFacts);
   registerDatabaseTools(registry, store, ledger, searchCoordinator);

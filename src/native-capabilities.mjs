@@ -1,5 +1,13 @@
 export const nativeCapabilityManifests = [
   {
+    id: "catch-up", title: "Daily catch-up",
+    summary: "Generate questions from actual tasks, event occurrences and scheduled journal trackers; ask one at a time and persist resolution, comments or deferral against the source records. No briefing authoring needed.",
+    aliases: ["catch me up", "catch up on the day", "daily review", "nag me", "hold me accountable", "unresolved", "get my life in order", "keep going"],
+    instructionFile: "catch-up.md",
+    readOnlyTools: ["catch_up_list"],
+    dependentTools: ["todo_update", "calendar_event_update", "calendar_event_occurrence_update", "journal_add", "tracker_list", "tracker_asking_schedule_set", "contact_lookup_batch"],
+  },
+  {
     id: "self", title: "Chapeaux Fous identity and infrastructure",
     summary: "Read focused or detailed current knowledge about Chapeaux Fous, including its identity and name, interaction and hats system, self-conception, infrastructure, chat-video workflow, request path, and callable capabilities.",
     aliases: [

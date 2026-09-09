@@ -385,7 +385,7 @@ function recurrenceIdentifierDate(value, event) {
   ));
 }
 
-function occurrenceDates(event, fromUtc, toUtc) {
+function occurrenceDates(event, fromUtc, toUtc, maximum = null) {
   const start = new Date(event.startsAtUtc);
   const zone = event.timeZone || null;
   const startParts = zone ? zonedParts(start, zone) : utcParts(start);
@@ -399,6 +399,10 @@ function occurrenceDates(event, fromUtc, toUtc) {
     new Date(new Date(fromUtc).getTime() - margin),
     new Date(new Date(toUtc).getTime() + dayMilliseconds * 2),
     true,
+    maximum === null ? undefined : (_date, index) => {
+      if (index >= maximum) throw new OrganizerInputError("Calendar recurrence exceeds its bounded occurrence scan.");
+      return true;
+    },
   ).map((date) => (zone ? zonedPartsToUtc(utcParts(date), zone) : date));
 }
 
@@ -475,6 +479,26 @@ function nextOccurrence(event, afterUtc) {
     : after;
   const next = parsed.after(comparison, false);
   return next && (zone ? zonedPartsToUtc(utcParts(next), zone) : next);
+}
+
+// Logging periods reuse the calendar recurrence implementation and its local-time
+// conversion. Periods are [start, next start), including the last finite period.
+export function currentLoggingPeriod({ startsAtUtc, timeZone, recurrenceRule }, atUtc) {
+  const zone = timeZone || null;
+  const start = new Date(startsAtUtc);
+  if (start > new Date(atUtc)) return null;
+  const parts = zone ? zonedParts(start, zone) : utcParts(start);
+  const rule = localizeUtcUntil(recurrenceRule.replace(/^RRULE:/i, ""), zone);
+  const parsed = rrulestr(`DTSTART:${basicDateTime(parts, zone ? "" : "Z")}\nRRULE:${rule}`);
+  const at = new Date(atUtc);
+  const local = zone ? zonedParts(at, zone) : utcParts(at);
+  const comparison = new Date(Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second));
+  const previous = parsed.before(comparison, true);
+  if (!previous) return null;
+  const periodStart = zone ? zonedPartsToUtc(utcParts(previous), zone) : previous;
+  const unboundedRule = recurrenceRule.split(";").filter(part => !/^(COUNT|UNTIL)=/i.test(part)).join(";");
+  const periodEnd = nextOccurrence({ startsAtUtc, timeZone, recurrenceRule: unboundedRule }, periodStart.toISOString());
+  return { startsAtUtc: periodStart.toISOString(), endsAtUtc: periodEnd.toISOString() };
 }
 
 export function previewRoutineOccurrenceStarts({
@@ -1619,12 +1643,24 @@ export class OrganizerStore {
     };
   }
 
-  listCalendar({ from, to }) {
+  listCalendar({ from, to, strictBounds = false, includeBirthdays = true }) {
     const fromUtc = isoDateTime(from, "from", { required: true });
     const toUtc = isoDateTime(to, "to", { required: true });
     if (fromUtc >= toUtc) throw new OrganizerInputError("to must be later than from.");
     const rangeMs = new Date(toUtc).getTime() - new Date(fromUtc).getTime();
     if (rangeMs > 370 * 86_400_000) throw new OrganizerInputError("Calendar ranges are limited to 370 days.");
+    if (strictBounds) {
+      const counts = [
+        this.database.prepare(`SELECT COUNT(*) AS count FROM calendar_events
+          WHERE status IN ('tentative', 'confirmed') AND recurrence_rule IS NULL
+          AND starts_at_utc < ? AND COALESCE(ends_at_utc, starts_at_utc) >= ?`).get(toUtc, fromUtc),
+        this.database.prepare(`SELECT COUNT(*) AS count FROM calendar_events
+          WHERE status IN ('tentative', 'confirmed') AND recurrence_rule IS NOT NULL AND starts_at_utc < ?`).get(toUtc),
+      ];
+      if (counts.some(row => Number(row.count) > 2000)) {
+        throw new OrganizerInputError("Calendar source exceeds 2000 records; narrow the date range or review old active series.");
+      }
+    }
     const ordinary = this.database.prepare(`
       SELECT *
       FROM calendar_events
@@ -1640,9 +1676,9 @@ export class OrganizerStore {
       SELECT *
       FROM calendar_events
       WHERE status IN ('tentative', 'confirmed')
-        AND recurrence_rule IS NOT NULL
+        AND recurrence_rule IS NOT NULL AND starts_at_utc < ?
       ORDER BY calendar_event_id
-    `).all().map(publicCalendarEvent);
+    `).all(toUtc).map(publicCalendarEvent);
     const exclusions = this.database.prepare(`
       SELECT calendar_event_id, excluded_starts_at_utc
       FROM calendar_event_exclusions
@@ -1679,27 +1715,28 @@ export class OrganizerStore {
         if (original) omitted.add(original.getTime());
       }
       try {
-        for (const start of occurrenceDates(master, fromUtc, toUtc)) {
+        for (const start of occurrenceDates(master, fromUtc, toUtc, strictBounds ? 2200 : null)) {
           const endMs = start.getTime() + duration;
           if (omitted.has(start.getTime())) continue;
           if (start.getTime() >= new Date(toUtc).getTime()) continue;
           if (endMs < new Date(fromUtc).getTime()) continue;
           recurring.push(recurringOccurrence(master, start, duration));
         }
-      } catch {
+      } catch (error) {
+        if (strictBounds) throw error;
         const start = new Date(master.startsAtUtc);
         const end = master.endsAtUtc ? new Date(master.endsAtUtc) : start;
         if (start < new Date(toUtc) && end >= new Date(fromUtc)) ordinary.push(master);
       }
     }
 
-    const contacts = this.database.prepare(`
+    const contacts = includeBirthdays ? this.database.prepare(`
       SELECT contact_id, display_name, birth_date
       FROM contacts
       WHERE contact_kind = 'person'
         AND status = 'active'
         AND birth_date IS NOT NULL
-    `).all();
+    `).all() : [];
     const birthdays = [];
     const firstYear = new Date(fromUtc).getUTCFullYear() - 1;
     const lastYear = new Date(toUtc).getUTCFullYear() + 1;
@@ -1710,6 +1747,9 @@ export class OrganizerStore {
       }
     }
 
+    if (strictBounds && ordinary.length + recurring.length > 2000) {
+      throw new OrganizerInputError("Calendar exceeded 2000 occurrences; narrow the catch-up date range.");
+    }
     return [...ordinary, ...recurring, ...birthdays]
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc) || String(left.id).localeCompare(String(right.id)))
       .slice(0, 2000);
@@ -3029,6 +3069,83 @@ export class OrganizerStore {
       this.database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  getCalendarOccurrence(idValue, occurrenceValue) {
+    const id = identifier(idValue, "calendar event id");
+    const occurrence = isoDateTime(occurrenceValue, "occurrence start", { required: true });
+    const master = this.getCalendar(id);
+    if (!master || master.status !== "active" || !master.recurrenceRule) return null;
+    const exclusions = this.database.prepare(`SELECT excluded_starts_at_utc FROM calendar_event_exclusions
+      WHERE calendar_event_id = ? LIMIT 2001`).all(id);
+    const exceptions = master.icalUid ? this.database.prepare(`SELECT * FROM calendar_events
+      WHERE ical_uid = ? AND ical_recurrence_id IS NOT NULL LIMIT 2001`).all(master.icalUid).map(publicCalendarEvent) : [];
+    if (exclusions.length > 2000 || exceptions.length > 2000) throw new OrganizerInputError("Calendar series exceeds the bounded exception scan.");
+    const instant = Date.parse(occurrence);
+    if (exclusions.some(row => Date.parse(row.excluded_starts_at_utc) === instant)
+      || exceptions.some(row => recurrenceIdentifierDate(row.icalRecurrenceId, master)?.getTime() === instant)) return null;
+    const start = occurrenceDates(master, occurrence, new Date(instant + 1000).toISOString(), 2200)
+      .find(date => date.getTime() === instant);
+    if (!start) return null;
+    const duration = master.endsAtUtc ? Math.max(0, Date.parse(master.endsAtUtc) - Date.parse(master.startsAtUtc)) : 0;
+    return recurringOccurrence(master, start, duration);
+  }
+
+  updateCalendarOccurrence(idValue, input, activity = {}) {
+    const id = identifier(idValue, "calendar event id");
+    const occurrence = isoDateTime(input.occurrenceStartsAtUtc, "occurrenceStartsAtUtc", { required: true });
+    this.database.exec("START TRANSACTION");
+    try {
+      const master = this.database.prepare("SELECT * FROM calendar_events WHERE calendar_event_id = ? FOR UPDATE").get(id);
+      if (!master || !master.recurrence_rule || master.status === "cancelled") {
+        throw new OrganizerInputError("An active recurring calendar series is required.");
+      }
+      const uid = master.ical_uid || `agent-slayer-calendar-${id}`;
+      const previous = this.database.prepare(`SELECT * FROM calendar_events
+        WHERE ical_uid = ? AND ical_recurrence_id = ? FOR UPDATE`).get(uid, occurrence);
+      if (!previous) {
+        const instance = this.getCalendarOccurrence(id, occurrence);
+        if (!instance) throw new OrganizerInputError("That occurrence does not exist or is excluded. Read the current calendar again.");
+      }
+      const duration = master.ends_at_utc ? Date.parse(master.ends_at_utc) - Date.parse(master.starts_at_utc) : null;
+      const before = previous || { ...master, starts_at_utc: occurrence,
+        ends_at_utc: duration === null ? null : new Date(Date.parse(occurrence) + duration).toISOString() };
+      const starts = input.startsAtUtc == null ? before.starts_at_utc : isoDateTime(input.startsAtUtc, "startsAtUtc", { required: true });
+      // Moving an occurrence preserves its duration unless an end is supplied.
+      const ends = input.endsAtUtc == null
+        ? (before.ends_at_utc ? new Date(Date.parse(starts) + Date.parse(before.ends_at_utc) - Date.parse(before.starts_at_utc)).toISOString() : null)
+        : isoDateTime(input.endsAtUtc, "endsAtUtc");
+      if (ends && ends < starts) throw new OrganizerInputError("Event end must not precede its start.");
+      const title = input.title == null ? before.title : requiredText(input.title, "title", 500);
+      const description = input.description == null ? before.description : optionalText(input.description, "description", 10000);
+      const status = enumValue(input.status, new Set(["tentative", "confirmed", "cancelled"]), "status", before.status);
+      const now = new Date().toISOString();
+      if (!master.ical_uid) this.database.prepare("UPDATE calendar_events SET ical_uid = ? WHERE calendar_event_id = ?").run(uid, id);
+      this.database.prepare(`INSERT INTO calendar_event_exclusions (calendar_event_id, excluded_starts_at_utc)
+        VALUES (?, ?) ON DUPLICATE KEY UPDATE calendar_event_id = calendar_event_id`).run(id, occurrence);
+      let eventId = previous?.calendar_event_id;
+      if (previous) {
+        this.database.prepare(`UPDATE calendar_events SET title = ?, description = ?, starts_at_utc = ?,
+          ends_at_utc = ?, status = ?, updated_at_utc = ? WHERE calendar_event_id = ?`)
+          .run(title, description, starts, ends, status, now, eventId);
+      } else {
+        eventId = Number(this.database.prepare(`INSERT INTO calendar_events
+          (ical_uid, ical_recurrence_id, title, description, location_text, starts_at_utc, ends_at_utc,
+           time_zone, is_all_day, status, planning_prompt_text, updated_at_utc)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING calendar_event_id`)
+          .get(uid, occurrence, title, description, master.location_text, starts, ends,
+            master.time_zone, master.is_all_day, status, master.planning_prompt_text, now).calendar_event_id);
+        this.database.prepare(`INSERT INTO calendar_event_contacts (calendar_event_id, contact_id, participant_role, response_status)
+          SELECT ?, contact_id, participant_role, response_status FROM calendar_event_contacts WHERE calendar_event_id = ?`).run(eventId, id);
+      }
+      const event = this.getCalendar(eventId);
+      const result = { event, seriesId: id, occurrenceStartsAtUtc: occurrence };
+      this.#activity({ eventType: "calendar.occurrence.updated", status: "complete",
+        name: "Calendar occurrence updated", subjectType: "calendar_event", subjectId: eventId,
+        contentText: title, payload: { before, ...result }, ...activity });
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) { this.database.exec("ROLLBACK"); throw error; }
   }
 
   getCalendar(id) {

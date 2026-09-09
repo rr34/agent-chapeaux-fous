@@ -651,3 +651,50 @@ commit implicitly, so each migration must state its own safe replay and recovery
 rules rather than assuming a transaction can roll back the complete schema
 change. Database comment changes are applied by the migration runner along with the
 deployed revision.
+
+## Daily catch-up
+
+“Catch me up on the day” generates questions directly from current tasks,
+calendar occurrences, and scheduled journal trackers. No briefing needs to be
+created. The agent asks one question at a time and uses the existing domain tools
+to complete or move tasks, update appointments, and record observations.
+
+`catch_up_questions` is the only new table (migration 0036). Each row has exactly
+one real foreign key to `todo_personal`, `calendar_events`, or `trackers`, plus
+its occurrence/period identity, generated question, resolution, deferral, and
+optional comment. Unique source/occurrence indexes prevent duplicate questions.
+Material-source fingerprints and question versions reject stale answers. Chat
+history is not the source of pending or resolved state.
+
+`catch_up_refresh` generates and reconciles questions during normal tool
+execution; `catch_up_list` reads them, and `catch_up_question_update` records
+explicit acknowledgment, deferral, or comments. The optional `catch-up.pending`
+context view only reads already generated questions. It cannot generate or
+mutate anything before execution. There is no timer or new background worker.
+
+By default, catch-up checks overdue and currently scheduled tasks, the last seven
+calendar days plus the selected day, and each tracker's latest due logging
+period. Tasks without a schedule use their deadline; unscheduled tasks without a
+deadline are not automatically questioned. Calendar lookback can be 0–31 days.
+Existing unresolved questions remain eligible beyond that range. Source scans
+are bounded; an overflow fails atomically rather than claiming completeness.
+Only questions whose source-derived asking time and explicit deferral have
+arrived are returned.
+
+Trackers remain unscheduled until `tracker_asking_schedule_set` sets a first
+period start, structured recurrence, and time zone. A journal observation in the
+period satisfies its question. Only the latest due period is generated, so a
+month away does not produce a month of missing daily logs. Turning off the
+asking schedule preserves the tracker and its observations.
+
+Completing/cancelling a source through the UI also satisfies its question on
+refresh. Rescheduling changes when its question becomes eligible; it does not
+complete the underlying task. `calendar_event_occurrence_update` materializes an
+exception and excludes the original occurrence so moving or cancelling one
+appointment preserves the remaining series and participants. Comments and
+resolution are optional, independent of the source's actual lifecycle status.
+
+Apply migration 0036 through the existing reviewed migration procedure before
+running this code against an older database. It adds one table and three nullable
+tracker columns; existing trackers retain no asking schedule. Repository work
+does not apply it to the live database or restart the application.

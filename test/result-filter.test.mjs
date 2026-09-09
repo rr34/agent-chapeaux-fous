@@ -236,3 +236,14 @@ test("an oversized result without durable receipt paging fails closed", () => {
   assert.match(result.error, /no durable receipt/);
   assert.deepEqual(Object.keys(result.deliveredResult), ["result_filter"]);
 });
+
+test("catch-up occurrence identity survives result projection alongside its real source foreign key", () => {
+  const boundary = new ResultFilterBoundary();
+  const result = boundary.filterReadResult({ questions: [{ question_id: 1, calendar_event_id: 8,
+    occurrence_key: "2026-09-08T13:00:00.000Z", question_text: "How did it go?", version: 2 }] }, {
+    requestId: "catch-up", interactionId: "read", tool: "catch_up_list", source: "local",
+    filterRequest: filterRequest({ include_fields: ["question_text"], exclude_fields: ["occurrence_key"] }),
+  });
+  assert.equal(result.deliveredResult.questions[0].occurrence_key, "2026-09-08T13:00:00.000Z");
+  assert.equal(result.deliveredResult.questions[0].calendar_event_id, 8);
+});

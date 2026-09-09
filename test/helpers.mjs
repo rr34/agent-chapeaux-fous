@@ -49,3 +49,12 @@ export function temporaryDatabase({ schema = schemaSource } = {}) {
     admin.close();
   }
 }
+
+// Earlier migration tests start from their historical shape, before catch-up.
+export function baselineBeforeCatchUp(source) {
+  return source
+    .replace(/CREATE TABLE catch_up_questions \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
+    .replace(/^    asking_(?:starts_at_utc|recurrence_rule|time_zone) .*\n/gmu, "")
+    .replace(/    CONSTRAINT trackers_asking_schedule CHECK \([\s\S]*?    \),\n/u, "")
+    .replace("VALUES (1, 36,", "VALUES (1, 35,");
+}

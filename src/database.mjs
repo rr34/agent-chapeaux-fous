@@ -49,7 +49,8 @@ export const requiredDatabaseShape = {
     "planning_prompt_text",
   ],
   journal_groups: ["journal_group_id", "name", "archived_at_utc"],
-  trackers: ["tracker_id", "journal_group_id", "name", "unit", "archived_at_utc"],
+  trackers: ["tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "asking_starts_at_utc", "asking_recurrence_rule", "asking_time_zone"],
+  catch_up_questions: ["question_id", "personal_task_id", "calendar_event_id", "tracker_id", "occurrence_key", "source_version", "question_text", "due_at_utc", "ask_after", "resolved_at", "comment", "version"],
   journal_entries: [
     "journal_entry_id", "tracker_id", "occurred_at_utc", "content_text",
     "number_value", "source_event_id", "source", "external_id",
@@ -211,8 +212,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 35) {
-    problems.push(`Expected MariaDB schema version 35, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 36) {
+    problems.push(`Expected MariaDB schema version 36, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

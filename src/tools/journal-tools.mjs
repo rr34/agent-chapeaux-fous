@@ -20,6 +20,9 @@ const trackerRecordSchema = {
     journal_group_id: { description: "Organizational group containing this tracker." },
     name: { description: "Complete human-facing name of the tracked subject. Unique globally without regard to letter case." },
     unit: { description: "Canonical unit shared by every numeric entry in this tracker's trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me." },
+    asking_starts_at_utc: { description: "Optional first scheduled logging period start, in UTC." },
+    asking_recurrence_rule: { description: "Optional RRULE for logging period starts. Configure with tracker_asking_schedule_set; null disables scheduled asking." },
+    asking_time_zone: { description: "IANA time zone for scheduled logging periods." },
     archived_at_utc: { description: "UTC timestamp when tracking was archived, or null while the tracker is active." },
     created_at_utc: { description: "UTC timestamp when this tracker was first defined." },
     updated_at_utc: { description: "UTC timestamp of the most recent change to this tracker, when changed." },
@@ -72,6 +75,7 @@ function normalizedInstant(value, { useNow = false, label = "Timestamp" } = {}) 
 
 const trackerFields = [
   "tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "created_at_utc", "updated_at_utc",
+  "asking_starts_at_utc", "asking_recurrence_rule", "asking_time_zone",
 ];
 const journalEntryFields = [
   "journal_entry_id", "tracker_id", "occurred_at_utc", "content_text", "number_value",

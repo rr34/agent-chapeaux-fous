@@ -6,10 +6,10 @@ import { runDatabaseMigrations } from "../scripts/migrate-database.mjs";
 import { MariaDatabaseSync } from "../src/mariadb-sync.mjs";
 import { inspectDatabase } from "../src/database.mjs";
 import { OrganizerStore } from "../src/organizer-store.mjs";
-import { temporaryDatabase } from "./helpers.mjs";
+import { temporaryDatabase, baselineBeforeCatchUp } from "./helpers.mjs";
 
 test("contact tag rename preserves assignments and contact operations across upgrade and recovery", async (context) => {
-  const schema = fs.readFileSync(baselineFilename, "utf8")
+  const schema = baselineBeforeCatchUp(fs.readFileSync(baselineFilename, "utf8"))
     .replace("VALUES (1, 35,", "VALUES (1, 33,")
     .replaceAll("contacts_tags_join", "record_tags");
   const temporary = temporaryDatabase({ schema });
@@ -35,13 +35,13 @@ test("contact tag rename preserves assignments and contact operations across upg
     assert.deepEqual(database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('record_tags', 'record_links')`).all(), []);
   };
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [34, 35]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [34, 35, 36]);
   assertMigrated();
   assert.deepEqual((await runDatabaseMigrations(settings)).applied, []);
   // Recover after the rename committed but the drop and version update did not.
   database.exec("CREATE TABLE record_links (record_link_id BIGINT UNSIGNED PRIMARY KEY) ENGINE=InnoDB");
   database.exec("UPDATE database_meta SET schema_version = 33 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [34, 35]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [34, 35, 36]);
   assertMigrated();
   const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());
