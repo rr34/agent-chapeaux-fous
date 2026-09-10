@@ -124,15 +124,11 @@
           <div class="calendar-date-row">
             <h2 id="calendar-date-control" class="calendar-date-control">
               <span id="calendar-weekday" class="calendar-date-weekday">Monday,</span>
+              <span id="calendar-day" class="calendar-date-value">1</span>
               <span class="calendar-date-stepper calendar-month-stepper">
                 <button id="next-calendar-month" class="calendar-date-arrow" type="button" aria-label="Next month">▲</button>
                 <span id="calendar-month" class="calendar-date-value">January</span>
                 <button id="previous-calendar-month" class="calendar-date-arrow" type="button" aria-label="Previous month">▼</button>
-              </span>
-              <span class="calendar-date-stepper calendar-date-day-stepper">
-                <button id="next-weeks" class="calendar-date-arrow" type="button" aria-label="Next two weeks">▲</button>
-                <span id="calendar-day" class="calendar-date-value">1</span>
-                <button id="previous-weeks" class="calendar-date-arrow" type="button" aria-label="Previous two weeks">▼</button>
               </span>
               <span class="calendar-date-stepper calendar-year-stepper">
                 <button id="next-calendar-year" class="calendar-date-arrow" type="button" aria-label="Next year">▲</button>
@@ -165,10 +161,12 @@
       </section>
       <div id="calendar-layout" class="calendar-layout">
         <section class="calendar-range-panel organizer-panel" aria-label="Two-week calendar">
+          <button id="previous-weeks" class="calendar-date-arrow calendar-range-arrow" type="button" aria-label="Previous two weeks" aria-controls="calendar-grid" title="Previous two weeks">▲</button>
           <div class="weekday-row" aria-hidden="true">
             <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
           </div>
           <div id="calendar-grid" class="calendar-grid"></div>
+          <button id="next-weeks" class="calendar-date-arrow calendar-range-arrow" type="button" aria-label="Next two weeks" aria-controls="calendar-grid" title="Next two weeks">▼</button>
         </section>
         <section class="agenda-panel organizer-panel" aria-labelledby="agenda-date">
           <p class="eyebrow">Selected day</p>

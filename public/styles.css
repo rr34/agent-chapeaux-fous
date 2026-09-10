@@ -397,7 +397,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .calendar-range-heading { align-items: flex-end; margin-top: 0; }
 .calendar-heading-copy { min-width: 0; }
 .calendar-date-row { display: flex; align-items: center; justify-content: flex-start; gap: .8rem; }
-.calendar-date-control { display: grid; grid-template-columns: 9.5rem 8.5rem 3.5rem 5.25rem; align-items: center; gap: .2rem; min-height: 4.1rem; }
+.calendar-date-control { display: grid; grid-template-columns: 9.5rem 3.5rem 8.5rem 5.25rem; align-items: center; gap: .2rem; min-height: 4.1rem; }
 .calendar-date-weekday { overflow: hidden; white-space: nowrap; }
 .calendar-date-stepper { display: grid; grid-template-rows: 1.15rem auto 1.15rem; justify-items: center; align-items: center; }
 .calendar-date-value { overflow: hidden; width: 100%; line-height: 1.08; text-align: center; text-overflow: clip; white-space: nowrap; }
@@ -472,6 +472,8 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .calendar-search-result-open span { overflow: hidden; margin-top: .22rem; color: var(--muted); font-size: .74rem; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-search-result-open .calendar-search-result-description { color: var(--muted); }
 .calendar-range-panel { overflow: hidden; }
+.calendar-range-arrow { display: block; width: 100%; height: 2rem; border-radius: 0; }
+.calendar-range-arrow:focus-visible { outline-offset: -2px; }
 .weekday-row, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .calendar-grid > .empty { grid-column: 1 / -1; margin: 1rem; }
 .weekday-row { border-bottom: 1px solid var(--line); background: var(--panel-raised); }
@@ -1147,7 +1149,7 @@ dialog h2, dialog p { margin-bottom: 0; }
   .calendar-range-heading { align-items: stretch; flex-direction: column; }
   .calendar-range-heading > #new-event { align-self: flex-end; }
   .calendar-date-row { flex-wrap: wrap; gap: .35rem .6rem; }
-  .calendar-date-control { grid-template-columns: 5.7rem 5.2rem 2.2rem 3.4rem; gap: .08rem; font-size: clamp(1rem, 5.2vw, 1.45rem); }
+  .calendar-date-control { grid-template-columns: 5.7rem 2.2rem 5.2rem 3.4rem; gap: .08rem; font-size: clamp(1rem, 5.2vw, 1.45rem); }
   .calendar-search-results-heading { align-items: flex-start; flex-direction: column; }
   .calendar-search-results-heading small { text-align: left; }
   .calendar-search-result { grid-template-columns: 1fr; }
