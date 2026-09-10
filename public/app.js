@@ -2219,8 +2219,11 @@ function todosDueOnDay(day) {
 }
 
 function todosScheduledOnDay(day) {
-  const key = localDateKey(day);
-  return activeTodos.filter((todo) => todo.scheduledAtUtc && localDateKey(todo.scheduledAtUtc) === key);
+  return activeTodos.filter((todo) => todo.scheduledAtUtc && occursDuringCalendarDay(
+    todo.scheduledAtUtc,
+    plannedEnd(todo.scheduledAtUtc, todo.durationMinutes),
+    day,
+  ));
 }
 
 function formatEventTime(calendarEvent) {
@@ -2886,11 +2889,14 @@ function agendaTodoItem(todo, timing) {
     return item;
 }
 
-function agendaTimelineTime(startsAtUtc, endsAtUtc = null, { timeZone = null, label = null } = {}) {
+function agendaTimelineTime(startsAtUtc, endsAtUtc = null, { timeZone = null, label = null, day = null } = {}) {
   const time = node("time", "agenda-timeline-time");
+  const dayStart = day ? startOfDay(day) : null;
+  const continues = dayStart && new Date(startsAtUtc) < dayStart;
+  const continuesAfterDay = dayStart && endsAtUtc && new Date(endsAtUtc) >= addDays(dayStart, 1);
   time.dateTime = startsAtUtc;
-  time.append(node("span", "agenda-timeline-start", formatDisplayTime(startsAtUtc, { timeZone })));
-  if (endsAtUtc) time.append(node("span", "agenda-timeline-end", `to ${formatDisplayTime(endsAtUtc, { timeZone })}`));
+  time.append(node("span", "agenda-timeline-start", continues ? "-" : formatDisplayTime(startsAtUtc, { timeZone })));
+  if (endsAtUtc) time.append(node("span", "agenda-timeline-end", continuesAfterDay ? "-" : `to ${formatDisplayTime(endsAtUtc, { timeZone })}`));
   if (label) time.append(node("span", "agenda-timeline-kind", label));
   return time;
 }
@@ -2951,13 +2957,14 @@ function renderAgenda() {
         row.append(
           agendaTimelineTime(entry.calendarEvent.startsAtUtc, entry.calendarEvent.endsAtUtc, {
             timeZone: entry.calendarEvent.timeZone || null,
+            day: selectedCalendarDate,
           }),
           node("span", "agenda-timeline-marker"),
           agendaEventItem(entry.calendarEvent),
         );
       } else {
         row.append(
-          agendaTimelineTime(entry.startsAtUtc, entry.endsAtUtc, { label: entry.timing }),
+          agendaTimelineTime(entry.startsAtUtc, entry.endsAtUtc, { label: entry.timing, day: selectedCalendarDate }),
           node("span", "agenda-timeline-marker todo"),
           agendaTodoItem(entry.todo, entry.timing),
         );

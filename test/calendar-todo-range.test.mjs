@@ -45,3 +45,27 @@ test("calendar range filtering finds published tasks beyond the backlog and incl
     temporary.cleanup();
   }
 });
+
+test("calendar reads retain tasks continuing into a range and exclude those ending exactly at its start", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target);
+  try {
+    const groupId = organizer.listTodoGroups().find(({ name }) => name === "Inbox").id;
+    const insert = organizer.database.prepare(`
+      INSERT INTO todo_personal (todo_group_id, text, status, scheduled_at_utc, duration_minutes)
+      VALUES (?, ?, 'todo', ?, ?)
+    `);
+    const id = Number(insert.run(groupId, "Daddy time", "2026-09-14T21:00:00.000Z", 1620).lastInsertRowid);
+    insert.run(groupId, "Ends at midnight", "2026-09-14T21:00:00.000Z", 420);
+    insert.run(groupId, "No duration", "2026-09-14T21:00:00.000Z", null);
+    insert.run(groupId, "Just into Tuesday", "2026-09-14T21:00:00.001Z", 420);
+    const tuesday = organizer.listTodos({ from: "2026-09-15T04:00:00.000Z", to: "2026-09-16T04:00:00.000Z" });
+    assert.deepEqual(tuesday.map(({ text }) => text), ["Daddy time", "Just into Tuesday"]);
+    assert.equal(tuesday[0].id, id);
+    assert.equal(tuesday[0].scheduledAtUtc, "2026-09-14T21:00:00.000Z");
+    assert.equal(organizer.listTodos({ from: "2026-09-16T04:00:00.000Z", to: "2026-09-17T04:00:00.000Z" }).length, 0);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});

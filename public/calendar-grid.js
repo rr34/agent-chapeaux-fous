@@ -84,7 +84,7 @@ export function calendarDayTimeRangeLabel(startsAt, endsAt, day, formatTime) {
   if (startsToday && endsToday) return `${formatTime(new Date(start))}–${formatTime(new Date(end))}`;
   if (startsToday) return `${formatTime(new Date(start))}–`;
   if (endsToday) return `–${formatTime(new Date(end))}`;
-  return "Continues";
+  return "-";
 }
 
 export function calendarEventCellItem(event) {

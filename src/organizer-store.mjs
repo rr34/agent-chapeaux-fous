@@ -1786,10 +1786,16 @@ export class OrganizerStore {
       }
       // Filter before LIMIT so unrelated backlog cannot hide the displayed week.
       where += `${where ? " AND" : "WHERE"} (
-        (task.scheduled_at_utc >= ? AND task.scheduled_at_utc < ?)
+        (task.scheduled_at_utc < ? AND (
+          task.scheduled_at_utc >= ?
+          OR (task.duration_minutes > 0 AND TIMESTAMPADD(
+            MINUTE, task.duration_minutes,
+            CAST(REPLACE(REPLACE(task.scheduled_at_utc, 'T', ' '), 'Z', '') AS DATETIME(3))
+          ) > CAST(? AS DATETIME(3)))
+        ))
         OR (task.due_at_utc >= ? AND task.due_at_utc < ?)
       )`;
-      parameters.push(fromUtc, toUtc, fromUtc, toUtc);
+      parameters.push(toUtc, fromUtc, fromUtc.replace("T", " ").replace("Z", ""), fromUtc, toUtc);
     }
     return this.database.prepare(`
       SELECT task.*, todo_group.name AS group_name,

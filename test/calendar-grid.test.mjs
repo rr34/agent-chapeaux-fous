@@ -129,6 +129,57 @@ const localTime = (value) => {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 };
 
+test("the actual Calendar shows the same Daddy time task on Monday and Tuesday with continuation times", () => {
+  const app = fs.readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+  const dates = app.slice(app.indexOf("function addDays("), app.indexOf("\nfunction occursOnDay("));
+  const scheduled = app.slice(app.indexOf("function todosScheduledOnDay("), app.indexOf("\nfunction formatEventTime("));
+  const duration = app.slice(app.indexOf("function plannedEnd("), app.indexOf("\nfunction plannedTimeLabel("));
+  const agenda = app.slice(app.indexOf("function agendaTimelineTime("), app.indexOf("\nfunction openEventEditor("));
+  const makeNode = (_tag, _className, textContent) => ({
+    textContent, children: [], classList: { toggle() {} },
+    append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.children = children; },
+  });
+  const elements = Object.fromEntries([
+    "agendaDate", "agendaAllDayCount", "agendaTimelineCount", "agendaAllDayList", "agendaTimeline",
+  ].map(name => [name, makeNode()]));
+  const task = {
+    id: 349, text: "Daddy time", scheduledAtUtc: new Date(2026, 8, 14, 17).toISOString(),
+    durationMinutes: 27 * 60, isAllDay: false,
+  };
+  const context = vm.createContext({
+    Date, elements, activeTodos: [task], calendarEvents: [], selectedCalendarDate: new Date(2026, 8, 15),
+    occursDuringCalendarDay, formatDisplayDate, formatDisplayTime, node: makeNode,
+    todosDueOnDay: () => [], agendaTodoItem: todo => ({ taskId: todo.id }),
+  });
+  vm.runInContext(`${dates}\n${scheduled}\n${duration}\n${agenda}`, context);
+  for (const day of [14, 15]) {
+    const tasks = context.todosScheduledOnDay(new Date(2026, 8, day));
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0], task);
+  }
+  assert.equal(context.todosScheduledOnDay(new Date(2026, 8, 16)).length, 0);
+  context.renderAgenda();
+  const tuesdayRow = elements.agendaTimeline.children[0];
+  assert.equal(tuesdayRow.children[2].taskId, 349);
+  assert.equal(tuesdayRow.children[0].children[0].textContent, "-");
+  assert.equal(tuesdayRow.children[0].children[1].textContent, "to 20:00");
+  context.selectedCalendarDate = new Date(2026, 8, 14);
+  context.renderAgenda();
+  const mondayTime = elements.agendaTimeline.children[0].children[0];
+  assert.equal(mondayTime.children[0].textContent, "17:00");
+  assert.equal(mondayTime.children[1].textContent, "-");
+  task.durationMinutes = 7 * 60;
+  assert.equal(context.todosScheduledOnDay(new Date(2026, 8, 15)).length, 0, "An exact midnight end does not occupy Tuesday");
+  context.renderAgenda();
+  assert.equal(elements.agendaTimeline.children[0].children[0].children[1].textContent, "-", "Midnight belongs to the next day");
+  const middleDay = context.agendaTimelineTime(new Date(2026, 8, 14, 17).toISOString(), new Date(2026, 8, 16, 20).toISOString(), { day: new Date(2026, 8, 15) });
+  assert.deepEqual(middleDay.children.map(({ textContent }) => textContent), ["-", "-"]);
+  task.durationMinutes = null;
+  assert.equal(context.todosScheduledOnDay(new Date(2026, 8, 14)).length, 1);
+  assert.equal(context.todosScheduledOnDay(new Date(2026, 8, 15)).length, 0);
+});
+
 test("cross-day time labels show only the boundary that applies to each day", () => {
   const startsAt = "2026-09-04T17:00:00";
   const endsAt = "2026-09-05T14:00:00";
@@ -151,7 +202,7 @@ test("same-day and middle-day time labels remain unambiguous", () => {
   ), "09:00–11:00");
   assert.equal(calendarDayTimeRangeLabel(
     "2026-09-03T17:00:00", "2026-09-05T14:00:00", new Date(2026, 8, 4), localTime,
-  ), "Continues");
+  ), "-");
   assert.equal(calendarDayTimeRangeLabel(
     "2026-09-04T17:00:00", "2026-09-05T00:00:00", new Date(2026, 8, 4), localTime,
   ), "17:00–");
