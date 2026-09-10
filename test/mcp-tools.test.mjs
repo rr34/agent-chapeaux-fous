@@ -1024,3 +1024,54 @@ test("UI-managed bearer MCP integrations persist privately, reload, and can be r
   assert.deepEqual(JSON.parse(fs.readFileSync(userConfigPath, "utf8")), {});
   await restarted.close();
 });
+
+test("MCP output-schema failures block replay until successful discovery, while input errors remain correctable", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({ example: { enabled: true, url: "https://example.test/mcp" } }));
+  const tools = [{
+    name: "update_records", description: "Update records.",
+    inputSchema: { type: "object", properties: { key: { type: "string" } }, required: ["key"] },
+    outputSchema: { type: "object", properties: { count: { type: "integer" } }, required: ["count"] },
+  }];
+  let calls = 0;
+  let failure = "input";
+  let discoveryFails = false;
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => ({
+      async connect() {}, async close() {},
+      async listTools() { if (discoveryFails) throw new Error("offline"); return { tools }; },
+      async callTool() {
+        calls += 1;
+        if (failure) throw Object.assign(new Error(failure === "input"
+          ? "MCP error -32602: Invalid task_id"
+          : "MCP error -32602: Structured content does not match the tool's output schema: required count"), { code: -32602 });
+        return { structuredContent: { count: 4 } };
+      },
+    }),
+    transportFactory: () => ({ async close() {} }),
+  });
+  context.after(() => manager.close());
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+  const name = "remote_example_update_records";
+  const inputError = await rejectedError(registry.execute(name, { key: "one" }));
+  assert.equal(inputError.toolFailure, undefined);
+  failure = "output";
+  const outputError = await rejectedError(registry.execute(name, { key: "two" }));
+  assert.equal(outputError.toolFailure.code, "MCP_TOOL_OUTPUT_SCHEMA_MISMATCH");
+  assert.equal(outputError.toolFailure.terminalForCurrentRequest, true);
+  await assert.rejects(registry.execute(name, { key: "new-key" }), /remains blocked/);
+  assert.equal(calls, 2);
+  discoveryFails = true;
+  await manager.refreshTools();
+  await assert.rejects(registry.execute(name, { key: "another-key" }), /remains blocked/);
+  assert.equal(calls, 2);
+  discoveryFails = false;
+  failure = null;
+  await manager.refreshTools();
+  assert.deepEqual(await registry.execute(name, { key: "two" }), { count: 4 });
+  assert.equal(calls, 3);
+});

@@ -661,6 +661,9 @@ export class McpToolManager {
   registerRemoteTool(serverName, tool) {
     const modelName = remoteToolName(serverName, tool.name);
     if (this.registeredTools.has(modelName)) return;
+    // Reset only when successful discovery replaces this registration. An
+    // output-contract failure says nothing about whether a write committed.
+    let contractFailure = null;
     this.registry.register({
       name: modelName,
       title: tool.title ?? null,
@@ -677,8 +680,30 @@ export class McpToolManager {
       execute: async (argumentsObject) => {
         const connection = this.connections.get(serverName);
         if (!connection) throw new Error(`${serverName} is not connected`);
-        const result = await connection.client.callTool({ name: tool.name, arguments: argumentsObject });
-        return resultContent(result);
+        if (contractFailure) throw artifactTransferError(
+          `${serverName} ${tool.name} remains blocked after an output-schema failure; refresh discovery after the provider is corrected.`, contractFailure,
+        );
+        try {
+          const result = await connection.client.callTool({ name: tool.name, arguments: argumentsObject });
+          return resultContent(result);
+        } catch (error) {
+          // This is the SDK's result-validation diagnostic, not ordinary input
+          // validation or provider business rejection sharing JSON-RPC -32602.
+          if (error?.code === -32602
+            && String(error.message).includes("Structured content does not match the tool's output schema")) {
+            contractFailure = {
+              contractVersion: 1, kind: "contract_mismatch", code: "MCP_TOOL_OUTPUT_SCHEMA_MISMATCH",
+              terminalForCurrentRequest: true, retry: "after_provider_fix_and_tool_rediscovery",
+              serverName, capabilityId: `integration:${serverName}`, transportId: tool.name,
+              contractFingerprint: createHash("sha256").update(JSON.stringify({
+                input: tool.inputSchema, output: tool.outputSchema,
+              })).digest("hex"),
+              step: "tool_result_validation", method: null, path: null, httpStatus: null,
+            };
+            throw artifactTransferError(error.message, contractFailure);
+          }
+          throw error;
+        }
       },
     });
     this.rememberRegisteredTool(serverName, modelName);

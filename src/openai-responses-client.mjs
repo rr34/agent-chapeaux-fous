@@ -276,6 +276,7 @@ export class OpenAIResponsesClient {
     tools,
     outputSchema = null,
     maxToolCalls = 128,
+    terminalFailureObserved = false,
     runTimeoutMs = null,
     onToolCall,
     onEvent,
@@ -296,6 +297,7 @@ export class OpenAIResponsesClient {
     const messages = [];
     const events = [];
     const controlTransfers = [];
+    let terminalVerificationRounds = terminalFailureObserved ? 1 : null;
     let response;
     let previousResponseId = conversationId;
     let nextInput = [{
@@ -320,7 +322,12 @@ export class OpenAIResponsesClient {
           instructions,
           input: nextInput,
           tools: callableTools,
-          ...(callableTools.length ? { tool_choice: "auto", parallel_tool_calls: true } : {}),
+          ...(callableTools.length ? {
+            // Deliver the expansion receipt in this exchange, then hand control
+            // back to the runtime to send the additional exact tool schemas.
+            tool_choice: controlTransfers.length || terminalVerificationRounds === 0 ? "none" : "auto",
+            parallel_tool_calls: true,
+          } : {}),
           store: true,
           ...(providerOutputSchema ? {
             text: {
@@ -361,6 +368,9 @@ export class OpenAIResponsesClient {
         }
         const calls = functionCalls(response);
         if (calls.length === 0) break;
+        // A terminal failure gets one final round for observed-state checks.
+        // Then deliver those receipts and require an answer in this exchange.
+        if (terminalVerificationRounds !== null) terminalVerificationRounds = 0;
         previousResponseId = response.id;
         nextInput = [];
         for (const call of calls) {
@@ -386,6 +396,9 @@ export class OpenAIResponsesClient {
             && ["request_tools", "request_capabilities"].includes(call.name)
           ) {
             controlTransfers.push({ tool: call.name, callId: call.call_id });
+          }
+          if (result?.toolFailure?.terminalForCurrentRequest === true && terminalVerificationRounds === null) {
+            terminalVerificationRounds = 1;
           }
           nextInput.push({
             type: "function_call_output",

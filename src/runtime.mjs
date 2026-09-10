@@ -235,9 +235,27 @@ export function terminalToolFailureFindings(receipts) {
   });
 }
 
+function repeatedToolFailure(receipts, name, message, definition) {
+  if (!receipts.some((receipt) => receipt.tool === name && !receipt.ok && receipt.error === message)) return null;
+  const serverName = definition?.source?.replace(/^mcp:/u, "") || "Application tool";
+  return {
+    contractVersion: 1, kind: "provider_rejection", code: "REPEATED_TOOL_ERROR",
+    terminalForCurrentRequest: true, retry: "after_underlying_error_is_corrected_in_a_new_request",
+    serverName, capabilityId: definition?.capabilityId || "native",
+    transportId: name, contractFingerprint: createHash("sha256").update(message).digest("hex"),
+    step: "repeated_tool_error", method: null, path: null, httpStatus: null,
+  };
+}
+
 function terminalToolFailureNotice(findings) {
   const failure = findings[0]?.toolFailure;
   if (!failure) return "";
+  if (failure.step === "tool_result_validation") {
+    return `${failure.serverName} returned a result that failed its tool's output contract. The operation was attempted; this error does not prove whether it changed data. Use the verification results above for the observed state. Further attempts are blocked until the provider is corrected and its tools are rediscovered.`;
+  }
+  if (failure.step === "repeated_tool_error") {
+    return `${failure.serverName} repeatedly failed with the same error. Automatic retries have stopped. The requested work remains incomplete unless confirmed by successful receipts; the underlying error needs correction before another attempt.`;
+  }
   if (failure.step === "final_confirmation_handoff") {
     return `${failure.serverName} finished the preview but did not return a usable final yes-or-no step. Nothing was changed, and Agent Slayer saved the result instead of retrying. Refresh the integration after ${failure.serverName} is corrected, then try again.`;
   }
@@ -329,37 +347,72 @@ function continuationReceipt(receipt) {
   return compact;
 }
 
-function sameRequestReceiptInstructions(receipts, maximumCharacters = 24_000) {
+function structuralEvidenceSummary(value, pointer = "", depth = 0, budget = { nodes: 1500 }) {
+  const stored = () => ({
+    storedAt: pointer || "/", type: Array.isArray(value) ? "array" : typeof value,
+    ...(typeof value === "string" ? { characters: value.length }
+      : Array.isArray(value) ? { items: value.length } : {}),
+  });
+  // Summarize whole values with exact source paths; never cut prose or a JSON
+  // record into a prefix, and never manufacture a semantic interpretation.
+  if (--budget.nodes < 0 || depth > 10 || (typeof value === "string" && value.length > 512)) return stored();
+  if (Array.isArray(value)) return value.map((child, index) => structuralEvidenceSummary(child, `${pointer}/${index}`, depth + 1, budget));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, child]) => [
+    key, structuralEvidenceSummary(child, `${pointer}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`, depth + 1, budget),
+  ]));
+  return value;
+}
+
+export function sameRequestReceiptInstructions(receipts, maximumCharacters = 24_000) {
   if (!receipts.length) return "";
   const header = [
     "# Earlier execution evidence from this same user request",
     "Each source-referenced entry below is the compact canonical continuation projection of one durable tool receipt. Treat successful entries as completed actions, continue from their evidence, and do not repeat them unless the user explicitly asked for repetition.",
+    "Entries marked evidenceStoredInDurableReceipt are structural summaries, not complete results. storedAt identifies a whole value retained in the durable receipt projection; no text prefix or inferred meaning replaces it. Read missing evidence only when needed. The receipt index preserves every source and outcome even when its detail does not fit. Never repeat an action to recover evidence.",
   ].join("\n");
-  const blocks = [];
-  let characters = header.length;
+  const index = {};
   for (const receipt of receipts) {
-    const projected = continuationReceipt(receipt);
-    const exact = JSON.stringify(projected);
-    const remaining = maximumCharacters - characters - 2;
-    if (remaining <= 0) break;
-    const block = exact.length <= remaining
-      ? exact
-      : JSON.stringify({
-          receiptEventSeq: receipt.receiptEventSeq ?? null,
-          tool: receipt.tool,
-          arguments: receipt.arguments,
-          status: receipt.ok ? "complete" : "error",
-          evidenceStoredInDurableReceipt: true,
-          continuation: Number.isSafeInteger(receipt.receiptEventSeq)
-            ? "The exact durable receipt remains source evidence. Use tool_receipt_read only when it is callable and this omitted evidence is still necessary; never repeat the original action merely to recover its result."
-            : "The exact durable receipt remains in the request trace; never repeat the original action merely to recover its result.",
-        });
-    if (block.length > remaining) break;
-    blocks.push(block);
-    characters += block.length + 2;
+    const key = `${receipt.tool}:${receipt.ok ? "complete" : "error"}`;
+    (index[key] ??= []).push(receipt.receiptEventSeq ?? null);
   }
-  const omitted = receipts.length - blocks.length;
-  return [header, ...blocks, ...(omitted ? [`[${omitted} additional evidence entr${omitted === 1 ? "y" : "ies"} omitted]`] : [])].join("\n\n");
+  const sourceIndex = `Receipt index (tool:outcome → source event numbers): ${JSON.stringify(index)}`;
+  // Reserve room for references before admitting any large result. Spend the
+  // remaining space on recent evidence first, then render in original order.
+  // An early schema discovery must not displace later records or write receipts.
+  const blocks = [];
+  let characters = header.length + sourceIndex.length + 2;
+  if (characters > maximumCharacters) return "";
+  for (let index = receipts.length - 1; index >= 0; index -= 1) {
+    const receipt = receipts[index];
+    const reference = JSON.stringify({
+      receiptEventSeq: receipt.receiptEventSeq ?? null,
+      tool: receipt.tool,
+      status: receipt.ok ? "complete" : "error",
+      evidenceStoredInDurableReceipt: true,
+    });
+    if (characters + reference.length + 2 > maximumCharacters) continue;
+    blocks.push({ index, text: reference });
+    characters += reference.length + 2;
+  }
+  for (const block of blocks) {
+    const projection = continuationReceipt(receipts[block.index]);
+    const summary = JSON.stringify({ ...structuralEvidenceSummary(projection), evidenceStoredInDurableReceipt: true });
+    if (characters + summary.length - block.text.length <= maximumCharacters) {
+      characters += summary.length - block.text.length;
+      block.text = summary;
+    }
+  }
+  for (const block of blocks) {
+    const exact = JSON.stringify(continuationReceipt(receipts[block.index]));
+    const additionalCharacters = exact.length - block.text.length;
+    if (characters + additionalCharacters > maximumCharacters) continue;
+    block.text = exact;
+    characters += additionalCharacters;
+  }
+  return [
+    header, sourceIndex,
+    ...blocks.reverse().map(({ text }) => text),
+  ].join("\n\n");
 }
 
 function inlineToolResult(toolResult, { tool, receiptEventSeq, maximumCharacters }) {
@@ -1128,6 +1181,9 @@ export class SlayerRuntime {
       });
       return response;
     }
+    // Missing completion evidence is not, by itself, a repair strategy. An
+    // evidenced blocker must not turn into another automatic mutation attempt.
+    if (audit.value.outcome === "blocked") return audit.value.summary;
     if (audit.value.outcome !== "repair_needed" && executionFindings.length === 0) return execution.text;
 
     const remainingToolCalls = configuredMaxToolCalls === null
@@ -1154,6 +1210,10 @@ export class SlayerRuntime {
       effort: this.config.repairReasoningEffort ?? args.effort ?? this.config.reasoningEffort,
       initialReceipts: execution.receipts,
     });
+    const repairTerminalFindings = terminalToolFailureFindings(repair.receipts);
+    if (repairTerminalFindings.length) {
+      return joinedInstructions(repair.text, terminalToolFailureNotice(repairTerminalFindings));
+    }
     const finalFindings = completionReceiptFindings({
       brief,
       receipts: repair.receipts,
@@ -1302,7 +1362,8 @@ export class SlayerRuntime {
     const generatedActionReferences = [];
     let conversationCheckpoint = null;
     let finalAttemptStartedNewConversation = !conversationId;
-    const failedToolAttempts = new Set();
+    const failedToolAttempts = new Set(initialReceipts.filter((receipt) => !receipt.ok)
+      .map((receipt) => toolAttemptKey(receipt.tool, receipt.arguments)));
     while (true) {
       attempt += 1;
       const runTimeoutMs = configuredRunTimeoutMs === null
@@ -1396,6 +1457,7 @@ export class SlayerRuntime {
         requestAttachmentInput: context.requestAttachmentInput ?? null,
         tools,
         maxToolCalls: remainingToolCalls,
+        terminalFailureObserved: terminalToolFailureFindings(sameRequestReceipts).length > 0,
         runTimeoutMs,
       };
       const providerRequest = this.modelTransport.describeRequest(turnRequest);
@@ -1531,15 +1593,8 @@ export class SlayerRuntime {
               });
               return { ok: false, error: message };
             }
-            if (expansionRequested && !["request_capabilities", "request_tools"].includes(name)) {
-              const message = "Tool expansion is pending; no other tool is callable in this model turn";
-              this.ledger.append({
-                type: "tool.result", phase: "error", status: "error", actorType: "tool",
-                actorName: name, channel, turnId: requestId, operationId: callId, name,
-                payload: { callId, name }, error: message,
-              });
-              return { ok: false, error: message };
-            }
+            // Expansion adds schemas on the next exchange. Tools whose schemas
+            // were already sent remain callable for this response's other calls.
             const registeredTool = this.registry.get(name);
             const readOnly = registeredTool?.annotations?.readOnlyHint === true;
             const { toolArguments, filterRequest } = splitReadResultFilter(args, readOnly);
@@ -1683,6 +1738,17 @@ export class SlayerRuntime {
               return { ok: true, result: toolResult };
             }
             const attemptKey = toolAttemptKey(name, args);
+            const blocked = sameRequestReceipts.find((receipt) => (receipt.tool === name || !readOnly)
+              && normalizedToolFailure(receipt.toolFailure)?.terminalForCurrentRequest);
+            if (blocked) {
+              const error = `${name} is blocked after ${blocked.toolFailure.code}. Do not retry it; use a separate read for verification if needed and report the blocker.`;
+              this.ledger.append({
+                type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                actorName: name, channel, turnId: requestId, operationId: callId, name,
+                payload: { callId, name, toolFailure: blocked.toolFailure }, error,
+              });
+              return { ok: false, error, toolFailure: blocked.toolFailure };
+            }
             if (failedToolAttempts.has(attemptKey)) {
               const message = `An identical ${name} call with the same arguments already failed during this request. Do not repeat it; make a material correction or report the blocker.`;
               sameRequestReceipts.push({
@@ -1754,11 +1820,12 @@ export class SlayerRuntime {
               }
               if (providerResult?.isError) {
                 const message = providerToolError(name, toolResult);
+                const toolFailure = repeatedToolFailure(sameRequestReceipts, name, message, toolDefinition);
                 failedToolAttempts.add(attemptKey);
                 const resultEventId = this.ledger.append({
                   type: "tool.result", phase: "error", status: "error", actorType: "tool",
                   actorName: name, channel, turnId: requestId, operationId: callId, name,
-                  payload: { callId, name, result: toolResult, providerResult }, error: message,
+                  payload: { callId, name, result: toolResult, providerResult, ...(toolFailure ? { toolFailure } : {}) }, error: message,
                 });
                 const receiptEventSeq = typeof this.ledger.eventSequence === "function"
                   ? this.ledger.eventSequence(resultEventId)
@@ -1790,8 +1857,9 @@ export class SlayerRuntime {
                   tool: name, arguments: toolArguments,
                   ...(filterRequest ? { resultFilter: filterRequest } : {}),
                   ok: false, result: deliveredErrorResult, error: message, receiptEventSeq,
+                  ...(toolFailure ? { toolFailure } : {}),
                 });
-                return { ok: false, error: message, result: deliveredErrorResult };
+                return { ok: false, error: message, result: deliveredErrorResult, ...(toolFailure ? { toolFailure } : {}) };
               }
               const resultEventId = this.ledger.append({
                 type: "tool.result", phase: "end", status: "complete", actorType: "tool",
@@ -1881,18 +1949,20 @@ export class SlayerRuntime {
               return { ok: true, result: inline.deliveredResult };
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
-              const toolFailure = normalizedToolFailure(error?.toolFailure);
+              const toolFailure = normalizedToolFailure(error?.toolFailure)
+                ?? repeatedToolFailure(sameRequestReceipts, name, message, registeredTool);
               failedToolAttempts.add(attemptKey);
+              const errorEventId = this.ledger.append({
+                type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                actorName: name, channel, turnId: requestId, operationId: callId, name,
+                payload: { callId, name, ...(toolFailure ? { toolFailure } : {}) }, error: message,
+              });
               sameRequestReceipts.push({
                 tool: name, arguments: toolArguments,
                 ...(filterRequest ? { resultFilter: filterRequest } : {}),
                 ok: false, error: message,
+                receiptEventSeq: this.ledger.eventSequence?.(errorEventId) ?? null,
                 ...(toolFailure ? { toolFailure } : {}),
-              });
-              this.ledger.append({
-                type: "tool.result", phase: "error", status: "error", actorType: "tool",
-                actorName: name, channel, turnId: requestId, operationId: callId, name,
-                payload: { callId, name, ...(toolFailure ? { toolFailure } : {}) }, error: message,
               });
               return { ok: false, error: message, ...(toolFailure ? { toolFailure } : {}) };
             }

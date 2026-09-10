@@ -218,6 +218,33 @@ function filePageWithinBudget(value, maximumCharacters) {
   return page;
 }
 
+// Receipt pages are already slices of an immutable source. Fit their serialized
+// envelope, then advance on that same source instead of paging a page's receipt.
+function receiptPageWithinBudget(value, maximumCharacters) {
+  if (!value || typeof value.chunk !== "string"
+    || !Number.isSafeInteger(value.receiptEventSeq)
+    || !Number.isSafeInteger(value.offset) || value.offset < 0
+    || typeof value.hasMore !== "boolean") return null;
+  const page = { ...value };
+  const setLength = (length) => {
+    page.chunk = value.chunk.slice(0, length);
+    page.count = length;
+    page.hasMore = length < value.chunk.length || value.hasMore;
+    page.nextOffset = page.hasMore ? value.offset + length : null;
+  };
+  let low = 0;
+  let high = value.chunk.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    setLength(middle);
+    if (JSON.stringify(page).length <= maximumCharacters) low = middle;
+    else high = middle - 1;
+  }
+  if (low === 0) return null;
+  setLength(low);
+  return page;
+}
+
 export class ResultFilterBoundary {
   filterReadResult(result, {
     requestId, interactionId, tool, source, filterRequest, receiptEventSeq = null,
@@ -276,9 +303,19 @@ export class ResultFilterBoundary {
     const usefulSerialized = JSON.stringify(filtered);
     const overMaximum = usefulSerialized.length > filterRequest.max_characters;
     const nativePage = overMaximum
-      ? filePageWithinBudget(filtered, filterRequest.max_characters)
+      ? (tool === "tool_receipt_read"
+          ? receiptPageWithinBudget(filtered, filterRequest.max_characters)
+          : filePageWithinBudget(filtered, filterRequest.max_characters))
       : null;
     const receiptPaged = overMaximum && nativePage === null;
+    if (receiptPaged && tool === "tool_receipt_read") {
+      const error = "Receipt page metadata exceeds max_characters; increase the filter budget. Continue the original receipt, not a receipt of this page.";
+      const receipt = protocolReceipt({
+        requestId, interactionId, tool, source, filterRequest, status: "error", collectionPath,
+        inputCharacters, outputCharacters: 0, candidates, returned, prunedByReason, error,
+      });
+      return { ok: false, error, deliveredResult: { result_filter: receipt }, receipt, paged: false };
+    }
     if (receiptPaged && !Number.isSafeInteger(receiptEventSeq)) {
       const error = "Filtered result exceeds max_characters and has no durable receipt available for paging";
       const receipt = protocolReceipt({
@@ -295,7 +332,8 @@ export class ResultFilterBoundary {
     const outputCharacters = paged
       ? (nativePage ? JSON.stringify(nativePage).length : 0)
       : usefulSerialized.length;
-    const sourceHasMore = outputValue?.has_more === true;
+    const sourceHasMore = outputValue?.has_more === true
+      || (tool === "tool_receipt_read" && outputValue?.hasMore === true);
     const itemLimited = Number(prunedByReason.max_items ?? 0) > 0;
     const status = paged || sourceHasMore || itemLimited
       ? "partial"

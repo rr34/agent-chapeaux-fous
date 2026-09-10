@@ -177,6 +177,22 @@ Completion of an authorized mutation requires a successful receipt for the
 exact bound tool and arguments. Status reads and receipt inspection provide
 evidence for audit; the exact mutation receipt proves completion.
 
+Tool expansion preserves a source-and-outcome index of same-request receipts.
+Bounded continuation context favors recent evidence and uses deterministic
+structural summaries for oversized whole values, retaining their source paths
+instead of cutting text or inventing meanings. Exact receipts remain available
+for recovery. Receipt text pages advance on the original source using the
+delivered offset, including when the result filter reduces the page to fit its
+serialized envelope; they never recursively page through receipts of pages.
+
+An MCP output-schema mismatch blocks the affected tool until successful tool
+rediscovery after provider correction. Such an error does not prove rollback.
+The same tool error recurring after a correction stops automatic retries in the
+current request. These terminal failures permit a final verification round,
+block further mutations, and suppress audit-driven repair. Audit may mark an
+already known unresolved blocker as blocked; an incomplete objective alone is
+not a reason to repeat the failing operation.
+
 # 2D. Conversation types / structured interactions
 
 Agent Slayer supports two conversation types:

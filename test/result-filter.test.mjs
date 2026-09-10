@@ -16,6 +16,44 @@ function filterRequest(overrides = {}) {
   };
 }
 
+test("receipt pages advance on the original source and reconstruct escaped text at equal page/filter limits", () => {
+  const source = JSON.stringify({ records: Array.from({ length: 160 }, (_, id) => ({
+    id, text: 'Quotes " and backslashes \\ and newlines\n 🐈',
+  })) });
+  const boundary = new ResultFilterBoundary();
+  let offset = 0;
+  let reconstructed = "";
+  let pages = 0;
+  do {
+    const chunk = source.slice(offset, offset + 1000);
+    const result = boundary.filterReadResult({
+      receiptEventSeq: 42, tool: "provider_read", requestId: "original",
+      totalCharacters: source.length, offset, count: chunk.length,
+      hasMore: offset + chunk.length < source.length,
+      nextOffset: offset + chunk.length < source.length ? offset + chunk.length : null,
+      chunk,
+    }, {
+      requestId: "resume", interactionId: `page-${pages}`, tool: "tool_receipt_read",
+      receiptEventSeq: 500 + pages, filterRequest: filterRequest({ max_characters: 1000 }),
+    });
+    assert.equal(result.ok, true);
+    const { result_filter, ...page } = result.deliveredResult;
+    assert.equal(page.full_result_stored_in_receipt, undefined);
+    assert.equal(page.receiptEventSeq, 42);
+    assert.ok(JSON.stringify(page).length <= 1000);
+    assert.ok(page.count > 0);
+    assert.equal(page.count, page.chunk.length);
+    reconstructed += page.chunk;
+    pages += 1;
+    if (!page.hasMore) break;
+    assert.equal(result_filter.status, "partial");
+    assert.ok(page.nextOffset > offset);
+    offset = page.nextOffset;
+    assert.ok(pages < 100);
+  } while (true);
+  assert.equal(reconstructed, source);
+});
+
 test("read-only tool schemas require the search-data filter without changing provider arguments", async () => {
   let executedArguments;
   const registry = new ToolRegistry();

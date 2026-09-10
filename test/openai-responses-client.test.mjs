@@ -112,6 +112,7 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
 });
 
 test("OpenAI Responses accepts an empty completion after a successful tool-expansion control transfer", async () => {
+  const requests = [];
   const responses = [
     {
       id: "resp_expand",
@@ -131,7 +132,10 @@ test("OpenAI Responses accepts an empty completion after a successful tool-expan
   ];
   const client = new OpenAIResponsesClient({
     apiKey: "sk_test_secret_value_123456",
-    fetchImpl: async () => jsonResponse(responses.shift()),
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse(responses.shift());
+    },
   });
   const result = await client.runTurn({
     model: "gpt-5.6-terra", effort: "high", conversationId: null,
@@ -151,6 +155,11 @@ test("OpenAI Responses accepts an empty completion after a successful tool-expan
     }),
   });
 
+  assert.equal(requests[0].tool_choice, "auto");
+  assert.equal(requests[1].tool_choice, "none");
+  assert.equal(requests[1].previous_response_id, "resp_expand");
+  assert.equal(requests[1].input[0].type, "function_call_output");
+  assert.equal(JSON.parse(requests[1].input[0].output).ok, true);
   assert.equal(result.text, "");
   assert.deepEqual(result.controlTransfers, [{ tool: "request_tools", callId: "call_expand" }]);
   assert.equal(result.protocol.controlTransfer, true);
@@ -305,4 +314,32 @@ test("OpenAI API errors redact the configured key", async () => {
     }),
     (error) => !error.message.includes(apiKey) && /REDACTED/.test(error.message),
   );
+});
+
+test("a terminal error permits one verification round then requires a final response with both results", async () => {
+  const requests = [];
+  const responses = [
+    { id: "fail", status: "completed", output: [{ type: "function_call", call_id: "write", name: "todo_create", arguments: '{"text":"test"}' }] },
+    { id: "verify", status: "completed", output: [{ type: "function_call", call_id: "read", name: "todo_list", arguments: '{}' }] },
+    { id: "finish", status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Blocked; verification found no task." }] }] },
+  ];
+  const failure = { ok: false, error: "Output contract failed", toolFailure: { terminalForCurrentRequest: true } };
+  const verification = { ok: true, result: { tasks: [] } };
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse(responses.shift());
+    },
+  });
+  const result = await client.runTurn({
+    model: "test", tools: [...tools, { name: "todo_list", description: "Read tasks.", inputSchema: { type: "object", properties: {} } }],
+    input: "Create task.", baseInstructions: "", developerInstructions: "", maxToolCalls: 256,
+    onToolCall: async ({ tool }) => tool === "todo_create" ? failure : verification,
+  });
+  assert.deepEqual(requests.map(({ tool_choice }) => tool_choice), ["auto", "auto", "none"]);
+  assert.equal(requests[1].input[0].output, JSON.stringify(failure));
+  assert.equal(requests[2].input[0].output, JSON.stringify(verification));
+  assert.equal(requests[2].previous_response_id, "verify");
+  assert.equal(result.text, "Blocked; verification found no task.");
 });

@@ -95,7 +95,7 @@ export function registerDatabaseTools(
 
   databaseRegistry.register({
     name: "tool_receipt_read",
-    description: "Read one exact durable tool call/result receipt as bounded JSON text. Start at offset 0 and continue with nextOffset while hasMore is true. Use this instead of repeating a completed action whose large result was paged or whose native model thread was replaced.",
+    description: "Read one exact durable tool call/result receipt as bounded JSON text. Start at offset 0. Keep the original receiptEventSeq and advance using the delivered nextOffset while hasMore is true; the result filter may shorten the page to fit its envelope. Never read a receipt of this page to continue. Stop when the needed evidence is recovered. Prefer a targeted domain read for current state. Use receipts instead of repeating a completed action whose result is unavailable.",
     parameters: {
       type: "object",
       additionalProperties: false,

@@ -1978,7 +1978,7 @@ async function loadRequests({ force = false, followLatest = false } = {}) {
     || initialLoad
     || window.scrollY + window.innerHeight >= previousPageHeight - 160;
   const limit = Number(elements.requestLimit.value) || 25;
-  const body = await api(`/api/requests?limit=${limit}`);
+  const body = await api(`/api/requests?limit=${limit}`, { signal: AbortSignal.timeout(10_000) });
   const seen = new Set();
   const chronologicalRequests = [...body.requests].reverse();
   const structuredGenerationStatuses = new Map(
@@ -2066,7 +2066,19 @@ async function showTrace(requestId) {
 }
 
 async function loadHealth() {
-  const response = await fetch("/health", { cache: "no-store" });
+  let response;
+  try {
+    response = await fetch("/health", { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+  } catch (error) {
+    lastHealth = { checkedAtUtc: new Date().toISOString(), httpStatus: null,
+      body: { ready: false, reason: "Cannot reach the server", error: error.message } };
+    elements.runtime.textContent = "Server unreachable";
+    elements.runtime.classList.remove("ready");
+    elements.runtime.classList.add("not-ready");
+    elements.runtime.title = "Cannot reach the server. Retrying automatically. Click to copy diagnostics.";
+    updateEventInviteDraftAvailability();
+    return;
+  }
   let body;
   try { body = await response.json(); } catch { body = { ready: false, error: `Invalid health response (${response.status})` }; }
   lastHealth = { checkedAtUtc: new Date().toISOString(), httpStatus: response.status, body };
@@ -6131,11 +6143,15 @@ if (new URLSearchParams(window.location.search).get("oauth") === "connected") {
   elements.status.textContent = "MCP OAuth connected.";
   history.replaceState(null, "", window.location.pathname);
 }
-loadHealth().catch(() => {});
-loadRequests({ force: true }).catch(() => {});
+// Wait for each read (including its timeout) before scheduling the next one.
+// An unavailable server must not accumulate requests on every interval tick.
+async function poll(callback, interval) {
+  try { await callback(); } catch {}
+  setTimeout(() => poll(callback, interval), interval);
+}
+poll(loadHealth, 5000);
+poll(loadRequests, 1500);
 loadFiles().catch(() => {});
 switchView("agent");
-setInterval(() => loadHealth().catch(() => {}), 5000);
-setInterval(() => loadRequests().catch(() => {}), 1500);
 setInterval(updateProgressClocks, 250);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(() => {});

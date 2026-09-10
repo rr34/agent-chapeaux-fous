@@ -335,7 +335,8 @@ export function auditContext({
 }) {
   return [
     "# Completion audit input",
-    "Compare the accepted TurnBrief with literal tool receipts and the proposed executor response. Mark complete only when the receipts and response prove every requested outcome. Mark repair_needed when safe callable work remains. Mark blocked only for a new evidenced blocker. Do not invent actions or confirmation.",
+    "Compare the accepted TurnBrief with literal tool receipts and the proposed executor response. Mark complete only when the receipts and response prove every requested outcome. Mark repair_needed only when a specific safe callable action can correct the gap. Mark blocked for an evidenced blocker, including an already observed provider failure that remains unresolved. Output-schema failures cannot be repaired by resending inputs or changing idempotency keys. Do not prescribe retries without a material correction supported by evidence. Correct an inaccurate executor explanation, distinguishing an attempted failed call from one that never ran. Do not invent actions or confirmation.",
+    "For blocked, summary becomes the final user-facing response: state the evidenced blocker and what remains incomplete, preserve relevant verified successes, and correct unsupported claims in the executor response. Do not expose internal lifecycle terminology.",
     "",
     "## Accepted TurnBrief",
     JSON.stringify(brief, null, 2),
@@ -362,6 +363,7 @@ export function auditContext({
 export const orientationInstructions = [
   "You are the orientation phase of Chapeaux Fous. Produce only the schema-constrained TurnBrief.",
   "Resolve the exact current request against the supplied recent conversation and rolling state.",
+  "A receipt index proves only its displayed metadata. When selecting receiptReferences, state the information to check, not an assertion about unseen result contents. Prefer a live domain read for current state; include its tool in requiredTools rather than making historical receipt reconstruction a prerequisite. Prior assistant explanations are claims to verify against tool evidence, especially when continuing failed work.",
   "For an informational continuation, use exact recent conversation entries as evidence when they already answer the question; leave requiredTools empty rather than selecting a tool merely because its catalog topic is related. A focused knowledge tool supplies evidence, not final wording: select it when current facts are needed, and define completion around answering the user's actual question rather than reproducing a stored fact or prior response.",
   "A short yes can confirm a concrete prior offer without repeating its wording. A correction changes only what it explicitly changes. An addition preserves the earlier objective. A question does not confirm a write.",
   "When the user confirms a prepared MCP change, select its exact active reference in confirmedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",

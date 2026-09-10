@@ -1256,7 +1256,7 @@ test("structured execution cannot fish in unrelated capabilities when an MCP ope
     return completed(JSON.stringify({
       contractVersion: 1,
       outcome: "blocked",
-      summary: "The complete callable accounting tool snapshot contains no transaction-deletion operation.",
+      summary: blockedResponse,
       satisfiedCriteria: [],
       remainingActions: ["Delete the confirmed transactions when the accounting MCP publishes that workflow."],
       repairInstructions: [],
@@ -2087,4 +2087,85 @@ test("approval binds execution to the exact active plan and blocks request-id su
   assert.equal(toolResponses[1].ok, true);
   assert.deepEqual(commits, [{ import_plan_id: "plan-exact-273" }]);
   assert.equal(ledger.events.some(({ type }) => type.startsWith("action.artifact")), false);
+});
+
+test("repeated errors stop changed-key retries, allow verification, and override an audit requesting repair", async () => {
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  let writes = 0;
+  registry.withCapability("todos").register({
+    name: "todo_create", description: "Create a todo.",
+    parameters: { type: "object", properties: { key: { type: "string" } }, required: ["key"] },
+    async execute() { writes += 1; throw new Error("Provider unavailable"); },
+  });
+  registry.withCapability("todos").register({
+    name: "todo_list", description: "Read current todos.", annotations: { readOnlyHint: true },
+    parameters: { type: "object", properties: {} },
+    async execute() { return { tasks: [] }; },
+  });
+  const requests = [];
+  const selected = { ...brief(), requiredTools: ["todo_create", "todo_list"] };
+  const runtime = new SlayerRuntime({
+    registry, ledger, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(), config: workflowConfig(),
+    modelTransport: transport(async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(selected), 20);
+      if (index === 1) {
+        for (const key of ["original", "changed", "another"]) {
+          const result = await payload.onToolCall({ callId: key, tool: "todo_create", arguments: { key } });
+          assert.equal(result.ok, false);
+          if (key !== "original") assert.equal(result.toolFailure.code, "REPEATED_TOOL_ERROR");
+        }
+        const verification = await payload.onToolCall({
+          callId: "verify", tool: "todo_list", arguments: { result_filter: identityResultFilter() },
+        });
+        assert.equal(verification.ok, true);
+        return completed("The provider failed; the task list is empty.", 50);
+      }
+      if (index === 2) return completed(JSON.stringify({
+        contractVersion: 1, outcome: "repair_needed", summary: "Try again.",
+        satisfiedCriteria: [], remainingActions: ["Create the task."], repairInstructions: ["Use another key."],
+      }), 10);
+      throw new Error("Repeated failures must not enter repair");
+    }, requests),
+  });
+  runtime.systemPrompt = "SYSTEM";
+  const result = await runtime.run({ requestId: "retry-test", requestEventId: "event-current", text: "Go ahead." });
+  assert.equal(writes, 2);
+  assert.equal(requests.length, 3);
+  assert.match(result, /Automatic retries have stopped/);
+  const failed = ledger.events.filter((event) => event.type === "tool.result" && event.status === "error");
+  assert.ok(failed[1].payload.toolFailure);
+});
+
+test("an audited blocker corrects the executor explanation without another repair attempt", async () => {
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  let writes = 0;
+  registry.withCapability("todos").register({
+    name: "todo_create", description: "Create a task.", parameters: { type: "object", properties: {} },
+    async execute() { writes += 1; throw new Error("Database connection refused"); },
+  });
+  const requests = [];
+  const corrected = "The task could not be created because the database connection failed.";
+  const runtime = new SlayerRuntime({
+    registry, ledger, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(), config: workflowConfig(),
+    modelTransport: transport(async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(brief()), 20);
+      if (index === 1) {
+        await payload.onToolCall({ callId: "write", tool: "todo_create", arguments: {} });
+        return completed("The call limit prevented the update from running.", 30);
+      }
+      if (index === 2) return completed(JSON.stringify({
+        contractVersion: 1, outcome: "blocked", summary: corrected,
+        satisfiedCriteria: [], remainingActions: ["Create task after database recovery."], repairInstructions: [],
+      }), 10);
+      throw new Error("A blocked audit must not repeat the failing write");
+    }, requests),
+  });
+  runtime.systemPrompt = "SYSTEM";
+  assert.equal(await runtime.run({ requestId: "blocked", requestEventId: "event-current", text: "Go ahead." }), corrected);
+  assert.equal(writes, 1);
+  assert.equal(requests.length, 3);
 });

@@ -1,4 +1,4 @@
-const cacheName = "agent-slayer-shell-v52";
+const cacheName = "agent-slayer-shell-v53";
 const shell = [
   "/", "/app.js", "/ai-usage.js", "/calendar-grid.js", "/event-date-time.js", "/presentation-format.js", "/timing-editor.js", "/markdown.js", "/vendor/dompurify.js", "/vendor/marked.js",
   "/styles.css", "/favicon.png", "/icon.svg", "/hats.svg", "/manifest.webmanifest",
@@ -9,6 +9,16 @@ self.addEventListener("activate", (event) => event.waitUntil(
   caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== cacheName).map((key) => caches.delete(key)))),
 ));
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET" || new URL(event.request.url).pathname.startsWith("/api/")) return;
-  event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+  const url = new URL(event.request.url);
+  // Only the application shell has an offline copy. Health, APIs, and other
+  // origins must keep their real network status instead of using a cache.
+  if (event.request.method !== "GET" || url.origin !== self.location.origin || !shell.includes(url.pathname)) return;
+  event.respondWith(fetch(event.request).catch(async () => {
+    try {
+      const cache = await caches.open(cacheName);
+      return await cache.match(url.pathname) || Response.error();
+    } catch {
+      return Response.error();
+    }
+  }));
 });
