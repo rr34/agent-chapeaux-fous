@@ -446,8 +446,8 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(document, /id="content-description"/);
   assert.match(document, /id="content-transcript"/);
   assert.match(document, /<span>Mon<\/span><span>Tue<\/span><span>Wed<\/span><span>Thu<\/span><span>Fri<\/span><span>Sat<\/span><span>Sun<\/span>/);
-  assert.match(document, /aria-label="Previous two weeks"/);
-  assert.match(document, /aria-label="Next two weeks"/);
+  assert.match(document, /aria-label="Previous week"/);
+  assert.match(document, /aria-label="Next week"/);
   assert.match(document, /aria-label="Previous month"/);
   assert.match(document, /aria-label="Next month"/);
   assert.match(document, /aria-label="Previous year"/);
@@ -460,8 +460,8 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.ok(document.indexOf('class="calendar-range-panel') < document.indexOf('class="agenda-panel'));
   assert.match(application, /function twoWeekCalendarRange/);
   assert.match(application, /const gridEnd = addDays\(gridStart, 14\)/);
-  assert.match(application, /selectedCalendarDate = addDays\(selectedCalendarDate, -14\)/);
-  assert.match(application, /selectedCalendarDate = addDays\(selectedCalendarDate, 14\)/);
+  assert.match(application, /selectedCalendarDate = addDays\(selectedCalendarDate, -7\)/);
+  assert.match(application, /selectedCalendarDate = addDays\(selectedCalendarDate, 7\)/);
   assert.match(application, /selectedCalendarDate = addCalendarMonths\(selectedCalendarDate, -1\)/);
   assert.match(application, /selectedCalendarDate = addCalendarMonths\(selectedCalendarDate, 1\)/);
   assert.match(application, /selectedCalendarDate = addCalendarMonths\(selectedCalendarDate, -12\)/);

@@ -5995,13 +5995,13 @@ document.addEventListener("click", (event) => {
 });
 elements.composerHatsLink.addEventListener("click", () => switchView("hats"));
 elements.previousWeeks.addEventListener("click", () => {
-  selectedCalendarDate = addDays(selectedCalendarDate, -14);
-  calendarRangeStart = startOfWeek(selectedCalendarDate);
+  selectedCalendarDate = addDays(selectedCalendarDate, -7);
+  calendarRangeStart = addDays(calendarRangeStart, -7);
   void refreshCalendar();
 });
 elements.nextWeeks.addEventListener("click", () => {
-  selectedCalendarDate = addDays(selectedCalendarDate, 14);
-  calendarRangeStart = startOfWeek(selectedCalendarDate);
+  selectedCalendarDate = addDays(selectedCalendarDate, 7);
+  calendarRangeStart = addDays(calendarRangeStart, 7);
   void refreshCalendar();
 });
 elements.previousCalendarMonth.addEventListener("click", () => {
