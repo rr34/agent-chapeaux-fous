@@ -611,6 +611,8 @@ const server = http.createServer(async (request, response) => {
         todos: organizer.listTodos({
           scope: url.searchParams.get("scope") || "active",
           limit: url.searchParams.get("limit") || 500,
+          from: url.searchParams.get("from"),
+          to: url.searchParams.get("to"),
         }),
       });
       return;

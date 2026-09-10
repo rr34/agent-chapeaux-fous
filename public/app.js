@@ -106,6 +106,9 @@ const elements = {
   routineAgendaCount: document.querySelector("#routine-agenda-count"),
   routineAgendaList: document.querySelector("#routine-agenda-list"),
   routinePublishStatus: document.querySelector("#routine-publish-status"),
+  calendarPublication: document.querySelector("#calendar-publication"),
+  calendarPublicationStatus: document.querySelector("#calendar-publication-status"),
+  clearCalendarPublication: document.querySelector("#clear-calendar-publication"),
   newRoutine: document.querySelector("#new-routine"),
   publishRoutineThisWeek: document.querySelector("#publish-routine-this-week"),
   publishRoutineNextWeek: document.querySelector("#publish-routine-next-week"),
@@ -409,6 +412,7 @@ let calendarEvents = [];
 let calendarSearchTimer = null;
 let calendarSearchSequence = 0;
 let activeTodos = [];
+let publishedCalendarTodoIds = new Set();
 let selectedRoutineDate = new Date();
 let routineOccurrences = [];
 let routineDefinitions = [];
@@ -2367,7 +2371,7 @@ async function refreshCalendar() {
   try {
     const [calendarBody, todoBody, groupBody, guideBody] = await Promise.all([
       api(`/api/calendar-events?from=${encodeURIComponent(gridStart.toISOString())}&to=${encodeURIComponent(gridEnd.toISOString())}`),
-      api("/api/todos?scope=active&limit=1000"),
+      api(`/api/todos?scope=active&limit=1000&from=${encodeURIComponent(gridStart.toISOString())}&to=${encodeURIComponent(gridEnd.toISOString())}`),
       api("/api/todo-groups"),
       api("/api/interaction-guides?status=active&limit=500"),
     ]);
@@ -2376,7 +2380,8 @@ async function refreshCalendar() {
     todoGroups = groupBody.groups;
     todoGuides = guideBody.guides;
     if (calendarSchedulingTodo) {
-      calendarSchedulingTodo = activeTodos.find(({ id }) => id === calendarSchedulingTodo.id) ?? null;
+      // An unscheduled task, or one outside this week, is absent from this read.
+      calendarSchedulingTodo = activeTodos.find(({ id }) => id === calendarSchedulingTodo.id) ?? calendarSchedulingTodo;
       updateCalendarSchedulingMode();
     }
     renderCalendar();
@@ -2527,7 +2532,17 @@ async function publishRoutineRange(from, to) {
     const existing = result.existingCount
       ? ` ${result.existingCount} ${result.existingCount === 1 ? "item was" : "items were"} already published.`
       : "";
-    elements.routinePublishStatus.textContent = `Created ${result.createdCount} scheduled ${result.createdCount === 1 ? "to-do" : "to-dos"}.${existing}`;
+    const range = `${formatDisplayDate(from, { includeTime: false })} through ${formatDisplayDate(addDays(to, -1), { includeTime: false })}`;
+    elements.routinePublishStatus.textContent = `Created ${result.createdCount} scheduled ${result.createdCount === 1 ? "to-do" : "to-dos"} for ${range}.${existing}`;
+    publishedCalendarTodoIds = new Set(result.todos.map(({ id }) => id));
+    elements.calendarPublicationStatus.textContent = elements.routinePublishStatus.textContent
+      + (result.createdCount > 0 ? " Newly added items are highlighted." : "");
+    elements.calendarPublication.hidden = false;
+    calendarRangeStart = startOfWeek(from);
+    selectedCalendarDate = new Date(from);
+    elements.calendarSearch.value = "";
+    setCalendarSearchMode(false);
+    switchView("calendar");
   } catch (error) {
     elements.routinePublishStatus.textContent = error.message || "Could not publish the routine.";
   } finally {
@@ -2664,7 +2679,7 @@ function renderCalendar() {
       const due = todosDueOnDay(date);
       return [
         ...events.map(calendarEventCellItem),
-        ...scheduled.map(scheduledTodoCellItem),
+        ...scheduled.map((todo) => scheduledTodoCellItem(todo, { highlighted: publishedCalendarTodoIds.has(todo.id) })),
         ...due.map((value) => ({ className: "day-todo", text: `Due ${value.text}` })),
       ];
     },
@@ -2798,6 +2813,10 @@ function agendaTodoItem(todo, timing) {
     const item = node("div", "agenda-event");
     const button = node("button", "agenda-item todo");
     button.type = "button";
+    if (publishedCalendarTodoIds.has(todo.id)) {
+      button.classList.add("routine-published");
+      button.title = "Newly added from your routine";
+    }
     if (todo.routinePublicationMode === "calendar" && todo.routineText) {
       button.append(
         node("strong", "", todo.routineText),
@@ -6036,6 +6055,11 @@ elements.newTodo.addEventListener("click", async () => {
   openTodoEditor();
 });
 elements.newRoutine.addEventListener("click", () => void openNewRoutine());
+elements.clearCalendarPublication.addEventListener("click", () => {
+  publishedCalendarTodoIds.clear();
+  elements.calendarPublication.hidden = true;
+  renderCalendar();
+});
 elements.publishRoutineThisWeek.addEventListener("click", () => {
   const from = startOfDay(new Date());
   void publishRoutineRange(from, addDays(startOfWeek(from), 7));

@@ -1764,18 +1764,33 @@ export class OrganizerStore {
     };
   }
 
-  listTodos({ scope = "active", limit = 500 } = {}) {
+  listTodos({ scope = "active", limit = 500, from = null, to = null } = {}) {
     const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 1000 });
     if (!new Set(["active", "unplanned", "all", "completed"]).has(scope)) {
       throw new OrganizerInputError("scope must be active, unplanned, completed, or all.");
     }
-    const where = scope === "active"
+    let where = scope === "active"
       ? "WHERE task.status IN ('unplanned', 'todo', 'ai_suggested')"
       : scope === "unplanned"
         ? "WHERE task.status = 'unplanned'"
         : scope === "completed"
           ? "WHERE task.status = 'complete'"
           : "";
+    const parameters = [];
+    if (from !== null || to !== null) {
+      const fromUtc = isoDateTime(from, "from");
+      const toUtc = isoDateTime(to, "to");
+      if (!fromUtc || !toUtc || fromUtc >= toUtc
+        || new Date(toUtc) - new Date(fromUtc) > dayMilliseconds * 62) {
+        throw new OrganizerInputError("Calendar to-dos require a positive from/to range of at most 62 days.");
+      }
+      // Filter before LIMIT so unrelated backlog cannot hide the displayed week.
+      where += `${where ? " AND" : "WHERE"} (
+        (task.scheduled_at_utc >= ? AND task.scheduled_at_utc < ?)
+        OR (task.due_at_utc >= ? AND task.due_at_utc < ?)
+      )`;
+      parameters.push(fromUtc, toUtc, fromUtc, toUtc);
+    }
     return this.database.prepare(`
       SELECT task.*, todo_group.name AS group_name,
              todo_group.archived_at_utc AS group_archived_at_utc,
@@ -1803,7 +1818,7 @@ export class OrganizerStore {
         task.sort_position,
         task.personal_task_id
       LIMIT ?
-    `).all(boundedLimit).map(publicTodo);
+    `).all(...parameters, boundedLimit).map(publicTodo);
   }
 
   moveOverdueTodosToToday(input) {

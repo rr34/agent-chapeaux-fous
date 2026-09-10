@@ -61,10 +61,14 @@ export function calendarEventCellItem(event) {
   };
 }
 
-export function scheduledTodoCellItem(todo) {
+export function scheduledTodoCellItem(todo, { highlighted = false } = {}) {
   const routine = todo.routinePublicationMode === "calendar" ? todo.routineText : null;
   const plan = routine && todo.text !== routine ? ` — ${todo.text}` : "";
-  return { className: "day-todo", text: `${routine ?? todo.text}${plan}` };
+  return {
+    className: highlighted ? "day-todo routine-published" : "day-todo",
+    text: `${routine ?? todo.text}${plan}`,
+    ...(highlighted ? { title: "Newly added from your routine" } : {}),
+  };
 }
 
 export function calendarGridCellContents(items, maximumRows = 8) {
@@ -120,6 +124,7 @@ export function renderCalendarGrid({
       const row = document.createElement("span");
       row.className = item.className;
       row.textContent = item.text;
+      if (item.title) row.title = item.title;
       items.append(row);
     }
     if (contents.hiddenCount > 0) {

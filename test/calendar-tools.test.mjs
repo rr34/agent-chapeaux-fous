@@ -106,6 +106,7 @@ test("native calendar tools create, list, update, and cancel stored events", asy
 
   const updated = await registry.execute("calendar_event_update", {
     calendar_event_id: created.event.calendar_event_id,
+    scope: "event",
     title: "Dental cleaning",
     description: null,
     location_text: "",
@@ -116,6 +117,7 @@ test("native calendar tools create, list, update, and cancel stored events", asy
     status: "cancelled",
   }, toolContext);
   assert.equal(updated.event.title, "Dental cleaning");
+  assert.equal(updated.scope, "event");
   assert.equal(updated.event.location_text, null);
   assert.equal(updated.event.status, "cancelled");
 
@@ -124,6 +126,58 @@ test("native calendar tools create, list, update, and cancel stored events", asy
     ends_at_utc: "2026-08-19T00:00:00Z",
   }, toolContext);
   assert.equal(afterCancellation.count, 0);
+});
+
+test("calendar updates distinguish series changes from one occurrence and preserve exceptions", async (context) => {
+  const { store, registry } = calendarFixture(context);
+  const created = await registry.execute("calendar_event_add", {
+    title: "Family time", description: null, location_text: null,
+    starts_at_utc: "2026-09-04T21:00:00.000Z", ends_at_utc: "2026-09-05T18:00:00.000Z",
+    time_zone: "America/New_York", is_all_day: false, status: "confirmed",
+    recurrence: { frequency: "WEEKLY", interval: 1, weekdays: ["FR"], count: 3,
+      until_date: null, time_zone: "America/New_York" },
+  });
+  const id = Number(created.event.calendar_event_id);
+  const update = { calendar_event_id: id, scope: "event", title: null,
+    description: "Visit Grandma this weekend", location_text: null, starts_at_utc: null,
+    ends_at_utc: null, time_zone: null, is_all_day: null, status: null };
+  const db = store.requireReady();
+  const before = db.prepare("SELECT * FROM calendar_events WHERE calendar_event_id = ?").get(id);
+  const receiptCount = db.prepare("SELECT COUNT(*) AS n FROM activity_events").get().n;
+  await assert.rejects(registry.execute("calendar_event_update", update), /calendar_event_occurrence_update/);
+  assert.deepEqual(db.prepare("SELECT * FROM calendar_events WHERE calendar_event_id = ?").get(id), before);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM activity_events").get().n, receiptCount);
+
+  const occurrenceInput = { calendar_event_id: id, occurrence_starts_at_utc: "2026-09-11T21:00:00.000Z",
+    starts_at_utc: null, ends_at_utc: null, title: null, description: update.description, status: null };
+  const exception = await registry.execute("calendar_event_occurrence_update", occurrenceInput);
+  const repeated = await registry.execute("calendar_event_occurrence_update", occurrenceInput);
+  assert.equal(repeated.event.calendar_event_id, exception.event.calendar_event_id);
+
+  const range = { starts_at_utc: "2026-09-04T00:00:00.000Z", ends_at_utc: "2026-09-20T00:00:00.000Z" };
+  const single = await registry.execute("calendar_event_list", range);
+  assert.deepEqual(single.occurrences.map(item => item.calendar_events.description),
+    [null, update.description, null]);
+
+  const result = await registry.execute("calendar_event_update", {
+    ...update, scope: "series", description: "Standing family commitment",
+  });
+  assert.equal(result.scope, "series");
+  assert.equal(result.event.recurrence_rule, created.event.recurrence_rule);
+  const series = await registry.execute("calendar_event_list", range);
+  assert.deepEqual(series.occurrences.map(item => item.calendar_events.description),
+    ["Standing family commitment", update.description, "Standing family commitment"]);
+
+  await assert.rejects(registry.execute("calendar_event_update", {
+    ...update, calendar_event_id: exception.event.calendar_event_id, scope: "series",
+  }), /Use scope=event/);
+  const edited = await registry.execute("calendar_event_update", {
+    ...update, calendar_event_id: exception.event.calendar_event_id, description: "Revised weekend plan",
+  });
+  assert.equal(edited.scope, "event");
+  const final = await registry.execute("calendar_event_list", range);
+  assert.deepEqual(final.occurrences.map(item => item.calendar_events.description),
+    ["Standing family commitment", "Revised weekend plan", "Standing family commitment"]);
 });
 
 test("calendar events store and clear an optional planning prompt", async (context) => {
@@ -144,6 +198,7 @@ test("calendar events store and clear an optional planning prompt", async (conte
 
   const updated = await registry.execute("calendar_event_update", {
     calendar_event_id: created.event.calendar_event_id,
+    scope: "event",
     title: null,
     description: null,
     location_text: null,

@@ -326,16 +326,20 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_update",
-    description: "Update or cancel one native calendar event by calendar_event_id. Null means leave a field unchanged; use an empty string to clear description, location_text, planning_prompt_text, ends_at_utc, or time_zone. Change recurrence separately with calendar_event_recurrence_set.",
+    description: "Update or cancel a stored calendar event with explicit scope. Use scope=event for a one-time event or an already materialized exception. For a recurring master, scope=series is required: changes affect the whole series, including past and future generated occurrences; separately edited exceptions are not rewritten. Use calendar_event_occurrence_update with the series ID and original occurrence start to change just one occurrence. Choose series only when the user requests the whole series; if scope is unclear, offer just this occurrence or the whole series before changing anything. Null means leave a field unchanged; use an empty string to clear description, location_text, planning_prompt_text, ends_at_utc, or time_zone. Change recurrence separately with calendar_event_recurrence_set.",
     outputSchema: {
       type: "object",
-      properties: { event: calendarEventRecordSchema },
+      properties: {
+        event: calendarEventRecordSchema,
+        scope: { type: "string", enum: ["event", "series"], description: "Applied scope: event changed only this stored one-time event or exception; series changed the recurring master and its generated occurrences, without rewriting separately edited exceptions." },
+      },
     },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         calendar_event_id: { type: "integer", minimum: 1, description: "Stable local identifier for this calendar event." },
+        scope: { type: "string", enum: ["event", "series"], description: "Required explicit scope. event edits only a one-time event or materialized exception and is rejected for a recurring master. series edits the recurring master for all generated occurrences and requires the user's whole-series intent. For just one occurrence of a series, use calendar_event_occurrence_update instead. Ask the user to choose when scope is unclear." },
         title: { ...optionalText, description: "Human-readable event name shown on the calendar." },
         description: { ...optionalText, description: "Complete available description or notes for the event." },
         location_text: { ...optionalText, description: "Human-readable physical, virtual, or meeting location." },
@@ -347,13 +351,19 @@ export function registerCalendarTools(
         status: { type: ["string", "null"], enum: [...statuses, null], description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },
       },
       required: [
-        "calendar_event_id", "title", "description", "location_text", "starts_at_utc",
+        "calendar_event_id", "scope", "title", "description", "location_text", "starts_at_utc",
         "ends_at_utc", "time_zone", "is_all_day", "status",
       ],
     },
     async execute(input, context) {
       const database = store.requireReady();
       const before = requireCalendarEvent(database, input.calendar_event_id);
+      if (before.recurrence_rule && input.scope !== "series") {
+        throw new Error("This event is a recurring series. No changes were made. To change just one occurrence, use calendar_event_occurrence_update with the series ID and original occurrence start. To change the whole series, use scope=series only when the user requests it. If unclear, ask: just this occurrence or the whole series?");
+      }
+      if (!before.recurrence_rule && input.scope !== "event") {
+        throw new Error("This record is a one-time event or materialized exception, not a recurring master. Use scope=event to change only this event. To change a whole series, read and supply its recurring master ID with scope=series.");
+      }
       const values = {};
       if (input.title !== null) values.title = normalizedText(input.title, "title", 500, { required: true });
       if (input.description !== null) values.description = normalizedText(input.description, "description", 10_000);
@@ -390,7 +400,7 @@ export function registerCalendarTools(
           event,
           before,
         });
-        const result = { updated: true, event };
+        const result = { updated: true, scope: input.scope, event };
         database.exec("COMMIT");
         return result;
       } catch (error) {

@@ -532,6 +532,9 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .day-event.all-day { border-left: 3px solid var(--accent); }
 .day-event.tentative { background: rgba(240, 189, 79, .1); }
 .day-todo { overflow: hidden; color: var(--muted); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
+.day-todo.routine-published, .agenda-item.routine-published { background: #fff0bd; color: #49370b; outline: 1px dashed #997012; outline-offset: -1px; border-radius: .2rem; }
+.calendar-publication { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
+.calendar-publication[hidden] { display: none; }
 .day-more { color: var(--muted); font-size: .62rem; }
 .agenda-panel { padding: 1rem; }
 .agenda-panel h3 { margin: 0; font-size: 1.05rem; }
