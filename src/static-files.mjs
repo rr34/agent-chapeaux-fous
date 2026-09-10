@@ -5,6 +5,7 @@ import path from "node:path";
 export function createStaticHandler(config) {
   const staticFiles = new Map([
     ["/", [path.join(config.repositoryRoot, "landing", "index.html"), "text/html; charset=utf-8"]],
+    ["/logo-chapeaux-fous-1200-square-transparent.png", [path.join(config.repositoryRoot, "logo-chapeaux-fous-1200-square-transparent.png"), "image/png"]],
     ["/app", ["index.html", "text/html; charset=utf-8"]],
     ["/app/", ["index.html", "text/html; charset=utf-8"]],
     ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],

@@ -1,7 +1,8 @@
-const cacheName = "agent-slayer-shell-v54";
+const cacheName = "agent-slayer-shell-v55";
 const shell = [
   "/", "/app", "/app/", "/app.js", "/ai-usage.js", "/calendar-grid.js", "/event-date-time.js", "/presentation-format.js", "/timing-editor.js", "/markdown.js", "/vendor/dompurify.js", "/vendor/marked.js",
   "/styles.css", "/favicon.png", "/icon.svg", "/hats.svg", "/manifest.webmanifest",
+  "/logo-chapeaux-fous-1200-square-transparent.png",
 ];
 
 self.addEventListener("install", (event) => event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(shell))));
