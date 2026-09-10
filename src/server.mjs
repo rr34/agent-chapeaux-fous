@@ -4,6 +4,7 @@ import fsp from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { loadConfig } from "./config.mjs";
+import { createStaticHandler } from "./static-files.mjs";
 import { createFileArtifactSource } from "./artifact-source.mjs";
 import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
@@ -185,24 +186,7 @@ const queue = new RequestQueue({
   maxRequestAttachmentBytes: config.maxRequestAttachmentBytes,
 });
 
-const staticFiles = new Map([
-  ["/", ["index.html", "text/html; charset=utf-8"]],
-  ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
-  ["/ai-usage.js", ["ai-usage.js", "text/javascript; charset=utf-8"]],
-  ["/calendar-grid.js", ["calendar-grid.js", "text/javascript; charset=utf-8"]],
-  ["/event-date-time.js", ["event-date-time.js", "text/javascript; charset=utf-8"]],
-  ["/presentation-format.js", ["presentation-format.js", "text/javascript; charset=utf-8"]],
-  ["/timing-editor.js", ["timing-editor.js", "text/javascript; charset=utf-8"]],
-  ["/markdown.js", ["markdown.js", "text/javascript; charset=utf-8"]],
-  ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
-  ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],
-  ["/service-worker.js", ["service-worker.js", "text/javascript; charset=utf-8"]],
-  ["/favicon.png", ["favicon.png", "image/png"]],
-  ["/icon.svg", ["icon.svg", "image/svg+xml"]],
-  ["/hats.svg", ["hats.svg", "image/svg+xml"]],
-  ["/vendor/dompurify.js", [path.join(config.repositoryRoot, "node_modules", "dompurify", "dist", "purify.es.mjs"), "text/javascript; charset=utf-8"]],
-  ["/vendor/marked.js", [path.join(config.repositoryRoot, "node_modules", "marked", "lib", "marked.esm.js"), "text/javascript; charset=utf-8"]],
-]);
+const serveStatic = createStaticHandler(config);
 
 function sendJson(response, statusCode, body) {
   const encoded = Buffer.from(JSON.stringify(body));
@@ -221,7 +205,7 @@ function sendOAuthPage(response, statusCode, { title, message, redirect = false 
   const escapedMessage = String(message).replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
   })[character]);
-  const body = Buffer.from(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapedTitle}</title><body><main><h1>${escapedTitle}</h1><p>${escapedMessage}</p><p><a href="/">Return to Chapeaux Fous</a></p></main>${redirect ? '<script>setTimeout(() => location.replace("/?oauth=connected"), 800)</script>' : ""}</body></html>`);
+  const body = Buffer.from(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapedTitle}</title><body><main><h1>${escapedTitle}</h1><p>${escapedMessage}</p><p><a href="/app">Return to Chapeaux Fous</a></p></main>${redirect ? '<script>setTimeout(() => location.replace("/app?oauth=connected"), 800)</script>' : ""}</body></html>`);
   response.writeHead(statusCode, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": body.length,
@@ -334,16 +318,6 @@ function health() {
   };
 }
 
-async function serveStatic(pathname, response) {
-  const selected = staticFiles.get(pathname);
-  if (!selected) return false;
-  const [filename, contentType] = selected;
-  const body = await fsp.readFile(path.isAbsolute(filename) ? filename : path.join(config.publicRoot, filename));
-  response.writeHead(200, { "Content-Type": contentType, "Content-Length": body.length, "Cache-Control": pathname === "/service-worker.js" ? "no-cache" : "public, max-age=300" });
-  response.end(body);
-  return true;
-}
-
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   try {
@@ -379,10 +353,7 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, body.ready ? 200 : 503, body);
       return;
     }
-    if (request.method === "GET" && staticFiles.has(url.pathname)) {
-      await serveStatic(url.pathname, response);
-      return;
-    }
+    if (await serveStatic(request, response)) return;
     if (!requireAuthorization(request, response)) return;
     const oauthStartMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)\/oauth\/start$/.exec(url.pathname);
     if (request.method === "POST" && oauthStartMatch) {

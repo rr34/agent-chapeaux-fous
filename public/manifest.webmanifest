@@ -1,7 +1,9 @@
 {
   "name": "Chapeaux Fous",
   "short_name": "Chapeaux Fous",
-  "start_url": "/",
+  "id": "/",
+  "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0c0e10",
   "theme_color": "#111315",

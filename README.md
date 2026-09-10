@@ -77,7 +77,8 @@ The test suite creates and drops isolated databases. The configured application
 account may do that locally, or `MARIADB_TEST_*` can name a separate
 test administrator as shown in `.env.example`.
 
-Open `http://127.0.0.1:8787`. The browser asks for `SLAYER_ACCESS_TOKEN` and
+Open `http://127.0.0.1:8787/app`. The root URL serves the public landing page.
+The app asks for `SLAYER_ACCESS_TOKEN` and
 stores it only in that browser. The same client includes the Agent request
 feed, the calendar, the grouped to-do list, a searchable contacts address book,
 a grouped personal journal with native entry creation, and a dedicated **Briefings**

@@ -13,7 +13,7 @@ function worker({ fetch = async () => { throw new Error("Offline"); }, cached, c
     fetch,
     caches: { open: async () => {
       if (cacheError) throw new Error("Cache unavailable");
-      return { match: async key => { cacheReads.push(key); return cached; } };
+      return { match: async key => { cacheReads.push(key); return typeof cached === "function" ? cached(key) : cached; } };
     } },
   });
   return {
@@ -46,8 +46,8 @@ test("shell requests return the real network response when online", async () => 
 test("offline shell requests fall back to their cached path including navigation query strings", async () => {
   const cached = new Response("offline app");
   const instance = worker({ cached });
-  assert.equal(await instance.request("/?oauth=connected"), cached);
-  assert.deepEqual(instance.cacheReads, ["/"]);
+  assert.equal(await instance.request("/app?oauth=connected"), cached);
+  assert.deepEqual(instance.cacheReads, ["/app"]);
 });
 
 test("cache misses and unavailable cache storage return a Response instead of undefined or a rejected promise", async () => {
@@ -56,4 +56,13 @@ test("cache misses and unavailable cache storage return a Response instead of un
     assert.ok(response instanceof Response);
     assert.equal(response.type, "error");
   }
+});
+
+test("offline landing and app navigations use distinct cached pages", async () => {
+  const pages = new Map([["/", new Response("landing")], ["/app", new Response("app")], ["/app/", new Response("app")]]);
+  const instance = worker({ cached: key => pages.get(key) });
+  for (const [path, response] of pages) {
+    assert.equal(await instance.request(path), response);
+  }
+  assert.deepEqual(instance.cacheReads, ["/", "/app", "/app/"]);
 });
