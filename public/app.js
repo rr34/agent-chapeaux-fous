@@ -2482,10 +2482,8 @@ function renderRoutine() {
     keyForDate: localDateKey,
     labelForDate: (date) => formatDisplayDate(date, { includeTime: false }),
     representativeMonth: currentMonth,
-    itemsForDate: (date) => routineOccurrencesOnDay(date).map((occurrence) => ({
-      className: "day-todo",
-      text: `${plannedTimeLabel(occurrence, date)} ${occurrence.text}`,
-    })),
+    showMonthMarkers: true,
+    itemsForDate: (date) => routineOccurrencesOnDay(date).map(scheduledTodoCellItem),
     onSelect: (date) => {
       selectedRoutineDate = date;
       renderRoutine();

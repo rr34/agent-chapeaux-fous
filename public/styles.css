@@ -491,7 +491,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
   border-radius: 0;
   text-align: left;
 }
-#calendar-grid .calendar-day {
+.calendar-grid .calendar-day {
   display: flex;
   align-items: stretch;
   justify-content: flex-start;
@@ -1157,9 +1157,6 @@ dialog h2, dialog p { margin-bottom: 0; }
   .calendar-day { min-height: 76px; padding: 4px; }
   .calendar-day.has-month-marker { padding-left: 1.1rem; }
   .calendar-month-marker { width: .85rem; font-size: .46rem; }
-  .routine-grid .day-event, .routine-grid .day-todo { height: 6px; padding: 0; font-size: 0; border-radius: 999px; }
-  .routine-grid .day-event { background: var(--accent); border-left: 0; }
-  .routine-grid .day-todo { background: var(--brand-mid); }
   .day-more { display: none; }
   .agenda-event { grid-template-columns: 1fr; }
   .agenda-timeline::before { left: 5.32rem; }
