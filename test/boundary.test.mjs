@@ -473,7 +473,8 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(application, /timedEntries = \[/);
   assert.match(application, /renderCalendarGrid/);
   assert.match(document, /id="routine-grid" class="calendar-grid routine-grid"/);
-  assert.match(document, /aria-label="Six-week routine calendar"/);
+  assert.match(document, /id="routine-week-grid" class="calendar-grid routine-week-grid"/);
+  assert.match(document, /aria-label="Monthly routine calendar"/);
   assert.match(application, /sixWeekMonthDates/);
   assert.match(application, /refreshCalendar/);
   assert.match(application, /refreshTodos/);

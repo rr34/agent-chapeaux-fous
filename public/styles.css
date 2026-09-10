@@ -873,6 +873,15 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .routine-introduction { max-width: 48rem; margin: .35rem 0 0; }
 .routine-toolbar { flex-wrap: wrap; justify-content: flex-start; }
 .routine-toolbar > span:first-child { color: var(--muted); font-size: .8rem; }
+.routine-pattern-section { margin-top: 1.5rem; }
+.routine-pattern-section > h3 { margin: 0 0 .35rem; }
+.routine-pattern-section > p { margin: 0 0 .75rem; font-size: .8rem; }
+.routine-week-grid .calendar-day { aspect-ratio: auto; min-height: 9rem; overflow: visible; }
+.routine-week-grid .day-number { width: auto; justify-content: start; border-radius: 0; font-weight: 600; }
+.routine-week-grid .day-todo { white-space: normal; overflow-wrap: anywhere; padding: .2rem 0; }
+.routine-pattern-agenda { margin-top: .65rem; }
+.routine-pattern-agenda > summary { cursor: pointer; font-size: .85rem; }
+.routine-pattern-agenda .agenda-section > span { display: block; margin-bottom: .5rem; color: var(--muted); font-size: .8rem; }
 .recurrence-summary { margin: 0; color: var(--text); font-size: .82rem; font-weight: 400; }
 .recurrence-hint { margin: -.35rem 0 0; color: var(--muted); font-size: .75rem; }
 .editor-actions { justify-content: flex-end; flex-wrap: wrap; }

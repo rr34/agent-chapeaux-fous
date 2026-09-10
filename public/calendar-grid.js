@@ -15,6 +15,39 @@ export function sixWeekMonthDates(value) {
   return Array.from({ length: 42 }, (_, index) => addCalendarDays(start, index));
 }
 
+export function routinePatternSection(recurrenceRule) {
+  const frequency = /(?:^|[;:])FREQ=([^;\r\n]+)/i.exec(recurrenceRule ?? "")?.[1].toUpperCase();
+  return ["DAILY", "WEEKLY"].includes(frequency) ? "weekly" : "monthly";
+}
+
+// Collapse dated previews into a weekday pattern, keeping the source day for
+// cross-midnight time labels when the user opens a weekday's routine details.
+export function weeklyRoutinePattern(occurrences, previewDates) {
+  const days = Array.from({ length: 7 }, () => new Map());
+  for (const occurrence of occurrences) {
+    if (routinePatternSection(occurrence.recurrenceRule) !== "weekly") continue;
+    const end = occurrence.durationMinutes > 0
+      ? new Date(new Date(occurrence.scheduledAtUtc).getTime() + occurrence.durationMinutes * 60_000).toISOString()
+      : null;
+    for (const day of previewDates) {
+      if (!occursDuringCalendarDay(occurrence.scheduledAtUtc, end, day)) continue;
+      const bucket = days[(day.getDay() + 6) % 7];
+      const start = new Date(occurrence.scheduledAtUtc);
+      const dayOffset = (Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
+        - Date.UTC(day.getFullYear(), day.getMonth(), day.getDate())) / 86_400_000;
+      const slot = `${occurrence.routineId}:${dayOffset}:${start.getHours()}:${start.getMinutes()}:${start.getSeconds()}`;
+      if (!bucket.has(slot)) {
+        bucket.set(slot, { ...occurrence, patternDay: day });
+      }
+    }
+  }
+  return days.map(day => [...day.values()].sort((left, right) => (
+    Number(right.isAllDay) - Number(left.isAllDay)
+    || (new Date(left.scheduledAtUtc) - left.patternDay) - (new Date(right.scheduledAtUtc) - right.patternDay)
+    || left.routineId - right.routineId
+  )));
+}
+
 export function dateSequence(from, to) {
   const dates = [];
   for (let date = new Date(from); date < to; date = addCalendarDays(date, 1)) {
@@ -90,6 +123,8 @@ export function renderCalendarGrid({
   showMonthMarkers = false,
   representativeMonth = null,
   disabled = false,
+  dayLabelForDate = (date) => String(date.getDate()),
+  maximumRows = 8,
 }) {
   container.replaceChildren();
   for (const date of dates) {
@@ -115,11 +150,11 @@ export function renderCalendarGrid({
     }
     const number = document.createElement("span");
     number.className = "day-number";
-    number.textContent = String(date.getDate());
+    number.textContent = dayLabelForDate(date);
     button.append(number);
     const items = document.createElement("span");
     items.className = "day-items";
-    const contents = calendarGridCellContents(itemsForDate(date));
+    const contents = calendarGridCellContents(itemsForDate(date), maximumRows);
     for (const item of contents.items) {
       const row = document.createElement("span");
       row.className = item.className;

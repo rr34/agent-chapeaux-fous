@@ -12,6 +12,8 @@ import {
   renderCalendarGrid,
   scheduledTodoCellItem,
   sixWeekMonthDates,
+  routinePatternSection,
+  weeklyRoutinePattern,
 } from "./calendar-grid.js";
 import { createTimingEditor } from "./timing-editor.js";
 import { groupUsageByRequest, usageFromTrace } from "./ai-usage.js";
@@ -102,6 +104,14 @@ const elements = {
   calendarView: document.querySelector("#calendar-view"),
   routineView: document.querySelector("#routine-view"),
   routineGrid: document.querySelector("#routine-grid"),
+  routineWeekGrid: document.querySelector("#routine-week-grid"),
+  routineWeekAgenda: document.querySelector("#routine-week-agenda"),
+  routineWeekAgendaDate: document.querySelector("#routine-week-agenda-date"),
+  routineWeekAgendaCount: document.querySelector("#routine-week-agenda-count"),
+  routineWeekAgendaList: document.querySelector("#routine-week-agenda-list"),
+  routineMonthAgenda: document.querySelector("#routine-month-agenda"),
+  routineMonthHeading: document.querySelector("#routine-month-heading"),
+  routineMonthDescription: document.querySelector("#routine-month-description"),
   routineAgendaDate: document.querySelector("#routine-agenda-date"),
   routineAgendaCount: document.querySelector("#routine-agenda-count"),
   routineAgendaList: document.querySelector("#routine-agenda-list"),
@@ -414,6 +424,10 @@ let calendarSearchSequence = 0;
 let activeTodos = [];
 let publishedCalendarTodoIds = new Set();
 let selectedRoutineDate = new Date();
+let selectedRoutineWeekDate = new Date();
+let selectedRoutineMonthDate = new Date();
+let selectedRoutineSection = "weekly";
+let routineWeekPattern = Array.from({ length: 7 }, () => []);
 let routineOccurrences = [];
 let routineDefinitions = [];
 let editingRoutineDefinition = false;
@@ -2408,17 +2422,20 @@ async function refreshRoutine() {
     ]);
     routineOccurrences = previewBody.occurrences;
     routineDefinitions = previewBody.routines;
+    routineWeekPattern = weeklyRoutinePattern(routineOccurrences, dates);
     todoGroups = groupBody.groups;
     todoContacts = contactBody.contacts;
     todoGuides = guideBody.guides;
     renderRoutine();
   } catch (error) {
     elements.routineGrid.replaceChildren(node("p", "empty", error.message || "Routine unavailable."));
+    elements.routineWeekGrid.replaceChildren(node("p", "empty", error.message || "Routine unavailable."));
   }
 }
 
-function routineOccurrencesOnDay(date) {
-  return routineOccurrences.filter((occurrence) => occursDuringCalendarDay(
+function routineOccurrencesOnDay(date, section = "monthly") {
+  if (section === "weekly") return routineWeekPattern[(date.getDay() + 6) % 7];
+  return routineOccurrences.filter((occurrence) => routinePatternSection(occurrence.recurrenceRule) === "monthly" && occursDuringCalendarDay(
     occurrence.scheduledAtUtc,
     plannedEnd(occurrence.scheduledAtUtc, occurrence.durationMinutes),
     date,
@@ -2441,15 +2458,15 @@ function plannedTimeLabel(item, date) {
   );
 }
 
-function renderRoutineAgenda() {
-  const occurrences = routineOccurrencesOnDay(selectedRoutineDate);
-  elements.routineAgendaDate.textContent = new Intl.DateTimeFormat(undefined, {
-    weekday: "long", day: "numeric",
-  }).format(selectedRoutineDate);
-  elements.routineAgendaCount.textContent = `${occurrences.length} ${occurrences.length === 1 ? "item" : "items"}`;
-  elements.routineAgendaList.replaceChildren();
+function renderRoutineAgenda(date, section, heading, count, list) {
+  const occurrences = routineOccurrencesOnDay(date, section);
+  heading.textContent = new Intl.DateTimeFormat(undefined, section === "weekly"
+    ? { weekday: "long" }
+    : { weekday: "long", month: "short", day: "numeric" }).format(date);
+  count.textContent = `${occurrences.length} ${occurrences.length === 1 ? "item" : "items"}`;
+  list.replaceChildren();
   if (occurrences.length === 0) {
-    elements.routineAgendaList.append(node("p", "agenda-empty", "No routine items on this representative day."));
+    list.append(node("p", "agenda-empty", section === "weekly" ? "No weekly or daily routines on this weekday." : "No monthly routines on this day."));
     return;
   }
   for (const occurrence of occurrences) {
@@ -2459,7 +2476,7 @@ function renderRoutineAgenda() {
     button.type = "button";
     button.append(
       node("strong", "", occurrence.text),
-      node("span", "", `${plannedTimeLabel(occurrence, selectedRoutineDate)} · ${describeTodoRecurrence(occurrence.recurrenceRule)}`),
+      node("span", "", `${plannedTimeLabel(occurrence, occurrence.patternDay ?? date)} · ${describeTodoRecurrence(occurrence.recurrenceRule)}`),
     );
     button.disabled = !routine;
     if (routine) button.addEventListener("click", () => openTodoEditor(routine, null, { routine: true }));
@@ -2472,29 +2489,54 @@ function renderRoutineAgenda() {
       ));
       item.append(actions);
     }
-    elements.routineAgendaList.append(item);
+    list.append(item);
   }
 }
 
 function renderRoutine() {
   const dates = routineCalendarDates();
-  const currentMonth = new Date().getMonth();
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const weekStart = startOfWeek(now);
+  renderCalendarGrid({
+    container: elements.routineWeekGrid,
+    dates: Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)),
+    selectedKey: selectedRoutineSection === "weekly" ? String(selectedRoutineWeekDate.getDay()) : null,
+    todayKey: null,
+    keyForDate: (date) => String(date.getDay()),
+    labelForDate: (date) => new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(date),
+    dayLabelForDate: (date) => new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date),
+    maximumRows: Infinity,
+    itemsForDate: (date) => routineOccurrencesOnDay(date, "weekly").map(scheduledTodoCellItem),
+    onSelect: (date) => {
+      selectedRoutineDate = selectedRoutineWeekDate = date;
+      selectedRoutineSection = "weekly";
+      elements.routineWeekAgenda.open = true;
+      renderRoutine();
+    },
+  });
+  const hasYearly = routineDefinitions.some(({ recurrenceRule }) => /(?:^|[;:])FREQ=YEARLY(?:;|$)/i.test(recurrenceRule));
+  elements.routineMonthHeading.textContent = hasYearly ? "Monthly & yearly" : "Monthly";
+  elements.routineMonthDescription.textContent = `Patterns placed in ${new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(now)}. Daily and weekly routines appear above.`;
   renderCalendarGrid({
     container: elements.routineGrid,
     dates,
-    selectedKey: localDateKey(selectedRoutineDate),
-    todayKey: localDateKey(new Date()),
+    selectedKey: selectedRoutineSection === "monthly" ? localDateKey(selectedRoutineMonthDate) : null,
+    todayKey: null,
     keyForDate: localDateKey,
     labelForDate: (date) => formatDisplayDate(date, { includeTime: false }),
     representativeMonth: currentMonth,
     showMonthMarkers: true,
     itemsForDate: (date) => routineOccurrencesOnDay(date).map(scheduledTodoCellItem),
     onSelect: (date) => {
-      selectedRoutineDate = date;
+      selectedRoutineDate = selectedRoutineMonthDate = date;
+      selectedRoutineSection = "monthly";
+      elements.routineMonthAgenda.open = true;
       renderRoutine();
     },
   });
-  renderRoutineAgenda();
+  renderRoutineAgenda(selectedRoutineWeekDate, "weekly", elements.routineWeekAgendaDate, elements.routineWeekAgendaCount, elements.routineWeekAgendaList);
+  renderRoutineAgenda(selectedRoutineMonthDate, "monthly", elements.routineAgendaDate, elements.routineAgendaCount, elements.routineAgendaList);
 }
 
 async function openNewRoutine() {
@@ -2509,7 +2551,9 @@ async function openNewRoutine() {
     isAllDay: true,
   });
   elements.todoRepeatEnabled.checked = true;
-  elements.todoRepeatFrequency.value = "WEEKLY";
+  elements.todoRepeatFrequency.value = selectedRoutineSection === "monthly" ? "MONTHLY" : "WEEKLY";
+  elements.todoRepeatPattern.value = "month-day";
+  elements.todoRepeatMonthDay.value = String(selectedRoutineDate.getDate());
   const weekday = repeatAnchorWeekday(todoTimingEditor.values().start);
   for (const checkbox of elements.todoRepeatWeekdays.querySelectorAll('input[type="checkbox"]')) {
     checkbox.checked = checkbox.value === weekday;

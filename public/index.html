@@ -196,9 +196,9 @@
     <section id="routine-view" class="app-view" hidden>
       <header class="organizer-heading routine-heading">
         <div>
-          <p class="eyebrow">Hypothetical recurring plan</p>
+          <p class="eyebrow">Reusable patterns</p>
           <h2>Routine</h2>
-          <p class="muted routine-introduction">The current month supplies the day positions; this is a reusable pattern, not your actual calendar.</p>
+          <p class="muted routine-introduction">Your daily and weekly rhythm, followed by routines tied to the month.</p>
         </div>
         <button id="new-routine" type="button">New routine</button>
       </header>
@@ -208,16 +208,31 @@
         <button id="publish-routine-next-week" class="secondary compact" type="button">Next week</button>
         <span id="routine-publish-status" class="toolbar-count" role="status"></span>
       </div>
-      <div class="calendar-layout">
-        <section class="calendar-range-panel organizer-panel" aria-label="Six-week routine calendar">
+      <section class="routine-pattern-section" aria-labelledby="routine-week-heading">
+        <h3 id="routine-week-heading">Weekly &amp; daily</h3>
+        <p class="muted">Select a weekday to edit its routines.</p>
+        <div class="calendar-range-panel organizer-panel" aria-label="Weekly routine pattern, Monday through Sunday">
+          <div id="routine-week-grid" class="calendar-grid routine-week-grid"></div>
+        </div>
+        <details id="routine-week-agenda" class="organizer-panel routine-pattern-agenda">
+          <summary id="routine-week-agenda-date">Weekday routines</summary>
+          <div class="agenda-section">
+            <span id="routine-week-agenda-count"></span>
+            <div id="routine-week-agenda-list" class="agenda-list"></div>
+          </div>
+        </details>
+      </section>
+      <section class="routine-pattern-section" aria-labelledby="routine-month-heading">
+        <h3 id="routine-month-heading">Monthly</h3>
+        <p id="routine-month-description" class="muted"></p>
+        <section class="calendar-range-panel organizer-panel" aria-label="Monthly routine calendar">
           <div class="weekday-row" aria-hidden="true">
             <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
           </div>
           <div id="routine-grid" class="calendar-grid routine-grid"></div>
         </section>
-        <section class="agenda-panel organizer-panel" aria-labelledby="routine-agenda-date">
-          <p class="eyebrow">Selected routine day</p>
-          <h3 id="routine-agenda-date">Today</h3>
+        <details id="routine-month-agenda" class="agenda-panel organizer-panel routine-pattern-agenda">
+          <summary id="routine-agenda-date">Monthly routines</summary>
           <section class="agenda-section" aria-labelledby="routine-agenda-heading">
             <div class="agenda-section-heading">
               <h4 id="routine-agenda-heading">Recurring to-dos</h4>
@@ -225,8 +240,8 @@
             </div>
             <div id="routine-agenda-list" class="agenda-list"></div>
           </section>
-        </section>
-      </div>
+        </details>
+      </section>
     </section>
 
     <section id="todos-view" class="app-view" hidden>
