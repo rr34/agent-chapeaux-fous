@@ -655,10 +655,12 @@ deployed revision.
 
 ## Daily catch-up
 
-“Catch me up on the day” generates questions directly from current tasks,
+Click **Catch up** beside the chat composer controls, or say “Catch me up on
+the day.” This generates questions directly from current tasks,
 calendar occurrences, and scheduled journal trackers. No briefing needs to be
 created. The agent asks one question at a time and uses the existing domain tools
 to complete or move tasks, update appointments, and record observations.
+The button sends a normal agent request and preserves any draft text or attachment.
 
 `catch_up_questions` is the only new table (migration 0036). Each row has exactly
 one real foreign key to `todo_personal`, `calendar_events`, or `trackers`, plus

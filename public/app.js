@@ -21,6 +21,7 @@ const elements = {
   form: document.querySelector("#request-form"),
   text: document.querySelector("#request-text"),
   send: document.querySelector("#send"),
+  catchUp: document.querySelector("#catch-up"),
   respondSilently: document.querySelector("#respond-silently"),
   composerAttachFile: document.querySelector("#composer-attach-file"),
   composerFileSelection: document.querySelector("#composer-file-selection"),
@@ -5636,19 +5637,22 @@ async function saveJournalEntry(event) {
   }
 }
 
-elements.form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const text = elements.text.value.trim();
+async function submitTextRequest({ catchUp = false } = {}) {
+  if (elements.send.disabled || recorder?.state === "recording") return;
+  const text = catchUp
+    ? "Catch me up on today. Generate and refresh my unresolved catch-up questions from my tasks, calendar, and scheduled journal trackers. Ask me one question at a time and wait for my answer before asking the next. Act on my answers by updating the actual records, then continue until there are no due questions left or I ask to pause. Start with the first question now."
+    : elements.text.value.trim();
   if (!text) return;
-  const referencedRequestIds = referencedRequestIdsFromComposer(text);
+  const referencedRequestIds = catchUp ? [] : referencedRequestIdsFromComposer(text);
   const respondSilently = elements.respondSilently.checked;
   prepareSpeechOutput(respondSilently);
   elements.send.disabled = true;
+  elements.catchUp.disabled = true;
   elements.respondSilently.disabled = true;
   elements.status.textContent = "Submitting…";
   try {
-    const file = elements.requestFile.files?.[0] ?? null;
-    let primaryFileId = Number(elements.requestExistingFile.value) || null;
+    const file = catchUp ? null : elements.requestFile.files?.[0] ?? null;
+    let primaryFileId = catchUp ? null : Number(elements.requestExistingFile.value) || null;
     let selectedStoredFile = storedFiles.find((entry) => entry.fileId === primaryFileId) ?? null;
     let uploadedNewFile = false;
     if (file) {
@@ -5670,14 +5674,16 @@ elements.form.addEventListener("submit", async (event) => {
       body: JSON.stringify({ text, primaryFileId, referencedRequestIds, runLimits: pendingRunLimits }),
     });
     expectSpokenResponse(created.requestId, respondSilently);
-    elements.text.value = "";
-    resizeRequestText();
-    elements.requestFile.value = "";
-    elements.requestExistingFile.value = "";
-    updateRequestFileSelection();
+    if (!catchUp) {
+      elements.text.value = "";
+      resizeRequestText();
+      elements.requestFile.value = "";
+      elements.requestExistingFile.value = "";
+      updateRequestFileSelection();
+    }
     pendingRunLimits = null;
     updateRunLimitsSummary();
-    elements.status.textContent = uploadedNewFile
+    elements.status.textContent = catchUp ? "Catch-up queued. The agent will ask one question at a time." : uploadedNewFile
       ? `Uploaded ${selectedStoredFile.originalFilename} as file #${primaryFileId}. Request queued.`
       : selectedStoredFile
         ? `Queued with file #${primaryFileId} — ${selectedStoredFile.title || selectedStoredFile.originalFilename}.`
@@ -5688,9 +5694,16 @@ elements.form.addEventListener("submit", async (event) => {
     elements.status.textContent = error.message;
   } finally {
     elements.send.disabled = false;
+    elements.catchUp.disabled = false;
     elements.respondSilently.disabled = false;
   }
+}
+
+elements.form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void submitTextRequest();
 });
+elements.catchUp.addEventListener("click", () => { void submitTextRequest({ catchUp: true }); });
 
 elements.text.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
