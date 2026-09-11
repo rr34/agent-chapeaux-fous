@@ -67,10 +67,10 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 36", () => {
+test("the authoritative MariaDB baseline is complete at schema version 37", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 31);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 33);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
   assert.equal(source.match(/\bENUM\(/gu)?.length, 31);
@@ -94,7 +94,20 @@ test("the authoritative MariaDB baseline is complete at schema version 36", () =
     /status\s+ENUM\('tentative', 'confirmed', 'cancelled'\) NOT NULL DEFAULT 'confirmed'/u,
   );
   assert.doesNotMatch(source, /calendar_events_status|ENUM\([^\n]*'completed'[^\n]*\) NOT NULL DEFAULT 'confirmed'/u);
-  assert.match(statements.at(-1), /VALUES \(1, 36, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 37, 'Chapeaux Fous MariaDB database'\)$/);
+});
+
+test("the correspondence join migration matches fresh-install definitions without rewriting existing records", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql")).find(item => item.version === 37);
+  const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
+  const normalize = sql => sql.replace(/^--.*$/gmu, "").replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
+  const statements = splitMariaDbStatements(migration.sql);
+  assert.equal(statements.length, 2);
+  for (const statement of statements) {
+    assert.ok(baseline.some(candidate => normalize(candidate) === normalize(statement)));
+    assert.match(normalize(statement), /^CREATE TABLE (?:todo_correspondence_join|calendar_events_correspondence_join) /u);
+  }
+  assert.match(migration.sql, /writer downtime: not required/u);
 });
 
 test("the version 30 enum migration is a reviewable ledger block", () => {

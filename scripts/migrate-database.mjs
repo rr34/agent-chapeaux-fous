@@ -281,6 +281,42 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 37) {
+    for (const [table, field, parent, role] of [
+      ["todo_correspondence_join", "personal_task_id", "todo_personal", "task"],
+      ["calendar_events_correspondence_join", "calendar_event_id", "calendar_events", "event"],
+    ]) {
+      const fail = (detail) => { throw new Error(`Migration 0037: ${table} ${detail}`); };
+      const [columns] = await connection.query(`SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+        FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`, [databaseName, table]);
+      for (const id of [field, "correspondence_id"]) {
+        if (!columns.some(row => row.COLUMN_NAME === id && /^bigint(?:\(20\))? unsigned$/u.test(row.COLUMN_TYPE)
+          && row.IS_NULLABLE === "NO")) fail(`is missing required unsigned ID ${id}`);
+      }
+      if (!columns.some(row => row.COLUMN_NAME === "created_at_utc" && row.COLUMN_TYPE === "varchar(32)"
+        && row.IS_NULLABLE === "NO" && row.COLUMN_DEFAULT != null)) fail("is missing its creation timestamp default");
+      const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
+        FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+        ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [databaseName, table]);
+      const primary = indexes.filter(row => row.INDEX_NAME === "PRIMARY" && Number(row.NON_UNIQUE) === 0)
+        .map(row => row.COLUMN_NAME);
+      if (JSON.stringify(primary) !== JSON.stringify([field, "correspondence_id"])) fail("is missing its unique pair primary key");
+      if (!indexes.some(row => row.INDEX_NAME === `${table}_message` && row.COLUMN_NAME === "correspondence_id"
+        && Number(row.SEQ_IN_INDEX) === 1)) fail("is missing the message lookup index");
+      const [keys] = await connection.query(`SELECT k.CONSTRAINT_NAME, k.COLUMN_NAME,
+          k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME, r.DELETE_RULE
+        FROM information_schema.KEY_COLUMN_USAGE k
+        JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+          ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.TABLE_NAME = k.TABLE_NAME
+          AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+        WHERE k.CONSTRAINT_SCHEMA = ? AND k.TABLE_NAME = ?`, [databaseName, table]);
+      for (const [suffix, column, target] of [[role, field, parent], ["message", "correspondence_id", "correspondence"]]) {
+        if (!keys.some(row => row.CONSTRAINT_NAME === `${table}_${suffix}` && row.COLUMN_NAME === column
+          && row.REFERENCED_TABLE_NAME === target && row.REFERENCED_COLUMN_NAME === column
+          && row.DELETE_RULE === "CASCADE")) fail(`is missing cascading foreign key ${suffix}`);
+      }
+    }
+  }
   if (migration.version === 36) {
     const [keys] = await connection.query(`SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
       FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);

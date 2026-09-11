@@ -58,6 +58,25 @@ Do not restart the service when migration or verification fails. If no
 migrations are pending, `npm run db:migrate` is a read-only integrity check and
 does not require the confirmation variables.
 
+## Version 37: Correspondence join tables
+
+Adds `todo_correspondence_join` and `calendar_events_correspondence_join`.
+Each stores the two linked IDs as a composite primary key and `created_at_utc`,
+with a reverse message lookup index and cascading foreign keys on both IDs.
+Deleting a parent removes its links, never the other parent. Calendar links
+refer to the event record (the whole series for recurring events).
+
+This migration adds empty tables without copying or importing messages. Linking
+UI and model tools are separate work; the tables do not make provider emails
+or text messages available as local correspondence automatically. Generic
+database write permissions remain unchanged.
+
+The application requires schema version 37. After preparing a verified backup,
+apply the migration with `SLAYER_MIGRATION_BACKUP_CONFIRMED=1` and run
+`npm run db:verify`. This block does not require writer downtime; earlier pending
+blocks may still require it. Replay retains existing links and validates the
+table definitions before advancing the schema version.
+
 ## Version 35: Native database comments
 
 This migration moves storage descriptions into MariaDB table and column

@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 36.
+-- Target: MariaDB 10.11, schema version 37.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -922,6 +922,28 @@ CREATE TABLE correspondence (
     CONSTRAINT correspondence_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL
 ) ENGINE=InnoDB COMMENT='Preserves complete logical messages across email, SMS, MMS, iMessage, chat, voicemail, and future communication media. One row represents one inbound, outbound, draft, or internal message, independent of how many participants or files it has. Preserve the complete available message rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files for people and attachments. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, and provider metadata.';
 
+CREATE TABLE todo_correspondence_join (
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing task associated with the message.',
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the task.',
+    created_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the link was created. Format: ISO 8601 UTC timestamp.',
+    PRIMARY KEY (personal_task_id, correspondence_id),
+    KEY todo_correspondence_join_message (correspondence_id),
+    CONSTRAINT todo_correspondence_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT todo_correspondence_join_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links existing task records to existing correspondence, including emails and text messages. Each pair appears once; either record can have many links. Deleting either record removes only its dependent links. This table stores associations, not message content or provider synchronization state.';
+
+CREATE TABLE calendar_events_correspondence_join (
+    calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing calendar event or recurring series associated with the message.',
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the calendar event or recurring series.',
+    created_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the link was created. Format: ISO 8601 UTC timestamp.',
+    PRIMARY KEY (calendar_event_id, correspondence_id),
+    KEY calendar_events_correspondence_join_message (correspondence_id),
+    CONSTRAINT calendar_events_correspondence_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
+    CONSTRAINT calendar_events_correspondence_join_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links existing calendar event or recurring series records to existing correspondence, including emails and text messages. Each pair appears once; either record can have many links. Deleting either record removes only its dependent links. This table stores associations, not message content or provider synchronization state.';
+
 CREATE TABLE correspondence_files (
     -- sourceOfTruth: true
     -- synonyms: ["message attachments", "correspondence media"]
@@ -1270,4 +1292,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 36, 'Chapeaux Fous MariaDB database');
+VALUES (1, 37, 'Chapeaux Fous MariaDB database');

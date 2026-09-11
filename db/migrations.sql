@@ -16,6 +16,37 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0037: correspondence-join-tables
+-- writer downtime: not required; adds empty join tables without rewriting existing data.
+-- locking: CREATE TABLE takes metadata locks on the new and referenced tables.
+-- recovery: MariaDB DDL commits implicitly. IF NOT EXISTS permits replay after
+-- partial completion. The runner verifies columns, keys and cascade rules before
+-- advancing the version. Inspect mismatched existing tables instead of replacing them.
+
+CREATE TABLE IF NOT EXISTS todo_correspondence_join (
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing task associated with the message.',
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the task.',
+    created_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the link was created. Format: ISO 8601 UTC timestamp.',
+    PRIMARY KEY (personal_task_id, correspondence_id),
+    KEY todo_correspondence_join_message (correspondence_id),
+    CONSTRAINT todo_correspondence_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT todo_correspondence_join_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links existing task records to existing correspondence, including emails and text messages. Each pair appears once; either record can have many links. Deleting either record removes only its dependent links. This table stores associations, not message content or provider synchronization state.';
+
+CREATE TABLE IF NOT EXISTS calendar_events_correspondence_join (
+    calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing calendar event or recurring series associated with the message.',
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the calendar event or recurring series.',
+    created_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the link was created. Format: ISO 8601 UTC timestamp.',
+    PRIMARY KEY (calendar_event_id, correspondence_id),
+    KEY calendar_events_correspondence_join_message (correspondence_id),
+    CONSTRAINT calendar_events_correspondence_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
+    CONSTRAINT calendar_events_correspondence_join_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links existing calendar event or recurring series records to existing correspondence, including emails and text messages. Each pair appears once; either record can have many links. Deleting either record removes only its dependent links. This table stores associations, not message content or provider synchronization state.';
+
+-- end migration 0037
+
 -- migration 0036: source-linked-catch-up-questions
 -- writer downtime: required while adding the table and tracker asking fields.
 -- locking: metadata locks on trackers and referenced domain tables; no data rewrite.

@@ -22,9 +22,9 @@ function catalog(database) {
     REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE
     WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`).all();
   return {
-    columns: columns.filter(row => row.TABLE_NAME !== "catch_up_questions" && !row.COLUMN_NAME.startsWith("asking_")),
-    indexes: indexes.filter(row => row.TABLE_NAME !== "catch_up_questions"),
-    keys: keys.filter(row => row.TABLE_NAME !== "catch_up_questions"),
+    columns: columns.filter(row => !["catch_up_questions", "todo_correspondence_join", "calendar_events_correspondence_join"].includes(row.TABLE_NAME) && !row.COLUMN_NAME.startsWith("asking_")),
+    indexes: indexes.filter(row => !["catch_up_questions", "todo_correspondence_join", "calendar_events_correspondence_join"].includes(row.TABLE_NAME)),
+    keys: keys.filter(row => !["catch_up_questions", "todo_correspondence_join", "calendar_events_correspondence_join"].includes(row.TABLE_NAME)),
   };
 }
 
@@ -43,14 +43,14 @@ test("comment migration preserves mechanics and rows, supports replay, and expos
     connectionSettings: temporary.target.connection,
     backupConfirmed: true, writersStopped: true, output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37]);
   assert.deepEqual(catalog(database), before);
   assert.deepEqual(database.prepare("SELECT * FROM files").all(), rows);
   await verifyDatabase(database);
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   // Simulate a DDL commit followed by interruption before the version marker.
   database.exec("UPDATE database_meta SET schema_version = 34 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37]);
   assert.deepEqual(catalog(database), before);
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
