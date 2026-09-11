@@ -17,8 +17,8 @@ const external = (summary, actionClasses = ["EXECUTE"]) => defineToolDescription
 });
 
 const descriptions = new Map(Object.entries({
-  catch_up_refresh: update("Generate and reconcile source-linked catch-up questions on demand from actual task, calendar, and journal data. Returns counts; use catch_up_list to read the questions.", ["CREATE", "UPDATE"]),
-  catch_up_list: read("Read due generated catch-up questions or one exact question, checking live source data and preserving source foreign keys."),
+  catch_up_refresh: update("Generate and reconcile source-linked questions for selected journal dates, upcoming event planning, task deadlines, and past-event review. Persists the exact Check-in scope. Returns counts; use catch_up_list for questions.", ["CREATE", "UPDATE"]),
+  catch_up_list: read("Read eligible generated questions within the saved or supplied Check-in scope, or inspect one exact question. Checks live sources and preserves their foreign keys and occurrence identities."),
   catch_up_question_update: update("Resolve, defer, reopen, or comment on one source-linked catch-up question using its current version. Actual task, event, and journal changes use their owning tools."),
   tracker_asking_schedule_set: update("Set or disable a journal tracker's asking schedule using structured recurrence. Existing observations satisfy each due logging period."),
   calendar_event_occurrence_update: update("Move, cancel, or update one exact occurrence of a recurring calendar event while preserving the rest of its series."),

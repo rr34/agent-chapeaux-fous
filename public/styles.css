@@ -728,6 +728,19 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .field-hint { color: var(--muted); font-weight: 400; }
 #journal-tracker { width: 100%; }
 
+.check-in-catch-up { padding: 1rem; margin-bottom: 1.25rem; }
+.check-in-catch-up h3 { margin: 0; }
+.check-in-catch-up .section-heading { flex-wrap: wrap; }
+.check-in-catch-up > p { margin-bottom: 0; }
+.catch-up-settings { display: grid; gap: .9rem; margin-top: 1rem; }
+.catch-up-setting { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.catch-up-setting > .checkbox-row { flex: 0 0 15rem; }
+.catch-up-setting select, .catch-up-setting input[type="date"], .catch-up-setting input[type="datetime-local"] { width: auto; max-width: 100%; }
+.catch-up-lookback { display: flex; align-items: center; gap: .4rem; }
+.catch-up-lookback input { width: 4.5rem; }
+@media (max-width: 600px) {
+  .catch-up-setting > .checkbox-row { flex-basis: 100%; }
+}
 .interaction-workspace { display: grid; grid-template-columns: minmax(210px, .72fr) minmax(0, 2fr); align-items: start; gap: .8rem; }
 .interaction-guide-list { display: grid; align-content: start; max-height: calc(100dvh - 13rem); padding: .45rem; overflow: auto; }
 .interaction-list-empty { padding: 1rem .5rem; }

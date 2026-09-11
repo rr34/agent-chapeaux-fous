@@ -5,7 +5,7 @@ import { buildRecurrenceRule, validateTimeZone } from "./todo-recurrence.mjs";
 
 const maximumSources = 2000;
 const terminalTasks = new Set(["complete", "ignore", "archive"]);
-function publicQuestion(row) {
+function publicQuestion(row, source = null) {
   if (!row) return row;
   const result = { ...row };
   for (const field of ["question_id", "personal_task_id", "calendar_event_id", "tracker_id", "version"]) {
@@ -14,7 +14,13 @@ function publicQuestion(row) {
       if (!Number.isSafeInteger(result[field])) throw new Error(`${field} exceeds the supported integer range`);
     }
   }
-  return result;
+  return { ...result,
+    question_kind: row.tracker_id ? "journal" : row.personal_task_id ? "todo"
+      : row.occurrence_key.startsWith("plan:") ? "planning" : "event_review",
+    source_occurrence_key: row.calendar_event_id ? row.occurrence_key.replace(/^plan:/, "") : null,
+    period_starts_at_utc: source?.period?.startsAtUtc ?? null,
+    period_ends_at_utc: source?.period?.endsAtUtc ?? null,
+  };
 }
 const digest = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const bounded = (rows, label) => {
@@ -31,6 +37,31 @@ function question(source, occurrence, version, text, due, satisfied = false) {
   return { personal_task_id: null, calendar_event_id: null, tracker_id: null, ...source,
     occurrence_key: occurrence, source_version: digest(version), question_text: text.length > 2000 ? `${text.slice(0, 1999)}…` : text,
     due_at_utc: due, satisfied };
+}
+
+const dateInZone = (instant, timeZone) => new Intl.DateTimeFormat("en-CA", {
+  timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+}).format(new Date(instant));
+const shiftDate = (date, days) => new Date(Date.parse(`${date}T12:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+
+export function normalizeCatchUpScope(scope) {
+  if (!scope || typeof scope !== "object" || Array.isArray(scope)) throw new Error("A catch-up scope is required");
+  const time_zone = validateTimeZone(scope.time_zone);
+  const result = { time_zone };
+  for (const field of ["logs_date", "plan_through_date"]) {
+    const value = scope[field] ?? null;
+    if (value !== null) localDateUtcBounds({ localDate: value, timeZone: time_zone });
+    result[field] = value;
+  }
+  for (const field of ["todos_before_utc", "events_before_utc"]) {
+    result[field] = scope[field] == null ? null : catchUpInstant(scope[field], field);
+  }
+  result.lookback_days = scope.lookback_days ?? 7;
+  if (!Number.isInteger(result.lookback_days) || result.lookback_days < 0 || result.lookback_days > 31) throw new Error("lookback_days must be 0 through 31");
+  if (![result.logs_date, result.plan_through_date, result.todos_before_utc, result.events_before_utc].some(Boolean)) {
+    throw new Error("Enable at least one catch-up category");
+  }
+  return result;
 }
 
 // Native domain service. It derives attention from source records, never chats.
@@ -55,20 +86,32 @@ export class CatchUpService {
       name: `Catch-up ${type}`, payload: result });
     return result;
   }
-  task(id) {
+  activeScope() {
+    // This is the exact selection recorded by the owning refresh tool, not a
+    // model interpretation of conversation history. It survives a fresh chat.
+    const row = this.database.prepare(`SELECT payload_json FROM activity_events
+      WHERE event_type = 'catch_up.refreshed' ORDER BY event_seq DESC LIMIT 1`).get();
+    const scope = row ? JSON.parse(row.payload_json).scope : null;
+    return scope ? normalizeCatchUpScope(scope) : null;
+  }
+  task(id, deadlineOnly = false) {
     id = Number(id);
     const row = this.database.prepare("SELECT * FROM todo_personal WHERE personal_task_id = ?").get(id);
     if (!row) return null;
-    const due = row.scheduled_at_utc ?? row.due_at_utc;
+    const due = deadlineOnly ? row.due_at_utc : row.scheduled_at_utc ?? row.due_at_utc;
     if (!due) return null;
-    return question({ personal_task_id: id }, "task",
+    return question({ personal_task_id: id }, deadlineOnly ? "deadline" : "task",
       [row.text, row.status, row.scheduled_at_utc, row.due_at_utc, row.planning_prompt_text],
-      row.planning_prompt_text || `What happened with #${id} — ${row.text}?`, due, terminalTasks.has(row.status));
+      deadlineOnly ? `What needs to happen with #${id} — ${row.text}?` : row.planning_prompt_text || `What happened with #${id} — ${row.text}?`, due, terminalTasks.has(row.status));
   }
   event(id, occurrenceKey) {
     id = Number(id);
     const row = this.database.prepare("SELECT * FROM calendar_events WHERE calendar_event_id = ?").get(id);
     if (!row) return null;
+    const planning = occurrenceKey.startsWith("plan:");
+    const originalKey = occurrenceKey;
+    occurrenceKey = occurrenceKey.replace(/^plan:/, "");
+    if (planning && !row.planning_prompt_text?.trim()) return null;
     let starts = row.starts_at_utc;
     let ends = row.ends_at_utc;
     if (occurrenceKey !== "event") {
@@ -78,34 +121,46 @@ export class CatchUpService {
       starts = instance.startsAtUtc;
       ends = instance.endsAtUtc;
     } else if (row.recurrence_rule) return null;
-    return question({ calendar_event_id: id }, occurrenceKey,
-      [row.title, row.status, starts, ends, row.planning_prompt_text],
-      row.planning_prompt_text || `How did “${row.title}” go?`, starts,
+    return question({ calendar_event_id: id }, originalKey,
+      [planning ? "planning" : "review", row.title, row.status, starts, ends, row.planning_prompt_text, row.description, row.location_text, row.time_zone, row.is_all_day],
+      planning ? row.planning_prompt_text : `How did “${row.title}” go?`, planning ? starts : ends || starts,
       row.status === "cancelled");
   }
-  tracker(id, at) {
+  tracker(id, at, day = null, timeZone = null) {
     id = Number(id);
     const row = this.database.prepare(`SELECT tracker.*, journal_group.archived_at_utc AS group_archived
       FROM trackers AS tracker JOIN journal_groups AS journal_group USING (journal_group_id)
       WHERE tracker_id = ?`).get(id);
-    if (!row || row.archived_at_utc || row.group_archived || !row.asking_recurrence_rule) return null;
-    const period = currentLoggingPeriod({ startsAtUtc: row.asking_starts_at_utc,
-      timeZone: row.asking_time_zone, recurrenceRule: row.asking_recurrence_rule }, at);
+    if (!row || row.archived_at_utc || row.group_archived) return null;
+    const zone = row.asking_time_zone || timeZone;
+    let period;
+    if (row.asking_recurrence_rule) {
+      if (day) {
+        const bounds = localDateUtcBounds({ localDate: day, timeZone: zone });
+        at = new Date((Date.parse(bounds.startsAtUtc) + Date.parse(bounds.endsAtUtc)) / 2).toISOString();
+      }
+      period = currentLoggingPeriod({ startsAtUtc: row.asking_starts_at_utc,
+        timeZone: zone, recurrenceRule: row.asking_recurrence_rule }, at);
+    } else if (day) period = localDateUtcBounds({ localDate: day, timeZone: zone });
+    else return null;
     if (!period) return null;
     const entry = this.database.prepare(`SELECT journal_entry_id FROM journal_entries
       WHERE tracker_id = ? AND occurred_at_utc >= ? AND occurred_at_utc < ? LIMIT 1`)
       .get(id, period.startsAtUtc, period.endsAtUtc);
-    const periodLabel = new Intl.DateTimeFormat("en-US", { timeZone: row.asking_time_zone,
+    const periodLabel = new Intl.DateTimeFormat("en-US", { timeZone: zone,
       month: "short", day: "numeric", year: "numeric" }).format(new Date(period.startsAtUtc));
-    return question({ tracker_id: id }, period.startsAtUtc,
-      [row.name, row.unit, row.asking_recurrence_rule, row.asking_time_zone, period, Boolean(entry)],
-      `What would you like to log for ${row.name} (${row.unit}) since ${periodLabel}?`,
-      period.startsAtUtc, Boolean(entry));
+    const occurrence = row.asking_recurrence_rule ? period.startsAtUtc : `day:${day}:${zone}`;
+    return { ...question({ tracker_id: id }, occurrence,
+      [row.name, row.unit, row.asking_recurrence_rule, zone, period, Boolean(entry)],
+      `What would you like to log for ${row.name} (${row.unit}) for the period starting ${periodLabel}?`,
+      period.startsAtUtc, Boolean(entry)), period };
   }
   source(row, at) {
-    if (row.personal_task_id) return this.task(row.personal_task_id);
+    if (row.personal_task_id) return this.task(row.personal_task_id, row.occurrence_key === "deadline");
     if (row.calendar_event_id) return this.event(row.calendar_event_id, row.occurrence_key);
-    const current = this.tracker(row.tracker_id, at);
+    const daily = /^day:(\d{4}-\d{2}-\d{2}):(.+)$/.exec(row.occurrence_key);
+    const current = daily ? this.tracker(row.tracker_id, at, daily[1], daily[2])
+      : this.tracker(row.tracker_id, row.occurrence_key);
     return current?.occurrence_key === row.occurrence_key ? current : null;
   }
   reconcile(row, source, at) {
@@ -134,7 +189,9 @@ export class CatchUpService {
       .get(source[field], source.occurrence_key);
     this.reconcile(row, source, at);
   }
-  refresh({ local_date, time_zone, lookback_days = 7 }, context = {}) {
+  refresh({ local_date, time_zone, lookback_days = 7, scope = null }, context = {}) {
+    const selected = scope ? normalizeCatchUpScope(scope) : this.activeScope();
+    if (selected) return this.refreshSelected(selected, context);
     const at = this.now();
     const bounds = localDateUtcBounds({ localDate: local_date, timeZone: time_zone });
     if (!Number.isInteger(lookback_days) || lookback_days < 0 || lookback_days > 31) throw new Error("lookback_days must be 0 through 31");
@@ -163,36 +220,103 @@ export class CatchUpService {
         const source = this.tracker(row.tracker_id, at);
         if (source) this.upsert(source, at);
       }
-      return this.record("refreshed", { refreshed: true, local_date, time_zone,
+      return this.record("refreshed", { refreshed: true, local_date, time_zone, scope: null,
         calendar_from_utc: from, through_utc: bounds.endsAtUtc,
         tasks_checked: tasks.length, calendar_occurrences_checked: events.length, trackers_checked: trackers.length,
-        due_count: Number(this.database.prepare(`SELECT COUNT(*) AS count FROM catch_up_questions
-          WHERE resolved_at IS NULL AND due_at_utc <= ? AND (ask_after IS NULL OR ask_after <= ?)`)
-          .get(at, at).count) }, context);
+        due_count: this.eligibleRows(null, at).filter(({ row, source }) => source && !source.satisfied && source.source_version === row.source_version).length }, context);
     });
   }
-  list({ limit = 10, after_id = 0, question_id = null } = {}) {
+  reviewBounds(scope, at) {
+    if (!scope.events_before_utc) return null;
+    const to = scope.events_before_utc < at ? scope.events_before_utc : at;
+    const fromDate = shiftDate(dateInZone(to, scope.time_zone), -scope.lookback_days);
+    return { from: localDateUtcBounds({ localDate: fromDate, timeZone: scope.time_zone }).startsAtUtc, to };
+  }
+  matchesScope(row, source, scope, at) {
+    if (row.tracker_id) {
+      const selected = scope ? scope.logs_date && this.tracker(row.tracker_id, at, scope.logs_date, scope.time_zone)
+        : this.tracker(row.tracker_id, at);
+      return Boolean(selected && row.occurrence_key === selected.occurrence_key);
+    }
+    if (!scope) return row.occurrence_key !== "deadline" && !row.occurrence_key.startsWith("plan:") && row.due_at_utc <= at;
+    if (row.personal_task_id) return row.occurrence_key === "deadline" && scope.todos_before_utc && row.due_at_utc < scope.todos_before_utc;
+    if (row.occurrence_key.startsWith("plan:")) {
+      return scope.plan_through_date && row.due_at_utc >= at
+        && row.due_at_utc < localDateUtcBounds({ localDate: scope.plan_through_date, timeZone: scope.time_zone }).endsAtUtc;
+    }
+    const bounds = this.reviewBounds(scope, at);
+    return bounds && row.due_at_utc >= bounds.from && row.due_at_utc <= bounds.to;
+  }
+  eligibleRows(scope, at, afterId = 0) {
+    const rows = bounded(this.database.prepare(`SELECT * FROM catch_up_questions
+      WHERE question_id > ? AND resolved_at IS NULL AND (ask_after IS NULL OR ask_after <= ?)
+      ORDER BY question_id LIMIT 2001`).all(afterId, at), "Outstanding questions");
+    return rows.map(row => ({ row, source: this.source(row, at) }))
+      .filter(({ row, source }) => this.matchesScope(row, source, scope, at));
+  }
+  refreshSelected(scope, context) {
+    const at = this.now();
+    const today = dateInZone(at, scope.time_zone);
+    if (scope.logs_date && scope.logs_date > today) throw new Error("Journal catch-up dates cannot be in the future");
+    if (scope.plan_through_date && scope.plan_through_date > shiftDate(today, 366)) throw new Error("Planning is limited to one year ahead");
+    return this.transaction(() => {
+      const outstanding = bounded(this.database.prepare(`SELECT * FROM catch_up_questions
+        WHERE resolved_at IS NULL ORDER BY question_id LIMIT 2001 FOR UPDATE`).all(), "Outstanding questions");
+      for (const row of outstanding) this.reconcile(row, this.source(row, at), at);
+      const tasks = scope.todos_before_utc ? bounded(this.database.prepare(`SELECT personal_task_id FROM todo_personal
+        WHERE due_at_utc < ? AND status IN ('todo', 'unplanned')
+        ORDER BY personal_task_id LIMIT 2001`).all(scope.todos_before_utc), "Due tasks") : [];
+      for (const row of tasks) this.upsert(this.task(row.personal_task_id, true), at);
+      let eventsChecked = 0;
+      const scanEvents = (from, to, planning) => {
+        if (from >= to) return;
+        const scanTo = planning ? to : new Date(Date.parse(to) + 1).toISOString();
+        const events = this.organizer.listCalendar({ from, to: scanTo, strictBounds: true, includeBirthdays: false });
+        if (events.length > maximumSources) throw new Error("Calendar exceeded its 2000-occurrence bound; narrow the date range");
+        eventsChecked += events.length;
+        for (const event of events) {
+          if (event.contactId) continue;
+          const key = event.isGeneratedOccurrence ? event.startsAtUtc : "event";
+          const source = this.event(Number(event.seriesId ?? event.id), `${planning ? "plan:" : ""}${key}`);
+          if (!source) continue;
+          if (planning ? source.due_at_utc >= from && source.due_at_utc < to : source.due_at_utc >= from && source.due_at_utc <= to) this.upsert(source, at);
+        }
+      };
+      if (scope.plan_through_date) scanEvents(at, localDateUtcBounds({ localDate: scope.plan_through_date, timeZone: scope.time_zone }).endsAtUtc, true);
+      const review = this.reviewBounds(scope, at);
+      if (review) scanEvents(review.from, review.to, false);
+      const trackers = scope.logs_date ? bounded(this.database.prepare(`SELECT tracker_id FROM trackers
+        WHERE archived_at_utc IS NULL ORDER BY tracker_id LIMIT 2001`).all(), "Journal trackers") : [];
+      for (const row of trackers) {
+        const source = this.tracker(row.tracker_id, at, scope.logs_date, scope.time_zone);
+        if (source) this.upsert(source, at);
+      }
+      const dueCount = this.eligibleRows(scope, at).filter(({ row, source }) => source && !source.satisfied && source.source_version === row.source_version).length;
+      return this.record("refreshed", { refreshed: true, scope, tasks_checked: tasks.length,
+        calendar_occurrences_checked: eventsChecked, trackers_checked: trackers.length,
+        calendar_from_utc: review?.from ?? at, due_count: dueCount }, context);
+    });
+  }
+  list({ limit = 10, after_id = 0, question_id = null, scope = null } = {}) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error("limit must be 1 through 50");
     const at = this.now();
+    const selected = scope ? normalizeCatchUpScope(scope) : this.activeScope();
     if (question_id !== null) {
       const row = this.database.prepare("SELECT * FROM catch_up_questions WHERE question_id = ?").get(question_id);
       const source = row ? this.source(row, at) : null;
-      return { questions: row ? [publicQuestion(row)] : [], count: row ? 1 : 0, next_after_id: null,
+      return { scope: selected, questions: row ? [publicQuestion(row, source)] : [], count: row ? 1 : 0, next_after_id: null,
         refresh_required: Boolean(row && (!source || source.source_version !== row.source_version)) };
     }
-    const rows = this.database.prepare(`SELECT * FROM catch_up_questions
-      WHERE question_id > ? AND resolved_at IS NULL AND due_at_utc <= ? AND (ask_after IS NULL OR ask_after <= ?)
-      ORDER BY question_id LIMIT ?`).all(after_id, at, at, limit + 1);
+    const rows = this.eligibleRows(selected, at, after_id);
     const page = rows.slice(0, limit);
     let stale = 0;
-    const questions = page.filter(row => {
-      const source = this.source(row, at);
+    const questions = page.filter(({ row, source }) => {
       const current = source && !source.satisfied && source.source_version === row.source_version;
       if (!current) stale++;
       return current;
     });
-    return { questions: questions.map(publicQuestion), count: questions.length, refresh_required: stale > 0,
-      next_after_id: rows.length > limit ? Number(page.at(-1).question_id) : null };
+    return { scope: selected, questions: questions.map(({ row, source }) => publicQuestion(row, source)), count: questions.length, refresh_required: stale > 0,
+      next_after_id: rows.length > limit ? Number(page.at(-1).row.question_id) : null };
   }
   update({ question_id, expected_version, action, ask_after, comment }, context = {}) {
     const at = this.now();
@@ -215,7 +339,7 @@ export class CatchUpService {
       const deferred = action === "defer" ? ask_after : action === "comment" ? row.ask_after : null;
       this.database.prepare(`UPDATE catch_up_questions SET resolved_at = ?, ask_after = ?, comment = ?,
         version = version + 1 WHERE question_id = ?`).run(resolved, deferred, comment ?? row.comment, question_id);
-      return this.record("updated", { question: publicQuestion(this.database.prepare("SELECT * FROM catch_up_questions WHERE question_id = ?").get(question_id)) }, context);
+      return this.record("updated", { question: publicQuestion(this.database.prepare("SELECT * FROM catch_up_questions WHERE question_id = ?").get(question_id), source) }, context);
     });
   }
   setTrackerSchedule({ tracker_id, starts_at_utc, recurrence }, context = {}) {

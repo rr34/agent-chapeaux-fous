@@ -1,8 +1,8 @@
 export const nativeCapabilityManifests = [
   {
-    id: "catch-up", title: "Daily catch-up",
-    summary: "Generate questions from actual tasks, event occurrences and scheduled journal trackers; ask one at a time and persist resolution, comments or deferral against the source records. No briefing authoring needed.",
-    aliases: ["catch me up", "catch up on the day", "daily review", "nag me", "hold me accountable", "unresolved", "get my life in order", "keep going"],
+    id: "catch-up", title: "Check-in catch-up",
+    summary: "Generate questions for selected journal dates, upcoming event planning, to-do deadline cutoffs and past-event follow-up. Ask one at a time and retain the exact selection, source-linked resolution, comments and deferral. No briefing authoring needed.",
+    aliases: ["catch me up", "catch up on the day", "check-in", "check in", "complete logs", "plan ahead", "daily review", "nag me", "hold me accountable", "unresolved", "get my life in order", "keep going"],
     instructionFile: "catch-up.md",
     readOnlyTools: ["catch_up_list"],
     dependentTools: ["todo_update", "calendar_event_update", "calendar_event_occurrence_update", "journal_add", "tracker_list", "tracker_asking_schedule_set", "contact_lookup_batch"],

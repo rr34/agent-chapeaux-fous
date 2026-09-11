@@ -415,7 +415,7 @@ export function registerCalendarTools(
     description: "Move, cancel, rename, or comment on exactly one occurrence of an active recurring calendar series. Read calendar_event_list or the source-linked catch-up question first. Supply the series calendar_event_id and exact original occurrence_starts_at_utc; never use a moved start as the occurrence identity. The calendar service atomically excludes the original occurrence and creates or updates its materialized exception, preserving other occurrences, participants, time zone, and duration. Repeating the same request reuses the exception. Null fields preserve current values; empty description clears it. To edit a one-time event use calendar_event_update.",
     parameters: { type: "object", additionalProperties: false, properties: {
       calendar_event_id: { type: "integer", minimum: 1 },
-      occurrence_starts_at_utc: { type: "string", description: "Exact original UTC occurrence identity from the calendar or catch-up occurrence_key." },
+      occurrence_starts_at_utc: { type: "string", description: "Exact original UTC occurrence identity from the calendar or catch-up source_occurrence_key. Never pass a plan:-prefixed question key." },
       starts_at_utc: { ...optionalText, description: "New UTC start, or null to preserve. Duration is preserved unless ends_at_utc is supplied." },
       ends_at_utc: optionalText,
       title: optionalText, description: optionalText,

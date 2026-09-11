@@ -345,7 +345,7 @@ capability selector, which controls which exact tool schemas are callable.
   recurring to-do may link to a briefing while continuing to own its schedule and
   recurrence. An exchange can move to one other briefing without shared
   ownership; it is appended there while prior run history remains in the ledger.
-  On the Briefings page, editable exchanges can be dragged into a new order (or
+  Under Briefings on the Check-in page, editable exchanges can be dragged into a new order (or
   moved with the handle's Up and Down arrow keys); saving renumbers the complete
   exchange sequence atomically and records the change in the ledger.
   Each successfully completed request exposes **Make this exchange repeatable**, which
@@ -660,12 +660,35 @@ deployed revision.
 
 ## Daily catch-up
 
-Click **Catch up** beside the chat composer controls, or say “Catch me up on
-the day.” This generates questions directly from current tasks,
-calendar occurrences, and scheduled journal trackers. No briefing needs to be
+Open **Check-in**, choose the catch-up settings at the top, and click **Start
+catch-up**. You can also ask for the same selections in chat. This generates
+questions directly from current tasks, calendar occurrences, and journal trackers. No briefing needs to be
 created. The agent asks one question at a time and uses the existing domain tools
 to complete or move tasks, update appointments, and record observations.
 The button sends a normal agent request and preserves any draft text or attachment.
+Existing briefings remain below Catch up in the same section.
+
+Each category can be enabled independently:
+
+- **Complete logs for:** today, yesterday, or a chosen past date, including today
+  before it ends. Active trackers without asking schedules are included for that
+  day; scheduled trackers use their daily, weekly, or monthly recurrence period
+  containing the selected date. An observation in that period satisfies it.
+- **Plan ahead through:** today, tomorrow, the next selected weekday (including
+  today), or a chosen date, through the end of that local day. Only upcoming
+  events with planning prompts qualify. Planning and post-event review have
+  independent completion states for each occurrence.
+- **To-dos due before:** right now or a chosen date and time. This uses unfinished
+  tasks' deadlines, with an exclusive cutoff; a scheduled time is not a deadline.
+- **Review past events through:** optional follow-up for ended events, with a
+  cutoff and 0–31 days of lookback. This is disabled initially.
+
+The browser remembers these controls. Relative choices such as yesterday,
+Friday, and right now are resolved anew when Start is pressed. The owning
+`catch_up_refresh` tool records the exact selection in its existing durable
+refresh receipt; later answers and fresh chats reuse that scope until a new
+selection is supplied. Logs for a missed day retain their selected period.
+These settings add no table or schema migration.
 
 `catch_up_questions` is the only new table (migration 0036). Each row has exactly
 one real foreign key to `todo_personal`, `calendar_events`, or `trackers`, plus
@@ -680,20 +703,21 @@ explicit acknowledgment, deferral, or comments. The optional `catch-up.pending`
 context view only reads already generated questions. It cannot generate or
 mutate anything before execution. There is no timer or new background worker.
 
-By default, catch-up checks overdue and currently scheduled tasks, the last seven
-calendar days plus the selected day, and each tracker's latest due logging
-period. Tasks without a schedule use their deadline; unscheduled tasks without a
-deadline are not automatically questioned. Calendar lookback can be 0–31 days.
-Existing unresolved questions remain eligible beyond that range. Source scans
-are bounded; an overflow fails atomically rather than claiming completeness.
-Only questions whose source-derived asking time and explicit deferral have
-arrived are returned.
+Scope filters apply before pagination. Questions outside the selected categories
+or dates remain stored but are not asked in that check-in. Explicit deferrals
+remain in force. Source scans are bounded; an overflow fails atomically rather
+than claiming completeness. Planning is limited to one year ahead.
+
+For compatibility, a refresh without any supplied or previously saved scope
+retains the older daily behavior: scheduled tasks (deadline as fallback), recent
+calendar events, and the latest due period of scheduled trackers.
 
 Trackers remain unscheduled until `tracker_asking_schedule_set` sets a first
 period start, structured recurrence, and time zone. A journal observation in the
-period satisfies its question. Only the latest due period is generated, so a
-month away does not produce a month of missing daily logs. Turning off the
-asking schedule preserves the tracker and its observations.
+period satisfies its question. Explicitly selecting a log date does not assign
+permanent schedules to unscheduled trackers. Only the selected period is
+generated, so a month away does not produce a month of missing daily logs.
+Turning off the asking schedule preserves the tracker and its observations.
 
 Completing/cancelling a source through the UI also satisfies its question on
 refresh. Rescheduling changes when its question becomes eligible; it does not

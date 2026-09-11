@@ -16,6 +16,7 @@ import {
   weeklyRoutinePattern,
 } from "./calendar-grid.js";
 import { createTimingEditor } from "./timing-editor.js";
+import { defaultCatchUpSettings, catchUpScopeFromSettings, catchUpRequestText } from "./catch-up-settings.js";
 import { groupUsageByRequest, usageFromTrace, llmCallCountLabel, normalizePricing,
   normalizePricingBook, pricingForTier, aiEntryCost, summarizeAiUsage } from "./ai-usage.js";
 
@@ -25,6 +26,9 @@ const elements = {
   text: document.querySelector("#request-text"),
   send: document.querySelector("#send"),
   catchUp: document.querySelector("#catch-up"),
+  catchUpStatus: document.querySelector("#catch-up-status"),
+  catchUpSettings: document.querySelector("#catch-up-settings"),
+  catchUpTimeZone: document.querySelector("#catch-up-time-zone"),
   respondSilently: document.querySelector("#respond-silently"),
   composerAttachFile: document.querySelector("#composer-attach-file"),
   composerFileSelection: document.querySelector("#composer-file-selection"),
@@ -2321,6 +2325,7 @@ function switchView(view) {
   if (view === "contacts") void refreshContacts();
   if (view === "journal") void refreshJournal();
   if (view === "interactions") void refreshInteractionGuides();
+  if (view === "interactions") renderCatchUpSettings();
   if (view === "ai-usage") void loadAiUsage();
   if (view === "agent" && previousView !== "agent") scrollChatToLatest();
   scheduleScrollLatestButtonUpdate();
@@ -5446,7 +5451,7 @@ async function startInteractionGuide(guide, button, { restart = false, resumePre
 }
 
 async function cancelInteractionGuideRun(guide, button) {
-  const reason = window.prompt("Why are you cancelling this briefing?", "Cancelled from the Briefings page");
+  const reason = window.prompt("Why are you cancelling this briefing?", "Cancelled from the Check-in page");
   if (reason === null) return;
   if (!reason.trim()) {
     window.alert("A cancellation reason is required.");
@@ -5712,11 +5717,54 @@ async function saveJournalEntry(event) {
   }
 }
 
+const catchUpSettingsStorageKey = "agent-slayer-catch-up-settings-v1";
+function readCatchUpSettings() {
+  return Object.fromEntries([...elements.catchUpSettings.querySelectorAll("[data-setting]")]
+    .map(input => [input.dataset.setting, input.type === "checkbox" ? input.checked : input.value]));
+}
+function renderCatchUpSettings() {
+  const settings = readCatchUpSettings();
+  for (const row of elements.catchUpSettings.querySelectorAll("[data-category]")) {
+    const category = row.dataset.category;
+    for (const input of row.querySelectorAll("select, input:not([type=checkbox])")) input.disabled = !settings[`${category}Enabled`];
+    const custom = row.querySelector('input[type="date"], input[type="datetime-local"]');
+    custom.hidden = !["date", "custom"].includes(settings[`${category}Day`] || settings[`${category}Time`]);
+  }
+  elements.catchUpTimeZone.textContent = `Dates and cutoffs use ${Intl.DateTimeFormat().resolvedOptions().timeZone}.`;
+  for (const hint of elements.catchUpSettings.querySelectorAll("[data-resolved]")) hint.textContent = "";
+  try {
+    const scope = catchUpScopeFromSettings(settings);
+    elements.catchUpSettings.querySelector('[data-resolved="logs"]').textContent = scope.logs_date ? formatDisplayDate(`${scope.logs_date}T12:00:00`) : "";
+    elements.catchUpSettings.querySelector('[data-resolved="plan"]').textContent = scope.plan_through_date ? formatDisplayDate(`${scope.plan_through_date}T12:00:00`) : "";
+  } catch { /* Show validation errors when Start is pressed. */ }
+}
+function initializeCatchUpSettings() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(catchUpSettingsStorageKey) || "{}"); } catch { /* Use defaults. */ }
+  const settings = { ...defaultCatchUpSettings, ...saved };
+  for (const input of elements.catchUpSettings.querySelectorAll("[data-setting]")) {
+    if (input.type === "checkbox") input.checked = settings[input.dataset.setting] === true;
+    else input.value = settings[input.dataset.setting];
+  }
+  renderCatchUpSettings();
+}
+elements.catchUpSettings.addEventListener("change", () => {
+  try { localStorage.setItem(catchUpSettingsStorageKey, JSON.stringify(readCatchUpSettings())); } catch { /* Keep the in-page settings. */ }
+  elements.catchUpStatus.textContent = "";
+  renderCatchUpSettings();
+});
+initializeCatchUpSettings();
+
 async function submitTextRequest({ catchUp = false } = {}) {
   if (elements.send.disabled || recorder?.state === "recording") return;
-  const text = catchUp
-    ? "Catch me up on today. Generate and refresh my unresolved catch-up questions from my tasks, calendar, and scheduled journal trackers. Ask me one question at a time and wait for my answer before asking the next. Act on my answers by updating the actual records, then continue until there are no due questions left or I ask to pause. Start with the first question now."
-    : elements.text.value.trim();
+  const statusElement = catchUp ? elements.catchUpStatus : elements.status;
+  let text;
+  try {
+    text = catchUp ? catchUpRequestText(catchUpScopeFromSettings(readCatchUpSettings())) : elements.text.value.trim();
+  } catch (error) {
+    statusElement.textContent = error.message;
+    return;
+  }
   if (!text) return;
   const referencedRequestIds = catchUp ? [] : referencedRequestIdsFromComposer(text);
   const respondSilently = elements.respondSilently.checked;
@@ -5724,7 +5772,7 @@ async function submitTextRequest({ catchUp = false } = {}) {
   elements.send.disabled = true;
   elements.catchUp.disabled = true;
   elements.respondSilently.disabled = true;
-  elements.status.textContent = "Submitting…";
+  statusElement.textContent = "Submitting…";
   try {
     const file = catchUp ? null : elements.requestFile.files?.[0] ?? null;
     let primaryFileId = catchUp ? null : Number(elements.requestExistingFile.value) || null;
@@ -5758,15 +5806,16 @@ async function submitTextRequest({ catchUp = false } = {}) {
     }
     pendingRunLimits = null;
     updateRunLimitsSummary();
-    elements.status.textContent = catchUp ? "Catch-up queued. The agent will ask one question at a time." : uploadedNewFile
+    statusElement.textContent = catchUp ? "Catch-up queued. The agent will ask one question at a time." : uploadedNewFile
       ? `Uploaded ${selectedStoredFile.originalFilename} as file #${primaryFileId}. Request queued.`
       : selectedStoredFile
         ? `Queued with file #${primaryFileId} — ${selectedStoredFile.title || selectedStoredFile.originalFilename}.`
       : "Queued.";
+    if (catchUp) elements.status.textContent = statusElement.textContent;
     switchView("agent");
     await Promise.all([loadRequests({ force: true, followLatest: true }), loadFiles()]);
   } catch (error) {
-    elements.status.textContent = error.message;
+    statusElement.textContent = error.message;
   } finally {
     elements.send.disabled = false;
     elements.catchUp.disabled = false;

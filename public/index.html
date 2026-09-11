@@ -34,7 +34,7 @@
         <button class="top-nav-button" data-view="files" type="button">Files</button>
         <button class="top-nav-button" data-view="contacts" type="button">Contacts</button>
         <button class="top-nav-button" data-view="journal" type="button">Journal</button>
-        <button class="top-nav-button" data-view="interactions" type="button">Briefings</button>
+        <button class="top-nav-button" data-view="interactions" type="button">Check-in</button>
         <button id="ai-usage-nav" class="top-nav-button" data-view="ai-usage" type="button">AI Usage</button>
       </div>
       <details id="settings-menu" class="settings-menu">
@@ -397,8 +397,49 @@
     <section id="interactions-view" class="app-view" hidden>
       <header class="organizer-heading">
         <div>
+          <p class="eyebrow">Review and plan</p>
+          <h2>Check-in</h2>
+        </div>
+      </header>
+      <section class="check-in-catch-up organizer-panel" aria-labelledby="catch-up-heading">
+        <div class="section-heading">
+          <h3 id="catch-up-heading">Catch up</h3>
+          <button id="catch-up" type="button" title="Start catch-up, one question at a time">Start catch-up</button>
+        </div>
+        <p class="muted">Choose what to cover. The agent will ask one question at a time.</p>
+        <div id="catch-up-settings" class="catch-up-settings">
+          <div class="catch-up-setting" data-category="logs">
+            <label class="checkbox-row"><input type="checkbox" data-setting="logsEnabled">Complete logs for</label>
+            <select data-setting="logsDay" aria-label="Journal day"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="date">Choose a date</option></select>
+            <input type="date" data-setting="logsDate" aria-label="Journal date" hidden>
+            <small data-resolved="logs" class="muted"></small>
+          </div>
+          <div class="catch-up-setting" data-category="plan">
+            <label class="checkbox-row"><input type="checkbox" data-setting="planEnabled">Plan ahead through</label>
+            <select data-setting="planDay" aria-label="Planning horizon"><option value="today">Today</option><option value="tomorrow">Tomorrow</option><option value="monday">Monday</option><option value="tuesday">Tuesday</option><option value="wednesday">Wednesday</option><option value="thursday">Thursday</option><option value="friday">Friday</option><option value="saturday">Saturday</option><option value="sunday">Sunday</option><option value="date">Choose a date</option></select>
+            <input type="date" data-setting="planDate" aria-label="Planning through date" hidden>
+            <small data-resolved="plan" class="muted"></small>
+          </div>
+          <div class="catch-up-setting" data-category="todos">
+            <label class="checkbox-row"><input type="checkbox" data-setting="todosEnabled">To-dos due before</label>
+            <select data-setting="todosTime" aria-label="To-do deadline cutoff"><option value="now">Right now</option><option value="custom">Choose date and time</option></select>
+            <input type="datetime-local" data-setting="todosBefore" aria-label="To-do deadline cutoff date and time" hidden>
+          </div>
+          <div class="catch-up-setting" data-category="events">
+            <label class="checkbox-row"><input type="checkbox" data-setting="eventsEnabled">Review past events through</label>
+            <select data-setting="eventsTime" aria-label="Past-event cutoff"><option value="now">Right now</option><option value="custom">Choose date and time</option></select>
+            <input type="datetime-local" data-setting="eventsBefore" aria-label="Past-event cutoff date and time" hidden>
+            <label class="catch-up-lookback">Look back <input type="number" min="0" max="31" data-setting="lookbackDays" aria-label="Past-event lookback days"> days</label>
+          </div>
+        </div>
+        <p class="muted">Your selections are remembered in this browser. Journal trackers without a schedule are included for the selected day; weekly and monthly trackers use their configured periods.</p>
+        <p id="catch-up-time-zone" class="muted"></p>
+        <p id="catch-up-status" class="status" role="status"></p>
+      </section>
+      <header class="organizer-heading">
+        <div>
           <p class="eyebrow">Reusable agent-led conversations</p>
-          <h2>Briefings</h2>
+          <h3>Briefings</h3>
         </div>
         <button id="new-interaction-guide" type="button">New briefing</button>
       </header>
@@ -537,7 +578,6 @@
       </div>
       <div class="composer-actions">
         <div class="request-run-controls">
-          <button id="catch-up" class="secondary compact" type="button" title="Start catch-up, one question at a time">Catch up</button>
           <span id="composer-file-selection" class="composer-file-selection" hidden>
             <span id="composer-file-label" class="composer-file-label"></span>
             <button id="composer-remove-request-file" class="composer-file-remove" type="button" aria-label="Remove attached file" title="Remove attached file">×</button>

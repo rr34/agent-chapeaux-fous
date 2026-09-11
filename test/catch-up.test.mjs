@@ -264,3 +264,129 @@ test("existing task and journal mutation tools satisfy questions, while failed w
   service.refresh(scope);
   assert.equal(service.list().count, 0);
 });
+
+const selection = overrides => ({ time_zone: "America/New_York", logs_date: null, plan_through_date: null,
+  todos_before_utc: null, events_before_utc: null, lookback_days: 7, ...overrides });
+
+test("selected past-day logs include unscheduled trackers, persist scope across service instances, and record the selected day", async t => {
+  const { service, registry, tracker, task, db, store, organizer } = harness(t);
+  tracker(); task();
+  service.refresh(scope); // An unrelated due task must not leak into logs-only catch-up.
+  const selected = selection({ logs_date: "2026-09-07" });
+  const result = service.refresh({ ...scope, scope: selected });
+  assert.equal(result.due_count, 1);
+  const q = service.list().questions[0];
+  assert.equal(q.question_kind, "journal");
+  assert.equal(q.occurrence_key, "day:2026-09-07:America/New_York");
+  assert.equal(q.period_starts_at_utc, "2026-09-07T04:00:00.000Z");
+  assert.equal(q.period_ends_at_utc, "2026-09-08T04:00:00.000Z");
+  const resumed = new CatchUpService(store, organizer, new Ledger(store), { now: () => "2026-09-08T22:00:00.000Z" });
+  assert.deepEqual(resumed.list().scope, selected);
+  await registry.execute("journal_add", { tracker: "Weight", group: null, content_text: "Yesterday's weight",
+    number_value: 72, tracker_unit: null, occurred_at_utc: "2026-09-07T13:00:00Z", create_if_missing: false }, {});
+  resumed.refresh(scope); // Null/omitted scope must retain yesterday.
+  assert.equal(resumed.list().count, 0);
+  assert.equal(db.prepare("SELECT asking_recurrence_rule FROM trackers").get().asking_recurrence_rule, null);
+  resumed.refresh({ ...scope, scope: selection({ logs_date: "2026-09-08" }) });
+  assert.equal(resumed.list().count, 1);
+});
+
+test("weekly and monthly journal questions use the selected historical period and existing entries satisfy them", t => {
+  const { service, tracker, db } = harness(t);
+  const id = tracker();
+  service.setTrackerSchedule({ tracker_id: id, starts_at_utc: "2026-08-03T04:00:00Z",
+    recurrence: { ...recurrence, frequency: "WEEKLY", weekdays: ["MO"] } });
+  service.refresh({ ...scope, scope: selection({ logs_date: "2026-09-02" }) });
+  let q = service.list().questions[0];
+  assert.equal(q.period_starts_at_utc, "2026-08-31T04:00:00.000Z");
+  assert.equal(q.period_ends_at_utc, "2026-09-07T04:00:00.000Z");
+  db.prepare("INSERT INTO journal_entries (tracker_id, occurred_at_utc, content_text) VALUES (?, '2026-09-04T13:00:00Z', 'Weekly entry')").run(id);
+  service.refresh(scope);
+  assert.equal(service.list().count, 0);
+  service.setTrackerSchedule({ tracker_id: id, starts_at_utc: "2026-08-01T04:00:00Z",
+    recurrence: { ...recurrence, frequency: "MONTHLY" } });
+  service.refresh({ ...scope, scope: selection({ logs_date: "2026-08-15" }) });
+  q = service.list().questions[0];
+  assert.equal(q.period_starts_at_utc, "2026-08-01T04:00:00.000Z");
+  assert.equal(q.period_ends_at_utc, "2026-09-01T04:00:00.000Z");
+});
+
+test("planning is available ahead of time, survives refresh, reopens on event changes, and is independent of follow-up", t => {
+  const { db, service, answer, setNow } = harness(t);
+  const id = db.prepare(`INSERT INTO calendar_events (title, starts_at_utc, ends_at_utc, planning_prompt_text)
+    VALUES ('Dentist', '2026-09-09T14:00:00.000Z', '2026-09-09T15:00:00.000Z', 'How will you get there?') RETURNING calendar_event_id`).get().calendar_event_id;
+  db.exec("INSERT INTO calendar_events (title, starts_at_utc) VALUES ('No planning prompt', '2026-09-09T17:00:00.000Z')");
+  service.refresh({ ...scope, scope: selection({ plan_through_date: "2026-09-09" }) });
+  let q = service.list().questions[0];
+  assert.equal(service.list().count, 1);
+  assert.equal(q.question_kind, "planning");
+  assert.equal(q.source_occurrence_key, "event");
+  answer(q, "resolve"); service.refresh(scope);
+  assert.equal(service.list().count, 0);
+  db.prepare("UPDATE calendar_events SET starts_at_utc = '2026-09-09T16:00:00.000Z', ends_at_utc = '2026-09-09T17:00:00.000Z' WHERE calendar_event_id = ?").run(id);
+  service.refresh(scope);
+  q = service.list().questions[0];
+  assert.equal(q.resolved_at, null);
+  answer(q, "resolve");
+  setNow("2026-09-09T17:30:00.000Z");
+  service.refresh({ ...scope, scope: selection({ events_before_utc: "2026-09-09T17:30:00.000Z" }) });
+  const review = service.list().questions.find(row => row.calendar_event_id === Number(id));
+  assert.equal(review.question_kind, "event_review");
+  assert.notEqual(review.question_id, q.question_id);
+  assert.match(review.question_text, /How did/);
+});
+
+test("deadline selection excludes scheduled-only tasks and respects the exclusive cutoff before pagination", t => {
+  const { db, service, task, tracker } = harness(t);
+  const due = task("Deadline yesterday but scheduled tomorrow", "2026-09-09T13:00:00.000Z");
+  db.prepare("UPDATE todo_personal SET due_at_utc='2026-09-07T13:00:00.000Z' WHERE personal_task_id=?").run(due);
+  task("Only scheduled yesterday", "2026-09-07T13:00:00.000Z");
+  const boundary = task("At cutoff");
+  db.prepare("UPDATE todo_personal SET due_at_utc='2026-09-08T22:00:00.000Z' WHERE personal_task_id=?").run(boundary);
+  tracker(); service.refresh({ ...scope, scope: selection({ logs_date: "2026-09-08" }) });
+  service.refresh({ ...scope, scope: selection({ todos_before_utc: "2026-09-08T22:00:00.000Z" }) });
+  const page = service.list({ limit: 1 });
+  assert.equal(page.count, 1);
+  assert.equal(page.questions[0].personal_task_id, due);
+  assert.equal(page.next_after_id, null);
+});
+
+test("recurring event planning has separate occurrence identities and returns unprefixed calendar keys", t => {
+  const { db, service, answer } = harness(t);
+  db.exec(`INSERT INTO calendar_events (title, starts_at_utc, ends_at_utc, time_zone, recurrence_rule, planning_prompt_text)
+    VALUES ('Daily appointment', '2026-09-09T14:00:00.000Z', '2026-09-09T15:00:00.000Z', 'America/New_York', 'FREQ=DAILY;COUNT=3', 'What needs preparing?')`);
+  service.refresh({ ...scope, scope: selection({ plan_through_date: "2026-09-10" }) });
+  const questions = service.list().questions;
+  assert.equal(questions.length, 2);
+  assert.equal(questions[0].source_occurrence_key, "2026-09-09T14:00:00.000Z");
+  assert.equal(questions[1].source_occurrence_key, "2026-09-10T14:00:00.000Z");
+  answer(questions[0], "resolve"); service.refresh(scope);
+  assert.equal(service.list().count, 1);
+});
+
+test("selected daily journal windows respect DST and deferrals survive scope switches", t => {
+  const { service, tracker, answer, setNow } = harness(t);
+  tracker();
+  const selected = selection({ logs_date: "2026-03-08" });
+  service.refresh({ ...scope, scope: selected });
+  let q = service.list().questions[0];
+  assert.equal(q.period_starts_at_utc, "2026-03-08T05:00:00.000Z");
+  assert.equal(q.period_ends_at_utc, "2026-03-09T04:00:00.000Z");
+  answer(q, "defer", { ask_after: "2026-09-09T12:00:00Z" });
+  service.refresh({ ...scope, scope: selection({ logs_date: "2026-09-08" }) });
+  service.refresh({ ...scope, scope: selected });
+  assert.equal(service.list().count, 0);
+  setNow("2026-09-09T13:00:00.000Z");
+  assert.equal(service.list().count, 1);
+});
+
+test("past-event review includes the cutoff instant and excludes events still in progress", t => {
+  const { db, service } = harness(t);
+  db.exec(`INSERT INTO calendar_events (title, starts_at_utc, ends_at_utc) VALUES
+    ('At cutoff', '2026-09-08T22:00:00.000Z', NULL),
+    ('Still happening', '2026-09-08T21:00:00.000Z', '2026-09-08T23:00:00.000Z'),
+    ('Too old', '2026-09-07T21:00:00.000Z', '2026-09-07T23:00:00.000Z')`);
+  const result = service.refresh({ ...scope, scope: selection({ events_before_utc: '2026-09-08T22:00:00.000Z', lookback_days: 0 }) });
+  assert.equal(result.due_count, 1);
+  assert.match(service.list().questions[0].question_text, /At cutoff/);
+});

@@ -1,5 +1,6 @@
-const cacheName = "agent-slayer-shell-v63";
+const cacheName = "agent-slayer-shell-v65";
 const shell = [
+  "/catch-up-settings.js",
   "/", "/app", "/app/", "/app.js", "/ai-usage.js", "/calendar-grid.js", "/event-date-time.js", "/presentation-format.js", "/timing-editor.js", "/markdown.js", "/vendor/dompurify.js", "/vendor/marked.js",
   "/styles.css", "/favicon.png", "/icon.svg", "/hats.svg", "/manifest.webmanifest",
   "/logo-chapeaux-fous-1200-square-transparent.png",

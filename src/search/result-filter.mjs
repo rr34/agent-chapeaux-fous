@@ -1,6 +1,6 @@
 const protocol = "agent-slayer.search-data";
 const protocolVersion = 1;
-const protectedField = /(?:^id$|_id$|Id$|^name$|^title$|^status$|^version$|^occurrence_key$|Ref$|_ref$)/u;
+const protectedField = /(?:^id$|_id$|Id$|^name$|^title$|^status$|^version$|^(?:source_)?occurrence_key$|Ref$|_ref$)/u;
 
 export const readResultFilterSchema = {
   type: "object",
