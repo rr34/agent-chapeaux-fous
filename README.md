@@ -127,8 +127,13 @@ outputs instead.
 details. `SLAYER_MAX_REQUEST_ATTACHMENT_BYTES` is a generous operational memory
 ceiling, not a usage allowance, and can be raised. The dedicated **AI Usage**
 screen totals recorded tokens and estimates USD cost. Its per-million-token
-prices can be changed in the browser without modifying historical usage; server
-defaults come from `SLAYER_AI_*_COST_PER_MILLION`.
+prices are set only on that screen and saved in browser storage. These same
+rates calculate both usage totals and individual response estimates, including
+historical requests. There are no server, environment, or built-in price
+defaults. Without saved prices, dollar estimates remain unavailable. The server
+records token usage without assigning prices or calculating new costs. These
+estimates apply the entered rates to all models in the recorded history; they
+are not a reconciliation with the provider invoice.
 
 ## Conversation state
 

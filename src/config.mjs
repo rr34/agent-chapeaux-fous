@@ -22,11 +22,6 @@ function percentage(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 && parsed < 100 ? parsed : fallback;
 }
 
-function nonnegativeNumber(value, fallback) {
-  const parsed = Number.parseFloat(String(value ?? ""));
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
 function selectedValue(value, allowed, fallback) {
   const selected = String(value ?? "").trim().toLowerCase();
   return allowed.includes(selected) ? selected : fallback;
@@ -123,12 +118,6 @@ export function loadConfig(environment = process.env) {
       ["auto", "low", "high", "original"],
       "original",
     ),
-    aiPricing: {
-      inputPerMillion: nonnegativeNumber(environment.SLAYER_AI_INPUT_COST_PER_MILLION, 2),
-      cachedInputPerMillion: nonnegativeNumber(environment.SLAYER_AI_CACHED_INPUT_COST_PER_MILLION, 0.2),
-      cacheWritePerMillion: nonnegativeNumber(environment.SLAYER_AI_CACHE_WRITE_COST_PER_MILLION, 2.5),
-      outputPerMillion: nonnegativeNumber(environment.SLAYER_AI_OUTPUT_COST_PER_MILLION, 12),
-    },
     model: environment.SLAYER_MODEL?.trim() || "gpt-5.6-terra",
     reasoningEffort: environment.SLAYER_REASONING_EFFORT?.trim() || "high",
     orientationReasoningEffort: environment.SLAYER_ORIENTATION_REASONING_EFFORT?.trim() || "medium",

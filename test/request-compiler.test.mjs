@@ -311,7 +311,7 @@ test("starting a linked guide selects guide and to-do capabilities", async () =>
   assert.match(compiled.instructions, /take one starting snapshot/);
   assert.match(compiled.instructions, /one\s+complete opening checklist/);
   assert.doesNotMatch(compiled.instructions, /defaulting to\s+three/);
-  assert.match(compiled.instructions, /completed_on_date/);
+  assert.match(compiled.instructions, /completed_date_range/);
 
   const scheduled = await compiler.compile({
     tools,

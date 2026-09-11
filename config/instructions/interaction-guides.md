@@ -179,8 +179,9 @@ headings and mechanically render the returned record names, handles, dates, and
 statuses beneath them. Avoid transitional chatter and bespoke descriptions when
 the stored fields already say what the item is. The result should resemble a
 code-generated checklist that is fast to scan and cheap to produce. Daily
-to-do reviews use `completed_on_date` or
-`scheduled_on_date` with the user's time zone; calendar reviews use an exact
+to-do reviews use `todo_list.queries` with `completed_date_range` or
+`scheduled_date_range` and the user's time zone. Follow each query's
+`next_cursor` until `has_more` is false; calendar reviews use an exact
 calendar range; optional weather reviews request the connected weather
 capability and use the user's known location. End with one short instruction
 that the user may answer all items together or refer to any one item by its

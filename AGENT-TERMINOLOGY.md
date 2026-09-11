@@ -10,6 +10,9 @@ model transport, records activity, and returns the final response.
 
 **2. OpenAI language model used by the agent** (LLM) — The OpenAI model selected
 by `SLAYER_MODEL` and reached through the configured provider-neutral transport.
+One LLM call is one round trip to this model. Tool calls are counted separately;
+one LLM response can request several tools, and sending their results back to
+the model is another LLM call.
 
 **3. TLOM MCP server** — TLOM's user-scoped Streamable HTTP MCP endpoint at
 `https://mytlom.com/api/mcp`, from which Agent Slayer discovers property,

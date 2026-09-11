@@ -16,7 +16,7 @@ import {
   weeklyRoutinePattern,
 } from "./calendar-grid.js";
 import { createTimingEditor } from "./timing-editor.js";
-import { groupUsageByRequest, usageFromTrace } from "./ai-usage.js";
+import { groupUsageByRequest, usageFromTrace, llmCallCountLabel, normalizePricing, aiEntryCost, summarizeAiUsage } from "./ai-usage.js";
 
 const elements = {
   composer: document.querySelector("#chat-composer"),
@@ -1291,7 +1291,7 @@ function progressDetail(progress) {
   const elapsedMs = Math.max(0, Date.now() - Number(progress.startedAtMs || Date.now()));
   const quietMs = Math.max(0, Date.now() - Number(progress.lastActivityAtMs || progress.startedAtMs || Date.now()));
   const parts = [`${formatDuration(elapsedMs)} elapsed`];
-  if (progress.modelCalls) parts.push(`${progress.modelCalls} model call${progress.modelCalls === 1 ? "" : "s"}`);
+  if (progress.modelCalls) parts.push(`${progress.modelCalls} LLM call${progress.modelCalls === 1 ? "" : "s"}`);
   if (progress.toolCalls) parts.push(`${progress.toolCalls} tool call${progress.toolCalls === 1 ? "" : "s"}`);
   if (elapsedMs >= 120_000) parts.unshift("Still working");
   if (quietMs >= 60_000) parts.push(`${formatDuration(quietMs)} since last activity`);
@@ -1336,18 +1336,21 @@ function healthUsageLabel(model) {
   return `${name} ${limiting.remainingPercent}% left · ${resetLabel(limiting.resetsAt)}`;
 }
 
-function requestUsageLabel(usage) {
+function requestUsageLabel(usage, pricing = storedAiPricing()) {
   if (!usage) return "";
   const deltas = (usage.windows ?? []).map((window) => window.usedPercentDelta).filter(Number.isFinite);
   const largestDelta = deltas.length ? Math.max(...deltas) : null;
   const tokens = usage.tokenUsage?.totalTokens;
   const parts = [];
-  if (Number.isFinite(usage.estimatedCostUsd)) parts.push(`${formatUsd(usage.estimatedCostUsd)} estimated`);
-  else if (usage.provider === "openai") parts.push("cost estimate unavailable");
-  else if (largestDelta == null) parts.push("quota update pending");
+  const cost = aiEntryCost(usage.tokenUsage, pricing);
+  if (Number.isFinite(cost)) parts.push(`${formatUsd(cost)} estimated`);
+  else if (usage.provider === "openai" || usage.tokenUsage) parts.push(pricing ? "cost estimate unavailable" : "Set token prices");
+  else if (largestDelta == null && usage.windows) parts.push("quota update pending");
   else if (largestDelta === 0) parts.push("quota change <1%");
-  else parts.push(`+${largestDelta}% quota`);
+  else if (largestDelta != null) parts.push(`+${largestDelta}% quota`);
   if (Number.isFinite(tokens)) parts.push(`${tokens.toLocaleString()} tokens`);
+  if (Number.isSafeInteger(usage.modelCallCount)) parts.push(`${usage.modelCallCount.toLocaleString()} LLM call${usage.modelCallCount === 1 ? "" : "s"}`);
+  if (Number.isSafeInteger(usage.toolCallCount)) parts.push(`${usage.toolCallCount.toLocaleString()} tool call${usage.toolCallCount === 1 ? "" : "s"}`);
   const remaining = (usage.windows ?? []).map((window) => window.remainingPercent).filter(Number.isFinite);
   if (remaining.length) parts.push(`${Math.min(...remaining)}% left`);
   return parts.join(" · ");
@@ -1382,30 +1385,23 @@ function formatUsd(value) {
   }).format(amount);
 }
 
-function validPricing(value) {
-  return value && ["inputPerMillion", "cachedInputPerMillion", "cacheWritePerMillion", "outputPerMillion"]
-    .every((key) => Number.isFinite(Number(value[key])) && Number(value[key]) >= 0);
-}
-
-function storedAiPricing(defaultPricing) {
+function storedAiPricing() {
   try {
-    const stored = JSON.parse(localStorage.getItem(aiPricingStorageKey) || "null");
-    if (validPricing(stored)) return stored;
-  } catch { /* Use server defaults. */ }
-  return defaultPricing;
+    return normalizePricing(JSON.parse(localStorage.getItem(aiPricingStorageKey) || "null"));
+  } catch { return null; }
 }
 
-function aiEntryCost(entry, pricing) {
-  const uncached = Math.max(
-    0,
-    Number(entry.inputTokens) - Number(entry.cachedInputTokens) - Number(entry.cacheWriteTokens),
-  );
-  return (
-    uncached * pricing.inputPerMillion
-    + Number(entry.cachedInputTokens) * pricing.cachedInputPerMillion
-    + Number(entry.cacheWriteTokens) * pricing.cacheWritePerMillion
-    + Number(entry.outputTokens) * pricing.outputPerMillion
-  ) / 1_000_000;
+function aiCostLabel(cost, pricing) {
+  return Number.isFinite(cost) ? formatUsd(cost) : pricing ? "Estimate unavailable" : "Set token prices";
+}
+
+function refreshCostDisplays() {
+  renderAiUsage();
+  for (const request of requestNodes.values()) {
+    const usage = request.querySelector(".request-usage");
+    setTextContent(usage, requestUsageLabel(JSON.parse(usage.dataset.usage || "null")));
+    usage.hidden = !usage.textContent;
+  }
 }
 
 function meteredAiEntry(entry) {
@@ -1416,29 +1412,26 @@ function meteredAiEntry(entry) {
 
 function renderAiUsage() {
   if (!aiUsageData) return;
-  const pricing = storedAiPricing(aiUsageData.defaultPricing);
-  elements.aiInputPrice.value = String(pricing.inputPerMillion);
-  elements.aiCachedInputPrice.value = String(pricing.cachedInputPerMillion);
-  elements.aiCacheWritePrice.value = String(pricing.cacheWritePerMillion);
-  elements.aiOutputPrice.value = String(pricing.outputPerMillion);
+  const pricing = storedAiPricing();
+  elements.aiInputPrice.value = pricing ? String(pricing.inputPerMillion) : "";
+  elements.aiCachedInputPrice.value = pricing ? String(pricing.cachedInputPerMillion) : "";
+  elements.aiCacheWritePrice.value = pricing ? String(pricing.cacheWritePerMillion) : "";
+  elements.aiOutputPrice.value = pricing ? String(pricing.outputPerMillion) : "";
   const entries = aiUsageData.entries.filter(meteredAiEntry);
   const now = new Date();
   const monthEntries = entries.filter((entry) => {
     const date = new Date(entry.occurredAtUtc);
     return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
   });
-  const summarize = (selected) => ({
-    tokens: selected.reduce((total, entry) => total + Number(entry.totalTokens || 0), 0),
-    cost: selected.reduce((total, entry) => total + aiEntryCost(entry, pricing), 0),
-  });
+  const summarize = selected => summarizeAiUsage(selected, pricing);
   const month = summarize(monthEntries);
   const total = summarize(entries);
-  elements.aiUsageMonthCost.textContent = formatUsd(month.cost);
+  elements.aiUsageMonthCost.textContent = aiCostLabel(month.cost, pricing);
   elements.aiUsageMonthTokens.textContent = `${month.tokens.toLocaleString()} tokens`;
-  elements.aiUsageTotalCost.textContent = formatUsd(total.cost);
+  elements.aiUsageTotalCost.textContent = aiCostLabel(total.cost, pricing);
   elements.aiUsageTotalTokens.textContent = `${total.tokens.toLocaleString()} tokens`;
   elements.aiUsageCurrentModel.textContent = `${aiUsageData.current.model} via ${aiUsageData.current.transport}`;
-  elements.aiUsageEntryCount.textContent = `${entries.length.toLocaleString()} recorded model ${entries.length === 1 ? "call" : "calls"}`;
+  elements.aiUsageEntryCount.textContent = llmCallCountLabel(entries);
   const openRequests = new Set([...elements.aiUsageRows.children]
     .filter((item) => item.open).map((item) => item.dataset.key));
   elements.aiUsageRows.replaceChildren();
@@ -1447,11 +1440,11 @@ function renderAiUsage() {
     details.dataset.key = group.key;
     const summary = node("summary", "");
     const title = node("strong", "ai-usage-request-title", group.requestId
-      ? `Request ${group.requestId.slice(0, 8)}` : "Unlinked model call");
+      ? `Request ${group.requestId.slice(0, 8)}` : "Unlinked usage record");
     const metadata = node("span", "ai-usage-request-meta");
     const updateSummary = (calls) => {
       const usage = summarize(calls);
-      metadata.textContent = `${formatDisplayDate(calls.at(-1)?.occurredAtUtc)} · ${calls.length} model ${calls.length === 1 ? "call" : "calls"} · ${usage.tokens.toLocaleString()} tokens · ${formatUsd(usage.cost)} estimated`;
+      metadata.textContent = `${formatDisplayDate(calls.at(-1)?.occurredAtUtc)} · ${llmCallCountLabel(calls)} · ${usage.tokens.toLocaleString()} tokens · ${aiCostLabel(usage.cost, pricing)}${Number.isFinite(usage.cost) ? " estimated" : ""}`;
     };
     updateSummary(group.entries);
     summary.append(title, metadata);
@@ -1486,7 +1479,7 @@ function renderAiUsage() {
         }
         const calls = usageFromTrace(events).filter(meteredAiEntry);
         if (calls.length) updateSummary(calls);
-        content.append(node("h4", "", "Model calls"), aiUsageCallTable(calls, pricing));
+        content.append(node("h4", "", "Recorded usage"), aiUsageCallTable(calls, pricing));
         const trace = node("details", "ai-usage-full-trace");
         trace.append(node("summary", "", `Full chronological trace · ${events.length} events`));
         const traceEvents = node("div", "trace-events");
@@ -1519,7 +1512,7 @@ function aiUsageCallTable(entries, pricing) {
   const table = node("table", "");
   const head = node("thead", "");
   const headings = node("tr", "");
-  for (const label of ["When", "Model / step", "Input", "Cached", "Cache write", "Output", "Estimated cost"]) {
+  for (const label of ["When", "Model / step", "LLM calls", "Input", "Cached", "Cache write", "Output", "Estimated cost"]) {
     const heading = node("th", "", label);
     heading.scope = "col";
     headings.append(heading);
@@ -1531,11 +1524,12 @@ function aiUsageCallTable(entries, pricing) {
     const values = [
       formatDisplayDate(entry.occurredAtUtc),
       [entry.model || entry.transport || "Unknown", entry.workflowStep, entry.reasoningEffort].filter(Boolean).join(" · "),
+      Number.isSafeInteger(entry.modelCallCount) ? entry.modelCallCount.toLocaleString() : "Unavailable",
       Number(entry.inputTokens).toLocaleString(),
       Number(entry.cachedInputTokens).toLocaleString(),
       Number(entry.cacheWriteTokens).toLocaleString(),
       Number(entry.outputTokens).toLocaleString(),
-      formatUsd(aiEntryCost(entry, pricing)),
+      aiCostLabel(aiEntryCost(entry, pricing), pricing),
     ];
     for (const value of values) row.append(node("td", "", value));
     rows.append(row);
@@ -1874,6 +1868,7 @@ function requestNode(request, index, structuredGenerationStatus = null) {
   setTextContent(error, request.error || "");
   renderRequestSteps(node.querySelector(".request-steps"), request.steps);
   const usage = node.querySelector(".request-usage");
+  usage.dataset.usage = JSON.stringify(request.usage ?? null);
   setTextContent(usage, requestUsageLabel(request.usage));
   usage.hidden = !usage.textContent;
   const progress = node.querySelector(".request-progress");
@@ -2050,6 +2045,7 @@ function traceLabel(event, index) {
     "context.sent": "CONTEXT SENT",
     "tools.sent": "TOOLS AVAILABLE",
     "model.request": "MODEL REQUEST",
+    "model.call": "LLM CALL",
     "model.response": "MODEL RESPONSE",
     "model.usage": "MODEL USAGE",
     "tool.call": "TOOL CALL",
@@ -2072,7 +2068,6 @@ async function showTrace(requestId) {
   body.events.forEach((event, index) => {
     const details = document.createElement("details");
     details.className = "trace-event";
-    if (["request.received", "agent.step", "turn.brief", "turn.brief.approval_required", "turn.brief.approved", "turn.brief.cancelled", "conversation.state", "context.sent", "tools.sent", "model.request", "tool.call", "tool.result", "assistant.response", "request.error", "request.cancelled"].includes(event.type)) details.open = true;
     const summary = document.createElement("summary");
     summary.textContent = traceLabel(event, index);
     const pre = document.createElement("pre");
@@ -6007,24 +6002,35 @@ elements.usage.addEventListener("click", () => {
 elements.refreshAiUsage.addEventListener("click", () => void loadAiUsage());
 elements.aiPricingForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const pricing = {
-    inputPerMillion: Number(elements.aiInputPrice.value),
-    cachedInputPerMillion: Number(elements.aiCachedInputPrice.value),
-    cacheWritePerMillion: Number(elements.aiCacheWritePrice.value),
-    outputPerMillion: Number(elements.aiOutputPrice.value),
-  };
-  if (!validPricing(pricing)) {
-    elements.aiUsageStatus.textContent = "Prices must be non-negative numbers.";
+  const pricing = normalizePricing({
+    inputPerMillion: elements.aiInputPrice.value,
+    cachedInputPerMillion: elements.aiCachedInputPrice.value,
+    cacheWritePerMillion: elements.aiCacheWritePrice.value,
+    outputPerMillion: elements.aiOutputPrice.value,
+  });
+  if (!pricing) {
+    elements.aiUsageStatus.textContent = "Enter all four prices as non-negative numbers.";
     return;
   }
-  localStorage.setItem(aiPricingStorageKey, JSON.stringify(pricing));
-  renderAiUsage();
-  elements.aiUsageStatus.textContent = "Pricing override saved in this browser.";
+  try {
+    localStorage.setItem(aiPricingStorageKey, JSON.stringify(pricing));
+    refreshCostDisplays();
+    elements.aiUsageStatus.textContent = "Prices saved in this browser and applied to all estimates.";
+  } catch {
+    elements.aiUsageStatus.textContent = "Could not save prices in this browser.";
+  }
 });
 elements.resetAiPricing.addEventListener("click", () => {
-  localStorage.removeItem(aiPricingStorageKey);
-  renderAiUsage();
-  elements.aiUsageStatus.textContent = "Using the server pricing defaults.";
+  try {
+    localStorage.removeItem(aiPricingStorageKey);
+    refreshCostDisplays();
+    elements.aiUsageStatus.textContent = "Prices cleared. Enter prices to calculate estimates.";
+  } catch {
+    elements.aiUsageStatus.textContent = "Could not clear prices in this browser.";
+  }
+});
+window.addEventListener("storage", event => {
+  if (event.key === aiPricingStorageKey || event.key === null) refreshCostDisplays();
 });
 elements.closeTrace.addEventListener("click", () => { elements.tracePanel.hidden = true; });
 elements.copyTrace.addEventListener("click", (event) => copyText(JSON.stringify(activeTrace, null, 2), event.currentTarget));

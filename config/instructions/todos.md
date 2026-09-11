@@ -20,7 +20,7 @@ time, set `is_all_day=true` and represent that date as local midnight; use a
 timed schedule only when the user supplies or requests a time.
 
 Use status `unplanned` for an active item whose concrete plan has not yet been
-decided. `todo_list` with `status="unplanned"` is the authoritative list of
+decided. `todo_list` with a query using `status="unplanned"` is the authoritative list of
 items that still need planning. Preserve the user's exact question in nullable
 `planning_prompt_text`; do not invent a planning prompt when the user has not
 supplied or requested one. The field and status are independent, so changing
@@ -78,12 +78,23 @@ dates even though published occurrences share the personal task table. If the
 user explicitly names one of those schedule entries and asks to move it, use
 `todo_update` for that exact task instead.
 
-For a daily review, use `todo_list.completed_on_date` to read tasks completed on
-one local date and `todo_list.scheduled_on_date` to read tasks scheduled on one
-local date. Always supply the applicable IANA `time_zone`. These select tasks by
-the single completion or schedule timestamp already stored on each task; they
-do not represent a range belonging to the task. A scheduled-date read returns
-the calendar-visible published occurrence; update that occurrence when filling
+Use `todo_list.queries` for every lookup, with one query for a single lookup.
+Batch independent lookups together. For a week or other contiguous period, use
+one query with an inclusive `scheduled_date_range` or `completed_date_range`
+(`start_date`, `end_date`); do not issue one call per day. For one day, set both
+dates to that day. Supply the applicable IANA `time_zone`. Use
+`personal_task_ids` to retrieve known tasks directly, including completed or
+archived tasks when `status` is null. All filters within a query are ANDed.
+Give every query a unique `query_id`. Each result echoes that ID and provides
+`has_more` and `next_cursor`. Continue every required query with unchanged
+filters and its returned cursor until `has_more` is false before claiming a
+complete list. A page limit never means that later matches can be discarded.
+Keep `result_filter` nonselective when reading complete pages; use receipt
+paging if an exact page is too large for inline delivery.
+
+Date ranges select the completion or schedule timestamp already stored on each
+task; they do not add ranges to task records. A scheduled-range read returns
+the calendar-visible published occurrences; update the occurrence when filling
 a work window and preserve its linked routine definition.
 
 In every user-facing list or review where a to-do may be discussed or changed,

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   OpenAIResponsesClient,
-  estimatedCost,
   openAICompatibleSchema,
   openAITools,
 } from "../src/openai-responses-client.mjs";
@@ -54,15 +53,13 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
   ];
   const client = new OpenAIResponsesClient({
     apiKey: "sk_test_secret_value_123456",
-    pricing: {
-      inputPerMillion: 2, cachedInputPerMillion: 0.2, cacheWritePerMillion: 2.5, outputPerMillion: 12,
-    },
     fetchImpl: async (url, options) => {
       requests.push({ url, options, body: JSON.parse(options.body) });
       return jsonResponse(responses.shift());
     },
   });
   const calls = [];
+  const observedEvents = [];
   const result = await client.runTurn({
     model: "gpt-5.6-terra",
     effort: "high",
@@ -76,6 +73,7 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
     },
     tools,
     maxToolCalls: 10,
+    onEvent: event => observedEvents.push(event),
     onToolCall: async (call) => {
       calls.push(call);
       return { ok: true, result: { id: 44 } };
@@ -83,6 +81,9 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
   });
 
   assert.equal(requests.length, 2);
+  assert.equal(result.usage.modelCallCount, 2);
+  assert.deepEqual(observedEvents.filter(event => event.type === "request.started")
+    .map(event => event.modelCallIndex), [1, 2]);
   assert.equal(requests[0].url, "https://api.openai.com/v1/responses");
   assert.equal(requests[0].options.headers.Authorization, "Bearer sk_test_secret_value_123456");
   assert.match(requests[0].body.instructions, /BASE[\s\S]+BOUNDED CONTEXT/);
@@ -108,7 +109,30 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
     totalTokens: 2780,
   });
   assert.equal(result.usage.contextInputTokens, 1400);
-  assert.equal(result.usage.estimatedCostUsd, estimatedCost(result.usage.tokenUsage, client.pricing));
+  assert.equal(Object.hasOwn(result.usage, "estimatedCostUsd"), false);
+  assert.equal(Object.hasOwn(result.usage, "pricing"), false);
+});
+
+test("seven tools requested together and their follow-up response are exactly two LLM calls", async () => {
+  let requests = 0;
+  let toolCalls = 0;
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      requests += 1;
+      return jsonResponse({ id: `response-${requests}`, status: "completed", output: requests === 1
+        ? Array.from({ length: 7 }, (_, i) => ({ type: "function_call", call_id: `tool-${i}`,
+          name: "todo_create", arguments: JSON.stringify({ text: `Task ${i}` }) }))
+        : [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] }],
+      });
+    },
+  });
+  const result = await client.runTurn({ model: "test-model", input: "Create seven tasks", tools,
+    onToolCall: async () => { toolCalls += 1; return { ok: true }; },
+  });
+  assert.equal(requests, 2);
+  assert.equal(result.usage.modelCallCount, 2);
+  assert.equal(toolCalls, 7);
 });
 
 test("OpenAI Responses accepts an empty completion after a successful tool-expansion control transfer", async () => {
@@ -190,7 +214,27 @@ test("OpenAI Responses rejects an ordinary empty completion with accumulated dia
     assert.equal(error.data.providerTurnId, "resp_empty");
     assert.equal(error.data.status, "completed");
     assert.equal(error.data.usage.tokenUsage.totalTokens, 17);
+    assert.equal(error.data.usage.modelCallCount, 1);
     assert.deepEqual(error.data.protocolEvents[0].outputTypes, ["reasoning"]);
+    return true;
+  });
+});
+
+test("a failed API request records its call before sending and preserves the count in diagnostics", async () => {
+  const events = [];
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      assert.deepEqual(events, [{ type: "request.started", modelCallIndex: 1 }]);
+      throw new Error("connection lost");
+    },
+  });
+  await assert.rejects(client.runTurn({
+    model: "test-model", input: "Hello", tools: [],
+    onEvent: event => events.push(event),
+  }), error => {
+    assert.equal(error.data.usage.modelCallCount, 1);
+    assert.equal(error.data.usage.tokenUsage.totalTokens, 0);
     return true;
   });
 });

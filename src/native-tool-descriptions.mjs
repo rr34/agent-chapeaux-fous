@@ -113,7 +113,7 @@ const descriptions = new Map(Object.entries({
   agent_self_describe: read("Return a broad current description of Chapeaux Fous infrastructure, request path, integrations, sources, and callable inventory."),
 
   todo_group_list: read("List active native to-do groups and their open counts so a new task can use the best existing group."),
-  todo_list: read("List actual native personal to-dos, including Calendar-screen Scheduled task and All-day task entries."),
+  todo_list: read("Read paginated batches of native personal to-dos by task IDs, group, status, or local scheduled/completed date ranges, including Calendar-screen task occurrences."),
   routine_add: create("Create one reusable calendar routine definition without creating an occurrence; range publication later creates linked personal tasks."),
   routine_list: read("List reusable calendar routine definitions separately from dated personal task occurrences."),
   routine_update: update("Update one reusable calendar routine definition without rewriting occurrences already published."),

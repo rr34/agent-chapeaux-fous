@@ -92,6 +92,7 @@ test("the first model turn contains the exact request, context, and callable too
         requestAttachmentInput: payload.requestAttachmentInput,
         tools: structuredClone(payload.tools),
       });
+      await payload.onEvent({ type: "request.started", modelCallIndex: 1 });
       const toolResponse = await payload.onToolCall({
         callId: "call-1",
         tool: "echo_value",
@@ -99,6 +100,7 @@ test("the first model turn contains the exact request, context, and callable too
       });
       assert.equal(toolResponse.ok, true);
       assert.equal(toolResponse.result.value, "hello");
+      await payload.onEvent({ type: "request.started", modelCallIndex: 2 });
       return completedTurn();
     });
   const registry = new ToolRegistry();
@@ -150,6 +152,10 @@ test("the first model turn contains the exact request, context, and callable too
   });
 
   assert.equal(result, "The tool returned hello.");
+  assert.deepEqual(events.filter(event => event.type === "model.call")
+    .map(event => event.payload.modelCallIndex), [1, 2]);
+  assert.ok(events.findIndex(event => event.type === "model.call")
+    < events.findIndex(event => event.type === "tool.call"));
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0].tools, registry.toolDefinitions());
   assert.equal(requests[0].developerInstructions, "VISIBLE CONTEXT");

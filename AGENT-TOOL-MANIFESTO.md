@@ -24,8 +24,21 @@ The LLM produces:
 - concise natural-language responses grounded in the supplied context and tool
   results.
 
-Model calls are measured individually for input, output, latency, and cost. A
-model call should do one well-defined language task with the smallest context
+An LLM call is one round trip to the LLM: one request and its response. A single
+response requesting seven tools is one LLM call and seven tool calls. Sending
+the tool results to the LLM is another LLM call. A workflow step, tool loop, or
+aggregated usage record is not an LLM call; each may contain multiple calls.
+All LLM-call counters use round trips, never those aggregates.
+
+Token prices are set only on the AI Usage screen. No environment, server, or
+transport defaults supply rates. The same browser-saved prices calculate every
+displayed estimate from recorded token counts; without prices, no dollar
+estimate is shown. Historical estimates in literal traces are evidence of what
+was recorded then, never a fallback pricing source. Usage totals count each
+ledger usage event once and do not multiply charges by tool or LLM-call counts.
+
+LLM calls are measured individually for input, output, latency, and cost. An
+LLM call should do one well-defined language task with the smallest context
 that can reliably complete it.
 
 # 2. The agent structure
@@ -446,6 +459,13 @@ call. Native mutations are atomic unless their domain contract explicitly
 requires another behavior. Batch support must express the domain operation; it
 must not be simulated through generic database writes or by making the model
 issue one tool call per record.
+
+Read tools that support independent lookups use bounded query batches, with a
+single lookup expressed as a one-query batch. Owning tools accept useful date
+ranges and identifier sets so the model need not issue one lookup per date or
+record. Each query has a correlated result and explicit pagination: a page
+limit returns a continuation for remaining matches, never silently truncates
+the requested dataset.
 
 The selection summary is the routing layer of the Tool Description, not a
 clipped execution description. It omits argument-level procedure unless that

@@ -115,19 +115,6 @@ function addUsage(total, current) {
   for (const key of Object.keys(total)) total[key] += Number(current[key] ?? 0);
 }
 
-function estimatedCost(tokenUsage, pricing) {
-  const uncachedInput = Math.max(
-    0,
-    tokenUsage.inputTokens - tokenUsage.cachedInputTokens - tokenUsage.cacheWriteTokens,
-  );
-  return (
-    uncachedInput * pricing.inputPerMillion
-    + tokenUsage.cachedInputTokens * pricing.cachedInputPerMillion
-    + tokenUsage.cacheWriteTokens * pricing.cacheWritePerMillion
-    + tokenUsage.outputTokens * pricing.outputPerMillion
-  ) / 1_000_000;
-}
-
 function safeErrorMessage(error, apiKey) {
   const message = error instanceof Error ? error.message : String(error);
   return redactText(apiKey ? message.replaceAll(apiKey, "[REDACTED]") : message);
@@ -140,12 +127,6 @@ export class OpenAIResponsesClient {
     requestTimeoutMs = 10 * 60 * 1000,
     modelContextWindowTokens = 1_050_000,
     imageDetail = "original",
-    pricing = {
-      inputPerMillion: 2,
-      cachedInputPerMillion: 0.2,
-      cacheWritePerMillion: 2.5,
-      outputPerMillion: 12,
-    },
     fetchImpl = globalThis.fetch,
   } = {}) {
     this.id = "openai-responses";
@@ -155,7 +136,6 @@ export class OpenAIResponsesClient {
     this.requestTimeoutMs = requestTimeoutMs;
     this.modelContextWindowTokens = modelContextWindowTokens;
     this.imageDetail = imageDetail;
-    this.pricing = pricing;
     this.fetchImpl = fetchImpl;
     this.started = false;
   }
@@ -176,7 +156,6 @@ export class OpenAIResponsesClient {
       endpoint: this.baseUrl,
       imageDetail: this.imageDetail,
       usageMode: "metered",
-      pricing: this.pricing,
     };
   }
 
@@ -305,15 +284,15 @@ export class OpenAIResponsesClient {
       content: userContent(input, requestAttachmentInput, this.imageDetail),
     }];
     let toolCallCount = 0;
+    let modelCallCount = 0;
     let latestInputTokens = 0;
     const deadlineAt = runTimeoutMs === null ? null : Date.now() + runTimeoutMs;
     const observedUsage = () => ({
       provider: "openai",
+      modelCallCount,
       tokenUsage: { ...totalUsage },
       contextInputTokens: latestInputTokens,
       contextWindowTokens: this.modelContextWindowTokens,
-      estimatedCostUsd: estimatedCost(totalUsage, this.pricing),
-      pricing: this.pricing,
     });
     try {
       while (true) {
@@ -349,6 +328,8 @@ export class OpenAIResponsesClient {
           throw error;
         }
         response = null;
+        modelCallCount += 1;
+        await onEvent?.({ type: "request.started", modelCallIndex: modelCallCount });
         response = await this.request(requestBody, remainingMs);
         const currentUsage = usageFor(response);
         latestInputTokens = currentUsage.inputTokens;
@@ -451,4 +432,4 @@ export class OpenAIResponsesClient {
   }
 }
 
-export { estimatedCost, openAICompatibleSchema, openAITools };
+export { openAICompatibleSchema, openAITools };

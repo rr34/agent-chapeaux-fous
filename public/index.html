@@ -435,23 +435,23 @@
       </header>
       <div class="ai-usage-summary-grid">
         <article class="organizer-panel ai-usage-summary-card">
-          <span>This month</span><strong id="ai-usage-month-cost">$0.00</strong>
+          <span>This month · estimated</span><strong id="ai-usage-month-cost">Set token prices</strong>
           <small id="ai-usage-month-tokens">0 tokens</small>
         </article>
         <article class="organizer-panel ai-usage-summary-card">
-          <span>Recorded total</span><strong id="ai-usage-total-cost">$0.00</strong>
+          <span>Recorded total · estimated</span><strong id="ai-usage-total-cost">Set token prices</strong>
           <small id="ai-usage-total-tokens">0 tokens</small>
         </article>
         <article class="organizer-panel ai-usage-summary-card">
           <span>Current backend</span><strong id="ai-usage-current-model">Unknown</strong>
-          <small id="ai-usage-entry-count">0 recorded calls</small>
+          <small id="ai-usage-entry-count">0 LLM calls</small>
         </article>
       </div>
       <form id="ai-pricing-form" class="organizer-panel ai-pricing-form">
         <div>
           <p class="eyebrow">Cost calculator</p>
           <h3>Prices per one million tokens</h3>
-          <p class="muted">Change these whenever provider pricing changes. Overrides stay in this browser; recorded token counts never change.</p>
+          <p class="muted">Set prices here only. Saved prices stay in this browser and apply to all usage totals and response estimates. There are no default prices; recorded token counts never change.</p>
         </div>
         <label>Input USD<input id="ai-input-price" type="number" min="0" step="0.0001" required></label>
         <label>Cached input USD<input id="ai-cached-input-price" type="number" min="0" step="0.0001" required></label>
@@ -459,7 +459,7 @@
         <label>Output USD<input id="ai-output-price" type="number" min="0" step="0.0001" required></label>
         <div class="button-row">
           <button type="submit">Apply prices</button>
-          <button id="reset-ai-pricing" class="secondary" type="button">Use server defaults</button>
+          <button id="reset-ai-pricing" class="secondary" type="button">Clear prices</button>
         </div>
       </form>
       <section class="organizer-panel ai-usage-history" aria-labelledby="ai-usage-history-heading">

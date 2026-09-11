@@ -421,7 +421,6 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/api/ai-usage") {
       sendJson(response, 200, {
         entries: ledger.modelUsage({ limit: url.searchParams.get("limit") || 1000 }),
-        defaultPricing: config.aiPricing,
         current: {
           transport: modelTransport.id,
           model: config.model,

@@ -2,12 +2,13 @@ import {
   archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupSequenceMode,
 } from "../todo-group-operations.mjs";
 import { generateNextRoutineTask, OrganizerStore } from "../organizer-store.mjs";
-import { localDateUtcBounds, moveOverdueTodosToToday } from "../todo-schedule-operations.mjs";
+import { moveOverdueTodosToToday } from "../todo-schedule-operations.mjs";
 import {
   buildTodoRecurrenceRule, todoRecurrenceSchema, validateTimeZone,
 } from "../todo-recurrence.mjs";
 import { localDateForInstant } from "../temporal-consistency.mjs";
 import { selectedFields } from "./record-fields.mjs";
+import { listTodoQueryPages, todoListInputSchema, todoQueryFilterProperties, todoStatuses } from "../todo-list-queries.mjs";
 
 const todoRoutineRecordSchema = {
   type: ["object", "null"],
@@ -69,8 +70,6 @@ const todoTaskRecordSchema = {
     planning_prompt_text: { description: "Optional question the agent should proactively ask to help turn this task into a concrete plan. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status." },
   },
 };
-
-const todoStatuses = ["unplanned", "todo", "complete", "ignore", "archive", "ai_suggested"];
 
 function validateTemporalTarget(value, appliesTo, context, label) {
   if (value == null || value === "") return;
@@ -494,94 +493,33 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_list",
-    description: "List the user's native personal to-do items, including entries rendered as Scheduled task or All-day task on the Calendar screen. Set status to unplanned for the authoritative list of work windows and other items that still need planning, even when their eventual work concerns a property or external system. Use completed_on_date to select tasks completed on one local calendar date and scheduled_on_date to select actual task occurrences scheduled on one local date. These are query filters and do not add ranges to task records. Supply time_zone whenever either date filter is used. With no status and no completed date, terminal tasks remain excluded as before.",
+    description: "Read native personal to-dos in 1–20 queries, including Calendar-screen Scheduled task and All-day task occurrences. A single lookup is a one-query batch. Use one inclusive scheduled_date_range for a whole week, completed_date_range for completion reviews, and personal_task_ids for known tasks. Date ranges require an IANA time_zone; a single day has identical start_date and end_date. All filters within a query are combined with AND. status=unplanned reads work windows and other items needing a plan. Results echo query_id and return complete task records with has_more and next_cursor; follow each cursor with unchanged filters until has_more=false. Limits page results, never discard remaining matches. Ordering is completion time descending for completion queries, schedule time ascending for scheduled queries, otherwise group and existing task ordering, with ID tie-breakers. Pages read live data, so edits to matching fields or sort values can change later pages; restart a query when a fresh complete view is needed. Keep result_filter nonselective for complete pages; oversized receipts remain available through receipt paging.",
     outputSchema: {
-      type: "object",
+      type: "object", additionalProperties: false,
       properties: {
-        tasks: { type: "array", items: todoTaskRecordSchema },
-      },
-    },
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        group: optionalText,
-        status: { type: ["string", "null"], enum: [...todoStatuses, null], description: "Compact lifecycle state controlling whether and how the task appears in the user's list. unplanned: The item is active but still needs a concrete plan. todo: the user intends to do this task. complete: The task was finished. ignore: The task was intentionally skipped without completion. archive: The task is retained as history but removed from ordinary views. ai_suggested: The agent proposed the task and the user has not yet accepted or dismissed it." },
-        completed_on_date: { type: ["string", "null"], description: "Local completion date in YYYY-MM-DD form." },
-        scheduled_on_date: { type: ["string", "null"], description: "Local scheduled date in YYYY-MM-DD form." },
-        time_zone: { type: ["string", "null"], description: "IANA time zone used to interpret date filters." },
-        limit: { type: "integer", minimum: 1, maximum: 200 },
-      },
-      required: ["group", "status", "limit"],
-    },
-    async execute({
-      group: groupName,
-      status,
-      completed_on_date: completedOnDate = null,
-      scheduled_on_date: scheduledOnDate = null,
-      time_zone: timeZone = null,
-      limit,
-    }, context) {
-      const database = store.requireReady();
-      const conditions = [];
-      const values = [];
-      if (groupName) {
-        conditions.push("todo_group.name = ?");
-        values.push(groupName.trim());
-      }
-      if (status) {
-        conditions.push("task.status = ?");
-        values.push(status);
-      } else if (completedOnDate === null) {
-        conditions.push("task.status NOT IN ('complete', 'ignore', 'archive')");
-      }
-      for (const [column, localDate] of [
-        ["completed_at_utc", completedOnDate],
-        ["scheduled_at_utc", scheduledOnDate],
-      ]) {
-        if (localDate === null) continue;
-        const bounds = localDateUtcBounds({ localDate, timeZone });
-        conditions.push(`task.${column} >= ? AND task.${column} < ?`);
-        values.push(bounds.startsAtUtc, bounds.endsAtUtc);
-      }
-      const order = completedOnDate !== null
-        ? "task.completed_at_utc DESC, task.personal_task_id DESC"
-        : scheduledOnDate !== null
-          ? "task.scheduled_at_utc, task.personal_task_id"
-          : `todo_group.name,
-                 task.sequence IS NULL, task.sequence DESC,
-                 task.sort_position, task.personal_task_id`;
-      const rows = database.prepare(`
-        SELECT task.*, todo_group.name AS group_name,
-               routine.text AS routine_text,
-               routine.publication_mode AS routine_publication_mode,
-               routine.recurrence_rule AS routine_recurrence_rule,
-               routine.time_zone AS routine_time_zone,
-               routine.interaction_guide_id,
-               routine.planning_prompt_text AS routine_planning_prompt_text,
-               interaction_guide.name AS interaction_guide_name,
-               interaction_guide.status AS interaction_guide_status,
-               interaction_guide.version AS interaction_guide_version
-        FROM todo_personal AS task
-        JOIN todo_groups AS todo_group USING (todo_group_id)
-        LEFT JOIN todo_routines AS routine USING (todo_routine_id)
-        LEFT JOIN interaction_guides AS interaction_guide
-          ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
-        ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
-        ORDER BY ${order}
-        LIMIT ?
-      `).all(...values, Math.min(200, Math.max(1, Number(limit) || 50))).map(databaseTask);
-      return {
-        filters: {
-          group: groupName ?? null,
-          status: status ?? null,
-          completed_on_date: completedOnDate,
-          scheduled_on_date: scheduledOnDate,
-          time_zone: completedOnDate !== null || scheduledOnDate !== null ? timeZone : null,
+        has_more: { type: "boolean", description: "True when any query has another page." },
+        results: {
+          type: "array", minItems: 1, maxItems: 20,
+          items: {
+            type: "object", additionalProperties: false,
+            properties: {
+              query_id: { type: "string", description: "Label from the corresponding input query." },
+              filters: { type: "object", additionalProperties: false, properties: todoQueryFilterProperties, required: Object.keys(todoQueryFilterProperties) },
+              tasks: { type: "array", items: todoTaskRecordSchema },
+              count: { type: "integer", minimum: 0, description: "Tasks in this page, not the total matching count." },
+              has_more: { type: "boolean" },
+              next_cursor: { type: ["string", "null"], description: "Continuation for this query; null when no matching tasks remain." },
+            },
+            required: ["query_id", "filters", "tasks", "count", "has_more", "next_cursor"],
+          },
         },
-        count: rows.length,
-        tasks: rows,
-      };
+      },
+      required: ["results", "has_more"],
+    },
+    parameters: todoListInputSchema,
+    async execute({ queries }) {
+      const result = listTodoQueryPages(store.requireReady(), queries);
+      return { ...result, results: result.results.map(page => ({ ...page, tasks: page.tasks.map(databaseTask) })) };
     },
   });
 

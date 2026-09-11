@@ -7,6 +7,30 @@ import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerEmailReceiptTools } from "../src/tools/email-receipts.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
+test("AI usage counts round trips without duplicating restarted operations", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.target);
+  const ledger = new Ledger(store);
+  try {
+    const { requestId } = ledger.createRequest({ text: "Continue the task." });
+    for (const count of [5, 2]) {
+      ledger.append({ type: "model.response", turnId: requestId, operationId: "restarted-operation",
+        payload: { protocolEvents: Array.from({ length: count }, () => ({ type: "response.completed" })) },
+      });
+      ledger.append({ type: "model.usage", turnId: requestId, operationId: "restarted-operation",
+        payload: { tokenUsage: { totalTokens: count * 100 } },
+      });
+    }
+    const entries = ledger.modelUsage();
+    assert.equal(entries.length, 2);
+    assert.deepEqual(entries.map(entry => entry.modelCallCount), [2, 5]);
+    assert.equal(entries.reduce((sum, entry) => sum + entry.totalTokens, 0), 700);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("active request progress follows the latest unfinished ledger operation", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.target);
@@ -424,7 +448,9 @@ test("request details aggregate total usage and preserve usage for each workflow
     const request = ledger.recentRequests().find(({ requestId }) => requestId === created.requestId);
     assert.equal(request.usage.tokenUsage.totalTokens, 80);
     assert.equal(request.usage.modelCallCount, 3);
-    assert.equal(request.usage.estimatedCostUsd, 0.055);
+    assert.equal(request.usage.toolCallCount, 0);
+    assert.equal(Object.hasOwn(request.usage, "estimatedCostUsd"), false);
+    assert.equal(Object.hasOwn(request.usage, "pricing"), false);
     assert.deepEqual(request.steps.map(({ step, effort, tokenUsage }) => ({
       step, effort, totalTokens: tokenUsage.totalTokens,
     })), [

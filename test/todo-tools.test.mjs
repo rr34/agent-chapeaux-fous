@@ -8,6 +8,11 @@ import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { localDateUtcBounds } from "../src/todo-schedule-operations.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
+async function listTodoPage(registry, query) {
+  const result = await registry.execute("todo_list", { queries: [{ query_id: "test", ...query }] });
+  return result.results[0];
+}
+
 test("local calendar-date boundaries honor daylight-saving changes", () => {
   assert.deepEqual(
     localDateUtcBounds({ localDate: "2026-03-08", timeZone: "America/New_York" }),
@@ -29,7 +34,7 @@ test("local calendar-date boundaries honor daylight-saving changes", () => {
   );
 });
 
-test("todo_list filters single completion and schedule timestamps by local date", async (context) => {
+test("todo_list filters single completion and schedule timestamps by one-day local ranges", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.target);
@@ -60,15 +65,15 @@ test("todo_list filters single completion and schedule timestamps by local date"
   assert.doesNotMatch(groupContext.text, /Completed before local day/);
   const definition = registry.toolDefinitions().find(({ name }) => name === "todo_list");
   assert.deepEqual(
-    Object.keys(definition.inputSchema.properties).filter((name) => name.endsWith("_on_date")),
-    ["completed_on_date", "scheduled_on_date"],
+    Object.keys(definition.inputSchema.properties.queries.items.properties).filter((name) => name.endsWith("_date_range")),
+    ["completed_date_range", "scheduled_date_range"],
   );
 
-  const completed = await registry.execute("todo_list", {
+  const completed = await listTodoPage(registry, {
     group: null,
     status: null,
-    completed_on_date: "2026-11-01",
-    scheduled_on_date: null,
+    completed_date_range: { start_date: "2026-11-01", end_date: "2026-11-01" },
+    scheduled_date_range: null,
     time_zone: "America/New_York",
     limit: 20,
   });
@@ -76,13 +81,13 @@ test("todo_list filters single completion and schedule timestamps by local date"
     "Completed near local-day end",
     "Completed at local-day start",
   ]);
-  assert.equal(completed.filters.completed_on_date, "2026-11-01");
+  assert.equal(completed.filters.completed_date_range.start_date, "2026-11-01");
 
-  const scheduled = await registry.execute("todo_list", {
+  const scheduled = await listTodoPage(registry, {
     group: null,
     status: null,
-    completed_on_date: null,
-    scheduled_on_date: "2026-03-08",
+    completed_date_range: null,
+    scheduled_date_range: { start_date: "2026-03-08", end_date: "2026-03-08" },
     time_zone: "America/New_York",
     limit: 20,
   });
@@ -90,7 +95,7 @@ test("todo_list filters single completion and schedule timestamps by local date"
     "Scheduled at local-day start",
     "Scheduled near local-day end",
   ]);
-  assert.equal(scheduled.filters.scheduled_on_date, "2026-03-08");
+  assert.equal(scheduled.filters.scheduled_date_range.start_date, "2026-03-08");
 
   const routine = await registry.execute("routine_add", {
     text: "Regular Work Window",
@@ -120,11 +125,11 @@ test("todo_list filters single completion and schedule timestamps by local date"
     "What would you like to work on during this time window?",
     `routine:${routine.routine.todo_routine_id}:2026-03-08T11:00:00.000Z`,
   );
-  const workWindows = await registry.execute("todo_list", {
+  const workWindows = await listTodoPage(registry, {
     group: null,
     status: "unplanned",
-    completed_on_date: null,
-    scheduled_on_date: "2026-03-08",
+    completed_date_range: null,
+    scheduled_date_range: { start_date: "2026-03-08", end_date: "2026-03-08" },
     time_zone: "America/New_York",
     limit: 20,
   });
@@ -134,16 +139,94 @@ test("todo_list filters single completion and schedule timestamps by local date"
   assert.equal(workWindows.tasks[0].todo_routine_id, routine.routine.todo_routine_id);
 
   await assert.rejects(
-    registry.execute("todo_list", {
+    listTodoPage(registry, {
       group: null,
       status: null,
-      completed_on_date: "2026-11-01",
-      scheduled_on_date: null,
+      completed_date_range: { start_date: "2026-11-01", end_date: "2026-11-01" },
+      scheduled_date_range: null,
       time_zone: null,
       limit: 20,
     }),
     /timeZone is required/,
   );
+});
+
+test("todo_list batches a weekly schedule and exact IDs with independent complete pagination", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.target);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+  const database = store.requireReady();
+  const insert = database.prepare(`
+    INSERT INTO todo_personal (todo_group_id, text, status, scheduled_at_utc, sort_position)
+    VALUES (1, ?, ?, ?, 100)
+  `);
+  const add = (text, date, status = "todo") => Number(insert.run(text, status, date).lastInsertRowid);
+  add("Before the week", "2026-09-14T03:59:59.999Z");
+  const first = add("At local week start", "2026-09-14T04:00:00.000Z");
+  const second = add("Same time, different ID", "2026-09-14T04:00:00.000Z");
+  const last = add("At local week end", "2026-09-21T03:59:59.999Z");
+  add("After the week", "2026-09-21T04:00:00.000Z");
+  const archived = add("Known archived task", "2026-09-14T17:00:00.000Z", "archive");
+  const weekly = {
+    query_id: "week", group: null, status: null, limit: 1,
+    scheduled_date_range: { start_date: "2026-09-14", end_date: "2026-09-20" },
+    time_zone: "America/New_York",
+  };
+  const batch = await registry.execute("todo_list", { queries: [weekly, {
+    query_id: "known", group: null, status: null, personal_task_ids: [archived], limit: 1,
+  }] });
+  assert.deepEqual(batch.results.map(page => page.query_id), ["week", "known"]);
+  assert.deepEqual(batch.results[0].tasks.map(task => task.personal_task_id), [first]);
+  assert.deepEqual(batch.results[1].tasks.map(task => task.personal_task_id), [archived]);
+  assert.equal(batch.results[1].has_more, false);
+  assert.equal(batch.results[1].next_cursor, null);
+  assert.equal(batch.has_more, true);
+  // Removing an already-returned row must not shift the next page past a match.
+  database.prepare("DELETE FROM todo_personal WHERE personal_task_id = ?").run(first);
+  const page2 = await listTodoPage(registry, { ...weekly, cursor: batch.results[0].next_cursor });
+  assert.deepEqual(page2.tasks.map(task => task.personal_task_id), [second]);
+  const page3 = await listTodoPage(registry, { ...weekly, cursor: page2.next_cursor });
+  assert.deepEqual(page3.tasks.map(task => task.personal_task_id), [last]);
+  assert.equal(page3.has_more, false);
+  assert.equal(page3.next_cursor, null);
+});
+
+test("todo_list pagination preserves group sequence ordering and descending completion ties", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.target);
+  context.after(() => store.close());
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, store, new Ledger(store));
+  const database = store.requireReady();
+  const insert = database.prepare(`
+    INSERT INTO todo_personal (todo_group_id, text, status, sequence, sort_position, completed_at_utc)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  for (const [group, sequence, position] of [[1, null, 100], [2, null, 100], [2, 1, 100], [2, 2, 100], [1, null, 200]]) {
+    insert.run(group, `Ordered task ${group}/${sequence}/${position}`, "todo", sequence, position, null);
+  }
+  const completeIds = [1, 2, 3].map(index => Number(insert.run(
+    1, `Completed ${index}`, "complete", null, 100, "2026-11-01T05:30:00.000Z",
+  ).lastInsertRowid));
+  for (const filters of [{}, { completed_date_range: { start_date: "2026-11-01", end_date: "2026-11-01" }, time_zone: "America/New_York" }]) {
+    const query = { group: null, status: null, ...filters };
+    const all = await listTodoPage(registry, { ...query, limit: 200 });
+    const paginated = [];
+    let cursor = null;
+    do {
+      const page = await listTodoPage(registry, { ...query, limit: 1, cursor });
+      paginated.push(...page.tasks.map(task => task.personal_task_id));
+      assert.equal(page.has_more, page.next_cursor !== null);
+      cursor = page.next_cursor;
+      assert.ok(paginated.length <= all.count, "Pagination must make forward progress");
+    } while (cursor);
+    assert.deepEqual(paginated, all.tasks.map(task => task.personal_task_id));
+    if (filters.completed_date_range) assert.deepEqual(paginated, [...completeIds].reverse());
+  }
 });
 
 test("todo_group_list exposes every active group including empty catchalls", async (context) => {
@@ -326,7 +409,7 @@ test("sequenced groups backfill tasks and assign the next number through native 
     `).all().map(({ sequence }) => sequence),
     [1, 2, 3],
   );
-  const listed = await registry.execute("todo_list", {
+  const listed = await listTodoPage(registry, {
     group: "Development", status: null, limit: 20,
   });
   assert.deepEqual(listed.tasks.map(({ sequence }) => sequence), [3, 2, 1]);
@@ -393,7 +476,7 @@ test("todo_group_rename keeps tasks attached through the stable group ID", async
   }, { requestId: "rename-group", callId: "rename" });
   assert.equal(renamed.previous_name, "Development");
   assert.equal(renamed.group.name, "Engineering");
-  const listed = await registry.execute("todo_list", { group: "Engineering", status: null, limit: 20 });
+  const listed = await listTodoPage(registry, { group: "Engineering", status: null, limit: 20 });
   assert.deepEqual(listed.tasks.map(({ personal_task_id }) => personal_task_id), [created.task.personal_task_id]);
   await assert.rejects(
     registry.execute("todo_group_rename", {
@@ -424,7 +507,7 @@ test("native todo tools add and complete a Development task", async (context) =>
   assert.equal(created.created, true);
   assert.equal(created.task.todo_groups.name, "Development");
   assert.equal(created.task.text, "Flip the Tesla charging outlet");
-  const listed = await registry.execute("todo_list", { group: "Development", status: null, limit: 20 });
+  const listed = await listTodoPage(registry, { group: "Development", status: null, limit: 20 });
   assert.deepEqual(listed.tasks.map((task) => task.text), ["Flip the Tesla charging outlet"]);
 
   const updated = await registry.execute("todo_update", {
@@ -668,11 +751,11 @@ test("unplanned recurring to-dos retain their planning prompt across occurrences
     "What should we do during this block?",
   );
 
-  const listed = await registry.execute("todo_list", {
+  const listed = await listTodoPage(registry, {
     group: null,
     status: "unplanned",
-    completed_on_date: null,
-    scheduled_on_date: null,
+    completed_date_range: null,
+    scheduled_date_range: null,
     time_zone: null,
     limit: 20,
   });

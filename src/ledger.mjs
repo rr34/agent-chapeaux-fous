@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { activeDeferredActionReferences } from "./deferred-actions.mjs";
 import { safeJson } from "./redaction.mjs";
+import { requestCallCounts } from "./request-metrics.mjs";
+import { llmCallCountForUsage } from "../public/ai-usage.js";
 
 function publicEvent(row) {
   if (!row) return null;
@@ -165,6 +167,7 @@ function activeOperation(events, startType, terminalTypes) {
 }
 
 export function requestProgress(events, startedAtMs) {
+  const counts = requestCallCounts(events);
   const last = events.at(-1);
   const tool = activeOperation(events, "tool.call", ["tool.result"]);
   const transcription = activeOperation(events, "transcription.start", ["transcription.complete", "request.error"]);
@@ -188,8 +191,8 @@ export function requestProgress(events, startedAtMs) {
     label,
     startedAtMs,
     lastActivityAtMs: last?.occurredAtMs ?? startedAtMs,
-    modelCalls: events.filter((event) => event.type === "model.request" && event.phase === "start").length,
-    toolCalls: events.filter((event) => event.type === "tool.call" && event.phase === "start").length,
+    modelCalls: counts.modelCallCount,
+    toolCalls: counts.toolCallCount,
   };
 }
 
@@ -211,22 +214,18 @@ function addTokenUsage(total, usage) {
 
 function requestUsage(events) {
   const usageEvents = events.filter((event) => event.type === "model.usage");
-  if (!usageEvents.length) return null;
+  const counts = requestCallCounts(events);
+  if (!usageEvents.length) return counts.modelCallCount || counts.toolCallCount ? counts : null;
   const tokenUsage = usageEvents.reduce(
     (total, event) => addTokenUsage(total, event.payload?.tokenUsage),
     emptyTokenUsage(),
   );
-  const estimatedCosts = usageEvents
-    .map((event) => Number(event.payload?.estimatedCostUsd))
-    .filter(Number.isFinite);
-  const latest = usageEvents.at(-1)?.payload ?? {};
+  // Historical estimates remain in the literal trace, but aren't pricing inputs.
+  const { estimatedCostUsd: _oldCost, pricing: _oldPricing, ...latest } = usageEvents.at(-1)?.payload ?? {};
   return {
     ...latest,
     tokenUsage,
-    ...(estimatedCosts.length
-      ? { estimatedCostUsd: estimatedCosts.reduce((total, value) => total + value, 0) }
-      : {}),
-    modelCallCount: usageEvents.length,
+    ...counts,
   };
 }
 
@@ -249,18 +248,15 @@ function workflowSteps(events) {
       (total, event) => addTokenUsage(total, event.payload?.tokenUsage),
       emptyTokenUsage(),
     );
-    const costs = usageEvents
-      .map((event) => Number(event.payload?.estimatedCostUsd))
-      .filter(Number.isFinite);
     return {
       step: start.payload?.workflowStep ?? start.name ?? "step",
       label: start.name ?? start.payload?.workflowStep ?? "Step",
       status: terminal?.status ?? "processing",
       effort: start.payload?.reasoningEffort ?? null,
       elapsedMs: terminal ? Math.max(0, terminal.occurredAtMs - start.occurredAtMs) : null,
-      modelCalls: usageEvents.length,
+      modelCalls: requestCallCounts(events.filter(event => event.eventSeq > start.eventSeq
+        && (!terminal || event.eventSeq < terminal.eventSeq))).modelCallCount,
       tokenUsage,
-      estimatedCostUsd: costs.length ? costs.reduce((total, value) => total + value, 0) : null,
       summary: terminal?.content ?? null,
     };
   });
@@ -686,6 +682,14 @@ export class Ledger {
       LEFT JOIN activity_events AS response FORCE INDEX (activity_events_operation)
         ON response.operation_id = usage_event.operation_id
        AND response.event_type = 'model.response'
+       AND response.event_seq = (
+         SELECT MAX(candidate.event_seq)
+         FROM activity_events AS candidate FORCE INDEX (activity_events_operation)
+         WHERE candidate.operation_id = usage_event.operation_id
+           AND candidate.turn_id <=> usage_event.turn_id
+           AND candidate.event_type = 'model.response'
+           AND candidate.event_seq < usage_event.event_seq
+       )
       WHERE usage_event.event_type = 'model.usage'
       ORDER BY usage_event.event_seq DESC
       LIMIT ?
@@ -703,6 +707,7 @@ export class Ledger {
         transport: responsePayload.transport ?? event.payload?.provider ?? null,
         workflowStep: event.payload?.workflowStep ?? null,
         reasoningEffort: event.payload?.reasoningEffort ?? null,
+        modelCallCount: llmCallCountForUsage(event.payload, responsePayload),
         inputTokens: Number(tokenUsage.inputTokens ?? 0),
         cachedInputTokens: Number(tokenUsage.cachedInputTokens ?? 0),
         cacheWriteTokens: Number(tokenUsage.cacheWriteTokens ?? 0),

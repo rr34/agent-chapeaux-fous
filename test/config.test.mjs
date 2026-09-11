@@ -28,12 +28,7 @@ test("OpenAI Responses configuration has stable defaults", () => {
   assert.equal(config.auditReasoningEffort, "low");
   assert.equal(config.repairReasoningEffort, "high");
   assert.equal(config.turnWorkflowEnabled, true);
-  assert.deepEqual(config.aiPricing, {
-    inputPerMillion: 2,
-    cachedInputPerMillion: 0.2,
-    cacheWritePerMillion: 2.5,
-    outputPerMillion: 12,
-  });
+  assert.equal(Object.hasOwn(config, "aiPricing"), false);
   assert.equal(config.hatCatalogPath, path.join(repositoryRoot, "config", "hats.json"));
   assert.deepEqual(config.databaseTarget, {
     engine: "mariadb",
@@ -46,6 +41,13 @@ test("OpenAI Responses configuration has stable defaults", () => {
       database: "chapeauxfous",
     },
   });
+});
+
+test("environment price variables cannot supply token prices", () => {
+  const config = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_AI_INPUT_COST_PER_MILLION: "999",
+    SLAYER_AI_CACHED_INPUT_COST_PER_MILLION: "999", SLAYER_AI_CACHE_WRITE_COST_PER_MILLION: "999",
+    SLAYER_AI_OUTPUT_COST_PER_MILLION: "999" });
+  assert.equal(Object.hasOwn(config, "aiPricing"), false);
 });
 
 test("MariaDB runtime configuration is explicit and bounded", () => {

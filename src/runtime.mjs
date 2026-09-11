@@ -541,6 +541,14 @@ export class SlayerRuntime {
     try {
       const result = await this.modelTransport.runTurn({
         ...turnRequest,
+        onEvent: (event) => {
+          if (event.type !== "request.started") return;
+          this.ledger.append({
+            type: "model.call", phase: "start", status: "processing", actorType: "service",
+            actorName: model, channel, turnId: requestId, operationId, name: "LLM call",
+            payload: { ...event, workflowStep: step, workflowStepLabel: label, stepIndex },
+          });
+        },
         onToolCall: async ({ tool }) => {
           throw new Error(`${tool} is not callable during ${label.toLowerCase()}`);
         },
@@ -1554,6 +1562,14 @@ export class SlayerRuntime {
       try {
         result = await this.modelTransport.runTurn({
           ...turnRequest,
+          onEvent: (event) => {
+            if (event.type !== "request.started") return;
+            this.ledger.append({
+              type: "model.call", phase: "start", status: "processing", actorType: "service",
+              actorName: selectedModel, channel, turnId: requestId, operationId, name: "LLM call",
+              payload: { ...event, workflowStep, workflowStepLabel, stepIndex },
+            });
+          },
           onToolCall: async (call) => {
             totalToolCallCount += 1;
             const callId = call.callId;
