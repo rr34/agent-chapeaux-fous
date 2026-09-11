@@ -16,6 +16,18 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0038: remove-legacy-agent-turn-attempts
+-- writer downtime: not required; the standalone runtime never reads or writes this legacy table.
+-- locking: DROP TABLE takes a metadata lock on agent_turn_attempts and briefly on its
+-- referenced activity_events table while removing the foreign key.
+-- recovery: MariaDB DDL commits implicitly. DROP TABLE IF EXISTS permits replay after
+-- partial completion. The runner verifies absence before advancing the version.
+-- This intentionally deletes all retained previous-runtime attempt-correlation data.
+
+DROP TABLE IF EXISTS agent_turn_attempts;
+
+-- end migration 0038
+
 -- migration 0037: correspondence-join-tables
 -- writer downtime: not required; adds empty join tables without rewriting existing data.
 -- locking: CREATE TABLE takes metadata locks on the new and referenced tables.

@@ -281,6 +281,14 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 38) {
+    const [rows] = await connection.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'agent_turn_attempts'`,
+      [databaseName],
+    );
+    if (rows.length > 0) throw new Error("Migration 0038 left the legacy agent_turn_attempts table in place");
+  }
   if (migration.version === 37) {
     for (const [table, field, parent, role] of [
       ["todo_correspondence_join", "personal_task_id", "todo_personal", "task"],

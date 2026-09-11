@@ -58,6 +58,19 @@ Do not restart the service when migration or verification fails. If no
 migrations are pending, `npm run db:migrate` is a read-only integrity check and
 does not require the confirmation variables.
 
+## Version 38: Remove legacy agent turn attempts
+
+Drops `agent_turn_attempts` and permanently deletes its retained
+previous-runtime correlation rows. The standalone Agent Slayer runtime never
+reads or writes this table; current request history remains in
+`activity_events` and is unaffected.
+
+The application requires schema version 38. Prepare a verified backup before
+running the migration. Writer downtime is not required for this block because
+the removed table has no current writer, though earlier pending migrations may
+still require it. The guarded drop supports replay, and the migration verifies
+that the table is absent before advancing the schema version.
+
 ## Version 37: Correspondence join tables
 
 Adds `todo_correspondence_join` and `calendar_events_correspondence_join`.
@@ -71,11 +84,8 @@ UI and model tools are separate work; the tables do not make provider emails
 or text messages available as local correspondence automatically. Generic
 database write permissions remain unchanged.
 
-The application requires schema version 37. After preparing a verified backup,
-apply the migration with `SLAYER_MIGRATION_BACKUP_CONFIRMED=1` and run
-`npm run db:verify`. This block does not require writer downtime; earlier pending
-blocks may still require it. Replay retains existing links and validates the
-table definitions before advancing the schema version.
+Version 37 introduced these tables. Replay retains existing links and validates
+the table definitions before advancing the schema version.
 
 ## Version 35: Native database comments
 

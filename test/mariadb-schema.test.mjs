@@ -67,17 +67,17 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 37", () => {
+test("the authoritative MariaDB baseline is complete at schema version 38", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 33);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 32);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 31);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 55);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 29);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 52);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    31,
+    29,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -94,7 +94,8 @@ test("the authoritative MariaDB baseline is complete at schema version 37", () =
     /status\s+ENUM\('tentative', 'confirmed', 'cancelled'\) NOT NULL DEFAULT 'confirmed'/u,
   );
   assert.doesNotMatch(source, /calendar_events_status|ENUM\([^\n]*'completed'[^\n]*\) NOT NULL DEFAULT 'confirmed'/u);
-  assert.match(statements.at(-1), /VALUES \(1, 37, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.doesNotMatch(source, /CREATE TABLE agent_turn_attempts\b/u);
+  assert.match(statements.at(-1), /VALUES \(1, 38, 'Chapeaux Fous MariaDB database'\)$/);
 });
 
 test("the correspondence join migration matches fresh-install definitions without rewriting existing records", () => {

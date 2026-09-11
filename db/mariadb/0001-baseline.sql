@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 37.
+-- Target: MariaDB 10.11, schema version 38.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -131,46 +131,6 @@ CREATE TABLE activity_event_files (
     CONSTRAINT activity_event_files_file_fk FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE,
     CONSTRAINT activity_event_files_ordinal CHECK (ordinal >= 0)
 ) ENGINE=InnoDB COMMENT='Associates any observable activity event with all files that were supplied to it or produced by it. One row links one stored file to one activity event in a specific ordered role. Use activity_events.primary_file_id only for the one primary file; this relationship preserves every associated file. Sensitivity: Links private files to private interactions and observable agent operations.';
-
-CREATE TABLE agent_turn_attempts (
-    -- sourceOfTruth: true
-    -- synonyms: ["legacy agent attempt", "legacy request attempt"]
-    -- keywords: ["legacy attempt", "request retry", "attempt correlation"]
-    -- fk:agent_turn_attempts_event meaning: Connects this agent processing attempt to the observable event identified by source_event_id.
-    -- fk:agent_turn_attempts_event cardinality: Each agent processing attempt references exactly one observable event; one referenced record may be used by many agent processing attempt records.
-    -- fk:agent_turn_attempts_event importantRules: ["The referenced row cannot be deleted while this row depends on it."]
-
-    attempt_id             VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable identifier for this processing attempt.',
-    source_event_id        VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Ledger event containing the original user-facing request that this attempt processes.',
-    subject_type           VARCHAR(255) NOT NULL COMMENT 'Type of user-facing request record being processed, such as a voice request.',
-    subject_id             VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Identifier of the user-facing request record named by subject_type.',
-    attempt_number         BIGINT NOT NULL COMMENT 'One-based retry number within the same subject_type and subject_id.',
-    session_id             VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'the previous runtime session in which this attempt was submitted, when known.',
-    agent_operation_id     VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Unique voice-service operation identifier used to correlate this attempt with ledger events.',
-    openclaw_run_id        VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'the previous runtime run identifier confirmed for this attempt after correlation.',
-    request_content_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'SHA-256 hash of the exact submitted request text used for deterministic prompt correlation. Format: 64-character lowercase hexadecimal SHA-256 digest.',
-    correlation_method     ENUM('prompt_sha256', 'gateway_result') COMMENT 'Evidence used to associate the attempt with openclaw_run_id. prompt_sha256: Matched by the SHA-256 hash of the exact submitted prompt. gateway_result: Confirmed by the run identifier returned by the Gateway.',
-    status                 ENUM('processing', 'complete', 'error', 'interrupted') NOT NULL DEFAULT 'processing' COMMENT 'Current processing outcome of this attempt. processing: Attempt is still active. complete: Attempt produced its terminal response successfully. error: Attempt terminated with an error. interrupted: Processing stopped before a normal terminal result.',
-    started_at_ms          BIGINT NOT NULL COMMENT 'When processing began, in Unix epoch milliseconds. Units: milliseconds. Format: Unix epoch milliseconds.',
-    correlated_at_ms       BIGINT COMMENT 'When the the previous runtime run was associated with this attempt, in Unix epoch milliseconds. Units: milliseconds. Format: Unix epoch milliseconds.',
-    completed_at_ms        BIGINT COMMENT 'When processing reached a terminal state, in Unix epoch milliseconds. Units: milliseconds. Format: Unix epoch milliseconds.',
-    created_at_utc         VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                           DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the attempt record was inserted. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc         VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the latest recorded change to the attempt. Format: ISO 8601 UTC timestamp.',
-    PRIMARY KEY (attempt_id),
-    UNIQUE KEY agent_turn_attempts_operation (agent_operation_id),
-    UNIQUE KEY agent_turn_attempts_run (openclaw_run_id),
-    UNIQUE KEY agent_turn_attempts_number (subject_type, subject_id, attempt_number),
-    KEY agent_turn_attempts_active_prompt (session_id, request_content_sha256, status, started_at_ms),
-    KEY agent_turn_attempts_subject (subject_type, subject_id, attempt_number),
-    CONSTRAINT agent_turn_attempts_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE RESTRICT,
-    CONSTRAINT agent_turn_attempts_attempt CHECK (attempt_number > 0),
-    CONSTRAINT agent_turn_attempts_hash CHECK (CHAR_LENGTH(request_content_sha256) = 64),
-    CONSTRAINT agent_turn_attempts_correlation_state CHECK (
-      (openclaw_run_id IS NULL AND correlation_method IS NULL AND correlated_at_ms IS NULL)
-      OR (openclaw_run_id IS NOT NULL AND correlation_method IS NOT NULL AND correlated_at_ms IS NOT NULL)
-    )
-) ENGINE=InnoDB COMMENT='Retains attempt-correlation records created by the previous runtime; the standalone Agent Slayer runtime does not write this table. One legacy row associates a user-facing request with one attempt made by the previous runtime. Treat this table as retained historical compatibility data, not the current request execution path. Current model and tool boundaries are recorded directly in activity_events. Sensitivity: Contains request hashes and internal run, session, and operation identifiers.';
 
 CREATE TABLE contacts (
     -- sourceOfTruth: true
@@ -1292,4 +1252,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 37, 'Chapeaux Fous MariaDB database');
+VALUES (1, 38, 'Chapeaux Fous MariaDB database');
