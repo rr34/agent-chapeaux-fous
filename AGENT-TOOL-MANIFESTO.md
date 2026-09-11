@@ -31,11 +31,14 @@ aggregated usage record is not an LLM call; each may contain multiple calls.
 All LLM-call counters use round trips, never those aggregates.
 
 Token prices are set only on the AI Usage screen. No environment, server, or
-transport defaults supply rates. The same browser-saved prices calculate every
-displayed estimate from recorded token counts; without prices, no dollar
-estimate is shown. Historical estimates in literal traces are evidence of what
-was recorded then, never a fallback pricing source. Usage totals count each
-ledger usage event once and do not multiply charges by tool or LLM-call counts.
+transport defaults supply rates. The browser stores a separate user-entered
+price card for each observed provider service tier and for older records whose
+tier was not recorded. Each LLM response preserves its provider-reported tier,
+and aggregate usage preserves the corresponding per-tier token breakdown.
+Without the required price card, no dollar estimate is shown. Historical
+estimates in literal traces are evidence of what was recorded then, never a
+fallback pricing source. Usage totals count each ledger usage event once and do
+not multiply charges by tool or LLM-call counts.
 
 LLM calls are measured individually for input, output, latency, and cost. An
 LLM call should do one well-defined language task with the smallest context

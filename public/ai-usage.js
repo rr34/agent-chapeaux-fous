@@ -1,4 +1,5 @@
 const pricingKeys = ["inputPerMillion", "cachedInputPerMillion", "cacheWritePerMillion", "outputPerMillion"];
+export const aiPricingTiers = ["default", "incentivized-tier", "unrecorded"];
 
 export function normalizePricing(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -13,10 +14,27 @@ export function normalizePricing(value) {
   return pricing;
 }
 
-export function aiEntryCost(entry, prices) {
-  const pricing = normalizePricing(prices);
-  if (!pricing || !entry) return null;
-  if (entry.inputTokens == null || entry.outputTokens == null) return null;
+export function normalizePricingBook(value) {
+  const legacy = normalizePricing(value);
+  if (legacy) return { default: legacy, unrecorded: legacy };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const book = {};
+  for (const tier of aiPricingTiers) {
+    const pricing = normalizePricing(value[tier]);
+    if (pricing) book[tier] = pricing;
+  }
+  return Object.keys(book).length ? book : null;
+}
+
+export function pricingForTier(value, serviceTier) {
+  const flat = normalizePricing(value);
+  if (flat) return flat;
+  const book = normalizePricingBook(value);
+  return book?.[serviceTier || "unrecorded"] ?? null;
+}
+
+function tokenUsageCost(entry, pricing) {
+  if (!pricing || !entry || entry.inputTokens == null || entry.outputTokens == null) return null;
   const input = Number(entry.inputTokens);
   const cached = Number(entry.cachedInputTokens ?? 0);
   const written = Number(entry.cacheWriteTokens ?? 0);
@@ -29,6 +47,21 @@ export function aiEntryCost(entry, prices) {
     + written * pricing.cacheWritePerMillion
     + output * pricing.outputPerMillion) / 1_000_000;
   return Number.isFinite(cost) ? cost : null;
+}
+
+export function aiEntryCost(entry, prices) {
+  if (!entry) return null;
+  const parts = Array.isArray(entry.usageByServiceTier) && entry.usageByServiceTier.length
+    ? entry.usageByServiceTier
+    : [{ serviceTier: entry.serviceTier ?? null, tokenUsage: entry }];
+  let total = 0;
+  for (const part of parts) {
+    const pricing = pricingForTier(prices, part.serviceTier);
+    const cost = tokenUsageCost(part.tokenUsage, pricing);
+    if (!Number.isFinite(cost)) return null;
+    total += cost;
+  }
+  return total;
 }
 
 export function uniqueUsageEntries(entries) {
@@ -46,7 +79,7 @@ export function summarizeAiUsage(entries, pricing) {
   const costs = selected.map(entry => aiEntryCost(entry, pricing));
   return {
     tokens: selected.reduce((total, entry) => total + Number(entry.totalTokens || 0), 0),
-    cost: normalizePricing(pricing) && costs.every(Number.isFinite)
+    cost: (normalizePricing(pricing) || normalizePricingBook(pricing)) && costs.every(Number.isFinite)
       ? costs.reduce((total, cost) => total + cost, 0) : null,
   };
 }
@@ -96,6 +129,7 @@ export function usageFromTrace(events) {
       workflowStep: payload.workflowStep,
       reasoningEffort: payload.reasoningEffort,
       modelCallCount: llmCallCountForUsage(payload, response?.payload),
+      usageByServiceTier: payload.usageByServiceTier ?? null,
       inputTokens: 0,
       cachedInputTokens: 0,
       cacheWriteTokens: 0,

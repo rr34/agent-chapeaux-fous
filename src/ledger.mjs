@@ -212,6 +212,22 @@ function addTokenUsage(total, usage) {
   return total;
 }
 
+function combinedTierUsage(usageEvents) {
+  const totals = new Map();
+  for (const event of usageEvents) {
+    for (const entry of event.payload?.usageByServiceTier ?? []) {
+      if (!entry || typeof entry.serviceTier !== "string" || !entry.tokenUsage) continue;
+      if (!totals.has(entry.serviceTier)) {
+        totals.set(entry.serviceTier, { modelCallCount: 0, tokenUsage: emptyTokenUsage() });
+      }
+      const total = totals.get(entry.serviceTier);
+      total.modelCallCount += Number(entry.modelCallCount ?? 0);
+      addTokenUsage(total.tokenUsage, entry.tokenUsage);
+    }
+  }
+  return [...totals].map(([serviceTier, usage]) => ({ serviceTier, ...usage }));
+}
+
 function requestUsage(events) {
   const usageEvents = events.filter((event) => event.type === "model.usage");
   const counts = requestCallCounts(events);
@@ -220,11 +236,13 @@ function requestUsage(events) {
     (total, event) => addTokenUsage(total, event.payload?.tokenUsage),
     emptyTokenUsage(),
   );
+  const usageByServiceTier = combinedTierUsage(usageEvents);
   // Historical estimates remain in the literal trace, but aren't pricing inputs.
   const { estimatedCostUsd: _oldCost, pricing: _oldPricing, ...latest } = usageEvents.at(-1)?.payload ?? {};
   return {
     ...latest,
     tokenUsage,
+    ...(usageByServiceTier.length ? { usageByServiceTier } : {}),
     ...counts,
   };
 }
@@ -708,6 +726,7 @@ export class Ledger {
         workflowStep: event.payload?.workflowStep ?? null,
         reasoningEffort: event.payload?.reasoningEffort ?? null,
         modelCallCount: llmCallCountForUsage(event.payload, responsePayload),
+        usageByServiceTier: event.payload?.usageByServiceTier ?? null,
         inputTokens: Number(tokenUsage.inputTokens ?? 0),
         cachedInputTokens: Number(tokenUsage.cachedInputTokens ?? 0),
         cacheWriteTokens: Number(tokenUsage.cacheWriteTokens ?? 0),

@@ -115,6 +115,19 @@ function addUsage(total, current) {
   for (const key of Object.keys(total)) total[key] += Number(current[key] ?? 0);
 }
 
+function addTierUsage(totals, serviceTier, current) {
+  if (!serviceTier) return;
+  if (!totals.has(serviceTier)) {
+    totals.set(serviceTier, {
+      modelCallCount: 0,
+      tokenUsage: Object.fromEntries(Object.keys(current).map((key) => [key, 0])),
+    });
+  }
+  const total = totals.get(serviceTier);
+  total.modelCallCount += 1;
+  addUsage(total.tokenUsage, current);
+}
+
 function safeErrorMessage(error, apiKey) {
   const message = error instanceof Error ? error.message : String(error);
   return redactText(apiKey ? message.replaceAll(apiKey, "[REDACTED]") : message);
@@ -275,6 +288,7 @@ export class OpenAIResponsesClient {
     };
     const messages = [];
     const events = [];
+    const usageByServiceTier = new Map();
     const controlTransfers = [];
     let terminalVerificationRounds = terminalFailureObserved ? 1 : null;
     let response;
@@ -291,6 +305,13 @@ export class OpenAIResponsesClient {
       provider: "openai",
       modelCallCount,
       tokenUsage: { ...totalUsage },
+      ...(usageByServiceTier.size ? {
+        usageByServiceTier: [...usageByServiceTier].map(([serviceTier, usage]) => ({
+          serviceTier,
+          modelCallCount: usage.modelCallCount,
+          tokenUsage: { ...usage.tokenUsage },
+        })),
+      } : {}),
       contextInputTokens: latestInputTokens,
       contextWindowTokens: this.modelContextWindowTokens,
     });
@@ -332,11 +353,17 @@ export class OpenAIResponsesClient {
         await onEvent?.({ type: "request.started", modelCallIndex: modelCallCount });
         response = await this.request(requestBody, remainingMs);
         const currentUsage = usageFor(response);
+        const serviceTier = typeof response.service_tier === "string" && response.service_tier.trim()
+          ? response.service_tier.trim()
+          : null;
         latestInputTokens = currentUsage.inputTokens;
         addUsage(totalUsage, currentUsage);
+        addTierUsage(usageByServiceTier, serviceTier, currentUsage);
         const responseEvent = {
           type: "response.completed",
           responseId: response.id ?? null,
+          model: response.model ?? model,
+          serviceTier,
           status: response.status ?? null,
           usage: currentUsage,
           outputTypes: (response.output ?? []).map((item) => item.type),

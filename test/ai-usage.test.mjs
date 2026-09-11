@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
 import vm from "node:vm";
-import { aiEntryCost, normalizePricing, summarizeAiUsage, llmCallCountForUsage, llmCallCountLabel, usageFromTrace } from "../public/ai-usage.js";
+import { aiEntryCost, normalizePricing, normalizePricingBook, pricingForTier,
+  summarizeAiUsage, llmCallCountForUsage, llmCallCountLabel, usageFromTrace } from "../public/ai-usage.js";
 import { Ledger } from "../src/ledger.mjs";
 
 const protocolEvents = count => Array.from({ length: count }, () => ({ type: "response.completed" }));
@@ -29,6 +30,21 @@ test("unset or blank prices are unavailable, while explicit zero prices are vali
   assert.deepEqual(normalizePricing({ ...prices, outputPerMillion: "0" }), { ...prices, outputPerMillion: 0 });
 });
 
+test("tier price books calculate each provider service tier separately", () => {
+  const free = Object.fromEntries(Object.keys(prices).map(key => [key, 0]));
+  const book = { default: prices, "incentivized-tier": free };
+  const usage = {
+    usageByServiceTier: [
+      { serviceTier: "default", tokenUsage: { inputTokens: 1000000, outputTokens: 0 } },
+      { serviceTier: "incentivized-tier", tokenUsage: { inputTokens: 2000000, outputTokens: 0 } },
+    ],
+  };
+  assert.deepEqual(normalizePricingBook(book), book);
+  assert.equal(pricingForTier(book, "incentivized-tier").inputPerMillion, 0);
+  assert.equal(aiEntryCost(usage, book), 1);
+  assert.equal(aiEntryCost(usage, { default: prices }), null);
+});
+
 test("totals count a usage event once and ignore historical cost estimates", () => {
   const entry = { eventSeq: 3, inputTokens: 1000000, cachedInputTokens: 0,
     cacheWriteTokens: 0, outputTokens: 0, totalTokens: 1000000, recordedEstimatedCostUsd: 99 };
@@ -51,7 +67,7 @@ test("saving and clearing prices on the screen immediately recalculates response
     aiCacheWritePrice: { value: "" }, aiOutputPrice: { value: "" },
   };
   const context = vm.createContext({
-    normalizePricing, aiEntryCost, elements, aiPricingStorageKey: "test-prices",
+    normalizePricing, normalizePricingBook, pricingForTier, aiEntryCost, elements, aiPricingStorageKey: "test-prices",
     localStorage: { getItem: key => saved.get(key) ?? null,
       setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key) },
     window: { addEventListener: (name, callback) => { handlers.storage = callback; } },
@@ -71,7 +87,7 @@ test("saving and clearing prices on the screen immediately recalculates response
   elements.aiCacheWritePrice.value = "2";
   elements.aiOutputPrice.value = "3";
   handlers.submit({ preventDefault() {} });
-  assert.deepEqual(JSON.parse(saved.get("test-prices")), prices);
+  assert.deepEqual(JSON.parse(saved.get("test-prices")), { unrecorded: prices });
   assert.match(display.textContent, /^\$1.00 estimated/);
   handlers.clear();
   assert.equal(saved.size, 0);
@@ -110,11 +126,16 @@ test("usage API includes round-trip counts and selects only the matching precedi
   const ledger = new Ledger({ requireReady: () => ({ prepare(sql) {
     query = sql;
     return { all() { return [{
-      event_seq: 8, turn_id: "request", payload_json: JSON.stringify({ tokenUsage: { totalTokens: 100 } }),
+      event_seq: 8, turn_id: "request", payload_json: JSON.stringify({
+        tokenUsage: { totalTokens: 100 },
+        usageByServiceTier: [{ serviceTier: "incentivized-tier", tokenUsage: { totalTokens: 100 } }],
+      }),
       response_payload_json: JSON.stringify({ protocolEvents: protocolEvents(4) }),
     }]; } };
   } }) });
-  assert.equal(ledger.modelUsage()[0].modelCallCount, 4);
+  const usage = ledger.modelUsage()[0];
+  assert.equal(usage.modelCallCount, 4);
+  assert.equal(usage.usageByServiceTier[0].serviceTier, "incentivized-tier");
   assert.match(query, /SELECT MAX\(candidate.event_seq\)/);
   assert.match(query, /candidate.event_seq < usage_event.event_seq/);
   assert.match(query, /candidate.turn_id <=> usage_event.turn_id/);

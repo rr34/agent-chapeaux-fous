@@ -16,7 +16,8 @@ import {
   weeklyRoutinePattern,
 } from "./calendar-grid.js";
 import { createTimingEditor } from "./timing-editor.js";
-import { groupUsageByRequest, usageFromTrace, llmCallCountLabel, normalizePricing, aiEntryCost, summarizeAiUsage } from "./ai-usage.js";
+import { groupUsageByRequest, usageFromTrace, llmCallCountLabel, normalizePricing,
+  normalizePricingBook, pricingForTier, aiEntryCost, summarizeAiUsage } from "./ai-usage.js";
 
 const elements = {
   composer: document.querySelector("#chat-composer"),
@@ -142,6 +143,7 @@ const elements = {
   aiUsageCurrentModel: document.querySelector("#ai-usage-current-model"),
   aiUsageEntryCount: document.querySelector("#ai-usage-entry-count"),
   aiPricingForm: document.querySelector("#ai-pricing-form"),
+  aiPricingTier: document.querySelector("#ai-pricing-tier"),
   aiInputPrice: document.querySelector("#ai-input-price"),
   aiCachedInputPrice: document.querySelector("#ai-cached-input-price"),
   aiCacheWritePrice: document.querySelector("#ai-cache-write-price"),
@@ -1342,7 +1344,7 @@ function requestUsageLabel(usage, pricing = storedAiPricing()) {
   const largestDelta = deltas.length ? Math.max(...deltas) : null;
   const tokens = usage.tokenUsage?.totalTokens;
   const parts = [];
-  const cost = aiEntryCost(usage.tokenUsage, pricing);
+  const cost = aiEntryCost({ ...usage.tokenUsage, usageByServiceTier: usage.usageByServiceTier }, pricing);
   if (Number.isFinite(cost)) parts.push(`${formatUsd(cost)} estimated`);
   else if (usage.provider === "openai" || usage.tokenUsage) parts.push(pricing ? "cost estimate unavailable" : "Set token prices");
   else if (largestDelta == null && usage.windows) parts.push("quota update pending");
@@ -1387,8 +1389,20 @@ function formatUsd(value) {
 
 function storedAiPricing() {
   try {
-    return normalizePricing(JSON.parse(localStorage.getItem(aiPricingStorageKey) || "null"));
+    return normalizePricingBook(JSON.parse(localStorage.getItem(aiPricingStorageKey) || "null"));
   } catch { return null; }
+}
+
+function selectedAiPricingTier() {
+  return elements.aiPricingTier?.value || "unrecorded";
+}
+
+function showSelectedAiPricing(pricing = storedAiPricing()) {
+  const selected = pricingForTier(pricing, selectedAiPricingTier());
+  elements.aiInputPrice.value = selected ? String(selected.inputPerMillion) : "";
+  elements.aiCachedInputPrice.value = selected ? String(selected.cachedInputPerMillion) : "";
+  elements.aiCacheWritePrice.value = selected ? String(selected.cacheWritePerMillion) : "";
+  elements.aiOutputPrice.value = selected ? String(selected.outputPerMillion) : "";
 }
 
 function aiCostLabel(cost, pricing) {
@@ -1413,10 +1427,7 @@ function meteredAiEntry(entry) {
 function renderAiUsage() {
   if (!aiUsageData) return;
   const pricing = storedAiPricing();
-  elements.aiInputPrice.value = pricing ? String(pricing.inputPerMillion) : "";
-  elements.aiCachedInputPrice.value = pricing ? String(pricing.cachedInputPerMillion) : "";
-  elements.aiCacheWritePrice.value = pricing ? String(pricing.cacheWritePerMillion) : "";
-  elements.aiOutputPrice.value = pricing ? String(pricing.outputPerMillion) : "";
+  showSelectedAiPricing(pricing);
   const entries = aiUsageData.entries.filter(meteredAiEntry);
   const now = new Date();
   const monthEntries = entries.filter((entry) => {
@@ -1512,7 +1523,7 @@ function aiUsageCallTable(entries, pricing) {
   const table = node("table", "");
   const head = node("thead", "");
   const headings = node("tr", "");
-  for (const label of ["When", "Model / step", "LLM calls", "Input", "Cached", "Cache write", "Output", "Estimated cost"]) {
+  for (const label of ["When", "Model / step", "Service tier", "LLM calls", "Input", "Cached", "Cache write", "Output", "Estimated cost"]) {
     const heading = node("th", "", label);
     heading.scope = "col";
     headings.append(heading);
@@ -1524,6 +1535,7 @@ function aiUsageCallTable(entries, pricing) {
     const values = [
       formatDisplayDate(entry.occurredAtUtc),
       [entry.model || entry.transport || "Unknown", entry.workflowStep, entry.reasoningEffort].filter(Boolean).join(" · "),
+      entry.usageByServiceTier?.map(part => part.serviceTier).join(", ") || "Unrecorded",
       Number.isSafeInteger(entry.modelCallCount) ? entry.modelCallCount.toLocaleString() : "Unavailable",
       Number(entry.inputTokens).toLocaleString(),
       Number(entry.cachedInputTokens).toLocaleString(),
@@ -6000,6 +6012,7 @@ elements.usage.addEventListener("click", () => {
   switchView("ai-usage");
 });
 elements.refreshAiUsage.addEventListener("click", () => void loadAiUsage());
+elements.aiPricingTier?.addEventListener("change", () => showSelectedAiPricing());
 elements.aiPricingForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const pricing = normalizePricing({
@@ -6013,9 +6026,11 @@ elements.aiPricingForm.addEventListener("submit", (event) => {
     return;
   }
   try {
-    localStorage.setItem(aiPricingStorageKey, JSON.stringify(pricing));
+    const tier = selectedAiPricingTier();
+    const priceBook = { ...(storedAiPricing() ?? {}), [tier]: pricing };
+    localStorage.setItem(aiPricingStorageKey, JSON.stringify(priceBook));
     refreshCostDisplays();
-    elements.aiUsageStatus.textContent = "Prices saved in this browser and applied to all estimates.";
+    elements.aiUsageStatus.textContent = `${tier === "unrecorded" ? "Older-record" : tier} prices saved in this browser.`;
   } catch {
     elements.aiUsageStatus.textContent = "Could not save prices in this browser.";
   }
@@ -6023,6 +6038,7 @@ elements.aiPricingForm.addEventListener("submit", (event) => {
 elements.resetAiPricing.addEventListener("click", () => {
   try {
     localStorage.removeItem(aiPricingStorageKey);
+    showSelectedAiPricing(null);
     refreshCostDisplays();
     elements.aiUsageStatus.textContent = "Prices cleared. Enter prices to calculate estimates.";
   } catch {

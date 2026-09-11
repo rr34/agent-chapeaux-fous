@@ -421,7 +421,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .ai-usage-summary-card { display: grid; gap: .25rem; padding: 1rem; }
 .ai-usage-summary-card span, .ai-usage-summary-card small { color: var(--muted); }
 .ai-usage-summary-card strong { font-size: clamp(1.2rem, 3vw, 2rem); font-weight: 500; overflow-wrap: anywhere; }
-.ai-pricing-form { display: grid; grid-template-columns: minmax(14rem, 2fr) repeat(4, minmax(8rem, 1fr)) auto; align-items: end; gap: .8rem; padding: 1rem; }
+.ai-pricing-form { display: grid; grid-template-columns: minmax(14rem, 2fr) minmax(11rem, 1fr) repeat(4, minmax(8rem, 1fr)) auto; align-items: end; gap: .8rem; padding: 1rem; }
 .ai-pricing-form h3, .ai-pricing-form p { margin: 0; }
 .ai-pricing-form label { display: grid; gap: .35rem; color: var(--muted); font-size: .82rem; }
 .ai-usage-history { padding: 1rem; }

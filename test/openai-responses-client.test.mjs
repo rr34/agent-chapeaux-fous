@@ -26,6 +26,8 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
   const responses = [
     {
       id: "resp_1",
+      model: "gpt-5.6-terra",
+      service_tier: "incentivized-tier",
       status: "completed",
       output: [{
         type: "function_call", id: "fc_1", call_id: "call_1",
@@ -39,6 +41,8 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
     },
     {
       id: "resp_2",
+      model: "gpt-5.6-terra",
+      service_tier: "incentivized-tier",
       status: "completed",
       output: [{
         type: "message", id: "msg_1", role: "assistant",
@@ -108,6 +112,16 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
     reasoningOutputTokens: 90,
     totalTokens: 2780,
   });
+  assert.deepEqual(result.usage.usageByServiceTier, [{
+    serviceTier: "incentivized-tier",
+    modelCallCount: 2,
+    tokenUsage: result.usage.tokenUsage,
+  }]);
+  assert.deepEqual(result.events.filter(event => event.type === "response.completed")
+    .map(({ model, serviceTier }) => ({ model, serviceTier })), [
+    { model: "gpt-5.6-terra", serviceTier: "incentivized-tier" },
+    { model: "gpt-5.6-terra", serviceTier: "incentivized-tier" },
+  ]);
   assert.equal(result.usage.contextInputTokens, 1400);
   assert.equal(Object.hasOwn(result.usage, "estimatedCostUsd"), false);
   assert.equal(Object.hasOwn(result.usage, "pricing"), false);
