@@ -186,8 +186,14 @@ export const completionAuditSchema = {
   additionalProperties: false,
   properties: {
     contractVersion: { type: "integer", enum: [1] },
-    outcome: { type: "string", enum: ["complete", "repair_needed", "blocked"] },
-    summary: text(2_000),
+    outcome: {
+      type: "string",
+      enum: ["complete", "needs_information", "repair_needed", "blocked"],
+    },
+    summary: {
+      ...text(2_000),
+      description: "Audit summary. For blocked outcomes this is a direct user-facing failure response and must address the user as you, never as 'the user' or by narrating what 'the response' said.",
+    },
     satisfiedCriteria: textList(30),
     remainingActions: textList(30),
     repairInstructions: textList(30),
@@ -335,8 +341,9 @@ export function auditContext({
 }) {
   return [
     "# Completion audit input",
-    "Compare the accepted TurnBrief with literal tool receipts and the proposed executor response. Mark complete only when the receipts and response prove every requested outcome. Mark repair_needed only when a specific safe callable action can correct the gap. Mark blocked for an evidenced blocker, including an already observed provider failure that remains unresolved. Output-schema failures cannot be repaired by resending inputs or changing idempotency keys. Do not prescribe retries without a material correction supported by evidence. Correct an inaccurate executor explanation, distinguishing an attempted failed call from one that never ran. Do not invent actions or confirmation.",
-    "For blocked, summary becomes the final user-facing response: state the evidenced blocker and what remains incomplete, preserve relevant verified successes, and correct unsupported claims in the executor response. Do not expose internal lifecycle terminology.",
+    "Compare the accepted TurnBrief with literal tool receipts and the proposed executor response. Mark complete only when the receipts and response prove every requested outcome. Mark needs_information when the executor directly asks the user for specific information that is genuinely required to continue; this is a valid pause, not a blocker or failed action. Mark repair_needed only when a specific safe callable action can correct the gap without more user input. Mark blocked for an evidenced failure or unavailable operation, including an already observed provider failure that remains unresolved. Output-schema failures cannot be repaired by resending inputs or changing idempotency keys. Do not prescribe retries without a material correction supported by evidence. Correct an inaccurate executor explanation, distinguishing an attempted failed call from one that never ran. Do not invent actions, missing information, or confirmation.",
+    "For needs_information, the executor response remains the final user-facing response; verify that it preserves relevant successes and asks the user one direct, specific question. In the audit summary, state briefly what information is needed.",
+    "For blocked, summary becomes the final user-facing response: address the user directly, plainly say what failed or could not be completed, state what remains incomplete, preserve relevant verified successes, and correct unsupported claims in the executor response. Never refer to 'the user,' 'the executor,' 'the response,' or the audit. Do not expose internal lifecycle terminology.",
     "",
     "## Accepted TurnBrief",
     JSON.stringify(brief, null, 2),

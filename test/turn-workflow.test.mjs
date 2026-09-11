@@ -1339,6 +1339,60 @@ test("a failed completion audit adds a bounded repair call without repeating suc
   );
 });
 
+test("an audit preserves a direct question when execution needs information from the user", async () => {
+  const requests = [];
+  const executions = [];
+  const ledger = fakeLedger();
+  const registry = todoRegistry(executions);
+  const clarification = [
+    "Linked task #109 to Jermaine Fox.",
+    "",
+    "What time on Monday should I defer task #111 to?",
+  ].join("\n");
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) return completed(JSON.stringify(brief()), 20);
+    if (index === 1) {
+      const result = await payload.onToolCall({
+        callId: "todo-call", tool: "todo_create", arguments: { title: "Link task #109" },
+      });
+      assert.equal(result.ok, true);
+      return completed(clarification, 50);
+    }
+    assert.match(payload.developerInstructions, /Mark needs_information/);
+    assert.match(payload.developerInstructions, /asks the user one direct, specific question/);
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "needs_information",
+      summary: "The time needed to defer task #111 is not specified.",
+      satisfiedCriteria: ["Task #109 was linked to Jermaine Fox."],
+      remainingActions: ["Defer task #111 after its time is supplied."],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-needs-time",
+    requestEventId: "event-current",
+    text: "Do both updates.",
+  }), clarification);
+  assert.deepEqual(executions, [{ title: "Link task #109" }]);
+  assert.equal(requests.length, 3);
+  assert.deepEqual(
+    ledger.events.filter(({ type, phase }) => type === "agent.step" && phase === "start")
+      .map(({ payload }) => payload.workflowStep),
+    ["orientation", "context_preparation", "execution", "audit"],
+  );
+});
+
 test("a successful repair reports work from execution and repair in one cumulative response", async () => {
   const requests = [];
   const executions = [];
@@ -2167,5 +2221,48 @@ test("an audited blocker corrects the executor explanation without another repai
   runtime.systemPrompt = "SYSTEM";
   assert.equal(await runtime.run({ requestId: "blocked", requestEventId: "event-current", text: "Go ahead." }), corrected);
   assert.equal(writes, 1);
+  assert.equal(requests.length, 3);
+});
+
+test("a blocked audit cannot leak third-person audit narration to the user", async () => {
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("todos").register({
+    name: "todo_create", description: "Create a task.", parameters: { type: "object", properties: {} },
+    async execute() { throw new Error("Database connection refused"); },
+  });
+  const requests = [];
+  const runtime = new SlayerRuntime({
+    registry, ledger, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(), config: workflowConfig(),
+    modelTransport: transport(async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(brief()), 20);
+      if (index === 1) {
+        await payload.onToolCall({ callId: "write", tool: "todo_create", arguments: {} });
+        return completed("I couldn't create the task.", 30);
+      }
+      if (index === 2) return completed(JSON.stringify({
+        contractVersion: 1,
+        outcome: "blocked",
+        summary: "The response told the user that the task was not created.",
+        satisfiedCriteria: [],
+        remainingActions: ["Create the task after the database recovers."],
+        repairInstructions: [],
+      }), 10);
+      throw new Error("A blocked audit must not enter repair");
+    }, requests),
+  });
+  runtime.systemPrompt = "SYSTEM";
+
+  const result = await runtime.run({
+    requestId: "blocked-third-person", requestEventId: "event-current", text: "Go ahead.",
+  });
+  assert.equal(result, [
+    "I couldn't complete the request.",
+    "",
+    "Still incomplete:",
+    "- Create the task after the database recovers.",
+  ].join("\n"));
+  assert.doesNotMatch(result, /the user|the response/iu);
   assert.equal(requests.length, 3);
 });

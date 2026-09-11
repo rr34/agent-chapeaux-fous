@@ -268,6 +268,23 @@ function terminalToolFailureNotice(findings) {
   ].join("");
 }
 
+const internalBlockedResponseNarration = /\b(?:the user|the executor|the (?:proposed )?response|executor response)\b/iu;
+
+function blockedAuditResponse(audit) {
+  const summary = String(audit?.summary ?? "").trim();
+  if (summary && !internalBlockedResponseNarration.test(summary)) return summary;
+  const partial = Array.isArray(audit?.satisfiedCriteria) && audit.satisfiedCriteria.length > 0;
+  const opening = partial
+    ? "I completed part of the request, but I couldn't complete everything requested."
+    : "I couldn't complete the request.";
+  const remaining = Array.isArray(audit?.remainingActions)
+    ? audit.remainingActions.map((action) => String(action).trim()).filter(Boolean)
+    : [];
+  return remaining.length
+    ? [opening, "", "Still incomplete:", ...remaining.map((action) => `- ${action}`)].join("\n")
+    : opening;
+}
+
 function finalConfirmationHandoffFailure(toolName, toolDefinition) {
   const source = String(toolDefinition?.source ?? "mcp:unknown");
   const serverName = source.startsWith("mcp:") ? source.slice(4) : source;
@@ -1191,7 +1208,8 @@ export class SlayerRuntime {
     }
     // Missing completion evidence is not, by itself, a repair strategy. An
     // evidenced blocker must not turn into another automatic mutation attempt.
-    if (audit.value.outcome === "blocked") return audit.value.summary;
+    if (audit.value.outcome === "needs_information") return execution.text;
+    if (audit.value.outcome === "blocked") return blockedAuditResponse(audit.value);
     if (audit.value.outcome !== "repair_needed" && executionFindings.length === 0) return execution.text;
 
     const remainingToolCalls = configuredMaxToolCalls === null
