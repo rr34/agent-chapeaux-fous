@@ -111,7 +111,9 @@ export class RequestQueue {
           ? repeatableExchangeToolNames
           : null,
         supplementalInstructions: "",
-        awaitTurnBriefApproval: (plan) => this.awaitTurnBriefApproval(request, plan),
+        ...(request.payload?.runLimits?.promptForTurnBrief === true
+          ? { awaitTurnBriefApproval: (plan) => this.awaitTurnBriefApproval(request, plan) }
+          : {}),
       });
       this.ledger.finish(request, response);
     } catch (error) {

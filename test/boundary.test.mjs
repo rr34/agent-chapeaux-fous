@@ -157,7 +157,7 @@ test("the client exposes a live user manual generated from the explicit hat cata
   }
 });
 
-test("the client pauses on the final TurnBrief with only Continue and Cancel decisions", () => {
+test("the client retains the optional TurnBrief Continue and Cancel gate", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
@@ -725,10 +725,14 @@ test("the request composer can apply one-shot tool and time limits", () => {
   assert.match(document, /id="run-tool-calls-unlimited"/);
   assert.match(document, /id="run-time-limit-minutes"/);
   assert.match(document, /id="run-time-unlimited"/);
+  assert.match(document, /id="run-turn-brief-prompt"/);
   assert.match(application, /function applyRunLimits/);
   assert.match(application, /runLimits: pendingRunLimits/);
+  assert.match(application, /promptForTurnBrief: elements\.runTurnBriefPrompt\.checked/);
+  assert.match(application, /api\(`\/api\/voice\$\{runLimitsQuery\}`/);
   assert.match(application, /pendingRunLimits = null/);
   assert.match(server, /normalizeRunLimits\(body\.runLimits\)/);
+  assert.match(server, /voiceRunLimits = normalizeRunLimits\(parsedRunLimits\)/);
 });
 
 test("the request feed exposes literal workflow steps and per-step token usage", () => {

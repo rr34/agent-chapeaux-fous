@@ -1032,8 +1032,21 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/voice") {
+      let voiceRunLimits = null;
+      const encodedRunLimits = url.searchParams.get("runLimits");
+      if (encodedRunLimits !== null) {
+        let parsedRunLimits;
+        try {
+          parsedRunLimits = JSON.parse(encodedRunLimits);
+        } catch {
+          throw Object.assign(new Error("runLimits must be valid JSON"), { statusCode: 400 });
+        }
+        voiceRunLimits = normalizeRunLimits(parsedRunLimits);
+      }
       const file = await receiveAudio(request);
-      const created = ledger.createRequest({ channel: "voice", primaryFileId: file.fileId });
+      const created = ledger.createRequest({
+        channel: "voice", primaryFileId: file.fileId, runLimits: voiceRunLimits,
+      });
       queue.notify();
       sendJson(response, 202, { ...created, fileId: file.fileId });
       return;

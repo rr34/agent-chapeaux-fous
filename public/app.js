@@ -55,6 +55,7 @@ const elements = {
   runToolCallsUnlimited: document.querySelector("#run-tool-calls-unlimited"),
   runTimeLimitMinutes: document.querySelector("#run-time-limit-minutes"),
   runTimeUnlimited: document.querySelector("#run-time-unlimited"),
+  runTurnBriefPrompt: document.querySelector("#run-turn-brief-prompt"),
   runLimitsDefaults: document.querySelector("#run-limits-defaults"),
   record: document.querySelector("#record"),
   recordMeter: document.querySelector("#record-meter"),
@@ -933,7 +934,8 @@ function runLimitsText(runLimits) {
   if (runLimits === null) return "";
   const calls = runLimits.maxToolCalls === null ? "unlimited calls" : `${runLimits.maxToolCalls} calls`;
   const time = runLimits.timeoutMs === null ? "no deadline" : `${Math.round(runLimits.timeoutMs / 60_000)} min`;
-  return `${calls} · ${time}`;
+  const turnBrief = runLimits.promptForTurnBrief ? " · TurnBrief review" : "";
+  return `${calls} · ${time}${turnBrief}`;
 }
 
 function updateRunLimitsSummary() {
@@ -954,6 +956,7 @@ function openRunLimitsDialog() {
   elements.runTimeLimitMinutes.value = pendingRunLimits?.timeoutMs == null
     ? 60
     : Math.max(1, Math.round(pendingRunLimits.timeoutMs / 60_000));
+  elements.runTurnBriefPrompt.checked = pendingRunLimits?.promptForTurnBrief === true;
   updateRunLimitFields();
   elements.runLimitsDialog.showModal();
 }
@@ -964,6 +967,7 @@ function applyRunLimits(event) {
   pendingRunLimits = {
     maxToolCalls: elements.runToolCallsUnlimited.checked ? null : Number(elements.runToolCallLimit.value),
     timeoutMs: elements.runTimeUnlimited.checked ? null : Number(elements.runTimeLimitMinutes.value) * 60_000,
+    promptForTurnBrief: elements.runTurnBriefPrompt.checked,
   };
   updateRunLimitsSummary();
   elements.runLimitsDialog.close();
@@ -5904,8 +5908,15 @@ elements.record.addEventListener("click", async () => {
       const blob = new Blob(recordingChunks, { type: recorder.mimeType || "audio/webm" });
       elements.status.textContent = "Uploading voice request…";
       try {
-        const created = await api("/api/voice", { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
+        const runLimitsQuery = pendingRunLimits === null
+          ? ""
+          : `?runLimits=${encodeURIComponent(JSON.stringify(pendingRunLimits))}`;
+        const created = await api(`/api/voice${runLimitsQuery}`, {
+          method: "POST", headers: { "Content-Type": blob.type }, body: blob,
+        });
         expectSpokenResponse(created.requestId, recordingRespondSilently);
+        pendingRunLimits = null;
+        updateRunLimitsSummary();
         elements.status.textContent = "Voice request queued.";
         switchView("agent");
         await loadRequests({ force: true, followLatest: true });

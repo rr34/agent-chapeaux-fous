@@ -429,13 +429,18 @@ test("the request queue supplies a stored document to the same runtime request",
     content: "Import these contacts.",
     channel: "web",
     primaryFileId: 9,
-    payload: { runLimits: { maxToolCalls: 256, timeoutMs: 3_600_000 } },
+    payload: {
+      runLimits: { maxToolCalls: 256, timeoutMs: 3_600_000, promptForTurnBrief: false },
+    },
   });
   assert.equal(runtimeRequest.text, "Import these contacts.");
   assert.equal(runtimeRequest.attachment.text, csv);
   assert.equal(runtimeRequest.attachment.fileId, 9);
   assert.equal(runtimeRequest.attachment.title, "Wedding contacts");
-  assert.deepEqual(runtimeRequest.runLimits, { maxToolCalls: 256, timeoutMs: 3_600_000 });
+  assert.deepEqual(runtimeRequest.runLimits, {
+    maxToolCalls: 256, timeoutMs: 3_600_000, promptForTurnBrief: false,
+  });
+  assert.equal(runtimeRequest.awaitTurnBriefApproval, undefined);
   assert.equal(events.some(({ type }) => type === "attachment.read"), true);
 });
 
@@ -499,7 +504,8 @@ test("the request queue continues or cancels only the exact pending TurnBrief", 
   });
   const request = {
     eventId: "event-approval", turnId: "request-approval", content: "Do this.",
-    channel: "web", primaryFileId: null, payload: {},
+    channel: "web", primaryFileId: null,
+    payload: { runLimits: { maxToolCalls: 20, timeoutMs: 60_000, promptForTurnBrief: true } },
   };
 
   const continued = queue.process(request);

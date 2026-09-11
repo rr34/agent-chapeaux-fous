@@ -11,7 +11,9 @@ export function normalizeRunLimits(value) {
   if (typeof value !== "object" || Array.isArray(value)) {
     throw inputError("runLimits must be an object or null");
   }
-  const unexpected = Object.keys(value).filter((key) => !["maxToolCalls", "timeoutMs"].includes(key));
+  const unexpected = Object.keys(value).filter((key) => (
+    !["maxToolCalls", "timeoutMs", "promptForTurnBrief"].includes(key)
+  ));
   if (unexpected.length) throw inputError(`Unexpected runLimits field: ${unexpected[0]}`);
   if (!Object.hasOwn(value, "maxToolCalls") || !Object.hasOwn(value, "timeoutMs")) {
     throw inputError("runLimits must include maxToolCalls and timeoutMs");
@@ -28,5 +30,9 @@ export function normalizeRunLimits(value) {
   )) {
     throw inputError("timeoutMs must be null or an integer from 1000 through 86400000");
   }
-  return { maxToolCalls, timeoutMs };
+  const promptForTurnBrief = value.promptForTurnBrief ?? false;
+  if (typeof promptForTurnBrief !== "boolean") {
+    throw inputError("promptForTurnBrief must be a boolean");
+  }
+  return { maxToolCalls, timeoutMs, promptForTurnBrief };
 }

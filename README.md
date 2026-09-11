@@ -27,6 +27,11 @@ user request, orientation, rolling state, execution, conditional audit and
 repair, context, tools, exact model requests and responses, tool calls and
 results, per-step usage, and the final answer.
 
+Validated TurnBriefs proceed directly to execution by default; their full
+contents remain visible in the trace. For closer supervision of one request,
+open **Run limits** before submitting it and enable the retained TurnBrief
+Continue/Cancel prompt.
+
 Orientation receives the current local weekday, date, time zone, and an
 eight-day local calendar table. Named-weekday action targets are recorded in
 the TurnBrief and checked with deterministic Gregorian calendar code before

@@ -1128,6 +1128,10 @@
         <label>Maximum minutes<input id="run-time-limit-minutes" type="number" min="1" max="1440" step="1" value="60" required></label>
         <label class="checkbox-row"><input id="run-time-unlimited" type="checkbox"><span>No run deadline</span></label>
       </fieldset>
+      <fieldset class="run-limit-fieldset">
+        <legend>Supervision</legend>
+        <label class="checkbox-row"><input id="run-turn-brief-prompt" type="checkbox"><span>Pause for TurnBrief review before execution</span></label>
+      </fieldset>
       <footer class="editor-actions">
         <button id="run-limits-defaults" class="secondary" type="button">Use defaults</button>
         <button type="submit">Apply to next request</button>
