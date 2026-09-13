@@ -112,6 +112,11 @@ test("temporal to-do migration preserves schedules and deadlines as linked calen
   const retirement = migrations.find(({ version }) => version === 40)?.sql ?? "";
   assert.match(additive, /CREATE TABLE IF NOT EXISTS calendar_routines/u);
   assert.match(additive, /CREATE TABLE IF NOT EXISTS calendar_events_todo_join/u);
+  assert.doesNotMatch(additive, /ADD CONSTRAINT IF NOT EXISTS [^;\n]+ FOREIGN KEY/u);
+  assert.match(additive, /DROP FOREIGN KEY IF EXISTS calendar_events_routine/u);
+  assert.match(additive, /ADD CONSTRAINT calendar_events_routine FOREIGN KEY/u);
+  assert.match(additive, /DROP FOREIGN KEY IF EXISTS todo_personal_guide/u);
+  assert.match(additive, /ADD CONSTRAINT todo_personal_guide FOREIGN KEY/u);
   assert.match(additive, /task\.scheduled_at_utc/u);
   assert.match(additive, /task\.due_at_utc/u);
   assert.match(additive, /'deadline', CONCAT\('Due: ', task\.text\)/u);

@@ -104,8 +104,13 @@ ALTER TABLE calendar_events
     ADD COLUMN IF NOT EXISTS migration_relationship_kind ENUM('work', 'deadline') COMMENT 'Temporary migration-only meaning of a converted to-do timestamp.' AFTER migration_personal_task_id,
     ADD UNIQUE KEY IF NOT EXISTS calendar_events_routine_occurrence (calendar_routine_id, routine_occurrence_key),
     ADD UNIQUE KEY IF NOT EXISTS calendar_events_todo_timing_migration (migration_personal_task_id, migration_relationship_kind),
-    ADD CONSTRAINT IF NOT EXISTS calendar_events_routine FOREIGN KEY (calendar_routine_id) REFERENCES calendar_routines(calendar_routine_id) ON DELETE RESTRICT,
     ADD CONSTRAINT IF NOT EXISTS calendar_events_routine_pair CHECK ((calendar_routine_id IS NULL) = (routine_occurrence_key IS NULL));
+
+ALTER TABLE calendar_events
+    DROP FOREIGN KEY IF EXISTS calendar_events_routine;
+
+ALTER TABLE calendar_events
+    ADD CONSTRAINT calendar_events_routine FOREIGN KEY (calendar_routine_id) REFERENCES calendar_routines(calendar_routine_id) ON DELETE RESTRICT;
 
 CREATE TABLE IF NOT EXISTS calendar_events_todo_join (
     calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Concrete calendar event associated with the task.',
@@ -122,8 +127,13 @@ ALTER TABLE calendar_events
     COMMENT='Stores every concrete commitment and scheduled event in the user''s one authoritative agent calendar. A row may be independent, imported, or generated from calendar_routines. starts_at_utc and ends_at_utc are UTC instants; time_zone preserves the intended display zone. routine_occurrence_key preserves idempotent generation identity while edits may move the concrete event. planning_prompt_text is optional. Sensitivity: Contains the user''s private schedule, locations, participants, and imported calendar identifiers.';
 
 ALTER TABLE todo_personal
-    ADD COLUMN IF NOT EXISTS interaction_guide_id BIGINT UNSIGNED COMMENT 'Optional interaction guide offered when the user starts this task.' AFTER related_contact_id,
-    ADD CONSTRAINT IF NOT EXISTS todo_personal_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS interaction_guide_id BIGINT UNSIGNED COMMENT 'Optional interaction guide offered when the user starts this task.' AFTER related_contact_id;
+
+ALTER TABLE todo_personal
+    DROP FOREIGN KEY IF EXISTS todo_personal_guide;
+
+ALTER TABLE todo_personal
+    ADD CONSTRAINT todo_personal_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL;
 
 INSERT IGNORE INTO calendar_routines (
     calendar_routine_id, title, first_starts_at_utc, first_ends_at_utc,
