@@ -37,7 +37,7 @@ const temporalResolution = {
     role: { type: "string", enum: ["target", "reference"] },
     appliesTo: {
       type: "string",
-      enum: ["scheduled_at", "due_at", "calendar_start", "other"],
+      enum: ["calendar_start", "other"],
     },
   },
   required: [

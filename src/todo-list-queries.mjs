@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { localDateUtcBounds } from "./todo-schedule-operations.mjs";
+import { localDateUtcBounds } from "./temporal-consistency.mjs";
 
 export const todoStatuses = ["unplanned", "todo", "complete", "ignore", "archive", "ai_suggested"];
 
@@ -25,8 +25,7 @@ export const todoQueryFilterProperties = {
     description: "Exact task IDs to retrieve, including terminal tasks when status is null. Null disables ID filtering. Combined with all other filters using AND.",
   },
   completed_date_range: localDateRange,
-  scheduled_date_range: localDateRange,
-  time_zone: { type: ["string", "null"], description: "IANA time zone, required whenever either local date range is supplied." },
+  time_zone: { type: ["string", "null"], description: "IANA time zone required when completed_date_range is supplied." },
 };
 
 export const todoListInputSchema = {
@@ -66,9 +65,6 @@ function sortFields(filters) {
     { sql: "task.completed_at_utc", key: row => row.completed_at_utc, direction: "DESC", type: "string" },
     { ...id, direction: "DESC" },
   ];
-  if (filters.scheduled_date_range) return [
-    { sql: "task.scheduled_at_utc", key: row => row.scheduled_at_utc, direction: "ASC", type: "string" }, id,
-  ];
   return [
     { sql: "todo_group.name", key: row => row.group_name, direction: "ASC", type: "string" },
     { sql: "(task.sequence IS NULL)", key: row => Number(row.sequence == null), direction: "ASC", type: "number" },
@@ -85,10 +81,7 @@ function prepareQuery(query) {
     completed_date_range: query.completed_date_range == null ? null : {
       start_date: query.completed_date_range.start_date, end_date: query.completed_date_range.end_date,
     },
-    scheduled_date_range: query.scheduled_date_range == null ? null : {
-      start_date: query.scheduled_date_range.start_date, end_date: query.scheduled_date_range.end_date,
-    },
-    time_zone: query.completed_date_range || query.scheduled_date_range ? query.time_zone?.trim() ?? null : null,
+    time_zone: query.completed_date_range ? query.time_zone?.trim() ?? null : null,
   };
   const conditions = [];
   const parameters = [];
@@ -101,7 +94,7 @@ function prepareQuery(query) {
     conditions.push(`task.personal_task_id IN (${filters.personal_task_ids.map(() => "?").join(", ")})`);
     parameters.push(...filters.personal_task_ids);
   }
-  for (const [column, name] of [["completed_at_utc", "completed_date_range"], ["scheduled_at_utc", "scheduled_date_range"]]) {
+  for (const [column, name] of [["completed_at_utc", "completed_date_range"]]) {
     const bounds = dateRangeBounds(filters[name], filters.time_zone, name);
     if (!bounds) continue;
     conditions.push(`task.${column} >= ? AND task.${column} < ?`);
@@ -139,20 +132,13 @@ export function listTodoQueryPages(database, queries) {
   const results = prepared.map(({ query, filters, conditions, parameters, order, fingerprint }) => {
     const rows = database.prepare(`
       SELECT task.*, todo_group.name AS group_name,
-             routine.text AS routine_text,
-             routine.publication_mode AS routine_publication_mode,
-             routine.recurrence_rule AS routine_recurrence_rule,
-             routine.time_zone AS routine_time_zone,
-             routine.interaction_guide_id,
-             routine.planning_prompt_text AS routine_planning_prompt_text,
              interaction_guide.name AS interaction_guide_name,
              interaction_guide.status AS interaction_guide_status,
              interaction_guide.version AS interaction_guide_version
       FROM todo_personal AS task
       JOIN todo_groups AS todo_group USING (todo_group_id)
-      LEFT JOIN todo_routines AS routine USING (todo_routine_id)
       LEFT JOIN interaction_guides AS interaction_guide
-        ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
+        ON interaction_guide.interaction_guide_id = task.interaction_guide_id
       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       ORDER BY ${order.map(field => `${field.sql} ${field.direction}`).join(", ")}
       LIMIT ?

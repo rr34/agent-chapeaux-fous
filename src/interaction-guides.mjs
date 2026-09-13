@@ -1180,11 +1180,11 @@ export class InteractionGuides {
         return { archived: false, alreadyArchived: true, guide: publicGuide(before) };
       }
       const linked = database.prepare(`
-        SELECT COUNT(*) AS count FROM todo_routines
-        WHERE interaction_guide_id = ? AND disabled_at_utc IS NULL
+        SELECT COUNT(*) AS count FROM todo_personal
+        WHERE interaction_guide_id = ? AND status IN ('unplanned', 'todo', 'ai_suggested')
       `).get(selectedId);
       if (Number(linked.count) > 0) {
-        throw conflict("Disable or unlink the active repeating to-dos that use this briefing before archiving it");
+        throw conflict("Unlink the active to-dos that use this briefing before archiving it");
       }
       const row = database.prepare(`
         UPDATE interaction_guides

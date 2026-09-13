@@ -91,5 +91,5 @@ export function baselineBeforeCatchUp(source) {
     .replace(/CREATE TABLE catch_up_questions \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
     .replace(/^    asking_(?:starts_at_utc|recurrence_rule|time_zone) .*\n/gmu, "")
     .replace(/    CONSTRAINT trackers_asking_schedule CHECK \([\s\S]*?    \),\n/u, "")
-    .replace("VALUES (1, 38,", "VALUES (1, 35,");
+    .replace("VALUES (1, 40,", "VALUES (1, 35,");
 }

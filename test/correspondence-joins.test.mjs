@@ -10,7 +10,7 @@ import { temporaryDatabase } from "./helpers.mjs";
 test("message joins support many-to-many links, reject invalid pairs, cascade only links, and preserve data on replay", async context => {
   const schema = fs.readFileSync(baselineFilename, "utf8")
     .replace(/CREATE TABLE (?:todo_correspondence_join|calendar_events_correspondence_join) \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/gu, "")
-    .replace("VALUES (1, 38,", "VALUES (1, 36,");
+    .replace("VALUES (1, 40,", "VALUES (1, 36,");
   const temporary = temporaryDatabase({ schema });
   context.after(temporary.cleanup);
   const db = new MariaDatabaseSync(temporary.target.connection);
@@ -19,7 +19,7 @@ test("message joins support many-to-many links, reject invalid pairs, cascade on
   const migration = readMigrationLedger(migrationsFilename).find(item => item.version === 37);
   // Recover from a partial DDL commit with just the first table present.
   db.exec(splitMariaDbStatements(migration.sql)[0]);
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [37, 38]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [37, 38, 39, 40]);
   db.exec("INSERT INTO correspondence (correspondence_id, medium, direction) VALUES (1, 'email', 'inbound'), (2, 'sms', 'inbound')");
   db.exec("INSERT INTO todo_personal (personal_task_id, todo_group_id, text) SELECT 1, todo_group_id, 'First task' FROM todo_groups WHERE name = 'Inbox'");
   db.exec("INSERT INTO todo_personal (personal_task_id, todo_group_id, text) SELECT 2, todo_group_id, 'Second task' FROM todo_groups WHERE name = 'Inbox'");
@@ -34,7 +34,7 @@ test("message joins support many-to-many links, reject invalid pairs, cascade on
     assert.match(db.prepare(`SELECT created_at_utc FROM ${table} LIMIT 1`).get().created_at_utc, /^\d{4}-.*Z$/u);
   }
   db.exec("UPDATE database_meta SET schema_version = 36 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [37, 38]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [37, 38, 39, 40]);
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   for (const table of ["todo_correspondence_join", "calendar_events_correspondence_join"]) {
     assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count, 3);

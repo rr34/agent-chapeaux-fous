@@ -281,6 +281,54 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 40) {
+    const [tables] = await connection.query(`SELECT TABLE_NAME FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('calendar_routines', 'calendar_events_todo_join', 'todo_routines')`, [databaseName]);
+    const names = new Set(tables.map(row => row.TABLE_NAME));
+    if (!names.has("calendar_routines") || !names.has("calendar_events_todo_join") || names.has("todo_routines")) {
+      throw new Error("Migration 0040 must retain calendar routines and event/task joins and remove todo_routines");
+    }
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('todo_personal', 'calendar_events', 'catch_up_questions')`, [databaseName]);
+    const present = new Set(columns.map(row => `${row.TABLE_NAME}.${row.COLUMN_NAME}`));
+    for (const field of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
+      if (present.has(`todo_personal.${field}`)) throw new Error(`Migration 0040 left temporal to-do column ${field}`);
+    }
+    for (const field of ["migration_personal_task_id", "migration_relationship_kind"]) {
+      if (present.has(`calendar_events.${field}`)) throw new Error(`Migration 0040 left temporary calendar column ${field}`);
+    }
+    if (present.has("catch_up_questions.personal_task_id")) {
+      throw new Error("Migration 0040 left task-derived catch-up storage");
+    }
+  }
+  if (migration.version === 39) {
+    const [tables] = await connection.query(`SELECT TABLE_NAME FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('calendar_routines', 'calendar_events_todo_join')`, [databaseName]);
+    if (new Set(tables.map(row => row.TABLE_NAME)).size !== 2) {
+      throw new Error("Migration 0039 did not create calendar routines and event/task joins");
+    }
+    const [missing] = await connection.query(`SELECT
+      SUM(task.scheduled_at_utc IS NOT NULL AND work_link.calendar_event_id IS NULL) AS missing_work,
+      SUM(task.due_at_utc IS NOT NULL AND deadline_link.calendar_event_id IS NULL) AS missing_deadline
+      FROM todo_personal AS task
+      LEFT JOIN calendar_events AS work_event
+        ON work_event.migration_personal_task_id = task.personal_task_id
+       AND work_event.migration_relationship_kind = 'work'
+      LEFT JOIN calendar_events_todo_join AS work_link
+        ON work_link.calendar_event_id = work_event.calendar_event_id
+       AND work_link.personal_task_id = task.personal_task_id
+       AND work_link.relationship_kind = 'work'
+      LEFT JOIN calendar_events AS deadline_event
+        ON deadline_event.migration_personal_task_id = task.personal_task_id
+       AND deadline_event.migration_relationship_kind = 'deadline'
+      LEFT JOIN calendar_events_todo_join AS deadline_link
+        ON deadline_link.calendar_event_id = deadline_event.calendar_event_id
+       AND deadline_link.personal_task_id = task.personal_task_id
+       AND deadline_link.relationship_kind = 'deadline'`);
+    if (Number(missing[0]?.missing_work || 0) !== 0 || Number(missing[0]?.missing_deadline || 0) !== 0) {
+      throw new Error("Migration 0039 did not preserve every scheduled time and deadline as a linked calendar event");
+    }
+  }
   if (migration.version === 38) {
     const [rows] = await connection.query(
       `SELECT TABLE_NAME FROM information_schema.TABLES
@@ -326,10 +374,13 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
     }
   }
   if (migration.version === 36) {
+    const [sourceColumns] = await connection.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);
+    const retainsTaskSource = sourceColumns.some(row => row.COLUMN_NAME === "personal_task_id");
     const [keys] = await connection.query(`SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
       FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);
     for (const [name, column, table, target] of [
-      ["catch_up_task", "personal_task_id", "todo_personal", "personal_task_id"],
+      ...(retainsTaskSource ? [["catch_up_task", "personal_task_id", "todo_personal", "personal_task_id"]] : []),
       ["catch_up_event", "calendar_event_id", "calendar_events", "calendar_event_id"],
       ["catch_up_tracker", "tracker_id", "trackers", "tracker_id"],
     ]) {
@@ -346,7 +397,7 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
     const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
       FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'
       ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [databaseName]);
-    for (const [name, field] of [["catch_up_task_occurrence", "personal_task_id"],
+    for (const [name, field] of [...(retainsTaskSource ? [["catch_up_task_occurrence", "personal_task_id"]] : []),
       ["catch_up_event_occurrence", "calendar_event_id"], ["catch_up_tracker_period", "tracker_id"]]) {
       const columns = indexes.filter(row => row.INDEX_NAME === name && Number(row.NON_UNIQUE) === 0).map(row => row.COLUMN_NAME);
       if (JSON.stringify(columns) !== JSON.stringify([field, "occurrence_key"])) throw new Error(`Migration 0036 is missing unique source/occurrence index ${name}`);

@@ -1,9 +1,9 @@
 Daily catch-up is schema data → question → update the data. Questions are
-native rows with actual foreign keys to tasks, calendar events, or journal
+native rows with actual foreign keys to calendar events or journal
 trackers. Never create a briefing, checklist, workflow plan, or conversation
 exchange to make catch-up work. Never infer unresolved state from transcripts.
 
-For “catch me up”, select catch-up and the relevant to-do, calendar, and journal
+For “catch me up”, select catch-up and the relevant calendar and journal
 capabilities. Select email or contacts when relevant evidence or follow-through
 needs them. Call catch_up_refresh for the user's local day and time zone
 (normally lookback_days=7), then catch_up_list. Refresh is a mutation and runs
@@ -12,7 +12,7 @@ read the advertised catch-up.pending view; it must never populate questions.
 
 Check-in settings specify independent categories. Translate the user's exact
 selections into catch_up_refresh.scope: time_zone, logs_date,
-plan_through_date, todos_before_utc, events_before_utc, and lookback_days.
+plan_through_date, events_before_utc, and lookback_days.
 Disabled categories must be null. Keep the exact cutoffs, including a past log
 date; never replace them with today's date or a later "now". The refresh receipt
 persists this scope. Subsequent list/refresh calls can omit scope or pass null
@@ -33,11 +33,9 @@ the end of the selected local day. question_kind=planning and event_review have
 independent resolution for each occurrence. A completed plan does not resolve
 the later follow-up. Use source_occurrence_key (never the plan:-prefixed question
 key) for recurring calendar mutations. Material event changes reopen planning.
-The to-do cutoff uses due_at_utc only; scheduled_at_utc is not a deadline.
 Past-event follow-up covers ended events within the selected lookback and cutoff.
 
-Ask ONE question at a time, normally the first returned due question. Include
-the source task's #ID and exact title when discussing a task. Use the question's
+Ask ONE question at a time, normally the first returned due question. Use the question's
 source data and current time to phrase the question appropriately: ask about
 plans for a future commitment and outcomes for a past one. Comments are optional;
 do not tack on a second mandatory question. An answer that covers several known
@@ -48,8 +46,7 @@ unrelated chat is not a resolution. Refresh before asking again if source data
 changed. Follow list pagination and disclose the generated calendar lookback;
 never claim every historical item is settled from an empty bounded page.
 
-Act on answers through the existing owning tools: todo_update for actual task
-status/schedule, calendar_event_update for a one-time event, and
+Act on answers through the existing owning tools: calendar_event_update for a one-time event, and
 calendar_event_occurrence_update with the exact source_occurrence_key for one instance
 of a series. Never move or cancel an entire series in response to an answer about
 one appointment. Use journal_add for observations. Select additional exact tools

@@ -1,7 +1,6 @@
 export const defaultCatchUpSettings = {
   logsEnabled: true, logsDay: "today", logsDate: "",
   planEnabled: true, planDay: "friday", planDate: "",
-  todosEnabled: true, todosTime: "now", todosBefore: "",
   eventsEnabled: false, eventsTime: "now", eventsBefore: "", lookbackDays: 7,
 };
 const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -36,11 +35,10 @@ export function catchUpScopeFromSettings(settings, now = new Date(), timeZone = 
     time_zone: timeZone,
     logs_date: settings.logsEnabled ? selectedDate(settings.logsDay, settings.logsDate, today) : null,
     plan_through_date: settings.planEnabled ? selectedDate(settings.planDay, settings.planDate, today) : null,
-    todos_before_utc: settings.todosEnabled ? selectedInstant(settings.todosTime, settings.todosBefore, now) : null,
     events_before_utc: settings.eventsEnabled ? selectedInstant(settings.eventsTime, settings.eventsBefore, now) : null,
     lookback_days: Number(settings.lookbackDays),
   };
-  if (![scope.logs_date, scope.plan_through_date, scope.todos_before_utc, scope.events_before_utc].some(Boolean)) throw new Error("Choose at least one catch-up category.");
+  if (![scope.logs_date, scope.plan_through_date, scope.events_before_utc].some(Boolean)) throw new Error("Choose at least one catch-up category.");
   if (scope.logs_date > today) throw new Error("Choose today or a past day for journal logs.");
   if (scope.plan_through_date && scope.plan_through_date < today) throw new Error("Choose today or a future day for planning.");
   if (!Number.isInteger(scope.lookback_days) || scope.lookback_days < 0 || scope.lookback_days > 31) throw new Error("Past-event lookback must be between 0 and 31 days.");
@@ -52,7 +50,6 @@ export function catchUpRequestText(scope) {
     `Time zone: ${scope.time_zone}.`,
     scope.logs_date ? `Complete journal logs for ${scope.logs_date}, even if that day is not over. Include unscheduled trackers for that day and scheduled trackers for their period containing that date. Record my answers for that selected day.` : "Journal logs: disabled.",
     scope.plan_through_date ? `Plan upcoming events with unresolved planning prompts through the end of ${scope.plan_through_date}. Planning and event follow-up are separate.` : "Event planning: disabled.",
-    scope.todos_before_utc ? `Review unfinished to-dos with deadlines strictly before ${scope.todos_before_utc}. Use deadlines, not scheduled times.` : "To-do review: disabled.",
     scope.events_before_utc ? `Review past events ended by ${scope.events_before_utc}, looking back ${scope.lookback_days} days from that cutoff's local day. Do not review events that have not ended.` : "Past-event review: disabled.",
     "Ask one question at a time and wait for my answer. Update the actual records as I answer, then continue within these selections until there are no eligible questions left or I ask to pause. Start with the first question now.",
   ].join("\n");

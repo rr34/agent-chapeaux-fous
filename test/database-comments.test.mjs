@@ -43,14 +43,14 @@ test("comment migration preserves mechanics and rows, supports replay, and expos
     connectionSettings: temporary.target.connection,
     backupConfirmed: true, writersStopped: true, output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40]);
   assert.deepEqual(catalog(database), before);
   assert.deepEqual(database.prepare("SELECT * FROM files").all(), rows);
   await verifyDatabase(database);
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   // Simulate a DDL commit followed by interruption before the version marker.
   database.exec("UPDATE database_meta SET schema_version = 34 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40]);
   assert.deepEqual(catalog(database), before);
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());

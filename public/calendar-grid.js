@@ -26,13 +26,11 @@ export function weeklyRoutinePattern(occurrences, previewDates) {
   const days = Array.from({ length: 7 }, () => new Map());
   for (const occurrence of occurrences) {
     if (routinePatternSection(occurrence.recurrenceRule) !== "weekly") continue;
-    const end = occurrence.durationMinutes > 0
-      ? new Date(new Date(occurrence.scheduledAtUtc).getTime() + occurrence.durationMinutes * 60_000).toISOString()
-      : null;
+    const end = occurrence.endsAtUtc ?? null;
     for (const day of previewDates) {
-      if (!occursDuringCalendarDay(occurrence.scheduledAtUtc, end, day)) continue;
+      if (!occursDuringCalendarDay(occurrence.startsAtUtc, end, day)) continue;
       const bucket = days[(day.getDay() + 6) % 7];
-      const start = new Date(occurrence.scheduledAtUtc);
+      const start = new Date(occurrence.startsAtUtc);
       const dayOffset = (Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
         - Date.UTC(day.getFullYear(), day.getMonth(), day.getDate())) / 86_400_000;
       const slot = `${occurrence.routineId}:${dayOffset}:${start.getHours()}:${start.getMinutes()}:${start.getSeconds()}`;
@@ -43,7 +41,7 @@ export function weeklyRoutinePattern(occurrences, previewDates) {
   }
   return days.map(day => [...day.values()].sort((left, right) => (
     Number(right.isAllDay) - Number(left.isAllDay)
-    || (new Date(left.scheduledAtUtc) - left.patternDay) - (new Date(right.scheduledAtUtc) - right.patternDay)
+    || (new Date(left.startsAtUtc) - left.patternDay) - (new Date(right.startsAtUtc) - right.patternDay)
     || left.routineId - right.routineId
   )));
 }
@@ -87,20 +85,12 @@ export function calendarDayTimeRangeLabel(startsAt, endsAt, day, formatTime) {
   return "-";
 }
 
-export function calendarEventCellItem(event) {
+export function calendarEventCellItem(event, { highlighted = false } = {}) {
   return {
-    className: ["day-event", event.isAllDay ? "all-day" : "", event.status].filter(Boolean).join(" "),
+    className: ["day-event", event.isAllDay ? "all-day" : "", event.status,
+      highlighted ? "routine-published" : ""].filter(Boolean).join(" "),
     text: event.title,
-  };
-}
-
-export function scheduledTodoCellItem(todo, { highlighted = false } = {}) {
-  const routine = todo.routinePublicationMode === "calendar" ? todo.routineText : null;
-  const plan = routine && todo.text !== routine ? ` — ${todo.text}` : "";
-  return {
-    className: highlighted ? "day-todo routine-published" : "day-todo",
-    text: `${routine ?? todo.text}${plan}`,
-    ...(highlighted ? { title: "Newly added from your routine" } : {}),
+    ...(highlighted ? { title: "Newly generated from a calendar routine" } : {}),
   };
 }
 

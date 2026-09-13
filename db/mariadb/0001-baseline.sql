@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 38.
+-- Target: MariaDB 10.11, schema version 40.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -282,7 +282,7 @@ CREATE TABLE interaction_guides (
     KEY interaction_guides_status_name (status, name, interaction_guide_id),
     CONSTRAINT interaction_guides_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200),
     CONSTRAINT interaction_guides_version CHECK (version > 0)
-) ENGINE=InnoDB COMMENT='Stores named, versioned containers for durable user-owned structured interactions. One row represents one named interaction guide whose complete interaction content is defined by its numbered steps. Numbered steps are loaded only when the user explicitly asks to use, inspect, or change that exact guide. A guide describes an interaction but does not own a schedule or recurrence. A repeating to-do may reference a guide through todo_routines.interaction_guide_id. Sensitivity: Contains private preferences, questions, and instructions for the user''s personal interactions with the agent.';
+) ENGINE=InnoDB COMMENT='Stores named, versioned containers for durable user-owned structured interactions. One row represents one named interaction guide whose complete interaction content is defined by its numbered steps. Numbered steps are loaded only when the user explicitly asks to use, inspect, or change that exact guide. A guide describes an interaction but does not own a schedule or recurrence. A personal to-do may reference a guide directly. Sensitivity: Contains private preferences, questions, and instructions for the user''s personal interactions with the agent.';
 
 CREATE TABLE todo_groups (
     -- sourceOfTruth: true
@@ -337,6 +337,37 @@ CREATE TABLE trackers (
     CONSTRAINT trackers_unit_length CHECK (CHAR_LENGTH(TRIM(unit)) BETWEEN 1 AND 100)
 ) ENGINE=InnoDB COMMENT='Defines the reusable subjects under which the user records personal observations over time. One row represents one globally named tracked subject, such as Weight, Bowel movement, Mood, or Medication. Tracker names are globally unique without regard to letter case so a natural-language journal request has one unambiguous target. Every tracker has one canonical unit shared by its complete numeric series. The migration marker set me must be replaced before another entry is recorded. A canonical unit cannot be changed after numeric entries exist, except when replacing the set me migration marker. Sensitivity: Tracker names may reveal private health conditions, habits, medications, or other personal interests.';
 
+CREATE TABLE calendar_routines (
+    -- sourceOfTruth: true
+    -- synonyms: ["recurring calendar patterns", "repeating events"]
+    -- keywords: ["calendar routine", "routine", "repeat", "daily", "weekly", "monthly", "yearly"]
+    -- fk:calendar_routines_source meaning: Links the routine definition to the activity event that created it.
+    -- fk:calendar_routines_source cardinality: Each routine references zero or one activity event; one activity event may be referenced by many routines.
+    -- fk:calendar_routines_source importantRules: ["Deleting the activity event preserves the routine and clears this optional reference."]
+
+    calendar_routine_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable identifier for one reusable temporal pattern that generates concrete calendar events.',
+    title                TEXT NOT NULL COMMENT 'Default human-readable title copied to generated calendar events.',
+    description          LONGTEXT COMMENT 'Optional default description copied to generated calendar events.',
+    location_text        TEXT COMMENT 'Optional default location copied to generated calendar events.',
+    first_starts_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'UTC start instant anchoring the recurrence rule. Format: ISO 8601 UTC timestamp.',
+    first_ends_at_utc    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional UTC end instant for the first occurrence; its duration is preserved for generated events. Format: ISO 8601 UTC timestamp.',
+    time_zone            VARCHAR(255) NOT NULL COMMENT 'IANA time-zone name preserving local recurrence times across daylight-saving changes.',
+    is_all_day           TINYINT NOT NULL DEFAULT 0 COMMENT '1 when generated events represent calendar days rather than precise clock times; otherwise 0.',
+    recurrence_rule      TEXT NOT NULL COMMENT 'RFC 5545 RRULE defining when concrete calendar events are generated.',
+    disabled_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when this routine stopped generating events; null while enabled.',
+    planning_prompt_text TEXT COMMENT 'Optional proactive planning question copied to generated calendar events.',
+    source_event_id      VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Activity event that created this calendar routine when known.',
+    created_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+                         DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC instant when this routine was created.',
+    updated_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant of the latest material update.',
+    PRIMARY KEY (calendar_routine_id),
+    KEY calendar_routines_start (first_starts_at_utc, disabled_at_utc),
+    CONSTRAINT calendar_routines_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT calendar_routines_all_day CHECK (is_all_day IN (0, 1)),
+    CONSTRAINT calendar_routines_ends CHECK (first_ends_at_utc IS NULL OR first_ends_at_utc >= first_starts_at_utc),
+    CONSTRAINT calendar_routines_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
+) ENGINE=InnoDB COMMENT='Defines reusable temporal patterns that generate concrete calendar events in bounded ranges. Calendar routines never create to-dos and are never advanced by task completion. One row is one recurrence definition; generated occurrences are ordinary calendar_events rows linked by calendar_routine_id and routine_occurrence_key.';
+
 CREATE TABLE calendar_events (
     -- sourceOfTruth: true
     -- synonyms: ["appointments", "schedule entries"]
@@ -352,8 +383,13 @@ CREATE TABLE calendar_events (
     -- fk:calendar_events_source meaning: Connects this calendar event to the observable event identified by source_event_id.
     -- fk:calendar_events_source cardinality: Each calendar event may reference zero or one observable event; one referenced record may be used by many calendar event records.
     -- fk:calendar_events_source importantRules: ["Deleting the referenced row preserves this row and clears the reference."]
+    -- fk:calendar_events_routine meaning: Identifies the optional calendar routine that generated this concrete event occurrence.
+    -- fk:calendar_events_routine cardinality: Each generated event references exactly one calendar routine; one routine may generate many events.
+    -- fk:calendar_events_routine importantRules: ["A routine cannot be deleted while generated event history references it."]
 
     calendar_event_id   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this calendar event.',
+    calendar_routine_id BIGINT UNSIGNED COMMENT 'Optional calendar routine that generated this concrete event occurrence.',
+    routine_occurrence_key VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Original UTC occurrence start from the generating routine. Null for events not generated by a calendar routine.',
     ical_uid            VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Persistent iCalendar UID used to identify an imported event or recurrence family and prevent duplicate imports. Format: RFC 5545 UID text. This identifies imported calendar data; it does not identify a separate calendar.',
     ical_recurrence_id  VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Original iCalendar recurrence-instance identifier distinguishing this materialized occurrence within the shared UID. Format: RFC 5545 RECURRENCE-ID text. Together with ical_uid, this value prevents duplicate imports of the same recurring occurrence.',
     title               TEXT NOT NULL COMMENT 'Human-readable event name shown on the calendar.',
@@ -376,11 +412,14 @@ CREATE TABLE calendar_events (
     PRIMARY KEY (calendar_event_id),
     UNIQUE KEY calendar_events_ical_occurrence (ical_uid, ical_recurrence_id),
     UNIQUE KEY calendar_events_ical_single (ical_single_guard),
+    UNIQUE KEY calendar_events_routine_occurrence (calendar_routine_id, routine_occurrence_key),
     KEY calendar_events_start (starts_at_utc, status),
+    CONSTRAINT calendar_events_routine FOREIGN KEY (calendar_routine_id) REFERENCES calendar_routines(calendar_routine_id) ON DELETE RESTRICT,
     CONSTRAINT calendar_events_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT calendar_events_all_day CHECK (is_all_day IN (0, 1)),
+    CONSTRAINT calendar_events_routine_pair CHECK ((calendar_routine_id IS NULL) = (routine_occurrence_key IS NULL)),
     CONSTRAINT calendar_events_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
-) ENGINE=InnoDB COMMENT='Stores every commitment and scheduled event in the user''s one authoritative agent calendar. One row represents one scheduled event or one materialized occurrence of a repeating event. starts_at_utc and ends_at_utc are UTC instants; time_zone preserves the intended display zone. There is exactly one logical calendar; imported identifiers prevent duplicate events but never partition events into separate calendars. Materialized repeating occurrences are ordinary event rows and may be edited independently. planning_prompt_text is optional and records the exact proactive planning question associated with the scheduled time. Sensitivity: Contains the user''s private schedule, locations, participants, and imported calendar identifiers.';
+) ENGINE=InnoDB COMMENT='Stores every concrete commitment and scheduled event in the user''s one authoritative agent calendar. A row may be independent, imported, or generated from calendar_routines. starts_at_utc and ends_at_utc are UTC instants; time_zone preserves the intended display zone. routine_occurrence_key preserves idempotent generation identity while edits may move the concrete event. planning_prompt_text is optional. Sensitivity: Contains the user''s private schedule, locations, participants, and imported calendar identifiers.';
 
 CREATE TABLE calendar_event_exclusions (
     -- sourceOfTruth: true
@@ -453,59 +492,10 @@ CREATE TABLE interaction_guide_steps (
     CONSTRAINT interaction_guide_steps_enabled CHECK (enabled IN (0, 1))
 ) ENGINE=InnoDB COMMENT='Stores each reusable exchange''s literal opening, authoritative structured contract, current answers, and resumable progress. One row is one complete numbered interaction step and its mutable current-run state. The parent interaction_guides.version is the only definition concurrency version and increments when any exchange definition changes. The contract''s structured inputs, operations, recovery reads, and completion rule are authoritative; explanatory instructions cannot introduce undeclared behavior. A run remains on its current exchange until the contract completion rule is satisfied, then advances to the next higher enabled number. Completing a run preserves its progress in activity_events, then immediately resets answers_json and progress_state for the next run. Generic database reads and writes must not expose or mutate these private rows; use the owning interaction-guide tools. Sensitivity: Contains private scripted openings, reusable execution contracts, and the user''s current answers.';
 
-CREATE TABLE todo_routines (
-    -- sourceOfTruth: true
-    -- synonyms: ["routines", "recurring tasks", "repeating todos"]
-    -- keywords: ["routine", "daily", "weekly", "monthly", "quarterly", "rrule", "repeat"]
-    -- is_all_day inheritsFrom: todo_personal.is_all_day
-    -- planning_prompt_text synonyms: ["recurring planning question"]
-    -- planning_prompt_text keywords: ["routine", "plan", "proactive question"]
-    -- planning_prompt_text examples: ["What would make family time fun this weekend?"]
-    -- fk:todo_routines_contact meaning: Associates a routine definition with the optional contact copied to each new task occurrence.
-    -- fk:todo_routines_contact cardinality: Each routine references zero or one contact; one contact may be referenced by multiple routines.
-    -- fk:todo_routines_contact importantRules: ["Deleting a contact clears this optional reference without deleting the routine."]
-    -- fk:todo_routines_group meaning: Places each routine definition in the required destination group for its generated task occurrences.
-    -- fk:todo_routines_group cardinality: Each routine belongs to exactly one group; one group may contain multiple routines.
-    -- fk:todo_routines_group importantRules: ["A group cannot be deleted while routine definitions still reference it."]
-    -- fk:todo_routines_guide meaning: Associates a recurring to-do definition with the optional interaction guide offered by each generated task occurrence.
-    -- fk:todo_routines_guide cardinality: Each recurring to-do references zero or one interaction guide; one guide may be referenced by multiple recurring to-dos.
-    -- fk:todo_routines_guide importantRules: ["Deleting a guide clears this optional reference without deleting the recurring to-do."]
-    -- fk:todo_routines_source meaning: Links the routine definition to the activity event that created it.
-    -- fk:todo_routines_source cardinality: Each routine references zero or one source event.
-
-    todo_routine_id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable internal identifier for one reusable to-do routine definition.',
-    todo_group_id           BIGINT UNSIGNED NOT NULL COMMENT 'Required destination group for task occurrences generated from this routine.',
-    publication_mode        ENUM('on_completion', 'calendar') NOT NULL DEFAULT 'on_completion' COMMENT 'Controls whether dated occurrences are published into calendar ranges or generated after completion of the prior occurrence.',
-    text                    TEXT NOT NULL COMMENT 'Complete wording copied into every generated task occurrence; there is no title-description split. Sensitivity: May contain private recurring plans and instructions.',
-    default_status          ENUM('unplanned', 'todo', 'ai_suggested') NOT NULL DEFAULT 'todo' COMMENT 'Initial lifecycle status assigned to each new task occurrence.',
-    first_scheduled_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'UTC instant anchoring the RRULE and the first scheduled task occurrence. Format: ISO 8601 UTC timestamp.',
-    first_due_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional first deadline; its offset from first_scheduled_at_utc is preserved for generated occurrences. Format: ISO 8601 UTC timestamp.',
-    time_zone               VARCHAR(255) NOT NULL COMMENT 'IANA time-zone name used to preserve local wall-clock recurrence across daylight-saving changes. Format: IANA time-zone name.',
-    recurrence_rule         TEXT NOT NULL COMMENT 'RFC 5545 RRULE that defines daily, day-of-week, monthly, quarterly, or other recurrence. Format: RFC 5545 RRULE without a required RRULE: prefix.',
-    related_contact_id      BIGINT UNSIGNED COMMENT 'Optional contact copied to each newly generated task occurrence.',
-    duration_minutes        BIGINT COMMENT 'Positive planned duration copied to each task occurrence. Format: Positive whole minutes.',
-    disabled_at_utc         VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when this routine stopped generating new occurrences; null while enabled. Format: ISO 8601 UTC timestamp.',
-    source_event_id         VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Activity event that created this routine definition.',
-    created_at_utc          VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                            DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC instant when this routine definition was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc          VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant of this routine definition’s most recent material update; null until first updated. Format: ISO 8601 UTC timestamp.',
-    is_all_day             TINYINT NOT NULL DEFAULT 0,
-    interaction_guide_id   BIGINT UNSIGNED COMMENT 'Optional interaction guide offered when the user starts an occurrence of this recurring to-do. This reference does not schedule or repeat the guide; the containing to-do routine owns recurrence.',
-    planning_prompt_text   TEXT COMMENT 'Optional proactive planning question copied into each task occurrence generated from this routine. Format: Plain text question. Null means generated occurrences have no routine-supplied planning question.',
-    PRIMARY KEY (todo_routine_id),
-    CONSTRAINT todo_routines_group FOREIGN KEY (todo_group_id) REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
-    CONSTRAINT todo_routines_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL,
-    CONSTRAINT todo_routines_contact FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
-    CONSTRAINT todo_routines_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
-    CONSTRAINT todo_routines_duration CHECK (duration_minutes IS NULL OR duration_minutes > 0),
-    CONSTRAINT todo_routines_all_day CHECK (is_all_day IN (0, 1)),
-    CONSTRAINT todo_routines_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
-) ENGINE=InnoDB COMMENT='Stores authoritative reusable definitions for standing calendar routines and completion-driven recurring personal tasks. One row represents one reusable routine definition, including its publication behavior, destination group, default occurrence content, schedule anchor, and recurrence rule. A calendar routine is a definition, not a hidden personal task; publishing creates dated tasks linked by todo_routine_id. An on_completion routine generates its next actual task when the current linked occurrence is completed or ignored. Editing a linked task occurrence does not rewrite the parent routine definition. RRULE determines recurrence from first_scheduled_at_utc in time_zone. Default status, contact, duration, guide, and planning prompt are copied into newly generated occurrences. Sensitivity: Contains the user''s private recurring responsibilities and schedules.';
-
 CREATE TABLE todo_personal (
     -- sourceOfTruth: true
     -- synonyms: ["personal to-dos", "to-do list", "tasks"]
-    -- keywords: ["todo", "to-do", "task", "complete", "scheduled", "due", "sequence"]
+    -- keywords: ["todo", "to-do", "task", "complete", "sequence"]
     -- planning_prompt_text synonyms: ["planning question"]
     -- planning_prompt_text keywords: ["plan", "unplanned", "proactive question"]
     -- planning_prompt_text examples: ["What do we want to do while we have the kids this afternoon?"]
@@ -515,23 +505,20 @@ CREATE TABLE todo_personal (
     -- fk:todo_personal_group meaning: Places each personal task in its required to-do group.
     -- fk:todo_personal_group cardinality: Each task belongs to exactly one group; one group may contain multiple tasks.
     -- fk:todo_personal_group importantRules: ["A group cannot be deleted while tasks still belong to it."]
-    -- fk:todo_personal_routine meaning: Links an actual personal task occurrence to the optional reusable routine definition that generated it.
-    -- fk:todo_personal_routine cardinality: Each task references zero or one routine; one routine may generate multiple task occurrences.
-    -- fk:todo_personal_routine importantRules: ["Deleting a routine preserves generated task history and clears this optional reference."]
+    -- fk:todo_personal_guide meaning: Associates this personal to-do with an optional interaction guide offered when work begins.
+    -- fk:todo_personal_guide cardinality: Each to-do references zero or one interaction guide; one guide may be used by many to-dos.
+    -- fk:todo_personal_guide importantRules: ["Deleting the guide preserves the to-do and clears this optional reference."]
     -- fk:todo_personal_source meaning: Links a personal task to the optional observable activity event that created or imported it.
     -- fk:todo_personal_source cardinality: Each task references zero or one source event; one event may create multiple tasks.
     -- fk:todo_personal_source importantRules: ["Deleting an activity event preserves the task and clears this optional reference."]
 
     personal_task_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable internal identifier for one personal task.',
     todo_group_id        BIGINT UNSIGNED NOT NULL COMMENT 'Required group that contains and orders this personal task.',
-    todo_routine_id      BIGINT UNSIGNED COMMENT 'Optional parent routine definition that generated this actual task occurrence.',
     sequence             BIGINT COMMENT 'Stable positive number that identifies this task within its group when that group uses numbered work. Units: sequence number. Unique within todo_group_id when present; unlike sort_position, it does not change when the list is reordered.',
     related_contact_id   BIGINT UNSIGNED COMMENT 'Optional contact that this task concerns; it does not assign ownership of the task.',
     text                 TEXT NOT NULL COMMENT 'Complete wording of the task, serving as both its short label and any longer explanation. Sensitivity: May contain private plans, names, and instructions.',
     status               ENUM('unplanned', 'todo', 'complete', 'ignore', 'archive', 'ai_suggested') NOT NULL DEFAULT 'todo' COMMENT 'Compact lifecycle state controlling whether and how the task appears in the user''s list. unplanned: The item is active but still needs a concrete plan. todo: the user intends to do this task. complete: The task was finished. ignore: The task was intentionally skipped without completion. archive: The task is retained as history but removed from ordinary views. ai_suggested: The agent proposed the task and the user has not yet accepted or dismissed it.',
     sort_position        BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable ordering value used to place tasks directly within a group; it conveys no importance or priority. Lower values appear first within the same group.',
-    scheduled_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when the user intends to work on the task; this projects the task onto the calendar. Format: ISO 8601 UTC timestamp.',
-    due_at_utc           VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC deadline by which the task should be complete, distinct from its scheduled work time. Format: ISO 8601 UTC timestamp.',
     completed_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when the task entered complete status; null for tasks not currently complete. Format: ISO 8601 UTC timestamp.',
     source               VARCHAR(255) COMMENT 'Optional stable name of the system or workflow that supplied this task.',
     external_id          VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional identifier assigned by source; together with source it prevents duplicate imports or publications. Unique with source when both values are present.',
@@ -539,32 +526,49 @@ CREATE TABLE todo_personal (
     created_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
                          DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC instant when this task occurrence was created. Format: ISO 8601 UTC timestamp.',
     updated_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant of this task occurrence’s most recent material update; null until first updated. Format: ISO 8601 UTC timestamp.',
-    is_all_day           TINYINT NOT NULL DEFAULT 0 COMMENT '1 when the task is assigned to its scheduled calendar date without an exact clock time; otherwise 0. Format: MariaDB boolean: 0=false, 1=true.',
-    duration_minutes     BIGINT COMMENT 'Optional positive planned duration for this task occurrence. Units: minutes. Format: Positive whole minutes.',
+    interaction_guide_id BIGINT UNSIGNED COMMENT 'Optional interaction guide offered when the user starts this task. The task owns this association independently of calendar placement.',
     planning_prompt_text TEXT COMMENT 'Optional question the agent should proactively ask to help turn this task into a concrete plan. Format: Plain text question. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status.',
     PRIMARY KEY (personal_task_id),
     UNIQUE KEY todo_personal_group_sequence (todo_group_id, sequence),
     UNIQUE KEY todo_personal_source_external (source, external_id),
-    UNIQUE KEY todo_personal_routine_occurrence (todo_routine_id, scheduled_at_utc),
-    KEY todo_personal_status_schedule (status, scheduled_at_utc, due_at_utc),
+    KEY todo_personal_status (status, personal_task_id),
     KEY todo_personal_group_order (todo_group_id, sort_position, personal_task_id),
     KEY todo_personal_contact (related_contact_id, status),
     CONSTRAINT todo_personal_group FOREIGN KEY (todo_group_id) REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
-    CONSTRAINT todo_personal_routine FOREIGN KEY (todo_routine_id) REFERENCES todo_routines(todo_routine_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_contact_fk FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
+    CONSTRAINT todo_personal_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_sequence CHECK (sequence IS NULL OR sequence > 0),
-    CONSTRAINT todo_personal_all_day CHECK (is_all_day IN (0, 1)),
-    CONSTRAINT todo_personal_duration CHECK (duration_minutes IS NULL OR duration_minutes > 0),
     CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
-) ENGINE=InnoDB COMMENT='Stores actual actionable and historical occurrences in the user’s authoritative personal To-Do List. One row represents one actual personal task occurrence; todo_routine_id optionally links it to the reusable definition that produced it. Every task belongs to exactly one todo group. sequence is an optional stable identifier unique within a group; sort_position is mutable presentation order. scheduled_at_utc places work on the calendar, due_at_utc is its deadline, and completed_at_utc records actual completion. The single text field contains the concrete plan for this occurrence and may differ from its parent routine text. Editing an occurrence does not rewrite its linked routine definition. unplanned is an active status for an item that still needs a concrete plan. planning_prompt_text is nullable and independent of status. Sensitivity: Contains the user''s private tasks, plans, relationships, schedules, and source references.';
+) ENGINE=InnoDB COMMENT='Stores actionable and historical records in the user’s authoritative personal To-Do List. To-dos have no scheduling, deadline, duration, all-day, or recurrence fields; all temporal placement belongs to calendar events. Every task belongs to one group and may be linked to any number of calendar events through calendar_events_todo_join. completed_at_utc records task lifecycle history. Sensitivity: Contains the user''s private tasks, plans, relationships, and source references.';
+
+CREATE TABLE calendar_events_todo_join (
+    -- sourceOfTruth: true
+    -- synonyms: ["calendar to-do links", "event task links"]
+    -- keywords: ["calendar event", "to-do", "task", "work time", "deadline", "context"]
+    -- fk:calendar_events_todo_join_event meaning: Associates one concrete calendar event with a relevant personal to-do.
+    -- fk:calendar_events_todo_join_event cardinality: many calendar_events_todo_join to one calendar_events; one event may have many associations
+    -- fk:calendar_events_todo_join_event importantRules: ["Deleting the event deletes only its association rows."]
+    -- fk:calendar_events_todo_join_task meaning: Associates one personal to-do with a concrete calendar event that supplies work time, a deadline, or context.
+    -- fk:calendar_events_todo_join_task cardinality: many calendar_events_todo_join to one todo_personal; one to-do may have many associated events
+    -- fk:calendar_events_todo_join_task importantRules: ["Deleting the to-do deletes only its association rows."]
+
+    calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Concrete calendar event associated with the task.',
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing personal to-do associated with the calendar event.',
+    relationship_kind ENUM('work', 'deadline', 'context') NOT NULL DEFAULT 'context' COMMENT 'Meaning of this event-to-task association. work: scheduled working time. deadline: the event represents a deadline. context: the task is relevant to the event without stronger timing semantics.',
+    created_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (calendar_event_id, personal_task_id),
+    KEY calendar_events_todo_join_task (personal_task_id, calendar_event_id),
+    CONSTRAINT calendar_events_todo_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
+    CONSTRAINT calendar_events_todo_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links concrete calendar events to personal to-dos. Either side may have many links. Deleting either parent removes only its association rows. Calendar events own all temporal facts; to-dos own work and completion state.';
 
 CREATE TABLE catch_up_questions (
     question_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable identifier for a generated question about exactly one existing domain record.',
-    personal_task_id BIGINT UNSIGNED COMMENT 'Actual task being reviewed, including a published routine occurrence. Exactly one source foreign key must be present.',
-    calendar_event_id BIGINT UNSIGNED COMMENT 'Actual calendar event or recurring series being reviewed. occurrence_key distinguishes instances of a series.',
+    calendar_event_id BIGINT UNSIGNED COMMENT 'Actual calendar event or recurring series being reviewed. Exactly one source foreign key must be present; occurrence_key distinguishes instances of a series.',
     tracker_id BIGINT UNSIGNED COMMENT 'Actual journal tracker whose current scheduled logging period needs an observation.',
-    occurrence_key VARCHAR(160) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable source-owned identity: task for a task, event for a one-time event, or an ISO UTC occurrence or logging period start.',
+    occurrence_key VARCHAR(160) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable source-owned identity: event for a one-time event, an ISO UTC calendar occurrence, or a journal logging-period start.',
     source_version CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'SHA-256 of material source data used to generate this question. Prevents stale answers and reopens questions when the relevant source data changes.',
     question_text VARCHAR(2000) NOT NULL COMMENT 'Code-generated question grounded in the linked source record. This is data, never an instruction or permission grant.',
     due_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Source-derived instant from which this question is eligible. Format: ISO 8601 UTC timestamp.',
@@ -573,16 +577,14 @@ CREATE TABLE catch_up_questions (
     comment TEXT COMMENT 'Optional user-supplied outcome or explanation about this source occurrence. No transcript is needed to interpret resolution.',
     version BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Optimistic concurrency version incremented whenever question state changes.',
     PRIMARY KEY (question_id),
-    UNIQUE KEY catch_up_task_occurrence (personal_task_id, occurrence_key),
     UNIQUE KEY catch_up_event_occurrence (calendar_event_id, occurrence_key),
     UNIQUE KEY catch_up_tracker_period (tracker_id, occurrence_key),
     KEY catch_up_due (resolved_at, due_at_utc, ask_after),
-    CONSTRAINT catch_up_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal (personal_task_id) ON DELETE CASCADE,
     CONSTRAINT catch_up_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events (calendar_event_id) ON DELETE CASCADE,
     CONSTRAINT catch_up_tracker FOREIGN KEY (tracker_id) REFERENCES trackers (tracker_id) ON DELETE CASCADE,
-    CONSTRAINT catch_up_one_source CHECK ((personal_task_id IS NOT NULL) + (calendar_event_id IS NOT NULL) + (tracker_id IS NOT NULL) = 1),
+    CONSTRAINT catch_up_one_source CHECK ((calendar_event_id IS NOT NULL) + (tracker_id IS NOT NULL) = 1),
     CONSTRAINT catch_up_question_text CHECK (CHAR_LENGTH(TRIM(question_text)) > 0)
-) ENGINE=InnoDB COMMENT='On-demand questions generated from actual tasks, calendar occurrences, and journal tracker periods. Source foreign keys and live domain data drive questions and reconciliation; conversations are only an interface. Resolution and deferral belong to the source occurrence, not a conversation exchange. Sensitivity: Contains private commitments and user comments.';
+) ENGINE=InnoDB COMMENT='On-demand questions generated from calendar occurrences and journal tracker periods. To-dos are intentionally non-temporal and do not independently create catch-up deadlines. Source foreign keys and live domain data drive questions and reconciliation; conversations are only an interface. Sensitivity: Contains private commitments and user comments.';
 
 CREATE TABLE reminders (
     -- sourceOfTruth: true
@@ -1098,22 +1100,18 @@ CREATE VIEW open_todo_personal AS
 -- keywords: ["todo", "to-do list", "open task", "what should i do"]
 -- personal_task_id inheritsFrom: todo_personal.personal_task_id
 -- todo_group_id inheritsFrom: todo_personal.todo_group_id
--- todo_routine_id inheritsFrom: todo_personal.todo_routine_id
 -- sequence inheritsFrom: todo_personal.sequence
 -- related_contact_id inheritsFrom: todo_personal.related_contact_id
 -- text inheritsFrom: todo_personal.text
 -- status inheritsFrom: todo_personal.status
 -- sort_position inheritsFrom: todo_personal.sort_position
--- scheduled_at_utc inheritsFrom: todo_personal.scheduled_at_utc
--- due_at_utc inheritsFrom: todo_personal.due_at_utc
 -- completed_at_utc inheritsFrom: todo_personal.completed_at_utc
 -- source inheritsFrom: todo_personal.source
 -- external_id inheritsFrom: todo_personal.external_id
 -- source_event_id inheritsFrom: todo_personal.source_event_id
 -- created_at_utc inheritsFrom: todo_personal.created_at_utc
 -- updated_at_utc inheritsFrom: todo_personal.updated_at_utc
--- is_all_day inheritsFrom: todo_personal.is_all_day
--- duration_minutes inheritsFrom: todo_personal.duration_minutes
+-- interaction_guide_id inheritsFrom: todo_personal.interaction_guide_id
 -- planning_prompt_text inheritsFrom: todo_personal.planning_prompt_text
 
 SELECT * FROM todo_personal
@@ -1252,4 +1250,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 38, 'Chapeaux Fous MariaDB database');
+VALUES (1, 40, 'Chapeaux Fous MariaDB database');

@@ -1,21 +1,20 @@
 import { createHash } from "node:crypto";
 import { currentLoggingPeriod, previewRoutineOccurrenceStarts } from "./organizer-store.mjs";
-import { localDateUtcBounds } from "./todo-schedule-operations.mjs";
+import { localDateUtcBounds } from "./temporal-consistency.mjs";
 import { buildRecurrenceRule, validateTimeZone } from "./todo-recurrence.mjs";
 
 const maximumSources = 2000;
-const terminalTasks = new Set(["complete", "ignore", "archive"]);
 function publicQuestion(row, source = null) {
   if (!row) return row;
   const result = { ...row };
-  for (const field of ["question_id", "personal_task_id", "calendar_event_id", "tracker_id", "version"]) {
+  for (const field of ["question_id", "calendar_event_id", "tracker_id", "version"]) {
     if (result[field] !== null) {
       result[field] = Number(result[field]);
       if (!Number.isSafeInteger(result[field])) throw new Error(`${field} exceeds the supported integer range`);
     }
   }
   return { ...result,
-    question_kind: row.tracker_id ? "journal" : row.personal_task_id ? "todo"
+    question_kind: row.tracker_id ? "journal"
       : row.occurrence_key.startsWith("plan:") ? "planning" : "event_review",
     source_occurrence_key: row.calendar_event_id ? row.occurrence_key.replace(/^plan:/, "") : null,
     period_starts_at_utc: source?.period?.startsAtUtc ?? null,
@@ -34,7 +33,7 @@ export function catchUpInstant(value, label = "time") {
   return new Date(value).toISOString();
 }
 function question(source, occurrence, version, text, due, satisfied = false) {
-  return { personal_task_id: null, calendar_event_id: null, tracker_id: null, ...source,
+  return { calendar_event_id: null, tracker_id: null, ...source,
     occurrence_key: occurrence, source_version: digest(version), question_text: text.length > 2000 ? `${text.slice(0, 1999)}…` : text,
     due_at_utc: due, satisfied };
 }
@@ -53,12 +52,12 @@ export function normalizeCatchUpScope(scope) {
     if (value !== null) localDateUtcBounds({ localDate: value, timeZone: time_zone });
     result[field] = value;
   }
-  for (const field of ["todos_before_utc", "events_before_utc"]) {
+  for (const field of ["events_before_utc"]) {
     result[field] = scope[field] == null ? null : catchUpInstant(scope[field], field);
   }
   result.lookback_days = scope.lookback_days ?? 7;
   if (!Number.isInteger(result.lookback_days) || result.lookback_days < 0 || result.lookback_days > 31) throw new Error("lookback_days must be 0 through 31");
-  if (![result.logs_date, result.plan_through_date, result.todos_before_utc, result.events_before_utc].some(Boolean)) {
+  if (![result.logs_date, result.plan_through_date, result.events_before_utc].some(Boolean)) {
     throw new Error("Enable at least one catch-up category");
   }
   return result;
@@ -93,16 +92,6 @@ export class CatchUpService {
       WHERE event_type = 'catch_up.refreshed' ORDER BY event_seq DESC LIMIT 1`).get();
     const scope = row ? JSON.parse(row.payload_json).scope : null;
     return scope ? normalizeCatchUpScope(scope) : null;
-  }
-  task(id, deadlineOnly = false) {
-    id = Number(id);
-    const row = this.database.prepare("SELECT * FROM todo_personal WHERE personal_task_id = ?").get(id);
-    if (!row) return null;
-    const due = deadlineOnly ? row.due_at_utc : row.scheduled_at_utc ?? row.due_at_utc;
-    if (!due) return null;
-    return question({ personal_task_id: id }, deadlineOnly ? "deadline" : "task",
-      [row.text, row.status, row.scheduled_at_utc, row.due_at_utc, row.planning_prompt_text],
-      deadlineOnly ? `What needs to happen with #${id} — ${row.text}?` : row.planning_prompt_text || `What happened with #${id} — ${row.text}?`, due, terminalTasks.has(row.status));
   }
   event(id, occurrenceKey) {
     id = Number(id);
@@ -156,7 +145,6 @@ export class CatchUpService {
       period.startsAtUtc, Boolean(entry)), period };
   }
   source(row, at) {
-    if (row.personal_task_id) return this.task(row.personal_task_id, row.occurrence_key === "deadline");
     if (row.calendar_event_id) return this.event(row.calendar_event_id, row.occurrence_key);
     const daily = /^day:(\d{4}-\d{2}-\d{2}):(.+)$/.exec(row.occurrence_key);
     const current = daily ? this.tracker(row.tracker_id, at, daily[1], daily[2])
@@ -179,11 +167,11 @@ export class CatchUpService {
     }
   }
   upsert(source, at) {
-    const field = source.personal_task_id ? "personal_task_id" : source.calendar_event_id ? "calendar_event_id" : "tracker_id";
+    const field = source.calendar_event_id ? "calendar_event_id" : "tracker_id";
     this.database.prepare(`INSERT INTO catch_up_questions
-      (personal_task_id, calendar_event_id, tracker_id, occurrence_key, source_version, question_text, due_at_utc, resolved_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE question_id = question_id`)
-      .run(source.personal_task_id, source.calendar_event_id, source.tracker_id, source.occurrence_key,
+      (calendar_event_id, tracker_id, occurrence_key, source_version, question_text, due_at_utc, resolved_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE question_id = question_id`)
+      .run(source.calendar_event_id, source.tracker_id, source.occurrence_key,
         source.source_version, source.question_text, source.due_at_utc, source.satisfied ? at : null);
     const row = this.database.prepare(`SELECT * FROM catch_up_questions WHERE ${field} = ? AND occurrence_key = ? FOR UPDATE`)
       .get(source[field], source.occurrence_key);
@@ -202,10 +190,6 @@ export class CatchUpService {
       const existing = bounded(this.database.prepare(`SELECT * FROM catch_up_questions
         WHERE resolved_at IS NULL ORDER BY question_id LIMIT 2001 FOR UPDATE`).all(), "Outstanding questions");
       for (const row of existing) this.reconcile(row, this.source(row, at), at);
-      const tasks = bounded(this.database.prepare(`SELECT personal_task_id FROM todo_personal
-        WHERE COALESCE(scheduled_at_utc, due_at_utc) < ?
-        AND status IN ('todo', 'unplanned') ORDER BY personal_task_id LIMIT 2001`).all(bounds.endsAtUtc), "Scheduled tasks");
-      for (const row of tasks) this.upsert(this.task(row.personal_task_id), at);
       const events = this.organizer.listCalendar({ from, to: bounds.endsAtUtc, strictBounds: true, includeBirthdays: false });
       if (events.length > 2000) throw new Error("Calendar exceeded its 2000-occurrence bound; narrow the catch-up date range.");
       for (const event of events) {
@@ -222,7 +206,7 @@ export class CatchUpService {
       }
       return this.record("refreshed", { refreshed: true, local_date, time_zone, scope: null,
         calendar_from_utc: from, through_utc: bounds.endsAtUtc,
-        tasks_checked: tasks.length, calendar_occurrences_checked: events.length, trackers_checked: trackers.length,
+        calendar_occurrences_checked: events.length, trackers_checked: trackers.length,
         due_count: this.eligibleRows(null, at).filter(({ row, source }) => source && !source.satisfied && source.source_version === row.source_version).length }, context);
     });
   }
@@ -238,8 +222,7 @@ export class CatchUpService {
         : this.tracker(row.tracker_id, at);
       return Boolean(selected && row.occurrence_key === selected.occurrence_key);
     }
-    if (!scope) return row.occurrence_key !== "deadline" && !row.occurrence_key.startsWith("plan:") && row.due_at_utc <= at;
-    if (row.personal_task_id) return row.occurrence_key === "deadline" && scope.todos_before_utc && row.due_at_utc < scope.todos_before_utc;
+    if (!scope) return !row.occurrence_key.startsWith("plan:") && row.due_at_utc <= at;
     if (row.occurrence_key.startsWith("plan:")) {
       return scope.plan_through_date && row.due_at_utc >= at
         && row.due_at_utc < localDateUtcBounds({ localDate: scope.plan_through_date, timeZone: scope.time_zone }).endsAtUtc;
@@ -263,10 +246,6 @@ export class CatchUpService {
       const outstanding = bounded(this.database.prepare(`SELECT * FROM catch_up_questions
         WHERE resolved_at IS NULL ORDER BY question_id LIMIT 2001 FOR UPDATE`).all(), "Outstanding questions");
       for (const row of outstanding) this.reconcile(row, this.source(row, at), at);
-      const tasks = scope.todos_before_utc ? bounded(this.database.prepare(`SELECT personal_task_id FROM todo_personal
-        WHERE due_at_utc < ? AND status IN ('todo', 'unplanned')
-        ORDER BY personal_task_id LIMIT 2001`).all(scope.todos_before_utc), "Due tasks") : [];
-      for (const row of tasks) this.upsert(this.task(row.personal_task_id, true), at);
       let eventsChecked = 0;
       const scanEvents = (from, to, planning) => {
         if (from >= to) return;
@@ -292,7 +271,7 @@ export class CatchUpService {
         if (source) this.upsert(source, at);
       }
       const dueCount = this.eligibleRows(scope, at).filter(({ row, source }) => source && !source.satisfied && source.source_version === row.source_version).length;
-      return this.record("refreshed", { refreshed: true, scope, tasks_checked: tasks.length,
+      return this.record("refreshed", { refreshed: true, scope,
         calendar_occurrences_checked: eventsChecked, trackers_checked: trackers.length,
         calendar_from_utc: review?.from ?? at, due_count: dueCount }, context);
     });

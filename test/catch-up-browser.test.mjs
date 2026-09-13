@@ -32,7 +32,7 @@ test("Start submits the selected catch-up as an ordinary request and preserves t
   const body = JSON.parse(sent.request.body);
   assert.match(body.text, /Complete journal logs for 2026-09-09/);
   assert.match(body.text, /Event planning: disabled/);
-  assert.match(body.text, /strictly before 2026-09-10T16:00:00.000Z/);
+  assert.match(body.text, /Past-event review: disabled/);
   assert.match(body.text, /one question at a time and wait/);
   assert.equal(body.primaryFileId, null);
   assert.deepEqual(body.referencedRequestIds, []);

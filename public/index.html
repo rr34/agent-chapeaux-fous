@@ -141,14 +141,6 @@
         </div>
         <button id="new-event" type="button">New event</button>
       </header>
-      <div id="calendar-schedule-mode" class="calendar-schedule-mode organizer-panel" role="status" aria-live="polite" hidden>
-        <div>
-          <p class="eyebrow">Scheduling task</p>
-          <strong id="calendar-schedule-task"></strong>
-          <span id="calendar-schedule-hint"></span>
-        </div>
-        <button id="cancel-calendar-schedule" class="secondary compact" type="button">Cancel</button>
-      </div>
       <div id="calendar-publication" class="calendar-publication organizer-panel" role="status" hidden>
         <span id="calendar-publication-status"></span>
         <button id="clear-calendar-publication" class="secondary compact" type="button">Clear highlights</button>
@@ -203,7 +195,7 @@
         <button id="new-routine" type="button">New routine</button>
       </header>
       <div class="routine-toolbar organizer-panel">
-        <span>Copy routine occurrences into real scheduled to-dos:</span>
+        <span>Generate concrete calendar events from routines:</span>
         <button id="publish-routine-this-week" class="secondary compact" type="button">Rest of this week</button>
         <button id="publish-routine-next-week" class="secondary compact" type="button">Next week</button>
         <span id="routine-publish-status" class="toolbar-count" role="status"></span>
@@ -235,7 +227,7 @@
           <summary id="routine-agenda-date">Monthly routines</summary>
           <section class="agenda-section" aria-labelledby="routine-agenda-heading">
             <div class="agenda-section-heading">
-              <h4 id="routine-agenda-heading">Recurring to-dos</h4>
+              <h4 id="routine-agenda-heading">Recurring events</h4>
               <span id="routine-agenda-count"></span>
             </div>
             <div id="routine-agenda-list" class="agenda-list"></div>
@@ -267,7 +259,6 @@
         <button id="new-todo-group" class="secondary compact" type="button">New group</button>
         <div class="todo-toolbar-summary">
           <span id="todo-count" class="toolbar-count"></span>
-          <button id="move-overdue-todos" class="secondary compact" type="button">Move overdue to today</button>
         </div>
       </div>
       <section id="todo-list" class="todo-list" aria-live="polite"></section>
@@ -421,9 +412,6 @@
             <small data-resolved="plan" class="muted"></small>
           </div>
           <div class="catch-up-setting" data-category="todos">
-            <label class="checkbox-row"><input type="checkbox" data-setting="todosEnabled">To-dos due before</label>
-            <select data-setting="todosTime" aria-label="To-do deadline cutoff"><option value="now">Right now</option><option value="custom">Choose date and time</option></select>
-            <input type="datetime-local" data-setting="todosBefore" aria-label="To-do deadline cutoff date and time" hidden>
           </div>
           <div class="catch-up-setting" data-category="events">
             <label class="checkbox-row"><input type="checkbox" data-setting="eventsEnabled">Review past events through</label>
@@ -650,6 +638,11 @@
       </div>
       <label>Location<input id="event-location" maxlength="1000"></label>
       <label>Description<textarea id="event-description" rows="4"></textarea></label>
+      <fieldset class="event-todo-links">
+        <legend>Linked to-dos</legend>
+        <p class="field-hint">An event can represent work, a deadline, or context for multiple to-dos.</p>
+        <div id="event-todo-link-list" class="event-todo-link-list"></div>
+      </fieldset>
       <label>Planning prompt<textarea id="event-planning-prompt" rows="3" maxlength="10000" placeholder="What should the agent ask to help plan this time?"></textarea></label>
       <label>Status<select id="event-status">
         <option value="active">Active</option><option value="archived">Archived</option>
@@ -768,107 +761,16 @@
           <span id="todo-sequence-hint" class="field-hint">Optional for this group.</span>
         </label>
         <label>Related contact<select id="todo-contact"><option value="">No contact</option></select></label>
-        <label class="checkbox-row"><input id="todo-all-day" type="checkbox"><span>All day</span></label>
-        <div class="timing-editor todo-timing-editor">
-          <div class="event-date-time-field" role="group" aria-labelledby="todo-start-label">
-            <span id="todo-start-label">Scheduled start</span>
-            <div class="event-date-time-inputs">
-              <input id="todo-start" type="date" aria-label="Scheduled start date">
-              <input id="todo-start-time" class="event-time-input" type="text" inputmode="numeric" autocomplete="off" placeholder="HH:MM" pattern="(?:[01]\d|2[0-3]):[0-5]\d" maxlength="5" aria-label="Scheduled start time in 24-hour HH:MM format">
-            </div>
-          </div>
-          <div class="event-date-time-field" role="group" aria-labelledby="todo-end-label">
-            <span id="todo-end-label">Planned end</span>
-            <div class="event-date-time-inputs">
-              <input id="todo-end" type="date" aria-label="Planned end date">
-              <input id="todo-end-time" class="event-time-input" type="text" inputmode="numeric" autocomplete="off" placeholder="HH:MM" pattern="(?:[01]\d|2[0-3]):[0-5]\d" maxlength="5" aria-label="Planned end time in 24-hour HH:MM format">
-            </div>
-          </div>
-          <div class="timing-duration-row">
-            <label id="todo-duration-field">Duration <span class="field-hint">HH:MM</span>
-              <input id="todo-duration-input" class="duration-input" type="text" inputmode="numeric" autocomplete="off" placeholder="01:00" pattern="\d{1,4}:[0-5]\d" maxlength="7" aria-label="Planned duration in hours and minutes">
-            </label>
-            <p id="todo-duration" class="event-duration" role="status" aria-live="polite"></p>
-          </div>
-          <button id="todo-clear-scheduled" class="secondary compact" type="button" hidden>Clear schedule</button>
-        </div>
-        <div class="event-date-time-field todo-due-editor" role="group" aria-labelledby="todo-due-label">
-          <span id="todo-due-label">Due <span class="field-hint">deadline, not planned end</span></span>
-          <div class="event-date-time-inputs">
-            <input id="todo-due" type="date" aria-label="Due date">
-            <input id="todo-due-time" class="event-time-input" type="text" inputmode="numeric" autocomplete="off" placeholder="HH:MM" pattern="(?:[01]\d|2[0-3]):[0-5]\d" maxlength="5" aria-label="Due time in 24-hour HH:MM format">
-          </div>
-        </div>
         <label>Status<select id="todo-status">
           <option value="unplanned">Unplanned</option><option value="todo">To do</option><option value="complete">Complete</option>
           <option value="ignore">Ignore</option><option value="archive">Archive</option>
           <option value="ai_suggested">AI suggested</option>
         </select></label>
       </div>
-      <section class="recurrence-editor" aria-labelledby="todo-repeat-heading">
-        <label class="checkbox-row recurrence-toggle">
-          <input id="todo-repeat-enabled" type="checkbox">
-          <span id="todo-repeat-heading">Repeat this task</span>
-        </label>
-        <div id="todo-repeat-fields" class="recurrence-fields" hidden>
-          <div class="recurrence-every">
-            <span>Every</span>
-            <input id="todo-repeat-interval" type="number" min="1" max="999" step="1" value="1" aria-label="Repeat interval">
-            <select id="todo-repeat-frequency" aria-label="Repeat frequency">
-              <option value="DAILY">day</option>
-              <option value="WEEKLY">week</option>
-              <option value="MONTHLY">month</option>
-              <option value="YEARLY">year</option>
-            </select>
-          </div>
-          <fieldset id="todo-repeat-weekdays" class="recurrence-weekdays" hidden>
-            <legend>On</legend>
-            <label><input type="checkbox" value="MO">Mon</label>
-            <label><input type="checkbox" value="TU">Tue</label>
-            <label><input type="checkbox" value="WE">Wed</label>
-            <label><input type="checkbox" value="TH">Thu</label>
-            <label><input type="checkbox" value="FR">Fri</label>
-            <label><input type="checkbox" value="SA">Sat</label>
-            <label><input type="checkbox" value="SU">Sun</label>
-          </fieldset>
-          <div id="todo-repeat-month-pattern" class="recurrence-month-pattern" hidden>
-            <label>On<select id="todo-repeat-pattern">
-              <option value="anchor">The scheduled day</option>
-              <option value="month-day">A day of the month</option>
-              <option value="ordinal-weekday">A numbered weekday</option>
-            </select></label>
-            <label id="todo-repeat-month-day-label" hidden>Day<input id="todo-repeat-month-day" type="number" min="1" max="31" step="1" value="1"></label>
-            <div id="todo-repeat-ordinal-fields" class="recurrence-ordinal-fields" hidden>
-              <label>Which<select id="todo-repeat-ordinal">
-                <option value="1">First</option><option value="2">Second</option>
-                <option value="3">Third</option><option value="4">Fourth</option>
-                <option value="5">Fifth</option><option value="-1">Last</option>
-              </select></label>
-              <label>Weekday<select id="todo-repeat-ordinal-weekday">
-                <option value="MO">Monday</option><option value="TU">Tuesday</option>
-                <option value="WE">Wednesday</option><option value="TH">Thursday</option>
-                <option value="FR">Friday</option><option value="SA">Saturday</option>
-                <option value="SU">Sunday</option>
-              </select></label>
-            </div>
-          </div>
-          <div class="recurrence-ending">
-            <label>Ends<select id="todo-repeat-end">
-              <option value="never">Never</option>
-              <option value="count">After a number of occurrences</option>
-              <option value="until">On a date</option>
-            </select></label>
-            <label id="todo-repeat-count-label" hidden>Occurrences<input id="todo-repeat-count" type="number" min="1" max="9999" step="1" value="10"></label>
-            <label id="todo-repeat-until-label" hidden>Last date<input id="todo-repeat-until" type="date"></label>
-          </div>
-          <label>Briefing
-            <select id="todo-interaction-guide"><option value="">No briefing</option></select>
-            <span class="field-hint">Starting the task opens this briefing; the task still owns the repeat schedule.</span>
-          </label>
-          <p id="todo-repeat-summary" class="recurrence-summary"></p>
-          <p class="recurrence-hint">The scheduled date and time is the first occurrence.</p>
-        </div>
-      </section>
+      <label>Briefing
+        <select id="todo-direct-interaction-guide"><option value="">No briefing</option></select>
+        <span class="field-hint">Optional. This does not schedule or repeat the task.</span>
+      </label>
       <p id="todo-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>

@@ -67,17 +67,17 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 38", () => {
+test("the authoritative MariaDB baseline is complete at schema version 40", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 32);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 33);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 29);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 52);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 28);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 51);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    29,
+    28,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -95,7 +95,29 @@ test("the authoritative MariaDB baseline is complete at schema version 38", () =
   );
   assert.doesNotMatch(source, /calendar_events_status|ENUM\([^\n]*'completed'[^\n]*\) NOT NULL DEFAULT 'confirmed'/u);
   assert.doesNotMatch(source, /CREATE TABLE agent_turn_attempts\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 38, 'Chapeaux Fous MariaDB database'\)$/);
+  const todoTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_personal "));
+  assert.ok(todoTable);
+  for (const retired of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
+    assert.doesNotMatch(todoTable, new RegExp(`\\b${retired}\\b`, "u"));
+  }
+  assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
+  assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
+  assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
+  assert.match(statements.at(-1), /VALUES \(1, 40, 'Chapeaux Fous MariaDB database'\)$/);
+});
+
+test("temporal to-do migration preserves schedules and deadlines as linked calendar events", () => {
+  const migrations = readMigrationLedger(path.join(root, "db", "migrations.sql"));
+  const additive = migrations.find(({ version }) => version === 39)?.sql ?? "";
+  const retirement = migrations.find(({ version }) => version === 40)?.sql ?? "";
+  assert.match(additive, /CREATE TABLE IF NOT EXISTS calendar_routines/u);
+  assert.match(additive, /CREATE TABLE IF NOT EXISTS calendar_events_todo_join/u);
+  assert.match(additive, /task\.scheduled_at_utc/u);
+  assert.match(additive, /task\.due_at_utc/u);
+  assert.match(additive, /'deadline', CONCAT\('Due: ', task\.text\)/u);
+  assert.match(retirement, /DROP COLUMN IF EXISTS scheduled_at_utc/u);
+  assert.match(retirement, /DROP COLUMN IF EXISTS due_at_utc/u);
+  assert.match(retirement, /DROP TABLE IF EXISTS todo_routines/u);
 });
 
 test("the correspondence join migration matches fresh-install definitions without rewriting existing records", () => {

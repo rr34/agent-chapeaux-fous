@@ -276,19 +276,22 @@ capability selector, which controls which exact tool schemas are callable.
   local network targets are rejected, DNS is pinned for the request, and binary
   responses are not returned to the model.
 - `todo_group_list`, `todo_group_create`, `todo_group_rename`,
-  `todo_group_archive`, `todo_list`, `routine_list`, `routine_add`,
-  `routine_update`, `todo_add`, `todo_recurrence_set`,
+  `todo_group_sequence_set`, `todo_group_archive`, `todo_list`, `todo_add`,
   `todo_interaction_guide_set`, `todo_position_set`, and `todo_update` provide the native personal to-do path
   without requiring the model to invent SQL. The agent inspects existing groups before
   assigning an otherwise ungrouped task; Inbox is the catchall when no group is
   a clear match. Group archival fails while active tasks remain and preserves
-  the group on terminal task history. Recurrence is supplied as structured,
-  human concepts and stored internally as RRULE. New and existing tasks can be
+  the group on terminal task history. To-dos are deliberately non-temporal:
+  schedules, deadlines, durations, all-day state, and recurrence belong to the
+  calendar. New and existing tasks can be
   placed at an exact 1-based manual sort position, including position 1.
   `todo_update` applies one through 500 independently identified changes in one
   atomic call, using the same array schema for a singular update.
-- `calendar_event_search`, `calendar_event_list`, `calendar_event_add`, `calendar_event_update`, and
-  `calendar_event_recurrence_set` provide the native model-facing calendar
+- `calendar_event_search`, `calendar_event_list`, `calendar_event_add`,
+  `calendar_event_update`, `calendar_event_recurrence_set`,
+  `calendar_event_todo_links_set`, `calendar_routine_list`,
+  `calendar_routine_add`, `calendar_routine_update`, and
+  `calendar_routine_generate` provide the native model-facing calendar
   path. Event records retain exact `calendar_events` column names and tool-owned
   field descriptions, while range reads identify expanded recurrence and birthday
   instances as computed occurrences. All-day scheduling is explicit and
@@ -296,7 +299,10 @@ capability selector, which controls which exact tool schemas are callable.
   product-facing event states are Active and Archived; iCalendar status values
   remain an internal storage and interoperability detail. Search matches every
   supplied term across stored event titles, descriptions, and locations, with
-  archived events available only when requested. A saved event can
+  archived events available only when requested. Calendar routines generate
+  concrete events for bounded date ranges and never generate to-dos. Events and
+  to-dos have a many-to-many relationship with explicit work, deadline, or
+  context semantics. A saved event can
   create one standardized invitation email draft addressed to active contacts
   through the configured JMAP mail account. This action creates a draft only:
   it never sends the message, writes to a remote calendar, or changes the local
@@ -683,8 +689,6 @@ Each category can be enabled independently:
   today), or a chosen date, through the end of that local day. Only upcoming
   events with planning prompts qualify. Planning and post-event review have
   independent completion states for each occurrence.
-- **To-dos due before:** right now or a chosen date and time. This uses unfinished
-  tasks' deadlines, with an exclusive cutoff; a scheduled time is not a deadline.
 - **Review past events through:** optional follow-up for ended events, with a
   cutoff and 0–31 days of lookback. This is disabled initially.
 
@@ -695,8 +699,8 @@ refresh receipt; later answers and fresh chats reuse that scope until a new
 selection is supplied. Logs for a missed day retain their selected period.
 These settings add no table or schema migration.
 
-`catch_up_questions` is the only new table (migration 0036). Each row has exactly
-one real foreign key to `todo_personal`, `calendar_events`, or `trackers`, plus
+`catch_up_questions` was introduced in migration 0036. Each row has exactly
+one real foreign key to `calendar_events` or `trackers`, plus
 its occurrence/period identity, generated question, resolution, deferral, and
 optional comment. Unique source/occurrence indexes prevent duplicate questions.
 Material-source fingerprints and question versions reject stale answers. Chat
@@ -714,8 +718,7 @@ remain in force. Source scans are bounded; an overflow fails atomically rather
 than claiming completeness. Planning is limited to one year ahead.
 
 For compatibility, a refresh without any supplied or previously saved scope
-retains the older daily behavior: scheduled tasks (deadline as fallback), recent
-calendar events, and the latest due period of scheduled trackers.
+uses recent calendar events and the latest due period of scheduled trackers.
 
 Trackers remain unscheduled until `tracker_asking_schedule_set` sets a first
 period start, structured recurrence, and time zone. A journal observation in the
@@ -725,8 +728,8 @@ generated, so a month away does not produce a month of missing daily logs.
 Turning off the asking schedule preserves the tracker and its observations.
 
 Completing/cancelling a source through the UI also satisfies its question on
-refresh. Rescheduling changes when its question becomes eligible; it does not
-complete the underlying task. `calendar_event_occurrence_update` materializes an
+refresh. Rescheduling changes when its question becomes eligible.
+`calendar_event_occurrence_update` materializes an
 exception and excludes the original occurrence so moving or cancelling one
 appointment preserves the remaining series and participants. Comments and
 resolution are optional, independent of the source's actual lifecycle status.

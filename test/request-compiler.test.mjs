@@ -44,6 +44,7 @@ function tool(name, source = "local") {
 
 const tools = [
   tool("calendar_event_list"),
+  tool("calendar_routine_add"),
   tool("contact_file_import"),
   tool("contact_search"),
   tool("contact_lookup_batch"),
@@ -318,8 +319,8 @@ test("starting a linked guide selects guide and to-do capabilities", async () =>
     text: "Schedule my Morning Check-in interaction guide every weekday at 8.",
   });
   assert.equal(scheduled.capabilities.includes("interaction-guides"), true);
-  assert.equal(scheduled.capabilities.includes("todos"), true);
-  assert.ok(scheduled.reasons.includes("todos:interaction-guide-schedule"));
+  assert.equal(scheduled.capabilities.includes("calendar"), true);
+  assert.equal(scheduled.capabilities.includes("todos"), false);
 });
 
 test("user-facing briefing language selects the internal interaction-guide capability", () => {
@@ -424,29 +425,28 @@ test("common plural request words select their focused tool families", () => {
   }
 });
 
-test("a named calendar work window selects native to-dos even when the work mentions a property", () => {
+test("a named calendar work window selects Calendar even when the work mentions a property", () => {
   const selection = selectRequestCapabilities({
     tools,
     text: "Fill today's regular work window with loose toilet at Lesko's place.",
   });
-  assert.equal(selection.capabilities.includes("todos"), true);
-  assert.equal(names(selection).includes("todo_list"), true);
-  assert.ok(selection.reasons.includes("todos:request") || selection.reasons.includes("todos:declared-alias"));
+  assert.equal(selection.capabilities.includes("calendar"), true);
+  assert.equal(names(selection).includes("calendar_event_list"), true);
 });
 
-test("routine and habit requests select the dedicated reusable-routine tool", () => {
+test("routine and habit requests select the dedicated calendar-routine tool", () => {
   const registry = new ToolRegistry();
-  registerTodoTools(registry, {}, {}, null);
+  registerCalendarTools(registry, {}, {}, null);
   for (const text of ["Add a Friday planning routine.", "Create a weekly exercise habit."]) {
     const selection = selectRequestCapabilities({ tools: registry.toolDefinitions(), text });
-    assert.equal(selection.capabilities.includes("todos"), true, text);
-    assert.equal(names(selection).includes("routine_add"), true, text);
+    assert.equal(selection.capabilities.includes("calendar"), true, text);
+    assert.equal(names(selection).includes("calendar_routine_add"), true, text);
     assert.equal(selection.fallbackAll, false, text);
   }
   const routineCatalog = requestCapabilityCatalog(registry.toolDefinitions())
-    .find(({ capability }) => capability === "todos")
-    .tools.find(({ name }) => name === "routine_add");
-  assert.match(routineCatalog.summary, /without creating an occurrence/);
+    .find(({ capability }) => capability === "calendar")
+    .tools.find(({ name }) => name === "calendar_routine_add");
+  assert.match(routineCatalog.summary, /generates concrete calendar events and never creates to-dos/);
   assert.match(routineCatalog.summary, /Actions: CREATE\. Effects: MUTATING\.$/);
   assert.equal(routineCatalog.summary.length <= 400, true);
 });

@@ -18,7 +18,7 @@ test("an active voice recording can be cancelled without uploading it", () => {
   assert.match(application, /elements\.cancelRecording\.hidden = false/);
   assert.match(application, /elements\.cancelRecording\.addEventListener\("click"/);
   assert.match(application, /recordingCancelled = true;[\s\S]+recorder\.stop\(\)/);
-  assert.ok(stopHandler.indexOf("if (recordingCancelled)") < stopHandler.indexOf('api("/api/voice"'));
+  assert.ok(stopHandler.indexOf("if (recordingCancelled)") < stopHandler.indexOf("await api(`/api/voice"));
   assert.match(stopHandler, /Recording cancelled\./);
 });
 

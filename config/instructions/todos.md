@@ -1,116 +1,33 @@
-For personal to-dos, use the native to-do tools. The Calendar screen combines
-calendar events with scheduled personal to-dos: entries labeled `Scheduled
-task`, `All-day task`, `todo`, or `unplanned` remain native to-dos. A named
-unplanned work window is therefore resolved with `todo_list` and filled with
-`todo_update`, even when the concrete work mentions a property or TLOM. First
-list the exact local date and preserve the window's existing schedule and
-duration while replacing its placeholder plan; do not conclude that the window
-is absent merely because an external TLOM task query returned no rows.
+For personal to-dos, use the native to-do tools. To-dos are deliberately
+non-temporal: they store the work, its group and lifecycle, but never a
+schedule, deadline, duration, all-day flag, time zone, or recurrence. Any time
+belongs to a calendar event. Never simulate scheduling by adding a date to the
+to-do text.
 
-Honor an explicitly named
-to-do group. When adding a to-do without an explicitly named group, call
-`todo_group_list` and choose the best clear existing group from the task's
-subject and available context. Do not invent a group name; use Inbox only when
-no existing group is a reasonable match. When the user describes a repeating
-to-do, use the structured recurrence fields on `todo_add` or
-`todo_recurrence_set`. Translate ordinary language into frequency, interval,
-weekdays, optional count or final date, and time zone; never ask the user to
-write RRULE syntax. When a to-do is assigned to a calendar day without an exact
-time, set `is_all_day=true` and represent that date as local midnight; use a
-timed schedule only when the user supplies or requests a time.
+Honor an explicitly named group. Without one, call `todo_group_list` and choose
+the best clear existing group. Do not invent a group; use Inbox only when no
+existing group reasonably fits. Use status `unplanned` when an active item
+still needs a concrete plan. Preserve an exact user-supplied planning question
+in `planning_prompt_text`; the prompt and lifecycle status remain independent.
 
-Use status `unplanned` for an active item whose concrete plan has not yet been
-decided. `todo_list` with a query using `status="unplanned"` is the authoritative list of
-items that still need planning. Preserve the user's exact question in nullable
-`planning_prompt_text`; do not invent a planning prompt when the user has not
-supplied or requested one. The field and status are independent, so changing
-one does not silently change the other. Recurring unplanned items carry their
-planning prompt and unplanned status into future occurrences.
+Use `todo_list.queries` for lookups. Batch independent lookups, use
+`personal_task_ids` for known tasks, and follow each `next_cursor` until the
+needed result is complete. `completed_date_range` filters the task's completion
+instant; there is no scheduled-date filter. Show stable task IDs as `#<id>` in
+user-facing lists and confirmations.
 
-When the user asks to establish a routine, habit, or other reusable hypothetical
-schedule, use `routine_add`, not `todo_add`. `routine_add` atomically stores the
-routine definition; it does not create a hidden personal task, calendar event,
-or real to-do occurrence. Supply the destination to-do group, first
-scheduled occurrence and structured recurrence, and keep `due_at_utc` as an
-independent deadline rather than calculating it from `duration_minutes`. The
-returned next occurrences are a preview of the definition, not actual scheduled
-to-dos.
+Use one `todo_update` call for all independently identified tasks in the same
+request. Null values are no-change placeholders; clear flags apply only when
+the user explicitly asks to remove a relationship or prompt. Use
+`todo_interaction_guide_set` to link a briefing directly to a to-do. That link
+does not repeat, schedule, or start the briefing.
 
-Published routine occurrences are actual personal tasks linked to their parent
-definition by `todo_routine_id`. Treat the routine text as the standing window
-or commitment and the occurrence text as what is planned for that date. Editing
-an occurrence must not rewrite its parent definition. A normal repeating task
-created through `todo_add` also has a routine definition, but its next actual
-occurrence is generated when the current one is completed rather than by range
-publication.
+When a task needs scheduled work, a deadline, or calendar context, use the
+calendar tools to create or update an event and then
+`calendar_event_todo_links_set`. One event may link multiple to-dos and one
+to-do may link multiple events. Select relationship kind `work`, `deadline`, or
+`context` according to the user's meaning.
 
-Use `routine_list` to inspect standing calendar routine definitions themselves
-and `routine_update` to change one. A routine-definition change applies to
-future publications and leaves already published personal tasks unchanged.
-
-A repeating to-do may link to one active interaction guide by exact ID. The
-to-do owns its schedule and recurrence; the guide supplies only the structured
-interaction offered by each task occurrence. Use `todo_interaction_guide_set`
-to link or unlink an existing repeating task without reconstructing or changing
-its recurrence. For a standing calendar routine, use `routine_update` instead.
-A one-time to-do cannot carry this link.
-
-When the user specifies a position while creating a to-do, pass that 1-based
-`position` directly to `todo_add`; position 1 is the top. Use
-`todo_position_set` to move an existing task to an exact 1-based position in its
-group. Manual position changes preserve stable sequence numbers; those numbers
-remain the primary display order in groups with automatic sequencing enabled.
-
-Use one `todo_update` call for every independently identified task covered by
-the same user request. Its bounded `updates` array accepts one through 500
-possibly different changes and applies the complete collection atomically; a
-one-task request is a one-item array. Do not spend one model tool call per task.
-One duplicate ID, missing task, invalid contact, invalid group, or invalid
-resulting schedule rejects the whole batch without retaining earlier updates.
-Null optional values are no-change placeholders. Use the dedicated clear flags
-only when the user explicitly asks to remove the related contact, planned
-duration, or planning prompt.
-
-Use `todo_move_overdue_to_today` for a general request to roll overdue ordinary
-tasks forward. It deliberately leaves repeating-task occurrences and
-calendar-routine publications on their recurrence-defined
-dates even though published occurrences share the personal task table. If the
-user explicitly names one of those schedule entries and asks to move it, use
-`todo_update` for that exact task instead.
-
-Use `todo_list.queries` for every lookup, with one query for a single lookup.
-Batch independent lookups together. For a week or other contiguous period, use
-one query with an inclusive `scheduled_date_range` or `completed_date_range`
-(`start_date`, `end_date`); do not issue one call per day. For one day, set both
-dates to that day. Supply the applicable IANA `time_zone`. Use
-`personal_task_ids` to retrieve known tasks directly, including completed or
-archived tasks when `status` is null. All filters within a query are ANDed.
-Give every query a unique `query_id`. Each result echoes that ID and provides
-`has_more` and `next_cursor`. Continue every required query with unchanged
-filters and its returned cursor until `has_more` is false before claiming a
-complete list. A page limit never means that later matches can be discarded.
-Keep `result_filter` nonselective when reading complete pages; use receipt
-paging if an exact page is too large for inline delivery.
-
-Date ranges select the completion or schedule timestamp already stored on each
-task; they do not add ranges to task records. A scheduled-range read returns
-the calendar-visible published occurrences; update the occurrence when filling
-a work window and preserve its linked routine definition.
-
-In every user-facing list or review where a to-do may be discussed or changed,
-show its stable `personal_task_id` as `#<id>` immediately before its exact
-title, for example `#418 — Renew passport`. The handle is deliberately short:
-the user may answer with `#418`, `418`, an unambiguous list position such as
-“the second one,” or an unambiguous shortened title. Resolve any of those to the
-already listed ID and do not search for or relist the task merely to rediscover
-it. When confirming a write, include the same handle so the record remains easy
-to refer to without repeating its full title.
-
-When `todo_add` reports `group_resolution.used_inbox_fallback=true`, state that
-the to-do was added to Inbox and ask whether to create the requested group and
-move the task there. Do not create the group until the user confirms. Use
-`todo_group_rename` when the user asks to rename an existing group; its tasks
-and routines remain attached through the stable group ID. Inbox cannot be
-renamed. Archive a to-do group only when the user asks. The group-archive tool
-fails while active tasks remain; terminal tasks retain their historical group,
-and Inbox itself is permanent.
+Routines and habits are temporal definitions and belong to the calendar
+capability. They generate calendar events only; completing a to-do never
+generates another task.

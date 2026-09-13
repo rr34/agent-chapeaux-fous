@@ -20,6 +20,8 @@ const calendarEventRecordSchema = {
   description: "Stores every commitment and scheduled event in the user's one authoritative agent calendar.",
   properties: {
     calendar_event_id: { description: "Stable local identifier for this calendar event." },
+    calendar_routine_id: { description: "Optional calendar routine that generated this concrete event." },
+    routine_occurrence_key: { description: "Stable occurrence start used to make calendar-routine generation idempotent." },
     ical_uid: { description: "Persistent iCalendar UID used to identify an imported event or recurrence family and prevent duplicate imports. This identifies imported calendar data; it does not identify a separate calendar." },
     ical_recurrence_id: { description: "Original iCalendar recurrence-instance identifier distinguishing this materialized occurrence within the shared UID. Together with ical_uid, this value prevents duplicate imports of the same recurring occurrence." },
     title: { description: "Human-readable event name shown on the calendar." },
@@ -35,18 +37,48 @@ const calendarEventRecordSchema = {
     created_at_utc: { description: "UTC timestamp when this local calendar record was inserted." },
     updated_at_utc: { description: "UTC timestamp of the latest recorded change to this local calendar record." },
     planning_prompt_text: { description: "Optional question the agent should proactively ask to help the user decide how this scheduled time will be used. Null means no proactive planning question is attached to this event." },
+    linked_todos: {
+      type: "array",
+      description: "Personal to-dos associated with this event through the many-to-many join.",
+      items: { type: "object", properties: {
+        personal_task_id: {}, relationship_kind: {}, text: {}, status: {},
+        todo_group_id: {}, group_name: {},
+      } },
+    },
   },
 };
 
 const statuses = ["tentative", "confirmed", "cancelled"];
 const calendarEventFields = [
-  "calendar_event_id", "ical_uid", "ical_recurrence_id", "title", "description",
+  "calendar_event_id", "calendar_routine_id", "routine_occurrence_key",
+  "ical_uid", "ical_recurrence_id", "title", "description",
   "location_text", "starts_at_utc", "ends_at_utc", "time_zone", "is_all_day",
   "status", "recurrence_rule", "planning_prompt_text", "source_event_id",
   "created_at_utc", "updated_at_utc",
 ];
 const contactFields = ["contact_id", "display_name", "birth_date"];
 const optionalText = { type: ["string", "null"] };
+
+const calendarRoutineRecordSchema = {
+  type: ["object", "null"],
+  description: "A reusable temporal definition that generates concrete calendar events and never creates to-dos.",
+  properties: {
+    calendar_routine_id: {}, title: {}, description: {}, location_text: {},
+    first_starts_at_utc: {}, first_ends_at_utc: {}, time_zone: {}, is_all_day: {},
+    recurrence_rule: {}, disabled_at_utc: {}, planning_prompt_text: {},
+    source_event_id: {}, created_at_utc: {}, updated_at_utc: {}, version: {},
+  },
+};
+
+const calendarRoutineFields = Object.keys(calendarRoutineRecordSchema.properties);
+
+function calendarRoutine(database, id) {
+  const row = database.prepare(
+    "SELECT * FROM calendar_routines WHERE calendar_routine_id = ?",
+  ).get(id);
+  if (!row) return null;
+  return selectedFields({ ...row, version: row.updated_at_utc ?? row.created_at_utc }, calendarRoutineFields);
+}
 
 function normalizedIso(value, label, { required = false } = {}) {
   if (value == null || value === "") {
@@ -95,6 +127,25 @@ function calendarEvent(database, id) {
   ).get(id), calendarEventFields);
 }
 
+function calendarEventWithTodos(database, id) {
+  const row = calendarEvent(database, id);
+  if (!row) return null;
+  const linkedTodos = database.prepare(`
+    SELECT relation.personal_task_id, relation.relationship_kind,
+           task.text, task.status, task.todo_group_id, todo_group.name AS group_name
+    FROM calendar_events_todo_join AS relation
+    JOIN todo_personal AS task USING (personal_task_id)
+    JOIN todo_groups AS todo_group USING (todo_group_id)
+    WHERE relation.calendar_event_id = ?
+    ORDER BY todo_group.sort_position, task.sort_position, task.personal_task_id
+  `).all(id).map((link) => ({
+    ...link,
+    personal_task_id: Number(link.personal_task_id),
+    todo_group_id: Number(link.todo_group_id),
+  }));
+  return { ...row, linked_todos: linkedTodos };
+}
+
 function requireCalendarEvent(database, id) {
   const row = calendarEvent(database, id);
   if (!row) throw new Error(`Calendar event ${id} does not exist`);
@@ -103,7 +154,7 @@ function requireCalendarEvent(database, id) {
 
 function changed(before, after) {
   return Object.fromEntries(Object.keys(after)
-    .filter((field) => before[field] !== after[field])
+    .filter((field) => field !== "linked_todos" && before[field] !== after[field])
     .map((field) => [field, { before: before[field], after: after[field] }]));
 }
 
@@ -126,7 +177,7 @@ function displayOccurrence(database, item) {
   }
   const id = Number(item.seriesId ?? item.id);
   return {
-    calendar_events: calendarEvent(database, id),
+    calendar_events: calendarEventWithTodos(database, id),
     contacts: null,
     occurrence: {
       source_kind: item.isGeneratedOccurrence ? "recurrence" : "calendar_event",
@@ -188,7 +239,7 @@ export function registerCalendarTools(
             query, limit, options: { includeArchived },
           })).native
         : searchCalendarEventRows(database, { query, includeArchived, limit });
-      const events = search.rows.map((row) => selectedFields(row, calendarEventFields));
+      const events = search.rows.map((row) => calendarEventWithTodos(database, row.calendar_event_id));
       return {
         query: search.query,
         include_archived: search.includeArchived,
@@ -487,6 +538,121 @@ export function registerCalendarTools(
         database.exec("ROLLBACK");
         throw error;
       }
+    },
+  });
+
+  registry.register({
+    name: "calendar_event_todo_links_set",
+    description: "Replace the to-do links on one calendar event. One event may link multiple to-dos; the same to-do may link multiple events. relationship_kind states whether the event is work time, a deadline, or context for the to-do.",
+    outputSchema: { type: "object", properties: { event: calendarEventRecordSchema } },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      calendar_event_id: { type: "integer", minimum: 1 },
+      links: { type: "array", maxItems: 200, items: {
+        type: "object", additionalProperties: false, properties: {
+          personal_task_id: { type: "integer", minimum: 1 },
+          relationship_kind: { type: "string", enum: ["work", "deadline", "context"] },
+        }, required: ["personal_task_id", "relationship_kind"],
+      } },
+    }, required: ["calendar_event_id", "links"] },
+    async execute({ calendar_event_id: eventId, links }, context) {
+      const event = organizer.setCalendarEventTodoLinks(eventId, {
+        links: links.map((link) => ({
+          todoId: link.personal_task_id, relationshipKind: link.relationship_kind,
+        })),
+      }, { actorType: "tool", actorName: "calendar_event_todo_links_set",
+        source: "agent-slayer", channel: context.channel, requestId: context.requestId,
+        callId: context.callId });
+      return { updated: true, event: calendarEvent(store.requireReady(), event.id), linked_todos: event.linkedTodos };
+    },
+  });
+
+  registry.register({
+    name: "calendar_routine_list",
+    description: "List reusable calendar routines. These definitions generate only concrete calendar events, never to-do items.",
+    outputSchema: { type: "object", properties: { routines: { type: "array", items: calendarRoutineRecordSchema } } },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      include_disabled: { type: "boolean" },
+    }, required: ["include_disabled"] },
+    async execute({ include_disabled: includeDisabled }) {
+      const routines = organizer.listCalendarRoutines({ includeDisabled })
+        .map(({ id }) => calendarRoutine(store.requireReady(), id));
+      return { count: routines.length, routines };
+    },
+  });
+
+  registry.register({
+    name: "calendar_routine_add",
+    description: "Create a reusable calendar routine. It defines recurring time and generates concrete calendar events only.",
+    outputSchema: { type: "object", properties: { routine: calendarRoutineRecordSchema } },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      title: { type: "string", minLength: 1, maxLength: 500 }, description: optionalText,
+      location_text: optionalText, starts_at_utc: { type: "string" }, ends_at_utc: optionalText,
+      time_zone: { type: "string", minLength: 1 }, is_all_day: { type: "boolean" },
+      recurrence: recurrenceSchema, planning_prompt_text: optionalText,
+    }, required: ["title", "description", "location_text", "starts_at_utc", "ends_at_utc",
+      "time_zone", "is_all_day", "recurrence"] },
+    async execute(input, context) {
+      const startsAtUtc = normalizedIso(input.starts_at_utc, "starts_at_utc", { required: true });
+      const endsAtUtc = normalizedIso(input.ends_at_utc, "ends_at_utc");
+      validateCalendarTemporalTarget(startsAtUtc, context);
+      const timeZone = validateTimeZone(input.time_zone);
+      if (!input.recurrence) throw new Error("recurrence is required");
+      if (validateTimeZone(input.recurrence.time_zone, timeZone) !== timeZone) {
+        throw new Error("time_zone and recurrence.time_zone must match");
+      }
+      const result = organizer.createCalendarRoutine({
+        title: input.title, description: input.description, location: input.location_text,
+        startsAtUtc, endsAtUtc, timeZone, isAllDay: input.is_all_day,
+        recurrenceRule: buildRecurrenceRule(input.recurrence),
+        planningPromptText: input.planning_prompt_text,
+      }, { actorType: "tool", actorName: "calendar_routine_add", source: "agent-slayer",
+        channel: context.channel, requestId: context.requestId, callId: context.callId });
+      return { created: true, routine: calendarRoutine(store.requireReady(), result.routine.id),
+        next_occurrences: result.nextOccurrences };
+    },
+  });
+
+  registry.register({
+    name: "calendar_routine_update",
+    description: "Update or disable a reusable calendar routine. Already generated calendar events remain concrete records.",
+    outputSchema: { type: "object", properties: { routine: calendarRoutineRecordSchema } },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      calendar_routine_id: { type: "integer", minimum: 1 }, version: { type: "string" },
+      title: optionalText, description: optionalText, location_text: optionalText,
+      starts_at_utc: optionalText, ends_at_utc: optionalText, time_zone: optionalText,
+      is_all_day: { type: ["boolean", "null"] }, recurrence: recurrenceSchema,
+      planning_prompt_text: optionalText, disabled: { type: ["boolean", "null"] },
+    }, required: ["calendar_routine_id", "version"] },
+    async execute(input, context) {
+      const update = { version: input.version };
+      if (input.title != null) update.title = input.title;
+      if (Object.hasOwn(input, "description")) update.description = input.description;
+      if (Object.hasOwn(input, "location_text")) update.location = input.location_text;
+      if (input.starts_at_utc != null) update.startsAtUtc = normalizedIso(input.starts_at_utc, "starts_at_utc", { required: true });
+      if (Object.hasOwn(input, "ends_at_utc")) update.endsAtUtc = normalizedIso(input.ends_at_utc, "ends_at_utc");
+      if (input.time_zone != null) update.timeZone = validateTimeZone(input.time_zone);
+      if (input.is_all_day != null) update.isAllDay = input.is_all_day;
+      if (input.recurrence != null) update.recurrenceRule = buildRecurrenceRule(input.recurrence);
+      if (Object.hasOwn(input, "planning_prompt_text")) update.planningPromptText = input.planning_prompt_text;
+      if (input.disabled != null) update.disabled = input.disabled;
+      const routine = organizer.updateCalendarRoutine(input.calendar_routine_id, update,
+        { actorType: "tool", actorName: "calendar_routine_update", source: "agent-slayer",
+          channel: context.channel, requestId: context.requestId, callId: context.callId });
+      return { updated: true, routine: calendarRoutine(store.requireReady(), routine.id) };
+    },
+  });
+
+  registry.register({
+    name: "calendar_routine_generate",
+    description: "Generate any missing concrete calendar events from active calendar routines in a bounded UTC range. Safe to repeat; routine occurrence keys prevent duplicates.",
+    outputSchema: { type: "object", properties: { events: { type: "array", items: calendarEventRecordSchema } } },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      starts_at_utc: { type: "string" }, ends_at_utc: { type: "string" },
+    }, required: ["starts_at_utc", "ends_at_utc"] },
+    async execute({ starts_at_utc: from, ends_at_utc: to }) {
+      const result = organizer.generateCalendarRoutines({ from, to });
+      return { created_count: result.createdCount, existing_count: result.existingCount,
+        events: result.events.map(({ id }) => calendarEvent(store.requireReady(), id)) };
     },
   });
 }

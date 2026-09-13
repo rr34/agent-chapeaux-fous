@@ -165,10 +165,11 @@ test("native database-backed tools preserve their records without result decorat
   const definitions = Object.fromEntries(
     registry.toolDefinitions().map((definition) => [definition.name, definition.inputSchema.properties]),
   );
-  assert.equal(Object.hasOwn(definitions.todo_add, "scheduled_at_utc"), true);
+  assert.equal(Object.hasOwn(definitions.todo_add, "scheduled_at_utc"), false);
   assert.equal(Object.hasOwn(definitions.todo_add, "scheduledAtUtc"), false);
-  assert.equal(Object.hasOwn(definitions.routine_add, "recurrence"), true);
-  assert.equal(Object.hasOwn(definitions.routine_add, "group"), true);
+  assert.equal(Object.hasOwn(definitions.calendar_routine_add, "recurrence"), true);
+  assert.equal(Object.hasOwn(definitions.calendar_routine_add, "group"), false);
+  assert.equal(Object.hasOwn(definitions.calendar_event_todo_links_set, "links"), true);
   assert.equal(Object.hasOwn(definitions.journal_add, "content_text"), true);
   assert.equal(Object.hasOwn(definitions.journal_add, "tracker_unit"), true);
   assert.equal(Object.hasOwn(definitions.journal_add, "unit"), false);

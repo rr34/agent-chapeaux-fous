@@ -58,6 +58,29 @@ Do not restart the service when migration or verification fails. If no
 migrations are pending, `npm run db:migrate` is a read-only integrity check and
 does not require the confirmation variables.
 
+## Versions 39–40: Calendar-owned time and calendar routines
+
+Version 39 additively creates `calendar_routines` and
+`calendar_events_todo_join`, adds generated-occurrence identity to
+`calendar_events`, and converts every existing scheduled to-do time and deadline
+into a concrete linked calendar event. Deadlines become point events titled
+`Due: <task text>`. Existing to-do routine definitions are copied to calendar
+routines, including disabled state and recurrence timing. Calendar routines
+generate events only; they never generate tasks.
+
+Version 40 removes the legacy temporal and recurrence columns from
+`todo_personal`, removes derived task catch-up questions, and drops
+`todo_routines`. To-dos retain their text, group, status, completion history,
+contacts, planning prompts, interaction guides, and source references. Apply
+both versions during the same approved writer downtime. Do not start the new
+application against the intermediate version 39 schema.
+
+These migrations rewrite authoritative scheduling representation and remove
+legacy columns. A current tested backup and stopped writers are required. After
+version 39, inspect that every non-null legacy scheduled/deadline value has a
+matching `calendar_events_todo_join` row before allowing version 40 to proceed.
+The migration runner performs this integrity check automatically.
+
 ## Version 38: Remove legacy agent turn attempts
 
 Drops `agent_turn_attempts` and permanently deletes its retained
@@ -65,8 +88,9 @@ previous-runtime correlation rows. The standalone Agent Slayer runtime never
 reads or writes this table; current request history remains in
 `activity_events` and is unaffected.
 
-The application requires schema version 38. Prepare a verified backup before
-running the migration. Writer downtime is not required for this block because
+This block raised the application schema to version 38; the current application
+requires version 40. Prepare a verified backup before running the migration.
+Writer downtime is not required for this block because
 the removed table has no current writer, though earlier pending migrations may
 still require it. The guarded drop supports replay, and the migration verifies
 that the table is absent before advancing the schema version.

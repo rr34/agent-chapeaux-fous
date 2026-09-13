@@ -39,20 +39,25 @@ export const requiredDatabaseShape = {
     "started_at_utc", "completed_at_utc", "updated_at_utc", "personal_task_id", "video_script_id",
   ],
   calendar_events: [
-    "calendar_event_id", "title", "description", "location_text", "starts_at_utc",
+    "calendar_event_id", "calendar_routine_id", "routine_occurrence_key", "title", "description", "location_text", "starts_at_utc",
     "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule",
     "source_event_id", "created_at_utc", "updated_at_utc", "planning_prompt_text",
   ],
+  calendar_routines: [
+    "calendar_routine_id", "title", "description", "location_text", "first_starts_at_utc",
+    "first_ends_at_utc", "time_zone", "is_all_day", "recurrence_rule", "disabled_at_utc",
+    "planning_prompt_text", "source_event_id", "created_at_utc", "updated_at_utc",
+  ],
+  calendar_events_todo_join: ["calendar_event_id", "personal_task_id", "relationship_kind", "created_at_utc"],
   calendar_event_exclusions: ["calendar_event_id", "excluded_starts_at_utc"],
   todo_groups: ["todo_group_id", "name", "sort_position", "uses_sequence", "archived_at_utc"],
   todo_personal: [
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
-    "scheduled_at_utc", "is_all_day", "duration_minutes", "due_at_utc", "completed_at_utc", "source_event_id",
-    "planning_prompt_text",
+    "completed_at_utc", "source_event_id", "planning_prompt_text", "interaction_guide_id",
   ],
   journal_groups: ["journal_group_id", "name", "archived_at_utc"],
   trackers: ["tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "asking_starts_at_utc", "asking_recurrence_rule", "asking_time_zone"],
-  catch_up_questions: ["question_id", "personal_task_id", "calendar_event_id", "tracker_id", "occurrence_key", "source_version", "question_text", "due_at_utc", "ask_after", "resolved_at", "comment", "version"],
+  catch_up_questions: ["question_id", "calendar_event_id", "tracker_id", "occurrence_key", "source_version", "question_text", "due_at_utc", "ask_after", "resolved_at", "comment", "version"],
   journal_entries: [
     "journal_entry_id", "tracker_id", "occurred_at_utc", "content_text",
     "number_value", "source_event_id", "source", "external_id",
@@ -70,13 +75,6 @@ export const requiredDatabaseShape = {
     "interaction_guide_step_id", "interaction_guide_id", "step_number",
     "opening_text", "contract_json", "answers_json", "progress_state",
     "enabled", "created_at_utc", "updated_at_utc",
-  ],
-  todo_routines: [
-    "todo_routine_id", "todo_group_id", "text", "first_scheduled_at_utc",
-    "first_due_at_utc", "time_zone", "recurrence_rule", "disabled_at_utc",
-    "created_at_utc", "updated_at_utc", "is_all_day", "interaction_guide_id",
-    "planning_prompt_text", "publication_mode", "default_status",
-    "related_contact_id", "duration_minutes", "source_event_id",
   ],
 };
 
@@ -99,10 +97,7 @@ export const requiredEnumColumns = {
   calendar_events: { status: ["tentative", "confirmed", "cancelled"] },
   calendar_event_contacts: { participant_role: ["organizer", "attendee", "customer", "other"] },
   interaction_guide_steps: { progress_state: ["pending", "active", "completed"] },
-  todo_routines: {
-    publication_mode: ["on_completion", "calendar"],
-    default_status: ["unplanned", "todo", "ai_suggested"],
-  },
+  calendar_events_todo_join: { relationship_kind: ["work", "deadline", "context"] },
   todo_personal: { status: ["unplanned", "todo", "complete", "ignore", "archive", "ai_suggested"] },
   reminders: {
     delivery_method: ["agent", "webhook", "notification", "email", "sms", "other"],
@@ -210,8 +205,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 38) {
-    problems.push(`Expected MariaDB schema version 38, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 40) {
+    problems.push(`Expected MariaDB schema version 40, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

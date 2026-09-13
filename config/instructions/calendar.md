@@ -16,6 +16,17 @@ range. Preserve an exact user-supplied question about still-unplanned event time
 in nullable `planning_prompt_text`. Do not treat that prompt as the event title,
 description, or a separate scheduled action.
 
+Calendar events are the sole owner of all scheduled times and deadlines. Link
+an event to one or more to-dos with `calendar_event_todo_links_set`, using
+`work`, `deadline`, or `context` to preserve the relationship's meaning. Never
+copy an event time into a to-do field; those fields do not exist.
+
+Use `calendar_routine_add`, `calendar_routine_list`, and
+`calendar_routine_update` for reusable routines and habits. A calendar routine
+is a temporal definition, not a task template. `calendar_routine_generate`
+materializes missing concrete events for a bounded range and is safe to repeat.
+It never creates to-dos, and task completion never advances a routine.
+
 When updating a recurring event, distinguish just one occurrence from the whole
 series. A plan for a specific date belongs to `calendar_event_occurrence_update`
 with the series ID and exact original occurrence start from `calendar_event_list`.

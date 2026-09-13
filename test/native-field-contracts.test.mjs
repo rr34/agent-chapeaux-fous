@@ -21,7 +21,10 @@ test("owning tool contracts explain inputs and results without a database or sch
   assert.match(definitions.calendar_event_update.inputSchema.properties.planning_prompt_text.description, /Null leaves it unchanged/);
   assert.match(definitions.calendar_event_add.inputSchema.properties.is_all_day.description, /^True when/);
   assert.match(definitions.interaction_guide_get.outputSchema.properties.guide.properties.steps.items.properties.answers_json.description, /actually supplied/);
-  assert.match(definitions.todo_update.outputSchema.properties.items.items.properties.task.properties.duration_minutes.description, /minute/i);
+  assert.equal(Object.hasOwn(definitions.todo_update.inputSchema.properties.updates.items.properties, "duration_minutes"), false);
+  assert.equal(Object.hasOwn(definitions.todo_add.inputSchema.properties, "scheduled_at_utc"), false);
+  assert.match(definitions.calendar_routine_add.description, /generates concrete calendar events only/);
+  assert.match(definitions.calendar_event_todo_links_set.description, /multiple to-dos/);
   assert.ok(definitions.contact_search.outputSchema.properties.matches.items.properties.display_name.description);
   assert.equal(schemaProblem({ updated_count: 1, items: [{ task: { text: "Updated task" } }] }, definitions.todo_update.outputSchema), null);
 });

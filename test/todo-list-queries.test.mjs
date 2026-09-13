@@ -30,8 +30,8 @@ test("todo_list accepts only bounded query batches and validates the full batch 
   await assert.rejects(execute([query({ personal_task_ids: [65, 65] })]), /unique items/);
   await assert.rejects(execute([query({ limit: 201 })]), /at most 200/);
   for (const invalid of [
-    { scheduled_date_range: day("2026-02-30"), time_zone: "America/New_York" },
-    { scheduled_date_range: { start_date: "2026-09-20", end_date: "2026-09-14" }, time_zone: "America/New_York" },
+    { completed_date_range: day("2026-02-30"), time_zone: "America/New_York" },
+    { completed_date_range: { start_date: "2026-09-20", end_date: "2026-09-14" }, time_zone: "America/New_York" },
     { completed_date_range: day("2026-09-14"), time_zone: null },
     { completed_date_range: day("2026-09-14"), time_zone: "not-a-zone" },
     { cursor: "not-a-cursor" },
@@ -41,16 +41,16 @@ test("todo_list accepts only bounded query batches and validates the full batch 
   assert.equal(reads.length, 0);
 });
 
-test("batched local ranges use inclusive dates and exclusive UTC ends across DST", async () => {
+test("completed local ranges use inclusive dates and exclusive UTC ends across DST", async () => {
   const { execute, reads } = fixture();
   const result = await execute([
-    query({ query_id: "spring", scheduled_date_range: { start_date: "2026-03-07", end_date: "2026-03-09" }, time_zone: "America/New_York" }),
+    query({ query_id: "spring", completed_date_range: { start_date: "2026-03-07", end_date: "2026-03-09" }, time_zone: "America/New_York" }),
     query({ query_id: "fall", completed_date_range: day("2026-11-01"), time_zone: "America/New_York" }),
   ]);
   assert.deepEqual(reads[0].parameters, ["2026-03-07T05:00:00.000Z", "2026-03-10T04:00:00.000Z", 3]);
   assert.deepEqual(reads[1].parameters, ["2026-11-01T04:00:00.000Z", "2026-11-02T05:00:00.000Z", 3]);
-  assert.match(reads[0].sql, /task.scheduled_at_utc >= \? AND task.scheduled_at_utc < \?/);
-  assert.match(reads[0].sql, /status NOT IN/);
+  assert.match(reads[0].sql, /task.completed_at_utc >= \? AND task.completed_at_utc < \?/);
+  assert.doesNotMatch(reads[0].sql, /status NOT IN/);
   assert.doesNotMatch(reads[1].sql, /status NOT IN/);
   assert.deepEqual(result.results.map(page => [page.query_id, page.count, page.has_more, page.next_cursor]), [
     ["spring", 0, false, null], ["fall", 0, false, null],
@@ -93,20 +93,15 @@ test("each page retains whole records and resumes after its last returned sort k
   assert.equal(reads.length, 2);
 });
 
-test("completion and scheduled pages preserve timestamp tie-breakers in both directions", async () => {
-  for (const [range, column, operator] of [
-    ["completed_date_range", "completed_at_utc", "<"],
-    ["scheduled_date_range", "scheduled_at_utc", ">"],
-  ]) {
-    const timestamp = "2026-09-14T17:00:00.000Z";
-    const { execute, reads } = fixture([[task(65, { [column]: timestamp }), task(66, { [column]: timestamp })]]);
-    const selected = query({ limit: 1, [range]: day("2026-09-14"), time_zone: "America/New_York" });
-    const first = await execute([selected]);
-    await execute([{ ...selected, cursor: first.results[0].next_cursor }]);
-    assert.ok(reads[1].sql.includes(`task.${column} ${operator} ?`));
-    assert.ok(reads[1].sql.includes(`task.personal_task_id ${operator} ?`));
-    assert.deepEqual(reads[1].parameters.slice(-4), [timestamp, timestamp, 65, 2]);
-  }
+test("completion pages preserve descending timestamp tie-breakers", async () => {
+  const timestamp = "2026-09-14T17:00:00.000Z";
+  const { execute, reads } = fixture([[task(65, { completed_at_utc: timestamp }), task(66, { completed_at_utc: timestamp })]]);
+  const selected = query({ limit: 1, completed_date_range: day("2026-09-14"), time_zone: "America/New_York" });
+  const first = await execute([selected]);
+  await execute([{ ...selected, cursor: first.results[0].next_cursor }]);
+  assert.ok(reads[1].sql.includes("task.completed_at_utc < ?"));
+  assert.ok(reads[1].sql.includes("task.personal_task_id < ?"));
+  assert.deepEqual(reads[1].parameters.slice(-4), [timestamp, timestamp, 65, 2]);
 });
 
 test("oversized query pages use the existing exact receipt pager instead of truncating records", async () => {

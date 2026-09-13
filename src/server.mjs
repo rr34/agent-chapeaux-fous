@@ -577,6 +577,13 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 201, { event: organizer.createCalendar(await readJson(request)) });
       return;
     }
+    const calendarTodoLinksMatch = /^\/api\/calendar-events\/(\d+)\/todo-links$/.exec(url.pathname);
+    if (request.method === "PUT" && calendarTodoLinksMatch) {
+      sendJson(response, 200, {
+        event: organizer.setCalendarEventTodoLinks(calendarTodoLinksMatch[1], await readJson(request)),
+      });
+      return;
+    }
     const calendarMatch = /^\/api\/calendar-events\/(\d+)$/.exec(url.pathname);
     if (request.method === "PATCH" && calendarMatch) {
       sendJson(response, 200, {
@@ -610,31 +617,29 @@ const server = http.createServer(async (request, response) => {
         todos: organizer.listTodos({
           scope: url.searchParams.get("scope") || "active",
           limit: url.searchParams.get("limit") || 500,
-          from: url.searchParams.get("from"),
-          to: url.searchParams.get("to"),
         }),
       });
       return;
     }
-    if (request.method === "GET" && url.pathname === "/api/routines/preview") {
-      sendJson(response, 200, organizer.previewRoutines({
+    if (request.method === "GET" && url.pathname === "/api/calendar-routines/preview") {
+      sendJson(response, 200, organizer.previewCalendarRoutines({
         from: url.searchParams.get("from"),
         to: url.searchParams.get("to"),
       }));
       return;
     }
-    if (request.method === "POST" && url.pathname === "/api/routines/publish") {
-      sendJson(response, 200, organizer.publishRoutines(await readJson(request)));
+    if (request.method === "POST" && url.pathname === "/api/calendar-routines/generate") {
+      sendJson(response, 200, organizer.generateCalendarRoutines(await readJson(request)));
       return;
     }
-    if (request.method === "POST" && url.pathname === "/api/routines") {
-      sendJson(response, 201, organizer.createRoutine(await readJson(request)));
+    if (request.method === "POST" && url.pathname === "/api/calendar-routines") {
+      sendJson(response, 201, organizer.createCalendarRoutine(await readJson(request)));
       return;
     }
-    const routineMatch = /^\/api\/routines\/(\d+)$/.exec(url.pathname);
+    const routineMatch = /^\/api\/calendar-routines\/(\d+)$/.exec(url.pathname);
     if (request.method === "PATCH" && routineMatch) {
       sendJson(response, 200, {
-        routine: organizer.updateRoutine(routineMatch[1], await readJson(request)),
+        routine: organizer.updateCalendarRoutine(routineMatch[1], await readJson(request)),
       });
       return;
     }
@@ -763,10 +768,6 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/api/todos") {
       sendJson(response, 201, { todo: organizer.createTodo(await readJson(request)) });
-      return;
-    }
-    if (request.method === "POST" && url.pathname === "/api/todos/move-overdue-to-today") {
-      sendJson(response, 200, organizer.moveOverdueTodosToToday(await readJson(request)));
       return;
     }
     const todoMatch = /^\/api\/todos\/(\d+)$/.exec(url.pathname);

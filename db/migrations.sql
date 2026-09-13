@@ -16,6 +16,172 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0040: retire-temporal-todos
+-- writer downtime: required; application code and schema must switch atomically from temporal to-dos to linked calendar events.
+-- locking: deletes derived task catch-up rows, alters todo_personal and calendar_events, and drops todo_routines under metadata locks.
+-- recovery: MariaDB DDL commits implicitly. Every DROP is guarded for replay. Migration 0039 retains all authoritative timing in calendar events before this block removes legacy columns. Restore the verified backup if removed legacy definitions must be recovered.
+
+SET @calendar_time_delete_task_questions = IF(
+  EXISTS(
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'catch_up_questions'
+      AND COLUMN_NAME = 'personal_task_id'
+  ),
+  'DELETE FROM catch_up_questions WHERE personal_task_id IS NOT NULL',
+  'DO 0'
+);
+PREPARE calendar_time_delete_task_questions_statement FROM @calendar_time_delete_task_questions;
+EXECUTE calendar_time_delete_task_questions_statement;
+DEALLOCATE PREPARE calendar_time_delete_task_questions_statement;
+
+ALTER TABLE catch_up_questions
+    DROP FOREIGN KEY IF EXISTS catch_up_task,
+    DROP INDEX IF EXISTS catch_up_task_occurrence,
+    DROP CONSTRAINT IF EXISTS catch_up_one_source,
+    DROP COLUMN IF EXISTS personal_task_id,
+    MODIFY COLUMN occurrence_key VARCHAR(160) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable source-owned identity: event for a one-time event, an ISO UTC calendar occurrence, or a journal logging-period start.',
+    ADD CONSTRAINT IF NOT EXISTS catch_up_one_source CHECK ((calendar_event_id IS NOT NULL) + (tracker_id IS NOT NULL) = 1);
+
+ALTER TABLE catch_up_questions
+    COMMENT='On-demand questions generated from calendar occurrences and journal tracker periods. To-dos are intentionally non-temporal and do not independently create catch-up deadlines. Source foreign keys and live domain data drive questions and reconciliation; conversations are only an interface. Sensitivity: Contains private commitments and user comments.';
+
+ALTER TABLE todo_personal
+    DROP FOREIGN KEY IF EXISTS todo_personal_routine,
+    DROP INDEX IF EXISTS todo_personal_routine_occurrence,
+    DROP INDEX IF EXISTS todo_personal_status_schedule,
+    DROP COLUMN IF EXISTS todo_routine_id,
+    DROP COLUMN IF EXISTS scheduled_at_utc,
+    DROP COLUMN IF EXISTS due_at_utc,
+    DROP COLUMN IF EXISTS is_all_day,
+    DROP COLUMN IF EXISTS duration_minutes,
+    ADD KEY IF NOT EXISTS todo_personal_status (status, personal_task_id);
+
+ALTER TABLE todo_personal
+    COMMENT='Stores actionable and historical records in the user’s authoritative personal To-Do List. To-dos have no scheduling, deadline, duration, all-day, or recurrence fields; all temporal placement belongs to calendar events. Every task belongs to one group and may be linked to any number of calendar events through calendar_events_todo_join. completed_at_utc records task lifecycle history. Sensitivity: Contains the user''s private tasks, plans, relationships, and source references.';
+
+ALTER TABLE calendar_events
+    DROP INDEX IF EXISTS calendar_events_todo_timing_migration,
+    DROP COLUMN IF EXISTS migration_personal_task_id,
+    DROP COLUMN IF EXISTS migration_relationship_kind;
+
+DROP TABLE IF EXISTS todo_routines;
+
+-- end migration 0040
+
+-- migration 0039: calendar-routines-and-temporal-task-migration
+-- writer downtime: required; writers must not create or edit routines, tasks, or calendar events during the backfill.
+-- locking: creates two permanent tables, adds routine/link columns, and backfills calendar events from every scheduled time and deadline. ALTER TABLE takes metadata locks; INSERT SELECT scans todo_personal and todo_routines.
+-- recovery: MariaDB DDL commits implicitly. Additive statements and unique migration keys are replay-safe. Do not proceed to migration 0040 until every temporal to-do value has a corresponding event and join row. Restore the verified backup if inspection finds an ambiguous partial state.
+
+CREATE TABLE IF NOT EXISTS calendar_routines (
+    calendar_routine_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable identifier for one reusable temporal pattern that generates concrete calendar events.',
+    title                TEXT NOT NULL COMMENT 'Default human-readable title copied to generated calendar events.',
+    description          LONGTEXT COMMENT 'Optional default description copied to generated calendar events.',
+    location_text        TEXT COMMENT 'Optional default location copied to generated calendar events.',
+    first_starts_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'UTC start instant anchoring the recurrence rule. Format: ISO 8601 UTC timestamp.',
+    first_ends_at_utc    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional UTC end instant for the first occurrence; its duration is preserved for generated events. Format: ISO 8601 UTC timestamp.',
+    time_zone            VARCHAR(255) NOT NULL COMMENT 'IANA time-zone name preserving local recurrence times across daylight-saving changes.',
+    is_all_day           TINYINT NOT NULL DEFAULT 0 COMMENT '1 when generated events represent calendar days rather than precise clock times; otherwise 0.',
+    recurrence_rule      TEXT NOT NULL COMMENT 'RFC 5545 RRULE defining when concrete calendar events are generated.',
+    disabled_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when this routine stopped generating events; null while enabled.',
+    planning_prompt_text TEXT COMMENT 'Optional proactive planning question copied to generated calendar events.',
+    source_event_id      VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Activity event that created this calendar routine when known.',
+    created_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC instant when this routine was created.',
+    updated_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant of the latest material update.',
+    PRIMARY KEY (calendar_routine_id),
+    KEY calendar_routines_start (first_starts_at_utc, disabled_at_utc),
+    CONSTRAINT calendar_routines_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT calendar_routines_all_day CHECK (is_all_day IN (0, 1)),
+    CONSTRAINT calendar_routines_ends CHECK (first_ends_at_utc IS NULL OR first_ends_at_utc >= first_starts_at_utc),
+    CONSTRAINT calendar_routines_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
+) ENGINE=InnoDB COMMENT='Defines reusable temporal patterns that generate concrete calendar events in bounded ranges. Calendar routines never create to-dos and are never advanced by task completion. One row is one recurrence definition; generated occurrences are ordinary calendar_events rows linked by calendar_routine_id and routine_occurrence_key.';
+
+ALTER TABLE calendar_events
+    ADD COLUMN IF NOT EXISTS calendar_routine_id BIGINT UNSIGNED COMMENT 'Optional calendar routine that generated this concrete event occurrence.' AFTER calendar_event_id,
+    ADD COLUMN IF NOT EXISTS routine_occurrence_key VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Original UTC occurrence start from the generating routine. Null for events not generated by a calendar routine.' AFTER calendar_routine_id,
+    ADD COLUMN IF NOT EXISTS migration_personal_task_id BIGINT UNSIGNED COMMENT 'Temporary migration-only task identifier used to backfill event links.' AFTER routine_occurrence_key,
+    ADD COLUMN IF NOT EXISTS migration_relationship_kind ENUM('work', 'deadline') COMMENT 'Temporary migration-only meaning of a converted to-do timestamp.' AFTER migration_personal_task_id,
+    ADD UNIQUE KEY IF NOT EXISTS calendar_events_routine_occurrence (calendar_routine_id, routine_occurrence_key),
+    ADD UNIQUE KEY IF NOT EXISTS calendar_events_todo_timing_migration (migration_personal_task_id, migration_relationship_kind),
+    ADD CONSTRAINT IF NOT EXISTS calendar_events_routine FOREIGN KEY (calendar_routine_id) REFERENCES calendar_routines(calendar_routine_id) ON DELETE RESTRICT,
+    ADD CONSTRAINT IF NOT EXISTS calendar_events_routine_pair CHECK ((calendar_routine_id IS NULL) = (routine_occurrence_key IS NULL));
+
+CREATE TABLE IF NOT EXISTS calendar_events_todo_join (
+    calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Concrete calendar event associated with the task.',
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing personal to-do associated with the calendar event.',
+    relationship_kind ENUM('work', 'deadline', 'context') NOT NULL DEFAULT 'context' COMMENT 'Meaning of this event-to-task association.',
+    created_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (calendar_event_id, personal_task_id),
+    KEY calendar_events_todo_join_task (personal_task_id, calendar_event_id),
+    CONSTRAINT calendar_events_todo_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
+    CONSTRAINT calendar_events_todo_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links concrete calendar events to personal to-dos. Either side may have many links. Deleting either parent removes only its association rows. Calendar events own all temporal facts; to-dos own work and completion state.';
+
+ALTER TABLE calendar_events
+    COMMENT='Stores every concrete commitment and scheduled event in the user''s one authoritative agent calendar. A row may be independent, imported, or generated from calendar_routines. starts_at_utc and ends_at_utc are UTC instants; time_zone preserves the intended display zone. routine_occurrence_key preserves idempotent generation identity while edits may move the concrete event. planning_prompt_text is optional. Sensitivity: Contains the user''s private schedule, locations, participants, and imported calendar identifiers.';
+
+ALTER TABLE todo_personal
+    ADD COLUMN IF NOT EXISTS interaction_guide_id BIGINT UNSIGNED COMMENT 'Optional interaction guide offered when the user starts this task.' AFTER related_contact_id,
+    ADD CONSTRAINT IF NOT EXISTS todo_personal_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL;
+
+INSERT IGNORE INTO calendar_routines (
+    calendar_routine_id, title, first_starts_at_utc, first_ends_at_utc,
+    time_zone, is_all_day, recurrence_rule, disabled_at_utc,
+    planning_prompt_text, source_event_id, created_at_utc, updated_at_utc
+)
+SELECT routine.todo_routine_id, routine.text, routine.first_scheduled_at_utc,
+       CASE WHEN routine.duration_minutes IS NULL THEN NULL ELSE CONCAT(
+         LEFT(DATE_FORMAT(TIMESTAMPADD(MINUTE, routine.duration_minutes,
+           STR_TO_DATE(routine.first_scheduled_at_utc, '%Y-%m-%dT%H:%i:%s.%fZ')),
+           '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z') END,
+       routine.time_zone, routine.is_all_day, routine.recurrence_rule,
+       routine.disabled_at_utc, routine.planning_prompt_text,
+       routine.source_event_id, routine.created_at_utc, routine.updated_at_utc
+FROM todo_routines AS routine;
+
+UPDATE todo_personal AS task
+JOIN todo_routines AS routine ON routine.todo_routine_id = task.todo_routine_id
+SET task.interaction_guide_id = routine.interaction_guide_id
+WHERE task.interaction_guide_id IS NULL AND routine.interaction_guide_id IS NOT NULL;
+
+INSERT IGNORE INTO calendar_events (
+    calendar_routine_id, routine_occurrence_key,
+    migration_personal_task_id, migration_relationship_kind,
+    title, starts_at_utc, ends_at_utc, time_zone, is_all_day,
+    status, planning_prompt_text, source_event_id, created_at_utc, updated_at_utc
+)
+SELECT task.todo_routine_id, IF(task.todo_routine_id IS NULL, NULL, task.scheduled_at_utc),
+       task.personal_task_id, 'work', task.text, task.scheduled_at_utc,
+       CASE WHEN task.duration_minutes IS NULL THEN NULL ELSE CONCAT(
+         LEFT(DATE_FORMAT(TIMESTAMPADD(MINUTE, task.duration_minutes,
+           STR_TO_DATE(task.scheduled_at_utc, '%Y-%m-%dT%H:%i:%s.%fZ')),
+           '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z') END,
+       routine.time_zone, task.is_all_day, 'confirmed', task.planning_prompt_text,
+       task.source_event_id, task.created_at_utc, task.updated_at_utc
+FROM todo_personal AS task
+LEFT JOIN todo_routines AS routine ON routine.todo_routine_id = task.todo_routine_id
+WHERE task.scheduled_at_utc IS NOT NULL;
+
+INSERT IGNORE INTO calendar_events (
+    migration_personal_task_id, migration_relationship_kind,
+    title, starts_at_utc, time_zone, is_all_day, status,
+    source_event_id, created_at_utc, updated_at_utc
+)
+SELECT task.personal_task_id, 'deadline', CONCAT('Due: ', task.text),
+       task.due_at_utc, routine.time_zone, 0, 'confirmed',
+       task.source_event_id, task.created_at_utc, task.updated_at_utc
+FROM todo_personal AS task
+LEFT JOIN todo_routines AS routine ON routine.todo_routine_id = task.todo_routine_id
+WHERE task.due_at_utc IS NOT NULL;
+
+INSERT IGNORE INTO calendar_events_todo_join (calendar_event_id, personal_task_id, relationship_kind)
+SELECT calendar_event_id, migration_personal_task_id, migration_relationship_kind
+FROM calendar_events
+WHERE migration_personal_task_id IS NOT NULL;
+
+-- end migration 0039
+
 -- migration 0038: remove-legacy-agent-turn-attempts
 -- writer downtime: not required; the standalone runtime never reads or writes this legacy table.
 -- locking: DROP TABLE takes a metadata lock on agent_turn_attempts and briefly on its

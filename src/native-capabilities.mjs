@@ -1,11 +1,11 @@
 export const nativeCapabilityManifests = [
   {
     id: "catch-up", title: "Check-in catch-up",
-    summary: "Generate questions for selected journal dates, upcoming event planning, to-do deadline cutoffs and past-event follow-up. Ask one at a time and retain the exact selection, source-linked resolution, comments and deferral. No briefing authoring needed.",
+    summary: "Generate questions for selected journal dates, upcoming event planning, and past-event follow-up. Ask one at a time and retain the exact selection, source-linked resolution, comments and deferral.",
     aliases: ["catch me up", "catch up on the day", "check-in", "check in", "complete logs", "plan ahead", "daily review", "nag me", "hold me accountable", "unresolved", "get my life in order", "keep going"],
     instructionFile: "catch-up.md",
     readOnlyTools: ["catch_up_list"],
-    dependentTools: ["todo_update", "calendar_event_update", "calendar_event_occurrence_update", "journal_add", "tracker_list", "tracker_asking_schedule_set", "contact_lookup_batch"],
+    dependentTools: ["calendar_event_update", "calendar_event_occurrence_update", "journal_add", "tracker_list", "tracker_asking_schedule_set", "contact_lookup_batch"],
   },
   {
     id: "self", title: "Chapeaux Fous identity and infrastructure",
@@ -29,8 +29,8 @@ export const nativeCapabilityManifests = [
     readOnlyTools: ["web_page_read"],
   },
   {
-    id: "calendar", title: "Calendar", summary: "Read and manage native calendar events. The Calendar screen also displays scheduled personal to-dos, but those records belong to the to-dos capability.",
-    aliases: ["calendar", "schedule", "agenda", "appointment", "meeting", "event"],
+    id: "calendar", title: "Calendar and routines", summary: "Read and manage all temporal commitments, deadlines, reusable routines, generated events, and their links to to-dos.",
+    aliases: ["calendar", "schedule", "agenda", "appointment", "meeting", "event", "routine", "habit", "deadline", "due date", "work window"],
     instructionFile: "calendar.md",
     readOnlyTools: ["calendar_event_search", "calendar_event_list"],
   },
@@ -44,8 +44,8 @@ export const nativeCapabilityManifests = [
     readOnlyTools: ["contact_search", "contact_lookup_batch", "contact_duplicate_list"],
   },
   {
-    id: "todos", title: "To-dos and routines", summary: "Read and manage native personal to-dos, including Scheduled task and All-day task entries shown on the Calendar. Unplanned work windows belong here even when their eventual work concerns a property or TLOM.",
-    aliases: ["todo", "to-do", "task", "reminder", "chore", "routine", "habit", "work window", "regular work window", "unplanned window"], instructionFile: "todos.md",
+    id: "todos", title: "To-dos", summary: "Read and manage non-temporal personal to-dos. Calendar events own schedules and deadlines and may link to multiple to-dos.",
+    aliases: ["todo", "to-do", "task", "reminder", "chore"], instructionFile: "todos.md",
     readOnlyTools: ["todo_group_list", "todo_list"],
   },
   {

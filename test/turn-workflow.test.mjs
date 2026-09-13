@@ -895,27 +895,28 @@ test("an invalid weekday/date TurnBrief is repaired before a mutation becomes ca
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
   let executions = 0;
-  registry.withCapability("todos").register({
-    name: "todo_update",
-    description: "Update an exact to-do schedule.",
+  registry.withCapability("calendar").register({
+    name: "calendar_event_update",
+    description: "Update an exact calendar event.",
     annotations: { readOnlyHint: false, destructiveHint: false },
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: { scheduled_at_utc: { type: "string" } },
-      required: ["scheduled_at_utc"],
+      properties: { starts_at_utc: { type: "string" } },
+      required: ["starts_at_utc"],
     },
-    async execute({ scheduled_at_utc }, toolContext) {
+    async execute({ starts_at_utc }, toolContext) {
       executions += 1;
       assert.equal(toolContext.temporalResolutions[0].localDate, "2026-09-06");
-      return { updated_count: 1, scheduled_at_utc };
+      return { updated_count: 1, starts_at_utc };
     },
   });
   const invalid = {
     ...brief(),
     objective: "Schedule the Watch Jobs for Sunday, 2026-08-31.",
     summary: "Schedule the Watch Jobs on Sunday afternoon.",
-    requiredTools: ["todo_update"],
+    requiredCapabilities: ["calendar"],
+    requiredTools: ["calendar_event_update"],
     temporalResolutions: [{
       sourceText: "Sunday afternoon",
       sourceEventSeqs: [9],
@@ -923,10 +924,10 @@ test("an invalid weekday/date TurnBrief is repaired before a mutation becomes ca
       localDate: "2026-08-31",
       timeZone: "America/New_York",
       role: "target",
-      appliesTo: "scheduled_at",
+      appliesTo: "calendar_start",
     }],
     requestedActions: [{ text: "Schedule the Watch Jobs Sunday afternoon.", sourceEventSeqs: [9] }],
-    completionCriteria: ["A successful todo_update receipt schedules the tasks on Sunday."],
+    completionCriteria: ["A successful calendar_event_update receipt schedules the work on Sunday."],
   };
   const corrected = structuredClone(invalid);
   corrected.objective = "Schedule the Watch Jobs for Sunday, 2026-09-06.";
@@ -942,12 +943,12 @@ test("an invalid weekday/date TurnBrief is repaired before a mutation becomes ca
     }
     if (index === 2) {
       assert.equal(executions, 0);
-      assert.deepEqual(payload.tools.map(({ name }) => name), ["todo_update"]);
+      assert.deepEqual(payload.tools.map(({ name }) => name), ["calendar_event_update"]);
       assert.match(payload.developerInstructions, /2026-09-06/);
       const result = await payload.onToolCall({
         callId: "schedule-sunday",
-        tool: "todo_update",
-        arguments: { scheduled_at_utc: "2026-09-06T20:00:00.000Z" },
+        tool: "calendar_event_update",
+        arguments: { starts_at_utc: "2026-09-06T20:00:00.000Z" },
       });
       assert.equal(result.ok, true);
       return completed("Scheduled the Watch Jobs for Sunday.", 30);

@@ -14,6 +14,43 @@ function validTimeZone(value) {
   }
 }
 
+function zonedNumericParts(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).formatToParts(date);
+  return Object.fromEntries(parts.filter(({ type }) => type !== "literal")
+    .map(({ type, value }) => [type, Number(value)]));
+}
+
+function zonedPartsToUtc(parts, timeZone) {
+  const desired = Date.UTC(parts.year, parts.month - 1, parts.day,
+    parts.hour ?? 0, parts.minute ?? 0, parts.second ?? 0);
+  let candidate = desired;
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const actual = zonedNumericParts(new Date(candidate), timeZone);
+    const represented = Date.UTC(actual.year, actual.month - 1, actual.day,
+      actual.hour, actual.minute, actual.second);
+    const correction = desired - represented;
+    candidate += correction;
+    if (correction === 0) break;
+  }
+  return new Date(candidate);
+}
+
+export function localDateUtcBounds({ localDate, timeZone }) {
+  const parsed = dateParts(localDate);
+  if (!parsed) throw new Error("localDate must be a valid YYYY-MM-DD calendar date");
+  if (!validTimeZone(timeZone)) throw new Error("timeZone must be a valid IANA time zone");
+  const nextDate = new Date(parsed.date.getTime() + 86_400_000);
+  const next = { year: nextDate.getUTCFullYear(), month: nextDate.getUTCMonth() + 1, day: nextDate.getUTCDate() };
+  return {
+    localDate, timeZone,
+    startsAtUtc: zonedPartsToUtc(parsed, timeZone).toISOString(),
+    endsAtUtc: zonedPartsToUtc(next, timeZone).toISOString(),
+  };
+}
+
 function dateParts(localDate) {
   if (!localDatePattern.test(String(localDate ?? ""))) return null;
   const [year, month, day] = localDate.split("-").map(Number);

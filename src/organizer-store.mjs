@@ -10,12 +10,10 @@ import { redactText, safeJson } from "./redaction.mjs";
 import {
   archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupSequenceMode,
 } from "./todo-group-operations.mjs";
-import { moveOverdueTodosToToday } from "./todo-schedule-operations.mjs";
 
 const { rrulestr } = rrulePackage;
 const dayMilliseconds = 86_400_000;
 const defaultCalendarTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-const routinePublishSource = "routine_publish";
 
 const calendarStatuses = new Set(["active", "archived"]);
 const visibleCalendarStorageStatuses = ["tentative", "confirmed"];
@@ -530,6 +528,8 @@ function publicCalendarEvent(row) {
   if (!row) return null;
   return {
     id: row.calendar_event_id,
+    calendarRoutineId: row.calendar_routine_id == null ? null : Number(row.calendar_routine_id),
+    routineOccurrenceKey: row.routine_occurrence_key ?? null,
     icalUid: row.ical_uid,
     icalRecurrenceId: row.ical_recurrence_id,
     title: row.title,
@@ -652,9 +652,6 @@ function publicTodo(row) {
     groupId: row.todo_group_id,
     groupName: row.group_name,
     groupArchivedAtUtc: row.group_archived_at_utc ?? null,
-    routineId: row.todo_routine_id,
-    routineText: row.routine_text ?? null,
-    routinePublicationMode: row.routine_publication_mode ?? null,
     sequence: row.sequence,
     relatedContactId: row.related_contact_id,
     relatedContactName: row.related_contact_name ?? null,
@@ -663,13 +660,7 @@ function publicTodo(row) {
     status: row.status,
     planningPromptText: row.planning_prompt_text ?? null,
     sortPosition: row.sort_position,
-    scheduledAtUtc: row.scheduled_at_utc,
-    isAllDay: Boolean(row.is_all_day),
-    durationMinutes: row.duration_minutes == null ? null : Number(row.duration_minutes),
-    dueAtUtc: row.due_at_utc,
     completedAtUtc: row.completed_at_utc,
-    recurrenceRule: row.routine_recurrence_rule,
-    recurrenceTimeZone: row.routine_time_zone,
     interactionGuideId: row.interaction_guide_id ?? null,
     interactionGuideName: row.interaction_guide_name ?? null,
     interactionGuideStatus: row.interaction_guide_status ?? null,
@@ -681,27 +672,49 @@ function publicTodo(row) {
   };
 }
 
+function calendarEventTodoLinks(database, eventIds) {
+  const ids = [...new Set(eventIds.filter((id) => Number.isInteger(Number(id))).map(Number))];
+  if (ids.length === 0) return new Map();
+  const rows = database.prepare(`
+    SELECT relation.calendar_event_id, relation.personal_task_id,
+           relation.relationship_kind, task.text, task.status,
+           task.todo_group_id, todo_group.name AS group_name
+    FROM calendar_events_todo_join AS relation
+    JOIN todo_personal AS task USING (personal_task_id)
+    JOIN todo_groups AS todo_group USING (todo_group_id)
+    WHERE relation.calendar_event_id IN (${ids.map(() => "?").join(", ")})
+    ORDER BY relation.calendar_event_id, todo_group.sort_position,
+             task.sort_position, task.personal_task_id
+  `).all(...ids);
+  const byEvent = new Map(ids.map((id) => [id, []]));
+  for (const row of rows) byEvent.get(Number(row.calendar_event_id)).push({
+    todoId: Number(row.personal_task_id),
+    relationshipKind: row.relationship_kind,
+    text: row.text,
+    status: row.status,
+    groupId: Number(row.todo_group_id),
+    groupName: row.group_name,
+  });
+  return byEvent;
+}
+
+function attachCalendarEventTodoLinks(database, events) {
+  const links = calendarEventTodoLinks(database, events.map(({ id }) => id));
+  return events.map((event) => ({ ...event, linkedTodos: links.get(Number(event.id)) ?? [] }));
+}
+
 function publicRoutine(row) {
   if (!row) return null;
   return {
-    id: Number(row.todo_routine_id),
-    groupId: Number(row.todo_group_id),
-    groupName: row.group_name,
-    publicationMode: row.publication_mode,
-    text: row.text,
-    status: row.default_status,
-    scheduledAtUtc: row.first_scheduled_at_utc,
-    dueAtUtc: row.first_due_at_utc,
-    recurrenceTimeZone: row.time_zone,
+    id: Number(row.calendar_routine_id),
+    title: row.title,
+    description: row.description ?? null,
+    location: row.location_text ?? null,
+    startsAtUtc: row.first_starts_at_utc,
+    endsAtUtc: row.first_ends_at_utc,
+    timeZone: row.time_zone,
     recurrenceRule: row.recurrence_rule,
     isAllDay: Boolean(row.is_all_day),
-    durationMinutes: row.duration_minutes == null ? null : Number(row.duration_minutes),
-    relatedContactId: row.related_contact_id == null ? null : Number(row.related_contact_id),
-    relatedContactName: row.related_contact_name ?? null,
-    relatedContactStatus: row.related_contact_status ?? null,
-    interactionGuideId: row.interaction_guide_id == null ? null : Number(row.interaction_guide_id),
-    interactionGuideName: row.interaction_guide_name ?? null,
-    interactionGuideStatus: row.interaction_guide_status ?? null,
     planningPromptText: row.planning_prompt_text ?? null,
     disabledAtUtc: row.disabled_at_utc ?? null,
     sourceEventId: row.source_event_id ?? null,
@@ -712,17 +725,8 @@ function publicRoutine(row) {
 }
 
 const routineContextSelect = `
-  SELECT routine.*, todo_group.name AS group_name,
-         interaction_guide.name AS interaction_guide_name,
-         interaction_guide.status AS interaction_guide_status,
-         related_contact.display_name AS related_contact_name,
-         related_contact.status AS related_contact_status
-  FROM todo_routines AS routine
-  JOIN todo_groups AS todo_group USING (todo_group_id)
-  LEFT JOIN interaction_guides AS interaction_guide
-    ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
-  LEFT JOIN contacts AS related_contact
-    ON related_contact.contact_id = routine.related_contact_id
+  SELECT routine.*
+  FROM calendar_routines AS routine
 `;
 
 function publicTodoGroup(row) {
@@ -807,60 +811,6 @@ function publicJournalEntry(row) {
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
   };
-}
-
-export function generateNextRoutineTask(database, personalTaskId, {
-  now = new Date(), nextStatus = null,
-} = {}) {
-  const todo = database.prepare(`
-    SELECT * FROM todo_personal WHERE personal_task_id = ?
-  `).get(personalTaskId);
-  if (!todo?.todo_routine_id) return null;
-  const routine = database.prepare(`
-    SELECT * FROM todo_routines
-    WHERE todo_routine_id = ?
-      AND disabled_at_utc IS NULL
-      AND publication_mode = 'on_completion'
-  `).get(todo.todo_routine_id);
-  if (!routine) return null;
-  const threshold = new Date(Math.max(
-    now.getTime(),
-    todo.scheduled_at_utc ? new Date(todo.scheduled_at_utc).getTime() : 0,
-  ));
-  let scheduled;
-  try {
-    scheduled = nextOccurrence({
-      startsAtUtc: routine.first_scheduled_at_utc,
-      timeZone: routine.time_zone,
-      recurrenceRule: routine.recurrence_rule,
-    }, threshold);
-  } catch {
-    return null;
-  }
-  if (!scheduled) return null;
-  const dueOffset = routine.first_due_at_utc
-    ? new Date(routine.first_due_at_utc).getTime() - new Date(routine.first_scheduled_at_utc).getTime()
-    : null;
-  const dueAtUtc = dueOffset == null ? null : new Date(scheduled.getTime() + dueOffset).toISOString();
-  const sortPosition = Number(database.prepare(`
-    SELECT COALESCE(MAX(sort_position), 0) + 10 AS next_position
-    FROM todo_personal WHERE todo_group_id = ?
-  `).get(routine.todo_group_id).next_position);
-  const result = database.prepare(`
-    INSERT IGNORE INTO todo_personal (
-      todo_group_id, todo_routine_id, related_contact_id, text, status, sort_position,
-      scheduled_at_utc, is_all_day, duration_minutes, due_at_utc,
-      planning_prompt_text, source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'routine')
-  `).run(
-    routine.todo_group_id, routine.todo_routine_id, routine.related_contact_id, routine.text,
-    nextStatus && ["unplanned", "todo", "ai_suggested"].includes(nextStatus)
-      ? nextStatus
-      : routine.default_status,
-    sortPosition, scheduled.toISOString(), routine.is_all_day, routine.duration_minutes, dueAtUtc,
-    routine.planning_prompt_text,
-  );
-  return result.changes === 1 ? Number(result.lastInsertRowid) : null;
 }
 
 function changedFields(before, after, fields) {
@@ -1750,9 +1700,9 @@ export class OrganizerStore {
     if (strictBounds && ordinary.length + recurring.length > 2000) {
       throw new OrganizerInputError("Calendar exceeded 2000 occurrences; narrow the catch-up date range.");
     }
-    return [...ordinary, ...recurring, ...birthdays]
+    return attachCalendarEventTodoLinks(this.database, [...ordinary, ...recurring, ...birthdays]
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc) || String(left.id).localeCompare(String(right.id)))
-      .slice(0, 2000);
+      .slice(0, 2000));
   }
 
   searchCalendar({ query, includeArchived = false, limit = 100 } = {}) {
@@ -1760,11 +1710,11 @@ export class OrganizerStore {
     return {
       query: result.query,
       includeArchived: result.includeArchived,
-      events: result.rows.map(publicCalendarEvent),
+      events: attachCalendarEventTodoLinks(this.database, result.rows.map(publicCalendarEvent)),
     };
   }
 
-  listTodos({ scope = "active", limit = 500, from = null, to = null } = {}) {
+  listTodos({ scope = "active", limit = 500 } = {}) {
     const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 1000 });
     if (!new Set(["active", "unplanned", "all", "completed"]).has(scope)) {
       throw new OrganizerInputError("scope must be active, unplanned, completed, or all.");
@@ -1776,44 +1726,17 @@ export class OrganizerStore {
         : scope === "completed"
           ? "WHERE task.status = 'complete'"
           : "";
-    const parameters = [];
-    if (from !== null || to !== null) {
-      const fromUtc = isoDateTime(from, "from");
-      const toUtc = isoDateTime(to, "to");
-      if (!fromUtc || !toUtc || fromUtc >= toUtc
-        || new Date(toUtc) - new Date(fromUtc) > dayMilliseconds * 62) {
-        throw new OrganizerInputError("Calendar to-dos require a positive from/to range of at most 62 days.");
-      }
-      // Filter before LIMIT so unrelated backlog cannot hide the displayed week.
-      where += `${where ? " AND" : "WHERE"} (
-        (task.scheduled_at_utc < ? AND (
-          task.scheduled_at_utc >= ?
-          OR (task.duration_minutes > 0 AND TIMESTAMPADD(
-            MINUTE, task.duration_minutes,
-            CAST(REPLACE(REPLACE(task.scheduled_at_utc, 'T', ' '), 'Z', '') AS DATETIME(3))
-          ) > CAST(? AS DATETIME(3)))
-        ))
-        OR (task.due_at_utc >= ? AND task.due_at_utc < ?)
-      )`;
-      parameters.push(toUtc, fromUtc, fromUtc.replace("T", " ").replace("Z", ""), fromUtc, toUtc);
-    }
     return this.database.prepare(`
       SELECT task.*, todo_group.name AS group_name,
              todo_group.archived_at_utc AS group_archived_at_utc,
-             routine.text AS routine_text,
-             routine.publication_mode AS routine_publication_mode,
-             routine.recurrence_rule AS routine_recurrence_rule,
-             routine.time_zone AS routine_time_zone,
-             routine.interaction_guide_id,
              interaction_guide.name AS interaction_guide_name,
              interaction_guide.status AS interaction_guide_status,
              related_contact.display_name AS related_contact_name,
              related_contact.status AS related_contact_status
       FROM todo_personal AS task
       JOIN todo_groups AS todo_group USING (todo_group_id)
-      LEFT JOIN todo_routines AS routine USING (todo_routine_id)
       LEFT JOIN interaction_guides AS interaction_guide
-        ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
+        ON interaction_guide.interaction_guide_id = task.interaction_guide_id
       LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
       ${where}
       ORDER BY
@@ -1824,36 +1747,7 @@ export class OrganizerStore {
         task.sort_position,
         task.personal_task_id
       LIMIT ?
-    `).all(...parameters, boundedLimit).map(publicTodo);
-  }
-
-  moveOverdueTodosToToday(input) {
-    this.database.exec("START TRANSACTION");
-    try {
-      const result = moveOverdueTodosToToday(this.database, input ?? {});
-      const movedTodoIds = result.moves.map(({ id }) => id);
-      if (movedTodoIds.length > 0) {
-        this.#activity({
-          eventType: "personal_todos.moved_to_today",
-          status: "complete",
-          name: "Overdue tasks moved to today",
-          subjectType: "personal_task_batch",
-          subjectId: result.localDate,
-          contentText: `Moved ${movedTodoIds.length} overdue ${movedTodoIds.length === 1 ? "task" : "tasks"} to ${result.localDate}`,
-          payload: {
-            localDate: result.localDate,
-            timeZone: result.timeZone,
-            movedTodoIds,
-            moves: result.moves,
-          },
-        });
-      }
-      this.database.exec("COMMIT");
-      return { movedCount: movedTodoIds.length, movedTodoIds };
-    } catch (error) {
-      this.database.exec("ROLLBACK");
-      throw error;
-    }
+    `).all(boundedLimit).map(publicTodo);
   }
 
   listTodoGroups({ includeArchived = false } = {}) {
@@ -1865,268 +1759,132 @@ export class OrganizerStore {
     `).all().map(publicTodoGroup);
   }
 
-  getRoutine(idValue) {
-    const id = identifier(idValue, "routine id");
+  getCalendarRoutine(idValue) {
+    const id = identifier(idValue, "calendar routine id");
     return publicRoutine(this.database.prepare(`
       ${routineContextSelect}
-      WHERE routine.todo_routine_id = ?
+      WHERE routine.calendar_routine_id = ?
     `).get(id));
   }
 
-  listRoutines({ includeDisabled = false, publicationMode = null } = {}) {
-    if (publicationMode !== null && !["calendar", "on_completion"].includes(publicationMode)) {
-      throw new OrganizerInputError("publicationMode must be calendar or on_completion.");
-    }
-    const conditions = [];
-    const values = [];
-    if (!includeDisabled) conditions.push("routine.disabled_at_utc IS NULL");
-    if (publicationMode !== null) {
-      conditions.push("routine.publication_mode = ?");
-      values.push(publicationMode);
-    }
+  listCalendarRoutines({ includeDisabled = false } = {}) {
     return this.database.prepare(`
       ${routineContextSelect}
-      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
-      ORDER BY routine.todo_routine_id
-    `).all(...values).map(publicRoutine);
+      ${includeDisabled ? "" : "WHERE routine.disabled_at_utc IS NULL"}
+      ORDER BY routine.calendar_routine_id
+    `).all().map(publicRoutine);
   }
 
-  createRoutine(input, context = {}) {
+  createCalendarRoutine(input, context = {}) {
     const routine = {
-      groupId: input?.groupId == null ? null : identifier(input.groupId, "group id"),
-      text: requiredText(input?.text, "text", 10_000),
-      scheduledAtUtc: isoDateTime(input?.scheduledAtUtc, "scheduledAtUtc"),
+      title: requiredText(input?.title, "title", 500),
+      description: optionalText(input?.description, "description", 10_000),
+      location: optionalText(input?.location, "location", 1000),
+      startsAtUtc: isoDateTime(input?.startsAtUtc, "startsAtUtc", { required: true }),
+      endsAtUtc: isoDateTime(input?.endsAtUtc, "endsAtUtc"),
+      timeZone: timeZone(input?.timeZone) ?? defaultCalendarTimeZone,
       isAllDay: Boolean(booleanInteger(input?.isAllDay)),
-      durationMinutes: optionalPositiveInteger(input?.durationMinutes, "durationMinutes"),
-      dueAtUtc: isoDateTime(input?.dueAtUtc, "dueAtUtc"),
       recurrenceRule: optionalText(input?.recurrenceRule, "recurrenceRule", 2000),
-      recurrenceTimeZone: timeZone(input?.recurrenceTimeZone) ?? defaultCalendarTimeZone,
-      relatedContactId: input?.relatedContactId == null
-        ? null
-        : identifier(input.relatedContactId, "related contact id"),
-      interactionGuideId: input?.interactionGuideId == null
-        ? null
-        : identifier(input.interactionGuideId, "briefing id"),
-      status: enumValue(input?.status, new Set(["unplanned", "todo", "ai_suggested"]), "status", "todo"),
       planningPromptText: optionalText(input?.planningPromptText, "planningPromptText", 10_000),
     };
-    if (!routine.scheduledAtUtc) {
-      throw new OrganizerInputError("A routine requires its first scheduled date and time.");
-    }
-    if (!routine.recurrenceRule) {
-      throw new OrganizerInputError("A routine requires a recurrence rule.");
-    }
-    if (routine.durationMinutes !== null && routine.isAllDay) {
-      throw new OrganizerInputError("durationMinutes requires an exact-time routine.");
-    }
-    if (routine.dueAtUtc
-      && new Date(routine.dueAtUtc).getTime() < new Date(routine.scheduledAtUtc).getTime()) {
-      throw new OrganizerInputError("dueAtUtc cannot be earlier than scheduledAtUtc.");
-    }
-    if (routine.relatedContactId !== null && !this.database.prepare(
-      "SELECT 1 FROM contacts WHERE contact_id = ?",
-    ).get(routine.relatedContactId)) {
-      throw new OrganizerInputError("Related contact not found.", 404);
-    }
-    if (routine.interactionGuideId !== null && !this.database.prepare(`
-      SELECT 1 FROM interaction_guides
-      WHERE interaction_guide_id = ? AND status = 'active'
-    `).get(routine.interactionGuideId)) {
-      throw new OrganizerInputError("Active briefing not found.", 404);
+    if (!routine.recurrenceRule) throw new OrganizerInputError("A calendar routine requires a recurrence rule.");
+    if (routine.endsAtUtc && routine.endsAtUtc < routine.startsAtUtc) {
+      throw new OrganizerInputError("endsAtUtc cannot be earlier than startsAtUtc.");
     }
     try {
-      previewRoutineOccurrenceStarts({
-        startsAtUtc: routine.scheduledAtUtc,
-        timeZone: routine.recurrenceTimeZone,
-        recurrenceRule: routine.recurrenceRule,
-        limit: 1,
-      });
+      previewRoutineOccurrenceStarts(routine);
     } catch {
       throw new OrganizerInputError("recurrenceRule must be a valid RRULE.");
     }
-
-    const group = routine.groupId == null
-      ? this.database.prepare(`
-          SELECT * FROM todo_groups
-          WHERE name = 'Inbox' AND archived_at_utc IS NULL
-        `).get()
-      : this.database.prepare(`
-          SELECT * FROM todo_groups
-          WHERE todo_group_id = ? AND archived_at_utc IS NULL
-        `).get(routine.groupId);
-    if (!group) throw new OrganizerInputError("Active destination to-do group not found.", 404);
-
     this.database.exec("START TRANSACTION");
     try {
-      const now = new Date().toISOString();
-      const insertedRoutine = this.database.prepare(`
-        INSERT INTO todo_routines (
-          todo_group_id, publication_mode, text, default_status,
-          first_scheduled_at_utc, first_due_at_utc, time_zone, recurrence_rule,
-          related_contact_id, is_all_day, duration_minutes,
-          interaction_guide_id, planning_prompt_text, created_at_utc
-        ) VALUES (?, 'calendar', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      const inserted = this.database.prepare(`
+        INSERT INTO calendar_routines (
+          title, description, location_text, first_starts_at_utc, first_ends_at_utc,
+          time_zone, is_all_day, recurrence_rule, planning_prompt_text
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        group.todo_group_id, routine.text, routine.status,
-        routine.scheduledAtUtc, routine.dueAtUtc, routine.recurrenceTimeZone,
-        routine.recurrenceRule, routine.relatedContactId, routine.isAllDay ? 1 : 0,
-        routine.durationMinutes, routine.interactionGuideId, routine.planningPromptText, now,
+        routine.title, routine.description, routine.location, routine.startsAtUtc,
+        routine.endsAtUtc, routine.timeZone, routine.isAllDay ? 1 : 0,
+        routine.recurrenceRule, routine.planningPromptText,
       );
-      const routineId = Number(insertedRoutine.lastInsertRowid);
-      const eventId = this.#activity({
-        eventType: "personal_routine.created",
-        status: "complete",
-        name: "Routine definition created",
-        subjectType: "todo_routine",
-        subjectId: routineId,
-        contentText: routine.text,
-        payload: { todoRoutineId: routineId },
-        actorType: context.actorType ?? "tool",
-        actorName: context.actorName ?? "routine_add",
-        source: context.source ?? "agent-slayer",
-        channel: context.channel ?? "model_tool",
-        turnId: context.requestId ?? null,
-        operationId: context.callId ?? null,
+      const id = Number(inserted.lastInsertRowid);
+      const sourceEventId = this.#activity({
+        eventType: "calendar.routine.created", status: "complete",
+        name: "Calendar routine created", subjectType: "calendar_routine", subjectId: id,
+        contentText: routine.title, payload: { calendarRoutineId: id },
+        actorType: context.actorType ?? "tool", actorName: context.actorName ?? "calendar_routine_add",
+        source: context.source ?? "agent-slayer", channel: context.channel ?? "model_tool",
+        turnId: context.requestId ?? null, operationId: context.callId ?? null,
       });
-      this.database.prepare(`
-        UPDATE todo_routines SET source_event_id = ? WHERE todo_routine_id = ?
-      `).run(eventId, routineId);
-      const nextOccurrences = previewRoutineOccurrenceStarts({
-        startsAtUtc: routine.scheduledAtUtc,
-        timeZone: routine.recurrenceTimeZone,
-        recurrenceRule: routine.recurrenceRule,
-        limit: 3,
-      });
+      this.database.prepare("UPDATE calendar_routines SET source_event_id = ? WHERE calendar_routine_id = ?")
+        .run(sourceEventId, id);
       this.database.exec("COMMIT");
-      return {
-        routine: this.getRoutine(routineId),
-        nextOccurrences,
-      };
+      return { routine: this.getCalendarRoutine(id), nextOccurrences: previewRoutineOccurrenceStarts(routine) };
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
     }
   }
 
-  updateRoutine(idValue, input, context = {}) {
-    const id = identifier(idValue, "routine id");
-    const before = this.getRoutine(id);
-    if (!before || before.publicationMode !== "calendar") {
-      throw new OrganizerInputError("Calendar routine not found.", 404);
-    }
+  updateCalendarRoutine(idValue, input, context = {}) {
+    const id = identifier(idValue, "calendar routine id");
+    const before = this.getCalendarRoutine(id);
+    if (!before) throw new OrganizerInputError("Calendar routine not found.", 404);
     if (input?.version !== before.version) {
-      throw new OrganizerInputError("This routine changed after you opened it. Refresh and try again.", 409);
+      throw new OrganizerInputError("This calendar routine changed after you opened it. Refresh and try again.", 409);
     }
     const after = {
       ...before,
-      groupId: input.groupId === undefined ? before.groupId : identifier(input.groupId, "group id"),
-      text: input.text === undefined ? before.text : requiredText(input.text, "text", 10_000),
-      status: input.status === undefined
-        ? before.status
-        : enumValue(input.status, new Set(["unplanned", "todo", "ai_suggested"]), "status", before.status),
-      scheduledAtUtc: input.scheduledAtUtc === undefined
-        ? before.scheduledAtUtc
-        : isoDateTime(input.scheduledAtUtc, "scheduledAtUtc"),
-      dueAtUtc: input.dueAtUtc === undefined ? before.dueAtUtc : isoDateTime(input.dueAtUtc, "dueAtUtc"),
-      recurrenceRule: input.recurrenceRule === undefined
-        ? before.recurrenceRule
-        : optionalText(input.recurrenceRule, "recurrenceRule", 2000),
-      recurrenceTimeZone: input.recurrenceTimeZone === undefined
-        ? before.recurrenceTimeZone
-        : timeZone(input.recurrenceTimeZone),
-      relatedContactId: input.relatedContactId === undefined
-        ? before.relatedContactId
-        : (input.relatedContactId == null ? null : identifier(input.relatedContactId, "related contact id")),
-      interactionGuideId: input.interactionGuideId === undefined
-        ? before.interactionGuideId
-        : (input.interactionGuideId == null ? null : identifier(input.interactionGuideId, "briefing id")),
+      title: input.title === undefined ? before.title : requiredText(input.title, "title", 500),
+      description: input.description === undefined ? before.description : optionalText(input.description, "description", 10_000),
+      location: input.location === undefined ? before.location : optionalText(input.location, "location", 1000),
+      startsAtUtc: input.startsAtUtc === undefined ? before.startsAtUtc : isoDateTime(input.startsAtUtc, "startsAtUtc", { required: true }),
+      endsAtUtc: input.endsAtUtc === undefined ? before.endsAtUtc : isoDateTime(input.endsAtUtc, "endsAtUtc"),
+      timeZone: input.timeZone === undefined ? before.timeZone : (timeZone(input.timeZone) ?? defaultCalendarTimeZone),
       isAllDay: input.isAllDay === undefined ? before.isAllDay : Boolean(booleanInteger(input.isAllDay)),
-      durationMinutes: input.durationMinutes === undefined
-        ? before.durationMinutes
-        : optionalPositiveInteger(input.durationMinutes, "durationMinutes"),
-      planningPromptText: input.planningPromptText === undefined
-        ? before.planningPromptText
-        : optionalText(input.planningPromptText, "planningPromptText", 10_000),
+      recurrenceRule: input.recurrenceRule === undefined ? before.recurrenceRule : optionalText(input.recurrenceRule, "recurrenceRule", 2000),
+      planningPromptText: input.planningPromptText === undefined ? before.planningPromptText : optionalText(input.planningPromptText, "planningPromptText", 10_000),
+      disabledAtUtc: input.disabled === undefined ? before.disabledAtUtc : (input.disabled ? new Date().toISOString() : null),
     };
-    if (!after.scheduledAtUtc || !after.recurrenceRule || !after.recurrenceTimeZone) {
-      throw new OrganizerInputError("A routine requires a first schedule, time zone, and recurrence rule.");
+    if (!after.recurrenceRule) throw new OrganizerInputError("A calendar routine requires a recurrence rule.");
+    if (after.endsAtUtc && after.endsAtUtc < after.startsAtUtc) {
+      throw new OrganizerInputError("endsAtUtc cannot be earlier than startsAtUtc.");
     }
-    if (after.durationMinutes !== null && after.isAllDay) {
-      throw new OrganizerInputError("durationMinutes requires an exact-time routine.");
-    }
-    if (after.dueAtUtc && after.dueAtUtc < after.scheduledAtUtc) {
-      throw new OrganizerInputError("dueAtUtc cannot be earlier than scheduledAtUtc.");
-    }
-    if (!this.database.prepare(`
-      SELECT 1 FROM todo_groups WHERE todo_group_id = ? AND archived_at_utc IS NULL
-    `).get(after.groupId)) throw new OrganizerInputError("Active destination to-do group not found.", 404);
-    if (after.relatedContactId !== null && !this.database.prepare(
-      "SELECT 1 FROM contacts WHERE contact_id = ?",
-    ).get(after.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
-    if (after.interactionGuideId !== null && !this.database.prepare(`
-      SELECT 1 FROM interaction_guides
-      WHERE interaction_guide_id = ? AND status = 'active'
-    `).get(after.interactionGuideId)) throw new OrganizerInputError("Active briefing not found.", 404);
-    try {
-      previewRoutineOccurrenceStarts({
-        startsAtUtc: after.scheduledAtUtc,
-        timeZone: after.recurrenceTimeZone,
-        recurrenceRule: after.recurrenceRule,
-        limit: 1,
-      });
-    } catch {
+    try { previewRoutineOccurrenceStarts(after); } catch {
       throw new OrganizerInputError("recurrenceRule must be a valid RRULE.");
     }
-    const changes = changedFields(before, after, [
-      "groupId", "text", "status", "scheduledAtUtc", "dueAtUtc",
-      "recurrenceRule", "recurrenceTimeZone", "relatedContactId",
-      "interactionGuideId", "isAllDay", "durationMinutes", "planningPromptText",
-    ]);
+    const fields = ["title", "description", "location", "startsAtUtc", "endsAtUtc", "timeZone", "isAllDay", "recurrenceRule", "planningPromptText", "disabledAtUtc"];
+    const changes = changedFields(before, after, fields);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
     this.database.exec("START TRANSACTION");
     try {
       const result = this.database.prepare(`
-        UPDATE todo_routines
-        SET todo_group_id = ?, text = ?, default_status = ?,
-            first_scheduled_at_utc = ?, first_due_at_utc = ?, time_zone = ?, recurrence_rule = ?,
-            related_contact_id = ?, is_all_day = ?, duration_minutes = ?,
-            interaction_guide_id = ?, planning_prompt_text = ?, updated_at_utc = ?
-        WHERE todo_routine_id = ?
-          AND COALESCE(updated_at_utc, created_at_utc) = ?
-      `).run(
-        after.groupId, after.text, after.status, after.scheduledAtUtc, after.dueAtUtc,
-        after.recurrenceTimeZone, after.recurrenceRule, after.relatedContactId,
-        after.isAllDay ? 1 : 0, after.durationMinutes, after.interactionGuideId,
-        after.planningPromptText, updatedAt, id, before.version,
-      );
-      if (result.changes !== 1) {
-        throw new OrganizerInputError("This routine changed while you were saving it. Refresh and try again.", 409);
-      }
-      this.#activity({
-        eventType: "personal_routine.updated",
-        status: "complete",
-        name: "Routine definition updated",
-        subjectType: "todo_routine",
-        subjectId: id,
-        contentText: after.text,
-        payload: { changes },
-        actorType: context.actorType ?? "user",
-        actorName: context.actorName ?? "Nate",
-        source: context.source ?? "tailnet_web",
-        channel: context.channel ?? "tailnet_web",
-        turnId: context.requestId ?? null,
-        operationId: context.callId ?? null,
-      });
+        UPDATE calendar_routines
+        SET title = ?, description = ?, location_text = ?, first_starts_at_utc = ?,
+            first_ends_at_utc = ?, time_zone = ?, is_all_day = ?, recurrence_rule = ?,
+            disabled_at_utc = ?, planning_prompt_text = ?, updated_at_utc = ?
+        WHERE calendar_routine_id = ? AND COALESCE(updated_at_utc, created_at_utc) = ?
+      `).run(after.title, after.description, after.location, after.startsAtUtc, after.endsAtUtc,
+        after.timeZone, after.isAllDay ? 1 : 0, after.recurrenceRule, after.disabledAtUtc,
+        after.planningPromptText, updatedAt, id, before.version);
+      if (result.changes !== 1) throw new OrganizerInputError("This calendar routine changed while you were saving it. Refresh and try again.", 409);
+      this.#activity({ eventType: "calendar.routine.updated", status: "complete",
+        name: "Calendar routine updated", subjectType: "calendar_routine", subjectId: id,
+        contentText: after.title, payload: { changes },
+        actorType: context.actorType ?? "user", actorName: context.actorName ?? "Nate",
+        source: context.source ?? "tailnet_web", channel: context.channel ?? "tailnet_web",
+        turnId: context.requestId ?? null, operationId: context.callId ?? null });
       this.database.exec("COMMIT");
-      return this.getRoutine(id);
+      return this.getCalendarRoutine(id);
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
     }
   }
 
-  previewRoutines({ from, to } = {}) {
+  previewCalendarRoutines({ from, to } = {}) {
     const fromUtc = isoDateTime(from, "from");
     const toUtc = isoDateTime(to, "to");
     if (!fromUtc || !toUtc || fromUtc >= toUtc) {
@@ -2134,17 +1892,17 @@ export class OrganizerStore {
     }
     const rangeStartMilliseconds = new Date(fromUtc).getTime();
     const rangeEndMilliseconds = new Date(toUtc).getTime();
-    const routines = this.listRoutines({ publicationMode: "calendar" });
+    const routines = this.listCalendarRoutines();
     const occurrences = [];
     for (const routine of routines) {
-      const durationMilliseconds = routine.durationMinutes == null
-        ? 0
-        : routine.durationMinutes * 60_000;
+      const durationMilliseconds = routine.endsAtUtc
+        ? Math.max(0, new Date(routine.endsAtUtc) - new Date(routine.startsAtUtc))
+        : 0;
       let dates = [];
       try {
         dates = hypotheticalOccurrenceDates({
-          startsAtUtc: routine.scheduledAtUtc,
-          timeZone: routine.recurrenceTimeZone,
+          startsAtUtc: routine.startsAtUtc,
+          timeZone: routine.timeZone,
           recurrenceRule: routine.recurrenceRule,
         }, fromUtc, toUtc, durationMilliseconds);
       } catch {
@@ -2159,105 +1917,89 @@ export class OrganizerStore {
             : scheduledMilliseconds < rangeStartMilliseconds)) continue;
         occurrences.push({
           routineId: routine.id,
-          text: routine.text,
-          scheduledAtUtc: scheduled.toISOString(),
+          title: routine.title,
+          startsAtUtc: scheduled.toISOString(),
+          endsAtUtc: durationMilliseconds ? new Date(endsAtMilliseconds).toISOString() : null,
           isAllDay: routine.isAllDay,
-          durationMinutes: routine.durationMinutes,
           recurrenceRule: routine.recurrenceRule,
-          recurrenceTimeZone: routine.recurrenceTimeZone,
+          timeZone: routine.timeZone,
           planningPromptText: routine.planningPromptText,
         });
       }
     }
-    occurrences.sort((left, right) => left.scheduledAtUtc.localeCompare(right.scheduledAtUtc)
+    occurrences.sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc)
       || left.routineId - right.routineId);
     return { routines, occurrences };
   }
 
-  publishRoutines({ from, to } = {}) {
+  generateCalendarRoutines({ from, to } = {}) {
     const fromUtc = isoDateTime(from, "from");
     const toUtc = isoDateTime(to, "to");
     const rangeMilliseconds = fromUtc && toUtc
       ? new Date(toUtc).getTime() - new Date(fromUtc).getTime()
       : 0;
     if (!fromUtc || !toUtc || rangeMilliseconds <= 0 || rangeMilliseconds > dayMilliseconds * 62) {
-      throw new OrganizerInputError("Routine publishing requires a positive range of at most 62 days.");
+      throw new OrganizerInputError("Calendar routine generation requires a positive range of at most 62 days.");
     }
     const routines = this.database.prepare(`
-      SELECT routine.*
-      FROM todo_routines AS routine
-      JOIN todo_groups AS todo_group USING (todo_group_id)
-      WHERE routine.publication_mode = 'calendar'
-        AND routine.disabled_at_utc IS NULL
-        AND todo_group.archived_at_utc IS NULL
-      ORDER BY routine.todo_routine_id
+      SELECT routine.* FROM calendar_routines AS routine
+      WHERE routine.disabled_at_utc IS NULL
+      ORDER BY routine.calendar_routine_id
     `).all();
     const createdIds = [];
     let existingCount = 0;
     this.database.exec("START TRANSACTION");
     try {
-      const sortPositions = new Map();
       for (const routine of routines) {
         let occurrences;
         try {
           occurrences = occurrenceDates({
-            startsAtUtc: routine.first_scheduled_at_utc,
+            startsAtUtc: routine.first_starts_at_utc,
             timeZone: routine.time_zone,
             recurrenceRule: routine.recurrence_rule,
           }, fromUtc, toUtc);
         } catch {
           continue;
         }
-        const dueOffset = routine.first_due_at_utc
-          ? new Date(routine.first_due_at_utc).getTime() - new Date(routine.first_scheduled_at_utc).getTime()
+        const duration = routine.first_ends_at_utc
+          ? Math.max(0, new Date(routine.first_ends_at_utc) - new Date(routine.first_starts_at_utc))
           : null;
         for (const scheduled of occurrences) {
           if (scheduled < new Date(fromUtc) || scheduled >= new Date(toUtc)) continue;
-          const externalId = `routine:${routine.todo_routine_id}:${scheduled.toISOString()}`;
+          const occurrenceKey = scheduled.toISOString();
           if (this.database.prepare(`
-            SELECT 1 FROM todo_personal WHERE source = ? AND external_id = ?
-          `).get(routinePublishSource, externalId)) {
+            SELECT 1 FROM calendar_events
+            WHERE calendar_routine_id = ? AND routine_occurrence_key = ?
+          `).get(routine.calendar_routine_id, occurrenceKey)) {
             existingCount += 1;
             continue;
           }
-          if (!sortPositions.has(routine.todo_group_id)) {
-            sortPositions.set(routine.todo_group_id, Number(this.database.prepare(`
-              SELECT COALESCE(MAX(sort_position), 0) AS value
-              FROM todo_personal WHERE todo_group_id = ?
-            `).get(routine.todo_group_id).value));
-          }
-          const sortPosition = sortPositions.get(routine.todo_group_id) + 10;
-          sortPositions.set(routine.todo_group_id, sortPosition);
-          const dueAtUtc = dueOffset == null
-            ? null
-            : new Date(scheduled.getTime() + dueOffset).toISOString();
           const inserted = this.database.prepare(`
-            INSERT INTO todo_personal (
-              todo_group_id, todo_routine_id, related_contact_id, text, status,
-              sort_position, scheduled_at_utc, is_all_day, duration_minutes,
-              due_at_utc, planning_prompt_text, source, external_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO calendar_events (
+              calendar_routine_id, routine_occurrence_key, title, description, location_text,
+              starts_at_utc, ends_at_utc, time_zone, is_all_day, status, planning_prompt_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)
           `).run(
-            routine.todo_group_id, routine.todo_routine_id, routine.related_contact_id, routine.text,
-            routine.default_status, sortPosition,
-            scheduled.toISOString(), routine.is_all_day, routine.duration_minutes,
-            dueAtUtc, routine.planning_prompt_text, routinePublishSource, externalId,
+            routine.calendar_routine_id, occurrenceKey, routine.title, routine.description,
+            routine.location_text, occurrenceKey,
+            duration == null ? null : new Date(scheduled.getTime() + duration).toISOString(),
+            routine.time_zone, routine.is_all_day, routine.planning_prompt_text,
           );
           createdIds.push(Number(inserted.lastInsertRowid));
         }
       }
       if (createdIds.length > 0) {
         const sourceEventId = this.#activity({
-          eventType: "personal_routine.published",
+          eventType: "calendar.routine.generated",
           status: "complete",
-          name: "Routine published to scheduled to-dos",
-          subjectType: "personal_task_batch",
+          name: "Calendar routine events generated",
+          subjectType: "calendar_event_batch",
           subjectId: `${fromUtc}/${toUtc}`,
-          contentText: `Published ${createdIds.length} routine ${createdIds.length === 1 ? "task" : "tasks"}`,
-          payload: { from: fromUtc, to: toUtc, createdTodoIds: createdIds },
+          contentText: `Generated ${createdIds.length} routine ${createdIds.length === 1 ? "event" : "events"}`,
+          payload: { from: fromUtc, to: toUtc, createdCalendarEventIds: createdIds },
         });
         const linkReceipt = this.database.prepare(`
-          UPDATE todo_personal SET source_event_id = ? WHERE personal_task_id = ?
+          UPDATE calendar_events SET source_event_id = ? WHERE calendar_event_id = ?
         `);
         for (const id of createdIds) linkReceipt.run(sourceEventId, id);
       }
@@ -2265,7 +2007,7 @@ export class OrganizerStore {
       return {
         createdCount: createdIds.length,
         existingCount,
-        todos: createdIds.map((id) => this.getTodo(id)),
+        events: createdIds.map((id) => this.getCalendar(id)),
       };
     } catch (error) {
       this.database.exec("ROLLBACK");
@@ -3170,9 +2912,49 @@ export class OrganizerStore {
   }
 
   getCalendar(id) {
-    return publicCalendarEvent(this.database.prepare(
+    const event = publicCalendarEvent(this.database.prepare(
       "SELECT * FROM calendar_events WHERE calendar_event_id = ?",
     ).get(identifier(id, "calendar event id")));
+    return event ? attachCalendarEventTodoLinks(this.database, [event])[0] : null;
+  }
+
+  setCalendarEventTodoLinks(idValue, input, context = {}) {
+    const id = identifier(idValue, "calendar event id");
+    const event = this.getCalendar(id);
+    if (!event) throw new OrganizerInputError("Calendar event not found.", 404);
+    if (!Array.isArray(input?.links)) throw new OrganizerInputError("links must be an array.");
+    const links = input.links.map((link) => ({
+      todoId: identifier(link?.todoId, "todo id"),
+      relationshipKind: enumValue(link?.relationshipKind,
+        new Set(["work", "deadline", "context"]), "relationshipKind", "work"),
+    }));
+    if (new Set(links.map(({ todoId }) => todoId)).size !== links.length) {
+      throw new OrganizerInputError("A to-do can be linked to an event only once.");
+    }
+    if (links.some(({ todoId }) => !this.database.prepare(
+      "SELECT 1 FROM todo_personal WHERE personal_task_id = ?",
+    ).get(todoId))) throw new OrganizerInputError("Linked to-do not found.", 404);
+    this.database.exec("START TRANSACTION");
+    try {
+      this.database.prepare("DELETE FROM calendar_events_todo_join WHERE calendar_event_id = ?").run(id);
+      const insert = this.database.prepare(`
+        INSERT INTO calendar_events_todo_join
+          (calendar_event_id, personal_task_id, relationship_kind)
+        VALUES (?, ?, ?)
+      `);
+      for (const link of links) insert.run(id, link.todoId, link.relationshipKind);
+      this.#activity({ eventType: "calendar.event.todo_links_set", status: "complete",
+        name: "Calendar event to-do links set", subjectType: "calendar_event", subjectId: id,
+        contentText: event.title, payload: { links },
+        actorType: context.actorType ?? "user", actorName: context.actorName ?? "Nate",
+        source: context.source ?? "tailnet_web", channel: context.channel ?? "tailnet_web",
+        turnId: context.requestId ?? null, operationId: context.callId ?? null });
+      this.database.exec("COMMIT");
+      return this.getCalendar(id);
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   updateCalendar(idValue, input) {
@@ -3297,13 +3079,7 @@ export class OrganizerStore {
         : identifier(input.relatedContactId, "related contact id"),
       text: requiredText(input?.text, "text", 10_000),
       status: enumValue(input?.status, todoStatuses, "status", "todo"),
-      scheduledAtUtc: isoDateTime(input?.scheduledAtUtc, "scheduledAtUtc"),
-      isAllDay: Boolean(booleanInteger(input?.isAllDay)),
-      durationMinutes: optionalPositiveInteger(input?.durationMinutes, "durationMinutes"),
-      dueAtUtc: isoDateTime(input?.dueAtUtc, "dueAtUtc"),
-      recurrenceRule: optionalText(input?.recurrenceRule, "recurrenceRule", 2000),
       planningPromptText: optionalText(input?.planningPromptText, "planningPromptText", 10_000),
-      recurrenceTimeZone: timeZone(input?.recurrenceTimeZone) ?? defaultCalendarTimeZone,
       interactionGuideId: input?.interactionGuideId == null
         ? null
         : identifier(input.interactionGuideId, "briefing id"),
@@ -3318,59 +3094,16 @@ export class OrganizerStore {
     if (todo.relatedContactId !== null && !this.database.prepare(
       "SELECT 1 FROM contacts WHERE contact_id = ?",
     ).get(todo.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
-    if (todo.recurrenceRule && !todo.scheduledAtUtc) {
-      throw new OrganizerInputError("A routine requires a scheduled date and time.");
-    }
-    if (todo.interactionGuideId !== null && !todo.recurrenceRule) {
-      throw new OrganizerInputError("A briefing can be linked only to a repeating to-do.");
-    }
     if (todo.interactionGuideId !== null && !this.database.prepare(`
       SELECT 1 FROM interaction_guides
       WHERE interaction_guide_id = ? AND status = 'active'
     `).get(todo.interactionGuideId)) {
       throw new OrganizerInputError("Active briefing not found.", 404);
     }
-    if (todo.isAllDay && !todo.scheduledAtUtc) {
-      throw new OrganizerInputError("An all-day to-do requires a scheduled date.");
-    }
-    if (todo.durationMinutes !== null && (!todo.scheduledAtUtc || todo.isAllDay)) {
-      throw new OrganizerInputError("durationMinutes requires a scheduled to-do with an exact time.");
-    }
-    if (todo.scheduledAtUtc && todo.dueAtUtc && todo.dueAtUtc < todo.scheduledAtUtc) {
-      throw new OrganizerInputError("dueAtUtc cannot be earlier than scheduledAtUtc.");
-    }
-    if (todo.recurrenceRule) {
-      try {
-        nextOccurrence({
-          startsAtUtc: todo.scheduledAtUtc,
-          timeZone: todo.recurrenceTimeZone,
-          recurrenceRule: todo.recurrenceRule,
-        }, new Date(new Date(todo.scheduledAtUtc).getTime() - 1000).toISOString());
-      } catch {
-        throw new OrganizerInputError("recurrenceRule must be a valid RRULE.");
-      }
-    }
     const completedAtUtc = todo.status === "complete" ? new Date().toISOString() : null;
 
     this.database.exec("START TRANSACTION");
     try {
-      let routineId = null;
-      if (todo.recurrenceRule) {
-        const routine = this.database.prepare(`
-          INSERT INTO todo_routines (
-            todo_group_id, publication_mode, text, default_status,
-            first_scheduled_at_utc, first_due_at_utc, time_zone, recurrence_rule,
-            related_contact_id, is_all_day, duration_minutes,
-            interaction_guide_id, planning_prompt_text, source_event_id
-          ) VALUES (?, 'on_completion', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          groupId, todo.text, todo.status, todo.scheduledAtUtc, todo.dueAtUtc,
-          todo.recurrenceTimeZone, todo.recurrenceRule, todo.relatedContactId,
-          todo.isAllDay ? 1 : 0, todo.durationMinutes, todo.interactionGuideId,
-          todo.planningPromptText, null,
-        );
-        routineId = Number(routine.lastInsertRowid);
-      }
       const sortPosition = Number(this.database.prepare(`
         SELECT COALESCE(MAX(sort_position), 0) + 10 AS next_position
         FROM todo_personal
@@ -3378,14 +3111,12 @@ export class OrganizerStore {
       `).get(groupId).next_position);
       const result = this.database.prepare(`
         INSERT INTO todo_personal (
-          todo_group_id, todo_routine_id, sequence, related_contact_id, text,
-          status, sort_position, scheduled_at_utc, is_all_day, duration_minutes,
-          due_at_utc, completed_at_utc, planning_prompt_text, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
+          todo_group_id, sequence, related_contact_id, interaction_guide_id, text,
+          status, sort_position, completed_at_utc, planning_prompt_text, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
       `).run(
-        groupId, routineId, todo.sequence, todo.relatedContactId, todo.text,
-        todo.status, sortPosition, todo.scheduledAtUtc, todo.isAllDay ? 1 : 0,
-        todo.durationMinutes, todo.dueAtUtc, completedAtUtc, todo.planningPromptText,
+        groupId, todo.sequence, todo.relatedContactId, todo.interactionGuideId, todo.text,
+        todo.status, sortPosition, completedAtUtc, todo.planningPromptText,
       );
       const id = Number(result.lastInsertRowid);
       const created = this.getTodo(id);
@@ -3401,11 +3132,6 @@ export class OrganizerStore {
       this.database.prepare(
         "UPDATE todo_personal SET source_event_id = ? WHERE personal_task_id = ?",
       ).run(eventId, id);
-      if (routineId !== null) {
-        this.database.prepare(
-          "UPDATE todo_routines SET source_event_id = ? WHERE todo_routine_id = ?",
-        ).run(eventId, routineId);
-      }
       this.database.exec("COMMIT");
       return this.getTodo(id);
     } catch (error) {
@@ -3421,45 +3147,17 @@ export class OrganizerStore {
     return publicTodo(this.database.prepare(
       `SELECT task.*, todo_group.name AS group_name,
               todo_group.archived_at_utc AS group_archived_at_utc,
-              routine.text AS routine_text,
-              routine.publication_mode AS routine_publication_mode,
-              routine.recurrence_rule AS routine_recurrence_rule,
-              routine.time_zone AS routine_time_zone,
-              routine.interaction_guide_id,
               interaction_guide.name AS interaction_guide_name,
               interaction_guide.status AS interaction_guide_status,
               related_contact.display_name AS related_contact_name,
               related_contact.status AS related_contact_status
        FROM todo_personal AS task
        JOIN todo_groups AS todo_group USING (todo_group_id)
-       LEFT JOIN todo_routines AS routine USING (todo_routine_id)
        LEFT JOIN interaction_guides AS interaction_guide
-         ON interaction_guide.interaction_guide_id = routine.interaction_guide_id
+         ON interaction_guide.interaction_guide_id = task.interaction_guide_id
        LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
        WHERE task.personal_task_id = ?`,
     ).get(identifier(id, "todo id")));
-  }
-
-  #generateNextRoutine(todo, { nextStatus = null } = {}) {
-    const id = generateNextRoutineTask(this.database, todo.id, { nextStatus });
-    if (!id) return null;
-    const generated = this.getTodo(id);
-    const sourceEventId = this.#activity({
-      eventType: "personal_todo.generated",
-      status: generated.status,
-      name: "Routine task generated",
-      subjectType: "personal_task",
-      subjectId: id,
-      contentText: generated.text,
-      payload: { personalTodo: generated, routineId: todo.routineId },
-      actorType: "system",
-      actorName: "Slayer routine scheduler",
-      source: "todo_routine",
-    });
-    this.database.prepare(
-      "UPDATE todo_personal SET source_event_id = ? WHERE personal_task_id = ?",
-    ).run(sourceEventId, id);
-    return this.getTodo(id);
   }
 
   reorderTodos(groupIdValue, input) {
@@ -3574,20 +3272,11 @@ export class OrganizerStore {
     if (input?.version !== before.version) {
       throw new OrganizerInputError("This todo changed after you opened it. Refresh and try again.", 409);
     }
-    const requestedRecurrenceRule = input.recurrenceRule === undefined
-      ? before.recurrenceRule
-      : optionalText(input.recurrenceRule, "recurrenceRule", 2000);
-    const requestedRecurrenceTimeZone = input.recurrenceTimeZone === undefined
-      ? before.recurrenceTimeZone
-      : timeZone(input.recurrenceTimeZone);
     const requestedInteractionGuideId = input.interactionGuideId === undefined
       ? before.interactionGuideId
       : (input.interactionGuideId == null
         ? null
         : identifier(input.interactionGuideId, "briefing id"));
-    if (!requestedRecurrenceRule && input.interactionGuideId != null) {
-      throw new OrganizerInputError("A briefing can be linked only to a repeating to-do.");
-    }
     const after = {
       ...before,
       groupId: input.groupId === undefined ? before.groupId : identifier(input.groupId, "group id"),
@@ -3602,21 +3291,7 @@ export class OrganizerStore {
       sortPosition: input.sortPosition === undefined
         ? before.sortPosition
         : integer(input.sortPosition, "sortPosition", { minimum: -1_000_000_000, maximum: 1_000_000_000 }),
-      scheduledAtUtc: input.scheduledAtUtc === undefined
-        ? before.scheduledAtUtc
-        : isoDateTime(input.scheduledAtUtc, "scheduledAtUtc"),
-      isAllDay: input.isAllDay === undefined
-        ? before.isAllDay
-        : Boolean(booleanInteger(input.isAllDay)),
-      durationMinutes: input.durationMinutes === undefined
-        ? before.durationMinutes
-        : optionalPositiveInteger(input.durationMinutes, "durationMinutes"),
-      dueAtUtc: input.dueAtUtc === undefined ? before.dueAtUtc : isoDateTime(input.dueAtUtc, "dueAtUtc"),
-      recurrenceRule: requestedRecurrenceRule,
-      recurrenceTimeZone: requestedRecurrenceRule
-        ? (requestedRecurrenceTimeZone ?? defaultCalendarTimeZone)
-        : null,
-      interactionGuideId: requestedRecurrenceRule ? requestedInteractionGuideId : null,
+      interactionGuideId: requestedInteractionGuideId,
       planningPromptText: input.planningPromptText === undefined
         ? before.planningPromptText
         : optionalText(input.planningPromptText, "planningPromptText", 10_000),
@@ -3628,44 +3303,17 @@ export class OrganizerStore {
     if (after.relatedContactId !== null && !this.database.prepare(
       "SELECT 1 FROM contacts WHERE contact_id = ?",
     ).get(after.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
-    if (after.scheduledAtUtc && after.dueAtUtc && after.dueAtUtc < after.scheduledAtUtc) {
-      throw new OrganizerInputError("dueAtUtc cannot be earlier than scheduledAtUtc.");
-    }
-    if (after.isAllDay && !after.scheduledAtUtc) {
-      throw new OrganizerInputError("An all-day to-do requires a scheduled date.");
-    }
-    if (after.durationMinutes !== null && (!after.scheduledAtUtc || after.isAllDay)) {
-      throw new OrganizerInputError("durationMinutes requires a scheduled to-do with an exact time.");
-    }
-    if (after.recurrenceRule && !after.scheduledAtUtc) {
-      throw new OrganizerInputError("A routine requires a scheduled date and time.");
-    }
-    if (after.interactionGuideId !== null && !after.recurrenceRule) {
-      throw new OrganizerInputError("A briefing can be linked only to a repeating to-do.");
-    }
     if (after.interactionGuideId !== null && !this.database.prepare(`
       SELECT 1 FROM interaction_guides
       WHERE interaction_guide_id = ? AND status = 'active'
     `).get(after.interactionGuideId)) {
       throw new OrganizerInputError("Active briefing not found.", 404);
     }
-    if (after.recurrenceRule) {
-      try {
-        nextOccurrence({
-          startsAtUtc: after.scheduledAtUtc,
-          timeZone: after.recurrenceTimeZone,
-          recurrenceRule: after.recurrenceRule,
-        }, new Date(new Date(after.scheduledAtUtc).getTime() - 1000).toISOString());
-      } catch {
-        throw new OrganizerInputError("recurrenceRule must be a valid RRULE.");
-      }
-    }
     if (after.status === "complete" && before.status !== "complete") after.completedAtUtc = new Date().toISOString();
     if (after.status !== "complete" && before.status === "complete") after.completedAtUtc = null;
     const changes = changedFields(before, after, [
       "groupId", "sequence", "relatedContactId", "text", "status", "sortPosition",
-      "scheduledAtUtc", "isAllDay", "durationMinutes", "dueAtUtc", "completedAtUtc", "recurrenceRule", "recurrenceTimeZone",
-      "interactionGuideId", "planningPromptText",
+      "completedAtUtc", "interactionGuideId", "planningPromptText",
     ]);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
@@ -3674,71 +3322,18 @@ export class OrganizerStore {
     try {
       const result = this.database.prepare(`
         UPDATE todo_personal
-        SET todo_group_id = ?, sequence = ?, related_contact_id = ?, text = ?, status = ?,
-            sort_position = ?, scheduled_at_utc = ?, is_all_day = ?, due_at_utc = ?,
-            duration_minutes = ?, completed_at_utc = ?, planning_prompt_text = ?, updated_at_utc = ?
+        SET todo_group_id = ?, sequence = ?, related_contact_id = ?, interaction_guide_id = ?,
+            text = ?, status = ?, sort_position = ?, completed_at_utc = ?,
+            planning_prompt_text = ?, updated_at_utc = ?
         WHERE personal_task_id = ?
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
-        after.groupId, after.sequence, after.relatedContactId, after.text, after.status,
-        after.sortPosition, after.scheduledAtUtc, after.isAllDay ? 1 : 0, after.dueAtUtc,
-        after.durationMinutes, after.completedAtUtc, after.planningPromptText, updatedAt, id, before.version,
+        after.groupId, after.sequence, after.relatedContactId, after.interactionGuideId,
+        after.text, after.status, after.sortPosition, after.completedAtUtc,
+        after.planningPromptText, updatedAt, id, before.version,
       );
       if (result.changes !== 1) {
         throw new OrganizerInputError("This todo changed while you were saving it. Refresh and try again.", 409);
-      }
-      const recurrenceWasExplicitlyChanged = input.recurrenceRule !== undefined;
-      if (recurrenceWasExplicitlyChanged && after.recurrenceRule && before.routineId) {
-        this.database.prepare(`
-          UPDATE todo_routines
-          SET todo_group_id = ?, text = ?, default_status = ?,
-              first_scheduled_at_utc = ?, first_due_at_utc = ?, time_zone = ?,
-              recurrence_rule = ?, related_contact_id = ?, is_all_day = ?, duration_minutes = ?,
-              interaction_guide_id = ?, planning_prompt_text = ?,
-              disabled_at_utc = NULL, updated_at_utc = ?
-          WHERE todo_routine_id = ?
-        `).run(
-          after.groupId, after.text,
-          ["unplanned", "todo", "ai_suggested"].includes(after.status) ? after.status : "todo",
-          after.scheduledAtUtc, after.dueAtUtc, after.recurrenceTimeZone,
-          after.recurrenceRule, after.relatedContactId, after.isAllDay ? 1 : 0,
-          after.durationMinutes, after.interactionGuideId, after.planningPromptText,
-          updatedAt, before.routineId,
-        );
-      } else if (recurrenceWasExplicitlyChanged && after.recurrenceRule) {
-        const routine = this.database.prepare(`
-          INSERT INTO todo_routines (
-            todo_group_id, publication_mode, text, default_status,
-            first_scheduled_at_utc, first_due_at_utc, time_zone, recurrence_rule,
-            related_contact_id, is_all_day, duration_minutes,
-            interaction_guide_id, planning_prompt_text
-          ) VALUES (?, 'on_completion', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          after.groupId, after.text,
-          ["unplanned", "todo", "ai_suggested"].includes(after.status) ? after.status : "todo",
-          after.scheduledAtUtc, after.dueAtUtc, after.recurrenceTimeZone,
-          after.recurrenceRule, after.relatedContactId, after.isAllDay ? 1 : 0,
-          after.durationMinutes, after.interactionGuideId, after.planningPromptText,
-        );
-        this.database.prepare(`
-          UPDATE todo_personal SET todo_routine_id = ? WHERE personal_task_id = ?
-        `).run(Number(routine.lastInsertRowid), id);
-      } else if (recurrenceWasExplicitlyChanged && before.routineId) {
-        this.database.prepare(`
-          UPDATE todo_routines SET disabled_at_utc = ?, updated_at_utc = ?
-          WHERE todo_routine_id = ?
-        `).run(updatedAt, updatedAt, before.routineId);
-        this.database.prepare(`
-          UPDATE todo_personal SET todo_routine_id = NULL WHERE personal_task_id = ?
-        `).run(id);
-      } else if (before.routineId
-        && before.routinePublicationMode === "on_completion"
-        && after.interactionGuideId !== before.interactionGuideId) {
-        this.database.prepare(`
-          UPDATE todo_routines
-          SET interaction_guide_id = ?, updated_at_utc = ?
-          WHERE todo_routine_id = ?
-        `).run(after.interactionGuideId, updatedAt, before.routineId);
       }
       this.#activity({
         eventType: "personal_todo.updated",
@@ -3749,9 +3344,6 @@ export class OrganizerStore {
         contentText: after.text,
         payload: { changes },
       });
-      if (["complete", "ignore"].includes(after.status) && !["complete", "ignore"].includes(before.status)) {
-        this.#generateNextRoutine(this.getTodo(id), { nextStatus: before.status });
-      }
       this.database.exec("COMMIT");
       return this.getTodo(id);
     } catch (error) {
