@@ -22,10 +22,11 @@ export const requiredDatabaseShape = {
   tags: ["tag_id", "slug", "label", "is_active"],
   correspondence: [
     "correspondence_id", "medium", "direction", "source_account_key", "thread_key",
-    "external_id", "in_reply_to_id", "subject", "body", "body_format",
+    "external_id", "internet_message_id", "in_reply_to_id", "subject", "body",
     "delivery_status", "call_disposition", "call_duration_seconds", "provider_status",
     "occurred_at_utc", "sent_at_utc", "received_at_utc", "source_event_id", "created_at_utc",
   ],
+  jmap_email_sync_state: ["source_account_key", "email_state", "synchronized_at_utc"],
   correspondence_files_join: ["correspondence_id", "file_id", "attachment_role"],
   correspondence_participants: [
     "correspondence_id", "participant_role", "contact_id", "contact_method_id",
@@ -129,7 +130,6 @@ export const requiredEnumColumns = {
   correspondence: {
     medium: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"],
     direction: ["inbound", "outbound"],
-    body_format: ["text", "html"],
     delivery_status: ["draft", "sent", "delivered", "failed", "unknown"],
     call_disposition: ["answered", "missed"],
   },

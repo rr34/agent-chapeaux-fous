@@ -60,6 +60,7 @@ DROP TABLE IF EXISTS todo_correspondence_join;
 DROP TABLE IF EXISTS calendar_events_correspondence_join;
 DROP TABLE IF EXISTS correspondence_files;
 DROP TABLE IF EXISTS correspondence_participants;
+DROP TABLE IF EXISTS jmap_email_sync_state;
 DROP TABLE IF EXISTS correspondence;
 
 CREATE TABLE correspondence (
@@ -69,10 +70,10 @@ CREATE TABLE correspondence (
     source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local mailbox, phone identity, SIM, or service account through which the communication was handled. It scopes provider identifiers and does not contain an authentication secret.',
     thread_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider or local conversation identifier grouping related messages.',
     external_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider-assigned identifier for this message or call.',
+    internet_message_id VARCHAR(998) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin COMMENT 'Primary Internet Message-ID header value for an email, retained for cross-provider deduplication and reply matching. Null for non-email correspondence and email without a usable Message-ID.',
     in_reply_to_id BIGINT UNSIGNED COMMENT 'Earlier local correspondence record to which this message directly replies.',
     subject TEXT COMMENT 'Complete message subject or title when the medium provides one.',
-    body LONGTEXT COMMENT 'Complete available body stored exactly once in the representation identified by body_format. When a source supplies both text and HTML alternatives, retain one complete preferred representation, ordinarily HTML.',
-    body_format ENUM('text', 'html') NOT NULL DEFAULT 'text' COMMENT 'How to interpret and render body. text: Plain text that the UI escapes and formats. html: HTML that the UI sanitizes before rendering.',
+    body LONGTEXT COMMENT 'Single canonical renderable HTML body. Preserve supplied HTML once; when only plain text is available, escape it and convert it to simple HTML during import. Sanitize stored HTML when displaying it.',
     delivery_status ENUM('draft', 'sent', 'delivered', 'failed', 'unknown') COMMENT 'Normalized message delivery state when applicable. draft: Prepared but not sent. sent: Accepted for sending or reported sent. delivered: Provider reports delivery. failed: Sending failed. unknown: The source does not provide a more precise state. Null for calls and records without message-delivery semantics.',
     call_disposition ENUM('answered', 'missed') COMMENT 'Whether a call was answered. Every call normalizes all unanswered outcomes to missed. Null for non-call rows.',
     call_duration_seconds BIGINT UNSIGNED COMMENT 'Elapsed connected or reported call duration in whole seconds when supplied by the source. Null when unavailable and for non-call rows.',
@@ -93,6 +94,13 @@ CREATE TABLE correspondence (
       OR (medium <> 'call' AND call_disposition IS NULL AND call_duration_seconds IS NULL)
     )
 ) ENGINE=InnoDB COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
+
+CREATE TABLE jmap_email_sync_state (
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable local key identifying one configured JMAP email account.',
+    email_state TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Opaque JMAP Email state string used as the since_state value for the next incremental synchronization.',
+    synchronized_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when every email change through email_state had been durably stored. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (source_account_key)
+) ENGINE=InnoDB COMMENT='Stores one durable incremental JMAP Email cursor per configured account. Advance the cursor only after all corresponding correspondence, participant, and file writes succeed. An absent row means the account has not completed its initial synchronization. Sensitivity: Contains opaque provider state and account identifiers but no credentials.';
 
 CREATE TABLE todo_correspondence_join (
     personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing task associated with the message.',

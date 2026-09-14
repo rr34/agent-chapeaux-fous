@@ -91,8 +91,13 @@ Calls are ordinary timeline rows whose disposition is exactly `answered` or
 `missed`; message delivery state is separate from retained provider status.
 Participants preserve the observed sender and recipients for each message or
 call without promising group-thread reconstruction. Each message body is stored
-once in `body`; `body_format` says whether that single retained representation
-is text or HTML so the UI can render it correctly.
+once as canonical renderable HTML in `body`; plain-text-only sources are escaped
+and converted to simple HTML during import. Email rows may retain the primary
+Internet Message-ID in `internet_message_id` for cross-provider deduplication
+and reply matching. `jmap_email_sync_state` stores one opaque incremental Email
+state per source account and advances only after the corresponding imports have
+been stored durably. The existing single `correspondence_participants` table
+continues to hold all observed senders and recipients.
 
 This migration requires stopped writers and a verified backup. Its broad type
 changes take metadata locks and may rebuild populated tables. If interrupted,

@@ -70,16 +70,16 @@ test("MariaDB connection settings validate names and ports", () => {
 test("the authoritative MariaDB baseline is complete at schema version 44", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 33);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 34);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 31);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 30);
   assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 52);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 72);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 73);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    31,
+    30,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -99,8 +99,11 @@ test("the authoritative MariaDB baseline is complete at schema version 44", () =
   assert.doesNotMatch(source, /CREATE TABLE agent_turn_attempts\b/u);
   const correspondenceTable = statements.find((statement) => statement.startsWith("CREATE TABLE correspondence "));
   assert.match(correspondenceTable, /\bbody\s+LONGTEXT\b/u);
-  assert.match(correspondenceTable, /\bbody_format\s+ENUM\('text', 'html'\)/u);
-  assert.doesNotMatch(correspondenceTable, /\bbody_(?:text|html)\b/u);
+  assert.match(correspondenceTable, /\binternet_message_id\s+VARCHAR\(998\)/u);
+  assert.doesNotMatch(correspondenceTable, /\bbody_(?:text|html|format)\b/u);
+  const jmapSyncTable = statements.find((statement) => statement.startsWith("CREATE TABLE jmap_email_sync_state "));
+  assert.ok(jmapSyncTable);
+  assert.match(jmapSyncTable, /source_account_key\s+VARCHAR\(255\)[\s\S]*email_state\s+TEXT[\s\S]*synchronized_at_utc\s+DATETIME\(3\)/u);
   const todoTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_personal "));
   assert.ok(todoTable);
   for (const retired of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
@@ -168,8 +171,8 @@ test("the native datetime migration recreates the confirmed-empty correspondence
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql")).find(item => item.version === 43);
   const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
   const normalize = sql => sql.replaceAll("correspondence_files_join", "correspondence_files").replace(/^\s*--.*$/gmu, "").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
-  const recreated = splitMariaDbStatements(migration.sql).filter((statement) => /^CREATE TABLE (?:correspondence(?:_files|_participants)?|todo_correspondence_join|calendar_events_correspondence_join)\b/u.test(statement));
-  assert.equal(recreated.length, 5);
+  const recreated = splitMariaDbStatements(migration.sql).filter((statement) => /^CREATE TABLE (?:correspondence(?:_files|_participants)?|jmap_email_sync_state|todo_correspondence_join|calendar_events_correspondence_join)\b/u.test(statement));
+  assert.equal(recreated.length, 6);
   for (const statement of recreated) {
     assert.ok(baseline.some((candidate) => normalize(candidate) === normalize(statement)));
   }
@@ -178,8 +181,8 @@ test("the native datetime migration recreates the confirmed-empty correspondence
   assert.match(migration.sql, /call_disposition ENUM\('answered', 'missed'\)/u);
   assert.match(migration.sql, /direction ENUM\('inbound', 'outbound'\)/u);
   assert.match(migration.sql, /body LONGTEXT/u);
-  assert.match(migration.sql, /body_format ENUM\('text', 'html'\)/u);
-  assert.doesNotMatch(migration.sql, /body_(?:text|html) LONGTEXT/u);
+  assert.match(migration.sql, /internet_message_id VARCHAR\(998\)/u);
+  assert.doesNotMatch(migration.sql, /body_(?:text|html|format)\b/u);
 });
 
 test("the version 30 enum migration is a reviewable ledger block", () => {

@@ -43,7 +43,6 @@ test("join rename integrity rejects missing, legacy, and non-table destinations"
 test("historical enum integrity supports both sides of the join table rename", async () => {
   for (const legacy of [true, false]) {
     const columns = Object.entries(requiredEnumColumns).flatMap(([table, fields]) => Object.entries(fields)
-      .filter(([field]) => `${table}.${field}` !== "correspondence.body_format")
       .map(([field, values]) => ({
       TABLE_NAME: legacy ? Object.entries(joinTableRenames).find(([, current]) => current === table)?.[0] ?? table : table,
       COLUMN_NAME: field,
@@ -55,7 +54,7 @@ test("historical enum integrity supports both sides of the join table rename", a
 });
 
 test("the native datetime and correspondence integrity check requires the final shape", async () => {
-  const temporal = Array.from({ length: 72 }, (_, index) => ({
+  const temporal = Array.from({ length: 73 }, (_, index) => ({
     TABLE_NAME: `table_${index}`,
     COLUMN_NAME: `value_${index}_at_utc`,
     DATA_TYPE: "datetime",
@@ -64,12 +63,16 @@ test("the native datetime and correspondence integrity check requires the final 
   const correspondence = [
     ["medium", "enum", "enum('email','sms','mms','rcs','imessage','whatsapp','chat','call','voicemail','other')"],
     ["direction", "enum", "enum('inbound','outbound')"],
-    ["body_format", "enum", "enum('text','html')"],
     ["delivery_status", "enum", "enum('draft','sent','delivered','failed','unknown')"],
     ["call_disposition", "enum", "enum('answered','missed')"],
-    ...["body", "source_account_key", "provider_status", "occurred_at_utc", "call_duration_seconds"]
+    ...["body", "source_account_key", "internet_message_id", "provider_status", "occurred_at_utc", "call_duration_seconds"]
       .map((name) => [name, name === "occurred_at_utc" ? "datetime" : name === "body" ? "longtext" : "varchar", ""]),
   ].map(([COLUMN_NAME, DATA_TYPE, COLUMN_TYPE]) => ({ COLUMN_NAME, DATA_TYPE, COLUMN_TYPE }));
+  const syncState = [
+    { COLUMN_NAME: "source_account_key", DATA_TYPE: "varchar" },
+    { COLUMN_NAME: "email_state", DATA_TYPE: "text" },
+    { COLUMN_NAME: "synchronized_at_utc", DATA_TYPE: "datetime", DATETIME_PRECISION: 3 },
+  ];
   const connection = {
     async query(sql) {
       if (sql.includes("COLUMN_NAME REGEXP")) {
@@ -78,21 +81,24 @@ test("the native datetime and correspondence integrity check requires the final 
         return [temporal];
       }
       if (sql.includes("TABLE_CONSTRAINTS")) return [[{ CONSTRAINT_NAME: "correspondence_call_state" }]];
+      if (sql.includes("TABLE_NAME = 'jmap_email_sync_state'")) return [syncState];
       if (sql.includes("TABLE_NAME = 'correspondence'")) return [correspondence];
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   };
   await assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database");
-  correspondence.push({ COLUMN_NAME: "body_html", DATA_TYPE: "longtext", COLUMN_TYPE: "longtext" });
-  await assert.rejects(
-    assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database"),
-    /retained correspondence\.body_html/u,
-  );
-  correspondence.pop();
+  for (const retired of ["body_html", "body_format"]) {
+    correspondence.push({ COLUMN_NAME: retired, DATA_TYPE: "longtext", COLUMN_TYPE: "longtext" });
+    await assert.rejects(
+      assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database"),
+      new RegExp(`retained correspondence\\.${retired}`, "u"),
+    );
+    correspondence.pop();
+  }
   temporal[0].DATA_TYPE = "varchar";
   await assert.rejects(
     assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database"),
-    /all 72 DATETIME\(3\) instant columns; found 72; non-native:/u,
+    /all 73 DATETIME\(3\) instant columns; found 73; non-native:/u,
   );
 });
 

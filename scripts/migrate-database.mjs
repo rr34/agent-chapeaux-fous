@@ -153,9 +153,6 @@ async function assertVersion30Integrity(connection, databaseName) {
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     for (const [fieldName, expectedValues] of Object.entries(fields)) {
       const qualifiedName = `${tableName}.${fieldName}`;
-      // body_format is introduced and validated by migration 0043, not by the
-      // historical migration 0030 enum conversion.
-      if (qualifiedName === "correspondence.body_format") continue;
       // Historical enum validation also runs before migration 0044 renames
       // these tables. The latest schema is checked separately by inspection.
       const legacyName = Object.entries(joinTableRenames).find(([, current]) => current === tableName)?.[0];
@@ -339,9 +336,9 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
       )`, [databaseName]);
     const nonNative = temporalColumns.filter((row) => row.DATA_TYPE !== "datetime"
       || Number(row.DATETIME_PRECISION) !== 3);
-    if (nonNative.length > 0 || temporalColumns.length !== 72) {
+    if (nonNative.length > 0 || temporalColumns.length !== 73) {
       const detail = nonNative.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}:${row.DATA_TYPE}`).join(", ");
-      throw new Error(`Migration 0043 did not establish all 72 DATETIME(3) instant columns; found ${temporalColumns.length}${detail ? `; non-native: ${detail}` : ""}`);
+      throw new Error(`Migration 0043 did not establish all 73 DATETIME(3) instant columns; found ${temporalColumns.length}${detail ? `; non-native: ${detail}` : ""}`);
     }
     const [correspondenceColumns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
       FROM information_schema.COLUMNS
@@ -353,14 +350,25 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
         throw new Error(`Migration 0043 did not establish correspondence.${field}`);
       }
     }
-    for (const field of ["source_account_key", "body", "provider_status", "occurred_at_utc", "call_duration_seconds"]) {
+    for (const field of ["source_account_key", "internet_message_id", "body", "provider_status", "occurred_at_utc", "call_duration_seconds"]) {
       if (!byName.has(field)) throw new Error(`Migration 0043 is missing correspondence.${field}`);
     }
     if (byName.get("body")?.DATA_TYPE !== "longtext") {
       throw new Error("Migration 0043 did not establish correspondence.body as LONGTEXT");
     }
-    for (const retired of ["account_key", "status", "body_text", "body_html"]) {
+    for (const retired of ["account_key", "status", "body_text", "body_html", "body_format"]) {
       if (byName.has(retired)) throw new Error(`Migration 0043 retained correspondence.${retired}`);
+    }
+    const [syncColumns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, DATETIME_PRECISION
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'jmap_email_sync_state'`, [databaseName]);
+    const syncByName = new Map(syncColumns.map((row) => [row.COLUMN_NAME, row]));
+    if (syncColumns.length !== 3
+        || syncByName.get("source_account_key")?.DATA_TYPE !== "varchar"
+        || syncByName.get("email_state")?.DATA_TYPE !== "text"
+        || syncByName.get("synchronized_at_utc")?.DATA_TYPE !== "datetime"
+        || Number(syncByName.get("synchronized_at_utc")?.DATETIME_PRECISION) !== 3) {
+      throw new Error("Migration 0043 did not establish JMAP Email synchronization state");
     }
     const [checks] = await connection.query(`SELECT CONSTRAINT_NAME
       FROM information_schema.TABLE_CONSTRAINTS
