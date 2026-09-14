@@ -300,6 +300,42 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 43) {
+    const [temporalColumns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, DATETIME_PRECISION
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND (
+        COLUMN_NAME REGEXP '_at_utc$'
+        OR COLUMN_NAME IN ('ask_after', 'resolved_at', 'routine_occurrence_key')
+      )`, [databaseName]);
+    const nonNative = temporalColumns.filter((row) => row.DATA_TYPE !== "datetime"
+      || Number(row.DATETIME_PRECISION) !== 3);
+    if (nonNative.length > 0 || temporalColumns.length !== 72) {
+      const detail = nonNative.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}:${row.DATA_TYPE}`).join(", ");
+      throw new Error(`Migration 0043 did not establish all 72 DATETIME(3) instant columns${detail ? `: ${detail}` : ""}`);
+    }
+    const [correspondenceColumns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'correspondence'`, [databaseName]);
+    const byName = new Map(correspondenceColumns.map((row) => [row.COLUMN_NAME, row]));
+    for (const [field, values] of Object.entries(requiredEnumColumns.correspondence)) {
+      if (byName.get(field)?.DATA_TYPE !== "enum"
+          || JSON.stringify(enumValues(byName.get(field)?.COLUMN_TYPE)) !== JSON.stringify(values)) {
+        throw new Error(`Migration 0043 did not establish correspondence.${field}`);
+      }
+    }
+    for (const field of ["source_account_key", "provider_status", "occurred_at_utc", "call_duration_seconds"]) {
+      if (!byName.has(field)) throw new Error(`Migration 0043 is missing correspondence.${field}`);
+    }
+    for (const retired of ["account_key", "status"]) {
+      if (byName.has(retired)) throw new Error(`Migration 0043 retained correspondence.${retired}`);
+    }
+    const [checks] = await connection.query(`SELECT CONSTRAINT_NAME
+      FROM information_schema.TABLE_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'correspondence' AND CONSTRAINT_TYPE = 'CHECK'`, [databaseName]);
+    if (!checks.some((row) => row.CONSTRAINT_NAME === "correspondence_call_state")) {
+      throw new Error("Migration 0043 is missing correspondence_call_state");
+    }
+  }
   if (migration.version === 42) {
     const [columns] = await connection.query(`SELECT COLUMN_TYPE
       FROM information_schema.COLUMNS
@@ -415,7 +451,7 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
         if (!columns.some(row => row.COLUMN_NAME === id && /^bigint(?:\(20\))? unsigned$/u.test(row.COLUMN_TYPE)
           && row.IS_NULLABLE === "NO")) fail(`is missing required unsigned ID ${id}`);
       }
-      if (!columns.some(row => row.COLUMN_NAME === "created_at_utc" && row.COLUMN_TYPE === "varchar(32)"
+      if (!columns.some(row => row.COLUMN_NAME === "created_at_utc" && ["varchar(32)", "datetime(3)"].includes(row.COLUMN_TYPE)
         && row.IS_NULLABLE === "NO" && row.COLUMN_DEFAULT != null)) fail("is missing its creation timestamp default");
       const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
         FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?

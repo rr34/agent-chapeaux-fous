@@ -66,7 +66,7 @@ test("MariaDB exposes native enums and rejects invalid enum values", (context) =
     WHERE c.TABLE_SCHEMA = DATABASE() AND t.TABLE_TYPE = 'BASE TABLE' AND c.DATA_TYPE = 'enum'
     ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION
   `).all();
-  assert.equal(enumColumns.length, 33);
+  assert.equal(enumColumns.length, 30);
   assert.equal(
     enumColumns.find(({ table_name, column_name }) => (
       table_name === "calendar_events" && column_name === "status"

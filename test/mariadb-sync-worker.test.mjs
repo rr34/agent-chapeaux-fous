@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMariaDbWorkerHandler } from "../src/mariadb-sync-worker.mjs";
+import {
+  canonicalUtcDateTime,
+  createMariaDbWorkerHandler,
+  mariaDbUtcTypeCast,
+  normalizeMariaDbDateTimeParameters,
+} from "../src/mariadb-sync-worker.mjs";
 
 class FakeConnection {
   constructor(id) {
@@ -45,16 +50,18 @@ class FakeConnection {
 
 function harness() {
   const connections = [];
+  const configurations = [];
   const messages = [];
   const handle = createMariaDbWorkerHandler({
-    createConnection: async () => {
+    createConnection: async (configuration) => {
+      configurations.push(configuration);
       const connection = new FakeConnection(connections.length + 1);
       connections.push(connection);
       return connection;
     },
     reportConnectionError: (message) => messages.push(message),
   });
-  return { connections, handle, messages };
+  return { configurations, connections, handle, messages };
 }
 
 const selectConnection = {
@@ -65,17 +72,64 @@ const selectConnection = {
 };
 
 test("the MariaDB worker reconnects after an idle connection closes", async () => {
-  const { connections, handle, messages } = harness();
+  const { configurations, connections, handle, messages } = harness();
   assert.deepEqual(await handle({ type: "init", configuration: { database: "test" } }), {
     version: "fake-1",
   });
   assert.deepEqual(await handle(selectConnection), { connection_id: 1 });
+  assert.equal(configurations[0].timezone, "Z");
+  assert.equal(configurations[0].typeCast, mariaDbUtcTypeCast);
 
   connections[0].disconnect();
 
   assert.deepEqual(await handle(selectConnection), { connection_id: 2 });
   assert.equal(connections.length, 2);
   assert.match(messages[0], /reconnecting on the next operation/u);
+});
+
+test("MariaDB DATETIME values cross the compatibility bridge as canonical UTC ISO strings", () => {
+  assert.equal(canonicalUtcDateTime("2026-09-13 01:02:03.4"), "2026-09-13T01:02:03.400Z");
+  assert.equal(canonicalUtcDateTime("2026-09-13T01:02:03.456789"), "2026-09-13T01:02:03.456Z");
+  assert.equal(canonicalUtcDateTime(null), null);
+  assert.equal(mariaDbUtcTypeCast({ type: "DATETIME", string: () => "2026-09-13 01:02:03.004" }), "2026-09-13T01:02:03.004Z");
+  assert.equal(mariaDbUtcTypeCast({ type: "VARCHAR" }, () => "untouched"), "untouched");
+  assert.throws(() => canonicalUtcDateTime("not-a-date"), /invalid DATETIME/u);
+});
+
+test("only parameters bound to native instant columns use MariaDB DATETIME literal syntax", () => {
+  const instant = "2026-09-13T01:02:03.456Z";
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    "INSERT INTO calendar_events (external_id, starts_at_utc, title, created_at_utc) VALUES (?, ?, ?, ?)",
+    [instant, instant, "launch", instant],
+  ), [instant, "2026-09-13 01:02:03.456", "launch", "2026-09-13 01:02:03.456"]);
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    "SELECT * FROM calendar_events WHERE starts_at_utc BETWEEN ? AND ? AND external_id = ?",
+    [instant, instant, instant],
+  ), ["2026-09-13 01:02:03.456", "2026-09-13 01:02:03.456", instant]);
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    "UPDATE reminders SET resolved_at = ? WHERE remind_at_utc <= ? AND external_id = ?",
+    [instant, instant, instant],
+  ), ["2026-09-13 01:02:03.456", "2026-09-13 01:02:03.456", instant]);
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    'INSERT INTO "profile_facts" ("external_id", "updated_at_utc") VALUES (?, ?)',
+    [instant, instant],
+  ), [instant, "2026-09-13 01:02:03.456"]);
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    "INSERT INTO journal_entries (external_id, occurred_at_utc) VALUES (?, ?), (?, ?)",
+    ["first", instant, "second", instant],
+  ), ["first", "2026-09-13 01:02:03.456", "second", "2026-09-13 01:02:03.456"]);
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    'SELECT * FROM "calendar_events" WHERE "starts_at_utc" >= ? AND "ical_recurrence_id" = ?',
+    [instant, instant],
+  ), ["2026-09-13 01:02:03.456", instant]);
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    "UPDATE video_jobs SET started_at_utc = COALESCE(started_at_utc, ?) WHERE video_job_id = ?",
+    [instant, 12],
+  ), ["2026-09-13 01:02:03.456", 12]);
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    "UPDATE calendar_events SET title = ? WHERE calendar_event_id = ? AND COALESCE(updated_at_utc, created_at_utc) = ?",
+    ["launch", 12, instant],
+  ), ["launch", 12, "2026-09-13 01:02:03.456"]);
 });
 
 test("a failed in-flight command is not replayed and the following command reconnects", async () => {

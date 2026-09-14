@@ -58,6 +58,27 @@ Do not restart the service when migration or verification fails. If no
 migrations are pending, `npm run db:migrate` is a read-only integrity check and
 does not require the confirmation variables.
 
+## Version 43: Native UTC instants and unified correspondence
+
+Converts every repository column that represents an actual instant to MariaDB
+`DATETIME(3)`. Existing canonical UTC values are normalized before each column
+change, and the runtime keeps UTC at the connection boundary while returning
+canonical ISO-8601 `Z` strings to existing application code.
+
+The correspondence family is deliberately dropped and recreated because the
+owner confirmed that those tables contain no data. Its final vocabulary covers
+email, SMS, MMS, RCS, iMessage, WhatsApp, other chat, calls, and voicemail.
+Calls are ordinary timeline rows whose disposition is exactly `answered` or
+`missed`; message delivery state is separate from retained provider status.
+Participants preserve the observed sender and recipients for each message or
+call without promising group-thread reconstruction.
+
+This migration requires stopped writers and a verified backup. Its broad type
+changes take metadata locks and may rebuild populated tables. If interrupted,
+leave writers stopped and replay the whole block; the empty correspondence
+family will be recreated again, while the other normalizations and type changes
+are idempotent.
+
 ## Version 42: Retire the unplanned to-do status
 
 Converts every existing `unplanned` personal to-do to `todo`, removes
@@ -107,7 +128,7 @@ reads or writes this table; current request history remains in
 `activity_events` and is unaffected.
 
 This block raised the application schema to version 38; the current application
-requires version 42. Prepare a verified backup before running the migration.
+requires version 43. Prepare a verified backup before running the migration.
 Writer downtime is not required for this block because
 the removed table has no current writer, though earlier pending migrations may
 still require it. The guarded drop supports replay, and the migration verifies

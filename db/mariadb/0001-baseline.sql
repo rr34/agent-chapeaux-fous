@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 42.
+-- Target: MariaDB 10.11, schema version 43.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -14,8 +14,8 @@ CREATE TABLE database_meta (
 
     singleton       TINYINT UNSIGNED NOT NULL COMMENT 'Constant primary key fixed at 1 so the table can contain only one metadata row.',
     schema_version  INT UNSIGNED NOT NULL COMMENT 'Current integer schema generation expected by the application.',
-    created_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                    DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this database metadata row was created. Format: ISO 8601 UTC timestamp.',
+    created_at_utc  DATETIME(3) NOT NULL
+                    DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this database metadata row was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     description     TEXT COMMENT 'Human-readable description of this database''s intended ownership and purpose.',
     PRIMARY KEY (singleton),
     CONSTRAINT database_meta_singleton CHECK (singleton = 1)
@@ -39,12 +39,12 @@ CREATE TABLE files (
     width              BIGINT COMMENT 'Pixel width of an image or video when known. Units: pixels. Format: positive integer.',
     height             BIGINT COMMENT 'Pixel height of an image or video when known. Units: pixels. Format: positive integer.',
     source_event_id    VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Stable event_id of the ledger event that introduced the file when known.',
-    created_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                       DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this file metadata record was inserted. Format: ISO 8601 UTC timestamp.',
+    created_at_utc     DATETIME(3) NOT NULL
+                       DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this file metadata record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     title              VARCHAR(200) COMMENT 'Concise human-facing title for the stored file. Initially derived from the original filename and may later be suggested by AI or edited by the user.',
     description        TEXT COMMENT 'Plain-language searchable description of the file contents.',
     title_source       ENUM('original_filename', 'ai', 'user') NOT NULL DEFAULT 'original_filename' COMMENT 'Authority that supplied the current title, used to prevent AI from overwriting a user-edited title. original_filename: The title is the deterministic upload-time fallback. ai: The title was suggested by the model after inspecting the file. user: The title was confirmed or edited by the user and must not be overwritten by AI.',
-    updated_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the most recent title or description change.',
+    updated_at_utc     DATETIME(3) COMMENT 'UTC timestamp of the most recent title or description change.',
     PRIMARY KEY (file_id),
     UNIQUE KEY files_storage_path (storage_path_hash),
     UNIQUE KEY files_sha256_unique (sha256),
@@ -71,8 +71,8 @@ CREATE TABLE activity_events (
                      DEFAULT (LOWER(REPLACE(UUID(), '-', ''))) COMMENT 'Stable public identifier used to refer to this event from other records and interfaces.',
     occurred_at_ms   BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000) COMMENT 'When the represented event occurred according to its source, expressed as Unix epoch milliseconds. Units: milliseconds. Format: Unix epoch milliseconds.',
     recorded_at_ms   BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000) COMMENT 'When this ledger received and stored the event, expressed as Unix epoch milliseconds. Units: milliseconds. Format: Unix epoch milliseconds.',
-    occurred_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                     DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'Human-readable UTC timestamp corresponding to the event occurrence time recorded for this row. Format: ISO 8601 UTC timestamp.',
+    occurred_at_utc  DATETIME(3) NOT NULL
+                     DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'Human-readable UTC timestamp corresponding to the event occurrence time recorded for this row. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     event_type       VARCHAR(255) NOT NULL COMMENT 'Extensible event name identifying what happened, such as a request, model call, tool call, response, lifecycle transition, or error.',
     event_phase      ENUM('point', 'start', 'end', 'error') NOT NULL DEFAULT 'point' COMMENT 'Whether this record is a standalone point event or the start, successful end, or error end of an operation. point: Standalone event rather than an operation boundary. start: Operation began. end: Operation completed without a recorded error. error: Operation terminated with an error.',
     status           VARCHAR(64) COMMENT 'Optional source-specific state or outcome associated with the event.',
@@ -152,9 +152,9 @@ CREATE TABLE contacts (
     notes              TEXT COMMENT 'Private free-text context about the contact that does not belong in a structured relationship or method.',
     source             VARCHAR(255) COMMENT 'System or process from which this contact was imported or created.',
     external_id        VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Identifier assigned to this contact by the source system.',
-    created_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                       DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the contact record was inserted. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the latest recorded change to the contact. Format: ISO 8601 UTC timestamp.',
+    created_at_utc     DATETIME(3) NOT NULL
+                       DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the contact record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc     DATETIME(3) COMMENT 'UTC timestamp of the latest recorded change to the contact. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     birth_date         VARCHAR(10) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Contact''s birth date, with an explicitly optional year, used to derive birthday calendar entries and age when possible. Format: YYYY-MM-DD when the year is known; --MM-DD when it is unknown. Do not invent a birth year; use --MM-DD when only month and day are known. Age is derived only when the stored value includes a year. Generated birthday labels are projections and must not be written back as permanent age text. Sensitivity: A birth date tied to an identified person is sensitive personal information.',
     -- active_self_guard: Generated uniqueness guard equal to 1 only for the active contact representing the user, and null otherwise. Format: MariaDB boolean uniqueness guard: 1 or null. Database-generated value used to enforce at most one active self contact; applications must not write it.
     active_self_guard  TINYINT AS (IF(is_self = 1 AND status = 'active', 1, NULL)) PERSISTENT,
@@ -185,8 +185,8 @@ CREATE TABLE contact_methods (
     normalized_value   VARCHAR(512) COMMENT 'Canonicalized representation used for reliable lookup and matching while value preserves the original.',
     is_primary         TINYINT NOT NULL DEFAULT 0 COMMENT '1 when this is the preferred contact method of its kind for the contact; otherwise 0. Format: MariaDB boolean: 0=false, 1=true.',
     can_receive        TINYINT NOT NULL DEFAULT 1 COMMENT '1 when the agent may use this method as a delivery destination; otherwise 0. Format: MariaDB boolean: 0=false, 1=true.',
-    created_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                       DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this contact method was inserted. Format: ISO 8601 UTC timestamp.',
+    created_at_utc     DATETIME(3) NOT NULL
+                       DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this contact method was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     -- value_hash: Generated SHA-256 digest of the original contact value used to enforce uniqueness even when the value is too long to index directly. Format: 32-byte binary SHA-256 digest. Database-generated value; applications must not write it. Sensitivity: A deterministic digest of personal contact information.
     value_hash         BINARY(32) AS (UNHEX(SHA2(value, 256))) PERSISTENT,
     PRIMARY KEY (contact_method_id),
@@ -206,8 +206,8 @@ CREATE TABLE tags (
     slug            VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Unique stable machine identifier used for matching and references.',
     label           VARCHAR(255) NOT NULL COMMENT 'Human-readable text displayed for the tag.',
     is_active       TINYINT NOT NULL DEFAULT 1 COMMENT '1 when the tag is available for normal use; otherwise 0. Format: MariaDB boolean: 0=false, 1=true.',
-    created_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                    DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the tag was defined. Format: ISO 8601 UTC timestamp.',
+    created_at_utc  DATETIME(3) NOT NULL
+                    DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the tag was defined. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (tag_id),
     UNIQUE KEY tags_slug (slug),
     CONSTRAINT tags_active CHECK (is_active IN (0, 1))
@@ -224,8 +224,8 @@ CREATE TABLE contacts_tags_join (
     tag_id          BIGINT UNSIGNED NOT NULL COMMENT 'Tag assigned to the record.',
     record_type     VARCHAR(128) NOT NULL COMMENT 'Type of record receiving the tag.',
     record_id       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Text representation of the identifier for the record named by record_type.',
-    created_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                    DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the tag was assigned. Format: ISO 8601 UTC timestamp.',
+    created_at_utc  DATETIME(3) NOT NULL
+                    DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the tag was assigned. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (tag_id, record_type, record_id),
     KEY record_tags_record (record_type, record_id),
     CONSTRAINT record_tags_tag FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
@@ -239,10 +239,10 @@ CREATE TABLE content_groups (
     content_group_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this content group.',
     name              VARCHAR(200) NOT NULL COMMENT 'Complete human-facing name of the content group.',
     sort_position     BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable presentation order used to place the group and all of its content in the catalog.',
-    archived_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC time when this group was removed from active content organization, or null while active. Format: ISO 8601 UTC timestamp.',
-    created_at_utc    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                      DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC time when this content group was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC time of the most recent content-group change, when one has occurred. Format: ISO 8601 UTC timestamp.',
+    archived_at_utc   DATETIME(3) COMMENT 'UTC time when this group was removed from active content organization, or null while active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    created_at_utc    DATETIME(3) NOT NULL
+                      DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC time when this content group was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc    DATETIME(3) COMMENT 'UTC time of the most recent content-group change, when one has occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (content_group_id),
     UNIQUE KEY content_groups_name (name),
     KEY content_groups_order (archived_at_utc, sort_position, content_group_id),
@@ -256,10 +256,10 @@ CREATE TABLE journal_groups (
 
     journal_group_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one personal-journal group.',
     name             VARCHAR(200) NOT NULL COMMENT 'Complete human-facing name of the group. Unique without regard to letter case. Sensitivity: May identify a private area of activity or health.',
-    archived_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp when this group was archived, or null while it is active. Format: ISO 8601 UTC timestamp.',
-    created_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                     DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this group was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the most recent change to this group, when changed. Format: ISO 8601 UTC timestamp.',
+    archived_at_utc  DATETIME(3) COMMENT 'UTC timestamp when this group was archived, or null while it is active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    created_at_utc   DATETIME(3) NOT NULL
+                     DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this group was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc   DATETIME(3) COMMENT 'UTC timestamp of the most recent change to this group, when changed. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (journal_group_id),
     UNIQUE KEY journal_groups_name (name),
     CONSTRAINT journal_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)
@@ -274,9 +274,9 @@ CREATE TABLE interaction_guides (
     name                  VARCHAR(200) NOT NULL COMMENT 'User-facing unique name used to select the guide without loading its text. Names are unique without regard to letter case.',
     status                ENUM('active', 'archived') NOT NULL DEFAULT 'active' COMMENT 'Lifecycle state controlling whether the guide is available for new guided interactions. active: The guide is available to inspect, edit, start, and link from a repeating to-do. archived: The guide is retained as history but unavailable for new links or starts.',
     version               BIGINT NOT NULL DEFAULT 1 COMMENT 'Monotonically increasing optimistic-concurrency version for agent and UI edits. Units: revision number. An update or archive must match the current version and increments it on success.',
-    created_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                          DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the interaction guide was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the most recent successful guide update or archival, when one has occurred. Format: ISO 8601 UTC timestamp.',
+    created_at_utc        DATETIME(3) NOT NULL
+                          DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the interaction guide was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc        DATETIME(3) COMMENT 'UTC timestamp of the most recent successful guide update or archival, when one has occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (interaction_guide_id),
     UNIQUE KEY interaction_guides_name (name),
     KEY interaction_guides_status_name (status, name, interaction_guide_id),
@@ -293,10 +293,10 @@ CREATE TABLE todo_groups (
 
     todo_group_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable internal identifier for one personal to-do group.',
     name              VARCHAR(255) NOT NULL COMMENT 'Complete human-facing name of the group; the schema intentionally has no separate description. Unique without regard to letter case. Sensitivity: May identify a private project or area of responsibility.',
-    archived_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when the group was archived; null while the group is active. Format: ISO 8601 UTC timestamp.',
-    created_at_utc    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                      DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC instant when the group record was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant of the group record’s most recent material update; null until first updated. Format: ISO 8601 UTC timestamp.',
+    archived_at_utc   DATETIME(3) COMMENT 'UTC instant when the group was archived; null while the group is active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    created_at_utc    DATETIME(3) NOT NULL
+                      DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when the group record was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc    DATETIME(3) COMMENT 'UTC instant of the group record’s most recent material update; null until first updated. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     sort_position     BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable presentation order used to place this group and all of its tasks in the to-do list. Lower values appear first; moving a group does not change task membership or task order within the group.',
     uses_sequence     TINYINT NOT NULL DEFAULT 0 COMMENT 'Whether this group automatically assigns the next unique positive sequence number to tasks added without one. 0: Sequence numbers are optional and are not assigned automatically. 1: Unnumbered tasks receive the next number after the group''s current maximum. Disabling automatic sequencing preserves numbers already assigned.',
     PRIMARY KEY (todo_group_id),
@@ -317,11 +317,11 @@ CREATE TABLE trackers (
     journal_group_id     BIGINT UNSIGNED NOT NULL COMMENT 'Organizational group containing this tracker.',
     name             VARCHAR(200) NOT NULL COMMENT 'Complete human-facing name of the tracked subject. Unique globally without regard to letter case. Sensitivity: May name a private health condition, habit, medication, or activity.',
     unit             VARCHAR(100) NOT NULL COMMENT 'Canonical unit shared by every numeric entry in this tracker''s trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me.',
-    archived_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp when tracking was archived, or null while the tracker is active. Format: ISO 8601 UTC timestamp.',
-    created_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                     DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this tracker was first defined. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the most recent change to this tracker, when changed. Format: ISO 8601 UTC timestamp.',
-    asking_starts_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'First logging period start. Null with the other asking fields disables scheduled questions. Format: ISO 8601 UTC timestamp.',
+    archived_at_utc  DATETIME(3) COMMENT 'UTC timestamp when tracking was archived, or null while the tracker is active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    created_at_utc   DATETIME(3) NOT NULL
+                     DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this tracker was first defined. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc   DATETIME(3) COMMENT 'UTC timestamp of the most recent change to this tracker, when changed. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    asking_starts_at_utc DATETIME(3) COMMENT 'First logging period start. Null with the other asking fields disables scheduled questions. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     asking_recurrence_rule VARCHAR(2000) COMMENT 'RRULE defining logging period starts. One observation in a period satisfies its question; only the latest due period is asked automatically.',
     asking_time_zone VARCHAR(100) COMMENT 'IANA time zone preserving local logging period boundaries across daylight saving changes.',
     PRIMARY KEY (tracker_id),
@@ -349,17 +349,17 @@ CREATE TABLE calendar_routines (
     title                TEXT NOT NULL COMMENT 'Default human-readable title copied to generated calendar events.',
     description          LONGTEXT COMMENT 'Optional default description copied to generated calendar events.',
     location_text        TEXT COMMENT 'Optional default location copied to generated calendar events.',
-    first_starts_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'UTC start instant anchoring the recurrence rule. Format: ISO 8601 UTC timestamp.',
-    first_ends_at_utc    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional UTC end instant for the first occurrence; its duration is preserved for generated events. Format: ISO 8601 UTC timestamp.',
+    first_starts_at_utc  DATETIME(3) NOT NULL COMMENT 'UTC start instant anchoring the recurrence rule. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    first_ends_at_utc    DATETIME(3) COMMENT 'Optional UTC end instant for the first occurrence; its duration is preserved for generated events. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     time_zone            VARCHAR(255) NOT NULL COMMENT 'IANA time-zone name preserving local recurrence times across daylight-saving changes.',
     is_all_day           TINYINT NOT NULL DEFAULT 0 COMMENT '1 when generated events represent calendar days rather than precise clock times; otherwise 0.',
     recurrence_rule      TEXT NOT NULL COMMENT 'RFC 5545 RRULE defining when concrete calendar events are generated.',
-    disabled_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when this routine stopped generating events; null while enabled.',
+    disabled_at_utc      DATETIME(3) COMMENT 'UTC instant when this routine stopped generating events; null while enabled.',
     planning_prompt_text TEXT COMMENT 'Optional proactive planning question copied to generated calendar events.',
     source_event_id      VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Activity event that created this calendar routine when known.',
-    created_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                         DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC instant when this routine was created.',
-    updated_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant of the latest material update.',
+    created_at_utc       DATETIME(3) NOT NULL
+                         DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this routine was created.',
+    updated_at_utc       DATETIME(3) COMMENT 'UTC instant of the latest material update.',
     PRIMARY KEY (calendar_routine_id),
     KEY calendar_routines_start (first_starts_at_utc, disabled_at_utc),
     CONSTRAINT calendar_routines_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
@@ -389,22 +389,22 @@ CREATE TABLE calendar_events (
 
     calendar_event_id   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this calendar event.',
     calendar_routine_id BIGINT UNSIGNED COMMENT 'Optional calendar routine that generated this concrete event occurrence.',
-    routine_occurrence_key VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Original UTC occurrence start from the generating routine. Null for events not generated by a calendar routine.',
+    routine_occurrence_key DATETIME(3) COMMENT 'Original UTC occurrence start from the generating routine. Null for events not generated by a calendar routine.',
     ical_uid            VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Persistent iCalendar UID used to identify an imported event or recurrence family and prevent duplicate imports. Format: RFC 5545 UID text. This identifies imported calendar data; it does not identify a separate calendar.',
     ical_recurrence_id  VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Original iCalendar recurrence-instance identifier distinguishing this materialized occurrence within the shared UID. Format: RFC 5545 RECURRENCE-ID text. Together with ical_uid, this value prevents duplicate imports of the same recurring occurrence.',
     title               TEXT NOT NULL COMMENT 'Human-readable event name shown on the calendar.',
     description         LONGTEXT COMMENT 'Complete available description or notes for the event.',
     location_text       TEXT COMMENT 'Human-readable physical, virtual, or meeting location.',
-    starts_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'UTC instant when the event starts. Format: ISO 8601 UTC timestamp.',
-    ends_at_utc         VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when the event ends, when an end is known. Format: ISO 8601 UTC timestamp.',
+    starts_at_utc       DATETIME(3) NOT NULL COMMENT 'UTC instant when the event starts. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    ends_at_utc         DATETIME(3) COMMENT 'UTC instant when the event ends, when an end is known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     time_zone           VARCHAR(255) COMMENT 'IANA or provider time-zone name used to display the event in its intended local time.',
     is_all_day          TINYINT NOT NULL DEFAULT 0 COMMENT '1 when the event represents a calendar day rather than a precise time; otherwise 0. Format: MariaDB boolean: 0=false, 1=true.',
     status              ENUM('tentative', 'confirmed', 'cancelled') NOT NULL DEFAULT 'confirmed' COMMENT 'Current scheduling state of the event. Format: RFC 5545 VEVENT status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur. Calendar events happen; completion is represented only by the passage of time, not a stored event status.',
     recurrence_rule     TEXT COMMENT 'iCalendar RRULE describing how the event repeats.',
     source_event_id     VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Ledger event that caused this calendar record to be created when known.',
-    created_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this local calendar record was inserted. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the latest recorded change to this local calendar record. Format: ISO 8601 UTC timestamp.',
+    created_at_utc      DATETIME(3) NOT NULL
+                        DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this local calendar record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc      DATETIME(3) COMMENT 'UTC timestamp of the latest recorded change to this local calendar record. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     planning_prompt_text TEXT COMMENT 'Optional question the agent should proactively ask to help the user decide how this scheduled time will be used. Format: Plain text question. Null means no proactive planning question is attached to this event.',
     -- ical_single_guard: Generated iCalendar UID used only for a non-recurring imported event so that the same single event cannot be stored twice. Format: Binary SHA-independent copy of ical_uid; null for recurrence instances. Database-generated value used by calendar_events_ical_single; applications must not write it.
     ical_single_guard   VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin
@@ -431,7 +431,7 @@ CREATE TABLE calendar_event_exclusions (
     -- fk:calendar_event_exclusions_event importantRules: ["Deleting the parent event deletes its exclusions."]
 
     calendar_event_id       BIGINT UNSIGNED NOT NULL COMMENT 'Recurring calendar event whose generated occurrence is omitted. The referenced event supplies the recurrence rule.',
-    excluded_starts_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'UTC start instant of the recurrence instance that must not be generated or displayed. Format: ISO 8601 UTC timestamp.',
+    excluded_starts_at_utc  DATETIME(3) NOT NULL COMMENT 'UTC start instant of the recurrence instance that must not be generated or displayed. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (calendar_event_id, excluded_starts_at_utc),
     KEY calendar_event_exclusions_start (excluded_starts_at_utc, calendar_event_id),
     CONSTRAINT calendar_event_exclusions_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE
@@ -476,9 +476,9 @@ CREATE TABLE interaction_guide_steps (
                                DEFAULT '{"version":1,"instructions":null,"inputs":[],"operations":[],"recoveryReads":[],"completion":{"mode":"response_valid"}}' COMMENT 'Versioned JSON contract containing optional explanatory instructions plus authoritative typed inputs, exact destination operations and argument bindings, bounded recovery reads, and the completion rule. Format: JSON object, contract version 1, at most 200000 characters. Free-text instructions may explain structured fields but cannot introduce undeclared inputs, tools, destinations, recovery actions, or completion requirements. Every destination mutation names its exact application tool and argument template in operations. The completion mode is contract data, not a separate exchange column. Sensitivity: May contain private workflow instructions and destination identifiers.',
     answers_json               LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT '{}' COMMENT 'JSON object containing answers the user has actually supplied for this step in the current run, keyed by concise stable answer names. Format: JSON object, at most 100000 characters. Merge partial answers without discarding answers already collected in the active run. A completed run clears this object only after that run''s progress has been retained in activity_events. Answers do not replace business validation or successful receipts from the tools that own destination data. Sensitivity: Contains private user answers that may span any domain covered by the structured interaction.',
     enabled                    TINYINT NOT NULL DEFAULT 1 COMMENT 'Whether new and active runs include this step when selecting the current and next higher numbered step. 0: The definition is retained but skipped by runs. 1: The step participates in runs.',
-    created_at_utc             VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                               DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this numbered interaction-guide step was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc             VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the most recent definition or current-answer update to this step, when one has occurred. Format: ISO 8601 UTC timestamp.',
+    created_at_utc             DATETIME(3) NOT NULL
+                               DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this numbered interaction-guide step was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc             DATETIME(3) COMMENT 'UTC timestamp of the most recent definition or current-answer update to this step, when one has occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     progress_state             ENUM('pending', 'active', 'completed') NOT NULL DEFAULT 'pending' COMMENT 'Current-run progress for this step, used to resume an interrupted structured interaction at exactly one active step. pending: The current run has not yet completed this step. active: This is the current step to present or continue. completed: The current run completed this step and advanced beyond it. The interaction-guide service owns transitions; definition tools do not write this field directly. Run completion or explicit cancellation resets current progress only after immutable history is retained in activity_events.',
     PRIMARY KEY (interaction_guide_step_id),
     UNIQUE KEY interaction_guide_steps_number (interaction_guide_id, step_number),
@@ -519,13 +519,13 @@ CREATE TABLE todo_personal (
     text                 TEXT NOT NULL COMMENT 'Complete wording of the task, serving as both its short label and any longer explanation. Sensitivity: May contain private plans, names, and instructions.',
     status               ENUM('todo', 'complete', 'ignore', 'archive', 'ai_suggested') NOT NULL DEFAULT 'todo' COMMENT 'Compact lifecycle state controlling whether and how the task appears in the user''s list. todo: The user intends to do this task. complete: The task was finished. ignore: The task was intentionally skipped without completion. archive: The task is retained as history but removed from ordinary views. ai_suggested: The agent proposed the task and the user has not yet accepted or dismissed it.',
     sort_position        BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable ordering value used to place tasks directly within a group; it conveys no importance or priority. Lower values appear first within the same group.',
-    completed_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when the task entered complete status; null for tasks not currently complete. Format: ISO 8601 UTC timestamp.',
+    completed_at_utc     DATETIME(3) COMMENT 'UTC instant when the task entered complete status; null for tasks not currently complete. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     source               VARCHAR(255) COMMENT 'Optional stable name of the system or workflow that supplied this task.',
     external_id          VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional identifier assigned by source; together with source it prevents duplicate imports or publications. Unique with source when both values are present.',
     source_event_id      VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional observable activity event that created or imported this task.',
-    created_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                         DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC instant when this task occurrence was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant of this task occurrence’s most recent material update; null until first updated. Format: ISO 8601 UTC timestamp.',
+    created_at_utc       DATETIME(3) NOT NULL
+                         DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this task occurrence was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc       DATETIME(3) COMMENT 'UTC instant of this task occurrence’s most recent material update; null until first updated. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     interaction_guide_id BIGINT UNSIGNED COMMENT 'Optional interaction guide offered when the user starts this task. The task owns this association independently of calendar placement.',
     planning_prompt_text TEXT COMMENT 'Optional question the agent should proactively ask to help turn this task into a concrete plan. Format: Plain text question. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status.',
     PRIMARY KEY (personal_task_id),
@@ -556,8 +556,8 @@ CREATE TABLE calendar_events_todo_join (
     calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Concrete calendar event associated with the task.',
     personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing personal to-do associated with the calendar event.',
     relationship_kind ENUM('work', 'deadline', 'context') NOT NULL DEFAULT 'context' COMMENT 'Meaning of this event-to-task association. work: scheduled working time. deadline: the event represents a deadline. context: the task is relevant to the event without stronger timing semantics.',
-    created_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the association was created.',
+    created_at_utc DATETIME(3) NOT NULL
+        DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
     PRIMARY KEY (calendar_event_id, personal_task_id),
     KEY calendar_events_todo_join_task (personal_task_id, calendar_event_id),
     CONSTRAINT calendar_events_todo_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
@@ -571,9 +571,9 @@ CREATE TABLE catch_up_questions (
     occurrence_key VARCHAR(160) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable source-owned identity: event for a one-time event, an ISO UTC calendar occurrence, or a journal logging-period start.',
     source_version CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'SHA-256 of material source data used to generate this question. Prevents stale answers and reopens questions when the relevant source data changes.',
     question_text VARCHAR(2000) NOT NULL COMMENT 'Code-generated question grounded in the linked source record. This is data, never an instruction or permission grant.',
-    due_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Source-derived instant from which this question is eligible. Format: ISO 8601 UTC timestamp.',
-    ask_after VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Explicit user deferral. A question is eligible only after both due_at_utc and this instant. Null means no deferral.',
-    resolved_at VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'When this occurrence was addressed or reconciled as no longer requiring an answer. Null means unresolved; this does not replace the source record status.',
+    due_at_utc DATETIME(3) NOT NULL COMMENT 'Source-derived instant from which this question is eligible. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    ask_after DATETIME(3) COMMENT 'Explicit user deferral. A question is eligible only after both due_at_utc and this instant. Null means no deferral.',
+    resolved_at DATETIME(3) COMMENT 'When this occurrence was addressed or reconciled as no longer requiring an answer. Null means unresolved; this does not replace the source record status.',
     comment TEXT COMMENT 'Optional user-supplied outcome or explanation about this source occurrence. No transcript is needed to interpret resolution.',
     version BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Optimistic concurrency version incremented whenever question state changes.',
     PRIMARY KEY (question_id),
@@ -603,17 +603,17 @@ CREATE TABLE reminders (
     calendar_event_id    BIGINT UNSIGNED COMMENT 'Calendar event whose timing or commitment this reminder supports, when applicable.',
     personal_task_id     BIGINT UNSIGNED COMMENT 'Optional personal task whose reminder lifecycle this row serves. Deleting the task also deletes its subordinate reminder.',
     title                TEXT COMMENT 'Human-readable notification text or reminder name.',
-    remind_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'UTC instant at or after which the reminder becomes due for delivery. Format: ISO 8601 UTC timestamp.',
+    remind_at_utc        DATETIME(3) NOT NULL COMMENT 'UTC instant at or after which the reminder becomes due for delivery. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     delivery_method      ENUM('agent', 'webhook', 'notification', 'email', 'sms', 'other') NOT NULL DEFAULT 'agent' COMMENT 'Mechanism through which the reminder should be delivered. agent: Agent surfaces the reminder through its normal interaction channel. webhook: HTTP webhook receives the reminder. notification: Device or browser notification. email: Email delivery. sms: SMS delivery. other: Delivery mechanism not covered by the named values.',
     delivery_target      TEXT COMMENT 'Method-specific destination such as an address, number, endpoint, or device when needed.',
     status               ENUM('pending', 'processing', 'delivered', 'snoozed', 'cancelled', 'error') NOT NULL DEFAULT 'pending' COMMENT 'Current delivery lifecycle state of the reminder. pending: Waiting for remind_at_utc or delivery processing. processing: A delivery attempt is active. delivered: Delivery succeeded. snoozed: Delivery was postponed to a later time. cancelled: Reminder should not be delivered. error: Most recent delivery attempt failed and may need retry or correction.',
     attempt_count        BIGINT NOT NULL DEFAULT 0 COMMENT 'Number of delivery attempts already made.',
-    last_attempt_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC time of the most recent delivery attempt. Format: ISO 8601 UTC timestamp.',
-    delivered_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC time successful delivery was recorded. Format: ISO 8601 UTC timestamp.',
+    last_attempt_at_utc  DATETIME(3) COMMENT 'UTC time of the most recent delivery attempt. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    delivered_at_utc     DATETIME(3) COMMENT 'UTC time successful delivery was recorded. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     error_text           LONGTEXT COMMENT 'Most recent observable delivery error when status is error.',
-    created_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                         DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the reminder was inserted. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the latest recorded change to the reminder. Format: ISO 8601 UTC timestamp.',
+    created_at_utc       DATETIME(3) NOT NULL
+                         DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the reminder was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc       DATETIME(3) COMMENT 'UTC timestamp of the latest recorded change to the reminder. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (reminder_id),
     KEY reminders_due (status, remind_at_utc),
     CONSTRAINT reminders_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
@@ -634,14 +634,14 @@ CREATE TABLE journal_entries (
 
     journal_entry_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one personal journal entry.',
     tracker_id       BIGINT UNSIGNED NOT NULL COMMENT 'Tracker under which this observation is recorded.',
-    occurred_at_utc  VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                     DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC instant when the recorded observation or event occurred. Format: ISO 8601 UTC timestamp. This may differ from created_at_utc when the user records something retrospectively.',
+    occurred_at_utc  DATETIME(3) NOT NULL
+                     DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when the recorded observation or event occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC. This may differ from created_at_utc when the user records something retrospectively.',
     content_text     TEXT NOT NULL COMMENT 'Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry. Sensitivity: May contain private health, nutrition, behavioral, or situational context.',
     number_value     DOUBLE COMMENT 'Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker''s canonical unit.',
     source_event_id  VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional activity event for the user request that caused this journal entry to be recorded.',
-    created_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                     DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this journal row was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the most recent modification to this journal row, when modified. Format: ISO 8601 UTC timestamp.',
+    created_at_utc   DATETIME(3) NOT NULL
+                     DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this journal row was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc   DATETIME(3) COMMENT 'UTC timestamp of the most recent modification to this journal row, when modified. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     source           VARCHAR(200) NOT NULL DEFAULT 'agent-slayer' COMMENT 'Stable generic name of the application, export, or local path from which this journal entry originated. Use agent-slayer for ordinary native journal writes and a consistent source name for every page of one external import. Sensitivity: May identify a private external application or data export.',
     external_id      VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional stable record identifier assigned by source and used with source to make imports idempotent. Required by the generic import tool and null for ordinary native journal entries without an upstream identity. The pair of source and external_id is unique whenever external_id is present. Sensitivity: May expose an identifier from a private external data source.',
     PRIMARY KEY (journal_entry_id),
@@ -682,8 +682,8 @@ CREATE TABLE content_items (
     title                 TEXT NOT NULL COMMENT 'Human-readable title of the work or source item.',
     transcript            LONGTEXT COMMENT 'Source speech or text transcribed or extracted from the content itself.',
     description           LONGTEXT COMMENT 'Summary or description of what the content is about.',
-    published_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                          DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC publication time reported for the content when known. Format: ISO 8601 UTC timestamp.',
+    published_at_utc      DATETIME(3) NOT NULL
+                          DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC publication time reported for the content when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     content_host          ENUM('youtube', 'vimeo', 'spotify', 'mytlomdotcom', 'none') NOT NULL DEFAULT 'youtube' COMMENT 'Platform or service that hosts the published content. youtube: Hosted on YouTube. vimeo: Hosted on Vimeo. spotify: Hosted on Spotify. mytlomdotcom: Hosted on mytlom.com. none: The content has no external host.',
     content_status        ENUM('active', 'obsolete', 'unused', 'queued') NOT NULL DEFAULT 'active' COMMENT 'Current action-content lifecycle state. active: Content is current and available for use. obsolete: Content has been superseded and should not guide current work. unused: Content is retained but not currently used. queued: Content is awaiting production or publication.',
     content_url           TEXT COMMENT 'Canonical public or hosted URL for the content when one exists. Format: URL.',
@@ -692,11 +692,11 @@ CREATE TABLE content_items (
     personal_notes        LONGTEXT COMMENT 'the user''s own reaction, interpretation, plan, or intended use for the content.',
     external_id           VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Identifier assigned to the item by its host or source system.',
     primary_file_id       BIGINT UNSIGNED COMMENT 'Main locally stored file representing this content item when one exists.',
-    consumed_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC time when the user finished or recorded consuming the reference material. Format: ISO 8601 UTC timestamp.',
+    consumed_at_utc       DATETIME(3) COMMENT 'UTC time when the user finished or recorded consuming the reference material. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     source_event_id       VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Ledger event that caused this content item to be created when known.',
-    created_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                          DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this catalog record was inserted. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc        VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the latest recorded change to this catalog record. Format: ISO 8601 UTC timestamp.',
+    created_at_utc        DATETIME(3) NOT NULL
+                          DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this catalog record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc        DATETIME(3) COMMENT 'UTC timestamp of the latest recorded change to this catalog record. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (content_id),
     UNIQUE KEY content_items_group_sequence (content_group_id, sequence),
     KEY content_items_group_order (content_group_id, sequence, content_id),
@@ -724,10 +724,10 @@ CREATE TABLE video_scripts (
     script_json          LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Complete structured production plan, including generator prompt, scenes, grounding references, continuity notes, and negative constraints. Format: JSON object encoded as text.',
     script_text          LONGTEXT NOT NULL COMMENT 'Complete copy-ready Markdown production script deterministically compiled from script_json at creation time. Format: Markdown.',
     created_by_event_id  VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Exact request-received ledger event whose authorized tool execution created this script.',
-    created_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                         DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC time when the script record was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC time of the latest script lifecycle or content update. Format: ISO 8601 UTC timestamp.',
-    archived_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC time when the script was archived; null while it remains a draft. Format: ISO 8601 UTC timestamp.',
+    created_at_utc       DATETIME(3) NOT NULL
+                         DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC time when the script record was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc       DATETIME(3) COMMENT 'UTC time of the latest script lifecycle or content update. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    archived_at_utc      DATETIME(3) COMMENT 'UTC time when the script was archived; null while it remains a draft. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     version              BIGINT NOT NULL DEFAULT 1 COMMENT 'Monotonic optimistic-concurrency version for user-visible script changes. Units: revision.',
     PRIMARY KEY (video_script_id),
     UNIQUE KEY video_scripts_created_by (created_by_event_id),
@@ -793,11 +793,11 @@ CREATE TABLE video_jobs (
     input_json         LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT '{}' COMMENT 'Bounded job contract and identifiers needed to resolve the authoritative script and ordered sources for this render attempt. Format: JSON object encoded as text.',
     output_file_id     BIGINT UNSIGNED COMMENT 'File metadata record for the completed rendered video when successful.',
     error_text         LONGTEXT COMMENT 'Complete observable rendering error when the job fails.',
-    created_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                       DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the rendering job was created. Format: ISO 8601 UTC timestamp.',
-    started_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp when rendering preparation or execution began. Format: ISO 8601 UTC timestamp.',
-    completed_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp when the job reached a terminal state. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc     VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC timestamp of the latest recorded state change. Format: ISO 8601 UTC timestamp.',
+    created_at_utc     DATETIME(3) NOT NULL
+                       DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the rendering job was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    started_at_utc     DATETIME(3) COMMENT 'UTC timestamp when rendering preparation or execution began. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    completed_at_utc   DATETIME(3) COMMENT 'UTC timestamp when the job reached a terminal state. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc     DATETIME(3) COMMENT 'UTC timestamp of the latest recorded state change. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     personal_task_id   BIGINT UNSIGNED COMMENT 'Optional durable personal task that requested and owns this subordinate render execution. Deleting the task preserves the render job and clears this reference.',
     video_script_id    BIGINT UNSIGNED COMMENT 'Durable production script whose scene plan this background render job executes, when this is a script-driven job.',
     -- active_script_status: Generated uniqueness guard equal to 1 while a script-linked job is active, and null after it reaches a terminal state. Format: MariaDB boolean uniqueness guard: 1 or null. Database-generated value used to allow at most one active job per video script; applications must not write it.
@@ -832,10 +832,10 @@ CREATE TABLE profile_facts (
     fact_status          ENUM('active', 'archived') NOT NULL DEFAULT 'active' COMMENT 'Whether the fact is current or retained only as archived history. active: Current fact eligible for first-call context when its type is relevant. archived: Historical fact omitted from ordinary model context.',
     source_event_id      VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'User request event that created this version of the fact.',
     archived_by_event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'User request event that archived this fact version, either by replacement or deletion.',
-    created_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                         DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC time when this fact version was created. Format: ISO 8601 UTC timestamp.',
-    updated_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC time when the fact was most recently changed. Format: ISO 8601 UTC timestamp.',
-    archived_at_utc      VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC time when the fact was archived; null while active. Format: ISO 8601 UTC timestamp.',
+    created_at_utc       DATETIME(3) NOT NULL
+                         DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC time when this fact version was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc       DATETIME(3) COMMENT 'UTC time when the fact was most recently changed. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    archived_at_utc      DATETIME(3) COMMENT 'UTC time when the fact was archived; null while active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (profile_fact_id),
     KEY profile_facts_status_type (fact_status, fact_type, profile_fact_id),
     CONSTRAINT profile_facts_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
@@ -848,7 +848,7 @@ CREATE TABLE profile_facts (
 CREATE TABLE correspondence (
     -- sourceOfTruth: true
     -- synonyms: ["messages", "communications"]
-    -- keywords: ["message", "email", "text message", "sms", "mms", "imessage", "chat", "voicemail", "inbox", "sent"]
+    -- keywords: ["message", "email", "text message", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "inbox", "sent"]
     -- subject keywords: ["email subject", "message subject"]
     -- body_text keywords: ["message body", "email body", "what did they say", "voicemail transcript"]
     -- sent_at_utc keywords: ["when sent"]
@@ -860,35 +860,42 @@ CREATE TABLE correspondence (
     -- fk:correspondence_reply cardinality: Each message may reference zero or one message; one referenced record may be used by many message records.
     -- fk:correspondence_reply importantRules: ["Deleting the referenced row preserves this row and clears the reference."]
 
-    correspondence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this message.',
-    medium            ENUM('email', 'sms', 'mms', 'imessage', 'chat', 'voicemail', 'other') NOT NULL COMMENT 'Communication medium through which the message exists. email: Email message. sms: SMS text message. mms: Multimedia messaging service message. imessage: Apple iMessage communication. chat: Message from a chat or messaging platform. voicemail: Recorded or transcribed voicemail. other: Communication medium not covered by the named values.',
-    direction         ENUM('inbound', 'outbound', 'draft', 'internal') NOT NULL COMMENT 'Whether the message arrived, was sent, remains a draft, or exists only as an internal record. inbound: Received from another participant. outbound: Sent to another participant. draft: Prepared but not sent. internal: Recorded for internal agent/user use rather than transmitted.',
-    account_key       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Mailbox, phone identity, or service account through which the message was handled.',
+    correspondence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this message or call.',
+    medium            ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'other') NOT NULL COMMENT 'Communication medium represented by this row. email: Email message. sms: SMS text message. mms: Multimedia messaging service message. rcs: Rich Communication Services message. imessage: Apple iMessage communication. whatsapp: WhatsApp message. chat: Message from another chat platform. call: Telephone or application call. voicemail: Recorded or transcribed voicemail. other: Communication medium not covered by the named values.',
+    direction         ENUM('inbound', 'outbound') NOT NULL COMMENT 'Direction relative to the user. inbound: Received from another participant. outbound: Sent or initiated by the user; an unsent draft is outbound with delivery_status draft.',
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local mailbox, phone identity, SIM, or service account through which the communication was handled. It scopes provider identifiers and does not contain an authentication secret.',
     thread_key        VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider or local conversation identifier grouping related messages.',
-    external_id       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider-assigned identifier for this message.',
+    external_id       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider-assigned identifier for this message or call.',
     in_reply_to_id    BIGINT UNSIGNED COMMENT 'Earlier local correspondence record to which this message directly replies.',
     subject           TEXT COMMENT 'Complete message subject or title when the medium provides one.',
     body_text         LONGTEXT COMMENT 'Complete available plain-text body of the message or voicemail transcript.',
     body_html         LONGTEXT COMMENT 'Complete available HTML body when supplied by the communication provider.',
-    status            VARCHAR(64) COMMENT 'Provider- or workflow-specific message state, such as unread, sent, failed, or archived.',
-    sent_at_utc       VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when the message was sent, when known. Format: ISO 8601 UTC timestamp.',
-    received_at_utc   VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'UTC instant when the message was received, when known. Format: ISO 8601 UTC timestamp.',
+    delivery_status   ENUM('draft', 'sent', 'delivered', 'failed', 'unknown') COMMENT 'Normalized message delivery state when applicable. draft: Prepared but not sent. sent: Accepted for sending or reported sent. delivered: Provider reports delivery. failed: Sending failed. unknown: The source does not provide a more precise state. Null for calls and records without message-delivery semantics.',
+    call_disposition  ENUM('answered', 'missed') COMMENT 'Whether a call was answered. Every call normalizes all unanswered outcomes to missed. Null for non-call rows.',
+    call_duration_seconds BIGINT UNSIGNED COMMENT 'Elapsed connected or reported call duration in whole seconds when supplied by the source. Null when unavailable and for non-call rows.',
+    provider_status   VARCHAR(64) COMMENT 'Unmodified provider-specific state retained when it conveys detail not represented by delivery_status or call_disposition.',
+    occurred_at_utc   DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'Primary source-reported instant used to order this communication. For calls this is the call start; for messages it is the best available sent or received instant. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    sent_at_utc       DATETIME(3) COMMENT 'UTC instant when the message was sent, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    received_at_utc   DATETIME(3) COMMENT 'UTC instant when the message was received, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     source_event_id   VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Ledger event that introduced or created this correspondence record when known.',
-    created_at_utc    VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-                      DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when this local message record was inserted. Format: ISO 8601 UTC timestamp.',
+    created_at_utc    DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this local communication record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (correspondence_id),
-    UNIQUE KEY correspondence_external (medium, account_key, external_id),
-    KEY correspondence_thread (medium, account_key, thread_key),
-    KEY correspondence_timeline_index (correspondence_id),
+    UNIQUE KEY correspondence_external (medium, source_account_key, external_id),
+    KEY correspondence_thread (medium, source_account_key, thread_key),
+    KEY correspondence_timeline_index (occurred_at_utc, correspondence_id),
     CONSTRAINT correspondence_reply FOREIGN KEY (in_reply_to_id) REFERENCES correspondence(correspondence_id) ON DELETE SET NULL,
-    CONSTRAINT correspondence_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL
-) ENGINE=InnoDB COMMENT='Preserves complete logical messages across email, SMS, MMS, iMessage, chat, voicemail, and future communication media. One row represents one inbound, outbound, draft, or internal message, independent of how many participants or files it has. Preserve the complete available message rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files for people and attachments. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, and provider metadata.';
+    CONSTRAINT correspondence_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT correspondence_call_state CHECK (
+      (medium = 'call' AND call_disposition IS NOT NULL AND delivery_status IS NULL)
+      OR (medium <> 'call' AND call_disposition IS NULL AND call_duration_seconds IS NULL)
+    )
+) ENGINE=InnoDB COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
 
 CREATE TABLE todo_correspondence_join (
     personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing task associated with the message.',
     correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the task.',
-    created_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the link was created. Format: ISO 8601 UTC timestamp.',
+    created_at_utc DATETIME(3) NOT NULL
+        DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the link was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (personal_task_id, correspondence_id),
     KEY todo_correspondence_join_message (correspondence_id),
     CONSTRAINT todo_correspondence_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
@@ -898,8 +905,8 @@ CREATE TABLE todo_correspondence_join (
 CREATE TABLE calendar_events_correspondence_join (
     calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing calendar event or recurring series associated with the message.',
     correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the calendar event or recurring series.',
-    created_at_utc VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-        DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')) COMMENT 'UTC timestamp when the link was created. Format: ISO 8601 UTC timestamp.',
+    created_at_utc DATETIME(3) NOT NULL
+        DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the link was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     PRIMARY KEY (calendar_event_id, correspondence_id),
     KEY calendar_events_correspondence_join_message (correspondence_id),
     CONSTRAINT calendar_events_correspondence_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
@@ -939,18 +946,18 @@ CREATE TABLE correspondence_participants (
     -- fk:correspondence_participants_method cardinality: Each message participant may reference zero or one contact method; one referenced record may be used by many message participant records.
     -- fk:correspondence_participants_method importantRules: ["Deleting the referenced row preserves this row and clears the reference."]
 
-    correspondence_id  BIGINT UNSIGNED NOT NULL COMMENT 'Message on which this participant appears.',
-    participant_role   ENUM('from', 'to', 'cc', 'bcc', 'reply_to', 'sender', 'recipient') NOT NULL COMMENT 'Sender or recipient role the observed address has on the message. from: Email-style From participant. to: Email-style primary recipient. cc: Email-style carbon-copy recipient. bcc: Email-style blind-carbon-copy recipient. reply_to: Email-style Reply-To address to use when responding instead of the From address. sender: Generic sender for media without email-style headers. recipient: Generic recipient for media without email-style headers.',
+    correspondence_id  BIGINT UNSIGNED NOT NULL COMMENT 'Message or call on which this participant appears.',
+    participant_role   ENUM('from', 'to', 'cc', 'bcc', 'reply_to', 'sender', 'recipient') NOT NULL COMMENT 'Sender or recipient role the observed address has on the communication. from: Email-style From participant. to: Email-style primary recipient. cc: Email-style carbon-copy recipient. bcc: Email-style blind-carbon-copy recipient. reply_to: Email-style Reply-To address to use when responding instead of the From address. sender: Generic sender or call initiator for media without email-style headers. recipient: Generic recipient or called party for media without email-style headers.',
     contact_id         BIGINT UNSIGNED COMMENT 'Known contact matched to the observed participant, when a match exists.',
     contact_method_id  BIGINT UNSIGNED COMMENT 'Specific known email address, phone number, or other method matched to the observed participant.',
-    address_value      VARCHAR(512) NOT NULL COMMENT 'Address or identity exactly observed on the message, retained even when no contact matches.',
-    display_name       VARCHAR(500) COMMENT 'Participant display name supplied with the message when available.',
+    address_value      VARCHAR(512) NOT NULL COMMENT 'Address or identity exactly observed on the communication, retained even when no contact matches.',
+    display_name       VARCHAR(500) COMMENT 'Participant display name supplied with the communication when available.',
     PRIMARY KEY (correspondence_id, participant_role, address_value),
     KEY correspondence_participants_contact (contact_id, correspondence_id),
     CONSTRAINT correspondence_participants_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
     CONSTRAINT correspondence_participants_contact_fk FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
     CONSTRAINT correspondence_participants_method FOREIGN KEY (contact_method_id) REFERENCES contact_methods(contact_method_id) ON DELETE SET NULL
-) ENGINE=InnoDB COMMENT='Records senders and recipients for correspondence while retaining unmatched addresses that do not yet resolve to a contact. One row represents one participant address in one role on one message, optionally linked to a known contact and contact method. address_value preserves the address observed on the message even when no contact matches it. Sensitivity: Contains private communication participants, addresses, and display names.';
+) ENGINE=InnoDB COMMENT='Records senders and recipients for messages and calls while retaining unmatched addresses that do not yet resolve to a contact. One row represents one participant address in one role on one correspondence row, optionally linked to a known contact and contact method. This is enough to identify everyone observed on a group message without making group-thread reconstruction an owned requirement. address_value preserves the address observed on the communication even when no contact matches it. Sensitivity: Contains private communication participants, addresses, and display names.';
 
 CREATE VIEW activity_operation_latency AS
 -- Summarizes elapsed time and error completion for operations reconstructed from their activity_events start, end, and error records. One row summarizes one operation_id, using its earliest start and latest end or error event. A null duration means the ledger does not contain both a start and a terminal event for the operation. Sensitivity: Contains operational identifiers and names derived from the private activity ledger.
@@ -1041,7 +1048,7 @@ WHERE turn_id IS NOT NULL
 GROUP BY turn_id;
 
 CREATE VIEW correspondence_timeline AS
--- Adds one consistently derived timeline timestamp to each correspondence row for chronological message retrieval. One row is one correspondence record with timeline_at_utc chosen from received, sent, or creation time in that order. The view does not duplicate messages; authoritative message data remains in correspondence. Sensitivity: Contains the same highly private communication content as correspondence.
+-- Adds one consistently named timeline timestamp to each correspondence row for chronological message and call retrieval. One row is one correspondence record; timeline_at_utc aliases its authoritative occurred_at_utc instant. The view does not duplicate communications; authoritative data remains in correspondence. Sensitivity: Contains the same highly private communication content as correspondence.
 -- sourceOfTruth: false
 -- derivedFrom: ["correspondence"]
 -- synonyms: ["message timeline", "chronological correspondence"]
@@ -1049,22 +1056,26 @@ CREATE VIEW correspondence_timeline AS
 -- correspondence_id inheritsFrom: correspondence.correspondence_id
 -- medium inheritsFrom: correspondence.medium
 -- direction inheritsFrom: correspondence.direction
--- account_key inheritsFrom: correspondence.account_key
+-- source_account_key inheritsFrom: correspondence.source_account_key
 -- thread_key inheritsFrom: correspondence.thread_key
 -- external_id inheritsFrom: correspondence.external_id
 -- in_reply_to_id inheritsFrom: correspondence.in_reply_to_id
 -- subject inheritsFrom: correspondence.subject
 -- body_text inheritsFrom: correspondence.body_text
 -- body_html inheritsFrom: correspondence.body_html
--- status inheritsFrom: correspondence.status
+-- delivery_status inheritsFrom: correspondence.delivery_status
+-- call_disposition inheritsFrom: correspondence.call_disposition
+-- call_duration_seconds inheritsFrom: correspondence.call_duration_seconds
+-- provider_status inheritsFrom: correspondence.provider_status
+-- occurred_at_utc inheritsFrom: correspondence.occurred_at_utc
 -- sent_at_utc inheritsFrom: correspondence.sent_at_utc
 -- received_at_utc inheritsFrom: correspondence.received_at_utc
 -- source_event_id inheritsFrom: correspondence.source_event_id
 -- created_at_utc inheritsFrom: correspondence.created_at_utc
--- timeline_at_utc: Derived chronological timestamp: received_at_utc when present, otherwise sent_at_utc, otherwise created_at_utc. Format: ISO 8601 UTC timestamp.
+-- timeline_at_utc: Alias of the communication's authoritative occurred_at_utc ordering instant. Stored as a MariaDB DATETIME(3) interpreted as UTC.
 
 SELECT correspondence.*,
-       COALESCE(received_at_utc, sent_at_utc, created_at_utc) AS timeline_at_utc
+       occurred_at_utc AS timeline_at_utc
 FROM correspondence;
 
 CREATE VIEW due_reminders AS
@@ -1090,7 +1101,7 @@ CREATE VIEW due_reminders AS
 
 SELECT * FROM reminders
 WHERE status IN ('pending', 'error')
-  AND remind_at_utc <= CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z');
+  AND remind_at_utc <= UTC_TIMESTAMP(3);
 
 CREATE VIEW open_todo_personal AS
 -- Provides the personal tasks that currently belong on the user's actionable To-Do List. One row represents one task whose status is todo or ai_suggested. The view excludes complete, ignored, and archived tasks. Sensitivity: Contains the user's private plans, commitments, and agent-suggested work.
@@ -1143,7 +1154,7 @@ CREATE VIEW upcoming_calendar AS
 
 SELECT * FROM calendar_events
 WHERE status IN ('tentative', 'confirmed')
-  AND starts_at_utc >= CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z')
+  AND starts_at_utc >= UTC_TIMESTAMP(3)
 ORDER BY starts_at_utc;
 
 DELIMITER //
@@ -1250,4 +1261,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 42, 'Chapeaux Fous MariaDB database');
+VALUES (1, 43, 'Chapeaux Fous MariaDB database');

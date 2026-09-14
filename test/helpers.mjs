@@ -45,6 +45,15 @@ const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (
     )
 ) ENGINE=InnoDB;`;
 
+export function baselineBeforeNativeDateTime(source) {
+  const isoDefault = "DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z'))";
+  return source
+    .replace(/Stored as a MariaDB DATETIME\(3\) interpreted as UTC\./gu, "Format: ISO 8601 UTC timestamp.")
+    .replace(/DATETIME\(3\)(\s+NOT NULL)?(\s+)DEFAULT \(UTC_TIMESTAMP\(3\)\)/gu,
+      (_, required = "", spacing) => `VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin${required}${spacing}${isoDefault}`)
+    .replace(/DATETIME\(3\)/gu, "VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin");
+}
+
 export function temporaryDatabase({ schema = schemaSource } = {}) {
   const databaseName = `agent_slayer_test_${process.pid}_${randomBytes(6).toString("hex")}`;
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agent-slayer-test-"));
@@ -85,11 +94,11 @@ export function temporaryDatabase({ schema = schemaSource } = {}) {
 
 // Earlier migration tests start from their historical shape, before catch-up.
 export function baselineBeforeCatchUp(source) {
-  return source
+  return baselineBeforeNativeDateTime(source)
     .replace("CREATE TABLE contacts (", `${legacyAgentTurnAttemptsTable}\n\nCREATE TABLE contacts (`)
     .replace(/CREATE TABLE (?:todo_correspondence_join|calendar_events_correspondence_join) \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/gu, "")
     .replace(/CREATE TABLE catch_up_questions \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
     .replace(/^    asking_(?:starts_at_utc|recurrence_rule|time_zone) .*\n/gmu, "")
     .replace(/    CONSTRAINT trackers_asking_schedule CHECK \([\s\S]*?    \),\n/u, "")
-    .replace("VALUES (1, 42,", "VALUES (1, 35,");
+    .replace("VALUES (1, 43,", "VALUES (1, 35,");
 }

@@ -16,6 +16,317 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0043: native-datetime-and-correspondence
+-- writer downtime: required; application writers must switch atomically from canonical UTC strings to native DATETIME(3) columns and the revised correspondence vocabulary.
+-- locking: updates every existing native instant column, alters the affected tables under metadata locks, and replaces the correspondence timeline view. Large ledger and domain tables may require a maintenance window.
+-- recovery: MariaDB DDL commits implicitly. The UTC-string normalization and column modifications are replay-safe. The user has confirmed that correspondence and its dependent joins contain no data, so those tables are deliberately dropped and recreated in their final shape. Replaying the complete block is safe while writers remain stopped. Restore the verified backup if an unexpected legacy instant cannot be converted.
+
+DROP VIEW IF EXISTS correspondence_timeline;
+DROP TABLE IF EXISTS todo_correspondence_join;
+DROP TABLE IF EXISTS calendar_events_correspondence_join;
+DROP TABLE IF EXISTS correspondence_files;
+DROP TABLE IF EXISTS correspondence_participants;
+DROP TABLE IF EXISTS correspondence;
+
+CREATE TABLE correspondence (
+    correspondence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this message or call.',
+    medium ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'other') NOT NULL COMMENT 'Communication medium represented by this row. email: Email message. sms: SMS text message. mms: Multimedia messaging service message. rcs: Rich Communication Services message. imessage: Apple iMessage communication. whatsapp: WhatsApp message. chat: Message from another chat platform. call: Telephone or application call. voicemail: Recorded or transcribed voicemail. other: Communication medium not covered by the named values.',
+    direction ENUM('inbound', 'outbound') NOT NULL COMMENT 'Direction relative to the user. inbound: Received from another participant. outbound: Sent or initiated by the user; an unsent draft is outbound with delivery_status draft.',
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local mailbox, phone identity, SIM, or service account through which the communication was handled. It scopes provider identifiers and does not contain an authentication secret.',
+    thread_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider or local conversation identifier grouping related messages.',
+    external_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider-assigned identifier for this message or call.',
+    in_reply_to_id BIGINT UNSIGNED COMMENT 'Earlier local correspondence record to which this message directly replies.',
+    subject TEXT COMMENT 'Complete message subject or title when the medium provides one.',
+    body_text LONGTEXT COMMENT 'Complete available plain-text body of the message or voicemail transcript.',
+    body_html LONGTEXT COMMENT 'Complete available HTML body when supplied by the communication provider.',
+    delivery_status ENUM('draft', 'sent', 'delivered', 'failed', 'unknown') COMMENT 'Normalized message delivery state when applicable. draft: Prepared but not sent. sent: Accepted for sending or reported sent. delivered: Provider reports delivery. failed: Sending failed. unknown: The source does not provide a more precise state. Null for calls and records without message-delivery semantics.',
+    call_disposition ENUM('answered', 'missed') COMMENT 'Whether a call was answered. Every call normalizes all unanswered outcomes to missed. Null for non-call rows.',
+    call_duration_seconds BIGINT UNSIGNED COMMENT 'Elapsed connected or reported call duration in whole seconds when supplied by the source. Null when unavailable and for non-call rows.',
+    provider_status VARCHAR(64) COMMENT 'Unmodified provider-specific state retained when it conveys detail not represented by delivery_status or call_disposition.',
+    occurred_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'Primary source-reported instant used to order this communication. For calls this is the call start; for messages it is the best available sent or received instant. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    sent_at_utc DATETIME(3) COMMENT 'UTC instant when the message was sent, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    received_at_utc DATETIME(3) COMMENT 'UTC instant when the message was received, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    source_event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Ledger event that introduced or created this correspondence record when known.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this local communication record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (correspondence_id),
+    UNIQUE KEY correspondence_external (medium, source_account_key, external_id),
+    KEY correspondence_thread (medium, source_account_key, thread_key),
+    KEY correspondence_timeline_index (occurred_at_utc, correspondence_id),
+    CONSTRAINT correspondence_reply FOREIGN KEY (in_reply_to_id) REFERENCES correspondence(correspondence_id) ON DELETE SET NULL,
+    CONSTRAINT correspondence_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT correspondence_call_state CHECK (
+      (medium = 'call' AND call_disposition IS NOT NULL AND delivery_status IS NULL)
+      OR (medium <> 'call' AND call_disposition IS NULL AND call_duration_seconds IS NULL)
+    )
+) ENGINE=InnoDB COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
+
+CREATE TABLE todo_correspondence_join (
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing task associated with the message.',
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the task.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the link was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (personal_task_id, correspondence_id),
+    KEY todo_correspondence_join_message (correspondence_id),
+    CONSTRAINT todo_correspondence_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT todo_correspondence_join_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links existing task records to existing correspondence, including emails and text messages. Each pair appears once; either record can have many links. Deleting either record removes only its dependent links. This table stores associations, not message content or provider synchronization state.';
+
+CREATE TABLE calendar_events_correspondence_join (
+    calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing calendar event or recurring series associated with the message.',
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the calendar event or recurring series.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the link was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (calendar_event_id, correspondence_id),
+    KEY calendar_events_correspondence_join_message (correspondence_id),
+    CONSTRAINT calendar_events_correspondence_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
+    CONSTRAINT calendar_events_correspondence_join_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links existing calendar event or recurring series records to existing correspondence, including emails and text messages. Each pair appears once; either record can have many links. Deleting either record removes only its dependent links. This table stores associations, not message content or provider synchronization state.';
+
+CREATE TABLE correspondence_files (
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Message to which the file belongs.',
+    file_id BIGINT UNSIGNED NOT NULL COMMENT 'Externally stored file associated with the message.',
+    attachment_role ENUM('attachment', 'inline', 'recording', 'other') NOT NULL DEFAULT 'attachment' COMMENT 'How the file appears or functions in the message. attachment: Ordinary attached file. inline: File displayed inside the message body. recording: Audio or video recording that constitutes message content. other: File role not covered by the named values.',
+    PRIMARY KEY (correspondence_id, file_id),
+    CONSTRAINT correspondence_files_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
+    CONSTRAINT correspondence_files_file FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Associates externally stored files with correspondence and identifies how each file appears in the message. One row links one file to one message as an attachment, inline asset, recording, or other file role. The file bytes live in agent media storage; this table stores only the relationship. Sensitivity: Reveals which private files belong to private communications.';
+
+CREATE TABLE correspondence_participants (
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Message or call on which this participant appears.',
+    participant_role ENUM('from', 'to', 'cc', 'bcc', 'reply_to', 'sender', 'recipient') NOT NULL COMMENT 'Sender or recipient role the observed address has on the communication. from: Email-style From participant. to: Email-style primary recipient. cc: Email-style carbon-copy recipient. bcc: Email-style blind-carbon-copy recipient. reply_to: Email-style Reply-To address to use when responding instead of the From address. sender: Generic sender or call initiator for media without email-style headers. recipient: Generic recipient or called party for media without email-style headers.',
+    contact_id BIGINT UNSIGNED COMMENT 'Known contact matched to the observed participant, when a match exists.',
+    contact_method_id BIGINT UNSIGNED COMMENT 'Specific known email address, phone number, or other method matched to the observed participant.',
+    address_value VARCHAR(512) NOT NULL COMMENT 'Address or identity exactly observed on the communication, retained even when no contact matches.',
+    display_name VARCHAR(500) COMMENT 'Participant display name supplied with the communication when available.',
+    PRIMARY KEY (correspondence_id, participant_role, address_value),
+    KEY correspondence_participants_contact (contact_id, correspondence_id),
+    CONSTRAINT correspondence_participants_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
+    CONSTRAINT correspondence_participants_contact_fk FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
+    CONSTRAINT correspondence_participants_method FOREIGN KEY (contact_method_id) REFERENCES contact_methods(contact_method_id) ON DELETE SET NULL
+) ENGINE=InnoDB COMMENT='Records senders and recipients for messages and calls while retaining unmatched addresses that do not yet resolve to a contact. One row represents one participant address in one role on one correspondence row, optionally linked to a known contact and contact method. This is enough to identify everyone observed on a group message without making group-thread reconstruction an owned requirement. address_value preserves the address observed on the communication even when no contact matches it. Sensitivity: Contains private communication participants, addresses, and display names.';
+
+CREATE VIEW correspondence_timeline AS
+SELECT correspondence.*, occurred_at_utc AS timeline_at_utc
+FROM correspondence;
+
+UPDATE database_meta SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE database_meta
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this database metadata row was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE files SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE files
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this file metadata record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the most recent title or description change.';
+
+UPDATE activity_events SET
+  occurred_at_utc = REPLACE(REPLACE(occurred_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE activity_events
+  MODIFY COLUMN occurred_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'Human-readable UTC timestamp corresponding to the event occurrence time recorded for this row. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE contacts SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE contacts
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the contact record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the latest recorded change to the contact. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE contact_methods SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE contact_methods
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this contact method was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE tags SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE tags
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the tag was defined. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE contacts_tags_join SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE contacts_tags_join
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the tag was assigned. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE content_groups SET
+  archived_at_utc = REPLACE(REPLACE(archived_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE content_groups
+  MODIFY COLUMN archived_at_utc DATETIME(3) COMMENT 'UTC time when this group was removed from active content organization, or null while active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC time when this content group was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC time of the most recent content-group change, when one has occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE journal_groups SET
+  archived_at_utc = REPLACE(REPLACE(archived_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE journal_groups
+  MODIFY COLUMN archived_at_utc DATETIME(3) COMMENT 'UTC timestamp when this group was archived, or null while it is active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this group was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the most recent change to this group, when changed. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE interaction_guides SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE interaction_guides
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the interaction guide was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the most recent successful guide update or archival, when one has occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE todo_groups SET
+  archived_at_utc = REPLACE(REPLACE(archived_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE todo_groups
+  MODIFY COLUMN archived_at_utc DATETIME(3) COMMENT 'UTC instant when the group was archived; null while the group is active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when the group record was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC instant of the group record’s most recent material update; null until first updated. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE trackers SET
+  archived_at_utc = REPLACE(REPLACE(archived_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', ''),
+  asking_starts_at_utc = REPLACE(REPLACE(asking_starts_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE trackers
+  MODIFY COLUMN archived_at_utc DATETIME(3) COMMENT 'UTC timestamp when tracking was archived, or null while the tracker is active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this tracker was first defined. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the most recent change to this tracker, when changed. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN asking_starts_at_utc DATETIME(3) COMMENT 'First logging period start. Null with the other asking fields disables scheduled questions. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE calendar_routines SET
+  first_starts_at_utc = REPLACE(REPLACE(first_starts_at_utc, 'T', ' '), 'Z', ''),
+  first_ends_at_utc = REPLACE(REPLACE(first_ends_at_utc, 'T', ' '), 'Z', ''),
+  disabled_at_utc = REPLACE(REPLACE(disabled_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE calendar_routines
+  MODIFY COLUMN first_starts_at_utc DATETIME(3) NOT NULL COMMENT 'UTC start instant anchoring the recurrence rule. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN first_ends_at_utc DATETIME(3) COMMENT 'Optional UTC end instant for the first occurrence; its duration is preserved for generated events. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN disabled_at_utc DATETIME(3) COMMENT 'UTC instant when this routine stopped generating events; null while enabled.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this routine was created.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC instant of the latest material update.';
+
+UPDATE calendar_events SET
+  routine_occurrence_key = REPLACE(REPLACE(routine_occurrence_key, 'T', ' '), 'Z', ''),
+  starts_at_utc = REPLACE(REPLACE(starts_at_utc, 'T', ' '), 'Z', ''),
+  ends_at_utc = REPLACE(REPLACE(ends_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE calendar_events
+  MODIFY COLUMN routine_occurrence_key DATETIME(3) COMMENT 'Original UTC occurrence start from the generating routine. Null for events not generated by a calendar routine.',
+  MODIFY COLUMN starts_at_utc DATETIME(3) NOT NULL COMMENT 'UTC instant when the event starts. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN ends_at_utc DATETIME(3) COMMENT 'UTC instant when the event ends, when an end is known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this local calendar record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the latest recorded change to this local calendar record. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE calendar_event_exclusions SET
+  excluded_starts_at_utc = REPLACE(REPLACE(excluded_starts_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE calendar_event_exclusions
+  MODIFY COLUMN excluded_starts_at_utc DATETIME(3) NOT NULL COMMENT 'UTC start instant of the recurrence instance that must not be generated or displayed. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE interaction_guide_steps SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE interaction_guide_steps
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this numbered interaction-guide step was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the most recent definition or current-answer update to this step, when one has occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE todo_personal SET
+  completed_at_utc = REPLACE(REPLACE(completed_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE todo_personal
+  MODIFY COLUMN completed_at_utc DATETIME(3) COMMENT 'UTC instant when the task entered complete status; null for tasks not currently complete. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this task occurrence was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC instant of this task occurrence’s most recent material update; null until first updated. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE calendar_events_todo_join SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE calendar_events_todo_join
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.';
+
+UPDATE catch_up_questions SET
+  due_at_utc = REPLACE(REPLACE(due_at_utc, 'T', ' '), 'Z', ''),
+  ask_after = REPLACE(REPLACE(ask_after, 'T', ' '), 'Z', ''),
+  resolved_at = REPLACE(REPLACE(resolved_at, 'T', ' '), 'Z', '');
+ALTER TABLE catch_up_questions
+  MODIFY COLUMN due_at_utc DATETIME(3) NOT NULL COMMENT 'Source-derived instant from which this question is eligible. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN ask_after DATETIME(3) COMMENT 'Explicit user deferral. A question is eligible only after both due_at_utc and this instant. Null means no deferral.',
+  MODIFY COLUMN resolved_at DATETIME(3) COMMENT 'When this occurrence was addressed or reconciled as no longer requiring an answer. Null means unresolved; this does not replace the source record status.';
+
+UPDATE reminders SET
+  remind_at_utc = REPLACE(REPLACE(remind_at_utc, 'T', ' '), 'Z', ''),
+  last_attempt_at_utc = REPLACE(REPLACE(last_attempt_at_utc, 'T', ' '), 'Z', ''),
+  delivered_at_utc = REPLACE(REPLACE(delivered_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE reminders
+  MODIFY COLUMN remind_at_utc DATETIME(3) NOT NULL COMMENT 'UTC instant at or after which the reminder becomes due for delivery. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN last_attempt_at_utc DATETIME(3) COMMENT 'UTC time of the most recent delivery attempt. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN delivered_at_utc DATETIME(3) COMMENT 'UTC time successful delivery was recorded. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the reminder was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the latest recorded change to the reminder. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE journal_entries SET
+  occurred_at_utc = REPLACE(REPLACE(occurred_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE journal_entries
+  MODIFY COLUMN occurred_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when the recorded observation or event occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC. This may differ from created_at_utc when the user records something retrospectively.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this journal row was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the most recent modification to this journal row, when modified. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE content_items SET
+  published_at_utc = REPLACE(REPLACE(published_at_utc, 'T', ' '), 'Z', ''),
+  consumed_at_utc = REPLACE(REPLACE(consumed_at_utc, 'T', ' '), 'Z', ''),
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE content_items
+  MODIFY COLUMN published_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC publication time reported for the content when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN consumed_at_utc DATETIME(3) COMMENT 'UTC time when the user finished or recorded consuming the reference material. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this catalog record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the latest recorded change to this catalog record. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE video_scripts SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', ''),
+  archived_at_utc = REPLACE(REPLACE(archived_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE video_scripts
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC time when the script record was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC time of the latest script lifecycle or content update. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN archived_at_utc DATETIME(3) COMMENT 'UTC time when the script was archived; null while it remains a draft. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE video_jobs SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  started_at_utc = REPLACE(REPLACE(started_at_utc, 'T', ' '), 'Z', ''),
+  completed_at_utc = REPLACE(REPLACE(completed_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE video_jobs
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the rendering job was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN started_at_utc DATETIME(3) COMMENT 'UTC timestamp when rendering preparation or execution began. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN completed_at_utc DATETIME(3) COMMENT 'UTC timestamp when the job reached a terminal state. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC timestamp of the latest recorded state change. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+UPDATE profile_facts SET
+  created_at_utc = REPLACE(REPLACE(created_at_utc, 'T', ' '), 'Z', ''),
+  updated_at_utc = REPLACE(REPLACE(updated_at_utc, 'T', ' '), 'Z', ''),
+  archived_at_utc = REPLACE(REPLACE(archived_at_utc, 'T', ' '), 'Z', '');
+ALTER TABLE profile_facts
+  MODIFY COLUMN created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC time when this fact version was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN updated_at_utc DATETIME(3) COMMENT 'UTC time when the fact was most recently changed. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+  MODIFY COLUMN archived_at_utc DATETIME(3) COMMENT 'UTC time when this fact was archived; null while active. Stored as a MariaDB DATETIME(3) interpreted as UTC.';
+
+CREATE OR REPLACE VIEW due_reminders AS
+SELECT * FROM reminders
+WHERE status IN ('pending', 'error')
+  AND remind_at_utc <= UTC_TIMESTAMP(3);
+
+CREATE OR REPLACE VIEW upcoming_calendar AS
+SELECT * FROM calendar_events
+WHERE status IN ('tentative', 'confirmed')
+  AND starts_at_utc >= UTC_TIMESTAMP(3)
+ORDER BY starts_at_utc;
+
+-- end migration 0043
+
 -- migration 0042: retire-unplanned-todo-status
 -- writer downtime: required; application writers must switch atomically with the narrowed to-do status enum.
 -- locking: updates any remaining unplanned tasks, modifies the todo_personal enum under a metadata lock, and replaces one derived view.

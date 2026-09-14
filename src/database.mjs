@@ -20,6 +20,17 @@ export const requiredDatabaseShape = {
     "normalized_value", "is_primary", "can_receive",
   ],
   tags: ["tag_id", "slug", "label", "is_active"],
+  correspondence: [
+    "correspondence_id", "medium", "direction", "source_account_key", "thread_key",
+    "external_id", "in_reply_to_id", "subject", "body_text", "body_html",
+    "delivery_status", "call_disposition", "call_duration_seconds", "provider_status",
+    "occurred_at_utc", "sent_at_utc", "received_at_utc", "source_event_id", "created_at_utc",
+  ],
+  correspondence_files: ["correspondence_id", "file_id", "attachment_role"],
+  correspondence_participants: [
+    "correspondence_id", "participant_role", "contact_id", "contact_method_id",
+    "address_value", "display_name",
+  ],
   todo_correspondence_join: ["personal_task_id", "correspondence_id", "created_at_utc"],
   calendar_events_correspondence_join: ["calendar_event_id", "correspondence_id", "created_at_utc"],
   contacts_tags_join: ["tag_id", "record_type", "record_id"],
@@ -116,8 +127,10 @@ export const requiredEnumColumns = {
   },
   profile_facts: { fact_status: ["active", "archived"] },
   correspondence: {
-    medium: ["email", "sms", "mms", "imessage", "chat", "voicemail", "other"],
-    direction: ["inbound", "outbound", "draft", "internal"],
+    medium: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"],
+    direction: ["inbound", "outbound"],
+    delivery_status: ["draft", "sent", "delivered", "failed", "unknown"],
+    call_disposition: ["answered", "missed"],
   },
   correspondence_files: { attachment_role: ["attachment", "inline", "recording", "other"] },
   correspondence_participants: { participant_role: ["from", "to", "cc", "bcc", "reply_to", "sender", "recipient"] },
@@ -205,8 +218,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 42) {
-    problems.push(`Expected MariaDB schema version 42, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 43) {
+    problems.push(`Expected MariaDB schema version 43, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

@@ -22,6 +22,37 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("the native datetime and correspondence integrity check requires the final shape", async () => {
+  const temporal = Array.from({ length: 72 }, (_, index) => ({
+    TABLE_NAME: `table_${index}`,
+    COLUMN_NAME: `value_${index}_at_utc`,
+    DATA_TYPE: "datetime",
+    DATETIME_PRECISION: 3,
+  }));
+  const correspondence = [
+    ["medium", "enum", "enum('email','sms','mms','rcs','imessage','whatsapp','chat','call','voicemail','other')"],
+    ["direction", "enum", "enum('inbound','outbound')"],
+    ["delivery_status", "enum", "enum('draft','sent','delivered','failed','unknown')"],
+    ["call_disposition", "enum", "enum('answered','missed')"],
+    ...["source_account_key", "provider_status", "occurred_at_utc", "call_duration_seconds"]
+      .map((name) => [name, name === "occurred_at_utc" ? "datetime" : "varchar", ""]),
+  ].map(([COLUMN_NAME, DATA_TYPE, COLUMN_TYPE]) => ({ COLUMN_NAME, DATA_TYPE, COLUMN_TYPE }));
+  const connection = {
+    async query(sql) {
+      if (sql.includes("COLUMN_NAME REGEXP")) return [temporal];
+      if (sql.includes("TABLE_CONSTRAINTS")) return [[{ CONSTRAINT_NAME: "correspondence_call_state" }]];
+      if (sql.includes("TABLE_NAME = 'correspondence'")) return [correspondence];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  await assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database");
+  temporal[0].DATA_TYPE = "varchar";
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database"),
+    /all 72 DATETIME\(3\) instant columns/u,
+  );
+});
+
 test("the legacy attempt removal integrity check rejects a surviving table", async () => {
   let rows = [{ TABLE_NAME: "agent_turn_attempts" }];
   const connection = {
@@ -194,11 +225,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42]);
-  for (let current = 29; current <= 42; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43]);
+  for (let current = 29; current <= 43; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 42 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 43 - current }, (_, index) => current + index + 1),
     );
   }
 });

@@ -4,6 +4,123 @@ import mysql from "mysql2/promise";
 import { mariaDbHybridSearch } from "./search/mariadb-search.mjs";
 import { parseUpdateReturning } from "./mariadb-sql.mjs";
 
+export function canonicalUtcDateTime(value) {
+  if (value == null) return null;
+  const match = String(value).match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?$/u);
+  if (!match) throw new Error(`MariaDB returned an invalid DATETIME value: ${String(value)}`);
+  return `${match[1]}T${match[2]}.${(match[3] ?? "").padEnd(3, "0").slice(0, 3)}Z`;
+}
+
+export function mariaDbUtcTypeCast(field, next) {
+  if (!["DATETIME", "TIMESTAMP"].includes(field?.type)) return next();
+  return canonicalUtcDateTime(field.string());
+}
+
+const utcInstantParameter = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/u;
+const instantColumn = /(?:^|\.)(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)$/iu;
+
+function placeholderOffsets(sql) {
+  const offsets = [];
+  let quote = null;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (quote) {
+      if (character === quote && sql[index + 1] === quote) index += 1;
+      else if (character === quote && sql[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (["'", '"', "`"].includes(character)) quote = character;
+    else if (character === "?") offsets.push(index);
+  }
+  return offsets;
+}
+
+function commaSeparatedExpressions(source, start, end) {
+  const expressions = [];
+  let depth = 0;
+  let quote = null;
+  let expressionStart = start;
+  for (let index = start; index < end; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === quote && source[index + 1] === quote) index += 1;
+      else if (character === quote && source[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (["'", '"', "`"].includes(character)) quote = character;
+    else if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    else if (character === "," && depth === 0) {
+      expressions.push([expressionStart, index]);
+      expressionStart = index + 1;
+    }
+  }
+  expressions.push([expressionStart, end]);
+  return expressions;
+}
+
+function closingParenthesis(source, opening) {
+  let depth = 0;
+  let quote = null;
+  for (let index = opening; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === quote && source[index + 1] === quote) index += 1;
+      else if (character === quote && source[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (["'", '"', "`"].includes(character)) quote = character;
+    else if (character === "(") depth += 1;
+    else if (character === ")" && --depth === 0) return index;
+  }
+  return -1;
+}
+
+function insertInstantParameterIndexes(sql, offsets) {
+  const marked = new Set();
+  const match = /\bINSERT\s+(?:IGNORE\s+)?INTO\s+[`"A-Za-z_][`"A-Za-z0-9_]*\s*\(([^)]*)\)\s*VALUES\s*\(/iu.exec(sql);
+  if (!match) return marked;
+  const columns = match[1].split(",").map((column) => column.trim().replace(/[`"]/gu, ""));
+  let opening = match.index + match[0].length - 1;
+  while (opening >= 0) {
+    const closing = closingParenthesis(sql, opening);
+    if (closing < 0) return marked;
+    const expressions = commaSeparatedExpressions(sql, opening + 1, closing);
+    for (let index = 0; index < Math.min(columns.length, expressions.length); index += 1) {
+      if (!instantColumn.test(columns[index])) continue;
+      const [start, end] = expressions[index];
+      offsets.forEach((offset, parameterIndex) => {
+        if (offset >= start && offset < end) marked.add(parameterIndex);
+      });
+    }
+    const nextTuple = /^\s*,\s*\(/u.exec(sql.slice(closing + 1));
+    opening = nextTuple ? closing + 1 + nextTuple[0].lastIndexOf("(") : -1;
+  }
+  return marked;
+}
+
+export function normalizeMariaDbDateTimeParameters(sql, parameters) {
+  const offsets = placeholderOffsets(sql);
+  const marked = insertInstantParameterIndexes(sql, offsets);
+  const sqlIdentifier = "[`\"]?[A-Za-z_][A-Za-z0-9_]*[`\"]?";
+  const columnName = `(?:${sqlIdentifier}\\.)?[\`\"]?(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)[\`\"]?`;
+  offsets.forEach((offset, parameterIndex) => {
+    const before = sql.slice(Math.max(0, offset - 500), offset);
+    const after = sql.slice(offset + 1, Math.min(sql.length, offset + 500));
+    if (new RegExp(`${columnName}\\s*(?:=|<>|!=|<=|>=|<|>|BETWEEN)\\s*$`, "iu").test(before)
+        || new RegExp(`${columnName}\\s+BETWEEN\\s+\\?[\\s\\S]*?\\bAND\\s*$`, "iu").test(before)
+        || new RegExp(`${columnName}\\s*=\\s*(?:COALESCE|IFNULL)\\s*\\([^?]*$`, "iu").test(before)
+        || new RegExp(`[A-Za-z_][A-Za-z0-9_]*\\s*\\([^)]*${columnName}[^)]*\\)\\s*(?:=|<>|!=|<=|>=|<|>)\\s*$`, "iu").test(before)
+        || new RegExp(`^\\s*(?:=|<>|!=|<=|>=|<|>)\\s*${columnName}\\b`, "iu").test(after)) {
+      marked.add(parameterIndex);
+    }
+  });
+  return parameters.map((value, index) => {
+    if (!marked.has(index) || typeof value !== "string" || !utcInstantParameter.test(value)) return value;
+    return value.slice(0, -1).replace("T", " ");
+  });
+}
+
 function plainRows(rows) {
   return Array.isArray(rows) ? rows.map((row) => ({ ...row })) : rows;
 }
@@ -52,6 +169,8 @@ export function createMariaDbWorkerHandler({
       ...configuration,
       charset: "utf8mb4",
       dateStrings: true,
+      timezone: "Z",
+      typeCast: mariaDbUtcTypeCast,
       supportBigNumbers: true,
       bigNumberStrings: true,
       decimalNumbers: true,
@@ -131,6 +250,7 @@ export function createMariaDbWorkerHandler({
   }
 
   async function prepared({ mode, sql, parameters }) {
+    parameters = normalizeMariaDbDateTimeParameters(sql, parameters);
     const update = parseUpdateReturning(sql);
     if (update) {
       const outcome = await updateReturning(update, parameters);

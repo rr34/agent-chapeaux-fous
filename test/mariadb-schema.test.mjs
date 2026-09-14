@@ -67,17 +67,19 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 42", () => {
+test("the authoritative MariaDB baseline is complete at schema version 43", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 33);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 28);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 51);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 30);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 52);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 72);
+  assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    28,
+    30,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -103,7 +105,7 @@ test("the authoritative MariaDB baseline is complete at schema version 42", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 42, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 43, 'Chapeaux Fous MariaDB database'\)$/);
 });
 
 test("the unplanned to-do retirement preserves tasks before narrowing the enum", () => {
@@ -145,17 +147,32 @@ test("temporal to-do migration preserves schedules and deadlines as linked calen
   assert.match(retirement, /DROP TABLE IF EXISTS todo_routines/u);
 });
 
-test("the correspondence join migration matches fresh-install definitions without rewriting existing records", () => {
+test("the historical correspondence join migration is additive and preserves its version-37 shape", () => {
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql")).find(item => item.version === 37);
-  const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
   const normalize = sql => sql.replace(/^--.*$/gmu, "").replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
   const statements = splitMariaDbStatements(migration.sql);
   assert.equal(statements.length, 2);
   for (const statement of statements) {
-    assert.ok(baseline.some(candidate => normalize(candidate) === normalize(statement)));
     assert.match(normalize(statement), /^CREATE TABLE (?:todo_correspondence_join|calendar_events_correspondence_join) /u);
+    assert.match(statement, /created_at_utc VARCHAR\(32\)/u);
+    assert.doesNotMatch(statement.replace(/^--.*$/gmu, ""), /\b(?:UPDATE|DELETE|DROP)\s+(?:FROM|TABLE)\b/iu);
   }
   assert.match(migration.sql, /writer downtime: not required/u);
+});
+
+test("the native datetime migration recreates the confirmed-empty correspondence family in the baseline shape", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql")).find(item => item.version === 43);
+  const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
+  const normalize = sql => sql.replace(/^\s*--.*$/gmu, "").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
+  const recreated = splitMariaDbStatements(migration.sql).filter((statement) => /^CREATE TABLE (?:correspondence(?:_files|_participants)?|todo_correspondence_join|calendar_events_correspondence_join)\b/u.test(statement));
+  assert.equal(recreated.length, 5);
+  for (const statement of recreated) {
+    assert.ok(baseline.some((candidate) => normalize(candidate) === normalize(statement)));
+  }
+  assert.match(migration.sql, /DROP TABLE IF EXISTS correspondence/u);
+  assert.match(migration.sql, /medium ENUM\('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call'/u);
+  assert.match(migration.sql, /call_disposition ENUM\('answered', 'missed'\)/u);
+  assert.match(migration.sql, /direction ENUM\('inbound', 'outbound'\)/u);
 });
 
 test("the version 30 enum migration is a reviewable ledger block", () => {
