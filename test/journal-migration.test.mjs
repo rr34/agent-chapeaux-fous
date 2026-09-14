@@ -1,3 +1,4 @@
+import { restoreLegacyJoinTableNames } from "./helpers.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
@@ -31,7 +32,7 @@ test("the Journal upgrade and replay preserve existing IDs, import provenance, a
     output: { write() {} },
   };
   const result = await runDatabaseMigrations(settings);
-  assert.deepEqual(result.applied, [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43]);
+  assert.deepEqual(result.applied, [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44]);
   const assertPreserved = () => {
     assert.equal(inspectDatabase(database).ready, true);
     const row = database.prepare(`SELECT entry.journal_entry_id, tracker.tracker_id,
@@ -52,8 +53,9 @@ test("the Journal upgrade and replay preserve existing IDs, import provenance, a
   database.exec(`ALTER TABLE journal_entries
     ADD CONSTRAINT log_entries_tracker FOREIGN KEY (tracker_id) REFERENCES trackers(tracker_id) ON DELETE RESTRICT,
     ADD CONSTRAINT log_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL`);
+  restoreLegacyJoinTableNames(database);
   database.exec("UPDATE database_meta SET schema_version = 31 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44]);
   assertPreserved();
   const legacyKeys = database.prepare(`SELECT CONSTRAINT_NAME
     FROM information_schema.TABLE_CONSTRAINTS

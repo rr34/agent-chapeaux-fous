@@ -132,6 +132,13 @@ export async function readCurrentSchemaVersion(connection, databaseName) {
   return version;
 }
 
+export const joinTableRenames = {
+  activity_event_files: "activity_event_files_join",
+  calendar_event_contacts: "calendar_event_contacts_join",
+  video_script_sources: "video_script_sources_join",
+  correspondence_files: "correspondence_files_join",
+};
+
 async function assertVersion30Integrity(connection, databaseName) {
   const [columns] = await connection.query(
     `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
@@ -146,7 +153,11 @@ async function assertVersion30Integrity(connection, databaseName) {
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     for (const [fieldName, expectedValues] of Object.entries(fields)) {
       const qualifiedName = `${tableName}.${fieldName}`;
-      const actualValues = actualByName.get(qualifiedName);
+      // Historical enum validation also runs before migration 0044 renames
+      // these tables. The latest schema is checked separately by inspection.
+      const legacyName = Object.entries(joinTableRenames).find(([, current]) => current === tableName)?.[0];
+      const actualValues = actualByName.get(qualifiedName)
+        ?? (legacyName ? actualByName.get(`${legacyName}.${fieldName}`) : undefined);
       const historicallyValidValues = qualifiedName === "todo_personal.status"
         ? [["unplanned", "todo", "complete", "ignore", "archive", "ai_suggested"], expectedValues]
         : [expectedValues];
@@ -300,18 +311,34 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 44) {
+    const names = Object.entries(joinTableRenames).flat();
+    const [rows] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${names.map(() => "?").join(", ")})`, [databaseName, ...names]);
+    const tables = new Map(rows.map(row => [row.TABLE_NAME, row.TABLE_TYPE]));
+    for (const [previous, current] of Object.entries(joinTableRenames)) {
+      if (tables.has(previous) || tables.get(current) !== "BASE TABLE") {
+        throw new Error(`Migration 0044 must rename ${previous} to ${current}`);
+      }
+    }
+  }
   if (migration.version === 43) {
-    const [temporalColumns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, DATETIME_PRECISION
-      FROM information_schema.COLUMNS
-      WHERE TABLE_SCHEMA = ? AND (
-        COLUMN_NAME REGEXP '_at_utc$'
-        OR COLUMN_NAME IN ('ask_after', 'resolved_at', 'routine_occurrence_key')
+    const [temporalColumns] = await connection.query(`SELECT column_definition.TABLE_NAME, column_definition.COLUMN_NAME,
+             column_definition.DATA_TYPE, column_definition.DATETIME_PRECISION
+      FROM information_schema.COLUMNS AS column_definition
+      JOIN information_schema.TABLES AS object_definition
+        ON object_definition.TABLE_SCHEMA = column_definition.TABLE_SCHEMA
+       AND object_definition.TABLE_NAME = column_definition.TABLE_NAME
+       AND object_definition.TABLE_TYPE = 'BASE TABLE'
+      WHERE column_definition.TABLE_SCHEMA = ? AND (
+        column_definition.COLUMN_NAME REGEXP '_at_utc$'
+        OR column_definition.COLUMN_NAME IN ('ask_after', 'resolved_at', 'routine_occurrence_key')
       )`, [databaseName]);
     const nonNative = temporalColumns.filter((row) => row.DATA_TYPE !== "datetime"
       || Number(row.DATETIME_PRECISION) !== 3);
     if (nonNative.length > 0 || temporalColumns.length !== 72) {
       const detail = nonNative.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}:${row.DATA_TYPE}`).join(", ");
-      throw new Error(`Migration 0043 did not establish all 72 DATETIME(3) instant columns${detail ? `: ${detail}` : ""}`);
+      throw new Error(`Migration 0043 did not establish all 72 DATETIME(3) instant columns; found ${temporalColumns.length}${detail ? `; non-native: ${detail}` : ""}`);
     }
     const [correspondenceColumns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
       FROM information_schema.COLUMNS

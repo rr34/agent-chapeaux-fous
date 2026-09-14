@@ -1,8 +1,9 @@
+import { restoreLegacyJoinTableNames } from "./helpers.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import { baselineFilename } from "../scripts/agent-schema.mjs";
-import { runDatabaseMigrations } from "../scripts/migrate-database.mjs";
+import { runDatabaseMigrations, joinTableRenames } from "../scripts/migrate-database.mjs";
 import { verifyDatabase } from "../scripts/verify-database.mjs";
 import { MariaDatabaseSync } from "../src/mariadb-sync.mjs";
 import { SlayerDatabase } from "../src/database.mjs";
@@ -23,6 +24,9 @@ function catalog(database) {
   const keys = database.prepare(`SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME,
     REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE
     WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`).all();
+  for (const row of [...columns, ...indexes, ...keys]) {
+    row.TABLE_NAME = joinTableRenames[row.TABLE_NAME] ?? row.TABLE_NAME;
+  }
   return {
     columns: columns.filter(row => !["catch_up_questions", "todo_correspondence_join", "calendar_events_correspondence_join"].includes(row.TABLE_NAME)
       && !row.COLUMN_NAME.startsWith("asking_") && !isInstant(row.COLUMN_NAME)),
@@ -46,14 +50,15 @@ test("comment migration preserves mechanics and rows, supports replay, and expos
     connectionSettings: temporary.target.connection,
     backupConfirmed: true, writersStopped: true, output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44]);
   assert.deepEqual(catalog(database), before);
   assert.deepEqual(database.prepare("SELECT * FROM files").all(), rows);
   await verifyDatabase(database);
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   // Simulate a DDL commit followed by interruption before the version marker.
+  restoreLegacyJoinTableNames(database);
   database.exec("UPDATE database_meta SET schema_version = 34 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44]);
   assert.deepEqual(catalog(database), before);
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());

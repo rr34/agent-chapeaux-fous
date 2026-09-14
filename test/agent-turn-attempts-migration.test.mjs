@@ -1,3 +1,4 @@
+import { restoreLegacyJoinTableNames } from "./helpers.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { runDatabaseMigrations } from "../scripts/migrate-database.mjs";
@@ -17,6 +18,7 @@ test("migration removes populated legacy agent turn attempts and safely replays"
   for (let attemptId = 1; attemptId <= 36; attemptId += 1) {
     database.prepare("INSERT INTO agent_turn_attempts (attempt_id) VALUES (?)").run(attemptId);
   }
+  restoreLegacyJoinTableNames(database);
   database.exec("UPDATE database_meta SET schema_version = 37 WHERE singleton = 1");
 
   const options = {
@@ -25,12 +27,14 @@ test("migration removes populated legacy agent turn attempts and safely replays"
     writersStopped: true,
     output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [38, 39, 40, 41, 42, 43]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [38, 39, 40, 41, 42, 43, 44]);
   assert.deepEqual(database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agent_turn_attempts'`).all(), []);
   await verifyDatabase(database);
 
+  restoreLegacyJoinTableNames(database);
+
   database.exec("UPDATE database_meta SET schema_version = 37 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [38, 39, 40, 41, 42, 43]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [38, 39, 40, 41, 42, 43, 44]);
   await verifyDatabase(database);
 });

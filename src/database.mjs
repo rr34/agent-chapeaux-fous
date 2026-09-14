@@ -26,7 +26,7 @@ export const requiredDatabaseShape = {
     "delivery_status", "call_disposition", "call_duration_seconds", "provider_status",
     "occurred_at_utc", "sent_at_utc", "received_at_utc", "source_event_id", "created_at_utc",
   ],
-  correspondence_files: ["correspondence_id", "file_id", "attachment_role"],
+  correspondence_files_join: ["correspondence_id", "file_id", "attachment_role"],
   correspondence_participants: [
     "correspondence_id", "participant_role", "contact_id", "contact_method_id",
     "address_value", "display_name",
@@ -43,7 +43,7 @@ export const requiredDatabaseShape = {
     "video_script_id", "title", "status", "schema_version", "script_json", "script_text",
     "created_by_event_id", "created_at_utc", "updated_at_utc", "archived_at_utc", "version",
   ],
-  video_script_sources: ["video_script_id", "request_event_id", "source_order"],
+  video_script_sources_join: ["video_script_id", "request_event_id", "source_order"],
   video_jobs: [
     "video_job_id", "request_event_id", "source_turn_id", "content_id", "renderer",
     "template", "status", "input_json", "output_file_id", "error_text", "created_at_utc",
@@ -98,7 +98,7 @@ export const requiredEnumColumns = {
     event_phase: ["point", "start", "end", "error"],
     actor_type: ["user", "agent", "model", "tool", "system", "service", "external"],
   },
-  activity_event_files: { file_role: ["attachment", "input", "output", "other"] },
+  activity_event_files_join: { file_role: ["attachment", "input", "output", "other"] },
   contacts: {
     contact_kind: ["person", "organization", "service"],
     status: ["active", "inactive", "blocked", "deceased"],
@@ -106,7 +106,7 @@ export const requiredEnumColumns = {
   contact_methods: { method_kind: ["email", "phone", "postal_address", "handle", "url", "other"] },
   interaction_guides: { status: ["active", "archived"] },
   calendar_events: { status: ["tentative", "confirmed", "cancelled"] },
-  calendar_event_contacts: { participant_role: ["organizer", "attendee", "customer", "other"] },
+  calendar_event_contacts_join: { participant_role: ["organizer", "attendee", "customer", "other"] },
   interaction_guide_steps: { progress_state: ["pending", "active", "completed"] },
   calendar_events_todo_join: { relationship_kind: ["work", "deadline", "context"] },
   todo_personal: { status: ["todo", "complete", "ignore", "archive", "ai_suggested"] },
@@ -132,7 +132,7 @@ export const requiredEnumColumns = {
     delivery_status: ["draft", "sent", "delivered", "failed", "unknown"],
     call_disposition: ["answered", "missed"],
   },
-  correspondence_files: { attachment_role: ["attachment", "inline", "recording", "other"] },
+  correspondence_files_join: { attachment_role: ["attachment", "inline", "recording", "other"] },
   correspondence_participants: { participant_role: ["from", "to", "cc", "bcc", "reply_to", "sender", "recipient"] },
 };
 
@@ -218,8 +218,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 43) {
-    problems.push(`Expected MariaDB schema version 43, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 44) {
+    problems.push(`Expected MariaDB schema version 44, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

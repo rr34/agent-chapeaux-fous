@@ -16,6 +16,40 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0044: consistent-join-table-names
+-- writer downtime: required; attachment, calendar and video readers/writers must
+-- switch to the matching application code while these four tables are renamed.
+-- locking: RENAME TABLE takes metadata locks without rewriting rows.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped and rerun this
+-- block after a partial commit. Each rename checks for the old table and never
+-- overwrites an existing destination. Rows, keys and foreign keys are retained.
+
+SET @join_rename_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'activity_event_files' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE activity_event_files TO activity_event_files_join', 'DO 0');
+PREPARE join_rename_statement FROM @join_rename_sql;
+EXECUTE join_rename_statement;
+DEALLOCATE PREPARE join_rename_statement;
+
+SET @join_rename_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'calendar_event_contacts' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE calendar_event_contacts TO calendar_event_contacts_join', 'DO 0');
+PREPARE join_rename_statement FROM @join_rename_sql;
+EXECUTE join_rename_statement;
+DEALLOCATE PREPARE join_rename_statement;
+
+SET @join_rename_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'video_script_sources' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE video_script_sources TO video_script_sources_join', 'DO 0');
+PREPARE join_rename_statement FROM @join_rename_sql;
+EXECUTE join_rename_statement;
+DEALLOCATE PREPARE join_rename_statement;
+
+SET @join_rename_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'correspondence_files' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE correspondence_files TO correspondence_files_join', 'DO 0');
+PREPARE join_rename_statement FROM @join_rename_sql;
+EXECUTE join_rename_statement;
+DEALLOCATE PREPARE join_rename_statement;
+
+ALTER TABLE video_scripts COMMENT='Stores reusable, copy-ready production scripts grounded in explicitly selected Agent interactions for external generators and the built-in Agent-interface renderer. One row is one versioned portable video-script draft with a structured production plan and deterministic human-readable export. A script is the authoritative content-production plan; MP4 execution state belongs to linked video_jobs rows. Creation is idempotent for the exact Agent Slayer request event recorded in created_by_event_id. Source interactions are authoritative and are preserved separately in video_script_sources_join. Sensitivity: May contain private details selected from user interactions; secrets and unrelated private details must be excluded before persistence.';
+
+ALTER TABLE correspondence COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files_join for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
+
+-- end migration 0044
+
 -- migration 0043: native-datetime-and-correspondence
 -- writer downtime: required; application writers must switch atomically from canonical UTC strings to native DATETIME(3) columns and the revised correspondence vocabulary.
 -- locking: updates every existing native instant column, alters the affected tables under metadata locks, and replaces the correspondence timeline view. Large ledger and domain tables may require a maintenance window.

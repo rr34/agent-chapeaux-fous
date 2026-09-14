@@ -29,6 +29,25 @@ automatically rolled back. Order additive work first, populate and validate
 data before stricter constraints, make safe replay explicit, and keep database
 writers stopped after a failure until the committed state has been inspected.
 
+## Version 44: Consistent join table names
+
+Renames four relationship tables while preserving their rows, columns, indexes,
+and foreign keys:
+
+- `activity_event_files` → `activity_event_files_join`
+- `calendar_event_contacts` → `calendar_event_contacts_join`
+- `video_script_sources` → `video_script_sources_join`
+- `correspondence_files` → `correspondence_files_join`
+
+Index and constraint names retain their existing identities. Parent-table
+comments referencing these tables are updated. Historical migration blocks and
+activity receipts remain literal records of the earlier names.
+
+The matching application requires schema version 44. Apply during approved
+writer downtime using the operator sequence below. Each rename is replayable
+after a partial commit; an existing destination is never overwritten. Run
+`npm run db:verify` before starting the matching application.
+
 ## Production operator sequence
 
 Run the migration only after creating and testing a current recoverable dump.

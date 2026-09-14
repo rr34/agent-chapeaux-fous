@@ -287,7 +287,7 @@ export class VideoScripts {
       SELECT source.request_event_id, source.source_order,
              request.turn_id, request.content_text AS request_text,
              request.occurred_at_utc AS submitted_at_utc
-      FROM video_script_sources AS source
+      FROM video_script_sources_join AS source
       JOIN activity_events AS request ON request.event_id = source.request_event_id
       WHERE source.video_script_id = ?
       ORDER BY source.source_order
@@ -437,7 +437,7 @@ export class VideoScripts {
       `).run(plan.title, serialized, scriptText, context.requestEventId);
       const scriptId = Number(result.lastInsertRowid);
       const insertSource = database.prepare(`
-        INSERT INTO video_script_sources (video_script_id, request_event_id, source_order)
+        INSERT INTO video_script_sources_join (video_script_id, request_event_id, source_order)
         VALUES (?, ?, ?)
       `);
       selectedRows.forEach((row, index) => insertSource.run(scriptId, row.request_event_id, index + 1));

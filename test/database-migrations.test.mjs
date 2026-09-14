@@ -15,12 +15,42 @@ import {
   migrationsFilename,
   readCurrentSchemaVersion,
   runDatabaseMigrations,
+  joinTableRenames,
 } from "../scripts/migrate-database.mjs";
+import { requiredEnumColumns } from "../src/database.mjs";
 
 const block = (version, name = `migration-${version}`, sql = `SELECT ${version};`) => {
   const label = String(version).padStart(4, "0");
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
+
+test("join rename integrity rejects missing, legacy, and non-table destinations", async () => {
+  const expected = Object.values(joinTableRenames).map(TABLE_NAME => ({ TABLE_NAME, TABLE_TYPE: "BASE TABLE" }));
+  let rows = expected;
+  const connection = { async query(sql, parameters) {
+    assert.match(sql, /^SELECT TABLE_NAME, TABLE_TYPE/u);
+    assert.equal(parameters[0], "test_database");
+    return [rows];
+  } };
+  await assertMigrationSpecificIntegrity(connection, { version: 44 }, "test_database");
+  for (const broken of [expected.slice(1), [...expected, { TABLE_NAME: "activity_event_files", TABLE_TYPE: "BASE TABLE" }],
+    expected.map(row => ({ ...row, TABLE_TYPE: "VIEW" }))]) {
+    rows = broken;
+    await assert.rejects(assertMigrationSpecificIntegrity(connection, { version: 44 }, "test_database"), /Migration 0044/u);
+  }
+});
+
+test("historical enum integrity supports both sides of the join table rename", async () => {
+  for (const legacy of [true, false]) {
+    const columns = Object.entries(requiredEnumColumns).flatMap(([table, fields]) => Object.entries(fields).map(([field, values]) => ({
+      TABLE_NAME: legacy ? Object.entries(joinTableRenames).find(([, current]) => current === table)?.[0] ?? table : table,
+      COLUMN_NAME: field,
+      COLUMN_TYPE: `enum(${values.map(value => `'${value}'`).join(",")})`,
+    })));
+    const connection = { async query(sql) { return [sql.includes("information_schema.COLUMNS") ? columns : []]; } };
+    await assertMigrationSpecificIntegrity(connection, { version: 30 }, "test_database");
+  }
+});
 
 test("the native datetime and correspondence integrity check requires the final shape", async () => {
   const temporal = Array.from({ length: 72 }, (_, index) => ({
@@ -39,7 +69,11 @@ test("the native datetime and correspondence integrity check requires the final 
   ].map(([COLUMN_NAME, DATA_TYPE, COLUMN_TYPE]) => ({ COLUMN_NAME, DATA_TYPE, COLUMN_TYPE }));
   const connection = {
     async query(sql) {
-      if (sql.includes("COLUMN_NAME REGEXP")) return [temporal];
+      if (sql.includes("COLUMN_NAME REGEXP")) {
+        assert.match(sql, /JOIN information_schema\.TABLES AS object_definition/u);
+        assert.match(sql, /object_definition\.TABLE_TYPE = 'BASE TABLE'/u);
+        return [temporal];
+      }
       if (sql.includes("TABLE_CONSTRAINTS")) return [[{ CONSTRAINT_NAME: "correspondence_call_state" }]];
       if (sql.includes("TABLE_NAME = 'correspondence'")) return [correspondence];
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -49,7 +83,7 @@ test("the native datetime and correspondence integrity check requires the final 
   temporal[0].DATA_TYPE = "varchar";
   await assert.rejects(
     assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database"),
-    /all 72 DATETIME\(3\) instant columns/u,
+    /all 72 DATETIME\(3\) instant columns; found 72; non-native:/u,
   );
 });
 
@@ -225,11 +259,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43]);
-  for (let current = 29; current <= 43; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44]);
+  for (let current = 29; current <= 44; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 43 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 44 - current }, (_, index) => current + index + 1),
     );
   }
 });

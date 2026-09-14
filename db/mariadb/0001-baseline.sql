@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 43.
+-- Target: MariaDB 10.11, schema version 44.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -110,7 +110,7 @@ CREATE TABLE activity_events (
     CONSTRAINT activity_events_payload_json CHECK (JSON_VALID(payload_json))
 ) ENGINE=InnoDB COMMENT='Preserves a chronological, searchable record of activity visible at the boundaries between users, agents, models, tools, services, and external systems. One row represents one observed event, such as a request arriving, a model call starting, a tool returning a result, a response being produced, or an error occurring. Treat rows as append-oriented historical evidence; corrections should normally be recorded as later events rather than rewriting prior observations. Use event_seq for exact local insertion order and occurred_at_ms for source-event chronology. Sensitivity: May contain private user content, tool arguments, model-visible data, errors, and operational identifiers.';
 
-CREATE TABLE activity_event_files (
+CREATE TABLE activity_event_files_join (
     -- sourceOfTruth: true
     -- synonyms: ["event attachments", "request files"]
     -- keywords: ["attached file", "uploaded file", "request attachment", "input file", "output file"]
@@ -437,7 +437,7 @@ CREATE TABLE calendar_event_exclusions (
     CONSTRAINT calendar_event_exclusions_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE
 ) ENGINE=InnoDB COMMENT='Records individual recurrence instances omitted from a repeating calendar event. One row excludes one generated occurrence from one recurring calendar event. A recurring event may have any number of excluded occurrences; never collapse them into one delimited or JSON field. Values are normalized UTC instants used when expanding the parent event''s recurrence rule. Sensitivity: Reveals changes and omissions in the user''s private schedule.';
 
-CREATE TABLE calendar_event_contacts (
+CREATE TABLE calendar_event_contacts_join (
     -- sourceOfTruth: true
     -- synonyms: ["calendar participants", "event contacts"]
     -- keywords: ["event participant", "meeting attendee", "calendar contact", "invited", "accepted invitation"]
@@ -739,9 +739,9 @@ CREATE TABLE video_scripts (
     CONSTRAINT video_scripts_text CHECK (CHAR_LENGTH(TRIM(script_text)) BETWEEN 1 AND 500000),
     CONSTRAINT video_scripts_version CHECK (version > 0),
     CONSTRAINT video_scripts_archive_state CHECK ((status = 'draft' AND archived_at_utc IS NULL) OR (status = 'archived' AND archived_at_utc IS NOT NULL))
-) ENGINE=InnoDB COMMENT='Stores reusable, copy-ready production scripts grounded in explicitly selected Agent interactions for external generators and the built-in Agent-interface renderer. One row is one versioned portable video-script draft with a structured production plan and deterministic human-readable export. A script is the authoritative content-production plan; MP4 execution state belongs to linked video_jobs rows. Creation is idempotent for the exact Agent Slayer request event recorded in created_by_event_id. Source interactions are authoritative and are preserved separately in video_script_sources. Sensitivity: May contain private details selected from user interactions; secrets and unrelated private details must be excluded before persistence.';
+) ENGINE=InnoDB COMMENT='Stores reusable, copy-ready production scripts grounded in explicitly selected Agent interactions for external generators and the built-in Agent-interface renderer. One row is one versioned portable video-script draft with a structured production plan and deterministic human-readable export. A script is the authoritative content-production plan; MP4 execution state belongs to linked video_jobs rows. Creation is idempotent for the exact Agent Slayer request event recorded in created_by_event_id. Source interactions are authoritative and are preserved separately in video_script_sources_join. Sensitivity: May contain private details selected from user interactions; secrets and unrelated private details must be excluded before persistence.';
 
-CREATE TABLE video_script_sources (
+CREATE TABLE video_script_sources_join (
     -- sourceOfTruth: true
     -- synonyms: ["video script interactions", "script source conversations"]
     -- keywords: ["selected interactions", "script sources", "source order"]
@@ -889,7 +889,7 @@ CREATE TABLE correspondence (
       (medium = 'call' AND call_disposition IS NOT NULL AND delivery_status IS NULL)
       OR (medium <> 'call' AND call_disposition IS NULL AND call_duration_seconds IS NULL)
     )
-) ENGINE=InnoDB COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
+) ENGINE=InnoDB COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files_join for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
 
 CREATE TABLE todo_correspondence_join (
     personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing task associated with the message.',
@@ -913,7 +913,7 @@ CREATE TABLE calendar_events_correspondence_join (
     CONSTRAINT calendar_events_correspondence_join_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE
 ) ENGINE=InnoDB COMMENT='Links existing calendar event or recurring series records to existing correspondence, including emails and text messages. Each pair appears once; either record can have many links. Deleting either record removes only its dependent links. This table stores associations, not message content or provider synchronization state.';
 
-CREATE TABLE correspondence_files (
+CREATE TABLE correspondence_files_join (
     -- sourceOfTruth: true
     -- synonyms: ["message attachments", "correspondence media"]
     -- keywords: ["message attachment", "email attachment", "attached file"]
@@ -1261,4 +1261,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 43, 'Chapeaux Fous MariaDB database');
+VALUES (1, 44, 'Chapeaux Fous MariaDB database');

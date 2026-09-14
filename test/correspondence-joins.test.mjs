@@ -19,7 +19,7 @@ test("message joins support many-to-many links, reject invalid pairs, cascade on
   const migration = readMigrationLedger(migrationsFilename).find(item => item.version === 37);
   // Recover from a partial DDL commit with just the first table present.
   db.exec(splitMariaDbStatements(migration.sql)[0]);
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [37, 38, 39, 40, 41, 42, 43]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [37, 38, 39, 40, 41, 42, 43, 44]);
   db.exec("INSERT INTO correspondence (correspondence_id, medium, direction) VALUES (1, 'email', 'inbound'), (2, 'sms', 'outbound')");
   db.exec("INSERT INTO correspondence (correspondence_id, medium, direction, call_disposition, call_duration_seconds) VALUES (3, 'call', 'inbound', 'answered', 240)");
   assert.throws(() => db.exec("INSERT INTO correspondence (medium, direction) VALUES ('call', 'inbound')"), /constraint/iu);

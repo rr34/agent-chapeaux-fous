@@ -98,7 +98,7 @@ test("video scripts persist one ordered source join for every selected interacti
     stored.plan.scenes.map(({ voiceover }) => voiceover),
     ["Plan the release.", "The release plan is ready.", "Turn the plan into a checklist.", "The checklist is ready."],
   );
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM video_script_sources").get().count, 2);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM video_script_sources_join").get().count, 2);
   assert.deepEqual(
     ledger.trace(generation.requestId).filter(({ type }) => type === "video_script.created").map(({ subjectId }) => subjectId),
     [String(stored.id)],

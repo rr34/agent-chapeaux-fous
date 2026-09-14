@@ -67,7 +67,7 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 43", () => {
+test("the authoritative MariaDB baseline is complete at schema version 44", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 33);
@@ -105,7 +105,7 @@ test("the authoritative MariaDB baseline is complete at schema version 43", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 43, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 44, 'Chapeaux Fous MariaDB database'\)$/);
 });
 
 test("the unplanned to-do retirement preserves tasks before narrowing the enum", () => {
@@ -163,7 +163,7 @@ test("the historical correspondence join migration is additive and preserves its
 test("the native datetime migration recreates the confirmed-empty correspondence family in the baseline shape", () => {
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql")).find(item => item.version === 43);
   const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
-  const normalize = sql => sql.replace(/^\s*--.*$/gmu, "").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
+  const normalize = sql => sql.replaceAll("correspondence_files_join", "correspondence_files").replace(/^\s*--.*$/gmu, "").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
   const recreated = splitMariaDbStatements(migration.sql).filter((statement) => /^CREATE TABLE (?:correspondence(?:_files|_participants)?|todo_correspondence_join|calendar_events_correspondence_join)\b/u.test(statement));
   assert.equal(recreated.length, 5);
   for (const statement of recreated) {

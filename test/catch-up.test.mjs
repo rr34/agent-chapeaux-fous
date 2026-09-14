@@ -1,3 +1,4 @@
+import { restoreLegacyJoinTableNames } from "./helpers.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
@@ -147,7 +148,7 @@ test("one recurring appointment can move or cancel without changing the series o
   const id = Number(db.prepare(`INSERT INTO calendar_events (title, starts_at_utc, ends_at_utc, time_zone, recurrence_rule)
     VALUES ('Dentist', '2026-09-01T13:00:00.000Z', '2026-09-01T14:00:00.000Z', 'America/New_York', 'FREQ=WEEKLY;BYDAY=TU') RETURNING calendar_event_id`).get().calendar_event_id);
   db.exec("INSERT INTO contacts (contact_id, display_name) VALUES (901, 'Dentist')");
-  db.prepare("INSERT INTO calendar_event_contacts (calendar_event_id, contact_id, response_status) VALUES (?, 901, 'accepted')").run(id);
+  db.prepare("INSERT INTO calendar_event_contacts_join (calendar_event_id, contact_id, response_status) VALUES (?, 901, 'accepted')").run(id);
   service.refresh(scope);
   const questions = service.list().questions;
   assert.equal(questions.length, 2);
@@ -163,7 +164,7 @@ test("one recurring appointment can move or cancel without changing the series o
   const repeated = await registry.execute("calendar_event_occurrence_update", input, {});
   assert.equal(repeated.event.calendar_event_id, result.event.calendar_event_id);
   assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM calendar_events").get().n), 2);
-  assert.equal(db.prepare("SELECT response_status FROM calendar_event_contacts WHERE calendar_event_id = ?").get(result.event.calendar_event_id).response_status, "accepted");
+  assert.equal(db.prepare("SELECT response_status FROM calendar_event_contacts_join WHERE calendar_event_id = ?").get(result.event.calendar_event_id).response_status, "accepted");
   service.refresh(scope);
   assert.equal(service.list().count, 0);
   assert.equal(organizer.listCalendar({ from: "2026-09-15T00:00:00Z", to: "2026-09-16T00:00:00Z" })[0].startsAtUtc, "2026-09-15T13:00:00.000Z");
@@ -233,11 +234,12 @@ test("migration adds only one table, preserves domain rows, replays partial DDL,
   db.exec("INSERT INTO journal_groups (journal_group_id, name) VALUES (901, 'Health')");
   db.exec("INSERT INTO trackers (tracker_id, journal_group_id, name, unit) VALUES (901, 901, 'Weight', 'kg')");
   const options = { connectionSettings: temp.target.connection, backupConfirmed: true, writersStopped: true, output: { write() {} } };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44]);
   assert.equal(db.prepare("SELECT asking_recurrence_rule FROM trackers WHERE tracker_id=901").get().asking_recurrence_rule, null);
   await verifyDatabase(db);
+  restoreLegacyJoinTableNames(db);
   db.exec("UPDATE database_meta SET schema_version=35 WHERE singleton=1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44]);
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   db.exec("ALTER TABLE catch_up_questions DROP FOREIGN KEY catch_up_tracker");
   await assert.rejects(verifyDatabase(db), /source foreign key catch_up_tracker/);

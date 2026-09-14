@@ -3177,8 +3177,8 @@ export class OrganizerStore {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING calendar_event_id`)
           .get(uid, occurrence, title, description, master.location_text, starts, ends,
             master.time_zone, master.is_all_day, status, master.planning_prompt_text, now).calendar_event_id);
-        this.database.prepare(`INSERT INTO calendar_event_contacts (calendar_event_id, contact_id, participant_role, response_status)
-          SELECT ?, contact_id, participant_role, response_status FROM calendar_event_contacts WHERE calendar_event_id = ?`).run(eventId, id);
+        this.database.prepare(`INSERT INTO calendar_event_contacts_join (calendar_event_id, contact_id, participant_role, response_status)
+          SELECT ?, contact_id, participant_role, response_status FROM calendar_event_contacts_join WHERE calendar_event_id = ?`).run(eventId, id);
       }
       const event = this.getCalendar(eventId);
       const result = { event, seriesId: id, occurrenceStartsAtUtc: occurrence };

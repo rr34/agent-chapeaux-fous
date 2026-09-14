@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { MariaDatabaseSync } from "../src/mariadb-sync.mjs";
 import { baselineFilename } from "../scripts/agent-schema.mjs";
+import { joinTableRenames } from "../scripts/migrate-database.mjs";
 import {
   databaseConnectionFromEnvironment,
   parseMariaDbScript,
@@ -47,11 +48,21 @@ const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (
 
 export function baselineBeforeNativeDateTime(source) {
   const isoDefault = "DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z'))";
-  return source
+  for (const [previous, current] of Object.entries(joinTableRenames)) source = source.replaceAll(current, previous);
+  return source.replace("VALUES (1, 44,", "VALUES (1, 43,")
     .replace(/Stored as a MariaDB DATETIME\(3\) interpreted as UTC\./gu, "Format: ISO 8601 UTC timestamp.")
     .replace(/DATETIME\(3\)(\s+NOT NULL)?(\s+)DEFAULT \(UTC_TIMESTAMP\(3\)\)/gu,
       (_, required = "", spacing) => `VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin${required}${spacing}${isoDefault}`)
     .replace(/DATETIME\(3\)/gu, "VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin");
+}
+
+// Historical replay tests must restore the table names used by their SQL.
+export function restoreLegacyJoinTableNames(database) {
+  for (const [previous, current] of Object.entries(joinTableRenames)) {
+    const exists = database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`).get(current);
+    if (exists) database.exec(`RENAME TABLE ${current} TO ${previous}`);
+  }
 }
 
 export function temporaryDatabase({ schema = schemaSource } = {}) {
