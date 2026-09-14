@@ -43,7 +43,7 @@ Index and constraint names retain their existing identities. Parent-table
 comments referencing these tables are updated. Historical migration blocks and
 activity receipts remain literal records of the earlier names.
 
-The matching application requires schema version 44. Apply during approved
+The matching application requires schema version 45. Apply during approved
 writer downtime using the operator sequence below. Each rename is replayable
 after a partial commit; an existing destination is never overwritten. Run
 `npm run db:verify` before starting the matching application.
@@ -76,6 +76,19 @@ systemctl --user status agent-slayer.service --no-pager
 Do not restart the service when migration or verification fails. If no
 migrations are pending, `npm run db:migrate` is a read-only integrity check and
 does not require the confirmation variables.
+
+## Version 45: Final correspondence and JMAP state
+
+Repairs databases that had already recorded versions 43 and 44 before the
+one-body correspondence design and JMAP cursor were finalized. Because the
+owner confirmed that the correspondence family is empty, the migration safely
+drops and recreates that family in the authoritative shape: one canonical HTML
+`body`, no `body_format`, nullable `internet_message_id`, the unchanged single
+participants table, and the three-column `jmap_email_sync_state` table.
+
+This is a forward migration rather than another rewrite of an already-applied
+migration. Keep writers stopped and replay the complete block after any partial
+DDL commit.
 
 ## Version 43: Native UTC instants and unified correspondence
 

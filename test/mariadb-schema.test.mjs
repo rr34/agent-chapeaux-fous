@@ -67,7 +67,7 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 44", () => {
+test("the authoritative MariaDB baseline is complete at schema version 45", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 34);
@@ -112,7 +112,7 @@ test("the authoritative MariaDB baseline is complete at schema version 44", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 44, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 45, 'Chapeaux Fous MariaDB database'\)$/);
 });
 
 test("the unplanned to-do retirement preserves tasks before narrowing the enum", () => {
@@ -167,11 +167,11 @@ test("the historical correspondence join migration is additive and preserves its
   assert.match(migration.sql, /writer downtime: not required/u);
 });
 
-test("the native datetime migration recreates the confirmed-empty correspondence family in the baseline shape", () => {
-  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql")).find(item => item.version === 43);
+test("the forward correspondence migration recreates the confirmed-empty family in the baseline shape", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql")).find(item => item.version === 45);
   const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
   const normalize = sql => sql.replaceAll("correspondence_files_join", "correspondence_files").replace(/^\s*--.*$/gmu, "").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
-  const recreated = splitMariaDbStatements(migration.sql).filter((statement) => /^CREATE TABLE (?:correspondence(?:_files|_participants)?|jmap_email_sync_state|todo_correspondence_join|calendar_events_correspondence_join)\b/u.test(statement));
+  const recreated = splitMariaDbStatements(migration.sql).filter((statement) => /^CREATE TABLE (?:correspondence(?:_files(?:_join)?|_participants)?|jmap_email_sync_state|todo_correspondence_join|calendar_events_correspondence_join)\b/u.test(statement));
   assert.equal(recreated.length, 6);
   for (const statement of recreated) {
     assert.ok(baseline.some((candidate) => normalize(candidate) === normalize(statement)));

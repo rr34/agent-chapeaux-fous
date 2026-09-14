@@ -53,8 +53,8 @@ test("historical enum integrity supports both sides of the join table rename", a
   }
 });
 
-test("the native datetime and correspondence integrity check requires the final shape", async () => {
-  const temporal = Array.from({ length: 73 }, (_, index) => ({
+test("the native datetime and forward correspondence integrity checks require their respective shapes", async () => {
+  const temporal = Array.from({ length: 72 }, (_, index) => ({
     TABLE_NAME: `table_${index}`,
     COLUMN_NAME: `value_${index}_at_utc`,
     DATA_TYPE: "datetime",
@@ -87,18 +87,29 @@ test("the native datetime and correspondence integrity check requires the final 
     },
   };
   await assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection, { version: 45 }, "test_database"),
+    /Migration 0045 did not establish at least 73 DATETIME\(3\) instant columns; found 72/u,
+  );
+  temporal.push({
+    TABLE_NAME: "jmap_email_sync_state",
+    COLUMN_NAME: "synchronized_at_utc",
+    DATA_TYPE: "datetime",
+    DATETIME_PRECISION: 3,
+  });
+  await assertMigrationSpecificIntegrity(connection, { version: 45 }, "test_database");
   for (const retired of ["body_html", "body_format"]) {
     correspondence.push({ COLUMN_NAME: retired, DATA_TYPE: "longtext", COLUMN_TYPE: "longtext" });
     await assert.rejects(
-      assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database"),
+      assertMigrationSpecificIntegrity(connection, { version: 45 }, "test_database"),
       new RegExp(`retained correspondence\\.${retired}`, "u"),
     );
     correspondence.pop();
   }
   temporal[0].DATA_TYPE = "varchar";
   await assert.rejects(
-    assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database"),
-    /all 73 DATETIME\(3\) instant columns; found 73; non-native:/u,
+    assertMigrationSpecificIntegrity(connection, { version: 45 }, "test_database"),
+    /at least 73 DATETIME\(3\) instant columns; found 73; non-native:/u,
   );
 });
 
@@ -274,11 +285,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44]);
-  for (let current = 29; current <= 44; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
+  for (let current = 29; current <= 45; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 44 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 45 - current }, (_, index) => current + index + 1),
     );
   }
 });

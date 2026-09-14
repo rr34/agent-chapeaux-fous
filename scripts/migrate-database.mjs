@@ -322,7 +322,7 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
       }
     }
   }
-  if (migration.version === 43) {
+  if (migration.version === 43 || migration.version === 45) {
     const [temporalColumns] = await connection.query(`SELECT column_definition.TABLE_NAME, column_definition.COLUMN_NAME,
              column_definition.DATA_TYPE, column_definition.DATETIME_PRECISION
       FROM information_schema.COLUMNS AS column_definition
@@ -336,10 +336,13 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
       )`, [databaseName]);
     const nonNative = temporalColumns.filter((row) => row.DATA_TYPE !== "datetime"
       || Number(row.DATETIME_PRECISION) !== 3);
-    if (nonNative.length > 0 || temporalColumns.length !== 73) {
+    const minimumCount = migration.version === 43 ? 72 : 73;
+    if (nonNative.length > 0 || temporalColumns.length < minimumCount) {
       const detail = nonNative.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}:${row.DATA_TYPE}`).join(", ");
-      throw new Error(`Migration 0043 did not establish all 73 DATETIME(3) instant columns; found ${temporalColumns.length}${detail ? `; non-native: ${detail}` : ""}`);
+      throw new Error(`Migration ${String(migration.version).padStart(4, "0")} did not establish at least ${minimumCount} DATETIME(3) instant columns; found ${temporalColumns.length}${detail ? `; non-native: ${detail}` : ""}`);
     }
+  }
+  if (migration.version === 45) {
     const [correspondenceColumns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
       FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'correspondence'`, [databaseName]);
@@ -347,17 +350,17 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
     for (const [field, values] of Object.entries(requiredEnumColumns.correspondence)) {
       if (byName.get(field)?.DATA_TYPE !== "enum"
           || JSON.stringify(enumValues(byName.get(field)?.COLUMN_TYPE)) !== JSON.stringify(values)) {
-        throw new Error(`Migration 0043 did not establish correspondence.${field}`);
+        throw new Error(`Migration 0045 did not establish correspondence.${field}`);
       }
     }
     for (const field of ["source_account_key", "internet_message_id", "body", "provider_status", "occurred_at_utc", "call_duration_seconds"]) {
-      if (!byName.has(field)) throw new Error(`Migration 0043 is missing correspondence.${field}`);
+      if (!byName.has(field)) throw new Error(`Migration 0045 is missing correspondence.${field}`);
     }
     if (byName.get("body")?.DATA_TYPE !== "longtext") {
-      throw new Error("Migration 0043 did not establish correspondence.body as LONGTEXT");
+      throw new Error("Migration 0045 did not establish correspondence.body as LONGTEXT");
     }
     for (const retired of ["account_key", "status", "body_text", "body_html", "body_format"]) {
-      if (byName.has(retired)) throw new Error(`Migration 0043 retained correspondence.${retired}`);
+      if (byName.has(retired)) throw new Error(`Migration 0045 retained correspondence.${retired}`);
     }
     const [syncColumns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, DATETIME_PRECISION
       FROM information_schema.COLUMNS
@@ -368,13 +371,13 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
         || syncByName.get("email_state")?.DATA_TYPE !== "text"
         || syncByName.get("synchronized_at_utc")?.DATA_TYPE !== "datetime"
         || Number(syncByName.get("synchronized_at_utc")?.DATETIME_PRECISION) !== 3) {
-      throw new Error("Migration 0043 did not establish JMAP Email synchronization state");
+      throw new Error("Migration 0045 did not establish JMAP Email synchronization state");
     }
     const [checks] = await connection.query(`SELECT CONSTRAINT_NAME
       FROM information_schema.TABLE_CONSTRAINTS
       WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'correspondence' AND CONSTRAINT_TYPE = 'CHECK'`, [databaseName]);
     if (!checks.some((row) => row.CONSTRAINT_NAME === "correspondence_call_state")) {
-      throw new Error("Migration 0043 is missing correspondence_call_state");
+      throw new Error("Migration 0045 is missing correspondence_call_state");
     }
   }
   if (migration.version === 42) {

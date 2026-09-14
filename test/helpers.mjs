@@ -49,7 +49,7 @@ const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (
 export function baselineBeforeNativeDateTime(source) {
   const isoDefault = "DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z'))";
   for (const [previous, current] of Object.entries(joinTableRenames)) source = source.replaceAll(current, previous);
-  return source.replace("VALUES (1, 44,", "VALUES (1, 43,")
+  return source.replace("VALUES (1, 45,", "VALUES (1, 43,")
     .replace(/Stored as a MariaDB DATETIME\(3\) interpreted as UTC\./gu, "Format: ISO 8601 UTC timestamp.")
     .replace(/DATETIME\(3\)(\s+NOT NULL)?(\s+)DEFAULT \(UTC_TIMESTAMP\(3\)\)/gu,
       (_, required = "", spacing) => `VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin${required}${spacing}${isoDefault}`)

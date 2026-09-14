@@ -16,6 +16,112 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0045: finalize-correspondence-and-jmap-state
+-- writer downtime: required; correspondence readers and writers must use the
+-- final one-body schema atomically with this migration.
+-- locking: drops and recreates the confirmed-empty correspondence family and
+-- its timeline view. Other application tables are not rewritten.
+-- recovery: MariaDB DDL commits implicitly. The owner confirmed that every
+-- correspondence table is empty. Keep writers stopped and replay this entire
+-- block after a partial commit; every dropped object is recreated below.
+
+DROP VIEW IF EXISTS correspondence_timeline;
+DROP TABLE IF EXISTS todo_correspondence_join;
+DROP TABLE IF EXISTS calendar_events_correspondence_join;
+DROP TABLE IF EXISTS correspondence_files_join;
+DROP TABLE IF EXISTS correspondence_files;
+DROP TABLE IF EXISTS correspondence_participants;
+DROP TABLE IF EXISTS jmap_email_sync_state;
+DROP TABLE IF EXISTS correspondence;
+
+CREATE TABLE correspondence (
+    correspondence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this message or call.',
+    medium ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'other') NOT NULL COMMENT 'Communication medium represented by this row. email: Email message. sms: SMS text message. mms: Multimedia messaging service message. rcs: Rich Communication Services message. imessage: Apple iMessage communication. whatsapp: WhatsApp message. chat: Message from another chat platform. call: Telephone or application call. voicemail: Recorded or transcribed voicemail. other: Communication medium not covered by the named values.',
+    direction ENUM('inbound', 'outbound') NOT NULL COMMENT 'Direction relative to the user. inbound: Received from another participant. outbound: Sent or initiated by the user; an unsent draft is outbound with delivery_status draft.',
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local mailbox, phone identity, SIM, or service account through which the communication was handled. It scopes provider identifiers and does not contain an authentication secret.',
+    thread_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider or local conversation identifier grouping related messages.',
+    external_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider-assigned identifier for this message or call.',
+    internet_message_id VARCHAR(998) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin COMMENT 'Primary Internet Message-ID header value for an email, retained for cross-provider deduplication and reply matching. Null for non-email correspondence and email without a usable Message-ID.',
+    in_reply_to_id BIGINT UNSIGNED COMMENT 'Earlier local correspondence record to which this message directly replies.',
+    subject TEXT COMMENT 'Complete message subject or title when the medium provides one.',
+    body LONGTEXT COMMENT 'Single canonical renderable HTML body. Preserve supplied HTML once; when only plain text is available, escape it and convert it to simple HTML during import. Sanitize stored HTML when displaying it.',
+    delivery_status ENUM('draft', 'sent', 'delivered', 'failed', 'unknown') COMMENT 'Normalized message delivery state when applicable. draft: Prepared but not sent. sent: Accepted for sending or reported sent. delivered: Provider reports delivery. failed: Sending failed. unknown: The source does not provide a more precise state. Null for calls and records without message-delivery semantics.',
+    call_disposition ENUM('answered', 'missed') COMMENT 'Whether a call was answered. Every call normalizes all unanswered outcomes to missed. Null for non-call rows.',
+    call_duration_seconds BIGINT UNSIGNED COMMENT 'Elapsed connected or reported call duration in whole seconds when supplied by the source. Null when unavailable and for non-call rows.',
+    provider_status VARCHAR(64) COMMENT 'Unmodified provider-specific state retained when it conveys detail not represented by delivery_status or call_disposition.',
+    occurred_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'Primary source-reported instant used to order this communication. For calls this is the call start; for messages it is the best available sent or received instant. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    sent_at_utc DATETIME(3) COMMENT 'UTC instant when the message was sent, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    received_at_utc DATETIME(3) COMMENT 'UTC instant when the message was received, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    source_event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Ledger event that introduced or created this correspondence record when known.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this local communication record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (correspondence_id),
+    UNIQUE KEY correspondence_external (medium, source_account_key, external_id),
+    KEY correspondence_thread (medium, source_account_key, thread_key),
+    KEY correspondence_timeline_index (occurred_at_utc, correspondence_id),
+    CONSTRAINT correspondence_reply FOREIGN KEY (in_reply_to_id) REFERENCES correspondence(correspondence_id) ON DELETE SET NULL,
+    CONSTRAINT correspondence_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT correspondence_call_state CHECK (
+      (medium = 'call' AND call_disposition IS NOT NULL AND delivery_status IS NULL)
+      OR (medium <> 'call' AND call_disposition IS NULL AND call_duration_seconds IS NULL)
+    )
+) ENGINE=InnoDB COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files_join for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
+
+CREATE TABLE jmap_email_sync_state (
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable local key identifying one configured JMAP email account.',
+    email_state TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Opaque JMAP Email state string used as the since_state value for the next incremental synchronization.',
+    synchronized_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when every email change through email_state had been durably stored. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (source_account_key)
+) ENGINE=InnoDB COMMENT='Stores one durable incremental JMAP Email cursor per configured account. Advance the cursor only after all corresponding correspondence, participant, and file writes succeed. An absent row means the account has not completed its initial synchronization. Sensitivity: Contains opaque provider state and account identifiers but no credentials.';
+
+CREATE TABLE todo_correspondence_join (
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing task associated with the message.',
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the task.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the link was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (personal_task_id, correspondence_id),
+    KEY todo_correspondence_join_message (correspondence_id),
+    CONSTRAINT todo_correspondence_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT todo_correspondence_join_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links existing task records to existing correspondence, including emails and text messages. Each pair appears once; either record can have many links. Deleting either record removes only its dependent links. This table stores associations, not message content or provider synchronization state.';
+
+CREATE TABLE calendar_events_correspondence_join (
+    calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing calendar event or recurring series associated with the message.',
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the calendar event or recurring series.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the link was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (calendar_event_id, correspondence_id),
+    KEY calendar_events_correspondence_join_message (correspondence_id),
+    CONSTRAINT calendar_events_correspondence_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
+    CONSTRAINT calendar_events_correspondence_join_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Links existing calendar event or recurring series records to existing correspondence, including emails and text messages. Each pair appears once; either record can have many links. Deleting either record removes only its dependent links. This table stores associations, not message content or provider synchronization state.';
+
+CREATE TABLE correspondence_files_join (
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Message to which the file belongs.',
+    file_id BIGINT UNSIGNED NOT NULL COMMENT 'Externally stored file associated with the message.',
+    attachment_role ENUM('attachment', 'inline', 'recording', 'other') NOT NULL DEFAULT 'attachment' COMMENT 'How the file appears or functions in the message. attachment: Ordinary attached file. inline: File displayed inside the message body. recording: Audio or video recording that constitutes message content. other: File role not covered by the named values.',
+    PRIMARY KEY (correspondence_id, file_id),
+    CONSTRAINT correspondence_files_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
+    CONSTRAINT correspondence_files_file FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Associates externally stored files with correspondence and identifies how each file appears in the message. One row links one file to one message as an attachment, inline asset, recording, or other file role. The file bytes live in agent media storage; this table stores only the relationship. Sensitivity: Reveals which private files belong to private communications.';
+
+CREATE TABLE correspondence_participants (
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Message or call on which this participant appears.',
+    participant_role ENUM('from', 'to', 'cc', 'bcc', 'reply_to', 'sender', 'recipient') NOT NULL COMMENT 'Sender or recipient role the observed address has on the communication. from: Email-style From participant. to: Email-style primary recipient. cc: Email-style carbon-copy recipient. bcc: Email-style blind-carbon-copy recipient. reply_to: Email-style Reply-To address to use when responding instead of the From address. sender: Generic sender or call initiator for media without email-style headers. recipient: Generic recipient or called party for media without email-style headers.',
+    contact_id BIGINT UNSIGNED COMMENT 'Known contact matched to the observed participant, when a match exists.',
+    contact_method_id BIGINT UNSIGNED COMMENT 'Specific known email address, phone number, or other method matched to the observed participant.',
+    address_value VARCHAR(512) NOT NULL COMMENT 'Address or identity exactly observed on the communication, retained even when no contact matches.',
+    display_name VARCHAR(500) COMMENT 'Participant display name supplied with the communication when available.',
+    PRIMARY KEY (correspondence_id, participant_role, address_value),
+    KEY correspondence_participants_contact (contact_id, correspondence_id),
+    CONSTRAINT correspondence_participants_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
+    CONSTRAINT correspondence_participants_contact_fk FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
+    CONSTRAINT correspondence_participants_method FOREIGN KEY (contact_method_id) REFERENCES contact_methods(contact_method_id) ON DELETE SET NULL
+) ENGINE=InnoDB COMMENT='Records senders and recipients for messages and calls while retaining unmatched addresses that do not yet resolve to a contact. One row represents one participant address in one role on one correspondence row, optionally linked to a known contact and contact method. This is enough to identify everyone observed on a group message without making group-thread reconstruction an owned requirement. address_value preserves the address observed on the communication even when no contact matches it. Sensitivity: Contains private communication participants, addresses, and display names.';
+
+CREATE VIEW correspondence_timeline AS
+SELECT correspondence.*, occurred_at_utc AS timeline_at_utc
+FROM correspondence;
+
+-- end migration 0045
+
 -- migration 0044: consistent-join-table-names
 -- writer downtime: required; attachment, calendar and video readers/writers must
 -- switch to the matching application code while these four tables are renamed.
