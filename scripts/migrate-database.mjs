@@ -153,6 +153,9 @@ async function assertVersion30Integrity(connection, databaseName) {
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     for (const [fieldName, expectedValues] of Object.entries(fields)) {
       const qualifiedName = `${tableName}.${fieldName}`;
+      // body_format is introduced and validated by migration 0043, not by the
+      // historical migration 0030 enum conversion.
+      if (qualifiedName === "correspondence.body_format") continue;
       // Historical enum validation also runs before migration 0044 renames
       // these tables. The latest schema is checked separately by inspection.
       const legacyName = Object.entries(joinTableRenames).find(([, current]) => current === tableName)?.[0];
@@ -350,10 +353,13 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
         throw new Error(`Migration 0043 did not establish correspondence.${field}`);
       }
     }
-    for (const field of ["source_account_key", "provider_status", "occurred_at_utc", "call_duration_seconds"]) {
+    for (const field of ["source_account_key", "body", "provider_status", "occurred_at_utc", "call_duration_seconds"]) {
       if (!byName.has(field)) throw new Error(`Migration 0043 is missing correspondence.${field}`);
     }
-    for (const retired of ["account_key", "status"]) {
+    if (byName.get("body")?.DATA_TYPE !== "longtext") {
+      throw new Error("Migration 0043 did not establish correspondence.body as LONGTEXT");
+    }
+    for (const retired of ["account_key", "status", "body_text", "body_html"]) {
       if (byName.has(retired)) throw new Error(`Migration 0043 retained correspondence.${retired}`);
     }
     const [checks] = await connection.query(`SELECT CONSTRAINT_NAME

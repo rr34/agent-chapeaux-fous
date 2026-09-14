@@ -42,11 +42,13 @@ test("join rename integrity rejects missing, legacy, and non-table destinations"
 
 test("historical enum integrity supports both sides of the join table rename", async () => {
   for (const legacy of [true, false]) {
-    const columns = Object.entries(requiredEnumColumns).flatMap(([table, fields]) => Object.entries(fields).map(([field, values]) => ({
+    const columns = Object.entries(requiredEnumColumns).flatMap(([table, fields]) => Object.entries(fields)
+      .filter(([field]) => `${table}.${field}` !== "correspondence.body_format")
+      .map(([field, values]) => ({
       TABLE_NAME: legacy ? Object.entries(joinTableRenames).find(([, current]) => current === table)?.[0] ?? table : table,
       COLUMN_NAME: field,
       COLUMN_TYPE: `enum(${values.map(value => `'${value}'`).join(",")})`,
-    })));
+      })));
     const connection = { async query(sql) { return [sql.includes("information_schema.COLUMNS") ? columns : []]; } };
     await assertMigrationSpecificIntegrity(connection, { version: 30 }, "test_database");
   }
@@ -62,10 +64,11 @@ test("the native datetime and correspondence integrity check requires the final 
   const correspondence = [
     ["medium", "enum", "enum('email','sms','mms','rcs','imessage','whatsapp','chat','call','voicemail','other')"],
     ["direction", "enum", "enum('inbound','outbound')"],
+    ["body_format", "enum", "enum('text','html')"],
     ["delivery_status", "enum", "enum('draft','sent','delivered','failed','unknown')"],
     ["call_disposition", "enum", "enum('answered','missed')"],
-    ...["source_account_key", "provider_status", "occurred_at_utc", "call_duration_seconds"]
-      .map((name) => [name, name === "occurred_at_utc" ? "datetime" : "varchar", ""]),
+    ...["body", "source_account_key", "provider_status", "occurred_at_utc", "call_duration_seconds"]
+      .map((name) => [name, name === "occurred_at_utc" ? "datetime" : name === "body" ? "longtext" : "varchar", ""]),
   ].map(([COLUMN_NAME, DATA_TYPE, COLUMN_TYPE]) => ({ COLUMN_NAME, DATA_TYPE, COLUMN_TYPE }));
   const connection = {
     async query(sql) {
@@ -80,6 +83,12 @@ test("the native datetime and correspondence integrity check requires the final 
     },
   };
   await assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database");
+  correspondence.push({ COLUMN_NAME: "body_html", DATA_TYPE: "longtext", COLUMN_TYPE: "longtext" });
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database"),
+    /retained correspondence\.body_html/u,
+  );
+  correspondence.pop();
   temporal[0].DATA_TYPE = "varchar";
   await assert.rejects(
     assertMigrationSpecificIntegrity(connection, { version: 43 }, "test_database"),

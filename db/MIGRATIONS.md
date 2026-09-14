@@ -90,7 +90,9 @@ email, SMS, MMS, RCS, iMessage, WhatsApp, other chat, calls, and voicemail.
 Calls are ordinary timeline rows whose disposition is exactly `answered` or
 `missed`; message delivery state is separate from retained provider status.
 Participants preserve the observed sender and recipients for each message or
-call without promising group-thread reconstruction.
+call without promising group-thread reconstruction. Each message body is stored
+once in `body`; `body_format` says whether that single retained representation
+is text or HTML so the UI can render it correctly.
 
 This migration requires stopped writers and a verified backup. Its broad type
 changes take metadata locks and may rebuild populated tables. If interrupted,

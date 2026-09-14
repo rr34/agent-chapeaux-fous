@@ -850,7 +850,7 @@ CREATE TABLE correspondence (
     -- synonyms: ["messages", "communications"]
     -- keywords: ["message", "email", "text message", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "inbox", "sent"]
     -- subject keywords: ["email subject", "message subject"]
-    -- body_text keywords: ["message body", "email body", "what did they say", "voicemail transcript"]
+    -- body keywords: ["message body", "email body", "what did they say", "voicemail transcript"]
     -- sent_at_utc keywords: ["when sent"]
     -- received_at_utc keywords: ["when received"]
     -- fk:correspondence_event meaning: Connects this message to the observable event identified by source_event_id.
@@ -868,8 +868,8 @@ CREATE TABLE correspondence (
     external_id       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider-assigned identifier for this message or call.',
     in_reply_to_id    BIGINT UNSIGNED COMMENT 'Earlier local correspondence record to which this message directly replies.',
     subject           TEXT COMMENT 'Complete message subject or title when the medium provides one.',
-    body_text         LONGTEXT COMMENT 'Complete available plain-text body of the message or voicemail transcript.',
-    body_html         LONGTEXT COMMENT 'Complete available HTML body when supplied by the communication provider.',
+    body              LONGTEXT COMMENT 'Complete available body stored exactly once in the representation identified by body_format. When a source supplies both text and HTML alternatives, retain one complete preferred representation, ordinarily HTML.',
+    body_format       ENUM('text', 'html') NOT NULL DEFAULT 'text' COMMENT 'How to interpret and render body. text: Plain text that the UI escapes and formats. html: HTML that the UI sanitizes before rendering.',
     delivery_status   ENUM('draft', 'sent', 'delivered', 'failed', 'unknown') COMMENT 'Normalized message delivery state when applicable. draft: Prepared but not sent. sent: Accepted for sending or reported sent. delivered: Provider reports delivery. failed: Sending failed. unknown: The source does not provide a more precise state. Null for calls and records without message-delivery semantics.',
     call_disposition  ENUM('answered', 'missed') COMMENT 'Whether a call was answered. Every call normalizes all unanswered outcomes to missed. Null for non-call rows.',
     call_duration_seconds BIGINT UNSIGNED COMMENT 'Elapsed connected or reported call duration in whole seconds when supplied by the source. Null when unavailable and for non-call rows.',
@@ -1061,8 +1061,8 @@ CREATE VIEW correspondence_timeline AS
 -- external_id inheritsFrom: correspondence.external_id
 -- in_reply_to_id inheritsFrom: correspondence.in_reply_to_id
 -- subject inheritsFrom: correspondence.subject
--- body_text inheritsFrom: correspondence.body_text
--- body_html inheritsFrom: correspondence.body_html
+-- body inheritsFrom: correspondence.body
+-- body_format inheritsFrom: correspondence.body_format
 -- delivery_status inheritsFrom: correspondence.delivery_status
 -- call_disposition inheritsFrom: correspondence.call_disposition
 -- call_duration_seconds inheritsFrom: correspondence.call_duration_seconds
