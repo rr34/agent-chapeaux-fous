@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import { RE2JS } from "re2js";
 
 const delimiterNames = new Map([
   ["comma", ","],
@@ -137,12 +138,22 @@ export function inspectDelimitedText(text, options = {}) {
     let blankCount = 0;
     const distinct = new Set();
     const samples = [];
+    const fractionalDigitCounts = {};
+    let decimalValueCount = 0;
+    let maxFractionalDigits = 0;
     for (const { row } of nonblankRows) {
       const value = String(row[columnIndex] ?? "");
       if (!value.trim()) blankCount += 1;
       else {
         if (samples.length < 5 && !samples.includes(value)) samples.push(value);
         if (distinct.size <= 1_000) distinct.add(value);
+        const decimal = /^[+-]?\d+(?:\.(\d+))?$/.exec(value.trim());
+        if (decimal) {
+          const digits = decimal[1]?.length ?? 0;
+          decimalValueCount += 1;
+          maxFractionalDigits = Math.max(maxFractionalDigits, digits);
+          fractionalDigitCounts[digits] = (fractionalDigitCounts[digits] ?? 0) + 1;
+        }
       }
     }
     return {
@@ -152,6 +163,11 @@ export function inspectDelimitedText(text, options = {}) {
       distinctCount: distinct.size <= 1_000 ? distinct.size : null,
       distinctCountAtLeast: distinct.size > 1_000 ? 1_001 : null,
       samples,
+      decimalProfile: decimalValueCount ? {
+        valueCount: decimalValueCount,
+        maxFractionalDigits,
+        fractionalDigitCounts,
+      } : null,
     };
   });
   for (const [index, row] of parsed.rows.entries()) {
@@ -190,26 +206,83 @@ function mappedValue(field, source, sourceRecordNumber) {
 }
 
 function validDateParts(year, month, day) {
-  const date = new Date(Date.UTC(year, month - 1, day));
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
-function normalizedDate(value, formats) {
-  const input = String(value ?? "").trim();
-  for (const format of formats) {
-    let match;
-    let parts;
-    if (format === "YYYY-MM-DD" && (match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(input))) parts = [match[1], match[2], match[3]];
-    else if (format === "YYYYMMDD" && (match = /^(\d{4})(\d{2})(\d{2})$/.exec(input))) parts = [match[1], match[2], match[3]];
-    else if (format === "MM/DD/YYYY" && (match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(input))) parts = [match[3], match[1], match[2]];
-    else if (format === "DD/MM/YYYY" && (match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(input))) parts = [match[3], match[2], match[1]];
-    if (!parts) continue;
-    const [year, month, day] = parts.map(Number);
-    if (validDateParts(year, month, day)) {
-      return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+const dateFormatTokens = new Map([
+  ["YYYY", "(\\d{4})"], ["MM", "(\\d{1,2})"], ["DD", "(\\d{1,2})"],
+  ["HH", "(\\d{2})"], ["mm", "(\\d{2})"], ["ss", "(\\d{2})"],
+  ["S", "(\\d{1,9})"],
+]);
+
+function compiledDateFormat(format, { timestamp = false, assumeUtc = false } = {}) {
+  if (typeof format !== "string" || format.length === 0 || format.length > 80) {
+    throw new Error("Date input format must contain 1 through 80 characters");
+  }
+  const fields = [];
+  let source = "^";
+  let literals = "";
+  for (let index = 0; index < format.length;) {
+    if (format[index] === "[") {
+      const end = format.indexOf("]", index + 1);
+      if (end <= index + 1) throw new Error("Date input format has an empty or unclosed literal block");
+      const literal = format.slice(index + 1, end);
+      literals += literal;
+      source += literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      index = end + 1;
+      continue;
+    }
+    const token = [...dateFormatTokens.keys()].find((candidate) => format.startsWith(candidate, index));
+    if (token) {
+      if (fields.includes(token)) throw new Error(`Date input format repeats ${token}`);
+      fields.push(token);
+      source += dateFormatTokens.get(token);
+      index += token.length;
+    } else {
+      const literal = format[index];
+      literals += literal;
+      source += literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      index += 1;
     }
   }
-  throw new Error(`value ${JSON.stringify(input)} does not match an allowed date format`);
+  if (!["YYYY", "MM", "DD"].every((token) => fields.includes(token))) {
+    throw new Error("Date input format requires YYYY, MM, and DD");
+  }
+  const timeFields = ["HH", "mm", "ss"];
+  const hasTime = timeFields.some((token) => fields.includes(token));
+  if (hasTime && !timeFields.every((token) => fields.includes(token))) {
+    throw new Error("Time input format requires HH, mm, and ss together");
+  }
+  if (fields.includes("S") && !hasTime) throw new Error("Fractional seconds require HH, mm, and ss");
+  if (!timestamp && hasTime) throw new Error("Date input format cannot include a time");
+  if (timestamp && hasTime && !assumeUtc && !literals.includes("UTC") && !literals.includes("Z")) {
+    throw new Error("Timestamp input format requires a literal UTC or Z marker, or assume_utc true");
+  }
+  return { matcher: new RegExp(`${source}$`), fields, hasTime };
+}
+
+function normalizedTemporal(value, formats, options = {}) {
+  const input = String(value ?? "").trim();
+  for (const format of formats) {
+    const { matcher, fields, hasTime } = typeof format === "string"
+      ? compiledDateFormat(format, options) : format;
+    const match = matcher.exec(input);
+    if (!match) continue;
+    const parts = Object.fromEntries(fields.map((field, index) => [field, match[index + 1]]));
+    const year = Number(parts.YYYY);
+    const month = Number(parts.MM);
+    const day = Number(parts.DD);
+    if (!validDateParts(year, month, day)) continue;
+    const date = `${parts.YYYY}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (!options.timestamp) return date;
+    if (!hasTime) return `${date}T00:00:00Z`;
+    if (Number(parts.HH) > 23 || Number(parts.mm) > 59 || Number(parts.ss) > 59) continue;
+    return `${date}T${parts.HH}:${parts.mm}:${parts.ss}${parts.S ? `.${parts.S}` : ""}Z`;
+  }
+  throw new Error(`value ${JSON.stringify(input)} does not match a declared ${options.timestamp ? "UTC timestamp" : "date"} format`);
 }
 
 function normalizedDecimal(value, operation) {
@@ -234,6 +307,33 @@ function normalizedDecimal(value, operation) {
   return input;
 }
 
+function decimalRatioUnits(value, operation) {
+  const input = String(value ?? "").trim();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(input);
+  if (!match || input.length > 256 || !Number.isInteger(operation.from_scale)
+    || !Number.isInteger(operation.to_scale)
+    || operation.from_scale < 0 || operation.from_scale > 30
+    || operation.to_scale < 0 || operation.to_scale > 30) {
+    throw new Error(`value ${JSON.stringify(input)} is not a supported positive decimal ratio`);
+  }
+  const decimalDigits = match[2]?.length ?? 0;
+  let numerator = BigInt(`${match[1]}${match[2] ?? ""}`) * 10n ** BigInt(operation.to_scale);
+  let denominator = 10n ** BigInt(decimalDigits + operation.from_scale);
+  if (numerator === 0n) throw new Error("decimal ratio must be positive");
+  let a = numerator;
+  let b = denominator;
+  while (b !== 0n) [a, b] = [b, a % b];
+  numerator /= a;
+  denominator /= a;
+  return (operation.side === "from_units" ? denominator : numerator).toString();
+}
+
+function regexInput(value) {
+  const input = String(value ?? "");
+  if (input.length > 10_000) throw new Error("Regex input exceeds 10,000 characters");
+  return input;
+}
+
 function applyOperation(value, operation) {
   switch (operation.op) {
     case "trim":
@@ -254,8 +354,27 @@ function applyOperation(value, operation) {
       return Object.hasOwn(operation.values, key) ? structuredClone(operation.values[key]) : value;
     }
     case "default": return blank(value) ? structuredClone(operation.value) : value;
-    case "date": return blank(value) ? value : normalizedDate(value, operation.input_formats);
+    case "date": return blank(value) ? value : normalizedTemporal(value, operation.compiledFormats);
+    case "timestamp": return blank(value) ? value : normalizedTemporal(value, operation.compiledFormats, {
+      timestamp: true, assumeUtc: operation.assume_utc === true,
+    });
     case "decimal": return blank(value) ? value : normalizedDecimal(value, operation);
+    case "decimal_ratio_units": return blank(value) ? value : decimalRatioUnits(value, operation);
+    case "regex_extract": {
+      const match = operation.compiledRegex.exec(regexInput(value));
+      if (!match) throw new Error("Regex extraction did not match the value");
+      const selected = typeof operation.group === "string"
+        ? match.groups?.[operation.group] : match[operation.group];
+      if (selected == null) throw new Error(`Regex group ${JSON.stringify(operation.group)} did not match`);
+      return selected;
+    }
+    case "regex_replace": {
+      const matcher = operation.compiledRegex.matcher(regexInput(value));
+      const result = operation.replace_all
+        ? matcher.replaceAll(operation.replacement) : matcher.replaceFirst(operation.replacement);
+      if (result.length > 100_000) throw new Error("Regex replacement exceeds 100,000 characters");
+      return result;
+    }
     case "boolean": {
       const selected = String(value ?? "");
       const comparable = operation.case_sensitive ? selected : selected.toLocaleLowerCase();
@@ -276,6 +395,7 @@ function mappingConfiguration(mapping, headers) {
   if (outputNames.some((name) => !name)) throw new Error("Every mapping field needs output_field");
   if (new Set(outputNames).size !== outputNames.length) throw new Error("mapping contains duplicate output fields");
   const headerSet = new Set(headers);
+  const preparedFields = [];
   for (const field of mapping.fields) {
     const hasRecordNumber = field.source_record_number === true;
     const hasConstant = Object.hasOwn(field, "constant");
@@ -285,6 +405,7 @@ function mappingConfiguration(mapping, headers) {
     }
     const missing = columns.filter((column) => !headerSet.has(column));
     if (missing.length) throw new Error(`Mapping field ${field.output_field} references missing columns: ${missing.join(", ")}`);
+    const preparedOperations = [];
     for (const operation of field.transforms ?? []) {
       if (["split", "join"].includes(operation.op) && typeof operation.delimiter !== "string") {
         throw new Error(`${operation.op} on ${field.output_field} requires delimiter`);
@@ -301,15 +422,54 @@ function mappingConfiguration(mapping, headers) {
       if (operation.op === "default" && !Object.hasOwn(operation, "value")) {
         throw new Error(`default on ${field.output_field} requires value`);
       }
-      if (operation.op === "date" && !operation.input_formats?.length) {
-        throw new Error(`date on ${field.output_field} requires input_formats`);
+      if (["date", "timestamp"].includes(operation.op)) {
+        if (!operation.input_formats?.length) {
+          throw new Error(`${operation.op} on ${field.output_field} requires input_formats`);
+        }
+        const compiledFormats = operation.input_formats.map((format) => compiledDateFormat(format, {
+          timestamp: operation.op === "timestamp", assumeUtc: operation.assume_utc === true,
+        }));
+        preparedOperations.push({ ...operation, compiledFormats });
       }
+      if (operation.op === "decimal_ratio_units" && (
+        !["from_units", "to_units"].includes(operation.side)
+        || !Number.isInteger(operation.from_scale) || !Number.isInteger(operation.to_scale)
+      )) {
+        throw new Error(`decimal_ratio_units on ${field.output_field} requires side, from_scale, and to_scale`);
+      }
+      if (["regex_extract", "regex_replace"].includes(operation.op)) {
+        if (typeof operation.pattern !== "string" || !operation.pattern || operation.pattern.length > 256) {
+          throw new Error(`${operation.op} on ${field.output_field} requires a pattern of 1 through 256 characters`);
+        }
+        if (operation.op === "regex_extract" && !(Number.isInteger(operation.group)
+          && operation.group >= 0 && operation.group <= 50) && !(typeof operation.group === "string"
+          && operation.group.length > 0 && operation.group.length <= 80)) {
+          throw new Error(`regex_extract on ${field.output_field} requires a group number or name`);
+        }
+        if (operation.op === "regex_replace" && (typeof operation.replacement !== "string"
+          || typeof operation.replace_all !== "boolean")) {
+          throw new Error(`regex_replace on ${field.output_field} requires replacement and replace_all`);
+        }
+        let compiledRegex;
+        try {
+          const flags = (operation.case_sensitive === false ? RE2JS.CASE_INSENSITIVE : 0)
+            | (operation.multiline === true ? RE2JS.MULTILINE : 0);
+          compiledRegex = RE2JS.compile(operation.pattern, flags);
+          if (compiledRegex.programSize() > 10_000) {
+            throw new Error("compiled regex exceeds 10,000 program instructions");
+          }
+        } catch (error) {
+          throw new Error(`Invalid regex on ${field.output_field}: ${error.message}`);
+        }
+        preparedOperations.push({ ...operation, compiledRegex });
+      } else if (!["date", "timestamp"].includes(operation.op)) preparedOperations.push(operation);
       if (operation.op === "boolean" && (!operation.true_values?.length || !operation.false_values?.length)) {
         throw new Error(`boolean on ${field.output_field} requires true_values and false_values`);
       }
     }
+    preparedFields.push({ ...field, transforms: preparedOperations });
   }
-  return mapping.fields;
+  return preparedFields;
 }
 
 function schemaValidator(schema) {

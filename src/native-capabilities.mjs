@@ -75,7 +75,7 @@ export const nativeCapabilityManifests = [
     attachmentHints: [
       { extensions: [".csv", ".tsv"], mimeIncludes: ["csv", "tab-separated"] },
     ],
-    readOnlyTools: ["file_get", "file_read", "file_table_inspect", "file_search"],
+    readOnlyTools: ["file_get", "file_read", "file_table_inspect", "file_table_transform_preview", "file_search"],
   },
   {
     id: "database", title: "Database reads and receipts",

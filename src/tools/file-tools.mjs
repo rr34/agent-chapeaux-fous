@@ -11,7 +11,7 @@ const transformOperationSchema = {
   properties: {
     op: {
       type: "string",
-      enum: ["trim", "lowercase", "uppercase", "split", "join", "replace", "default", "date", "decimal", "boolean"],
+      enum: ["trim", "lowercase", "uppercase", "split", "join", "replace", "default", "date", "timestamp", "decimal", "decimal_ratio_units", "regex_extract", "regex_replace", "boolean"],
     },
     delimiter: { type: "string", minLength: 1, maxLength: 20 },
     index: { type: "integer", minimum: -1000, maximum: 1000 },
@@ -19,8 +19,21 @@ const transformOperationSchema = {
     value: scalarSchema,
     input_formats: {
       type: "array", minItems: 1, maxItems: 4, uniqueItems: true,
-      items: { type: "string", enum: ["YYYY-MM-DD", "YYYYMMDD", "MM/DD/YYYY", "DD/MM/YYYY"] },
+      items: { type: "string", minLength: 1, maxLength: 80,
+        description: "Date/time template using YYYY, MM, DD, HH, mm, ss, and optional S for fractional seconds. Other characters are literal; use [text] for a literal block containing token letters. Examples: DD/MM/YYYY or YYYY-MM-DD HH:mm:ss [UTC]." },
     },
+    assume_utc: { type: "boolean", description: "Explicitly treat a timestamp with no UTC or Z marker as UTC." },
+    from_scale: { type: "integer", minimum: 0, maximum: 30 },
+    to_scale: { type: "integer", minimum: 0, maximum: 30 },
+    side: { type: "string", enum: ["from_units", "to_units"] },
+    pattern: { type: "string", minLength: 1, maxLength: 256,
+      description: "RE2 regular expression. Match a literal period with \\. (a backslash followed by a period). Backreferences and lookaround are unsupported." },
+    group: { type: ["integer", "string"], minimum: 0, maximum: 50, minLength: 1, maxLength: 80,
+      description: "Capture group number (0 is the whole match) or named group for regex_extract." },
+    replacement: { type: "string", maxLength: 1000,
+      description: "Replacement for regex_replace. Supports $& for the whole match and $1, $2, etc. for capture groups." },
+    replace_all: { type: "boolean", description: "Replace every match when true; otherwise only the first." },
+    multiline: { type: "boolean", description: "Make ^ and $ match line boundaries within the value." },
     decimal_separator: { type: "string", enum: [".", ","] },
     grouping_separator: { type: ["string", "null"], minLength: 1, maxLength: 1 },
     currency_symbols: {
@@ -65,6 +78,26 @@ const tableInputProperties = {
     description: "Use auto, comma, tab, semicolon, pipe, or one literal delimiter character.",
   },
   header_row: { type: "boolean", description: "Whether the first record contains column names." },
+};
+const tableTransformParameters = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    ...tableInputProperties,
+    mapping: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        fields: { type: "array", minItems: 1, maxItems: 500, items: mappingFieldSchema },
+      },
+      required: ["fields"],
+    },
+    target_schema: {
+      anyOf: [{ type: "object" }, { type: "null" }],
+      description: "Optional authoritative JSON Schema for each transformed output object.",
+    },
+  },
+  required: ["file_id", "delimiter", "header_row", "mapping", "target_schema"],
 };
 
 function jsonLines(values) {
@@ -174,7 +207,7 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_table_inspect",
-    description: "Inspect one complete verified delimited-text upload as a table without asking the model to read every record. Supports comma, tab, semicolon, pipe, or one explicit literal delimiter; auto detects the common choices. Returns exact record counts, headers, bounded samples, column profiles, and inconsistent-width record numbers so the model can design one safe declarative mapping for the whole file.",
+    description: "Inspect one complete verified delimited-text upload as a table without asking the model to read every record. Supports comma, tab, semicolon, pipe, or one explicit literal delimiter; auto detects the common choices. Returns exact record counts, headers, bounded samples, column profiles including decimal precision, and inconsistent-width record numbers so the model can design one safe declarative mapping for the whole file.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -220,28 +253,70 @@ export function registerFileTools(registry, {
   });
 
   registry.register({
-    name: "file_table_transform",
-    description: "Apply one safe declarative mapping to every record in a complete verified delimited-text upload and save the successful canonical objects as a durable JSON Lines file. This function, not the model, processes every record. It supports column selection, coalescing, constants, source record numbers, trimming, case changes, literal split/join, exact replacements, defaults, declared date and decimal parsing, and declared boolean values. It executes no code and accepts no regular expressions. When target_schema is supplied, every output object is validated against it. Bad records do not discard good ones: all exceptions are saved separately with source record numbers and original values.",
-    parameters: {
+    name: "file_table_transform_preview",
+    description: "Run a complete verified table through one declarative mapping, including RE2 regex extraction/replacement, without saving artifacts or changing data. Return exact transformed and exception counts plus bounded output and exception samples. Use the same mapping and target_schema with file_table_transform after reviewing this preview; matching mappingHash proves the same mapping was used.",
+    parameters: tableTransformParameters,
+    outputSchema: {
       type: "object",
-      additionalProperties: false,
       properties: {
-        ...tableInputProperties,
-        mapping: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            fields: { type: "array", minItems: 1, maxItems: 500, items: mappingFieldSchema },
-          },
-          required: ["fields"],
-        },
-        target_schema: {
-          anyOf: [{ type: "object" }, { type: "null" }],
-          description: "Optional authoritative JSON Schema for each transformed output object.",
-        },
+        sourceFile: { type: "object" },
+        sourceSha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+        verified: { type: "boolean", const: true },
+        delimiter: { type: "string", minLength: 1 },
+        headers: { type: "array", items: { type: "string" } },
+        mappingHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+        sourceRecordCount: { type: "integer", minimum: 0 },
+        blankRecordCount: { type: "integer", minimum: 0 },
+        transformedRecordCount: { type: "integer", minimum: 0 },
+        exceptionRecordCount: { type: "integer", minimum: 0 },
+        accountedRecordCount: { type: "integer", minimum: 0 },
+        complete: { type: "boolean" },
+        outputPreview: { type: "array", items: { type: "object" } },
+        outputPreviewTruncated: { type: "boolean" },
+        exceptionPreview: { type: "array", items: { type: "object" } },
+        exceptionPreviewTruncated: { type: "boolean" },
       },
-      required: ["file_id", "delimiter", "header_row", "mapping", "target_schema"],
+      required: [
+        "sourceFile", "sourceSha256", "verified", "delimiter", "headers", "mappingHash",
+        "sourceRecordCount", "blankRecordCount", "transformedRecordCount", "exceptionRecordCount",
+        "accountedRecordCount", "complete", "outputPreview", "outputPreviewTruncated",
+        "exceptionPreview", "exceptionPreviewTruncated",
+      ],
     },
+    async execute({ file_id: fileId, delimiter, header_row: headerRow, mapping, target_schema: targetSchema }) {
+      const stored = ledger.file(fileId);
+      if (!stored) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
+      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumTextBytes });
+      const transformed = transformDelimitedText(verified.text, {
+        delimiter, headerRow, mapping, targetSchema,
+      });
+      return {
+        sourceFile: requireFile(ledger, fileId),
+        sourceSha256: verified.sha256,
+        verified: true,
+        delimiter: transformed.delimiter,
+        headers: transformed.headers,
+        mappingHash: transformed.mappingHash,
+        sourceRecordCount: transformed.sourceRecordCount,
+        blankRecordCount: transformed.blankRecordCount,
+        transformedRecordCount: transformed.transformedRecordCount,
+        exceptionRecordCount: transformed.exceptionRecordCount,
+        accountedRecordCount: transformed.transformedRecordCount + transformed.exceptionRecordCount,
+        complete: transformed.transformedRecordCount + transformed.exceptionRecordCount === transformed.sourceRecordCount,
+        outputPreview: transformed.records.slice(0, 20).map(({ sourceRecordNumber, record }) => ({
+          source_record_number: sourceRecordNumber, record,
+        })),
+        outputPreviewTruncated: transformed.records.length > 20,
+        exceptionPreview: transformed.exceptions.slice(0, 20),
+        exceptionPreviewTruncated: transformed.exceptions.length > 20,
+      };
+    },
+  });
+
+  registry.register({
+    name: "file_table_transform",
+    description: "Apply one declarative mapping to every record in a complete verified delimited-text upload and save successful canonical objects as durable JSON Lines. Supports columns, constants, source record numbers, literal and RE2 regex extraction/replacement, declared date/time templates, exact decimal normalization and native-unit ratios, and boolean values. The model selects a regex pattern from inspected source evidence; the application compiles it once with a linear-time engine, then applies it to every bounded field. A literal period in a pattern is \\.. For decimal_ratio_units, map the same source column twice using side from_units and to_units with both currency scales; the ratio is reduced exactly without rounding. When target_schema is supplied, every output object is validated against it. Bad records become separate exceptions with source record numbers and original values. No arbitrary code executes.",
+    parameters: tableTransformParameters,
     outputSchema: {
       type: "object",
       properties: {

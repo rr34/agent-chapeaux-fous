@@ -17,9 +17,34 @@ counts, headers, bounded samples, and column profiles. Use those facts plus the
 destination's authoritative JSON Schema to create one declarative mapping.
 Then call `file_table_transform`: application code applies that mapping to the
 complete verified file and saves successful records as durable JSON Lines.
-The model must not reproduce every source record. Use literal delimiter and
-declared conversion operations only; arbitrary code and regular expressions
-are unavailable by design.
+The model must not reproduce every source record. Use a literal delimiter and
+declared conversion operations only. For irregular fields, `regex_extract` and
+`regex_replace` accept model-chosen RE2 patterns and capture groups. A literal
+period in a pattern is `\.`; an unescaped `.` matches any character. Patterns
+are compiled once and applied to every bounded field, with row exceptions for
+missing matches. The linear-time regex engine does not support backreferences
+or lookaround. No arbitrary code executes.
+
+For price tables, inspect the complete column precision profile before choosing
+a mapping. `date` and `timestamp` use declared templates with reusable parts
+`YYYY`, `MM`, `DD`, `HH`, `mm`, `ss`, and optional fractional `S`. Other template
+characters are literal, and `[text]` quotes a literal block containing token
+letters. A timestamp requires a UTC or Z marker in its input
+unless `assume_utc` is explicitly set. `decimal` normalizes a source decimal
+without floating point rounding. When the destination requires positive
+native-unit ratios, map the
+same normalized price into `from_units` and `to_units` with two
+`decimal_ratio_units` operations, declaring both currency scales and selecting
+the corresponding `side`. The result is an exact reduced integer ratio. Validate
+the records with the destination's published item schema and review exception
+counts before transferring any artifact. A blank price must remain an exception
+unless the user or destination explicitly defines a different meaning.
+
+Use `file_table_transform_preview` to test a proposed mapping and regex against
+the complete verified file before saving output. It returns exact counts and
+bounded examples without writing an artifact. After reviewing exceptions, call
+`file_table_transform` with the same mapping and target schema; compare the
+returned source checksum and mapping hash with the preview.
 
 Transformation exceptions do not erase successful output. Report the exact
 source, transformed, and exception counts and use the exception artifact for
