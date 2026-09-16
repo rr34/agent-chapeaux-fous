@@ -55,6 +55,7 @@ The agent structure owns:
 - bounded conversation context;
 - private account enrichment and shared AI-assisted product enrichment;
 - capability catalogs and selection;
+- first-class object catalogs, candidate matching, and user-visible references;
 - exact tool-schema visibility;
 - authorization binding and approval state;
 - execution and delivery of each result to the same model exchange;
@@ -101,6 +102,73 @@ The structure improves iteratively from trace evidence. Improvements update
 explicit, testable retrieval rules, filters, catalogs, schemas, and interaction
 definitions.
 
+# 2A. First-class objects and object search
+
+An object is a user-referable entity owned by a domain, such as a contact, a
+personal to-do, or a particular journal observation. A database row can
+represent an entity without qualifying for this agent surface. First-class
+object types are an explicit, reviewed subset of domain-owned tables or
+provider-owned entities. Each type needs a stable reference, a useful compact
+display, selected searchable words, an authorized read path, and a reason a user
+would refer to that entity in conversation. Object eligibility is never inferred
+from the presence of a table, primary key, or `sourceOfTruth` annotation.
+
+The native Journal illustrates the distinction. `journal1_groups` rows are
+named parents such as the sibling groups Exercise and Biometrics;
+`journal2_trackers` rows are the reusable tracked subjects within those groups,
+such as Running or Push-ups under Exercise;
+`journal3_entries` rows are the dated observations recorded under a tracker.
+These are three levels of one Journal object family. Personal to-dos likewise
+have named groups and individual tasks. A contact's tags may help match or
+describe that contact, but tags and tag assignments are not separate
+first-class objects in this surface. `interaction_guides` and `video_scripts`
+are outside the initial user-referable object set.
+
+For a native object type, the catalog names its authoritative database table,
+primary key, selected columns for matching and display, and declared
+relationships. One row in that table is one object. Search reads those selected
+columns directly through the owning domain's authorized read path; it may join
+bounded related data, such as a contact's tags, to match or display the primary
+object. A compact result shape formats the returned row for the user or model;
+it is not a second object record. A materialized projection or search index
+must have a stated need that direct database reads cannot meet, measured
+benefit, an owner, update and freshness rules, access checks, and a fallback to
+the database's truth. Search does not default to every field of every row or a
+generic database dump.
+
+Object matches retain the owning source, stable row reference, matched fields,
+freshness, and authorization scope. Related objects come through declared
+domain relationships, with bounded reads and the same access checks as the
+primary object. An object reference narrows what the user and agent are
+discussing; it does not make a tool callable, authorize a mutation, or bypass
+the owning tool's validation.
+
+Before the first LLM call, the web client may show provisional candidates from
+a separate, authorized, read-only object search over selected database fields
+as the user composes a request. On submission it may refresh them against the
+exact request text while capability and tool candidates are prepared. A derived
+index is considered only if direct reads prove inadequate under the conditions
+above. Deterministic candidate matching does not decide what the user meant.
+Agent request processing does not make an unselected database read before
+execution or insert UI candidates into model context as verified evidence.
+Fresh object evidence enters execution only through named, bounded, read-only
+context views advertised to orientation and selected in the TurnBrief's strict
+`contextRequests`, or through an exact callable read tool during execution.
+Retrieved evidence passes through the search engine before it enters later
+model context. The LLM decides what the user meant from the exact request and
+verified evidence.
+
+The web client can animate this as a small, literal object trail: show the
+matched object's compact display, why it matched, and authorized related
+objects as quieter background choices. A user can correct a wrong candidate or
+select a related object to continue the conversation. Both actions become
+explicit user input with stable references for the active or following
+interaction. The trail shows candidate, verified, selected, and acted-on states
+accurately; it never portrays a provisional match as a completed read or
+mutation. The trace records the candidate source, match, user correction or
+selection, later verification, and actual tool effects so the visible feedback
+follows what the agent did.
+
 # 2B. Search engine / filter / pruner
 
 The search engine is deterministic application code. It does not contain an
@@ -144,7 +212,7 @@ operational query and filters, requesting the useful fields and bounds, and
 judging whether the returned evidence answers the objective. The application
 structure owns advertising and enforcing which sources are authorized.
 
-Every retrieval path follows this sequence:
+Every LLM-directed retrieval path follows this sequence:
 
 1. the LLM converts the retrieval objective into structured operational search
    instructions and selects from authorized sources;
