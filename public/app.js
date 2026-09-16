@@ -20,6 +20,7 @@ import { groupUsageByRequest, usageFromTrace, llmCallCountLabel, normalizePricin
   normalizePricingBook, pricingForTier, aiEntryCost, summarizeAiUsage } from "./ai-usage.js";
 
 const elements = {
+  topbar: document.querySelector(".topbar"),
   composer: document.querySelector("#chat-composer"),
   form: document.querySelector("#request-form"),
   text: document.querySelector("#request-text"),
@@ -480,6 +481,10 @@ function updateComposerHeight() {
   scheduleScrollLatestButtonUpdate();
 }
 
+function updateTopbarHeight() {
+  document.documentElement.style.setProperty("--topbar-height", `${elements.topbar.offsetHeight}px`);
+}
+
 function resizeRequestText() {
   elements.text.style.height = "0";
   const minimum = Number.parseFloat(getComputedStyle(elements.text).minHeight) || 46;
@@ -607,8 +612,12 @@ function scheduleObjectSearch() {
 
 if ("ResizeObserver" in window) {
   new ResizeObserver(updateComposerHeight).observe(elements.composer);
+  new ResizeObserver(updateTopbarHeight).observe(elements.topbar);
 } else {
-  window.addEventListener("resize", updateComposerHeight);
+  window.addEventListener("resize", () => {
+    updateComposerHeight();
+    updateTopbarHeight();
+  });
 }
 
 function loadResponseSilencePreference() {
@@ -815,7 +824,13 @@ function objectInteractionNode(request, index) {
     const identity = node("div", "object-interaction-identity");
     identity.append(node("strong", "", "Chapeaux Fous"), node("span", "object-hat-name"));
     const meta = node("div", "object-interaction-meta");
-    meta.append(node("span", "object-interaction-status"), node("time"));
+    const replyButton = node("button", "object-interaction-reply reference-in-agent secondary compact");
+    replyButton.type = "button";
+    replyButton.title = `Reference exchange ${request.requestId} in Agent`;
+    replyButton.setAttribute("aria-label", replyButton.title);
+    replyButton.append(replyArrowIcon());
+    replyButton.addEventListener("click", () => replyToExchange(request.requestId, request.request));
+    meta.append(node("span", "object-interaction-status"), node("time"), replyButton);
     heading.append(mascot, identity, meta);
     entry.append(heading, node("div", "object-activity-list"));
     objectInteractionNodes.set(request.requestId, entry);
@@ -1856,27 +1871,6 @@ async function downloadInteractionVideo(fileId, button, preferredFilename = null
   }
 }
 
-async function saveAsStructuredInteraction(requestId, button) {
-  button.disabled = true;
-  const original = button.textContent;
-  button.textContent = "Creating exchange…";
-  try {
-    const created = await api(`/api/requests/${encodeURIComponent(requestId)}/structured-interaction`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ runLimits: pendingRunLimits }),
-    });
-    pendingRunLimits = null;
-    updateRunLimitsSummary();
-    elements.status.textContent = `Exchange creation request ${created.requestId.slice(0, 8)} queued from exchange ${requestId.slice(0, 8)}.`;
-    await loadRequests({ force: true, followLatest: true });
-  } catch (error) {
-    elements.status.textContent = error.message || "Could not create the exchange.";
-    button.textContent = original;
-    button.disabled = false;
-  }
-}
-
 function renderTurnBriefItems(list, items, { identity, title, summary }) {
   list.replaceChildren();
   if (!Array.isArray(items) || items.length === 0) {
@@ -1930,7 +1924,7 @@ async function decideTurnBrief(requestId, decision, button) {
   }
 }
 
-function requestNode(request, index, structuredGenerationStatus = null) {
+function requestNode(request, index) {
   let node = requestNodes.get(request.requestId);
   if (!node) {
     node = elements.template.content.firstElementChild.cloneNode(true);
@@ -1943,15 +1937,6 @@ function requestNode(request, index, structuredGenerationStatus = null) {
     });
     node.querySelector(".show-trace").addEventListener("click", () => showTrace(request.requestId));
     node.querySelector(".reply-to-exchange").addEventListener("click", () => replyToExchange(request.requestId, request.request));
-    node.querySelector(".save-structured-interaction").addEventListener("click", (event) => {
-      const guideId = Number(event.currentTarget.dataset.guideId);
-      if (Number.isSafeInteger(guideId) && guideId > 0) {
-        switchView("interactions");
-        void refreshInteractionGuides({ selectId: guideId });
-        return;
-      }
-      void saveAsStructuredInteraction(request.requestId, event.currentTarget);
-    });
     node.querySelector(".video-script-source-checkbox").addEventListener("change", (event) => {
       toggleVideoScriptSource(request.requestId, event.currentTarget.checked, event.currentTarget);
     });
@@ -2078,22 +2063,6 @@ function requestNode(request, index, structuredGenerationStatus = null) {
     "video-script-selected",
     selectedVideoScriptRequestIds.has(request.requestId),
   );
-  const structuredButton = node.querySelector(".save-structured-interaction");
-  structuredButton.hidden = !request.structuredInteractionSelectable;
-  const generationStatus = structuredGenerationStatus?.status ?? null;
-  structuredButton.disabled = generationStatus === "queued" || generationStatus === "processing";
-  structuredButton.textContent = generationStatus === "complete"
-    ? "Open exchange"
-    : generationStatus === "queued" || generationStatus === "processing"
-      ? "Creating exchange…"
-      : generationStatus === "error"
-        ? "Retry exchange creation"
-        : "Make this exchange repeatable";
-  if (structuredGenerationStatus?.guideId) {
-    structuredButton.dataset.guideId = String(structuredGenerationStatus.guideId);
-  } else {
-    delete structuredButton.dataset.guideId;
-  }
   node.style.order = index;
   return node;
 }
@@ -2191,23 +2160,9 @@ async function loadRequests({ force = false, followLatest = false } = {}) {
   const body = await api(`/api/requests?limit=${limit}`, { signal: AbortSignal.timeout(10_000) });
   const seen = new Set();
   const chronologicalRequests = [...body.requests].reverse();
-  const structuredGenerationStatuses = new Map(
-    [...body.requests].reverse()
-      .filter(({ requestKind, sourceRequestId }) => (
-        requestKind === "structured_interaction_generation" && sourceRequestId
-      ))
-      .map(({
-        sourceRequestId, structuredInteractionGenerationStatus, structuredInteractionGuideId,
-      }) => (
-        [sourceRequestId, {
-          status: structuredInteractionGenerationStatus,
-          guideId: structuredInteractionGuideId ?? null,
-        }]
-      )),
-  );
   chronologicalRequests.forEach((request, index) => {
     seen.add(request.requestId);
-    const node = requestNode(request, index, structuredGenerationStatuses.get(request.requestId) ?? null);
+    const node = requestNode(request, index);
     if (!node.isConnected) elements.list.append(node);
     const objectNode = objectInteractionNode(request, index);
     if (!objectNode.isConnected) elements.objectStream.append(objectNode);
@@ -6344,6 +6299,7 @@ renderAgentMascot(elements.agentMascot);
 elements.objectStreamTab.addEventListener("click", () => setAgentPresentation("objects"));
 elements.conversationTab.addEventListener("click", () => setAgentPresentation("conversation"));
 setAgentPresentation(agentPresentation, { save: false });
+updateTopbarHeight();
 updateComposerHeight();
 resizeRequestText();
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";

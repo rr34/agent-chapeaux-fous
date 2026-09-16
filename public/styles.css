@@ -182,21 +182,24 @@ section { margin-bottom: 1rem; }
   box-shadow: 0 16px 50px rgba(0, 0, 0, .18);
 }
 .requests { background: transparent; border: 0; box-shadow: none; }
+#agent-view { padding-top: 3.2rem; }
 
 .agent-presentation-switch {
-  position: sticky;
-  top: calc(3.35rem + env(safe-area-inset-top, 0px));
-  z-index: 8;
+  position: fixed;
+  top: calc(var(--topbar-height, 5rem) + .55rem);
+  left: 50%;
+  z-index: 11;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  width: min(22rem, 100%);
-  margin: 0 auto .85rem;
+  width: min(22rem, calc(100% - 2rem));
+  margin: 0;
   padding: .25rem;
   background: rgba(255, 255, 255, .94);
   border: 1px solid var(--line);
   border-radius: 999px;
   box-shadow: 0 8px 24px rgba(17, 24, 39, .08);
   backdrop-filter: blur(12px);
+  transform: translateX(-50%);
 }
 .agent-presentation-tab { min-height: 34px; padding: .35rem .85rem; color: var(--muted); background: transparent; border-radius: 999px; font-size: .78rem; }
 .agent-presentation-tab:hover { color: var(--text); background: var(--panel-raised); }
@@ -222,6 +225,7 @@ section { margin-bottom: 1rem; }
 .object-hat-name { color: var(--accent); font-size: .76rem; text-transform: capitalize; }
 .object-interaction-meta { display: grid; justify-items: end; gap: .15rem; color: var(--muted); font-size: .68rem; }
 .object-interaction-status { text-transform: capitalize; }
+.object-interaction-reply { margin-top: .2rem; }
 .object-activity-list { position: relative; display: grid; gap: .55rem; padding-left: 1rem; }
 .object-activity-list::before { position: absolute; top: .2rem; bottom: .2rem; left: .28rem; width: 2px; content: ""; background: var(--brand-light); border-radius: 999px; }
 .activity-object-card {
@@ -1285,11 +1289,11 @@ dialog h2, dialog p { margin-bottom: 0; }
   .request-file-description { grid-column: 1; }
   .request-user-turn { max-width: 92%; }
   .request-agent-turn { width: 96%; }
-  .agent-presentation-switch { top: calc(5.15rem + env(safe-area-inset-top, 0px)); }
   .object-interaction { padding: .75rem; border-radius: 15px; }
   .object-interaction-heading { grid-template-columns: 92px minmax(0, 1fr); }
   .object-interaction-mascot { width: 92px; height: 52px; }
-  .object-interaction-meta { grid-column: 1 / -1; grid-row: 2; justify-items: start; display: flex; gap: .55rem; }
+  .object-interaction-meta { grid-column: 1 / -1; grid-row: 2; justify-items: start; display: flex; align-items: center; gap: .55rem; }
+  .object-interaction-reply { margin-top: 0; margin-left: auto; }
   .activity-object-card { grid-template-columns: 2rem minmax(0, 1fr); gap: .55rem; }
   .activity-object-symbol { width: 1.9rem; height: 1.9rem; }
   .activity-object-reference { grid-column: 2; justify-self: start; max-width: 100%; }

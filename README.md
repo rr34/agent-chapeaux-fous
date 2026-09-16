@@ -368,10 +368,6 @@ capability selector, which controls which exact tool schemas are callable.
   Under Briefings on the Check-in page, editable exchanges can be dragged into a new order (or
   moved with the handle's Up and Down arrow keys); saving renumbers the complete
   exchange sequence atomically and records the change in the ledger.
-  Each successfully completed request exposes **Make this exchange repeatable**, which
-  queues a normal traced agent turn to generalize that exact exchange into a
-  new briefing and its minimal numbered exchanges; the resulting receipt links back to
-  the source request and opens the created briefing from the original request card.
 - `database_schema` and paginated `database_read` are a small read-only core
   capability available on every model request, including access to the native
   activity ledger. `database_write` is a separately routed capability, so broad

@@ -211,7 +211,7 @@ test("briefings have a dedicated management page without a second execution path
   assert.match(document, /id="interaction-step-contract"/);
   assert.doesNotMatch(document, /id="interaction-step-instructions"|id="interaction-step-completion-mode"/);
   assert.doesNotMatch(document, /id="interaction-guide-text"|id="interaction-step-name"|id="interaction-step-objective"/);
-  assert.match(document, /class="save-structured-interaction secondary compact"[^>]*>Make this exchange repeatable<\/button>/);
+  assert.doesNotMatch(document, /Make this exchange repeatable|save-structured-interaction/);
   assert.match(document, />Briefing exchange<\/p>/);
   assert.match(document, /<label>Opening<textarea/);
   assert.match(document, /<label>Contract JSON<textarea/);
@@ -244,8 +244,7 @@ test("briefings have a dedicated management page without a second execution path
   assert.doesNotMatch(application, /function openInteractionStepMoveEditor|function moveInteractionStep/);
   assert.doesNotMatch(application, /interaction-turn-instructions|"Agent instructions"/);
   assert.match(application, /Start or resume briefing/);
-  assert.match(application, /function saveAsStructuredInteraction/);
-  assert.match(application, /structuredGenerationStatuses/);
+  assert.doesNotMatch(application, /saveAsStructuredInteraction|structuredGenerationStatuses/);
   assert.match(application, /api\("\/api\/requests"/);
   assert.doesNotMatch(application, /interaction-guides\/\$\{guide\.id\}\/start/);
   assert.match(server, /interactionGuides\.create/);
