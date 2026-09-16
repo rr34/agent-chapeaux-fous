@@ -6,8 +6,46 @@ import { auth, UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.j
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { FileOAuthClientProvider } from "../mcp-oauth.mjs";
 import {
-  defineToolDescription, toolDescriptionMetadataKey,
+  defineToolDescription, toolDescriptionMetadataKey, validateToolDescription,
 } from "../tool-description.mjs";
+import { objectDescriptionMetadataKey, validateObjectDescription } from "../object-description.mjs";
+
+// Match the identity supplied by the MCP initialize response, including for
+// user-managed connections whose local connection name is arbitrary.
+export const ownedMcpServerIdentities = new Set([
+  "chapeaux-fous-accounting",
+  "the-landlords-operating-manual",
+]);
+
+export function validateDiscoveredMcpTools(tools, { serverName, serverInfo } = {}) {
+  const owned = ownedMcpServerIdentities.has(serverInfo?.name);
+  const objectIds = new Set();
+  let objectCatalogBytes = 0;
+  for (const tool of tools) {
+    const label = `${serverName} ${tool.name}`;
+    const published = tool._meta?.[toolDescriptionMetadataKey];
+    if (owned && !published) {
+      throw new Error(`${label} requires _meta["${toolDescriptionMetadataKey}"] for an owned MCP`);
+    }
+    const selection = published ? validateToolDescription(published, {
+      annotations: tool.annotations ?? null, label,
+    }) : null;
+    const objects = tool._meta?.[objectDescriptionMetadataKey];
+    if (!objects) continue;
+    validateObjectDescription(objects, { annotations: tool.annotations, selection, label });
+    objectCatalogBytes += Buffer.byteLength(JSON.stringify(objects), "utf8");
+    if (objectCatalogBytes > 32_768) {
+      throw new Error(`${serverName} Object Description catalog exceeds 32768 bytes`);
+    }
+    for (const type of objects.types) {
+      if (objectIds.has(type.id)) {
+        throw new Error(`${serverName} publishes duplicate Object Description type ${type.id}`);
+      }
+      objectIds.add(type.id);
+    }
+  }
+  return { owned, objectTypeCount: objectIds.size };
+}
 
 function expandEnvironment(value, environment) {
   if (typeof value !== "string") return value;
@@ -582,6 +620,7 @@ export class McpToolManager {
       const tools = response.tools.filter((tool) => !allowed || allowed.has(tool.name));
       const serverInfo = client.getServerVersion?.() ?? null;
       const serverInstructions = client.getInstructions?.() ?? null;
+      const contract = validateDiscoveredMcpTools(tools, { serverName, serverInfo });
       this.registry.registerCapability({
         id: `integration:${serverName}`,
         title: serverInfo?.title || serverInfo?.name || serverName,
@@ -622,6 +661,8 @@ export class McpToolManager {
         toolCount: tools.length,
         tools: tools.map((tool) => tool.name),
         server: serverInfo,
+        contractProfile: contract.owned ? "owned" : "compatible",
+        objectTypeCount: contract.objectTypeCount,
         instructionsAvailable: Boolean(serverInstructions),
         artifactUploads: artifactUploads.available,
         artifactUploadProblems: artifactUploads.problems,

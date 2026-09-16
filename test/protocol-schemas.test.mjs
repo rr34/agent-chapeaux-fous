@@ -10,6 +10,10 @@ const toolDescriptionSchemaPath = new URL(
   "../config/protocol-schemas/tool-description.v1.schema.json",
   import.meta.url,
 );
+const objectDescriptionSchemaPath = new URL(
+  "../config/protocol-schemas/object-description.v1.schema.json",
+  import.meta.url,
+);
 const manifestoPath = new URL("../AGENT-TOOL-MANIFESTO.md", import.meta.url);
 
 test("the manifesto references one authoritative versioned retry descriptor", () => {
@@ -60,4 +64,16 @@ test("the manifesto publishes one authoritative layered Tool Description contrac
   assert.match(manifesto, /config\/protocol-schemas\/tool-description\.v1\.schema\.json/);
   assert.match(manifesto, /_meta\["agent-slayer\/selection"\]/);
   assert.match(manifesto, /`operations\.exhaustive=true`/);
+});
+
+test("the manifesto publishes a versioned remote Object Description and provider test obligation", () => {
+  const schema = JSON.parse(fs.readFileSync(objectDescriptionSchemaPath, "utf8"));
+  const manifesto = fs.readFileSync(manifestoPath, "utf8");
+  assert.equal(schema.properties.protocol.const, "agent-slayer.object-description");
+  assert.equal(schema.properties.version.const, 1);
+  assert.deepEqual(new Set(schema.required), new Set(["protocol", "version", "types"]));
+  assert.equal(schema.additionalProperties, false);
+  assert.match(manifesto, /config\/protocol-schemas\/object-description\.v1\.schema\.json/);
+  assert.match(manifesto, /_meta\["agent-slayer\/objects"\]/);
+  assert.match(manifesto, /Each owned provider keeps contract tests beside its implementation/);
 });

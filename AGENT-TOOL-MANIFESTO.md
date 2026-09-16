@@ -2,6 +2,22 @@ Agent Slayer uses the following building blocks to turn natural speech into
 efficient, authorized tool use. Each heading is a positive, comprehensive list
 of the responsibilities owned by that building block - meaning if the block owns the responsibility it should take care of it, and also if the responsibility is not in the block, the block should not do it at all. Numbered system terms are defined in  `AGENT-TERMINOLOGY.md`.
 
+# Object Oriented Agenting
+
+The product models the real world through three connected parts:
+
+- **Nouns — objects:** User-referable things such as accounts, events, tasks,
+  properties, and people, each owned by a domain.
+- **Verbs — tools:** The actions a domain makes available to read or change its
+  objects.
+- **Adjectives — descriptions:** Names, currencies, dates, files, text fields,
+  and join-table relationships that qualify or connect objects. Some may also
+  be objects in their own right.
+
+This is the organizing principle for the agent's architecture: domains define
+what things are and what can be done with them; the agent brings those meanings
+together in one conversational interface.
+
 # 1. The LLM
 
 The LLM translates natural speech and selected evidence into structured
@@ -104,6 +120,8 @@ definitions.
 
 # 2A. First-class objects and object search
 
+*Object Oriented Agenting*
+
 An object is a user-referable entity owned by a domain, such as a contact, a
 personal to-do, or a particular journal observation. A database row can
 represent an entity without qualifying for this agent surface. First-class
@@ -177,6 +195,40 @@ returned by successful reads. Symbols distinguish created, changed, removed,
 and used objects. This is a presentation of existing receipts and domain-owned
 records: it does not infer effects from assistant prose, turn a tool into an
 object, or replace the literal conversation and trace.
+
+## 2A.1. Remote Object Description contract
+
+An Agent Slayer owned MCP publishes every user-referable first-class object
+type it supports as provider-owned metadata on an authoritative read-only MCP
+tool. The single versioned contract is
+`config/protocol-schemas/object-description.v1.schema.json`, published in that
+tool's `_meta["agent-slayer/objects"]`. The enclosing tool is the read path;
+the metadata is a catalog, not an object instance, a callable tool, or evidence
+that a particular record exists. Unrelated third-party MCPs may omit it.
+
+Each described type has a domain-qualified stable ID, title, concise meaning,
+optional user-facing aliases, a stable reference field, a compact display
+field, named qualifier fields, and optional declared relationships to other
+types. These field names identify keys in each object item returned by the
+read tool, even when the tool wraps or paginates those items. The provider
+defines those field meanings and supplies actual records through its read
+tool. Names, currencies, dates, files, and relationships may
+qualify an object without becoming capability families or tools. A type may
+have several qualifiers and a read tool may publish several types; one type ID
+has only one authoritative read tool within a connection. The read tool must
+also publish a valid read-only Tool Description and `readOnlyHint=true`. The
+combined published object catalog is limited to 32,768 UTF-8 bytes per MCP
+connection so orientation remains bounded.
+
+Discovery validates the schema and these cross-contract rules before replacing
+the connection's registered tools. Orientation displays validated types beside
+the owning capability and names the read tool; execution receives the exact
+schema only if the TurnBrief selects that tool. The model must use the returned
+record and its stable reference to verify a particular object before making
+claims or choosing an action. No object metadata authorizes a read, mutation,
+or workflow, and Agent Slayer does not infer provider semantics from field
+names or relationships. Provider-owned bounded context views, when available,
+still require explicit TurnBrief `contextRequests` selection.
 
 # 2B. Search engine / filter / pruner
 
@@ -466,16 +518,20 @@ schema at
 `config/protocol-schemas/tool-description.v1.schema.json`. Native tools publish
 the description in their owned registration. An MCP may publish the same object
 in its standard tool `_meta` field under the extension key
-`_meta["agent-slayer/selection"]`; an application adapter may instead supply
-explicit source-referenced metadata when the provider cannot publish the
-extension itself. Agent Slayer validates either source identically and never
-silently truncates an execution description into a selection summary.
+`_meta["agent-slayer/selection"]`; a third-party application adapter may
+instead supply explicit source-referenced metadata when that provider cannot
+publish the extension itself. Agent Slayer validates either source identically
+and never silently truncates an execution description into a selection summary.
 
 The MCP extension is an Agent Slayer interoperability contract, not a claim
-that base MCP requires this field. A remote tool lacking it may remain
-connected for compatibility, but its catalog entry explicitly says that Tool
-Description metadata is missing; Agent Slayer does not invent provider meaning
-or present a clipped execution description as validated routing evidence.
+that base MCP requires this field. Every tool published by an Agent Slayer
+owned MCP must have a valid Tool Description before its connection can be
+accepted or refreshed. Owned providers are identified by their declared MCP
+server identity, including user-managed connections with arbitrary local
+names. An unrelated third-party tool lacking it may remain connected for
+compatibility, but its catalog entry explicitly says that Tool Description
+metadata is missing; Agent Slayer does not invent provider meaning or present
+a clipped execution description as validated routing evidence.
 
 The extension object has this exact shape:
 
@@ -570,13 +626,23 @@ owned by the tool, not incidental implementation details such as internal SQL
 statements. They inform selection but do not grant authorization or weaken any
 approval, validation, or provider-owned workflow boundary.
 
-Every native tool must supply a valid Tool Description. Every externally owned
-MCP tool should supply one through `_meta["agent-slayer/selection"]` or explicit
-source-referenced adapter metadata. Registration and discovery validate
-metadata when present; missing or invalid remote metadata is reported
-explicitly for correction at the owning boundary. Application-owned metadata
-never replaces, rewrites, or broadens a provider-published description, schema,
-authorization boundary, or workflow meaning.
+Every native and Agent Slayer owned MCP tool must supply a valid Tool
+Description. Unrelated third-party MCP tools should supply one through
+`_meta["agent-slayer/selection"]` or explicit source-referenced adapter
+metadata. Discovery validates published metadata before replacing registered
+tools; missing owned metadata rejects that connection, while missing
+third-party metadata is reported explicitly in the catalog. Application-owned
+metadata never replaces, rewrites, or broadens a provider-published
+description, schema, authorization boundary, or workflow meaning.
+
+Each owned provider keeps contract tests beside its implementation. Those
+tests validate every published Tool Description and Object Description against
+the versioned schemas, the read-only annotation and effect agreement, unique
+object type IDs, stable references and display fields in representative read
+results, and the tool named as each object's read path. Agent Slayer keeps
+consumer tests for discovery, orientation, exact schema selection, tool-result
+return, and third-party compatibility. A provider change to these contracts
+must update and pass its provider tests and the relevant agent consumer cases.
 
 Native calendar, contact, to-do, journal, email, profile, file, guide, search, and
 video tools use the same domain services as their HTTP and UI adapters. Generic

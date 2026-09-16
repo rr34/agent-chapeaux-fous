@@ -236,6 +236,18 @@ function orientationCapabilityCatalog(catalog) {
     for (const view of capability.contextViews ?? []) {
       lines.push(`- context:${view.id} — ${view.title ?? view.id}: ${view.description ?? ""}`.trim());
     }
+    for (const object of capability.objectTypes ?? []) {
+      lines.push(`- object:${object.id} — ${object.title}: ${object.summary} Read through tool:${object.readTool}.`);
+      if (object.aliases?.length) lines.push(`  aliases: ${object.aliases.join(", ")}`);
+      lines.push(`  stable reference: ${object.reference.field} — ${object.reference.summary}`);
+      lines.push(`  display: ${object.display.field} — ${object.display.summary}`);
+      for (const qualifier of object.qualifiers) {
+        lines.push(`  qualifier: ${qualifier.field} — ${qualifier.summary}`);
+      }
+      for (const relationship of object.relationships ?? []) {
+        lines.push(`  relationship: ${relationship.name} -> ${relationship.targetType} — ${relationship.summary}`);
+      }
+    }
     for (const tool of capability.tools ?? []) {
       const status = tool.descriptionStatus ? ` [${tool.descriptionStatus}]` : "";
       lines.push(`- tool:${tool.name}${tool.title ? ` — ${tool.title}` : ""}${status}: ${tool.summary}`);

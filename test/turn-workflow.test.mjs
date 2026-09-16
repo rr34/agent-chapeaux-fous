@@ -4,6 +4,8 @@ import { RequestCompiler } from "../src/request-compiler.mjs";
 import { SlayerRuntime } from "../src/runtime.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
+import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
+import { toolDescriptionMetadataKey } from "../src/tool-description.mjs";
 
 function usage(totalTokens) {
   return {
@@ -639,6 +641,85 @@ test("structured execution starts with orientation-selected tools and expands ex
     ledger.events.some(({ type, name }) => type === "agent.step" && name === "Audit skipped"),
     true,
   );
+});
+
+test("a published account object leads from orientation to its exact read tool and verified record", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  let reads = 0;
+  registry.registerCapability({
+    id: "integration:accounting", title: "Accounting", summary: "Read accounting records.",
+    aliases: ["accounting"],
+  });
+  registry.register({
+    name: "remote_accounting_list_account_objects",
+    description: "Read account objects with stable references and currencies.",
+    source: "mcp:accounting", capabilityId: "integration:accounting",
+    annotations: { readOnlyHint: true },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    metadata: {
+      [toolDescriptionMetadataKey]: {
+        protocol: "agent-slayer.tool-description", version: 1,
+        summary: "List ledger accounts and their currencies.",
+        actionClasses: ["READ"], effectClassifications: ["READ-ONLY"],
+      },
+      [objectDescriptionMetadataKey]: {
+        protocol: "agent-slayer.object-description", version: 1,
+        types: [{
+          id: "accounting.account", title: "Accounting account",
+          summary: "A ledger account whose name and currency identify it in conversation.",
+          reference: { field: "sourceRef", summary: "Stable account reference." },
+          display: { field: "displayName", summary: "Account name." },
+          qualifiers: [{ field: "currencyCode", summary: "Currency code." }],
+        }],
+      },
+    },
+    async execute() {
+      reads += 1;
+      return { accounts: [{ sourceRef: "accounting:account:42", displayName: "coinbase", currencyCode: "BTC" }] };
+    },
+  });
+  const accountBrief = {
+    ...brief({ auditRequired: false }), requestType: "informational", responseMode: "answer",
+    objective: "Identify the Coinbase Bitcoin accounting account.",
+    summary: "Read the account object before answering.",
+    requiredCapabilities: ["integration:accounting"],
+    requiredTools: ["remote_accounting_list_account_objects"],
+    requestedActions: [],
+    completionCriteria: ["Identify the verified account and currency."],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      assert.match(payload.developerInstructions, /object:accounting\.account/);
+      assert.match(payload.developerInstructions, /qualifier: currencyCode/);
+      assert.match(payload.developerInstructions, /Read through tool:remote_accounting_list_account_objects/);
+      assert.doesNotMatch(payload.developerInstructions, /"inputSchema"/);
+      assert.equal(reads, 0);
+      return completed(JSON.stringify(accountBrief), 20);
+    }
+    assert.equal(payload.tools[0].name, "remote_accounting_list_account_objects");
+    assert.deepEqual(payload.tools[0].inputSchema.properties.result_filter != null, true);
+    const result = await payload.onToolCall({
+      callId: "read-account", tool: "remote_accounting_list_account_objects",
+      arguments: { result_filter: identityResultFilter() },
+    });
+    assert.equal(result.ok, true);
+    assert.match(JSON.stringify(result), /accounting:account:42/);
+    assert.match(JSON.stringify(result), /"currencyCode":"BTC"/);
+    return completed("Coinbase is an accounting account denominated in Bitcoin (BTC).", 30);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport, registry, contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(), ledger, config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+  assert.equal(await runtime.run({
+    requestId: "request-coinbase", requestEventId: "event-current",
+    text: "There is a coinbase bitcoin account. What is it?",
+  }), "Coinbase is an accounting account denominated in Bitcoin (BTC).");
+  assert.equal(reads, 1);
+  assert.equal(requests.length, 2);
 });
 
 test("a generated repeatable exchange exposes only its authorized exchange-add tool", async () => {

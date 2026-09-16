@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   catalogToolDescription, defineToolDescription, toolDescriptionMetadataKey,
 } from "./tool-description.mjs";
+import { objectDescriptionMetadataKey } from "./object-description.mjs";
 
 const localCapabilityMatchers = [
   ["web", (tool) => tool.name === "web_page_read"],
@@ -359,6 +360,12 @@ export function requestCapabilityCatalog(tools) {
         title: manifest?.title ?? capability,
         summary: capabilitySummary(capability, entries),
         tools: entries.map(toolCatalogEntry),
+        objectTypes: entries.flatMap((tool) => (
+          tool.metadata?.[objectDescriptionMetadataKey]?.types?.map((type) => ({
+            ...type,
+            readTool: tool.name,
+          })) ?? []
+        )),
         contextViews: manifest?.contextViews ?? [],
       };
     });
