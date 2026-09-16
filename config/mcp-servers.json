@@ -1,7 +1,6 @@
 {
   "tlom": {
     "enabled": true,
-    "required": true,
     "url": "https://mytlom.com/api/mcp",
     "headers": {
       "Authorization": "Bearer ${TLOM_ACCESS_TOKEN}"

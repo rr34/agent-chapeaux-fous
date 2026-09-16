@@ -629,6 +629,12 @@ compact source-referenced projection of earlier receipts. A merely cataloged,
 deferred, disabled, disconnected, unauthorized, or failed tool is never
 represented as callable.
 
+An unavailable integration is reported in health and its tools are excluded
+from the connected capability catalog and execution schemas. Its failure does
+not make unrelated connected capabilities or the core service unavailable.
+When the user explicitly invokes an unavailable integration hat, the agent
+reports that limitation rather than substituting another domain's tools.
+
 The continuation projection is the only model-facing form of an earlier
 same-request receipt after tool expansion or model-thread replacement. It
 integrates tool name, status, canonical arguments, stable receipt event number,

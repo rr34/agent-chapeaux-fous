@@ -664,6 +664,24 @@ test("property-manager and weatherman hats map to their connected integration ca
   assert.deepEqual(weather.explicitHats.map(({ id }) => id), ["weatherman"]);
 });
 
+test("a disconnected TLOM hat stays unavailable while another integration remains callable", async () => {
+  const compiler = new RequestCompiler({ hatCatalog });
+  const connectedTools = tools.filter(({ source }) => source !== "mcp:tlom");
+  const compiled = await compiler.compile({
+    tools: connectedTools,
+    text: "As my property manager, inspect the roof; as my weatherman, forecast tonight.",
+  });
+
+  assert.deepEqual(compiled.explicitHats.map(({ id, available }) => ({ id, available })), [
+    { id: "property-manager", available: false },
+    { id: "weatherman", available: true },
+  ]);
+  assert.equal(names(compiled).includes("remote_tlom_query_data"), false);
+  assert.equal(names(compiled).includes("remote_weather_forecast"), true);
+  assert.equal(compiled.capabilities.includes("integration:tlom"), false);
+  assert.match(compiled.instructions, /Do not silently substitute a different destination/);
+});
+
 test("ordinary requests select tools without creating hats", async () => {
   const compiler = new RequestCompiler({ hatCatalog });
   const compiled = await compiler.compile({ tools, text: "Send Tim an email." });

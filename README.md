@@ -419,7 +419,7 @@ capabilities. Set these values in `.env`:
 ```text
 SLAYER_JMAP_SESSION_URL=https://api.fastmail.com/jmap/session
 SLAYER_JMAP_ACCESS_TOKEN=<JMAP API token>
-SLAYER_JMAP_REQUIRED=true
+SLAYER_JMAP_REQUIRED=false
 ```
 
 Fastmail API tokens are created under **Settings → Privacy & Security → Manage
@@ -427,6 +427,9 @@ API tokens**. Other conforming providers may use a different session URL. Set
 `SLAYER_JMAP_ACCOUNT_ID` only when the session exposes multiple accounts and
 the advertised primary mail account is not the intended one. The token remains
 server-side and is excluded from health, traces, tool schemas, and tool results.
+If JMAP is unavailable, its email tools are absent while unrelated capabilities
+and core health remain available. `SLAYER_JMAP_REQUIRED` is a status marker and
+does not change that isolation.
 
 JMAP is the email authority: mailbox membership, keywords, threads, message
 bodies, attachment blobs, identities, and submission state are read live.
@@ -496,10 +499,11 @@ and tokens. This is intentionally described as a local disconnect: it does not
 claim that the remote provider revoked its own grant when no revocation endpoint
 is available.
 
-TLOM currently uses its separately issued `TLOM_ACCESS_TOKEN` and is marked as
-a required integration. Until that connection succeeds, health is not ready
-and model requests are rejected with the integration status instead of falling
-back to unrelated local database tools.
+TLOM currently uses its separately issued `TLOM_ACCESS_TOKEN`. If its connection
+fails, `/health` and the Integrations manager show the failure, but native and
+other connected capabilities remain available. Requests that need TLOM cannot
+call its tools until that connection succeeds; an explicitly spoken TLOM hat is
+marked unavailable and is not silently redirected to local database tools.
 
 ## Database and schema changes
 

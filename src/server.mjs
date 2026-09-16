@@ -305,10 +305,9 @@ async function receiveAudio(request) {
 
 function health() {
   const model = modelTransport.health();
-  const integrationProblem = mcp.requiredProblem() || jmap.requiredProblem();
   return {
-    ready: store.status.ready && model.ready && !integrationProblem,
-    reason: store.status.ready ? (model.ready ? integrationProblem : model.reason) : store.status.reason,
+    ready: store.status.ready && model.ready,
+    reason: store.status.ready ? (model.ready ? null : model.reason) : store.status.reason,
     runtime: identity,
     model: { ...model, id: modelTransport.id, displayName: modelTransport.displayName, model: config.model },
     database: store.status,
@@ -381,7 +380,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/api/integrations/mcp/refresh") {
       const integrations = await mcp.refreshTools();
       sendJson(response, 200, { integrations });
-      if (store.status.ready && mcp.ready() && !jmap.requiredProblem()) queue.notify();
+      if (store.status.ready) queue.notify();
       return;
     }
     const userIntegrationMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
@@ -1026,11 +1025,6 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { file });
       return;
     }
-    const integrationProblem = mcp.requiredProblem() || jmap.requiredProblem();
-    if (integrationProblem) {
-      sendJson(response, 503, { error: integrationProblem });
-      return;
-    }
     if (request.method === "POST" && url.pathname === "/api/request-files") {
       const file = await receiveRequestAttachment(request, {
         filename: url.searchParams.get("filename"),
@@ -1098,7 +1092,7 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(config.port, config.host, () => {
   console.log(`[agent-slayer] ${identity.commit || "uncommitted"}${identity.dirty ? "-dirty" : ""} listening on http://${config.host}:${config.port}`);
-  if (store.status.ready && mcp.ready() && !jmap.requiredProblem()) queue.notify();
+  if (store.status.ready) queue.notify();
   videoRenderWorker?.start();
 });
 
