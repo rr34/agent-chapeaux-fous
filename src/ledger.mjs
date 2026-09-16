@@ -77,6 +77,153 @@ const generatedRequestKinds = new Set([
   "interaction_video", "video_script", "video_production", "structured_interaction_generation",
 ]);
 
+const objectIdentityFields = [
+  ["personal_task_id", "personal_task"],
+  ["todo_group_id", "todo_group"],
+  ["contact_id", "contact"],
+  ["calendar_event_id", "calendar_event"],
+  ["journal_entry_id", "journal_entry"],
+  ["tracker_id", "journal_tracker"],
+  ["journal_group_id", "journal_group"],
+  ["file_id", "file"],
+  ["account_id", "account"],
+  ["transaction_id", "transaction"],
+  ["property_id", "property"],
+  ["building_id", "building"],
+  ["project_id", "project"],
+  ["content_item_id", "content_item"],
+  ["content_group_id", "content_group"],
+];
+
+const objectTitleFields = [
+  "display_name", "formatted_name", "name", "title", "text", "content_text",
+  "summary", "subject", "address", "original_filename", "description",
+];
+
+const canonicalSubjectTypes = new Map([
+  ["tracker", "journal_tracker"],
+]);
+
+function compactObjectText(record, fields, maximum = 180) {
+  for (const field of fields) {
+    const value = record?.[field];
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, maximum);
+  }
+  return null;
+}
+
+function objectAction(value) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (/(?:^|[._])(?:create|created|add|added|record|recorded|import|imported)(?:$|[._])/.test(normalized)) {
+    return { action: "created", symbol: "+" };
+  }
+  if (/(?:^|[._])(?:delete|deleted|remove|removed|archive|archived)(?:$|[._])/.test(normalized)) {
+    return { action: "removed", symbol: "−" };
+  }
+  if (/(?:^|[._])(?:update|updated|set|rename|renamed|merge|merged|move|moved|repositioned|complete|completed)(?:$|[._])/.test(normalized)) {
+    return { action: "changed", symbol: "↻" };
+  }
+  return { action: "used", symbol: "↗" };
+}
+
+function objectIdentity(record, hint = null) {
+  for (const [field, type] of objectIdentityFields) {
+    if (record?.[field] != null && String(record[field]).trim()) {
+      return { type, id: String(record[field]) };
+    }
+  }
+  const genericId = record?.id;
+  const genericType = String(hint ?? "").replace(/s$/u, "").replace(/[^a-z0-9_]+/giu, "_");
+  if (genericId != null && genericType && !["result", "item", "data"].includes(genericType)) {
+    return { type: genericType, id: String(genericId) };
+  }
+  if (typeof record?.url === "string" && record.url.trim()) return { type: hint || "web_page", id: record.url.trim() };
+  return null;
+}
+
+function objectFromRecord(record, { hint = null, tool = null, eventSeq = null, action = null } = {}) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return null;
+  const identity = objectIdentity(record, hint);
+  if (!identity) return null;
+  const title = compactObjectText(record, objectTitleFields)
+    ?? `${identity.type.replaceAll("_", " ")} ${identity.id}`;
+  const context = compactObjectText(record, [
+    "group_name", "tracker_name", "property_name", "building_name", "project_name",
+    "account_name", "unit", "status", "email", "location",
+  ], 120);
+  const operation = action ?? objectAction(tool);
+  return {
+    ...identity,
+    title,
+    ...(context && context !== title ? { context } : {}),
+    action: operation.action,
+    symbol: operation.symbol,
+    tool,
+    eventSeq,
+  };
+}
+
+function resultObjects(value, options, output, seenNodes, depth = 0, hint = null) {
+  if (value == null || depth > 6 || seenNodes.remaining <= 0 || output.length >= 24) return;
+  seenNodes.remaining -= 1;
+  if (Array.isArray(value)) {
+    for (const item of value) resultObjects(item, options, output, seenNodes, depth + 1, hint);
+    return;
+  }
+  if (typeof value !== "object") return;
+  const object = objectFromRecord(value, { ...options, hint });
+  if (object) output.push(object);
+  for (const [key, child] of Object.entries(value)) {
+    if (["before", "schema", "inputSchema", "outputSchema", "arguments"].includes(key)) continue;
+    const childHint = Array.isArray(child) ? key.replace(/s$/u, "") : key;
+    resultObjects(child, options, output, seenNodes, depth + 1, childHint);
+  }
+}
+
+export function interactionObjectActivity(events, maximumItems = 12) {
+  const selected = [];
+  const byIdentity = new Map();
+  const add = (object) => {
+    if (!object || selected.length >= maximumItems) return;
+    const key = `${object.type}:${object.id}`;
+    const priorIndex = byIdentity.get(key);
+    if (priorIndex != null) {
+      const prior = selected[priorIndex];
+      if (prior.action === "used" && object.action !== "used") selected[priorIndex] = object;
+      else if (!prior.context && object.context) selected[priorIndex] = { ...prior, context: object.context };
+      return;
+    }
+    byIdentity.set(key, selected.length);
+    selected.push(object);
+  };
+  for (const event of events ?? []) {
+    if (event?.status !== "complete") continue;
+    if (event.type !== "tool.result" && event.actorType === "tool" && event.subjectType
+      && event.subjectId && !event.subjectType.endsWith("_batch")) {
+      const operation = objectAction(event.type || event.name);
+      add({
+        type: canonicalSubjectTypes.get(event.subjectType) ?? event.subjectType,
+        id: String(event.subjectId),
+        title: String(event.content || event.name || `${event.subjectType} ${event.subjectId}`).slice(0, 180),
+        action: operation.action,
+        symbol: operation.symbol,
+        tool: event.actorName || null,
+        eventSeq: event.eventSeq ?? null,
+      });
+    }
+    if (event.type !== "tool.result") continue;
+    const objects = [];
+    resultObjects(
+      event.payload?.result,
+      { tool: event.name ?? null, eventSeq: event.eventSeq ?? null, action: objectAction(event.name) },
+      objects,
+      { remaining: 300 },
+    );
+    for (const object of objects) add(object);
+  }
+  return selected;
+}
+
 function placeholders(values) {
   return values.map(() => "?").join(", ");
 }
@@ -425,6 +572,9 @@ export class Ledger {
       && Array.isArray(event.payload?.capabilitySelection?.explicitHats)
     ));
     const explicitHats = compiled?.payload.capabilitySelection.explicitHats ?? [];
+    const capabilities = Array.isArray(compiled?.payload?.capabilitySelection?.capabilities)
+      ? compiled.payload.capabilitySelection.capabilities
+      : [];
     const approvalRequired = [...events].reverse().find((event) => (
       event.type === "turn.brief.approval_required"
     ));
@@ -487,9 +637,11 @@ export class Ledger {
       error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
       usage,
       steps: workflowSteps(events),
+      objectActivity: interactionObjectActivity(events),
       eventCount: events.length,
       ...(sourceFile ? { attachment: publicFile(sourceFile) } : {}),
       ...(explicitHats.length ? { explicitHats } : {}),
+      ...(capabilities.length ? { capabilities } : {}),
       ...(turnBriefApproval ? { turnBriefApproval } : {}),
       ...(requestKind ? { requestKind } : {}),
       ...(request.payload?.sourceRequestId ? { sourceRequestId: request.payload.sourceRequestId } : {}),

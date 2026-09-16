@@ -55,6 +55,15 @@ test("the public manual derives availability and backing tools from the callable
   assert.equal(propertyManager.available, false);
 });
 
+test("the hat catalog maps accepted capabilities to a bounded presentation hat", async () => {
+  const catalog = await loadHatCatalog(path.join(repositoryRoot, "config", "hats.json"));
+  assert.deepEqual(
+    catalog.hatsForCapabilities(["database", "profile", "todos"], { limit: 1 }).map(({ id }) => id),
+    ["to-do"],
+  );
+  assert.deepEqual(catalog.hatsForCapabilities(["database", "profile"]), []);
+});
+
 test("hat definitions reject aliases assigned to multiple hats", () => {
   assert.throws(() => new HatCatalog({
     version: 1,

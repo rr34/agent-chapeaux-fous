@@ -85,6 +85,12 @@ const elements = {
   cancelVideoScriptSelection: document.querySelector("#cancel-video-script-selection"),
   generateVideoScript: document.querySelector("#generate-video-script"),
   list: document.querySelector("#request-list"),
+  conversationStreamView: document.querySelector("#conversation-stream-view"),
+  conversationTab: document.querySelector("#conversation-tab"),
+  objectStreamView: document.querySelector("#object-stream-view"),
+  objectStreamTab: document.querySelector("#object-stream-tab"),
+  objectStream: document.querySelector("#object-stream"),
+  objectStreamEmpty: document.querySelector("#object-stream-empty"),
   scrollLatest: document.querySelector("#scroll-latest"),
   empty: document.querySelector("#empty"),
   template: document.querySelector("#request-template"),
@@ -443,6 +449,11 @@ let requestImagePreviewUrl = null;
 let storedFiles = [];
 let editingFileId = null;
 const requestNodes = new Map();
+const objectInteractionNodes = new Map();
+const agentPresentationStorageKey = "chapeaux-fous-agent-presentation";
+let agentPresentation = localStorage.getItem(agentPresentationStorageKey) === "conversation"
+  ? "conversation"
+  : "objects";
 const speechQueueStorageKey = "agent-slayer-pending-spoken-responses";
 const responseSilenceStorageKey = "agent-slayer-respond-silently";
 const aiPricingStorageKey = "agent-slayer-ai-pricing";
@@ -752,6 +763,112 @@ function renderAgentMascot(target, hats = []) {
   const description = `${explicitHats.map(({ label, id }) => label || id).join(" and ")} hat${explicitHats.length === 1 ? "" : "s"}`;
   target.title = description;
   if (target.getAttribute("aria-hidden") !== "true") target.setAttribute("aria-label", description);
+}
+
+function requestHats(request) {
+  if (Array.isArray(request.presentationHats) && request.presentationHats.length) return request.presentationHats;
+  return [{ id: "chapeaux-fous", label: "assistant" }];
+}
+
+function setAgentPresentation(presentation, { save = true } = {}) {
+  agentPresentation = presentation === "conversation" ? "conversation" : "objects";
+  const showingObjects = agentPresentation === "objects";
+  elements.objectStreamView.hidden = !showingObjects;
+  elements.conversationStreamView.hidden = showingObjects;
+  elements.objectStreamTab.classList.toggle("active", showingObjects);
+  elements.conversationTab.classList.toggle("active", !showingObjects);
+  elements.objectStreamTab.setAttribute("aria-selected", String(showingObjects));
+  elements.conversationTab.setAttribute("aria-selected", String(!showingObjects));
+  elements.objectStreamTab.tabIndex = showingObjects ? 0 : -1;
+  elements.conversationTab.tabIndex = showingObjects ? -1 : 0;
+  if (save) localStorage.setItem(agentPresentationStorageKey, agentPresentation);
+  if (activeView === "agent") {
+    if (showingObjects) scrollObjectStreamToLatest();
+    else scrollChatToLatest();
+  }
+  scheduleScrollLatestButtonUpdate();
+}
+
+function displayObjectType(type) {
+  const labels = {
+    personal_task: "to-do",
+    todo_group: "to-do group",
+    journal_entry: "journal entry",
+    journal_tracker: "journal tracker",
+    journal_group: "journal group",
+    calendar_event: "calendar event",
+    content_item: "library item",
+    content_group: "library group",
+    web_page: "web page",
+  };
+  return labels[type] || String(type || "object").replaceAll("_", " ");
+}
+
+function objectInteractionNode(request, index) {
+  let entry = objectInteractionNodes.get(request.requestId);
+  if (!entry) {
+    entry = node("article", "object-interaction");
+    entry.dataset.requestId = request.requestId;
+    const heading = node("header", "object-interaction-heading");
+    const mascot = node("span", "agent-mascot object-interaction-mascot");
+    mascot.setAttribute("role", "img");
+    const identity = node("div", "object-interaction-identity");
+    identity.append(node("strong", "", "Chapeaux Fous"), node("span", "object-hat-name"));
+    const meta = node("div", "object-interaction-meta");
+    meta.append(node("span", "object-interaction-status"), node("time"));
+    heading.append(mascot, identity, meta);
+    entry.append(heading, node("div", "object-activity-list"));
+    objectInteractionNodes.set(request.requestId, entry);
+  }
+  entry.dataset.status = request.status;
+  entry.style.order = index;
+  const hats = requestHats(request);
+  renderAgentMascot(entry.querySelector(".object-interaction-mascot"), hats);
+  setTextContent(
+    entry.querySelector(".object-hat-name"),
+    hats.map(({ label, id }) => label || id).join(" + "),
+  );
+  setTextContent(entry.querySelector(".object-interaction-status"), request.status);
+  const time = entry.querySelector("time");
+  time.dateTime = new Date(request.submittedAtMs).toISOString();
+  setTextContent(time, formatTime(request.submittedAtMs));
+  const list = entry.querySelector(".object-activity-list");
+  const activity = Array.isArray(request.objectActivity) ? request.objectActivity : [];
+  const activityFingerprint = JSON.stringify({ status: request.status, error: request.error ?? null, activity });
+  if (list.dataset.activity !== activityFingerprint) {
+    list.dataset.activity = activityFingerprint;
+    list.replaceChildren();
+    for (const object of activity) {
+      const card = node("article", "activity-object-card");
+      card.dataset.action = object.action || "used";
+      const symbol = node("span", "activity-object-symbol", object.symbol || "•");
+      symbol.setAttribute("aria-hidden", "true");
+      const body = node("div", "activity-object-body");
+      body.append(
+        node("span", "activity-object-action", `${object.action || "used"} ${displayObjectType(object.type)}`),
+        node("strong", "activity-object-title", object.title || `${displayObjectType(object.type)} ${object.id}`),
+      );
+      if (object.context) body.append(node("span", "activity-object-context", object.context));
+      const detail = node("span", "activity-object-reference", `${displayObjectType(object.type)} #${object.id}`);
+      detail.title = object.tool ? `Recorded by ${object.tool}` : "Recorded object reference";
+      card.append(symbol, body, detail);
+      list.append(card);
+    }
+    if (activity.length === 0) {
+      const state = node("div", `object-activity-state ${["queued", "processing"].includes(request.status) ? "working" : ""}`);
+      if (["queued", "processing"].includes(request.status)) {
+        state.append(node("span", "object-working-dot"), node("span", "object-working-dot"), node("span", "object-working-dot"));
+        state.append(node("span", "", "Looking for the objects this hat will use…"));
+      } else if (request.status === "error") {
+        state.textContent = request.error || "This interaction stopped before an object action completed.";
+      } else {
+        state.textContent = "This interaction completed without a recorded first-class object.";
+      }
+      list.append(state);
+    }
+  }
+  entry.setAttribute("aria-label", `${hats.map(({ label, id }) => label || id).join(" and ")} interaction, ${activity.length} object${activity.length === 1 ? "" : "s"}`);
+  return entry;
 }
 
 function formatFileSize(bytes) {
@@ -1984,6 +2101,7 @@ function requestNode(request, index, structuredGenerationStatus = null) {
 function updateScrollLatestButton() {
   const distanceFromBottom = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
   elements.scrollLatest.hidden = activeView !== "agent"
+    || agentPresentation !== "conversation"
     || !elements.list.lastElementChild
     || distanceFromBottom <= 4;
 }
@@ -2005,6 +2123,7 @@ function finishScrollChatToBottom() {
 }
 
 function scrollChatToLatestQuickly() {
+  if (agentPresentation !== "conversation") return;
   if (scrollLatestAnimationFrame !== null) cancelAnimationFrame(scrollLatestAnimationFrame);
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
     finishScrollChatToBottom();
@@ -2014,7 +2133,7 @@ function scrollChatToLatestQuickly() {
   const durationMs = 360;
   let startTime = null;
   const animate = (timestamp) => {
-    if (activeView !== "agent") {
+    if (activeView !== "agent" || agentPresentation !== "conversation") {
       scrollLatestAnimationFrame = null;
       return;
     }
@@ -2034,17 +2153,18 @@ function scrollChatToLatestQuickly() {
 }
 
 function scrollChatToLatest({ behavior = "auto" } = {}) {
+  if (agentPresentation !== "conversation") return;
   if (behavior === "smooth") {
     scrollChatToLatestQuickly();
     return;
   }
   requestAnimationFrame(() => {
-    if (activeView !== "agent") return;
+    if (activeView !== "agent" || agentPresentation !== "conversation") return;
     const latestRequest = elements.list.lastElementChild;
     if (!latestRequest) return;
     latestRequest.scrollIntoView({ block: "end", behavior });
     requestAnimationFrame(() => {
-      if (activeView === "agent" && latestRequest.isConnected) {
+      if (activeView === "agent" && agentPresentation === "conversation" && latestRequest.isConnected) {
         latestRequest.scrollIntoView({ block: "end", behavior: "auto" });
         finishScrollChatToBottom();
       }
@@ -2052,9 +2172,17 @@ function scrollChatToLatest({ behavior = "auto" } = {}) {
   });
 }
 
+function scrollObjectStreamToLatest() {
+  requestAnimationFrame(() => {
+    if (activeView !== "agent" || agentPresentation !== "objects") return;
+    elements.objectStream.lastElementChild?.scrollIntoView({ block: "end", behavior: "auto" });
+  });
+}
+
 async function loadRequests({ force = false, followLatest = false } = {}) {
   const initialLoad = requestNodes.size === 0;
   const previousListHeight = elements.list.offsetHeight;
+  const previousObjectStreamHeight = elements.objectStream.offsetHeight;
   const previousPageHeight = document.documentElement.scrollHeight;
   const wasFollowingLatest = followLatest
     || initialLoad
@@ -2081,22 +2209,32 @@ async function loadRequests({ force = false, followLatest = false } = {}) {
     seen.add(request.requestId);
     const node = requestNode(request, index, structuredGenerationStatuses.get(request.requestId) ?? null);
     if (!node.isConnected) elements.list.append(node);
+    const objectNode = objectInteractionNode(request, index);
+    if (!objectNode.isConnected) elements.objectStream.append(objectNode);
   });
   for (const [id, node] of requestNodes) {
     if (!seen.has(id)) {
       node.remove();
       requestNodes.delete(id);
+      objectInteractionNodes.get(id)?.remove();
+      objectInteractionNodes.delete(id);
       selectedVideoScriptRequestIds.delete(id);
     }
   }
   updateVideoScriptSelection();
   elements.empty.hidden = body.requests.length > 0;
-  renderAgentMascot(elements.agentMascot, body.requests[0]?.explicitHats);
+  elements.objectStreamEmpty.hidden = body.requests.length > 0;
+  renderAgentMascot(elements.agentMascot, body.requests[0] ? requestHats(body.requests[0]) : []);
   speakCompletedResponses(body.requests);
   const transcriptChangedHeight = elements.list.offsetHeight !== previousListHeight;
-  if (activeView === "agent" && chronologicalRequests.length > 0
+  const objectStreamChangedHeight = elements.objectStream.offsetHeight !== previousObjectStreamHeight;
+  if (activeView === "agent" && agentPresentation === "conversation" && chronologicalRequests.length > 0
       && wasFollowingLatest && (followLatest || initialLoad || transcriptChangedHeight)) {
     scrollChatToLatest();
+  }
+  if (activeView === "agent" && agentPresentation === "objects" && chronologicalRequests.length > 0
+      && wasFollowingLatest && (followLatest || initialLoad || objectStreamChangedHeight)) {
+    scrollObjectStreamToLatest();
   }
   scheduleScrollLatestButtonUpdate();
 }
@@ -2365,7 +2503,10 @@ function switchView(view) {
   if (view === "interactions") void refreshInteractionGuides();
   if (view === "interactions") renderCatchUpSettings();
   if (view === "ai-usage") void loadAiUsage();
-  if (view === "agent" && previousView !== "agent") scrollChatToLatest();
+  if (view === "agent" && previousView !== "agent") {
+    if (agentPresentation === "conversation") scrollChatToLatest();
+    else scrollObjectStreamToLatest();
+  }
   scheduleScrollLatestButtonUpdate();
 }
 
@@ -6200,6 +6341,9 @@ for (const button of document.querySelectorAll(".dialog-close")) {
 }
 
 renderAgentMascot(elements.agentMascot);
+elements.objectStreamTab.addEventListener("click", () => setAgentPresentation("objects"));
+elements.conversationTab.addEventListener("click", () => setAgentPresentation("conversation"));
+setAgentPresentation(agentPresentation, { save: false });
 updateComposerHeight();
 resizeRequestText();
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";

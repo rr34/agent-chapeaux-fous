@@ -79,10 +79,18 @@
 
   <main>
     <div id="agent-view" class="app-view">
-    <section class="requests" aria-label="Chronological requests">
-      <div id="request-list" class="request-list"></div>
-      <p id="empty" class="empty">No Chapeaux Fous requests yet.</p>
-    </section>
+      <div class="agent-presentation-switch" role="tablist" aria-label="Agent presentation">
+        <button id="object-stream-tab" class="agent-presentation-tab" type="button" role="tab" aria-controls="object-stream-view">Objects</button>
+        <button id="conversation-tab" class="agent-presentation-tab" type="button" role="tab" aria-controls="conversation-stream-view">Conversation</button>
+      </div>
+      <section id="object-stream-view" class="object-stream-view" role="tabpanel" aria-labelledby="object-stream-tab">
+        <div id="object-stream" class="object-stream" aria-live="polite"></div>
+        <p id="object-stream-empty" class="empty">Objects used and changed by Chapeaux Fous will appear here.</p>
+      </section>
+      <section id="conversation-stream-view" class="requests" role="tabpanel" aria-labelledby="conversation-tab" aria-label="Chronological requests" hidden>
+        <div id="request-list" class="request-list"></div>
+        <p id="empty" class="empty">No Chapeaux Fous requests yet.</p>
+      </section>
 
     </div>
 

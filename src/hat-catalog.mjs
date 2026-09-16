@@ -100,6 +100,12 @@ export class HatCatalog {
     return matches.sort((left, right) => left.index - right.index);
   }
 
+  hatsForCapabilities(capabilities, { limit = 1 } = {}) {
+    const selected = new Set(Array.isArray(capabilities) ? capabilities : []);
+    const bounded = Math.min(this.hats.length, Math.max(0, Number(limit) || 0));
+    return this.hats.filter(({ capability }) => selected.has(capability)).slice(0, bounded);
+  }
+
   publicManual(tools, capabilityForTool) {
     const grouped = new Map();
     for (const tool of tools) {

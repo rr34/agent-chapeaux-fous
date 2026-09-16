@@ -405,7 +405,13 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/requests") {
-      sendJson(response, 200, { requests: ledger.recentRequests(url.searchParams.get("limit")) });
+      const requests = ledger.recentRequests(url.searchParams.get("limit")).map((entry) => ({
+        ...entry,
+        presentationHats: entry.explicitHats?.length
+          ? entry.explicitHats
+          : hatCatalog.hatsForCapabilities(entry.capabilities, { limit: 1 }),
+      }));
+      sendJson(response, 200, { requests });
       return;
     }
     const turnBriefDecisionMatch = /^\/api\/requests\/([0-9a-f][0-9a-f-]{35})\/turn-brief\/(continue|cancel)$/.exec(url.pathname);

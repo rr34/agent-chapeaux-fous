@@ -183,6 +183,89 @@ section { margin-bottom: 1rem; }
 }
 .requests { background: transparent; border: 0; box-shadow: none; }
 
+.agent-presentation-switch {
+  position: sticky;
+  top: calc(3.35rem + env(safe-area-inset-top, 0px));
+  z-index: 8;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: min(22rem, 100%);
+  margin: 0 auto .85rem;
+  padding: .25rem;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, .08);
+  backdrop-filter: blur(12px);
+}
+.agent-presentation-tab { min-height: 34px; padding: .35rem .85rem; color: var(--muted); background: transparent; border-radius: 999px; font-size: .78rem; }
+.agent-presentation-tab:hover { color: var(--text); background: var(--panel-raised); }
+.agent-presentation-tab.active { color: #fff; background: var(--accent); }
+.object-stream { display: grid; gap: 1rem; }
+.object-interaction {
+  display: grid;
+  gap: .75rem;
+  padding: 1rem;
+  overflow: hidden;
+  background: linear-gradient(145deg, #fff 0%, #f7f8f4 100%);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 14px 38px rgba(17, 24, 39, .08);
+  animation: object-scene-enter .32s ease-out both;
+}
+.object-interaction[data-status="processing"], .object-interaction[data-status="queued"] { border-color: var(--brand-mid); }
+.object-interaction[data-status="error"] { border-color: rgba(180, 35, 24, .5); }
+.object-interaction-heading { display: grid; grid-template-columns: 116px minmax(0, 1fr) auto; align-items: center; gap: .7rem; padding-bottom: .65rem; border-bottom: 1px solid var(--line); }
+.object-interaction-mascot { width: 116px; height: 65px; margin: -.65rem 0 -.35rem -.45rem; }
+.object-interaction-identity { display: grid; gap: .14rem; min-width: 0; }
+.object-interaction-identity strong { font-size: 1rem; }
+.object-hat-name { color: var(--accent); font-size: .76rem; text-transform: capitalize; }
+.object-interaction-meta { display: grid; justify-items: end; gap: .15rem; color: var(--muted); font-size: .68rem; }
+.object-interaction-status { text-transform: capitalize; }
+.object-activity-list { position: relative; display: grid; gap: .55rem; padding-left: 1rem; }
+.object-activity-list::before { position: absolute; top: .2rem; bottom: .2rem; left: .28rem; width: 2px; content: ""; background: var(--brand-light); border-radius: 999px; }
+.activity-object-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .7rem;
+  min-width: 0;
+  padding: .72rem .78rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  animation: object-card-enter .3s ease-out both;
+}
+.activity-object-card[data-action="created"] { border-left: 4px solid var(--good); }
+.activity-object-card[data-action="changed"] { border-left: 4px solid var(--brand-mid); }
+.activity-object-card[data-action="removed"] { border-left: 4px solid var(--bad); opacity: .78; }
+.activity-object-symbol {
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 50%;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.activity-object-card[data-action="created"] .activity-object-symbol { background: var(--good); }
+.activity-object-card[data-action="removed"] .activity-object-symbol { background: var(--bad); }
+.activity-object-body { display: grid; gap: .12rem; min-width: 0; }
+.activity-object-action { color: var(--muted); font-size: .66rem; letter-spacing: .055em; text-transform: uppercase; }
+.activity-object-title { overflow: hidden; font-size: .9rem; text-overflow: ellipsis; white-space: nowrap; }
+.activity-object-context { overflow: hidden; color: var(--muted); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.activity-object-reference { max-width: 11rem; padding: .25rem .45rem; overflow: hidden; color: var(--accent); background: var(--brand-light); border-radius: 999px; font: .66rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.object-activity-state { position: relative; display: flex; align-items: center; gap: .45rem; min-height: 3.2rem; padding: .75rem; color: var(--muted); background: rgba(201, 211, 191, .2); border: 1px dashed var(--line); border-radius: 12px; font-size: .78rem; }
+.object-working-dot { width: .42rem; height: .42rem; background: var(--brand-mid); border-radius: 50%; animation: object-working 1.05s ease-in-out infinite; }
+.object-working-dot:nth-child(2) { animation-delay: .14s; }
+.object-working-dot:nth-child(3) { animation-delay: .28s; }
+@keyframes object-scene-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes object-card-enter { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes object-working { 0%, 70%, 100% { opacity: .3; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-3px); } }
+
 .scroll-latest {
   position: fixed;
   bottom: calc(var(--composer-height, 11rem) + .7rem);
@@ -1202,6 +1285,14 @@ dialog h2, dialog p { margin-bottom: 0; }
   .request-file-description { grid-column: 1; }
   .request-user-turn { max-width: 92%; }
   .request-agent-turn { width: 96%; }
+  .agent-presentation-switch { top: calc(5.15rem + env(safe-area-inset-top, 0px)); }
+  .object-interaction { padding: .75rem; border-radius: 15px; }
+  .object-interaction-heading { grid-template-columns: 92px minmax(0, 1fr); }
+  .object-interaction-mascot { width: 92px; height: 52px; }
+  .object-interaction-meta { grid-column: 1 / -1; grid-row: 2; justify-items: start; display: flex; gap: .55rem; }
+  .activity-object-card { grid-template-columns: 2rem minmax(0, 1fr); gap: .55rem; }
+  .activity-object-symbol { width: 1.9rem; height: 1.9rem; }
+  .activity-object-reference { grid-column: 2; justify-self: start; max-width: 100%; }
   .request-run-controls { justify-content: flex-start; width: 100%; }
   .respond-silently-control { margin-right: auto; }
   .run-limits-summary { order: 3; width: 100%; text-align: left; }

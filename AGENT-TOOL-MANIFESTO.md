@@ -169,6 +169,15 @@ mutation. The trace records the candidate source, match, user correction or
 selection, later verification, and actual tool effects so the visible feedback
 follows what the agent did.
 
+The interaction surface may also present the durable request history as an
+object stream beside the complete conversation view. Each interaction shows the
+hat or accepted capability family that performed the work, followed by bounded
+cards for the exact first-class objects recorded in domain activity events or
+returned by successful reads. Symbols distinguish created, changed, removed,
+and used objects. This is a presentation of existing receipts and domain-owned
+records: it does not infer effects from assistant prose, turn a tool into an
+object, or replace the literal conversation and trace.
+
 # 2B. Search engine / filter / pruner
 
 The search engine is deterministic application code. It does not contain an
