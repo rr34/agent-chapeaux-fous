@@ -13,6 +13,7 @@ import { JmapClient } from "./jmap-client.mjs";
 import { InteractionGuides } from "./interaction-guides.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
+import { registerNativeObjectContextView } from "./native-object-search.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { registerNativeCapabilities } from "./native-capabilities.mjs";
 import { assertNativeToolDescriptions } from "./native-tool-descriptions.mjs";
@@ -118,6 +119,7 @@ if (store.status.ready) {
     maximumGeneratedBytes: config.maxRequestAttachmentBytes,
   });
   registerSearchTools(registry, searchCoordinator);
+  registerNativeObjectContextView(registry, organizer);
   registerVideoScriptTools(registry, videoScripts, {
     videoContent,
     onRenderQueued: () => videoRenderWorker?.notify(),
@@ -394,6 +396,13 @@ const server = http.createServer(async (request, response) => {
     }
     if (!store.status.ready) {
       sendJson(response, 503, { error: store.status.reason });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/native-objects/search") {
+      sendJson(response, 200, organizer.searchNativeObjects({
+        query: url.searchParams.get("q") || "",
+        limit: url.searchParams.get("limit") || 4,
+      }));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/requests") {

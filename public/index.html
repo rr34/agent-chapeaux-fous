@@ -536,6 +536,13 @@
     </div>
     <h2 id="request-heading" class="sr-only">New request</h2>
     <form id="request-form">
+      <section id="composer-object-trail" class="composer-object-trail" aria-label="Possible native objects" hidden>
+        <div class="object-trail-heading">
+          <span>Objects in your words</span>
+          <button id="object-trail-close" class="object-trail-close" type="button" aria-label="Hide object suggestions">×</button>
+        </div>
+        <div id="composer-object-list" class="composer-object-list"></div>
+      </section>
       <div class="composer-input-row">
         <button id="cancel-recording" class="secondary compact cancel-recording" type="button" aria-label="Cancel recording" title="Cancel recording" hidden><span aria-hidden="true">×</span><span>Cancel</span></button>
         <button id="composer-attach-file" class="composer-attachment-button" type="button" aria-label="Attach a file" title="Attach a file">

@@ -23,6 +23,9 @@ const elements = {
   composer: document.querySelector("#chat-composer"),
   form: document.querySelector("#request-form"),
   text: document.querySelector("#request-text"),
+  objectTrail: document.querySelector("#composer-object-trail"),
+  objectList: document.querySelector("#composer-object-list"),
+  objectTrailClose: document.querySelector("#object-trail-close"),
   send: document.querySelector("#send"),
   catchUp: document.querySelector("#catch-up"),
   catchUpStatus: document.querySelector("#catch-up-status"),
@@ -470,6 +473,125 @@ function resizeRequestText() {
   elements.text.style.height = "0";
   const minimum = Number.parseFloat(getComputedStyle(elements.text).minHeight) || 46;
   elements.text.style.height = `${Math.min(128, Math.max(minimum, elements.text.scrollHeight))}px`;
+}
+
+let objectSearchTimer = null;
+let objectSearchController = null;
+let objectSearchVersion = 0;
+const dismissedObjectRefs = new Set();
+const selectedObjectRefs = new Set();
+
+function clearObjectTrail({ resetDismissed = false } = {}) {
+  clearTimeout(objectSearchTimer);
+  objectSearchController?.abort();
+  objectSearchVersion += 1;
+  elements.objectTrail.classList.remove("searching");
+  elements.objectTrail.hidden = true;
+  elements.objectList.replaceChildren();
+  if (resetDismissed) {
+    dismissedObjectRefs.clear();
+    selectedObjectRefs.clear();
+  }
+}
+
+function addObjectToRequest(object, { rejected = false, related = false } = {}) {
+  const title = String(object.title || "").replace(/\s+/gu, " ").trim().slice(0, 100);
+  const noun = String(object.label || "object").toLowerCase();
+  const phrase = rejected
+    ? `I do not mean the ${noun} #${object.id}: "${title}".`
+    : related
+      ? `I also want to discuss the ${noun} #${object.id}: "${title}".`
+      : `I mean the ${noun} #${object.id}: "${title}".`;
+  if (rejected) selectedObjectRefs.delete(object.ref);
+  else selectedObjectRefs.add(object.ref);
+  elements.text.value = `${elements.text.value.trim()}${elements.text.value.trim() ? "\n" : ""}${phrase}`;
+  elements.text.dispatchEvent(new Event("input", { bubbles: true }));
+  elements.text.focus();
+}
+
+function renderObjectTrail(objects) {
+  const visible = objects.filter(({ ref }) => !dismissedObjectRefs.has(ref));
+  elements.objectTrail.classList.remove("searching");
+  elements.objectTrail.hidden = visible.length === 0;
+  elements.objectList.replaceChildren(...visible.map((object, index) => {
+    const card = node("article", "object-card");
+    card.classList.toggle("selected", selectedObjectRefs.has(object.ref));
+    card.style.setProperty("--arrival-delay", `${index * 45}ms`);
+    const main = node("div", "object-card-main");
+    const copy = node("div", "object-card-copy");
+    copy.append(
+      node("span", "object-card-kind", `${object.label} · matched ${object.matchedOn.join(", ")}`),
+      node("strong", "object-card-title", object.title),
+    );
+    if (object.detail) copy.append(node("span", "object-card-detail", object.detail));
+    const actions = node("div", "object-card-actions");
+    const focus = node("button", "secondary compact", selectedObjectRefs.has(object.ref) ? "Added" : "Use this");
+    focus.type = "button";
+    focus.disabled = selectedObjectRefs.has(object.ref);
+    focus.setAttribute("aria-label", `Use ${object.label} ${object.title} in the request`);
+    focus.addEventListener("click", () => {
+      addObjectToRequest(object);
+      card.classList.add("selected");
+      focus.textContent = "Added";
+      focus.disabled = true;
+    });
+    const dismiss = node("button", "object-card-dismiss", "Not this");
+    dismiss.type = "button";
+    dismiss.setAttribute("aria-label", `Exclude ${object.label} ${object.title} from the request`);
+    dismiss.addEventListener("click", () => {
+      dismissedObjectRefs.add(object.ref);
+      addObjectToRequest(object, { rejected: true });
+      card.remove();
+      if (!elements.objectList.children.length) elements.objectTrail.hidden = true;
+    });
+    actions.append(focus, dismiss);
+    main.append(copy, actions);
+    card.append(main);
+    if (object.related?.length) {
+      const relations = node("div", "object-card-relations");
+      for (const related of object.related) {
+        const button = node("button", "object-related", `${selectedObjectRefs.has(related.ref) ? "✓ " : ""}${related.label}: ${related.title}`);
+        button.type = "button";
+        button.disabled = selectedObjectRefs.has(related.ref);
+        button.title = `Discuss ${related.label.toLowerCase()} ${related.title}`;
+        button.addEventListener("click", () => {
+          addObjectToRequest(related, { related: true });
+          button.textContent = `✓ ${related.label}: ${related.title}`;
+          button.disabled = true;
+        });
+        relations.append(button);
+      }
+      card.append(relations);
+    }
+    return card;
+  }));
+}
+
+function scheduleObjectSearch() {
+  clearTimeout(objectSearchTimer);
+  objectSearchController?.abort();
+  const version = ++objectSearchVersion;
+  const query = elements.text.value.trim().slice(-400);
+  if (query.length < 2 || elements.composer.classList.contains("recording")) {
+    elements.objectTrail.hidden = true;
+    return;
+  }
+  if (!elements.objectTrail.hidden) elements.objectTrail.classList.add("searching");
+  objectSearchTimer = setTimeout(async () => {
+    const controller = new AbortController();
+    objectSearchController = controller;
+    try {
+      const result = await api(`/api/native-objects/search?q=${encodeURIComponent(query)}&limit=4`, {
+        signal: controller.signal,
+      });
+      if (version !== objectSearchVersion || query !== elements.text.value.trim().slice(-400)) return;
+      renderObjectTrail(result.objects || []);
+    } catch (error) {
+      if (error.name !== "AbortError" && version === objectSearchVersion) clearObjectTrail();
+    } finally {
+      if (objectSearchController === controller) objectSearchController = null;
+    }
+  }, 180);
 }
 
 if ("ResizeObserver" in window) {
@@ -5594,6 +5716,7 @@ async function submitTextRequest({ catchUp = false } = {}) {
     if (!catchUp) {
       elements.text.value = "";
       resizeRequestText();
+      clearObjectTrail({ resetDismissed: true });
       elements.requestFile.value = "";
       elements.requestExistingFile.value = "";
       updateRequestFileSelection();
@@ -5628,7 +5751,11 @@ elements.text.addEventListener("keydown", (event) => {
   event.preventDefault();
   if (!elements.send.disabled) elements.form.requestSubmit();
 });
-elements.text.addEventListener("input", resizeRequestText);
+elements.text.addEventListener("input", () => {
+  resizeRequestText();
+  scheduleObjectSearch();
+});
+elements.objectTrailClose.addEventListener("click", () => clearObjectTrail());
 elements.composerAttachFile.addEventListener("click", () => elements.requestFile.click());
 elements.requestFile.addEventListener("change", () => {
   if (elements.requestFile.files?.length) elements.requestExistingFile.value = "";
@@ -5734,6 +5861,7 @@ elements.record.addEventListener("click", async () => {
     recorder.start(1000);
     recordingStartedAt = Date.now();
     elements.composer.classList.add("recording");
+    clearObjectTrail();
     elements.record.classList.add("recording");
     elements.cancelRecording.hidden = false;
     elements.record.setAttribute("aria-label", "Microphone input level");
