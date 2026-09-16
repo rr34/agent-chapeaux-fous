@@ -193,6 +193,26 @@ test("durable file retrieval remains callable on a terse later request", async (
   assert.match(compiled.instructions, /call `file_get`\s+or `file_read` with 200/);
 });
 
+test("file search and partition schemas are callable when the files capability is selected", async () => {
+  const registry = new ToolRegistry();
+  registerFileTools(registry, {
+    ledger: {}, searchCoordinator: {}, mediaRoot: "/tmp", maximumTextBytes: 1024,
+  });
+  const compiler = new RequestCompiler({
+    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
+  });
+  const compiled = await compiler.compile({
+    tools: registry.toolDefinitions(),
+    text: "Search the CSV contents and split the transformed JSON Lines into provider batches.",
+    recentConversation: [], previousCapabilities: [], capabilityOverride: ["files"],
+  });
+  const search = compiled.tools.find(({ name }) => name === "file_text_search");
+  const partition = compiled.tools.find(({ name }) => name === "file_jsonl_partition");
+  assert.equal(search.inputSchema.properties.match_mode.enum.includes("regex"), true);
+  assert.equal(partition.inputSchema.properties.records_per_file.maximum, 100000);
+  assert.match(compiled.instructions, /`file_jsonl_partition`/);
+});
+
 test("an explicit interaction-video request selects the script creator", () => {
   const selection = selectRequestCapabilities({
     tools: [...tools, tool("video_script_create")],

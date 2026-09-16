@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { RE2JS } from "re2js";
+import { createFileArtifactSource } from "../artifact-source.mjs";
 import { readTextAttachment } from "../request-attachments.mjs";
 import { inspectDelimitedText, transformDelimitedText } from "../tabular-transform.mjs";
 
@@ -148,6 +150,39 @@ function requireFile(ledger, fileId) {
   return file;
 }
 
+function partitionJsonLines(bytes, { recordsPerFile, startPart, maxParts }) {
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  const records = [];
+  for (const [index, rawLine] of text.split("\n").entries()) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (!line.trim()) continue;
+    let parsed;
+    try { parsed = JSON.parse(line); }
+    catch { throw new Error(`JSON Lines source contains invalid JSON on line ${index + 1}`); }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(`JSON Lines source line ${index + 1} is not an object`);
+    }
+    records.push(line);
+  }
+  if (!records.length) throw new Error("JSON Lines source contains no records");
+  const totalParts = Math.ceil(records.length / recordsPerFile);
+  if (startPart > totalParts) throw new Error(`start_part exceeds the ${totalParts} available parts`);
+  const lastPart = Math.min(totalParts, startPart + maxParts - 1);
+  const parts = [];
+  for (let partNumber = startPart; partNumber <= lastPart; partNumber += 1) {
+    const start = (partNumber - 1) * recordsPerFile;
+    const end = Math.min(records.length, start + recordsPerFile);
+    parts.push({
+      partNumber,
+      firstRecord: start + 1,
+      lastRecord: end,
+      recordCount: end - start,
+      contents: `${records.slice(start, end).join("\n")}\n`,
+    });
+  }
+  return { recordCount: records.length, totalParts, parts, nextPart: lastPart < totalParts ? lastPart + 1 : null };
+}
+
 export function registerFileTools(registry, {
   ledger, searchCoordinator, mediaRoot, maximumTextBytes, maximumGeneratedBytes = 50 * 1024 * 1024,
 }) {
@@ -206,6 +241,77 @@ export function registerFileTools(registry, {
   });
 
   registry.register({
+    name: "file_text_search",
+    description: "Search the complete, checksum-verified text of one stored CSV, TSV, JSON Lines, or other text file by literal string or linear-time RE2 regex. Returns exact matching physical-line count and bounded snippets with line numbers. Use file_search to discover a file ID first; use this tool to find content within that file without paging all its text through the model. A physical line is not necessarily a CSV record when a quoted field contains newlines.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        file_id: { type: "integer", minimum: 1 },
+        query: { type: "string", minLength: 1, maxLength: 256 },
+        match_mode: { type: "string", enum: ["literal", "regex"] },
+        case_sensitive: { type: "boolean" },
+        start_line: { type: "integer", minimum: 1 },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+      },
+      required: ["file_id", "query", "match_mode", "case_sensitive", "limit"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        file: { type: "object" }, verified: { type: "boolean", const: true },
+        encoding: { type: "string" }, lineCount: { type: "integer", minimum: 0 },
+        matchingLineCount: { type: "integer", minimum: 0 },
+        matches: { type: "array", items: { type: "object", properties: {
+          lineNumber: { type: "integer", minimum: 1 },
+          column: { type: "integer", minimum: 1 },
+          snippet: { type: "string" },
+          snippetTruncated: { type: "boolean" },
+        }, required: ["lineNumber", "column", "snippet", "snippetTruncated"] } },
+        hasMore: { type: "boolean" }, nextLine: { type: ["integer", "null"], minimum: 1 },
+      },
+      required: ["file", "verified", "encoding", "lineCount", "matchingLineCount", "matches", "hasMore", "nextLine"],
+    },
+    async execute({ file_id: fileId, query, match_mode: matchMode, case_sensitive: caseSensitive,
+      start_line: startLine = 1, limit }) {
+      const stored = ledger.file(fileId);
+      if (!stored) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
+      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumGeneratedBytes });
+      let regex = null;
+      if (matchMode === "regex") {
+        try { regex = RE2JS.compile(query, caseSensitive ? 0 : RE2JS.CASE_INSENSITIVE); }
+        catch (error) { throw Object.assign(new Error(`Invalid RE2 search pattern: ${error.message}`), { statusCode: 400 }); }
+      }
+      const normalizedQuery = caseSensitive ? query : query.toLocaleLowerCase();
+      const lines = verified.text.split(/\r\n|\n|\r/u);
+      if (lines.at(-1) === "" && lines.length > 1) lines.pop();
+      const matches = [];
+      let matchingLineCount = 0;
+      let hasMore = false;
+      for (const [index, line] of lines.entries()) {
+        const position = regex
+          ? (() => { const matcher = regex.matcher(line); return matcher.find() ? matcher.start() : -1; })()
+          : (caseSensitive ? line : line.toLocaleLowerCase()).indexOf(normalizedQuery);
+        if (position < 0) continue;
+        matchingLineCount += 1;
+        if (index + 1 < startLine) continue;
+        if (matches.length >= limit) { hasMore = true; continue; }
+        const snippetStart = Math.max(0, position - 60);
+        const snippetEnd = Math.min(line.length, position + 140);
+        matches.push({
+          lineNumber: index + 1, column: position + 1,
+          snippet: line.slice(snippetStart, snippetEnd),
+          snippetTruncated: snippetStart > 0 || snippetEnd < line.length,
+        });
+      }
+      return {
+        file: requireFile(ledger, fileId), verified: true, encoding: verified.encoding,
+        lineCount: lines.length, matchingLineCount, matches, hasMore,
+        nextLine: hasMore ? matches.at(-1).lineNumber + 1 : null,
+      };
+    },
+  });
+
+  registry.register({
     name: "file_table_inspect",
     description: "Inspect one complete verified delimited-text upload as a table without asking the model to read every record. Supports comma, tab, semicolon, pipe, or one explicit literal delimiter; auto detects the common choices. Returns exact record counts, headers, bounded samples, column profiles including decimal precision, and inconsistent-width record numbers so the model can design one safe declarative mapping for the whole file.",
     parameters: {
@@ -242,7 +348,7 @@ export function registerFileTools(registry, {
     async execute({ file_id: fileId, delimiter, header_row: headerRow, sample_size: sampleSize }) {
       const stored = ledger.file(fileId);
       if (!stored) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
-      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumTextBytes });
+      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumGeneratedBytes });
       return {
         file: requireFile(ledger, fileId),
         verified: true,
@@ -286,7 +392,7 @@ export function registerFileTools(registry, {
     async execute({ file_id: fileId, delimiter, header_row: headerRow, mapping, target_schema: targetSchema }) {
       const stored = ledger.file(fileId);
       if (!stored) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
-      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumTextBytes });
+      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumGeneratedBytes });
       const transformed = transformDelimitedText(verified.text, {
         delimiter, headerRow, mapping, targetSchema,
       });
@@ -347,7 +453,7 @@ export function registerFileTools(registry, {
     async execute({ file_id: fileId, delimiter, header_row: headerRow, mapping, target_schema: targetSchema }, context = {}) {
       const stored = ledger.file(fileId);
       if (!stored) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
-      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumTextBytes });
+      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumGeneratedBytes });
       const transformed = transformDelimitedText(verified.text, {
         delimiter, headerRow, mapping, targetSchema,
       });
@@ -423,6 +529,121 @@ export function registerFileTools(registry, {
         },
       });
       return result;
+    },
+  });
+
+  registry.register({
+    name: "file_jsonl_partition",
+    description: "Split a complete, checksum-verified JSON Lines file into ordered durable part files with at most records_per_file objects each. Use the destination's published batch limit as records_per_file before artifact transfer. Returns every part's stable file ID, exact record range and count, plus paging for very many parts. No rows pass through model arguments. Repeated calls reuse identical part files. This prepares data only; use the destination's own tools to transfer and process every part and check each receipt.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        file_id: { type: "integer", minimum: 1 },
+        records_per_file: { type: "integer", minimum: 1, maximum: 100000,
+          description: "Maximum JSON objects per output part, taken from the destination's published batch limit." },
+        start_part: { type: "integer", minimum: 1, maximum: 1000000,
+          description: "One-based part number to begin returning; omit for the first part." },
+        max_parts: { type: "integer", minimum: 1, maximum: 50,
+          description: "Maximum part files returned in this call; omit for 50." },
+      },
+      required: ["file_id", "records_per_file"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        sourceFile: { type: "object" },
+        sourceSha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+        verified: { type: "boolean", const: true },
+        sourceRecordCount: { type: "integer", minimum: 1 },
+        recordsPerFile: { type: "integer", minimum: 1 },
+        totalPartCount: { type: "integer", minimum: 1 },
+        parts: { type: "array", items: { type: "object", properties: {
+          partNumber: { type: "integer", minimum: 1 },
+          firstRecord: { type: "integer", minimum: 1 },
+          lastRecord: { type: "integer", minimum: 1 },
+          recordCount: { type: "integer", minimum: 1 },
+          file: { type: "object" },
+        }, required: ["partNumber", "firstRecord", "lastRecord", "recordCount", "file"] } },
+        hasMore: { type: "boolean" },
+        nextPart: { type: ["integer", "null"], minimum: 1 },
+      },
+      required: ["sourceFile", "sourceSha256", "verified", "sourceRecordCount", "recordsPerFile", "totalPartCount", "parts", "hasMore", "nextPart"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async execute({ file_id: fileId, records_per_file: recordsPerFile, start_part: startPart = 1, max_parts: maxParts = 50 }, context = {}) {
+      const source = await createFileArtifactSource({ ledger, mediaRoot }).open(fileId);
+      try {
+        const { descriptor } = source;
+        if (descriptor.mimeType !== "application/x-ndjson"
+          && path.extname(descriptor.filename).toLowerCase() !== ".jsonl") {
+          throw new Error(`File ${fileId} must be a JSON Lines artifact`);
+        }
+        if (descriptor.byteSize > maximumGeneratedBytes) {
+          throw new Error(`JSON Lines source exceeds the ${maximumGeneratedBytes}-byte generated-file ceiling`);
+        }
+        const bytes = await source.read(0, descriptor.byteSize);
+        if (createHash("sha256").update(bytes).digest("hex") !== descriptor.sha256) {
+          throw new Error(`Stored artifact ${fileId} changed during partitioning`);
+        }
+        const partitioned = partitionJsonLines(bytes, { recordsPerFile, startPart, maxParts });
+        if (descriptor.jsonLineRecordCount !== null
+          && partitioned.recordCount !== descriptor.jsonLineRecordCount) {
+          throw new Error(`Stored artifact ${fileId} changed during partitioning`);
+        }
+        for (const part of partitioned.parts) {
+          if (Buffer.byteLength(part.contents) > maximumGeneratedBytes) {
+            throw new Error(`Part ${part.partNumber} exceeds the ${maximumGeneratedBytes}-byte generated-file ceiling`);
+          }
+        }
+        const sourceName = path.parse(descriptor.filename).name;
+        const parts = [];
+        for (const part of partitioned.parts) {
+          const file = partitioned.totalParts === 1
+            ? requireFile(ledger, fileId)
+            : await storeGeneratedJsonLines({
+                ledger, mediaRoot, contents: part.contents,
+                originalFilename: `${sourceName}-part-${String(part.partNumber).padStart(4, "0")}.jsonl`,
+                title: `${sourceName} part ${part.partNumber} of ${partitioned.totalParts}`,
+                description: `Records ${part.firstRecord}–${part.lastRecord} of file ${fileId}, SHA-256 ${descriptor.sha256}, partitioned at ${recordsPerFile} records per part.`,
+                maximumBytes: maximumGeneratedBytes,
+              });
+          parts.push({
+            partNumber: part.partNumber,
+            firstRecord: part.firstRecord,
+            lastRecord: part.lastRecord,
+            recordCount: part.recordCount,
+            file,
+          });
+        }
+        const result = {
+          sourceFile: requireFile(ledger, fileId),
+          sourceSha256: descriptor.sha256,
+          verified: true,
+          sourceRecordCount: partitioned.recordCount,
+          recordsPerFile,
+          totalPartCount: partitioned.totalParts,
+          parts,
+          hasMore: partitioned.nextPart !== null,
+          nextPart: partitioned.nextPart,
+        };
+        ledger.append?.({
+          type: "file.jsonl.partitioned", status: "complete", actorType: "tool", actorName: "file_jsonl_partition",
+          channel: context.channel, turnId: context.requestId, operationId: context.callId,
+          name: `Partitioned file #${fileId} into ${partitioned.totalParts} ordered parts`,
+          subjectType: "file", subjectId: String(fileId), primaryFileId: parts[0]?.file?.fileId ?? null,
+          payload: {
+            sourceFileId: fileId, sourceSha256: descriptor.sha256,
+            sourceRecordCount: partitioned.recordCount, recordsPerFile,
+            totalPartCount: partitioned.totalParts,
+            returnedParts: parts.map(({ partNumber, file, recordCount }) => ({ partNumber, fileId: file.fileId, recordCount })),
+            nextPart: partitioned.nextPart,
+          },
+        });
+        return result;
+      } finally {
+        await source.close();
+      }
     },
   });
 

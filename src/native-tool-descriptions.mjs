@@ -76,9 +76,11 @@ const descriptions = new Map(Object.entries({
 
   file_get: read("Get authoritative metadata and stable provenance for one durable upload. Use file_read for verified contents."),
   file_read: read("Read a verified character range from one durable text, CSV, or vCard upload by stable file ID."),
+  file_text_search: read("Search complete verified file contents with literal text or RE2 regex, returning exact matching-line counts and bounded, paged snippets."),
   file_table_inspect: read("Inspect one complete verified delimited-text upload as a table, returning counts, headers, decimal precision profiles, and bounded samples."),
   file_table_transform_preview: read("Test one declarative mapping and RE2 regex across a complete verified table, returning exact counts and bounded samples without saving data."),
   file_table_transform: create("Transform a complete verified table into durable JSON Lines using declared fields, RE2 regex extraction and replacement, date templates, exact decimal ratios, and row exceptions."),
+  file_jsonl_partition: create("Partition a verified JSON Lines artifact into ordered, reusable files with a declared maximum record count and exact ranges for downstream batch processing."),
   file_search: read("Search durable uploads by title, description, original filename, and originating request text."),
   file_update: update("Assign an AI-generated title and description to a newly uploaded file without overwriting user-authored metadata."),
 

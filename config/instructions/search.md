@@ -14,3 +14,7 @@ data exists.
 Global results are compact discovery references. After identifying a result,
 use the domain-specific capability for rich filters, complete native fields, or
 any follow-up action. Search never authorizes or performs a write.
+
+For an uploaded file, global discovery searches its metadata and originating
+request text. Select the Files capability and call `file_text_search` with its
+stable file ID to search the verified contents using literal text or RE2 regex.

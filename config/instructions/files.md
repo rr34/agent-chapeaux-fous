@@ -11,6 +11,14 @@ from `next_offset` while `has_more` is true when the user’s objective requires
 the complete contents. Never imply that the whole file was examined after
 reading only one page.
 
+`file_search` discovers files from metadata and originating requests. Once the
+file ID is known, `file_text_search` can search its entire verified text for a
+literal string or a model-chosen RE2 pattern and return bounded snippets with
+physical line numbers. Page from `nextLine` while `hasMore` is true. The exact
+`matchingLineCount` counts matching physical lines, which can differ from CSV
+record counts when quoted fields contain newlines. Use table inspection for
+record structure and completeness.
+
 For a CSV, TSV, or other delimited table, prefer `file_table_inspect` over
 reading every record into model context. Inspect returns exact whole-file
 counts, headers, bounded samples, and column profiles. Use those facts plus the
@@ -52,9 +60,25 @@ targeted repair. A successful transform proves the mapping was applied and any
 provided JSON Schema was checked; it does not prove that a downstream provider
 accepted or imported the generated records.
 
+When the destination publishes a maximum records per request or artifact, compare
+it with the transformed record count before transfer. If the artifact is larger,
+call `file_jsonl_partition` on the canonical JSON Lines file with
+`records_per_file` at or below that published maximum. This works for any JSON
+Lines data, regardless of source CSV or destination domain. The tool verifies
+the complete source, preserves record order, saves each bounded part, and returns
+stable file IDs and exact ranges. If `hasMore` is true, continue from `nextPart`
+until every part is listed. Transfer and process every part using the
+destination's own published tools, checking each receipt and keeping track of
+which part numbers succeeded. A successful partition is only file preparation;
+it does not mean any destination records were imported. On an interrupted run,
+recover prior transfer and import receipts before retrying a part. Report exact
+successful, failed, and outstanding part and record counts.
+
 When data originated as an uploaded file, keep the resulting canonical artifact
-as the transfer authority. If the selected MCP advertises a resumable file
-transfer tool, call that tool with the canonical file ID. Do not page through a
+as the transfer authority. After partitioning, each part file is the transfer
+authority for its own record range; do not send the oversized parent artifact.
+If the selected MCP advertises a resumable file transfer tool, call that tool
+with each applicable part file ID. Do not page through a
 JSON Lines artifact or reproduce its records in ordinary tool arguments. The
 application verifies and streams the persisted bytes, while the MCP owns the
 upload checkpoint and returns an opaque artifact ID. Then follow only the MCP's
