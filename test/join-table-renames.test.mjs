@@ -5,10 +5,11 @@ import { baselineFilename } from "../scripts/agent-schema.mjs";
 import { joinTableRenames, runDatabaseMigrations } from "../scripts/migrate-database.mjs";
 import { verifyDatabase } from "../scripts/verify-database.mjs";
 import { MariaDatabaseSync } from "../src/mariadb-sync.mjs";
-import { temporaryDatabase } from "./helpers.mjs";
+import { baselineBeforeJournalLevels, restorePre46JournalTableNames, temporaryDatabase } from "./helpers.mjs";
 
 test("join table renames preserve populated non-correspondence relationships through partial recovery and replay", async context => {
-  let schema = fs.readFileSync(baselineFilename, "utf8").replace("VALUES (1, 45,", "VALUES (1, 43,");
+  let schema = baselineBeforeJournalLevels(fs.readFileSync(baselineFilename, "utf8"))
+    .replace("VALUES (1, 45,", "VALUES (1, 43,");
   for (const [previous, current] of Object.entries(joinTableRenames)) schema = schema.replaceAll(current, previous);
   const temporary = temporaryDatabase({ schema });
   context.after(temporary.cleanup);
@@ -26,7 +27,7 @@ test("join table renames preserve populated non-correspondence relationships thr
   const snapshots = Object.fromEntries(preservedRenames.map(name => [name, db.prepare(`SELECT * FROM ${name}`).all()]));
   db.exec("RENAME TABLE activity_event_files TO activity_event_files_join");
   const options = { connectionSettings: temporary.target.connection, backupConfirmed: true, writersStopped: true, output: { write() {} } };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [44, 45]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [44, 45, 46]);
   const assertPreserved = async () => {
     for (const [previous, current] of Object.entries(joinTableRenames).filter(([name]) => preservedRenames.includes(name))) {
       assert.deepEqual(db.prepare(`SELECT * FROM ${current}`).all(), snapshots[previous]);
@@ -35,8 +36,9 @@ test("join table renames preserve populated non-correspondence relationships thr
     await verifyDatabase(db);
   };
   await assertPreserved();
+  restorePre46JournalTableNames(db);
   db.exec("UPDATE database_meta SET schema_version = 43 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [44, 45]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [44, 45, 46]);
   await assertPreserved();
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   // Existing uniqueness, foreign keys and cascade rules still apply.

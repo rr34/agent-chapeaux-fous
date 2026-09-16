@@ -16,6 +16,81 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0046: numbered-journal-table-levels
+-- writer downtime: required; the Journal readers and writers must switch to
+-- the renamed tables together with this migration.
+-- locking: three metadata-only table renames take metadata locks. Rows, columns,
+-- indexes, and foreign keys are retained. Journal triggers are recreated because
+-- their bodies read the renamed tables.
+-- recovery: DDL commits implicitly. Keep writers stopped on failure and rerun
+-- this block. Each rename is skipped after its destination has been created;
+-- missing or conflicting table pairs fail the runner's postconditions. Restore
+-- the verified backup to roll back.
+
+DROP TRIGGER IF EXISTS journal_entries_require_tracker_unit_before_insert;
+DROP TRIGGER IF EXISTS journal_entries_require_tracker_unit_before_update;
+DROP TRIGGER IF EXISTS trackers_preserve_numeric_unit_before_update;
+
+SET @journal_level_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_groups' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE journal_groups TO journal1_groups', 'DO 0');
+PREPARE journal_level_statement FROM @journal_level_sql;
+EXECUTE journal_level_statement;
+DEALLOCATE PREPARE journal_level_statement;
+
+SET @journal_level_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trackers' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE trackers TO journal2_trackers', 'DO 0');
+PREPARE journal_level_statement FROM @journal_level_sql;
+EXECUTE journal_level_statement;
+DEALLOCATE PREPARE journal_level_statement;
+
+SET @journal_level_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_entries' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE journal_entries TO journal3_entries', 'DO 0');
+PREPARE journal_level_statement FROM @journal_level_sql;
+EXECUTE journal_level_statement;
+DEALLOCATE PREPARE journal_level_statement;
+
+SET @journal_level_sql = 'CREATE TRIGGER journal_entries_require_tracker_unit_before_insert
+BEFORE INSERT ON journal3_entries
+FOR EACH ROW
+BEGIN
+  IF NEW.number_value IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM journal2_trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
+  THEN
+    SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''numeric journal entries require a tracker unit'';
+  END IF;
+END';
+PREPARE journal_level_statement FROM @journal_level_sql;
+EXECUTE journal_level_statement;
+DEALLOCATE PREPARE journal_level_statement;
+
+SET @journal_level_sql = 'CREATE TRIGGER journal_entries_require_tracker_unit_before_update
+BEFORE UPDATE ON journal3_entries
+FOR EACH ROW
+BEGIN
+  IF NEW.number_value IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM journal2_trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
+  THEN
+    SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''numeric journal entries require a tracker unit'';
+  END IF;
+END';
+PREPARE journal_level_statement FROM @journal_level_sql;
+EXECUTE journal_level_statement;
+DEALLOCATE PREPARE journal_level_statement;
+
+SET @journal_level_sql = 'CREATE TRIGGER trackers_preserve_numeric_unit_before_update
+BEFORE UPDATE ON journal2_trackers
+FOR EACH ROW
+BEGIN
+  IF NOT (OLD.unit <=> NEW.unit)
+     AND LOWER(OLD.unit) <> ''set me''
+     AND EXISTS (SELECT 1 FROM journal3_entries WHERE tracker_id = OLD.tracker_id AND number_value IS NOT NULL)
+  THEN
+    SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''a tracker unit cannot change after numeric entries exist'';
+  END IF;
+END';
+PREPARE journal_level_statement FROM @journal_level_sql;
+EXECUTE journal_level_statement;
+DEALLOCATE PREPARE journal_level_statement;
+
+-- end migration 0046
+
 -- migration 0045: finalize-correspondence-and-jmap-state
 -- writer downtime: required; correspondence readers and writers must use the
 -- final one-body schema atomically with this migration.

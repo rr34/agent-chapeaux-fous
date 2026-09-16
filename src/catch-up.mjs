@@ -193,7 +193,7 @@ export class CatchUpService {
   tracker(id, at, day = null, timeZone = null) {
     id = Number(id);
     const row = this.database.prepare(`SELECT tracker.*, journal_group.archived_at_utc AS group_archived
-      FROM trackers AS tracker JOIN journal_groups AS journal_group USING (journal_group_id)
+      FROM journal2_trackers AS tracker JOIN journal1_groups AS journal_group USING (journal_group_id)
       WHERE tracker_id = ?`).get(id);
     if (!row || row.archived_at_utc || row.group_archived) return null;
     const zone = row.asking_time_zone || timeZone;
@@ -208,7 +208,7 @@ export class CatchUpService {
     } else if (day) period = localDateUtcBounds({ localDate: day, timeZone: zone });
     else return null;
     if (!period) return null;
-    const entry = this.database.prepare(`SELECT journal_entry_id FROM journal_entries
+    const entry = this.database.prepare(`SELECT journal_entry_id FROM journal3_entries
       WHERE tracker_id = ? AND occurred_at_utc >= ? AND occurred_at_utc < ? LIMIT 1`)
       .get(id, period.startsAtUtc, period.endsAtUtc);
     const periodLabel = new Intl.DateTimeFormat("en-US", { timeZone: zone,
@@ -272,7 +272,7 @@ export class CatchUpService {
         const source = this.event(Number(event.seriesId ?? event.id), event.isGeneratedOccurrence ? event.startsAtUtc : "event");
         if (source) this.upsert(source, at);
       }
-      const trackers = bounded(this.database.prepare(`SELECT tracker_id FROM trackers
+      const trackers = bounded(this.database.prepare(`SELECT tracker_id FROM journal2_trackers
         WHERE archived_at_utc IS NULL AND asking_recurrence_rule IS NOT NULL
         ORDER BY tracker_id LIMIT 2001`).all(), "Scheduled trackers");
       for (const row of trackers) {
@@ -339,7 +339,7 @@ export class CatchUpService {
       if (scope.plan_through_date) scanEvents(at, localDateUtcBounds({ localDate: scope.plan_through_date, timeZone: scope.time_zone }).endsAtUtc, true);
       const review = this.reviewBounds(scope, at);
       if (review) scanEvents(review.from, review.to, false);
-      const trackers = scope.logs_date ? bounded(this.database.prepare(`SELECT tracker_id FROM trackers
+      const trackers = scope.logs_date ? bounded(this.database.prepare(`SELECT tracker_id FROM journal2_trackers
         WHERE archived_at_utc IS NULL ORDER BY tracker_id LIMIT 2001`).all(), "Journal trackers") : [];
       for (const row of trackers) {
         const source = this.tracker(row.tracker_id, at, scope.logs_date, scope.time_zone);
@@ -407,9 +407,9 @@ export class CatchUpService {
       }
     } else if (starts_at_utc !== null) throw new Error("Disabling questions requires null starts_at_utc and recurrence");
     return this.transaction(() => {
-      const before = this.database.prepare("SELECT * FROM trackers WHERE tracker_id = ? FOR UPDATE").get(tracker_id);
+      const before = this.database.prepare("SELECT * FROM journal2_trackers WHERE tracker_id = ? FOR UPDATE").get(tracker_id);
       if (!before || before.archived_at_utc) throw new Error("Active tracker not found");
-      this.database.prepare(`UPDATE trackers SET asking_starts_at_utc = ?, asking_recurrence_rule = ?,
+      this.database.prepare(`UPDATE journal2_trackers SET asking_starts_at_utc = ?, asking_recurrence_rule = ?,
         asking_time_zone = ?, updated_at_utc = ? WHERE tracker_id = ?`).run(start, rule, zone, this.now(), tracker_id);
       return this.record("tracker_schedule_updated", { tracker_id, asking_starts_at_utc: start,
         asking_recurrence_rule: rule, asking_time_zone: zone }, context);

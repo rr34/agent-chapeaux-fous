@@ -92,7 +92,7 @@ test("journal_add creates and reuses a grouped numeric tracker while preserving 
   assert.equal(second.entry.journal_groups.name, "Health");
   assert.equal(second.entry.trackers.unit, "kg");
   assert.equal(
-    store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_groups").get().count,
+    store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal1_groups").get().count,
     1,
   );
 
@@ -191,7 +191,7 @@ test("journal_update corrects one historical entry without owning its tracker's 
   assert.equal(corrected.entry.source, oldEntry.entry.source);
   assert.equal(corrected.entry.source_event_id, oldEntry.entry.source_event_id);
   assert.ok(corrected.entry.updated_at_utc);
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 2);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal3_entries").get().count, 2);
   assert.equal(
     ledger.trace(request.requestId).filter((event) => event.type === "personal_journal.updated").length,
     1,
@@ -294,8 +294,8 @@ test("every new tracker requires a canonical unit, including text-only trackers"
     }, { requestId: request.requestId, requestEventId: request.eventId, callId: "bad-journal" }),
     /require a canonical unit/,
   );
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM trackers").get().count, 0);
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 0);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal2_trackers").get().count, 0);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal3_entries").get().count, 0);
   const created = await registry.execute("journal_add", {
     tracker: "Mood", group: "Health", content_text: "Calm", number_value: null,
     tracker_unit: "out of 10", occurred_at_utc: null, create_if_missing: true,
@@ -339,7 +339,7 @@ test("journal_add reuses an established tracker through a synonymous name", asyn
   assert.equal(alias.tracker_resolution.actual_name, "Poop");
   assert.equal(alias.entry.tracker_id, poop.entry.tracker_id);
   assert.equal(
-    store.requireReady().prepare("SELECT COUNT(*) AS count FROM trackers").get().count,
+    store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal2_trackers").get().count,
     1,
   );
 });
@@ -360,8 +360,8 @@ test("journal_add proposes a missing tracker without writing until creation is c
   assert.equal(proposed.tracker_missing, true);
   assert.equal(proposed.confirmation_required, true);
   assert.equal(proposed.proposed_tracker.name, "Mood");
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM trackers").get().count, 0);
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 0);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal2_trackers").get().count, 0);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal3_entries").get().count, 0);
 
   const created = await registry.execute("journal_add", {
     tracker: "Mood",
@@ -456,7 +456,7 @@ test("journal_import is source-agnostic, idempotent, and reports conflicting rep
     [replayed.imported_count, replayed.unchanged_count, replayed.conflict_count],
     [0, 2, 0],
   );
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 2);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal3_entries").get().count, 2);
 
   const conflict = await registry.execute("journal_import", {
     source: batch.source,
@@ -481,7 +481,7 @@ test("journal_import is source-agnostic, idempotent, and reports conflicting rep
     callId: "import-other-source",
   });
   assert.equal(anotherSource.imported_count, 1);
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 3);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal3_entries").get().count, 3);
   const sourceEntries = await registry.execute("journal_list", {
     tracker: null,
     group: null,
@@ -518,5 +518,5 @@ test("journal_import rejects duplicate IDs within a batch and missing occurrence
     }, { requestId: request.requestId, requestEventId: request.eventId, callId: "missing-time" }),
     /occurred_at_utc must be string/,
   );
-  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 0);
+  assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal3_entries").get().count, 0);
 });

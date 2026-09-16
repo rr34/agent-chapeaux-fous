@@ -1,4 +1,4 @@
-import { restoreLegacyJoinTableNames } from "./helpers.mjs";
+import { restoreLegacyJoinTableNames, restorePre46JournalTableNames } from "./helpers.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
@@ -36,14 +36,15 @@ test("contact tag rename preserves assignments and contact operations across upg
     assert.deepEqual(database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('record_tags', 'record_links')`).all(), []);
   };
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]);
   assertMigrated();
   assert.deepEqual((await runDatabaseMigrations(settings)).applied, []);
   // Recover after the rename committed but the drop and version update did not.
   database.exec("CREATE TABLE record_links (record_link_id BIGINT UNSIGNED PRIMARY KEY) ENGINE=InnoDB");
   restoreLegacyJoinTableNames(database);
+  restorePre46JournalTableNames(database);
   database.exec("UPDATE database_meta SET schema_version = 33 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]);
   assertMigrated();
   const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());

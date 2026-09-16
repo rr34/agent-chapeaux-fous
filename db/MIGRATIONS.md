@@ -11,6 +11,21 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 46: Numbered Journal table levels
+
+Renames `journal_groups` to `journal1_groups`, `trackers` to
+`journal2_trackers`, and `journal_entries` to `journal3_entries`. These are
+table-only renames: IDs, rows, columns, indexes, and foreign keys are retained.
+The three Journal triggers are recreated with reads of the new table names;
+their guard behavior and stable trigger names remain the same. Historical
+migration blocks and activity receipts keep their original names.
+
+The matching application requires schema version 46. Apply this migration with
+writers stopped and a confirmed recoverable backup, using the operator sequence
+below. A partial DDL commit can be resumed by replaying version 46 while
+writers remain stopped. Verification checks that the old tables are absent,
+the new tables and relationships exist, and the three guards read the new tables.
+
 Every block must use these exact boundary markers:
 
 ```sql

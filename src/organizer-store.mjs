@@ -2861,9 +2861,9 @@ export class OrganizerStore {
              journal_group.archived_at_utc AS group_archived_at_utc,
              COUNT(entry.journal_entry_id) AS entry_count,
              MAX(entry.occurred_at_utc) AS last_recorded_at_utc
-      FROM trackers AS tracker
-      JOIN journal_groups AS journal_group USING (journal_group_id)
-      LEFT JOIN journal_entries AS entry USING (tracker_id)
+      FROM journal2_trackers AS tracker
+      JOIN journal1_groups AS journal_group USING (journal_group_id)
+      LEFT JOIN journal3_entries AS entry USING (tracker_id)
       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       GROUP BY tracker.tracker_id
       ORDER BY journal_group.name, tracker.name
@@ -2879,7 +2879,7 @@ export class OrganizerStore {
     const placeholders = trackerIds.map(() => "?").join(", ");
     const numericRows = this.database.prepare(`
       SELECT tracker_id, number_value, occurred_at_utc
-      FROM journal_entries
+      FROM journal3_entries
       WHERE number_value IS NOT NULL
         AND tracker_id IN (${placeholders})
       ORDER BY occurred_at_utc
@@ -2912,9 +2912,9 @@ export class OrganizerStore {
       SELECT entry.*, tracker.name AS tracker_name, tracker.journal_group_id,
              tracker.unit AS tracker_unit,
              journal_group.name AS group_name
-      FROM journal_entries AS entry
-      JOIN trackers AS tracker USING (tracker_id)
-      JOIN journal_groups AS journal_group USING (journal_group_id)
+      FROM journal3_entries AS entry
+      JOIN journal2_trackers AS tracker USING (tracker_id)
+      JOIN journal1_groups AS journal_group USING (journal_group_id)
       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       ORDER BY entry.occurred_at_utc DESC, entry.journal_entry_id DESC
       LIMIT ?
@@ -2943,15 +2943,15 @@ export class OrganizerStore {
         ? this.database.prepare(`
           SELECT tracker.*, journal_group.name AS group_name,
                  journal_group.archived_at_utc AS group_archived_at_utc
-          FROM trackers AS tracker
-          JOIN journal_groups AS journal_group USING (journal_group_id)
+          FROM journal2_trackers AS tracker
+          JOIN journal1_groups AS journal_group USING (journal_group_id)
           WHERE tracker.name = ?
         `).get(trackerName)
         : this.database.prepare(`
           SELECT tracker.*, journal_group.name AS group_name,
                  journal_group.archived_at_utc AS group_archived_at_utc
-          FROM trackers AS tracker
-          JOIN journal_groups AS journal_group USING (journal_group_id)
+          FROM journal2_trackers AS tracker
+          JOIN journal1_groups AS journal_group USING (journal_group_id)
           WHERE tracker.tracker_id = ?
         `).get(trackerId);
 
@@ -2959,20 +2959,20 @@ export class OrganizerStore {
         if (trackerId !== null) throw new OrganizerInputError("Tracker not found.", 404);
         if (trackerUnit === null) throw new OrganizerInputError("New trackers require a canonical unit.");
         let group = this.database.prepare(
-          "SELECT * FROM journal_groups WHERE name = ?",
+          "SELECT * FROM journal1_groups WHERE name = ?",
         ).get(groupName);
         if (!group) {
           group = this.database.prepare(`
-            INSERT INTO journal_groups (name, updated_at_utc) VALUES (?, ?) RETURNING *
+            INSERT INTO journal1_groups (name, updated_at_utc) VALUES (?, ?) RETURNING *
           `).get(groupName, now);
         } else if (group.archived_at_utc !== null) {
           group = this.database.prepare(`
-            UPDATE journal_groups SET archived_at_utc = NULL, updated_at_utc = ?
+            UPDATE journal1_groups SET archived_at_utc = NULL, updated_at_utc = ?
             WHERE journal_group_id = ? RETURNING *
           `).get(now, group.journal_group_id);
         }
         const created = this.database.prepare(`
-          INSERT INTO trackers (journal_group_id, name, unit, updated_at_utc)
+          INSERT INTO journal2_trackers (journal_group_id, name, unit, updated_at_utc)
           VALUES (?, ?, ?, ?) RETURNING *
         `).get(group.journal_group_id, trackerName, trackerUnit, now);
         tracker = {
@@ -2988,12 +2988,12 @@ export class OrganizerStore {
             );
           }
           this.database.prepare(`
-            UPDATE trackers SET unit = ?, updated_at_utc = ? WHERE tracker_id = ?
+            UPDATE journal2_trackers SET unit = ?, updated_at_utc = ? WHERE tracker_id = ?
           `).run(trackerUnit, now, tracker.tracker_id);
         }
         if (tracker.archived_at_utc !== null) {
           this.database.prepare(`
-            UPDATE trackers
+            UPDATE journal2_trackers
             SET archived_at_utc = NULL,
                 updated_at_utc = ?
             WHERE tracker_id = ?
@@ -3001,15 +3001,15 @@ export class OrganizerStore {
         }
         if (tracker.group_archived_at_utc !== null) {
           this.database.prepare(`
-            UPDATE journal_groups SET archived_at_utc = NULL, updated_at_utc = ?
+            UPDATE journal1_groups SET archived_at_utc = NULL, updated_at_utc = ?
             WHERE journal_group_id = ?
           `).run(now, tracker.journal_group_id);
         }
         tracker = this.database.prepare(`
           SELECT tracker.*, journal_group.name AS group_name,
                  journal_group.archived_at_utc AS group_archived_at_utc
-          FROM trackers AS tracker
-          JOIN journal_groups AS journal_group USING (journal_group_id)
+          FROM journal2_trackers AS tracker
+          JOIN journal1_groups AS journal_group USING (journal_group_id)
           WHERE tracker.tracker_id = ?
         `).get(tracker.tracker_id);
       }
@@ -3020,7 +3020,7 @@ export class OrganizerStore {
         );
       }
       const result = this.database.prepare(`
-        INSERT INTO journal_entries (
+        INSERT INTO journal3_entries (
           tracker_id, occurred_at_utc, content_text, number_value, updated_at_utc, source
         ) VALUES (?, ?, ?, ?, ?, 'tailnet_web')
       `).run(tracker.tracker_id, occurredAtUtc, contentText, numberValue, now);
@@ -3029,9 +3029,9 @@ export class OrganizerStore {
         SELECT entry.*, tracker.name AS tracker_name, tracker.journal_group_id,
                tracker.unit AS tracker_unit,
                journal_group.name AS group_name
-        FROM journal_entries AS entry
-        JOIN trackers AS tracker USING (tracker_id)
-        JOIN journal_groups AS journal_group USING (journal_group_id)
+        FROM journal3_entries AS entry
+        JOIN journal2_trackers AS tracker USING (tracker_id)
+        JOIN journal1_groups AS journal_group USING (journal_group_id)
         WHERE entry.journal_entry_id = ?
       `).get(id));
       const eventId = this.#activity({
@@ -3043,7 +3043,7 @@ export class OrganizerStore {
         contentText: entry.contentText,
         payload: { journalEntry: entry },
       });
-      this.database.prepare("UPDATE journal_entries SET source_event_id = ? WHERE journal_entry_id = ?")
+      this.database.prepare("UPDATE journal3_entries SET source_event_id = ? WHERE journal_entry_id = ?")
         .run(eventId, id);
       this.database.exec("COMMIT");
       return entry;

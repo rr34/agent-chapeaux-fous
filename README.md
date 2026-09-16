@@ -709,7 +709,7 @@ selection is supplied. Logs for a missed day retain their selected period.
 These settings add no table or schema migration.
 
 `catch_up_questions` was introduced in migration 0036. Each row has exactly
-one real foreign key to `calendar_events` or `trackers`, plus
+one real foreign key to `calendar_events` or `journal2_trackers`, plus
 its occurrence/period identity, generated question, resolution, deferral, and
 optional comment. Unique source/occurrence indexes prevent duplicate questions.
 Material-source fingerprints and question versions reject stale answers. Chat

@@ -833,7 +833,7 @@ test("personal journal entries and grouped trackers are available to the web org
       "SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_journal.created'",
     ).get().count, 2);
     assert.equal(organizer.database.prepare(
-      "SELECT COUNT(*) AS count FROM journal_entries WHERE source_event_id IS NOT NULL",
+      "SELECT COUNT(*) AS count FROM journal3_entries WHERE source_event_id IS NOT NULL",
     ).get().count, 2);
   } finally {
     organizer.close();

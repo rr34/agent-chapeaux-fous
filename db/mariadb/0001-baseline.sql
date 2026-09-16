@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 45.
+-- Target: MariaDB 10.11, schema version 46.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -249,7 +249,7 @@ CREATE TABLE content_groups (
     CONSTRAINT content_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)
 ) ENGINE=InnoDB COMMENT='Defines the named groups that organize the user''s content catalog. One row represents one content group. Every content item belongs to exactly one content group. sort_position controls group presentation order without changing stable group identifiers. Sensitivity: Group names may reveal private content plans and interests.';
 
-CREATE TABLE journal_groups (
+CREATE TABLE journal1_groups (
     -- sourceOfTruth: true
     -- synonyms: ["tracker groups", "journal categories"]
     -- keywords: ["journal group", "tracker group", "category", "health"]
@@ -305,7 +305,7 @@ CREATE TABLE todo_groups (
     CONSTRAINT todo_groups_sequence CHECK (uses_sequence IN (0, 1))
 ) ENGINE=InnoDB COMMENT='Defines the named groups that organize the user''s one authoritative personal To-Do List. One row represents one named task group, such as Inbox or Watches. Groups are named containers, not tasks and not a second hierarchy. Group names are unique without regard to letter case. When uses_sequence is 1, a newly inserted task with no sequence receives max(sequence) + 1 within this group; when it is 0, sequence remains optional. Sensitivity: Group names may reveal the user''s private projects and areas of responsibility.';
 
-CREATE TABLE trackers (
+CREATE TABLE journal2_trackers (
     -- sourceOfTruth: true
     -- synonyms: ["tracked subjects", "personal trackers", "journal types"]
     -- keywords: ["tracker", "track", "journaling", "measurement", "observation"]
@@ -332,7 +332,7 @@ CREATE TABLE trackers (
 
     UNIQUE KEY trackers_name (name),
     KEY trackers_group_name (journal_group_id, archived_at_utc, name),
-    CONSTRAINT trackers_group FOREIGN KEY (journal_group_id) REFERENCES journal_groups(journal_group_id) ON DELETE RESTRICT,
+    CONSTRAINT trackers_group FOREIGN KEY (journal_group_id) REFERENCES journal1_groups(journal_group_id) ON DELETE RESTRICT,
     CONSTRAINT trackers_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200),
     CONSTRAINT trackers_unit_length CHECK (CHAR_LENGTH(TRIM(unit)) BETWEEN 1 AND 100)
 ) ENGINE=InnoDB COMMENT='Defines the reusable subjects under which the user records personal observations over time. One row represents one globally named tracked subject, such as Weight, Bowel movement, Mood, or Medication. Tracker names are globally unique without regard to letter case so a natural-language journal request has one unambiguous target. Every tracker has one canonical unit shared by its complete numeric series. The migration marker set me must be replaced before another entry is recorded. A canonical unit cannot be changed after numeric entries exist, except when replacing the set me migration marker. Sensitivity: Tracker names may reveal private health conditions, habits, medications, or other personal interests.';
@@ -581,7 +581,7 @@ CREATE TABLE catch_up_questions (
     UNIQUE KEY catch_up_tracker_period (tracker_id, occurrence_key),
     KEY catch_up_due (resolved_at, due_at_utc, ask_after),
     CONSTRAINT catch_up_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events (calendar_event_id) ON DELETE CASCADE,
-    CONSTRAINT catch_up_tracker FOREIGN KEY (tracker_id) REFERENCES trackers (tracker_id) ON DELETE CASCADE,
+    CONSTRAINT catch_up_tracker FOREIGN KEY (tracker_id) REFERENCES journal2_trackers (tracker_id) ON DELETE CASCADE,
     CONSTRAINT catch_up_one_source CHECK ((calendar_event_id IS NOT NULL) + (tracker_id IS NOT NULL) = 1),
     CONSTRAINT catch_up_question_text CHECK (CHAR_LENGTH(TRIM(question_text)) > 0)
 ) ENGINE=InnoDB COMMENT='On-demand questions generated from calendar occurrences and journal tracker periods. To-dos are intentionally non-temporal and do not independently create catch-up deadlines. Source foreign keys and live domain data drive questions and reconciliation; conversations are only an interface. Sensitivity: Contains private commitments and user comments.';
@@ -621,7 +621,7 @@ CREATE TABLE reminders (
     CONSTRAINT reminders_attempt CHECK (attempt_count >= 0)
 ) ENGINE=InnoDB COMMENT='Stores when and how an alarm should be delivered and preserves observable delivery, retry, and error state. One row represents one standalone, calendar-linked, or personal-task-linked reminder and its delivery lifecycle. A reminder may link to a calendar event, a personal task, or neither. Delivery attempts must update attempt_count and the corresponding timing or error fields. Sensitivity: Contains private reminder text, linked commitments, delivery targets, payloads, and errors.';
 
-CREATE TABLE journal_entries (
+CREATE TABLE journal3_entries (
     -- sourceOfTruth: true
     -- synonyms: ["personal journal", "tracking entries", "observations"]
     -- keywords: ["journal", "track", "record", "weight", "health", "mood", "food", "import", "external record"]
@@ -647,7 +647,7 @@ CREATE TABLE journal_entries (
     PRIMARY KEY (journal_entry_id),
     UNIQUE KEY journal_entries_source_external (source, external_id),
     KEY journal_entries_tracker_occurred (tracker_id, occurred_at_utc, journal_entry_id),
-    CONSTRAINT journal_entries_tracker FOREIGN KEY (tracker_id) REFERENCES trackers(tracker_id) ON DELETE RESTRICT,
+    CONSTRAINT journal_entries_tracker FOREIGN KEY (tracker_id) REFERENCES journal2_trackers(tracker_id) ON DELETE RESTRICT,
     CONSTRAINT journal_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT journal_entries_content CHECK (CHAR_LENGTH(TRIM(content_text)) BETWEEN 1 AND 10000),
     CONSTRAINT journal_entries_source_length CHECK (CHAR_LENGTH(TRIM(source)) BETWEEN 1 AND 200),
@@ -1236,34 +1236,34 @@ BEGIN
 END//
 
 CREATE TRIGGER journal_entries_require_tracker_unit_before_insert
-BEFORE INSERT ON journal_entries
+BEFORE INSERT ON journal3_entries
 FOR EACH ROW
 BEGIN
   IF NEW.number_value IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
+     AND NOT EXISTS (SELECT 1 FROM journal2_trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
   THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'numeric journal entries require a tracker unit';
   END IF;
 END//
 
 CREATE TRIGGER journal_entries_require_tracker_unit_before_update
-BEFORE UPDATE ON journal_entries
+BEFORE UPDATE ON journal3_entries
 FOR EACH ROW
 BEGIN
   IF NEW.number_value IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
+     AND NOT EXISTS (SELECT 1 FROM journal2_trackers WHERE tracker_id = NEW.tracker_id AND unit IS NOT NULL)
   THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'numeric journal entries require a tracker unit';
   END IF;
 END//
 
 CREATE TRIGGER trackers_preserve_numeric_unit_before_update
-BEFORE UPDATE ON trackers
+BEFORE UPDATE ON journal2_trackers
 FOR EACH ROW
 BEGIN
   IF NOT (OLD.unit <=> NEW.unit)
      AND LOWER(OLD.unit) <> 'set me'
-     AND EXISTS (SELECT 1 FROM journal_entries WHERE tracker_id = OLD.tracker_id AND number_value IS NOT NULL)
+     AND EXISTS (SELECT 1 FROM journal3_entries WHERE tracker_id = OLD.tracker_id AND number_value IS NOT NULL)
   THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'a tracker unit cannot change after numeric entries exist';
   END IF;
@@ -1272,4 +1272,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 45, 'Chapeaux Fous MariaDB database');
+VALUES (1, 46, 'Chapeaux Fous MariaDB database');

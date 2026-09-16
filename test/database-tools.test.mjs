@@ -88,7 +88,7 @@ test("structured database reads preserve native fields and access boundaries", a
   
 
   const journalResult = await registry.execute("database_read", {
-    objectName: "journal_entries",
+    objectName: "journal3_entries",
     columns: ["content_text", "number_value", "source", "external_id"],
     where: {},
     orderBy: "occurred_at_utc",

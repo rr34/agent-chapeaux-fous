@@ -10,6 +10,7 @@ import {
 } from "../scripts/mariadb-schema.mjs";
 import { readMigrationLedger, splitMariaDbStatements } from "../scripts/database-migrations.mjs";
 import { requiredEnumColumns } from "../src/database.mjs";
+import { baselineBeforeJournalLevels } from "./helpers.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -67,7 +68,7 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 45", () => {
+test("the authoritative MariaDB baseline is complete at schema version 46", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 34);
@@ -112,7 +113,7 @@ test("the authoritative MariaDB baseline is complete at schema version 45", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 45, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 46, 'Chapeaux Fous MariaDB database'\)$/);
 });
 
 test("the unplanned to-do retirement preserves tasks before narrowing the enum", () => {
@@ -169,7 +170,8 @@ test("the historical correspondence join migration is additive and preserves its
 
 test("the forward correspondence migration recreates the confirmed-empty family in the baseline shape", () => {
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql")).find(item => item.version === 45);
-  const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
+  const baseline = parseMariaDbScript(baselineBeforeJournalLevels(
+    fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8")));
   const normalize = sql => sql.replaceAll("correspondence_files_join", "correspondence_files").replace(/^\s*--.*$/gmu, "").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
   const recreated = splitMariaDbStatements(migration.sql).filter((statement) => /^CREATE TABLE (?:correspondence(?:_files(?:_join)?|_participants)?|jmap_email_sync_state|todo_correspondence_join|calendar_events_correspondence_join)\b/u.test(statement));
   assert.equal(recreated.length, 6);
@@ -217,12 +219,29 @@ test("the Journal migration preserves the baseline's tracker-unit guards as comp
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
     .find(({ version }) => version === 32);
   const statements = splitMariaDbStatements(migration.sql);
-  const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
+  const baseline = parseMariaDbScript(baselineBeforeJournalLevels(
+    fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8")));
   const normalize = (sql) => sql.replace(/\s+/gu, " ").trim();
   const triggerStatements = statements.filter((sql) => sql.startsWith("SET @journal_migration_sql = 'CREATE TRIGGER"));
   assert.equal(triggerStatements.length, 3);
   for (const statement of triggerStatements) {
     const sql = statement.slice("SET @journal_migration_sql = '".length, -2).replaceAll("''", "'");
+    assert.ok(baseline.some((candidate) => normalize(candidate) === normalize(sql)));
+  }
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.doesNotMatch(migration.sql, /\b(?:DELETE FROM|TRUNCATE|DROP TABLE|UPDATE activity_events|UPDATE database_meta)\b/iu);
+});
+
+test("the numbered Journal rename preserves complete guard definitions", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 46);
+  const statements = splitMariaDbStatements(migration.sql);
+  const baseline = parseMariaDbScript(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"));
+  const normalize = (sql) => sql.replace(/\s+/gu, " ").trim();
+  const triggers = statements.filter((sql) => sql.startsWith("SET @journal_level_sql = 'CREATE TRIGGER"));
+  assert.equal(triggers.length, 3);
+  for (const statement of triggers) {
+    const sql = statement.slice("SET @journal_level_sql = '".length, -2).replaceAll("''", "'");
     assert.ok(baseline.some((candidate) => normalize(candidate) === normalize(sql)));
   }
   assert.match(migration.sql, /writer downtime: required/u);

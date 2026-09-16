@@ -1,4 +1,4 @@
-import { restoreLegacyJoinTableNames } from "./helpers.mjs";
+import { restoreLegacyJoinTableNames, restorePre46JournalTableNames } from "./helpers.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
@@ -32,39 +32,44 @@ test("the Journal upgrade and replay preserve existing IDs, import provenance, a
     output: { write() {} },
   };
   const result = await runDatabaseMigrations(settings);
-  assert.deepEqual(result.applied, [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
+  assert.deepEqual(result.applied, [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]);
   const assertPreserved = () => {
     assert.equal(inspectDatabase(database).ready, true);
     const row = database.prepare(`SELECT entry.journal_entry_id, tracker.tracker_id,
       tracker.journal_group_id, entry.content_text, entry.number_value, entry.source, entry.external_id
-      FROM journal_entries entry JOIN trackers tracker USING (tracker_id)`).get();
+      FROM journal3_entries entry JOIN journal2_trackers tracker USING (tracker_id)`).get();
     assert.deepEqual(row, {
       journal_entry_id: 43, tracker_id: 42, journal_group_id: 41,
       content_text: "Weight 80 kg", number_value: 80, source: "legacy-import", external_id: "weight-1",
     });
-    assert.throws(() => database.exec("UPDATE trackers SET unit = 'lb' WHERE tracker_id = 42"), /cannot change after numeric entries/u);
-    assert.throws(() => database.exec("UPDATE trackers SET journal_group_id = 999 WHERE tracker_id = 42"), /foreign key constraint/iu);
-    assert.throws(() => database.exec(`INSERT INTO journal_entries
+    assert.throws(() => database.exec("UPDATE journal2_trackers SET unit = 'lb' WHERE tracker_id = 42"), /cannot change after numeric entries/u);
+    assert.throws(() => database.exec("UPDATE journal2_trackers SET journal_group_id = 999 WHERE tracker_id = 42"), /foreign key constraint/iu);
+    assert.throws(() => database.exec(`INSERT INTO journal3_entries
       (tracker_id, content_text, source, external_id) VALUES (42, 'Duplicate', 'legacy-import', 'weight-1')`), /Duplicate entry/iu);
   };
   assertPreserved();
   // Reproduce the observed failed upgrade: both old and new foreign keys
   // coexist, all renamed objects exist, and the version is still 31.
-  database.exec(`ALTER TABLE journal_entries
-    ADD CONSTRAINT log_entries_tracker FOREIGN KEY (tracker_id) REFERENCES trackers(tracker_id) ON DELETE RESTRICT,
+  database.exec(`ALTER TABLE journal3_entries
+    ADD CONSTRAINT log_entries_tracker FOREIGN KEY (tracker_id) REFERENCES journal2_trackers(tracker_id) ON DELETE RESTRICT,
     ADD CONSTRAINT log_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL`);
   restoreLegacyJoinTableNames(database);
+  restorePre46JournalTableNames(database);
   database.exec("UPDATE database_meta SET schema_version = 31 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]);
   assertPreserved();
   const legacyKeys = database.prepare(`SELECT CONSTRAINT_NAME
     FROM information_schema.TABLE_CONSTRAINTS
-    WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'journal_entries'
+    WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'journal3_entries'
       AND LEFT(CONSTRAINT_NAME, 4) = 'log_'`).all();
   assert.deepEqual(legacyKeys, []);
   // Replay the DDL itself, as recovery does after a partial implicit commit.
+  restoreLegacyJoinTableNames(database);
+  restorePre46JournalTableNames(database);
+  database.exec("UPDATE database_meta SET schema_version = 31 WHERE singleton = 1");
   const migration = readMigrationLedger(migrationsFilename).find(({ version }) => version === 32);
   for (const statement of splitMariaDbStatements(migration.sql)) database.exec(statement);
+  await runDatabaseMigrations(settings);
   assertPreserved();
   assert.deepEqual((await runDatabaseMigrations(settings)).applied, []);
 });

@@ -1,4 +1,4 @@
-import { restoreLegacyJoinTableNames } from "./helpers.mjs";
+import { restoreLegacyJoinTableNames, restorePre46JournalTableNames } from "./helpers.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
@@ -38,8 +38,8 @@ function harness(t) {
     (todo_group_id, text, scheduled_at_utc) SELECT todo_group_id, ?, ? FROM todo_groups WHERE name='Inbox' RETURNING personal_task_id`)
     .get(text, scheduled).personal_task_id);
   const tracker = () => {
-    db.exec("INSERT INTO journal_groups (name) VALUES ('Health')");
-    return Number(db.prepare("INSERT INTO trackers (journal_group_id, name, unit) SELECT journal_group_id, 'Weight', 'kg' FROM journal_groups WHERE name='Health' RETURNING tracker_id").get().tracker_id);
+    db.exec("INSERT INTO journal1_groups (name) VALUES ('Health')");
+    return Number(db.prepare("INSERT INTO journal2_trackers (journal_group_id, name, unit) SELECT journal_group_id, 'Weight', 'kg' FROM journal1_groups WHERE name='Health' RETURNING tracker_id").get().tracker_id);
   };
   const answer = (q, action, extra = {}) => service.update({ question_id: q.question_id, expected_version: q.version,
     action, ask_after: null, comment: null, ...extra });
@@ -119,7 +119,7 @@ test("tracker schedules are opt-in; existing observations satisfy periods and mi
   const first = service.list().questions[0];
   assert.equal(first.occurrence_key, "2026-09-08T04:00:00.000Z");
   assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM catch_up_questions").get().n), 1);
-  db.prepare("INSERT INTO journal_entries (tracker_id, occurred_at_utc, content_text) VALUES (?, '2026-09-08T15:00:00.000Z', 'Skipped weighing today')").run(id);
+  db.prepare("INSERT INTO journal3_entries (tracker_id, occurred_at_utc, content_text) VALUES (?, '2026-09-08T15:00:00.000Z', 'Skipped weighing today')").run(id);
   service.refresh(scope);
   assert.equal(service.list().count, 0);
   setNow("2026-09-20T22:00:00.000Z"); service.refresh({ ...scope, local_date: "2026-09-20" });
@@ -128,7 +128,7 @@ test("tracker schedules are opt-in; existing observations satisfy periods and mi
   service.setTrackerSchedule({ tracker_id: id, starts_at_utc: null, recurrence: null });
   service.refresh(scope);
   assert.equal(service.list().count, 0);
-  assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM journal_entries").get().n), 1);
+  assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM journal3_entries").get().n), 1);
 });
 
 test("logging periods preserve local midnight through DST and support monthly and finite recurrence", () => {
@@ -184,7 +184,7 @@ test("context preparation only reads already generated rows; refresh is advertis
   assert.equal(registry.get("catch_up_refresh").annotations.readOnlyHint, false);
   assert.equal(registry.get("catch_up_list").annotations.readOnlyHint, true);
   assert.equal(modelWritableTables.has("catch_up_questions"), false);
-  assert.equal(modelWritableTables.has("trackers"), false);
+  assert.equal(modelWritableTables.has("journal2_trackers"), false);
   const definitions = registry.toolDefinitions();
   const read = definitions.find(tool => tool.name === "catch_up_list");
   assert.ok(read.inputSchema.required.includes("result_filter"));
@@ -234,12 +234,13 @@ test("migration adds only one table, preserves domain rows, replays partial DDL,
   db.exec("INSERT INTO journal_groups (journal_group_id, name) VALUES (901, 'Health')");
   db.exec("INSERT INTO trackers (tracker_id, journal_group_id, name, unit) VALUES (901, 901, 'Weight', 'kg')");
   const options = { connectionSettings: temp.target.connection, backupConfirmed: true, writersStopped: true, output: { write() {} } };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
-  assert.equal(db.prepare("SELECT asking_recurrence_rule FROM trackers WHERE tracker_id=901").get().asking_recurrence_rule, null);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]);
+  assert.equal(db.prepare("SELECT asking_recurrence_rule FROM journal2_trackers WHERE tracker_id=901").get().asking_recurrence_rule, null);
   await verifyDatabase(db);
   restoreLegacyJoinTableNames(db);
+  restorePre46JournalTableNames(db);
   db.exec("UPDATE database_meta SET schema_version=35 WHERE singleton=1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]);
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   db.exec("ALTER TABLE catch_up_questions DROP FOREIGN KEY catch_up_tracker");
   await assert.rejects(verifyDatabase(db), /source foreign key catch_up_tracker/);
@@ -288,7 +289,7 @@ test("selected past-day logs include unscheduled trackers, persist scope across 
     number_value: 72, tracker_unit: null, occurred_at_utc: "2026-09-07T13:00:00Z", create_if_missing: false }, {});
   resumed.refresh(scope); // Null/omitted scope must retain yesterday.
   assert.equal(resumed.list().count, 0);
-  assert.equal(db.prepare("SELECT asking_recurrence_rule FROM trackers").get().asking_recurrence_rule, null);
+  assert.equal(db.prepare("SELECT asking_recurrence_rule FROM journal2_trackers").get().asking_recurrence_rule, null);
   resumed.refresh({ ...scope, scope: selection({ logs_date: "2026-09-08" }) });
   assert.equal(resumed.list().count, 1);
 });
@@ -302,7 +303,7 @@ test("weekly and monthly journal questions use the selected historical period an
   let q = service.list().questions[0];
   assert.equal(q.period_starts_at_utc, "2026-08-31T04:00:00.000Z");
   assert.equal(q.period_ends_at_utc, "2026-09-07T04:00:00.000Z");
-  db.prepare("INSERT INTO journal_entries (tracker_id, occurred_at_utc, content_text) VALUES (?, '2026-09-04T13:00:00Z', 'Weekly entry')").run(id);
+  db.prepare("INSERT INTO journal3_entries (tracker_id, occurred_at_utc, content_text) VALUES (?, '2026-09-04T13:00:00Z', 'Weekly entry')").run(id);
   service.refresh(scope);
   assert.equal(service.list().count, 0);
   service.setTrackerSchedule({ tracker_id: id, starts_at_utc: "2026-08-01T04:00:00Z",

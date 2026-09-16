@@ -13,6 +13,15 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
+// Older migration tests reconstruct schema versions before the level-numbered
+// journal tables were introduced in migration 0046.
+export function baselineBeforeJournalLevels(source) {
+  return source.replaceAll("journal1_groups", "journal_groups")
+    .replaceAll("journal2_trackers", "trackers")
+    .replaceAll("journal3_entries", "journal_entries")
+    .replace("VALUES (1, 46,", "VALUES (1, 45,");
+}
+
 const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (
     attempt_id             VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     source_event_id        VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -47,6 +56,7 @@ const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (
 ) ENGINE=InnoDB;`;
 
 export function baselineBeforeNativeDateTime(source) {
+  source = baselineBeforeJournalLevels(source);
   const isoDefault = "DEFAULT (CONCAT(LEFT(DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%f'), 23), 'Z'))";
   for (const [previous, current] of Object.entries(joinTableRenames)) source = source.replaceAll(current, previous);
   return source.replace("VALUES (1, 45,", "VALUES (1, 43,")
@@ -62,6 +72,25 @@ export function restoreLegacyJoinTableNames(database) {
     const exists = database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`).get(current);
     if (exists) database.exec(`RENAME TABLE ${current} TO ${previous}`);
+  }
+}
+
+export function restorePre46JournalTableNames(database) {
+  const exists = database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'journal1_groups'`).get();
+  if (!exists) return;
+  for (const name of [
+    "journal_entries_require_tracker_unit_before_insert",
+    "journal_entries_require_tracker_unit_before_update",
+    "trackers_preserve_numeric_unit_before_update",
+  ]) database.exec(`DROP TRIGGER IF EXISTS ${name}`);
+  for (const [current, previous] of [
+    ["journal1_groups", "journal_groups"],
+    ["journal2_trackers", "trackers"],
+    ["journal3_entries", "journal_entries"],
+  ]) database.exec(`RENAME TABLE ${current} TO ${previous}`);
+  for (const statement of parseMariaDbScript(baselineBeforeJournalLevels(schemaSource))) {
+    if (/^CREATE TRIGGER (?:journal_entries_|trackers_)/u.test(statement)) database.exec(statement);
   }
 }
 

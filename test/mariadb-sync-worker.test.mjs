@@ -115,7 +115,7 @@ test("only parameters bound to native instant columns use MariaDB DATETIME liter
     [instant, instant],
   ), [instant, "2026-09-13 01:02:03.456"]);
   assert.deepEqual(normalizeMariaDbDateTimeParameters(
-    "INSERT INTO journal_entries (external_id, occurred_at_utc) VALUES (?, ?), (?, ?)",
+    "INSERT INTO journal3_entries (external_id, occurred_at_utc) VALUES (?, ?), (?, ?)",
     ["first", instant, "second", instant],
   ), ["first", "2026-09-13 01:02:03.456", "second", "2026-09-13 01:02:03.456"]);
   assert.deepEqual(normalizeMariaDbDateTimeParameters(

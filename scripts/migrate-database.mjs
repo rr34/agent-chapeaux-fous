@@ -242,11 +242,16 @@ async function assertVersion32Integrity(connection, databaseName) {
   const [columns] = await connection.query(
     `SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = ?
-        AND TABLE_NAME IN ('log_groups', 'log_entries', 'journal_groups', 'journal_entries', 'trackers')`,
+        AND TABLE_NAME IN ('log_groups', 'log_entries', 'journal_groups', 'journal_entries', 'trackers',
+                           'journal1_groups', 'journal2_trackers', 'journal3_entries')`,
     [databaseName],
   );
+  const numbered = columns.some((row) => row.TABLE_NAME === "journal1_groups");
+  const groupTable = numbered ? "journal1_groups" : "journal_groups";
+  const trackerTable = numbered ? "journal2_trackers" : "trackers";
+  const entryTable = numbered ? "journal3_entries" : "journal_entries";
   const columnNames = new Set(columns.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}`));
-  for (const name of ["journal_groups.journal_group_id", "journal_entries.journal_entry_id", "trackers.journal_group_id"]) {
+  for (const name of [`${groupTable}.journal_group_id`, `${entryTable}.journal_entry_id`, `${trackerTable}.journal_group_id`]) {
     if (!columnNames.has(name)) throw new Error(`Migration 0032 did not establish ${name}`);
   }
   if (columns.some((row) => row.TABLE_NAME.startsWith("log_") || row.COLUMN_NAME.startsWith("log_"))) {
@@ -255,7 +260,8 @@ async function assertVersion32Integrity(connection, databaseName) {
 
   const [constraints] = await connection.query(
     `SELECT TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE FROM information_schema.TABLE_CONSTRAINTS
-      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME IN ('journal_groups', 'journal_entries', 'trackers')`,
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME IN ('journal_groups', 'journal_entries', 'trackers',
+                                                     'journal1_groups', 'journal2_trackers', 'journal3_entries')`,
     [databaseName],
   );
   const constraintTypes = new Map(constraints.map((row) => [row.CONSTRAINT_NAME, row.CONSTRAINT_TYPE]));
@@ -281,7 +287,8 @@ async function assertVersion32Integrity(connection, databaseName) {
 
   const [indexes] = await connection.query(
     `SELECT DISTINCT INDEX_NAME FROM information_schema.STATISTICS
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('journal_groups', 'journal_entries')`,
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('journal_groups', 'journal_entries',
+                                                'journal1_groups', 'journal3_entries')`,
     [databaseName],
   );
   const indexNames = new Set(indexes.map((row) => row.INDEX_NAME));
@@ -294,14 +301,15 @@ async function assertVersion32Integrity(connection, databaseName) {
 
   const [triggers] = await connection.query(
     `SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_STATEMENT FROM information_schema.TRIGGERS
-      WHERE TRIGGER_SCHEMA = ? AND EVENT_OBJECT_TABLE IN ('journal_entries', 'trackers')`,
+      WHERE TRIGGER_SCHEMA = ? AND EVENT_OBJECT_TABLE IN ('journal_entries', 'trackers',
+                                                          'journal2_trackers', 'journal3_entries')`,
     [databaseName],
   );
   const triggerTables = new Map(triggers.map((row) => [row.TRIGGER_NAME, row.EVENT_OBJECT_TABLE]));
   for (const [name, table] of [
-    ["journal_entries_require_tracker_unit_before_insert", "journal_entries"],
-    ["journal_entries_require_tracker_unit_before_update", "journal_entries"],
-    ["trackers_preserve_numeric_unit_before_update", "trackers"],
+    ["journal_entries_require_tracker_unit_before_insert", entryTable],
+    ["journal_entries_require_tracker_unit_before_update", entryTable],
+    ["trackers_preserve_numeric_unit_before_update", trackerTable],
   ]) {
     if (triggerTables.get(name) !== table) throw new Error(`Migration 0032 did not restore trigger ${name}`);
   }
@@ -311,6 +319,54 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 46) {
+    const pairs = [
+      ["journal_groups", "journal1_groups", "journal_group_id"],
+      ["trackers", "journal2_trackers", "tracker_id"],
+      ["journal_entries", "journal3_entries", "journal_entry_id"],
+    ];
+    const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${pairs.flatMap(([oldName, newName]) => [oldName, newName]).map(() => "?").join(", ")})`,
+    [databaseName, ...pairs.flatMap(([oldName, newName]) => [oldName, newName])]);
+    const byName = new Map(tables.map((row) => [row.TABLE_NAME, row.TABLE_TYPE]));
+    for (const [oldName, newName] of pairs) {
+      if (byName.has(oldName) || byName.get(newName) !== "BASE TABLE") {
+        throw new Error(`Migration 0046 must rename ${oldName} to ${newName}`);
+      }
+    }
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('journal1_groups', 'journal2_trackers', 'journal3_entries')`,
+    [databaseName]);
+    const names = new Set(columns.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}`));
+    for (const [, tableName, key] of pairs) {
+      if (!names.has(`${tableName}.${key}`)) throw new Error(`Migration 0046 is missing ${tableName}.${key}`);
+    }
+    const [keys] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ?
+        AND TABLE_NAME IN ('journal2_trackers', 'journal3_entries')`, [databaseName]);
+    for (const [child, column, parent, target] of [
+      ["journal2_trackers", "journal_group_id", "journal1_groups", "journal_group_id"],
+      ["journal3_entries", "tracker_id", "journal2_trackers", "tracker_id"],
+    ]) {
+      if (!keys.some((row) => row.TABLE_NAME === child && row.COLUMN_NAME === column
+        && row.REFERENCED_TABLE_NAME === parent && row.REFERENCED_COLUMN_NAME === target)) {
+        throw new Error(`Migration 0046 is missing ${child} to ${parent} relationship`);
+      }
+    }
+    const [triggers] = await connection.query(`SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_STATEMENT
+      FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ?
+        AND EVENT_OBJECT_TABLE IN ('journal2_trackers', 'journal3_entries')`, [databaseName]);
+    for (const [name, table, referenced] of [
+      ["journal_entries_require_tracker_unit_before_insert", "journal3_entries", "journal2_trackers"],
+      ["journal_entries_require_tracker_unit_before_update", "journal3_entries", "journal2_trackers"],
+      ["trackers_preserve_numeric_unit_before_update", "journal2_trackers", "journal3_entries"],
+    ]) {
+      if (!triggers.some((row) => row.TRIGGER_NAME === name && row.EVENT_OBJECT_TABLE === table
+        && new RegExp(`\\b${referenced}\\b`, "u").test(String(row.ACTION_STATEMENT)))) {
+        throw new Error(`Migration 0046 is missing renamed-table trigger ${name}`);
+      }
+    }
+  }
   if (migration.version === 44) {
     const names = Object.entries(joinTableRenames).flat();
     const [rows] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
@@ -528,15 +584,17 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
     for (const [name, column, table, target] of [
       ...(retainsTaskSource ? [["catch_up_task", "personal_task_id", "todo_personal", "personal_task_id"]] : []),
       ["catch_up_event", "calendar_event_id", "calendar_events", "calendar_event_id"],
-      ["catch_up_tracker", "tracker_id", "trackers", "tracker_id"],
+      ["catch_up_tracker", "tracker_id", null, "tracker_id"],
     ]) {
       if (!keys.some(row => row.CONSTRAINT_NAME === name && row.COLUMN_NAME === column
-        && row.REFERENCED_TABLE_NAME === table && row.REFERENCED_COLUMN_NAME === target)) {
+        && (table === null ? ["trackers", "journal2_trackers"].includes(row.REFERENCED_TABLE_NAME)
+          : row.REFERENCED_TABLE_NAME === table)
+        && row.REFERENCED_COLUMN_NAME === target)) {
         throw new Error(`Migration 0036 did not establish source foreign key ${name}`);
       }
     }
     const [checks] = await connection.query(`SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS
-      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME IN ('catch_up_questions', 'trackers') AND CONSTRAINT_TYPE = 'CHECK'`, [databaseName]);
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME IN ('catch_up_questions', 'trackers', 'journal2_trackers') AND CONSTRAINT_TYPE = 'CHECK'`, [databaseName]);
     for (const name of ["catch_up_one_source", "catch_up_question_text", "trackers_asking_schedule"]) {
       if (!checks.some(row => row.CONSTRAINT_NAME === name)) throw new Error(`Migration 0036 is missing check ${name}`);
     }

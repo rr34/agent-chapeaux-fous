@@ -119,9 +119,9 @@ export function journalCapabilityContext(store, limit = 200) {
            journal_group.name AS group_name,
            COUNT(entry.journal_entry_id) AS entry_count,
            MAX(entry.occurred_at_utc) AS last_recorded_at_utc
-    FROM trackers AS tracker
-    JOIN journal_groups AS journal_group USING (journal_group_id)
-    LEFT JOIN journal_entries AS entry USING (tracker_id)
+    FROM journal2_trackers AS tracker
+    JOIN journal1_groups AS journal_group USING (journal_group_id)
+    LEFT JOIN journal3_entries AS entry USING (tracker_id)
     WHERE tracker.archived_at_utc IS NULL
       AND journal_group.archived_at_utc IS NULL
     GROUP BY tracker.tracker_id
@@ -157,8 +157,8 @@ function joinedTracker(database, trackerId) {
   return database.prepare(`
     SELECT tracker.*, journal_group.name AS group_name,
            journal_group.archived_at_utc AS group_archived_at_utc
-    FROM trackers AS tracker
-    JOIN journal_groups AS journal_group USING (journal_group_id)
+    FROM journal2_trackers AS tracker
+    JOIN journal1_groups AS journal_group USING (journal_group_id)
     WHERE tracker.tracker_id = ?
   `).get(trackerId);
 }
@@ -168,9 +168,9 @@ function joinedEntry(database, entryId) {
     SELECT entry.*, tracker.name AS tracker_name, tracker.journal_group_id,
            tracker.unit AS tracker_unit,
            journal_group.name AS group_name
-    FROM journal_entries AS entry
-    JOIN trackers AS tracker USING (tracker_id)
-    JOIN journal_groups AS journal_group USING (journal_group_id)
+    FROM journal3_entries AS entry
+    JOIN journal2_trackers AS tracker USING (tracker_id)
+    JOIN journal1_groups AS journal_group USING (journal_group_id)
     WHERE entry.journal_entry_id = ?
   `).get(entryId);
 }
@@ -206,9 +206,9 @@ function aliasTracker(database, name) {
     SELECT tracker.*, journal_group.name AS group_name,
            journal_group.archived_at_utc AS group_archived_at_utc,
            COUNT(entry.journal_entry_id) AS entry_count
-    FROM trackers AS tracker
-    JOIN journal_groups AS journal_group USING (journal_group_id)
-    LEFT JOIN journal_entries AS entry USING (tracker_id)
+    FROM journal2_trackers AS tracker
+    JOIN journal1_groups AS journal_group USING (journal_group_id)
+    LEFT JOIN journal3_entries AS entry USING (tracker_id)
     GROUP BY tracker.tracker_id
   `).all().filter((row) => trackerAliasFamily(row.name) === family);
   rows.sort((left, right) => {
@@ -238,8 +238,8 @@ function findTracker(database, name) {
   const exact = database.prepare(`
     SELECT tracker.*, journal_group.name AS group_name,
            journal_group.archived_at_utc AS group_archived_at_utc
-    FROM trackers AS tracker
-    JOIN journal_groups AS journal_group USING (journal_group_id)
+    FROM journal2_trackers AS tracker
+    JOIN journal1_groups AS journal_group USING (journal_group_id)
     WHERE tracker.name = ?
   `).get(name);
   return exact ? { row: exact, matchType: "exact" } : { row: null, matchType: "none" };
@@ -247,12 +247,12 @@ function findTracker(database, name) {
 
 function ensureGroup(database, name, now) {
   const existing = database.prepare(`
-    SELECT * FROM journal_groups WHERE name = ?
+    SELECT * FROM journal1_groups WHERE name = ?
   `).get(name);
   if (!existing) {
     return {
       row: database.prepare(`
-        INSERT INTO journal_groups (name, updated_at_utc) VALUES (?, ?) RETURNING *
+        INSERT INTO journal1_groups (name, updated_at_utc) VALUES (?, ?) RETURNING *
       `).get(name, now),
       created: true,
       reactivated: false,
@@ -263,7 +263,7 @@ function ensureGroup(database, name, now) {
   }
   return {
     row: database.prepare(`
-      UPDATE journal_groups
+      UPDATE journal1_groups
       SET archived_at_utc = NULL, updated_at_utc = ?
       WHERE journal_group_id = ?
       RETURNING *
@@ -341,7 +341,7 @@ function resolveTracker(database, input, now, { createIfMissing = false } = {}) 
     }
     const selectedGroup = ensureGroup(database, input.requestedGroup, now);
     const row = database.prepare(`
-      INSERT INTO trackers (journal_group_id, name, unit, updated_at_utc)
+      INSERT INTO journal2_trackers (journal_group_id, name, unit, updated_at_utc)
       VALUES (?, ?, ?, ?)
       RETURNING *
     `).get(selectedGroup.row.journal_group_id, input.trackerName, input.trackerUnit, now);
@@ -378,12 +378,12 @@ function resolveTracker(database, input, now, { createIfMissing = false } = {}) 
       updates.push("updated_at_utc = ?");
       values.push(now, tracker.tracker_id);
       database.prepare(`
-        UPDATE trackers SET ${updates.join(", ")} WHERE tracker_id = ?
+        UPDATE journal2_trackers SET ${updates.join(", ")} WHERE tracker_id = ?
       `).run(...values);
     }
     if (tracker.group_archived_at_utc !== null) {
       database.prepare(`
-        UPDATE journal_groups
+        UPDATE journal1_groups
         SET archived_at_utc = NULL, updated_at_utc = ?
         WHERE journal_group_id = ?
       `).run(now, tracker.journal_group_id);
@@ -415,7 +415,7 @@ function insertEntry(database, input, tracker, {
     throw new Error(`Set the canonical unit for tracker ${tracker.name} before recording another entry`);
   }
   const row = database.prepare(`
-    INSERT INTO journal_entries (
+    INSERT INTO journal3_entries (
       tracker_id, occurred_at_utc, content_text, number_value,
       source_event_id, updated_at_utc, source, external_id
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -444,9 +444,9 @@ function existingImportedEntry(database, source, externalId) {
     SELECT entry.*, tracker.name AS tracker_name, tracker.journal_group_id,
            tracker.unit AS tracker_unit,
            journal_group.name AS group_name
-    FROM journal_entries AS entry
-    JOIN trackers AS tracker USING (tracker_id)
-    JOIN journal_groups AS journal_group USING (journal_group_id)
+    FROM journal3_entries AS entry
+    JOIN journal2_trackers AS tracker USING (tracker_id)
+    JOIN journal1_groups AS journal_group USING (journal_group_id)
     WHERE entry.source = ? AND entry.external_id = ?
   `).get(source, externalId);
 }
@@ -745,9 +745,9 @@ export function registerJournalTools(registry, store, ledger) {
         SELECT entry.*, tracker.name AS tracker_name, tracker.journal_group_id,
                tracker.unit AS tracker_unit,
                journal_group.name AS group_name
-        FROM journal_entries AS entry
-        JOIN trackers AS tracker USING (tracker_id)
-        JOIN journal_groups AS journal_group USING (journal_group_id)
+        FROM journal3_entries AS entry
+        JOIN journal2_trackers AS tracker USING (tracker_id)
+        JOIN journal1_groups AS journal_group USING (journal_group_id)
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
         ORDER BY entry.occurred_at_utc DESC, entry.journal_entry_id DESC
         LIMIT ?
@@ -810,7 +810,7 @@ export function registerJournalTools(registry, store, ledger) {
         }
         values.updated_at_utc = new Date().toISOString();
         const assignments = Object.keys(values).map((column) => `\`${column}\` = ?`).join(", ");
-        database.prepare(`UPDATE journal_entries SET ${assignments} WHERE journal_entry_id = ?`)
+        database.prepare(`UPDATE journal3_entries SET ${assignments} WHERE journal_entry_id = ?`)
           .run(...Object.values(values), entryId);
         const entry = databaseEntry(joinedEntry(database, entryId));
         const result = { updated: true, before: databaseEntry(beforeRow), entry };
@@ -865,9 +865,9 @@ export function registerJournalTools(registry, store, ledger) {
                journal_group.archived_at_utc AS group_archived_at_utc,
                COUNT(entry.journal_entry_id) AS entry_count,
                MAX(entry.occurred_at_utc) AS last_recorded_at_utc
-        FROM trackers AS tracker
-        JOIN journal_groups AS journal_group USING (journal_group_id)
-        LEFT JOIN journal_entries AS entry USING (tracker_id)
+        FROM journal2_trackers AS tracker
+        JOIN journal1_groups AS journal_group USING (journal_group_id)
+        LEFT JOIN journal3_entries AS entry USING (tracker_id)
         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
         GROUP BY tracker.tracker_id
         ORDER BY journal_group.name, tracker.name
@@ -910,7 +910,7 @@ export function registerJournalTools(registry, store, ledger) {
           values.journal_group_id = selectedGroup.row.journal_group_id;
         } else if (archived === false && beforeRow.group_archived_at_utc !== null) {
           database.prepare(`
-            UPDATE journal_groups
+            UPDATE journal1_groups
             SET archived_at_utc = NULL, updated_at_utc = ?
             WHERE journal_group_id = ?
           `).run(now, beforeRow.journal_group_id);
@@ -920,7 +920,7 @@ export function registerJournalTools(registry, store, ledger) {
         if (Object.keys(values).length === 0) throw new Error("No tracker changes were supplied");
         values.updated_at_utc = now;
         const assignments = Object.keys(values).map((column) => `\`${column}\` = ?`).join(", ");
-        database.prepare(`UPDATE trackers SET ${assignments} WHERE tracker_id = ?`)
+        database.prepare(`UPDATE journal2_trackers SET ${assignments} WHERE tracker_id = ?`)
           .run(...Object.values(values), trackerId);
         const tracker = databaseTracker(joinedTracker(database, trackerId));
         const result = { updated: true, before: databaseTracker(beforeRow), tracker };

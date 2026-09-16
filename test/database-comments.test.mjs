@@ -1,4 +1,4 @@
-import { restoreLegacyJoinTableNames } from "./helpers.mjs";
+import { restoreLegacyJoinTableNames, restorePre46JournalTableNames } from "./helpers.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
@@ -24,8 +24,17 @@ function catalog(database) {
   const keys = database.prepare(`SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME,
     REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE
     WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`).all();
+  const journalNames = {
+    journal1_groups: "journal_groups",
+    journal2_trackers: "trackers",
+    journal3_entries: "journal_entries",
+  };
   for (const row of [...columns, ...indexes, ...keys]) {
-    row.TABLE_NAME = joinTableRenames[row.TABLE_NAME] ?? row.TABLE_NAME;
+    row.TABLE_NAME = journalNames[row.TABLE_NAME] ?? joinTableRenames[row.TABLE_NAME] ?? row.TABLE_NAME;
+    if (row.REFERENCED_TABLE_NAME) {
+      row.REFERENCED_TABLE_NAME = journalNames[row.REFERENCED_TABLE_NAME]
+        ?? joinTableRenames[row.REFERENCED_TABLE_NAME] ?? row.REFERENCED_TABLE_NAME;
+    }
   }
   return {
     columns: columns.filter(row => !["catch_up_questions", "todo_correspondence_join", "calendar_events_correspondence_join"].includes(row.TABLE_NAME)
@@ -50,21 +59,22 @@ test("comment migration preserves mechanics and rows, supports replay, and expos
     connectionSettings: temporary.target.connection,
     backupConfirmed: true, writersStopped: true, output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]);
   assert.deepEqual(catalog(database), before);
   assert.deepEqual(database.prepare("SELECT * FROM files").all(), rows);
   await verifyDatabase(database);
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   // Simulate a DDL commit followed by interruption before the version marker.
   restoreLegacyJoinTableNames(database);
+  restorePre46JournalTableNames(database);
   database.exec("UPDATE database_meta SET schema_version = 34 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]);
   assert.deepEqual(catalog(database), before);
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
   const registry = new ToolRegistry();
   registerDatabaseTools(registry, store, {});
-  const result = await registry.execute("database_schema", { objectName: "journal_entries" });
+  const result = await registry.execute("database_schema", { objectName: "journal3_entries" });
   assert.match(result.objects[0].comment, /authoritative time-stamped personal observations/);
   assert.match(result.objects[0].columns.find(column => column.name === "number_value").comment, /parent tracker's canonical unit/);
   const read = await registry.execute("database_read", { objectName: "files", columns: ["title"] });
