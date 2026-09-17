@@ -70,12 +70,12 @@ export const nativeCapabilityManifests = [
   },
   {
     id: "files", title: "Files",
-    summary: "Find, retrieve, inspect, transform, and partition durable text and tabular uploads for bounded batch workflows.",
+    summary: "Find, verify, inspect, diagnose, transform, and partition durable text and tabular uploads for bounded batch workflows.",
     aliases: ["file", "upload", "attachment", "document", "csv", "tsv", "jsonl", "table", "delimited text", "partition", "batch"], instructionFile: "files.md",
     attachmentHints: [
       { extensions: [".csv", ".tsv"], mimeIncludes: ["csv", "tab-separated"] },
     ],
-    readOnlyTools: ["file_get", "file_read", "file_text_search", "file_table_inspect", "file_table_transform_preview", "file_search"],
+    readOnlyTools: ["file_get", "file_structure_inspect", "file_read", "file_text_search", "file_table_inspect", "file_table_read_rows", "file_table_transform_preview", "file_search"],
   },
   {
     id: "database", title: "Database reads and receipts",

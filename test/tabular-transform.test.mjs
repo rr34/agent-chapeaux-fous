@@ -8,6 +8,7 @@ import {
   detectDelimiter,
   inspectDelimitedText,
   parseDelimitedRows,
+  readDelimitedRecords,
   transformDelimitedText,
 } from "../src/tabular-transform.mjs";
 import { registerFileTools } from "../src/tools/file-tools.mjs";
@@ -35,6 +36,47 @@ test("table inspection reads the complete source but returns bounded representat
   assert.deepEqual(inspected.headers, ["Transaction ID", "Account", "Amount"]);
   assert.equal(inspected.sampleRecords.length, 1);
   assert.equal(inspected.columns[1].distinctCount, 2);
+});
+
+test("an unnamed CSV column keeps its values and a unique positional name through transformation", () => {
+  const source = "Timestamp,Type,,column_3\n2026-09-16,Sell,source-note,existing-value\n";
+  const inspected = inspectDelimitedText(source, { delimiter: "comma", headerRow: true });
+  assert.deepEqual(inspected.headers, ["Timestamp", "Type", "column_3_2", "column_3"]);
+  assert.deepEqual(inspected.sampleRecords[0].values, {
+    Timestamp: "2026-09-16", Type: "Sell",
+    column_3_2: "source-note", column_3: "existing-value",
+  });
+
+  const transformed = transformDelimitedText(source, {
+    delimiter: "comma", headerRow: true,
+    mapping: { fields: [
+      { output_field: "note", source_column: "column_3_2" },
+      { output_field: "other", source_column: "column_3" },
+    ] },
+  });
+  assert.equal(transformed.exceptionRecordCount, 0);
+  assert.deepEqual(transformed.records[0].record, {
+    note: "source-note", other: "existing-value",
+  });
+  const duplicate = inspectDelimitedText("Name,Name\na,b\n", {
+    delimiter: "comma", headerRow: true,
+  });
+  assert.deepEqual(duplicate.headers, ["Name", "column_2"]);
+  assert.deepEqual(duplicate.headerAdjustments, [{
+    columnNumber: 2, sourceHeader: "Name", effectiveHeader: "column_2", reason: "duplicate",
+  }]);
+  assert.deepEqual(duplicate.sampleRecords[0].values, { Name: "a", column_2: "b" });
+  const page = readDelimitedRecords("Name,Name\na,b\nc,d,e\n", {
+    delimiter: "comma", headerRow: true, startRecord: 2, limit: 1,
+  });
+  assert.deepEqual(page.records[0], {
+    sourceRecordNumber: 2,
+    cells: ["c", "d", "e"],
+    values: { Name: "c", column_2: "d" },
+    matchesHeaderWidth: false,
+  });
+  assert.equal(page.totalRecordCount, 2);
+  assert.equal(page.hasMore, false);
 });
 
 test("one declarative mapping transforms every valid record and isolates exceptions", () => {
@@ -291,6 +333,42 @@ test("published file tool schema exposes exact timestamp and ratio transforms", 
   assert.equal(operation.properties.pattern.maxLength, 256);
   assert.deepEqual(operation.properties.side.enum, ["from_units", "to_units"]);
   assert.match(tool.description, /RE2 regex extraction\/replacement/);
+  assert.equal(registry.get("file_table_read_rows").annotations.readOnlyHint, true);
+});
+
+test("file tools expose header repairs and exact irregular rows from a verified upload", async (context) => {
+  const mediaRoot = fs.mkdtempSync(path.join(os.tmpdir(), "table-rows-"));
+  context.after(() => fs.rmSync(mediaRoot, { recursive: true, force: true }));
+  const source = "Date,Amount,,Amount\n2026-09-16,1,note,2\n2026-09-17,3,note,4,extra\n";
+  fs.writeFileSync(path.join(mediaRoot, "statement.csv"), source);
+  const stored = {
+    file_id: 8, storage_path: "media/statement.csv", original_filename: "statement.csv",
+    media_kind: "document", mime_type: "text/csv", byte_size: Buffer.byteLength(source),
+    sha256: createHash("sha256").update(source).digest("hex"),
+  };
+  const registry = new ToolRegistry();
+  registerFileTools(registry, {
+    ledger: {
+      file: () => stored,
+      fileDetails: () => ({ fileId: 8, originalFilename: "statement.csv" }),
+    },
+    searchCoordinator: {}, mediaRoot, maximumTextBytes: 4096,
+  });
+  const inspected = await registry.execute("file_table_inspect", {
+    file_id: 8, delimiter: "auto", header_row: true, sample_size: 1,
+  });
+  assert.deepEqual(inspected.headers, ["Date", "Amount", "column_3", "column_4"]);
+  assert.deepEqual(inspected.headerAdjustments.map(({ reason }) => reason), ["blank", "duplicate"]);
+  assert.deepEqual(inspected.inconsistentRecordNumbers, [2]);
+
+  const page = await registry.execute("file_table_read_rows", {
+    file_id: 8, delimiter: inspected.delimiter, header_row: true,
+    start_record: 2, limit: 1,
+  });
+  assert.deepEqual(page.records[0].cells, ["2026-09-17", "3", "note", "4", "extra"]);
+  assert.equal(page.records[0].matchesHeaderWidth, false);
+  assert.equal(page.hasMore, false);
+  assert.deepEqual(fs.readdirSync(mediaRoot), ["statement.csv"]);
 });
 
 test("read-only mapping preview checks a verified whole file before artifact creation", async (context) => {

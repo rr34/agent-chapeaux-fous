@@ -114,16 +114,69 @@ function table(text, { delimiter = "auto", headerRow = true } = {}) {
   const rows = parseDelimitedRows(text, resolvedDelimiter);
   if (rows.length === 0) throw new Error("Delimited file is empty");
   const maximumWidth = Math.max(...rows.map((row) => row.length));
-  const headers = headerRow
+  const sourceHeaders = headerRow
     ? rows[0].map((header) => String(header).trim())
     : Array.from({ length: maximumWidth }, (_unused, index) => `column_${index + 1}`);
-  if (headers.length > maximumColumns) throw new Error(`Delimited file exceeds ${maximumColumns} columns`);
-  if (headers.some((header) => !header)) throw new Error("Delimited file contains a blank header");
-  if (new Set(headers).size !== headers.length) throw new Error("Delimited file contains duplicate headers");
+  if (sourceHeaders.length > maximumColumns) throw new Error(`Delimited file exceeds ${maximumColumns} columns`);
+  const sourceNames = new Set(sourceHeaders.filter(Boolean));
+  const usedHeaders = new Set();
+  const headerAdjustments = [];
+  const headers = sourceHeaders.map((header, index) => {
+    if (header && !usedHeaders.has(header)) {
+      usedHeaders.add(header);
+      return header;
+    }
+    const base = `column_${index + 1}`;
+    let generated = base;
+    for (let suffix = 2; sourceNames.has(generated) || usedHeaders.has(generated); suffix += 1) {
+      generated = `${base}_${suffix}`;
+    }
+    usedHeaders.add(generated);
+    headerAdjustments.push({
+      columnNumber: index + 1,
+      sourceHeader: header,
+      effectiveHeader: generated,
+      reason: header ? "duplicate" : "blank",
+    });
+    return generated;
+  });
   return {
     delimiter: resolvedDelimiter,
     headers,
+    headerAdjustments,
     rows: headerRow ? rows.slice(1) : rows,
+  };
+}
+
+export function readDelimitedRecords(text, {
+  delimiter = "auto", headerRow = true, startRecord = 1, limit = 20,
+} = {}) {
+  if (!Number.isSafeInteger(startRecord) || startRecord < 1) {
+    throw new Error("startRecord must be a positive integer");
+  }
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
+    throw new Error("limit must be between 1 and 50");
+  }
+  const parsed = table(text, { delimiter, headerRow });
+  const records = parsed.rows.slice(startRecord - 1, startRecord - 1 + limit)
+    .map((cells, index) => ({
+      sourceRecordNumber: startRecord + index,
+      cells,
+      values: Object.fromEntries(parsed.headers.map((header, columnIndex) => (
+        [header, cells[columnIndex] ?? ""]
+      ))),
+      matchesHeaderWidth: cells.length === parsed.headers.length,
+    }));
+  const nextRecord = startRecord + records.length;
+  const hasMore = nextRecord <= parsed.rows.length;
+  return {
+    delimiter: parsed.delimiter,
+    headers: parsed.headers,
+    headerAdjustments: parsed.headerAdjustments,
+    totalRecordCount: parsed.rows.length,
+    records,
+    hasMore,
+    nextRecord: hasMore ? nextRecord : null,
   };
 }
 
@@ -179,6 +232,7 @@ export function inspectDelimitedText(text, options = {}) {
     delimiter: parsed.delimiter,
     delimiterName: [...delimiterNames.entries()].find(([, value]) => value === parsed.delimiter)?.[0] ?? "custom",
     headers: parsed.headers,
+    headerAdjustments: parsed.headerAdjustments,
     sourceRecordCount: nonblankRows.length,
     blankRecordCount: blankRowCount,
     inconsistentRecordCount: parsed.rows.filter((row) => nonblankRow(row) && row.length !== parsed.headers.length).length,
@@ -551,6 +605,7 @@ export function transformDelimitedText(text, {
   return {
     delimiter: parsed.delimiter,
     headers: parsed.headers,
+    headerAdjustments: parsed.headerAdjustments,
     sourceRecordCount: records.length + exceptions.length,
     blankRecordCount,
     transformedRecordCount: records.length,

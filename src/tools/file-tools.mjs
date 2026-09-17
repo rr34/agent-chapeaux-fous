@@ -3,8 +3,9 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { RE2JS } from "re2js";
 import { createFileArtifactSource } from "../artifact-source.mjs";
+import { inspectTextStructure } from "../file-structure-inspect.mjs";
 import { readTextAttachment } from "../request-attachments.mjs";
-import { inspectDelimitedText, transformDelimitedText } from "../tabular-transform.mjs";
+import { inspectDelimitedText, readDelimitedRecords, transformDelimitedText } from "../tabular-transform.mjs";
 
 const scalarSchema = { type: ["string", "number", "boolean", "null"] };
 const transformOperationSchema = {
@@ -80,6 +81,19 @@ const tableInputProperties = {
     description: "Use auto, comma, tab, semicolon, pipe, or one literal delimiter character.",
   },
   header_row: { type: "boolean", description: "Whether the first record contains column names." },
+};
+const headerAdjustmentsSchema = {
+  type: "array",
+  items: {
+    type: "object", additionalProperties: false,
+    properties: {
+      columnNumber: { type: "integer", minimum: 1 },
+      sourceHeader: { type: "string" },
+      effectiveHeader: { type: "string", minLength: 1 },
+      reason: { type: "string", enum: ["blank", "duplicate"] },
+    },
+    required: ["columnNumber", "sourceHeader", "effectiveHeader", "reason"],
+  },
 };
 const tableTransformParameters = {
   type: "object",
@@ -202,6 +216,39 @@ export function registerFileTools(registry, {
   });
 
   registry.register({
+    name: "file_structure_inspect",
+    description: "Verify and inspect the complete contents of one stored text attachment before choosing a format-specific tool. Reports the declared format and bounded structure for CSV, TSV, JSON, JSON Lines, vCard, or plain text, including parse issues and source counts. A needs_review status describes an issue to investigate with file_read or file_table_read_rows; it does not require the user to repair the upload.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { file_id: { type: "integer", minimum: 1 } }, required: ["file_id"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        file: { type: "object" }, verified: { type: "boolean", const: true },
+        encoding: { type: "string" },
+        declaredFormat: { type: "string" }, format: { type: "string" },
+        status: { type: "string", enum: ["parsed", "needs_review"] },
+        issues: { type: "array", items: { type: "object" } },
+        issueCount: { type: "integer", minimum: 0 },
+        issuesTruncated: { type: "boolean" },
+        structure: { type: "object" },
+      },
+      required: ["file", "verified", "encoding", "declaredFormat", "format", "status",
+        "issues", "issueCount", "issuesTruncated", "structure"],
+    },
+    async execute({ file_id: fileId }) {
+      const stored = ledger.file(fileId);
+      if (!stored) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
+      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumGeneratedBytes });
+      return {
+        file: requireFile(ledger, fileId), verified: true, encoding: verified.encoding,
+        ...inspectTextStructure(verified.text, verified.filename),
+      };
+    },
+  });
+
+  registry.register({
     name: "file_read",
     description: "Read a verified character range from one durably stored CSV, text, or vCard upload by stable file ID. The server rechecks the stored byte size and SHA-256 checksum before returning contents. For imports and other completeness-sensitive work, use a result_filter with no query or field projection and limits large enough to preserve the requested source page. Continue with next_offset while has_more is true, and do not submit a completeness-sensitive operation until every page has been read. Images cannot be read with this text tool.",
     parameters: {
@@ -313,7 +360,7 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_table_inspect",
-    description: "Inspect one complete verified delimited-text upload as a table without asking the model to read every record. Supports comma, tab, semicolon, pipe, or one explicit literal delimiter; auto detects the common choices. Returns exact record counts, headers, bounded samples, column profiles including decimal precision, and inconsistent-width record numbers so the model can design one safe declarative mapping for the whole file.",
+    description: "Inspect one complete verified delimited-text upload as a table without asking the model to read every record. Supports comma, tab, semicolon, pipe, or one explicit literal delimiter; auto detects the common choices. Blank and repeated header cells receive distinct positional names shared with the transform tools; headerAdjustments reports each change. Returns exact record counts, headers, bounded samples, column profiles including decimal precision, and inconsistent-width record numbers so the model can design one safe declarative mapping for the whole file.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -332,6 +379,7 @@ export function registerFileTools(registry, {
         delimiter: { type: "string", minLength: 1 },
         delimiterName: { type: "string" },
         headers: { type: "array", items: { type: "string" } },
+        headerAdjustments: headerAdjustmentsSchema,
         sourceRecordCount: { type: "integer", minimum: 0 },
         blankRecordCount: { type: "integer", minimum: 0 },
         inconsistentRecordCount: { type: "integer", minimum: 0 },
@@ -340,7 +388,7 @@ export function registerFileTools(registry, {
         sampleRecords: { type: "array", items: { type: "object" } },
       },
       required: [
-        "file", "verified", "encoding", "delimiter", "delimiterName", "headers",
+        "file", "verified", "encoding", "delimiter", "delimiterName", "headers", "headerAdjustments",
         "sourceRecordCount", "blankRecordCount", "inconsistentRecordCount",
         "inconsistentRecordNumbers", "columns", "sampleRecords",
       ],
@@ -359,6 +407,50 @@ export function registerFileTools(registry, {
   });
 
   registry.register({
+    name: "file_table_read_rows",
+    description: "Read an exact bounded page of parsed CSV or TSV records by source record number after inspection. Returns every cell in source order, the effective unique headers, and blank or duplicate header adjustments. Use this to inspect irregular rows or ambiguous columns without asking the user to edit the source file. The source file is verified again and is not changed.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        ...tableInputProperties,
+        start_record: { type: "integer", minimum: 1 },
+        limit: { type: "integer", minimum: 1, maximum: 50 },
+      },
+      required: ["file_id", "delimiter", "header_row", "start_record", "limit"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        file: { type: "object" }, verified: { type: "boolean", const: true },
+        encoding: { type: "string" }, delimiter: { type: "string", minLength: 1 },
+        headers: { type: "array", items: { type: "string" } },
+        headerAdjustments: headerAdjustmentsSchema,
+        totalRecordCount: { type: "integer", minimum: 0 },
+        records: { type: "array", items: { type: "object", properties: {
+          sourceRecordNumber: { type: "integer", minimum: 1 },
+          cells: { type: "array", items: { type: "string" } },
+          values: { type: "object" },
+          matchesHeaderWidth: { type: "boolean" },
+        }, required: ["sourceRecordNumber", "cells", "values", "matchesHeaderWidth"] } },
+        hasMore: { type: "boolean" },
+        nextRecord: { type: ["integer", "null"], minimum: 1 },
+      },
+      required: ["file", "verified", "encoding", "delimiter", "headers", "headerAdjustments",
+        "totalRecordCount", "records", "hasMore", "nextRecord"],
+    },
+    async execute({ file_id: fileId, delimiter, header_row: headerRow,
+      start_record: startRecord, limit }) {
+      const stored = ledger.file(fileId);
+      if (!stored) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
+      const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumGeneratedBytes });
+      return {
+        file: requireFile(ledger, fileId), verified: true, encoding: verified.encoding,
+        ...readDelimitedRecords(verified.text, { delimiter, headerRow, startRecord, limit }),
+      };
+    },
+  });
+
+  registry.register({
     name: "file_table_transform_preview",
     description: "Run a complete verified table through one declarative mapping, including RE2 regex extraction/replacement, without saving artifacts or changing data. Return exact transformed and exception counts plus bounded output and exception samples. Use the same mapping and target_schema with file_table_transform after reviewing this preview; matching mappingHash proves the same mapping was used.",
     parameters: tableTransformParameters,
@@ -370,6 +462,7 @@ export function registerFileTools(registry, {
         verified: { type: "boolean", const: true },
         delimiter: { type: "string", minLength: 1 },
         headers: { type: "array", items: { type: "string" } },
+        headerAdjustments: headerAdjustmentsSchema,
         mappingHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
         sourceRecordCount: { type: "integer", minimum: 0 },
         blankRecordCount: { type: "integer", minimum: 0 },
@@ -383,7 +476,7 @@ export function registerFileTools(registry, {
         exceptionPreviewTruncated: { type: "boolean" },
       },
       required: [
-        "sourceFile", "sourceSha256", "verified", "delimiter", "headers", "mappingHash",
+        "sourceFile", "sourceSha256", "verified", "delimiter", "headers", "headerAdjustments", "mappingHash",
         "sourceRecordCount", "blankRecordCount", "transformedRecordCount", "exceptionRecordCount",
         "accountedRecordCount", "complete", "outputPreview", "outputPreviewTruncated",
         "exceptionPreview", "exceptionPreviewTruncated",
@@ -402,6 +495,7 @@ export function registerFileTools(registry, {
         verified: true,
         delimiter: transformed.delimiter,
         headers: transformed.headers,
+        headerAdjustments: transformed.headerAdjustments,
         mappingHash: transformed.mappingHash,
         sourceRecordCount: transformed.sourceRecordCount,
         blankRecordCount: transformed.blankRecordCount,
@@ -430,6 +524,7 @@ export function registerFileTools(registry, {
         sourceSha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
         delimiter: { type: "string", minLength: 1 },
         headers: { type: "array", items: { type: "string" } },
+        headerAdjustments: headerAdjustmentsSchema,
         mappingHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
         sourceRecordCount: { type: "integer", minimum: 0 },
         blankRecordCount: { type: "integer", minimum: 0 },
@@ -443,7 +538,7 @@ export function registerFileTools(registry, {
         exceptionPreviewTruncated: { type: "boolean" },
       },
       required: [
-        "sourceFile", "sourceSha256", "delimiter", "headers", "mappingHash",
+        "sourceFile", "sourceSha256", "delimiter", "headers", "headerAdjustments", "mappingHash",
         "sourceRecordCount", "blankRecordCount", "transformedRecordCount",
         "exceptionRecordCount", "accountedRecordCount", "complete", "outputFile",
         "exceptionFile", "exceptionPreview", "exceptionPreviewTruncated",
@@ -493,6 +588,7 @@ export function registerFileTools(registry, {
         sourceSha256: verified.sha256,
         delimiter: transformed.delimiter,
         headers: transformed.headers,
+        headerAdjustments: transformed.headerAdjustments,
         mappingHash: transformed.mappingHash,
         sourceRecordCount: transformed.sourceRecordCount,
         blankRecordCount: transformed.blankRecordCount,

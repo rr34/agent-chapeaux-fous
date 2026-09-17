@@ -19,12 +19,33 @@ physical line numbers. Page from `nextLine` while `hasMore` is true. The exact
 record counts when quoted fields contain newlines. Use table inspection for
 record structure and completeness.
 
+When the file's structure is unknown, call `file_structure_inspect` first. It
+verifies the complete supported text file and returns a bounded structure and
+parse issues for CSV, TSV, JSON, JSON Lines, vCard, or plain text. A
+`needs_review` status means inspect the source with `file_read` or a focused
+table tool; it does not by itself justify asking the user to edit the file.
+
+Use the destination provider's published intake workflow when it has one.
+These file reads establish source evidence and prepare artifacts; they do not
+replace the destination's questions, validation, preview, or commit. Use a
+general declarative file transformation when that workflow calls for a mapped
+artifact or when no more focused intake path is advertised.
+
 For a CSV, TSV, or other delimited table, prefer `file_table_inspect` over
 reading every record into model context. Inspect returns exact whole-file
-counts, headers, bounded samples, and column profiles. Use those facts plus the
-destination's authoritative JSON Schema to create one declarative mapping.
-Then call `file_table_transform`: application code applies that mapping to the
-complete verified file and saves successful records as durable JSON Lines.
+counts, headers, bounded samples, and column profiles. Blank and repeated
+headers receive unique positional names; `headerAdjustments` records the
+original header and its effective name. This is a source description, not a
+reason to ask the user to edit or reupload the file. When a column or an
+inconsistent-width record needs closer inspection, call `file_table_read_rows`
+for its exact source record number. It returns every cell in source order,
+including cells beyond the header width. If table inspection fails for another
+reason, use `file_read` to examine the verified source before deciding that
+the user must supply a different file. When a mapped artifact is needed, use
+those facts plus the destination's authoritative JSON Schema to create one
+declarative mapping. Then call `file_table_transform`: application code applies
+that mapping to the complete verified file and saves successful records as
+durable JSON Lines.
 The model must not reproduce every source record. Use a literal delimiter and
 declared conversion operations only. For irregular fields, `regex_extract` and
 `regex_replace` accept model-chosen RE2 patterns and capture groups. A literal
