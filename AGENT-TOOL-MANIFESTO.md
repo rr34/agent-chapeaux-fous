@@ -161,31 +161,21 @@ primary object. An object reference narrows what the user and agent are
 discussing; it does not make a tool callable, authorize a mutation, or bypass
 the owning tool's validation.
 
-Before the first LLM call, the web client may show provisional candidates from
-a separate, authorized, read-only object search over selected database fields
-as the user composes a request. On submission it may refresh them against the
-exact request text while capability and tool candidates are prepared. A derived
-index is considered only if direct reads prove inadequate under the conditions
-above. Deterministic candidate matching does not decide what the user meant.
-Agent request processing does not make an unselected database read before
-execution or insert UI candidates into model context as verified evidence.
-Fresh object evidence enters execution only through named, bounded, read-only
-context views advertised to orientation and selected in the TurnBrief's strict
-`contextRequests`, or through an exact callable read tool during execution.
-Retrieved evidence passes through the search engine before it enters later
-model context. The LLM decides what the user meant from the exact request and
-verified evidence.
-
-The web client can animate this as a small, literal object trail: show the
-matched object's compact display, why it matched, and authorized related
-objects as quieter background choices. A user can correct a wrong candidate or
-select a related object to continue the conversation. Both actions become
-explicit user input with stable references for the active or following
-interaction. The trail shows candidate, verified, selected, and acted-on states
-accurately; it never portrays a provisional match as a completed read or
-mutation. The trace records the candidate source, match, user correction or
-selection, later verification, and actual tool effects so the visible feedback
-follows what the agent did.
+While the user composes a request in the Objects presentation, the web client
+may show provisional candidates in a separate draft section of the object
+stream. Its authorized, read-only search uses selected database fields. The
+composer remains a text input; the candidate section is separate from durable
+request history. A user selection or rejection becomes explicit request text
+with a stable reference. A derived index is considered only if direct reads
+prove inadequate under the conditions above. Deterministic candidate matching
+does not decide what the user meant. Agent request processing does not make an
+unselected database read before execution or insert UI candidates into model
+context as verified evidence. Fresh object evidence enters execution only
+through named, bounded, read-only context views advertised to orientation and
+selected in the TurnBrief's strict `contextRequests`, or through an exact
+callable read tool during execution. Retrieved evidence passes through the
+search engine before it enters later model context. The LLM decides what the
+user meant from the exact request and verified evidence.
 
 The interaction surface may also present the durable request history as an
 object stream beside the complete conversation view. Each interaction shows the

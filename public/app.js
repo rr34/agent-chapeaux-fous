@@ -24,9 +24,6 @@ const elements = {
   composer: document.querySelector("#chat-composer"),
   form: document.querySelector("#request-form"),
   text: document.querySelector("#request-text"),
-  objectTrail: document.querySelector("#composer-object-trail"),
-  objectList: document.querySelector("#composer-object-list"),
-  objectTrailClose: document.querySelector("#object-trail-close"),
   send: document.querySelector("#send"),
   catchUp: document.querySelector("#catch-up"),
   catchUpStatus: document.querySelector("#catch-up-status"),
@@ -92,6 +89,9 @@ const elements = {
   objectStreamTab: document.querySelector("#object-stream-tab"),
   objectStream: document.querySelector("#object-stream"),
   objectStreamEmpty: document.querySelector("#object-stream-empty"),
+  objectDraft: document.querySelector("#object-draft"),
+  objectDraftList: document.querySelector("#object-draft-list"),
+  objectDraftClose: document.querySelector("#object-draft-close"),
   scrollLatest: document.querySelector("#scroll-latest"),
   empty: document.querySelector("#empty"),
   template: document.querySelector("#request-template"),
@@ -494,20 +494,28 @@ function resizeRequestText() {
 let objectSearchTimer = null;
 let objectSearchController = null;
 let objectSearchVersion = 0;
+let objectSuggestionsHidden = false;
 const dismissedObjectRefs = new Set();
 const selectedObjectRefs = new Set();
 
-function clearObjectTrail({ resetDismissed = false } = {}) {
+function updateObjectDraftVisibility() {
+  elements.objectDraft.hidden = elements.objectDraftList.children.length === 0;
+  elements.objectStreamEmpty.hidden = elements.objectStream.children.length > 0 || !elements.objectDraft.hidden;
+}
+
+function clearObjectDraft({ resetSelection = false, hideForDraft = false } = {}) {
   clearTimeout(objectSearchTimer);
   objectSearchController?.abort();
   objectSearchVersion += 1;
-  elements.objectTrail.classList.remove("searching");
-  elements.objectTrail.hidden = true;
-  elements.objectList.replaceChildren();
-  if (resetDismissed) {
+  elements.objectDraft.classList.remove("searching");
+  elements.objectDraftList.replaceChildren();
+  updateObjectDraftVisibility();
+  if (resetSelection) {
     dismissedObjectRefs.clear();
     selectedObjectRefs.clear();
+    objectSuggestionsHidden = false;
   }
+  if (hideForDraft) objectSuggestionsHidden = true;
 }
 
 function addObjectToRequest(object, { rejected = false, related = false } = {}) {
@@ -525,22 +533,19 @@ function addObjectToRequest(object, { rejected = false, related = false } = {}) 
   elements.text.focus();
 }
 
-function renderObjectTrail(objects) {
+function renderDraftObjects(objects) {
   const visible = objects.filter(({ ref }) => !dismissedObjectRefs.has(ref));
-  elements.objectTrail.classList.remove("searching");
-  elements.objectTrail.hidden = visible.length === 0;
-  elements.objectList.replaceChildren(...visible.map((object, index) => {
-    const card = node("article", "object-card");
+  elements.objectDraft.classList.remove("searching");
+  elements.objectDraftList.replaceChildren(...visible.map((object) => {
+    const card = node("article", "draft-object-card");
     card.classList.toggle("selected", selectedObjectRefs.has(object.ref));
-    card.style.setProperty("--arrival-delay", `${index * 45}ms`);
-    const main = node("div", "object-card-main");
-    const copy = node("div", "object-card-copy");
+    const copy = node("div", "draft-object-copy");
     copy.append(
-      node("span", "object-card-kind", `${object.label} · matched ${object.matchedOn.join(", ")}`),
-      node("strong", "object-card-title", object.title),
+      node("span", "draft-object-kind", `${object.label} · matched ${object.matchedOn.join(", ")}`),
+      node("strong", "draft-object-title", object.title),
     );
-    if (object.detail) copy.append(node("span", "object-card-detail", object.detail));
-    const actions = node("div", "object-card-actions");
+    if (object.detail) copy.append(node("span", "draft-object-detail", object.detail));
+    const actions = node("div", "draft-object-actions");
     const focus = node("button", "secondary compact", selectedObjectRefs.has(object.ref) ? "Added" : "Use this");
     focus.type = "button";
     focus.disabled = selectedObjectRefs.has(object.ref);
@@ -551,22 +556,23 @@ function renderObjectTrail(objects) {
       focus.textContent = "Added";
       focus.disabled = true;
     });
-    const dismiss = node("button", "object-card-dismiss", "Not this");
+    const dismiss = node("button", "draft-object-dismiss", "Not this");
     dismiss.type = "button";
     dismiss.setAttribute("aria-label", `Exclude ${object.label} ${object.title} from the request`);
     dismiss.addEventListener("click", () => {
       dismissedObjectRefs.add(object.ref);
       addObjectToRequest(object, { rejected: true });
       card.remove();
-      if (!elements.objectList.children.length) elements.objectTrail.hidden = true;
+      updateObjectDraftVisibility();
     });
     actions.append(focus, dismiss);
+    const main = node("div", "draft-object-main");
     main.append(copy, actions);
     card.append(main);
     if (object.related?.length) {
-      const relations = node("div", "object-card-relations");
+      const relations = node("div", "draft-object-relations");
       for (const related of object.related) {
-        const button = node("button", "object-related", `${selectedObjectRefs.has(related.ref) ? "✓ " : ""}${related.label}: ${related.title}`);
+        const button = node("button", "draft-object-related", `${selectedObjectRefs.has(related.ref) ? "✓ " : ""}${related.label}: ${related.title}`);
         button.type = "button";
         button.disabled = selectedObjectRefs.has(related.ref);
         button.title = `Discuss ${related.label.toLowerCase()} ${related.title}`;
@@ -581,6 +587,8 @@ function renderObjectTrail(objects) {
     }
     return card;
   }));
+  updateObjectDraftVisibility();
+  if (!elements.objectDraft.hidden) scrollObjectStreamToLatest();
 }
 
 function scheduleObjectSearch() {
@@ -588,11 +596,18 @@ function scheduleObjectSearch() {
   objectSearchController?.abort();
   const version = ++objectSearchVersion;
   const query = elements.text.value.trim().slice(-400);
-  if (query.length < 2 || elements.composer.classList.contains("recording")) {
-    elements.objectTrail.hidden = true;
+  if (!query) {
+    dismissedObjectRefs.clear();
+    selectedObjectRefs.clear();
+    objectSuggestionsHidden = false;
+  }
+  if (query.length < 2 || agentPresentation !== "objects" || activeView !== "agent"
+      || elements.composer.classList.contains("recording") || objectSuggestionsHidden) {
+    elements.objectDraftList.replaceChildren();
+    updateObjectDraftVisibility();
     return;
   }
-  if (!elements.objectTrail.hidden) elements.objectTrail.classList.add("searching");
+  if (!elements.objectDraft.hidden) elements.objectDraft.classList.add("searching");
   objectSearchTimer = setTimeout(async () => {
     const controller = new AbortController();
     objectSearchController = controller;
@@ -601,9 +616,9 @@ function scheduleObjectSearch() {
         signal: controller.signal,
       });
       if (version !== objectSearchVersion || query !== elements.text.value.trim().slice(-400)) return;
-      renderObjectTrail(result.objects || []);
+      renderDraftObjects(result.objects || []);
     } catch (error) {
-      if (error.name !== "AbortError" && version === objectSearchVersion) clearObjectTrail();
+      if (error.name !== "AbortError" && version === objectSearchVersion) clearObjectDraft();
     } finally {
       if (objectSearchController === controller) objectSearchController = null;
     }
@@ -795,6 +810,7 @@ function setAgentPresentation(presentation, { save = true } = {}) {
     if (showingObjects) scrollObjectStreamToLatest();
     else scrollChatToLatest();
   }
+  scheduleObjectSearch();
   scheduleScrollLatestButtonUpdate();
 }
 
@@ -959,6 +975,7 @@ function placeIdentityInComposer(identity) {
   elements.text.value = existingText ? `${reference}\n\n${existingText}` : `${reference}\n\n`;
   resizeRequestText();
   switchView("agent");
+  scheduleObjectSearch();
   elements.text.focus();
   elements.text.setSelectionRange(elements.text.value.length, elements.text.value.length);
 }
@@ -2144,7 +2161,8 @@ function scrollChatToLatest({ behavior = "auto" } = {}) {
 function scrollObjectStreamToLatest() {
   requestAnimationFrame(() => {
     if (activeView !== "agent" || agentPresentation !== "objects") return;
-    elements.objectStream.lastElementChild?.scrollIntoView({ block: "end", behavior: "auto" });
+    const latest = elements.objectDraft.hidden ? elements.objectStream.lastElementChild : elements.objectDraft;
+    latest?.scrollIntoView({ block: "end", behavior: "auto" });
   });
 }
 
@@ -2178,7 +2196,7 @@ async function loadRequests({ force = false, followLatest = false } = {}) {
   }
   updateVideoScriptSelection();
   elements.empty.hidden = body.requests.length > 0;
-  elements.objectStreamEmpty.hidden = body.requests.length > 0;
+  elements.objectStreamEmpty.hidden = body.requests.length > 0 || !elements.objectDraft.hidden;
   renderAgentMascot(elements.agentMascot, body.requests[0] ? requestHats(body.requests[0]) : []);
   speakCompletedResponses(body.requests);
   const transcriptChangedHeight = elements.list.offsetHeight !== previousListHeight;
@@ -2462,6 +2480,7 @@ function switchView(view) {
     if (agentPresentation === "conversation") scrollChatToLatest();
     else scrollObjectStreamToLatest();
   }
+  if (view !== previousView) scheduleObjectSearch();
   scheduleScrollLatestButtonUpdate();
 }
 
@@ -5812,7 +5831,7 @@ async function submitTextRequest({ catchUp = false } = {}) {
     if (!catchUp) {
       elements.text.value = "";
       resizeRequestText();
-      clearObjectTrail({ resetDismissed: true });
+      clearObjectDraft({ resetSelection: true });
       elements.requestFile.value = "";
       elements.requestExistingFile.value = "";
       updateRequestFileSelection();
@@ -5851,7 +5870,7 @@ elements.text.addEventListener("input", () => {
   resizeRequestText();
   scheduleObjectSearch();
 });
-elements.objectTrailClose.addEventListener("click", () => clearObjectTrail());
+elements.objectDraftClose.addEventListener("click", () => clearObjectDraft({ hideForDraft: true }));
 elements.composerAttachFile.addEventListener("click", () => elements.requestFile.click());
 elements.requestFile.addEventListener("change", () => {
   if (elements.requestFile.files?.length) elements.requestExistingFile.value = "";
@@ -5957,7 +5976,7 @@ elements.record.addEventListener("click", async () => {
     recorder.start(1000);
     recordingStartedAt = Date.now();
     elements.composer.classList.add("recording");
-    clearObjectTrail();
+    clearObjectDraft();
     elements.record.classList.add("recording");
     elements.cancelRecording.hidden = false;
     elements.record.setAttribute("aria-label", "Microphone input level");

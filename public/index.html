@@ -86,6 +86,16 @@
       <section id="object-stream-view" class="object-stream-view" role="tabpanel" aria-labelledby="object-stream-tab">
         <div id="object-stream" class="object-stream" aria-live="polite"></div>
         <p id="object-stream-empty" class="empty">Objects used and changed by Chapeaux Fous will appear here.</p>
+        <section id="object-draft" class="object-draft" aria-labelledby="object-draft-title" hidden>
+          <div class="object-draft-heading">
+            <div>
+              <p class="eyebrow">Current draft · possible matches</p>
+              <h2 id="object-draft-title">Objects in your words</h2>
+            </div>
+            <button id="object-draft-close" class="secondary compact" type="button" aria-label="Hide object suggestions for this draft">Hide</button>
+          </div>
+          <div id="object-draft-list" class="object-draft-list" aria-live="polite"></div>
+        </section>
       </section>
       <section id="conversation-stream-view" class="requests" role="tabpanel" aria-labelledby="conversation-tab" aria-label="Chronological requests" hidden>
         <div id="request-list" class="request-list"></div>
@@ -544,13 +554,6 @@
     </div>
     <h2 id="request-heading" class="sr-only">New request</h2>
     <form id="request-form">
-      <section id="composer-object-trail" class="composer-object-trail" aria-label="Possible native objects" hidden>
-        <div class="object-trail-heading">
-          <span>Objects in your words</span>
-          <button id="object-trail-close" class="object-trail-close" type="button" aria-label="Hide object suggestions">×</button>
-        </div>
-        <div id="composer-object-list" class="composer-object-list"></div>
-      </section>
       <div class="composer-input-row">
         <button id="cancel-recording" class="secondary compact cancel-recording" type="button" aria-label="Cancel recording" title="Cancel recording" hidden><span aria-hidden="true">×</span><span>Cancel</span></button>
         <button id="composer-attach-file" class="composer-attachment-button" type="button" aria-label="Attach a file" title="Attach a file">
