@@ -122,6 +122,46 @@ test("the result boundary deterministically searches, projects, and limits a rec
   assert.match(result.deliveredResult.result_filter.requiredAction, /Do not treat this partial result/);
 });
 
+test("a matching account remains inline when MCP resource links duplicate source references", () => {
+  const accounts = Array.from({ length: 273 }, (_, index) => ({
+    id: index + 1,
+    name: index === 163 ? "Coinbase" : `Account ${index + 1}`,
+    currencyCode: index === 163 ? "BTC" : "USD",
+  }));
+  const sourceRefs = accounts.map(({ id }) => `accounting://accounts/${id}`);
+  const result = new ResultFilterBoundary().filterReadResult({
+    accounts,
+    resultMetadata: { complete: true, returned: accounts.length, sourceRefs },
+    mcpSupplementalContent: [
+      ...sourceRefs.map((uri) => ({ type: "resource_link", uri, name: uri,
+        description: "Stable Accounting MCP reference for this result." })),
+      { type: "text", text: "Additional provider note" },
+    ],
+  }, {
+    requestId: "account-lookup",
+    interactionId: "read-accounts",
+    tool: "remote_accounting_list_account_objects",
+    source: "mcp:accounting",
+    receiptEventSeq: 17,
+    filterRequest: filterRequest({
+      query: "coinbase", match_mode: "phrase",
+      include_fields: ["id", "name", "currencyCode"], max_characters: 20000,
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.receipt.collectionPath, "/accounts");
+  assert.equal(result.paged, false);
+  assert.deepEqual(result.deliveredResult.accounts, [
+    { id: 164, name: "Coinbase", currencyCode: "BTC" },
+  ]);
+  assert.deepEqual(result.deliveredResult.mcpSupplementalContent,
+    [{ type: "text", text: "Additional provider note" }]);
+  assert.equal(result.deliveredResult.resultMetadata.sourceRefs[163],
+    "accounting://accounts/164");
+  assert.equal(result.receipt.summary.prunedByReason.duplicate_resource_links, 273);
+});
+
 test("the agent can preserve a complete collection when completeness is worth the context cost", () => {
   const boundary = new ResultFilterBoundary();
   const records = Array.from({ length: 273 }, (_, index) => ({ id: index + 1 }));

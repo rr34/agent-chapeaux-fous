@@ -97,7 +97,9 @@ function replaceAtPointer(value, pointer, replacement) {
 function automaticCollectionPointer(value) {
   if (Array.isArray(value)) return "";
   if (!value || typeof value !== "object") return null;
-  const candidates = Object.entries(value).filter(([, entry]) => Array.isArray(entry));
+  const candidates = Object.entries(value).filter(([name, entry]) => (
+    name !== "mcpSupplementalContent" && Array.isArray(entry)
+  ));
   if (candidates.length === 1) return `/${candidates[0][0].replaceAll("~", "~0").replaceAll("/", "~1")}`;
   return null;
 }
@@ -142,6 +144,25 @@ function projectedItem(value, includeFields, excludeFields) {
     if (exclude.has(field)) return false;
     return include.size === 0 || include.has(field);
   }));
+}
+
+function omitDuplicateResourceLinks(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { value, omitted: 0 };
+  const sourceRefs = value.resultMetadata?.sourceRefs;
+  const supplemental = value.mcpSupplementalContent;
+  if (!Array.isArray(sourceRefs) || !Array.isArray(supplemental)) {
+    return { value, omitted: 0 };
+  }
+  const references = new Set(sourceRefs.filter((ref) => typeof ref === "string"));
+  const retained = supplemental.filter((item) => (
+    item?.type !== "resource_link" || !references.has(item.uri)
+  ));
+  const omitted = supplemental.length - retained.length;
+  if (!omitted) return { value, omitted: 0 };
+  const compact = { ...value };
+  if (retained.length) compact.mcpSupplementalContent = retained;
+  else delete compact.mcpSupplementalContent;
+  return { value: compact, omitted };
 }
 
 function protocolReceipt({
@@ -300,7 +321,15 @@ export class ResultFilterBoundary {
       return { ok: false, error: message, deliveredResult: { result_filter: receipt }, receipt, paged: false };
     }
 
-    const usefulSerialized = JSON.stringify(filtered);
+    let usefulSerialized = JSON.stringify(filtered);
+    if (usefulSerialized.length > filterRequest.max_characters) {
+      const compact = omitDuplicateResourceLinks(filtered);
+      if (compact.omitted) {
+        filtered = compact.value;
+        prunedByReason.duplicate_resource_links = compact.omitted;
+        usefulSerialized = JSON.stringify(filtered);
+      }
+    }
     const overMaximum = usefulSerialized.length > filterRequest.max_characters;
     const nativePage = overMaximum
       ? (tool === "tool_receipt_read"
