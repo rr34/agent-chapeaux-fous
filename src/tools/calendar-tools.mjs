@@ -45,6 +45,14 @@ const calendarEventRecordSchema = {
         todo_group_id: {}, group_name: {},
       } },
     },
+    linked_contacts: {
+      type: "array",
+      description: "Contacts associated with this concrete event, including their participant roles and any recorded response status. A role of other is a neutral association and does not imply an invitation was sent.",
+      items: { type: "object", properties: {
+        contact_id: {}, display_name: {}, contact_status: {},
+        participant_role: {}, response_status: {},
+      } },
+    },
   },
 };
 
@@ -144,7 +152,15 @@ function calendarEventWithTodos(database, id) {
     personal_task_id: Number(link.personal_task_id),
     todo_group_id: Number(link.todo_group_id),
   }));
-  return { ...row, linked_todos: linkedTodos };
+  const linkedContacts = database.prepare(`
+    SELECT relation.contact_id, contact.display_name, contact.status AS contact_status,
+           relation.participant_role, relation.response_status
+    FROM calendar_event_contacts_join AS relation
+    JOIN contacts AS contact USING (contact_id)
+    WHERE relation.calendar_event_id = ?
+    ORDER BY contact.display_name, relation.participant_role
+  `).all(id).map((link) => ({ ...link, contact_id: Number(link.contact_id) }));
+  return { ...row, linked_todos: linkedTodos, linked_contacts: linkedContacts };
 }
 
 function requireCalendarEvent(database, id) {
@@ -155,7 +171,7 @@ function requireCalendarEvent(database, id) {
 
 function changed(before, after) {
   return Object.fromEntries(Object.keys(after)
-    .filter((field) => field !== "linked_todos" && before[field] !== after[field])
+    .filter((field) => !["linked_todos", "linked_contacts"].includes(field) && before[field] !== after[field])
     .map((field) => [field, { before: before[field], after: after[field] }]));
 }
 
@@ -554,6 +570,30 @@ export function registerCalendarTools(
         database.exec("ROLLBACK");
         throw error;
       }
+    },
+  });
+
+  registry.register({
+    name: "calendar_event_contact_link_set",
+    description: "Link or unlink one existing contact on one concrete calendar event. Resolve the contact with contact_search or contact_lookup_batch. Use participant_role=other for a neutral association such as 'mark this event with Brian'; attendee means actual attendance or invitation, customer means the customer, and organizer means the organizer. This stores an association only: it sends no invitation and changes no to-dos. A recurring master must first be resolved to a concrete occurrence.",
+    outputSchema: { type: "object", properties: {
+      changed: { type: "boolean", description: "False when this exact link was already in the requested state." },
+      event: calendarEventRecordSchema,
+    }, required: ["changed", "event"] },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      calendar_event_id: { type: "integer", minimum: 1, description: "Existing concrete calendar event ID, not a recurring master." },
+      contact_id: { type: "integer", minimum: 1, description: "Existing contact ID from an authoritative contact read." },
+      participant_role: { type: "string", enum: ["organizer", "attendee", "customer", "other"], description: "Relationship to this event. Use other if the request only asks to associate a contact." },
+      linked: { type: "boolean", description: "True adds this contact and role; false removes only this exact contact and role." },
+    }, required: ["calendar_event_id", "contact_id", "participant_role", "linked"] },
+    async execute(input, context) {
+      const result = organizer.changeCalendarEventContactLink(input.calendar_event_id, {
+        contactId: input.contact_id, participantRole: input.participant_role, linked: input.linked,
+      }, { actorType: "tool", actorName: "calendar_event_contact_link_set",
+        source: "agent-slayer", channel: context.channel, requestId: context.requestId,
+        callId: context.callId });
+      return { changed: result.changed,
+        event: calendarEventWithTodos(store.requireReady(), input.calendar_event_id) };
     },
   });
 

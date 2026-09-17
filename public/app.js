@@ -230,6 +230,12 @@ const elements = {
   eventRepeatSummary: document.querySelector("#event-repeat-summary"),
   eventFormError: document.querySelector("#event-form-error"),
   eventDelete: document.querySelector("#event-delete"),
+  eventContactSection: document.querySelector("#event-contact-section"),
+  eventContactList: document.querySelector("#event-contact-list"),
+  eventContactSelect: document.querySelector("#event-contact-select"),
+  eventContactRole: document.querySelector("#event-contact-role"),
+  eventContactAdd: document.querySelector("#event-contact-add"),
+  eventContactError: document.querySelector("#event-contact-error"),
   eventInviteDraft: document.querySelector("#event-invite-draft"),
   eventInviteDialog: document.querySelector("#event-invite-dialog"),
   eventInviteForm: document.querySelector("#event-invite-form"),
@@ -421,6 +427,7 @@ let routineWeekPattern = Array.from({ length: 7 }, () => []);
 let routineOccurrences = [];
 let routineDefinitions = [];
 let editingRoutineDefinition = false;
+let editingEventContacts = [];
 let eventInviteEventId = null;
 let eventInviteContacts = [];
 let eventInviteSelectedContactIds = new Set();
@@ -2421,6 +2428,9 @@ function calendarEventCopyText(calendarEvent) {
   if (calendarEvent.recurrenceRule) lines.push(`Repeats: ${describeTodoRecurrence(calendarEvent.recurrenceRule)}`);
   if (calendarEvent.location) lines.push(`Where: ${calendarEvent.location}`);
   if (calendarEvent.description) lines.push("", calendarEvent.description);
+  if (calendarEvent.linkedContacts?.length) {
+    lines.push(`Contacts: ${calendarEvent.linkedContacts.map(({ displayName }) => displayName).join(", ")}`);
+  }
   if (calendarEvent.planningPromptText) lines.push("", `Planning prompt: ${calendarEvent.planningPromptText}`);
   return lines.join("\n");
 }
@@ -2791,6 +2801,9 @@ function renderCalendarSearchResults(events, { error = null } = {}) {
     const details = [
       calendarEvent.location,
       calendarEvent.recurrenceRule ? describeTodoRecurrence(calendarEvent.recurrenceRule) : null,
+      calendarEvent.linkedContacts?.length
+        ? `Contacts: ${calendarEvent.linkedContacts.map(({ displayName }) => displayName).join(", ")}`
+        : null,
       calendarEvent.status === "archived" ? "Archived" : null,
     ].filter(Boolean);
     if (details.length) open.append(node("span", "calendar-search-result-meta", details.join(" · ")));
@@ -2902,6 +2915,10 @@ function agendaEventItem(calendarEvent, { allDay = false } = {}) {
     }
     if (description) button.append(node("span", "agenda-item-description", description));
     if (details) button.append(node("span", "agenda-item-details", details));
+    if (calendarEvent.linkedContacts?.length) {
+      button.append(node("span", "agenda-item-details",
+        `Contacts: ${calendarEvent.linkedContacts.map(({ displayName }) => displayName).join(", ")}`));
+    }
     if (calendarEvent.seriesId) {
       button.title = "Edit this recurring event series.";
       button.addEventListener("click", () => openEventEditor({
@@ -3016,6 +3033,69 @@ function renderAgenda() {
   }
 }
 
+function renderEventContacts() {
+  elements.eventContactList.replaceChildren();
+  if (!editingEventContacts.length) {
+    elements.eventContactList.append(node("p", "empty", "No contacts linked."));
+    return;
+  }
+  for (const link of editingEventContacts) {
+    const row = node("div", "event-contact-row");
+    const role = link.participantRole === "other" ? "linked contact" : link.participantRole;
+    row.append(node("span", "", `${link.displayName} · ${role}`));
+    const remove = node("button", "secondary compact", "Remove");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Remove ${link.displayName} as ${role}`);
+    remove.addEventListener("click", () => void changeEditedEventContact({
+      contactId: link.contactId, participantRole: link.participantRole, linked: false,
+    }, remove));
+    row.append(remove);
+    elements.eventContactList.append(row);
+  }
+}
+
+async function loadEventContactOptions() {
+  const eventId = elements.eventId.value;
+  elements.eventContactSelect.replaceChildren(node("option", "", "Loading contacts…"));
+  elements.eventContactAdd.disabled = true;
+  try {
+    const body = await api("/api/contacts?scope=active&limit=10000");
+    if (!elements.eventDialog.open || elements.eventContactSection.hidden || elements.eventId.value !== eventId) return;
+    elements.eventContactSelect.replaceChildren();
+    for (const contact of body.contacts) {
+      const option = node("option", "", contact.displayName);
+      option.value = String(contact.id);
+      elements.eventContactSelect.append(option);
+    }
+    elements.eventContactAdd.disabled = body.contacts.length === 0;
+  } catch (error) {
+    elements.eventContactSelect.replaceChildren();
+    elements.eventContactError.textContent = error.message || "Could not load contacts.";
+  }
+}
+
+async function changeEditedEventContact(input, control) {
+  const eventId = Number(elements.eventId.value);
+  if (!Number.isSafeInteger(eventId) || eventId <= 0) return;
+  elements.eventContactError.textContent = "";
+  control.disabled = true;
+  try {
+    const body = await api(`/api/calendar-events/${eventId}/contact-links`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    editingEventContacts = body.event.linkedContacts;
+    elements.eventVersion.value = body.event.version;
+    renderEventContacts();
+    await refreshCalendar();
+  } catch (error) {
+    elements.eventContactError.textContent = error.message || "Could not change the event contact.";
+  } finally {
+    control.disabled = false;
+  }
+}
+
 function openEventEditor(calendarEvent = null, { routine = false } = {}) {
   editingRoutineDefinition = routine;
   elements.eventForm.reset();
@@ -3049,8 +3129,13 @@ function openEventEditor(calendarEvent = null, { routine = false } = {}) {
   }
   elements.eventStatus.closest("label").hidden = routine;
   elements.eventDelete.hidden = routine || !calendarEvent;
+  editingEventContacts = calendarEvent?.linkedContacts ?? [];
+  elements.eventContactError.textContent = "";
+  elements.eventContactSection.hidden = routine || !calendarEvent || Boolean(calendarEvent.recurrenceRule);
+  renderEventContacts();
   updateEventInviteDraftAvailability();
   elements.eventDialog.showModal();
+  if (!elements.eventContactSection.hidden) void loadEventContactOptions();
   elements.eventTitle.focus();
 }
 
@@ -6202,6 +6287,13 @@ elements.calendarSearchIncludeArchived.addEventListener("change", () => {
 });
 elements.eventForm.addEventListener("submit", saveEvent);
 elements.eventDelete.addEventListener("click", () => void deleteEditedEvent());
+elements.eventContactAdd.addEventListener("click", () => {
+  const contactId = Number(elements.eventContactSelect.value);
+  if (!Number.isSafeInteger(contactId) || contactId <= 0) return;
+  void changeEditedEventContact({
+    contactId, participantRole: elements.eventContactRole.value, linked: true,
+  }, elements.eventContactAdd);
+});
 elements.eventInviteDraft.addEventListener("click", () => void openEventInviteDraft());
 elements.eventInviteSearch.addEventListener("input", renderEventInviteContacts);
 elements.eventInviteForm.addEventListener("submit", createEventInviteDraft);

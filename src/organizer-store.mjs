@@ -729,9 +729,33 @@ function calendarEventTodoLinks(database, eventIds) {
   return byEvent;
 }
 
-function attachCalendarEventTodoLinks(database, events) {
+function attachCalendarEventLinks(database, events) {
+  const eventId = (event) => Number(event.seriesId ?? event.id);
   const links = calendarEventTodoLinks(database, events.map(({ id }) => id));
-  return events.map((event) => ({ ...event, linkedTodos: links.get(Number(event.id)) ?? [] }));
+  const ids = [...new Set(events.map(eventId).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  const contactsByEvent = new Map(ids.map((id) => [id, []]));
+  if (ids.length) {
+    const contacts = database.prepare(`
+      SELECT relation.calendar_event_id, relation.contact_id, relation.participant_role,
+             relation.response_status, contact.display_name, contact.status AS contact_status
+      FROM calendar_event_contacts_join AS relation
+      JOIN contacts AS contact USING (contact_id)
+      WHERE relation.calendar_event_id IN (${ids.map(() => "?").join(", ")})
+      ORDER BY relation.calendar_event_id, contact.display_name, relation.participant_role
+    `).all(...ids);
+    for (const row of contacts) contactsByEvent.get(Number(row.calendar_event_id)).push({
+      contactId: Number(row.contact_id),
+      displayName: row.display_name,
+      contactStatus: row.contact_status,
+      participantRole: row.participant_role,
+      responseStatus: row.response_status,
+    });
+  }
+  return events.map((event) => ({
+    ...event,
+    linkedTodos: links.get(Number(event.id)) ?? [],
+    linkedContacts: contactsByEvent.get(eventId(event)) ?? [],
+  }));
 }
 
 function publicTodoCalendarLink(row) {
@@ -1911,7 +1935,7 @@ export class OrganizerStore {
     if (strictBounds && ordinary.length + recurring.length > 2000) {
       throw new OrganizerInputError("Calendar exceeded 2000 occurrences; narrow the catch-up date range.");
     }
-    return attachCalendarEventTodoLinks(this.database, [...ordinary, ...recurring, ...birthdays]
+    return attachCalendarEventLinks(this.database, [...ordinary, ...recurring, ...birthdays]
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc) || String(left.id).localeCompare(String(right.id)))
       .slice(0, 2000));
   }
@@ -1921,7 +1945,7 @@ export class OrganizerStore {
     return {
       query: result.query,
       includeArchived: result.includeArchived,
-      events: attachCalendarEventTodoLinks(this.database, result.rows.map(publicCalendarEvent)),
+      events: attachCalendarEventLinks(this.database, result.rows.map(publicCalendarEvent)),
     };
   }
 
@@ -3203,7 +3227,65 @@ export class OrganizerStore {
     const event = publicCalendarEvent(this.database.prepare(
       "SELECT * FROM calendar_events WHERE calendar_event_id = ?",
     ).get(identifier(id, "calendar event id")));
-    return event ? attachCalendarEventTodoLinks(this.database, [event])[0] : null;
+    return event ? attachCalendarEventLinks(this.database, [event])[0] : null;
+  }
+
+  changeCalendarEventContactLink(idValue, input, context = {}) {
+    const id = identifier(idValue, "calendar event id");
+    const contactId = identifier(input?.contactId, "contact id");
+    const role = enumValue(input?.participantRole,
+      new Set(["organizer", "attendee", "customer", "other"]), "participantRole", "other");
+    if (typeof input?.linked !== "boolean") throw new OrganizerInputError("linked must be a boolean.");
+    const event = this.getCalendar(id);
+    if (!event) throw new OrganizerInputError("Calendar event not found.", 404);
+    if (event.recurrenceRule) {
+      throw new OrganizerInputError("Link a contact to a concrete event occurrence, not a recurring series.", 409);
+    }
+    if (input.linked) {
+      const contact = this.getContact(contactId);
+      if (!contact) throw new OrganizerInputError("Contact not found.", 404);
+      if (contact.status !== "active") throw new OrganizerInputError("Only active contacts can be linked to an event.", 409);
+    }
+    const existing = this.database.prepare(`
+      SELECT contact_id FROM calendar_event_contacts_join
+      WHERE calendar_event_id = ? AND contact_id = ? AND participant_role = ?
+    `).get(id, contactId, role);
+    if (Boolean(existing) === input.linked) return { changed: false, event };
+    this.database.exec("START TRANSACTION");
+    try {
+      if (input.linked) {
+        this.database.prepare(`
+          INSERT INTO calendar_event_contacts_join
+            (calendar_event_id, contact_id, participant_role)
+          VALUES (?, ?, ?)
+        `).run(id, contactId, role);
+      } else {
+        this.database.prepare(`
+          DELETE FROM calendar_event_contacts_join
+          WHERE calendar_event_id = ? AND contact_id = ? AND participant_role = ?
+        `).run(id, contactId, role);
+      }
+      const previousVersionMs = new Date(event.version).getTime();
+      const updatedAt = new Date(Math.max(Date.now(), previousVersionMs + 1)).toISOString();
+      this.database.prepare(`
+        UPDATE calendar_events SET updated_at_utc = ? WHERE calendar_event_id = ?
+      `).run(updatedAt, id);
+      this.#activity({
+        eventType: input.linked ? "calendar.event.contact_link_added" : "calendar.event.contact_link_removed",
+        status: "complete",
+        name: input.linked ? "Calendar event contact linked" : "Calendar event contact unlinked",
+        subjectType: "calendar_event", subjectId: id, contentText: event.title,
+        payload: { calendarEventId: id, contactId, participantRole: role },
+        actorType: context.actorType ?? "user", actorName: context.actorName ?? "Nate",
+        source: context.source ?? "tailnet_web", channel: context.channel ?? "tailnet_web",
+        turnId: context.requestId ?? null, operationId: context.callId ?? null,
+      });
+      this.database.exec("COMMIT");
+      return { changed: true, event: this.getCalendar(id) };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   setCalendarEventTodoLinks(idValue, input, context = {}) {

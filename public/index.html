@@ -654,6 +654,22 @@
       <label>Location<input id="event-location" maxlength="1000"></label>
       <label>Description<textarea id="event-description" rows="4"></textarea></label>
       <label>Planning prompt<textarea id="event-planning-prompt" rows="3" maxlength="10000" placeholder="What should the agent ask to help plan this time?"></textarea></label>
+      <section id="event-contact-section" hidden>
+        <h3>Contacts</h3>
+        <p class="field-hint">Contact changes save immediately. Adding a contact does not send an invitation.</p>
+        <div id="event-contact-list"></div>
+        <div class="editor-grid">
+          <label>Contact<select id="event-contact-select"><option value="">Loading contacts…</option></select></label>
+          <label>Role<select id="event-contact-role">
+            <option value="other">Linked contact</option>
+            <option value="attendee">Attendee</option>
+            <option value="customer">Customer</option>
+            <option value="organizer">Organizer</option>
+          </select></label>
+        </div>
+        <button id="event-contact-add" class="secondary compact" type="button">Add contact</button>
+        <p id="event-contact-error" class="form-error" role="alert"></p>
+      </section>
       <label>Status<select id="event-status">
         <option value="active">Active</option><option value="archived">Archived</option>
       </select></label>

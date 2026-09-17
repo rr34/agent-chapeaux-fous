@@ -599,6 +599,13 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    const calendarContactLinkMatch = /^\/api\/calendar-events\/(\d+)\/contact-links$/.exec(url.pathname);
+    if (request.method === "PATCH" && calendarContactLinkMatch) {
+      sendJson(response, 200, organizer.changeCalendarEventContactLink(
+        calendarContactLinkMatch[1], await readJson(request),
+      ));
+      return;
+    }
     const calendarMatch = /^\/api\/calendar-events\/(\d+)$/.exec(url.pathname);
     if (request.method === "PATCH" && calendarMatch) {
       sendJson(response, 200, {

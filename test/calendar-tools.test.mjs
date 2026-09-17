@@ -20,7 +20,7 @@ function calendarFixture(context) {
   const planning = new CatchUpService(store, organizer, ledger);
   const registry = new ToolRegistry();
   registerCalendarTools(registry, store, organizer, ledger, null, planning);
-  return { store, ledger, registry };
+  return { store, organizer, ledger, registry };
 }
 
 test("calendar_event_search returns exact stored fields with strict bounded arguments", async (context) => {
@@ -150,6 +150,68 @@ test("calendar reads hide archived linked to-dos without deleting their associat
   assert.equal(listed.occurrences[0].calendar_events.linked_todos.length, 0);
   assert.equal(Number(database.prepare(`SELECT COUNT(*) AS count FROM calendar_events_todo_join
     WHERE calendar_event_id = ? AND personal_task_id = ?`).get(eventId, todoId).count), 1);
+});
+
+test("calendar contact links are visible, role-specific, idempotent, and leave to-dos alone", async (context) => {
+  const { store, organizer, registry } = calendarFixture(context);
+  const database = store.requireReady();
+  const contactId = Number(database.prepare(`
+    INSERT INTO contacts (display_name) VALUES ('Brian Lesko') RETURNING contact_id
+  `).get().contact_id);
+  const eventId = Number(database.prepare(`
+    INSERT INTO calendar_events (title, starts_at_utc, status)
+    VALUES ('Regular Work Window', '2026-09-18T11:00:00.000Z', 'confirmed')
+    RETURNING calendar_event_id
+  `).get().calendar_event_id);
+  const argumentsObject = {
+    calendar_event_id: eventId, contact_id: contactId,
+    participant_role: "other", linked: true,
+  };
+  const definition = registry.toolDefinitions().find(({ name }) => name === "calendar_event_contact_link_set");
+  assert.deepEqual(definition.inputSchema.required,
+    ["calendar_event_id", "contact_id", "participant_role", "linked"]);
+
+  const added = await registry.execute("calendar_event_contact_link_set", argumentsObject);
+  assert.equal(added.changed, true);
+  assert.deepEqual(added.event.linked_contacts, [{
+    contact_id: contactId, display_name: "Brian Lesko", contact_status: "active",
+    participant_role: "other", response_status: null,
+  }]);
+  assert.deepEqual(added.event.linked_todos, []);
+  const repeated = await registry.execute("calendar_event_contact_link_set", argumentsObject);
+  assert.equal(repeated.changed, false);
+  assert.equal(Number(database.prepare(`
+    SELECT COUNT(*) AS count FROM calendar_event_contacts_join WHERE calendar_event_id = ?
+  `).get(eventId).count), 1);
+
+  const listed = await registry.execute("calendar_event_list", {
+    starts_at_utc: "2026-09-18T00:00:00.000Z",
+    ends_at_utc: "2026-09-19T00:00:00.000Z",
+  });
+  assert.deepEqual(listed.occurrences[0].calendar_events.linked_contacts, added.event.linked_contacts);
+  const webEvent = organizer.getCalendar(eventId);
+  assert.equal(webEvent.linkedContacts[0].displayName, "Brian Lesko");
+  assert.equal(webEvent.linkedContacts[0].participantRole, "other");
+
+  const removed = await registry.execute("calendar_event_contact_link_set", {
+    ...argumentsObject, linked: false,
+  });
+  assert.equal(removed.changed, true);
+  assert.deepEqual(removed.event.linked_contacts, []);
+  assert.equal(removed.event.starts_at_utc, "2026-09-18T11:00:00.000Z");
+  assert.equal(Number(database.prepare(`
+    SELECT COUNT(*) AS count FROM calendar_events_todo_join WHERE calendar_event_id = ?
+  `).get(eventId).count), 0);
+
+  await assert.rejects(registry.execute("calendar_event_contact_link_set", {
+    ...argumentsObject, contact_id: contactId + 999,
+  }), /Contact not found/);
+  database.prepare("UPDATE contacts SET status = 'inactive' WHERE contact_id = ?").run(contactId);
+  await assert.rejects(registry.execute("calendar_event_contact_link_set", argumentsObject),
+    /Only active contacts/);
+  assert.equal(Number(database.prepare(`
+    SELECT COUNT(*) AS count FROM calendar_event_contacts_join WHERE calendar_event_id = ?
+  `).get(eventId).count), 0);
 });
 
 test("calendar updates distinguish series changes from one occurrence and preserve exceptions", async (context) => {

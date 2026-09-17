@@ -949,6 +949,7 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .editor-dialog label { display: grid; gap: .4rem; color: var(--muted); font-size: .78rem; font-weight: 400; }
 .editor-dialog textarea { min-height: 6rem; }
 .editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.event-contact-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: .35rem 0; }
 .event-date-time-field { display: grid; gap: .4rem; min-width: 0; color: var(--muted); font-size: .78rem; }
 .event-date-time-inputs { display: grid; grid-template-columns: minmax(8rem, 1fr) 5.8rem; gap: .45rem; }
 .event-date-time-inputs input { min-width: 0; }

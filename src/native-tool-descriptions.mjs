@@ -26,6 +26,7 @@ const descriptions = new Map(Object.entries({
   calendar_event_list: read("List the calendar schedule in an explicit UTC range, expanding recurrence occurrences and including derived contact birthdays."),
   calendar_event_add: create("Create one native calendar event, including an optional planning prompt, all-day event, or structured recurrence when requested."),
   calendar_event_update: update("Update or cancel a stored calendar event with explicit event or whole-series scope. A recurring master requires series scope and affects all generated occurrences; use calendar_event_occurrence_update for just one occurrence."),
+  calendar_event_contact_link_set: update("Link or unlink an existing contact on one concrete calendar event with an explicit role. A neutral association uses other; no invitation is sent and no to-do is changed."),
   calendar_event_recurrence_set: update("Add, replace, or remove structured recurrence on one existing native calendar event."),
 
   contact_import: create("Import up to 200 normalized structured contacts. Use contact_file_import when the source is an attached CSV or vCard."),
