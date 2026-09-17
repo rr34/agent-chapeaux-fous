@@ -235,8 +235,12 @@ export function terminalToolFailureFindings(receipts) {
   });
 }
 
-function repeatedToolFailure(receipts, name, message, definition) {
-  if (!receipts.some((receipt) => receipt.tool === name && !receipt.ok && receipt.error === message)) return null;
+function repeatedToolFailure(receipts, name, message, definition, toolArguments) {
+  const readOnly = definition?.annotations?.readOnlyHint === true;
+  const attemptKey = toolAttemptKey(name, toolArguments);
+  // A different read argument may correct an invalid identifier; repeated write errors stay terminal.
+  if (!receipts.some((receipt) => receipt.tool === name && !receipt.ok && receipt.error === message
+    && (!readOnly || toolAttemptKey(name, receipt.arguments) === attemptKey))) return null;
   const serverName = definition?.source?.replace(/^mcp:/u, "") || "Application tool";
   return {
     contractVersion: 1, kind: "provider_rejection", code: "REPEATED_TOOL_ERROR",
@@ -1854,7 +1858,9 @@ export class SlayerRuntime {
               }
               if (providerResult?.isError) {
                 const message = providerToolError(name, toolResult);
-                const toolFailure = repeatedToolFailure(sameRequestReceipts, name, message, toolDefinition);
+                const toolFailure = repeatedToolFailure(
+                  sameRequestReceipts, name, message, toolDefinition, toolArguments,
+                );
                 failedToolAttempts.add(attemptKey);
                 const resultEventId = this.ledger.append({
                   type: "tool.result", phase: "error", status: "error", actorType: "tool",
@@ -1984,7 +1990,7 @@ export class SlayerRuntime {
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               const toolFailure = normalizedToolFailure(error?.toolFailure)
-                ?? repeatedToolFailure(sameRequestReceipts, name, message, registeredTool);
+                ?? repeatedToolFailure(sameRequestReceipts, name, message, registeredTool, toolArguments);
               failedToolAttempts.add(attemptKey);
               const errorEventId = this.ledger.append({
                 type: "tool.result", phase: "error", status: "error", actorType: "tool",

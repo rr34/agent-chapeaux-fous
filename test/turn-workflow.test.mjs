@@ -2417,6 +2417,82 @@ test("repeated errors stop changed-key retries, allow verification, and override
   assert.ok(failed[1].payload.toolFailure);
 });
 
+test("failed account reads allow a discovered account ID in the same request", async () => {
+  const ledger = fakeLedger();
+  const requests = [];
+  const registry = new ToolRegistry();
+  registry.registerCapability({
+    id: "integration:accounting", title: "Accounting", summary: "Read accounting records.",
+  });
+  const attemptedAccountIds = [];
+  registry.register({
+    name: "remote_accounting_list_account_objects",
+    description: "Read one account object by its verified ID.",
+    capabilityId: "integration:accounting", source: "mcp:accounting",
+    annotations: { readOnlyHint: true },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { account_id: { type: "integer" } }, required: ["account_id"],
+    },
+    async execute({ account_id }) {
+      attemptedAccountIds.push(account_id);
+      if (account_id !== 164) throw new Error("Account not found.");
+      return { accounts: [{ id: 164, displayName: "Coinbase", currencyCode: "BTC" }] };
+    },
+  });
+  registry.register({
+    name: "remote_accounting_list_accounts",
+    description: "Find named accounts in the chart of accounts.",
+    capabilityId: "integration:accounting", source: "mcp:accounting",
+    annotations: { readOnlyHint: true },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { return { accounts: [{ id: 164, name: "Coinbase", currencyCode: "BTC" }] }; },
+  });
+  const selected = {
+    ...brief({ auditRequired: false }),
+    requestType: "informational", responseMode: "answer",
+    objective: "Identify the Coinbase Bitcoin account.",
+    summary: "Read the chart of accounts and confirm the account object.",
+    requiredCapabilities: ["integration:accounting"],
+    requiredTools: ["remote_accounting_list_account_objects", "remote_accounting_list_accounts"],
+    requestedActions: [],
+    completionCriteria: ["Confirm Coinbase's account ID and currency from a live read."],
+  };
+  const runtime = new SlayerRuntime({
+    registry, ledger, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(),
+    config: { ...workflowConfig(), maxToolCalls: 5 },
+    modelTransport: transport(async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(selected), 20);
+      const accountObject = async (accountId) => payload.onToolCall({
+        callId: `account-${accountId}`, tool: "remote_accounting_list_account_objects",
+        arguments: { account_id: accountId, result_filter: identityResultFilter() },
+      });
+      assert.equal((await accountObject(1)).ok, false);
+      const secondFailure = await accountObject(2);
+      assert.equal(secondFailure.ok, false);
+      assert.equal(secondFailure.toolFailure, undefined);
+      const duplicate = await accountObject(2);
+      assert.equal(duplicate.ok, false);
+      assert.match(duplicate.error, /identical.*same arguments/);
+      const discovery = await payload.onToolCall({
+        callId: "discover-account", tool: "remote_accounting_list_accounts",
+        arguments: { result_filter: identityResultFilter() },
+      });
+      assert.equal(discovery.ok, true);
+      assert.match(JSON.stringify(discovery.result), /"id":164/);
+      assert.equal((await accountObject(164)).ok, true);
+      return completed("Coinbase is account 164, denominated in BTC.", 30);
+    }, requests),
+  });
+  runtime.systemPrompt = "SYSTEM";
+  assert.equal(await runtime.run({
+    requestId: "account-lookup-correction", requestEventId: "event-current",
+    text: "Which account is my Coinbase Bitcoin account?",
+  }), "Coinbase is account 164, denominated in BTC.");
+  assert.deepEqual(attemptedAccountIds, [1, 2, 164]);
+  assert.equal(ledger.events.some(({ payload }) => payload?.toolFailure?.code === "REPEATED_TOOL_ERROR"), false);
+});
+
 test("an audited blocker corrects the executor explanation without another repair attempt", async () => {
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
