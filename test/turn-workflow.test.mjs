@@ -77,7 +77,7 @@ function brief({ auditRequired = true, confirmedActionReferenceIds = [] } = {}) 
   };
 }
 
-function fakeLedger({ actionReferences = [], toolReceipts = [] } = {}) {
+function fakeLedger({ actionReferences = [], toolReceipts = [], conversation = null } = {}) {
   const events = [];
   const sequences = new Map([["event-current", 9]]);
   let nextSequence = 10;
@@ -100,7 +100,7 @@ function fakeLedger({ actionReferences = [], toolReceipts = [] } = {}) {
       return { count: receipts.length, hasMore: false, nextBeforeEventSeq: null, receipts: structuredClone(receipts) };
     },
     recentConversation() {
-      return [
+      return conversation ?? [
         {
           eventSeq: 3, requestId: "request-prior", occurredAtUtc: "2026-08-24T13:40:00Z",
           role: "user", content: "Can you create that reminder?",
@@ -2132,6 +2132,149 @@ test("a continuation recovers an opaque provider job ID from the receipt index w
     "remote_accounting_commit_transaction_import_job");
   assert.deepEqual(previewReceipt.payload.deferredActionReference.arguments,
     recoveredPreview.job.nextAction.onApproval.arguments);
+});
+
+test("a repeated import request can start a new job after the old job was deleted", async () => {
+  const oldJobId = "11111111-1111-4111-8111-111111111111";
+  const newJobId = "22222222-2222-4222-8222-222222222222";
+  const calls = [];
+  const requests = [];
+  const ledger = fakeLedger({
+    conversation: [{
+      eventSeq: 4,
+      requestId: "request-prior",
+      occurredAtUtc: "2026-09-16T12:00:00.000Z",
+      role: "assistant",
+      content: "The old Coinbase import has zero ready transactions and 11 misfits. Add zero transactions now?",
+    }],
+    actionReferences: [{
+      referenceId: "prepared-change:old-import",
+      sourceConnection: "mcp:accounting",
+      sourceReceiptEventSeq: 42,
+      targetTool: "remote_accounting_commit_transaction_import_job",
+      arguments: { import_job_id: oldJobId, preview_digest: `sha256:${"a".repeat(64)}` },
+      readiness: { ready: true },
+    }],
+  });
+  const registry = new ToolRegistry();
+  registry.registerCapability({
+    id: "files", title: "Files", summary: "Read the user's source file.", source: "local",
+  });
+  registry.registerCapability({
+    id: "integration:accounting", title: "Accounting", summary: "Import ledger transactions.",
+    source: "mcp:accounting",
+  });
+  const register = (name, capabilityId, execute, parameters = {
+    type: "object", additionalProperties: false, properties: {}, required: [],
+  }) => registry.register({
+    name,
+    upstreamName: name.replace(/^remote_accounting_/u, ""),
+    description: name,
+    capabilityId,
+    source: capabilityId === "files" ? "local" : "mcp:accounting",
+    parameters,
+    annotations: { readOnlyHint: name.includes("list") || name.includes("read") },
+    async execute(argumentsObject) {
+      calls.push(name);
+      return execute(argumentsObject);
+    },
+  });
+  register("file_read", "files", ({ file_id }) => {
+    assert.equal(file_id, 290);
+    return { source_name: "coinbase btc July to Sep.csv", transaction_count: 11 };
+  }, {
+    type: "object", additionalProperties: false,
+    properties: { file_id: { type: "integer" } }, required: ["file_id"],
+  });
+  register("remote_accounting_list_transaction_import_jobs", "integration:accounting",
+    () => ({ jobs: [{ source_system: "gnucash", import_job_id: "unrelated-job" }] }));
+  register("remote_accounting_create_transaction_import_job", "integration:accounting",
+    () => ({ job: { import_job_id: newJobId } }));
+  register("remote_accounting_stage_transaction_import_chunk", "integration:accounting",
+    ({ import_job_id }) => {
+      assert.equal(import_job_id, newJobId);
+      return { staged: 11 };
+    }, {
+      type: "object", additionalProperties: false,
+      properties: { import_job_id: { type: "string" } }, required: ["import_job_id"],
+    });
+  register("remote_accounting_commit_transaction_import_job", "integration:accounting",
+    () => { throw new Error("Commit requires the new preview and a later confirmation"); }, {
+      type: "object", additionalProperties: false,
+      properties: { import_job_id: { type: "string" }, preview_digest: { type: "string" } },
+      required: ["import_job_id", "preview_digest"],
+    });
+  const importRequest = "file 290 is for my coinbase bitcoin account. The account is balanced through 14 July, so import transactions after that. the known balance as of the end of today 16 september is 0, recorded in the account already so let's see if it matches after these transactions are entered.";
+  const source = { text: importRequest, sourceEventSeqs: [9] };
+  const restartBrief = {
+    ...brief(),
+    requestType: "new_objective",
+    objective: "Start a fresh Coinbase import from file 290.",
+    summary: "The prior import was deleted; read the source and start a new job.",
+    requiredCapabilities: ["files", "integration:accounting"],
+    requiredTools: [
+      "file_read", "remote_accounting_list_transaction_import_jobs",
+      "remote_accounting_create_transaction_import_job",
+      "remote_accounting_stage_transaction_import_chunk",
+    ],
+    requestedActions: [source],
+    completionCriteria: ["A fresh job contains all 11 source transactions."],
+    evidence: [source],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      assert.match(payload.developerInstructions, /new request to perform or redo the task.*does not confirm the old change/);
+      return completed(JSON.stringify(restartBrief), 20);
+    }
+    if (index === 1) {
+      const file = await payload.onToolCall({
+        callId: "read-source", tool: "file_read",
+        arguments: { file_id: 290, result_filter: identityResultFilter() },
+      });
+      assert.equal(file.ok, true, JSON.stringify(file));
+      const jobs = await payload.onToolCall({
+        callId: "list-jobs", tool: "remote_accounting_list_transaction_import_jobs",
+        arguments: { result_filter: identityResultFilter() },
+      });
+      assert.deepEqual(jobs.result.jobs, [{ source_system: "gnucash", import_job_id: "unrelated-job" }]);
+      const created = await payload.onToolCall({
+        callId: "create-new", tool: "remote_accounting_create_transaction_import_job", arguments: {},
+      });
+      assert.equal(created.result.job.import_job_id, newJobId);
+      const staged = await payload.onToolCall({
+        callId: "stage-new", tool: "remote_accounting_stage_transaction_import_chunk",
+        arguments: { import_job_id: newJobId },
+      });
+      assert.equal(staged.result.staged, 11);
+      return completed("Started a new Coinbase import job and staged all 11 records.", 50);
+    }
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "A new import job has all 11 records staged.",
+      satisfiedCriteria: ["A fresh job contains all 11 source transactions."],
+      remainingActions: [],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport, registry, contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(), ledger, config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  const result = await runtime.run({
+    requestId: "request-restart-import",
+    requestEventId: "event-current",
+    text: importRequest,
+  });
+
+  assert.match(result, /Started a new Coinbase import job/);
+  assert.deepEqual(calls, [
+    "file_read", "remote_accounting_list_transaction_import_jobs",
+    "remote_accounting_create_transaction_import_job",
+    "remote_accounting_stage_transaction_import_chunk",
+  ]);
 });
 
 test("approval binds execution to the exact active plan and blocks request-id substitution", async () => {

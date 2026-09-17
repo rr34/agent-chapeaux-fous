@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  orientationContext,
   orientationInstructions,
   parseStructuredModelOutput,
   turnBriefSchema,
@@ -130,4 +131,31 @@ test("orientation treats conversation and focused knowledge as evidence for an a
   assert.match(orientationInstructions, /answering the user's actual question/);
   assert.match(orientationInstructions, /immediately preceding assistant question or active exchange/);
   assert.match(orientationInstructions, /never invent omitted units/);
+});
+
+test("a repeated import request after a deleted attempt starts from current provider state", () => {
+  const context = orientationContext({
+    requestId: "request-restart",
+    requestEventSeq: 9,
+    recentConversation: [{
+      eventSeq: 4,
+      requestId: "request-prior",
+      occurredAtUtc: "2026-09-16T12:00:00.000Z",
+      role: "assistant",
+      content: "The old import has zero ready transactions. Confirm adding zero?",
+    }],
+    previousState: { activeObjective: "Commit the old import preview." },
+    capabilityCatalog: [],
+    deferredActionReferences: [{
+      referenceId: "prepared-change:old-import",
+      targetTool: "commit_transaction_import_job",
+    }],
+  });
+
+  assert.match(context, /not proof that its provider object still exists/);
+  assert.match(context, /new request to perform or redo the task.*does not confirm the old change/);
+  assert.match(orientationInstructions, /repeats an earlier request verbatim/);
+  assert.match(orientationInstructions, /Select the capabilities needed to acquire the source and prepare a fresh attempt/);
+  assert.match(orientationInstructions, /if the old object is absent, continue the fresh workflow/);
+  assert.match(orientationInstructions, /Do not claim old ready, exception, or balance counts describe the new attempt/);
 });
