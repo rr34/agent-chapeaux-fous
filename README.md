@@ -601,6 +601,14 @@ groups and appends the video with the next sequence number in the selected
 group. The UI and Agent-callable `video_content_add` operation share the same
 idempotent application workflow: the content item owns the rendered file and
 exact script, while the video job records the resulting content item.
+
+The read-only `video_content_list` operation retrieves an exact active group's
+numbered items in ascending sequence order, in pages of at most 20. It returns
+bounded description and transcript excerpts together with source lengths and
+truncation flags so the Agent can summarize a sequence without exposing an
+unbounded library record to model context. Its `textFields` argument selects
+description, transcript, or both; unselected long-text columns are not read.
+
 Rendering is deliberately outside the FIFO Agent request queue so a long MP4
 does not block ordinary requests; interrupted `preparing` or `rendering` jobs
 return to `queued` when the server starts.

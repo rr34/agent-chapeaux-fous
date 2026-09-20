@@ -114,3 +114,85 @@ test("a completed generated video appends once to an exact content sequence", as
     "SELECT content_id FROM video_jobs WHERE video_job_id = ?",
   ).get(production.render.id).content_id, stored.id);
 });
+
+test("the Agent can read a bounded content sequence in ascending order", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.target);
+  context.after(() => store.close());
+  const organizer = new OrganizerStore(temporary.target);
+  context.after(() => organizer.close());
+  const ledger = new Ledger(store);
+  const videoScripts = new VideoScripts({ store, ledger });
+  const videoContent = new VideoContent({ videoScripts, organizer });
+  const group = organizer.createContentGroup({ name: "Chapeaux Fous Promo" });
+  organizer.createContent({
+    groupId: group.id,
+    sequence: 2,
+    title: "Second promo",
+    description: "A compact second description.",
+    transcript: "Second transcript.",
+  });
+  organizer.createContent({
+    groupId: group.id,
+    sequence: 1,
+    title: "First promo",
+    description: "D".repeat(300),
+    transcript: "T".repeat(300),
+  });
+  organizer.createContent({
+    groupId: group.id,
+    sequence: 3,
+    title: "Third promo",
+    transcript: "Third transcript.",
+  });
+  organizer.createContent({ groupId: group.id, title: "Unnumbered draft" });
+
+  const registry = registerNativeCapabilities(new ToolRegistry());
+  registerVideoScriptTools(registry, videoScripts, { videoContent });
+  const definition = registry.toolDefinitions().find(({ name }) => name === "video_content_list");
+  assert.equal(definition.annotations.readOnlyHint, true);
+  assert.deepEqual(definition.inputSchema.required, ["groupId", "result_filter"]);
+
+  const firstPage = await registry.execute("video_content_list", {
+    groupId: Number(group.id), afterSequence: 0, limit: 2, textCharactersPerField: 250,
+  });
+  assert.equal(firstPage.group.name, "Chapeaux Fous Promo");
+  assert.deepEqual(firstPage.items.map(({ sequence }) => sequence), [1, 2]);
+  assert.deepEqual(firstPage.items.map(({ title }) => title), ["First promo", "Second promo"]);
+  assert.equal(firstPage.items[0].descriptionExcerpt.length, 250);
+  assert.equal(firstPage.items[0].descriptionCharacters, 300);
+  assert.equal(firstPage.items[0].descriptionTruncated, true);
+  assert.equal(firstPage.items[0].transcriptTruncated, true);
+  assert.equal(firstPage.hasMore, true);
+  assert.equal(firstPage.nextAfterSequence, 2);
+
+  const descriptionsOnly = await registry.execute("video_content_list", {
+    groupId: Number(group.id), limit: 1, textCharactersPerField: 250,
+    textFields: ["description"],
+  });
+  assert.deepEqual(descriptionsOnly.textFields, ["description"]);
+  assert.equal(descriptionsOnly.items[0].descriptionCharacters, 300);
+  assert.equal(descriptionsOnly.items[0].transcriptExcerpt, null);
+  assert.equal(descriptionsOnly.items[0].transcriptCharacters, 0);
+  assert.equal(descriptionsOnly.items[0].transcriptTruncated, false);
+
+  const transcriptsOnly = await registry.execute("video_content_list", {
+    groupId: Number(group.id), limit: 1, textCharactersPerField: 250,
+    textFields: ["transcript"],
+  });
+  assert.deepEqual(transcriptsOnly.textFields, ["transcript"]);
+  assert.equal(transcriptsOnly.items[0].descriptionExcerpt, null);
+  assert.equal(transcriptsOnly.items[0].descriptionCharacters, 0);
+  assert.equal(transcriptsOnly.items[0].descriptionTruncated, false);
+  assert.equal(transcriptsOnly.items[0].transcriptCharacters, 300);
+
+  const secondPage = await registry.execute("video_content_list", {
+    groupId: Number(group.id), afterSequence: firstPage.nextAfterSequence,
+    limit: 2, textCharactersPerField: 250,
+  });
+  assert.deepEqual(secondPage.items.map(({ sequence }) => sequence), [3]);
+  assert.equal(secondPage.hasMore, false);
+  assert.equal(secondPage.nextAfterSequence, null);
+  assert.equal(secondPage.items.some(({ title }) => title === "Unnumbered draft"), false);
+});

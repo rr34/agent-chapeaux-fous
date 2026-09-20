@@ -1320,7 +1320,7 @@ dialog h2, dialog p { margin-bottom: 0; }
   .calendar-schedule-mode { align-items: stretch; flex-direction: column; }
   .calendar-day { min-height: 76px; padding: 4px; }
   .calendar-day.has-month-marker { padding-left: 1.1rem; }
-  .calendar-month-marker { width: .85rem; font-size: .46rem; }
+  .calendar-month-marker { width: .85rem; font-size: .42rem; letter-spacing: 0; }
   .day-more { display: none; }
   .agenda-event { grid-template-columns: 1fr; }
   .agenda-timeline::before { left: 5.32rem; }

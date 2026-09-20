@@ -2641,6 +2641,97 @@ export class OrganizerStore {
     `).all(...values, boundedLimit).map(publicContent);
   }
 
+  listSequencedContent({
+    groupId, afterSequence = 0, limit = 20, textCharactersPerField = 1500,
+    textFields = ["description", "transcript"],
+  } = {}) {
+    const selectedGroupId = identifier(groupId, "content group id");
+    const selectedAfterSequence = integer(afterSequence, "afterSequence", {
+      fallback: 0, minimum: 0, maximum: Number.MAX_SAFE_INTEGER,
+    });
+    const selectedLimit = integer(limit, "limit", { fallback: 20, minimum: 1, maximum: 20 });
+    const selectedTextCharacters = integer(textCharactersPerField, "textCharactersPerField", {
+      fallback: 1500, minimum: 250, maximum: 1500,
+    });
+    if (!Array.isArray(textFields) || textFields.length < 1 || textFields.length > 2) {
+      throw new OrganizerInputError("textFields must select description, transcript, or both.");
+    }
+    const selectedTextFields = new Set(textFields);
+    if (
+      selectedTextFields.size !== textFields.length
+      || [...selectedTextFields].some((field) => !["description", "transcript"].includes(field))
+    ) {
+      throw new OrganizerInputError("textFields must select description, transcript, or both without duplicates.");
+    }
+    const includeDescription = selectedTextFields.has("description");
+    const includeTranscript = selectedTextFields.has("transcript");
+    const group = this.database.prepare(`
+      SELECT * FROM content_groups
+      WHERE content_group_id = ? AND archived_at_utc IS NULL
+    `).get(selectedGroupId);
+    if (!group) throw new OrganizerInputError("Content group not found.", 404);
+
+    const descriptionProjection = includeDescription
+      ? "LEFT(description, ?) AS description_excerpt, CHAR_LENGTH(description) AS description_characters"
+      : "NULL AS description_excerpt, 0 AS description_characters";
+    const transcriptProjection = includeTranscript
+      ? "LEFT(transcript, ?) AS transcript_excerpt, CHAR_LENGTH(transcript) AS transcript_characters"
+      : "NULL AS transcript_excerpt, 0 AS transcript_characters";
+    const textArguments = [
+      ...(includeDescription ? [selectedTextCharacters] : []),
+      ...(includeTranscript ? [selectedTextCharacters] : []),
+    ];
+    const rows = this.database.prepare(`
+      SELECT content_id, content_group_id, sequence, content_type,
+             LEFT(title, 500) AS title_excerpt,
+             CHAR_LENGTH(title) AS title_characters,
+             ${descriptionProjection},
+             ${transcriptProjection},
+             published_at_utc, content_host, content_status
+      FROM content_items
+      WHERE content_group_id = ? AND sequence IS NOT NULL AND sequence > ?
+      ORDER BY sequence, content_id
+      LIMIT ?
+    `).all(
+      ...textArguments, selectedGroupId, selectedAfterSequence, selectedLimit + 1,
+    );
+    const hasMore = rows.length > selectedLimit;
+    const selectedRows = rows.slice(0, selectedLimit);
+    const items = selectedRows.map((row) => {
+      const descriptionCharacters = row.description_characters == null
+        ? 0 : Number(row.description_characters);
+      const transcriptCharacters = row.transcript_characters == null
+        ? 0 : Number(row.transcript_characters);
+      const titleCharacters = Number(row.title_characters);
+      return {
+        id: Number(row.content_id),
+        groupId: Number(row.content_group_id),
+        sequence: Number(row.sequence),
+        contentType: row.content_type,
+        title: row.title_excerpt,
+        titleCharacters,
+        titleTruncated: titleCharacters > 500,
+        descriptionExcerpt: row.description_excerpt ?? null,
+        descriptionCharacters,
+        descriptionTruncated: descriptionCharacters > selectedTextCharacters,
+        transcriptExcerpt: row.transcript_excerpt ?? null,
+        transcriptCharacters,
+        transcriptTruncated: transcriptCharacters > selectedTextCharacters,
+        publishedAtUtc: row.published_at_utc,
+        contentHost: row.content_host,
+        contentStatus: row.content_status,
+      };
+    });
+    return {
+      group: publicContentGroup(group),
+      textFields: [...selectedTextFields],
+      items,
+      count: items.length,
+      hasMore,
+      nextAfterSequence: hasMore ? items.at(-1).sequence : null,
+    };
+  }
+
   getContent(idValue) {
     const id = identifier(idValue, "content id");
     return publicContent(this.database.prepare(`

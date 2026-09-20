@@ -15,6 +15,18 @@ export function sixWeekMonthDates(value) {
   return Array.from({ length: 42 }, (_, index) => addCalendarDays(start, index));
 }
 
+export function isoWeekNumber(value) {
+  const date = new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1);
+  return Math.ceil(((date.getTime() - yearStart) / 86_400_000 + 1) / 7);
+}
+
+export function calendarMonthMarkerLabel(date, locale) {
+  const month = new Intl.DateTimeFormat(locale, { month: "long" }).format(date);
+  return `${month} (${isoWeekNumber(date)})`;
+}
+
 export function routinePatternSection(recurrenceRule) {
   const frequency = /(?:^|[;:])FREQ=([^;\r\n]+)/i.exec(recurrenceRule ?? "")?.[1].toUpperCase();
   return ["DAILY", "WEEKLY"].includes(frequency) ? "weekly" : "monthly";
@@ -130,11 +142,11 @@ export function renderCalendarGrid({
       "outside-representative-month",
       representativeMonth != null && date.getMonth() !== representativeMonth,
     );
-    button.setAttribute("aria-label", labelForDate(date));
+    button.setAttribute("aria-label", `${labelForDate(date)}${showsMonth ? `, ISO week ${isoWeekNumber(date)}` : ""}`);
     if (showsMonth) {
       const marker = document.createElement("span");
       marker.className = "calendar-month-marker";
-      marker.textContent = new Intl.DateTimeFormat(undefined, { month: "long" }).format(date);
+      marker.textContent = calendarMonthMarkerLabel(date);
       marker.setAttribute("aria-hidden", "true");
       button.append(marker);
     }

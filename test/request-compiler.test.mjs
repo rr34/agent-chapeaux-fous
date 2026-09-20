@@ -81,6 +81,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
   assert.equal(capabilityForTool(tool("video_script_create")), "video");
   assert.equal(capabilityForTool(tool("video_production_create")), "video");
+  assert.equal(capabilityForTool(tool("video_content_list")), "video");
   assert.equal(capabilityForTool(tool("video_content_add")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
   assert.equal(capabilityForTool(tool("file_read")), "files");
@@ -113,6 +114,16 @@ test("a referenced generated video can select the focused content-sequence opera
   });
   assert.equal(selection.capabilities.includes("video"), true);
   assert.equal(names(selection).includes("video_content_add"), true);
+  assert.equal(selection.fallbackAll, false);
+});
+
+test("a content-library summary request selects the sequence read tool", () => {
+  const selection = selectRequestCapabilities({
+    tools: [...tools, tool("video_content_list")],
+    text: "Summarize the first 20 in sequence from the Chapeaux Fous promo library content group.",
+  });
+  assert.equal(selection.capabilities.includes("video"), true);
+  assert.equal(names(selection).includes("video_content_list"), true);
   assert.equal(selection.fallbackAll, false);
 });
 

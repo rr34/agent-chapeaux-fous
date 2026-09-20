@@ -50,6 +50,64 @@ const contentOutputSchema = {
   required: ["created", "unchanged", "content", "video"],
 };
 
+const contentListItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: { type: "integer" },
+    groupId: { type: "integer" },
+    sequence: { type: "integer" },
+    contentType: { type: "string" },
+    title: { type: "string" },
+    titleCharacters: { type: "integer" },
+    titleTruncated: { type: "boolean" },
+    descriptionExcerpt: { type: ["string", "null"] },
+    descriptionCharacters: { type: "integer" },
+    descriptionTruncated: { type: "boolean" },
+    transcriptExcerpt: { type: ["string", "null"] },
+    transcriptCharacters: { type: "integer" },
+    transcriptTruncated: { type: "boolean" },
+    publishedAtUtc: { type: "string" },
+    contentHost: { type: "string" },
+    contentStatus: { type: "string" },
+  },
+  required: [
+    "id", "groupId", "sequence", "contentType", "title", "titleCharacters", "titleTruncated",
+    "descriptionExcerpt", "descriptionCharacters", "descriptionTruncated",
+    "transcriptExcerpt", "transcriptCharacters", "transcriptTruncated",
+    "publishedAtUtc", "contentHost", "contentStatus",
+  ],
+};
+
+const contentListOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    group: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: ["integer", "string"] },
+        name: { type: "string" },
+        sortPosition: { type: ["integer", "string"] },
+        archivedAtUtc: { type: ["string", "null"] },
+        createdAtUtc: { type: "string" },
+        updatedAtUtc: { type: ["string", "null"] },
+      },
+      required: ["id", "name", "sortPosition", "archivedAtUtc", "createdAtUtc", "updatedAtUtc"],
+    },
+    textFields: {
+      type: "array", minItems: 1, maxItems: 2, uniqueItems: true,
+      items: { type: "string", enum: ["description", "transcript"] },
+    },
+    items: { type: "array", items: contentListItemSchema },
+    count: { type: "integer" },
+    hasMore: { type: "boolean" },
+    nextAfterSequence: { type: ["integer", "null"] },
+  },
+  required: ["group", "textFields", "items", "count", "hasMore", "nextAfterSequence"],
+};
+
 function parameters() {
   return {
     type: "object",
@@ -105,42 +163,80 @@ export function registerVideoScriptTools(
     },
   });
 
-  if (videoContent) capabilityRegistry.register({
-    name: "video_content_add",
-    title: "Add a completed video to a content sequence",
-    description: "Add one referenced, completed Agent-interface MP4 to exactly one existing content-library group. The application uses the rendered file, appends the next sequence number atomically, stores the script as its transcript, links the video job to the content item, and returns the durable result. Exact replay is unchanged. Do not call this until the user has selected or named the destination group.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        videoScriptId: { type: "integer", minimum: 1, description: "The referenced generated video script ID." },
-        groupId: { type: "integer", minimum: 1, description: "The exact active destination content-group ID." },
+  if (videoContent) {
+    capabilityRegistry.register({
+      name: "video_content_list",
+      title: "Read a content-library sequence",
+      description: "Read one active content-library group's numbered items in ascending sequence order. Pass afterSequence 0 for the first page and nextAfterSequence for each continuation. Select description, transcript, or both in textFields; omitted textFields defaults to both. Each selected field is returned as a bounded excerpt with its exact source length and truncation flag. Unselected text is not read. Unnumbered items are excluded.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          groupId: { type: "integer", minimum: 1, description: "The exact active content-group ID." },
+          afterSequence: {
+            type: "integer", minimum: 0,
+            description: "Return numbered items whose sequence is greater than this cursor. Omit or use 0 for the first page.",
+          },
+          limit: {
+            type: "integer", minimum: 1, maximum: 20,
+            description: "Maximum sequenced items to return in this page. Omit for 20.",
+          },
+          textCharactersPerField: {
+            type: "integer", minimum: 250, maximum: 1500,
+            description: "Maximum leading characters returned from each selected text field. Omit for 1500; exact source lengths and truncation flags are always returned.",
+          },
+          textFields: {
+            type: "array", minItems: 1, maxItems: 2, uniqueItems: true,
+            items: { type: "string", enum: ["description", "transcript"] },
+            description: "Source-text fields to read. Select description, transcript, or both; omit to read both.",
+          },
+        },
+        required: ["groupId"],
       },
-      required: ["videoScriptId", "groupId"],
-    },
-    outputSchema: contentOutputSchema,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    execute(args, context) {
-      const result = videoContent.add(args, { ...context, actorName: "video_content_add" });
-      return {
-        created: result.created,
-        unchanged: result.unchanged,
-        content: {
-          id: result.content.id,
-          groupId: result.content.groupId,
-          groupName: result.content.groupName,
-          sequence: result.content.sequence,
-          title: result.content.title,
-          primaryFileId: result.content.primaryFileId,
+      outputSchema: contentListOutputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      execute(args) {
+        return videoContent.list(args);
+      },
+    });
+
+    capabilityRegistry.register({
+      name: "video_content_add",
+      title: "Add a completed video to a content sequence",
+      description: "Add one referenced, completed Agent-interface MP4 to exactly one existing content-library group. The application uses the rendered file, appends the next sequence number atomically, stores the script as its transcript, links the video job to the content item, and returns the durable result. Exact replay is unchanged. Do not call this until the user has selected or named the destination group.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          videoScriptId: { type: "integer", minimum: 1, description: "The referenced generated video script ID." },
+          groupId: { type: "integer", minimum: 1, description: "The exact active destination content-group ID." },
         },
-        video: {
-          scriptId: result.script.id,
-          jobId: result.script.render.id,
-          fileId: result.script.render.outputFileId,
-        },
-      };
-    },
-  });
+        required: ["videoScriptId", "groupId"],
+      },
+      outputSchema: contentOutputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      execute(args, context) {
+        const result = videoContent.add(args, { ...context, actorName: "video_content_add" });
+        return {
+          created: result.created,
+          unchanged: result.unchanged,
+          content: {
+            id: result.content.id,
+            groupId: result.content.groupId,
+            groupName: result.content.groupName,
+            sequence: result.content.sequence,
+            title: result.content.title,
+            primaryFileId: result.content.primaryFileId,
+          },
+          video: {
+            scriptId: result.script.id,
+            jobId: result.script.render.id,
+            fileId: result.script.render.outputFileId,
+          },
+        };
+      },
+    });
+  }
 
   capabilityRegistry.register({
     name: "video_production_create",

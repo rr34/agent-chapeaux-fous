@@ -137,6 +137,7 @@ const descriptions = new Map(Object.entries({
   todo_update: update("Atomically update up to 500 non-temporal native personal to-dos by stable ID."),
 
   video_script_create: create("Persist one portable source-grounded chat script from explicitly selected completed interactions without rendering video."),
+  video_content_list: read("Read one active content-library group's numbered items in ascending sequence order with bounded source-text excerpts and explicit pagination."),
   video_content_add: create("Add one completed Agent-interface MP4 to one existing content-library group with the next sequence number."),
   video_production_create: external("Persist one source-grounded chat script and atomically queue its 1080x1620 Agent-interface MP4 render.", ["CREATE", "EXECUTE"]),
   video_render_interaction: external("Render and store one downloadable 1080x1620 MP4 from the source interaction bound to the current request."),

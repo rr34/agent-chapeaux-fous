@@ -14,6 +14,10 @@ export class VideoContent {
     return this.organizer.listContentGroups();
   }
 
+  list(input) {
+    return this.organizer.listSequencedContent(input);
+  }
+
   add({ videoScriptId, groupId }, context = {}) {
     const scriptId = positiveInteger(videoScriptId, "Video script ID");
     const selectedGroupId = positiveInteger(groupId, "Content group ID");

@@ -5,6 +5,8 @@ import {
   calendarDayTimeRangeLabel,
   calendarEventCellItem,
   calendarGridCellContents,
+  calendarMonthMarkerLabel,
+  isoWeekNumber,
   occursDuringCalendarDay,
   routinePatternSection,
   sixWeekMonthDates,
@@ -73,6 +75,13 @@ test("routine calendar always provides six Monday-first weeks", () => {
   assert.equal(dates[0].getDay(), 1);
   assert.equal(dates[0].toISOString().slice(0, 10), "2026-07-27");
   assert.equal(dates.at(-1).toISOString().slice(0, 10), "2026-09-06");
+});
+
+test("month markers show ISO week numbers across year boundaries", () => {
+  assert.equal(calendarMonthMarkerLabel(new Date(2026, 8, 17), "en-US"), "September (38)");
+  assert.equal(isoWeekNumber(new Date(2020, 11, 31)), 53);
+  assert.equal(calendarMonthMarkerLabel(new Date(2021, 0, 1), "en-US"), "January (53)");
+  assert.equal(calendarMonthMarkerLabel(new Date(2021, 0, 4), "en-US"), "January (1)");
 });
 
 test("compact calendar events can identify newly generated routine events", () => {
