@@ -137,6 +137,15 @@ test("a request carries exact references to completed or failed exchanges", () =
   const ledger = new Ledger(store);
   try {
     const completed = ledger.createRequest({ text: "Move the Watch Jobs to Sunday." });
+    ledger.append({
+      type: "object.references.observed", status: "complete", actorType: "service",
+      actorName: "Object reference binder", turnId: completed.requestId,
+      payload: { objectReferences: [{
+        mention: "the Watch Jobs", type: "todos.personal_task", source: "native:todos",
+        objects: [{ id: 42, ref: "agent-slayer://todos/42", display: "Watch Jobs" }],
+        sourceEventSeqs: [2],
+      }] },
+    });
     ledger.finish(ledger.trace(completed.requestId)[0], "I moved 37 Watch Jobs to Sunday at 16:00.");
     const failed = ledger.createRequest({ text: "Move the same jobs to 16:00." });
     ledger.fail(ledger.trace(failed.requestId)[0], new Error("Tool-call limit reached"));
@@ -152,6 +161,11 @@ test("a request carries exact references to completed or failed exchanges", () =
     ]);
     assert.equal(references[0].request, "Move the Watch Jobs to Sunday.");
     assert.equal(references[0].response, "I moved 37 Watch Jobs to Sunday at 16:00.");
+    assert.deepEqual(references[0].objectReferences, [{
+      mention: "the Watch Jobs", type: "todos.personal_task", source: "native:todos",
+      objects: [{ id: 42, ref: "agent-slayer://todos/42", display: "Watch Jobs" }],
+      sourceEventSeqs: [2],
+    }]);
     assert.equal(references[1].response, "Tool-call limit reached");
     assert.ok(Number.isSafeInteger(references[0].requestEventSeq));
     assert.ok(Number.isSafeInteger(references[0].responseEventSeq));

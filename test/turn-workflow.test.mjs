@@ -5,6 +5,7 @@ import { SlayerRuntime } from "../src/runtime.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
+import { objectInputBindingsMetadataKey } from "../src/object-input-bindings.mjs";
 import { toolDescriptionMetadataKey } from "../src/tool-description.mjs";
 
 function usage(totalTokens) {
@@ -57,6 +58,7 @@ function brief({ auditRequired = true, confirmedActionReferenceIds = [] } = {}) 
     requiredTools: ["todo_create"],
     confirmedActionReferenceIds,
     contextRequests: [],
+    objectReferences: [],
     receiptReferences: [],
     temporalResolutions: [],
     requestedActions: [source],
@@ -669,6 +671,7 @@ test("a published account object leads from orientation to its exact read tool a
         types: [{
           id: "accounting.account", title: "Accounting account",
           summary: "A ledger account whose name and currency identify it in conversation.",
+          identity: { field: "id", summary: "Provider-native account ID." },
           reference: { field: "sourceRef", summary: "Stable account reference." },
           display: { field: "displayName", summary: "Account name." },
           qualifiers: [{ field: "currencyCode", summary: "Currency code." }],
@@ -677,7 +680,7 @@ test("a published account object leads from orientation to its exact read tool a
     },
     async execute() {
       reads += 1;
-      return { accounts: [{ sourceRef: "accounting:account:42", displayName: "coinbase", currencyCode: "BTC" }] };
+      return { accounts: [{ id: 42, sourceRef: "accounting:account:42", displayName: "coinbase", currencyCode: "BTC" }] };
     },
   });
   const accountBrief = {
@@ -706,6 +709,9 @@ test("a published account object leads from orientation to its exact read tool a
     });
     assert.equal(result.ok, true);
     assert.match(JSON.stringify(result), /accounting:account:42/);
+    assert.deepEqual(result.objectReferences[0].objects, [{
+      id: 42, ref: "accounting:account:42", display: "coinbase",
+    }]);
     assert.match(JSON.stringify(result), /"currencyCode":"BTC"/);
     return completed("Coinbase is an accounting account denominated in Bitcoin (BTC).", 30);
   }, requests);
@@ -720,6 +726,86 @@ test("a published account object leads from orientation to its exact read tool a
   }), "Coinbase is an accounting account denominated in Bitcoin (BTC).");
   assert.equal(reads, 1);
   assert.equal(requests.length, 2);
+});
+
+test("an accepted account binding constrains and guards the later tool ID", async () => {
+  const requests = [];
+  const binding = {
+    mention: "that account", type: "accounting.account", source: "mcp:accounting",
+    objects: [{ id: 178, ref: "accounting://accounts/178", display: "Operating Checking" }],
+    sourceEventSeqs: [4],
+  };
+  const ledger = fakeLedger({ conversation: [{
+    eventSeq: 4, requestId: "request-prior", occurredAtUtc: "2026-09-20T12:00:00Z",
+    role: "assistant", content: "I identified Operating Checking.", objectReferences: [binding],
+  }] });
+  const registry = new ToolRegistry();
+  let calls = 0;
+  registry.registerCapability({
+    id: "integration:accounting", title: "Accounting", summary: "Read accounting records.",
+  });
+  registry.register({
+    name: "remote_accounting_search_transactions",
+    description: "Search transactions for one verified account.",
+    source: "mcp:accounting", capabilityId: "integration:accounting",
+    annotations: { readOnlyHint: true },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { account_id: { type: "integer", minimum: 1 } },
+      required: ["account_id"],
+    },
+    metadata: {
+      [objectInputBindingsMetadataKey]: {
+        protocol: "agent-slayer.object-input-bindings", version: 1,
+        bindings: [{ path: "/account_id", objectType: "accounting.account", value: "id" }],
+      },
+    },
+    async execute({ account_id }) {
+      calls += 1;
+      assert.equal(account_id, 178);
+      return { transactions: [{ id: 9001, accountId: 178 }] };
+    },
+  });
+  const accountBrief = {
+    ...brief({ auditRequired: false }),
+    requestType: "informational", responseMode: "answer",
+    objective: "Find transactions for the previously identified account.",
+    summary: "Use the exact accepted account binding.",
+    requiredCapabilities: ["integration:accounting"],
+    requiredTools: ["remote_accounting_search_transactions"],
+    objectReferences: [binding], requestedActions: [],
+    completionCriteria: ["Report matching transactions for account 178."],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      assert.match(payload.developerInstructions, /accounting:\/\/accounts\/178/);
+      return completed(JSON.stringify(accountBrief), 20);
+    }
+    assert.deepEqual(payload.tools[0].inputSchema.properties.account_id.enum, [178]);
+    const wrong = await payload.onToolCall({
+      callId: "wrong-account", tool: "remote_accounting_search_transactions",
+      arguments: { account_id: 1, result_filter: identityResultFilter() },
+    });
+    assert.equal(wrong.ok, false);
+    assert.match(wrong.error, /must use the exact id.*178/);
+    const exact = await payload.onToolCall({
+      callId: "exact-account", tool: "remote_accounting_search_transactions",
+      arguments: { account_id: 178, result_filter: identityResultFilter() },
+    });
+    assert.equal(exact.ok, true);
+    return completed("Account 178 has one matching transaction.", 30);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport, registry, contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(), ledger, config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+  assert.equal(await runtime.run({
+    requestId: "request-account-binding", requestEventId: "event-current",
+    text: "Show transactions for that account.",
+  }), "Account 178 has one matching transaction.");
+  assert.equal(calls, 1);
+  assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), true);
 });
 
 test("a generated repeatable exchange exposes only its authorized exchange-add tool", async () => {

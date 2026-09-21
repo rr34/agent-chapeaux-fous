@@ -215,3 +215,15 @@ self-knowledge, not a claim of human consciousness. Its Tailscale description
 documents private publication infrastructure while preserving that the
 application itself can observe a request channel but cannot prove which network
 proxy carried an individual request.
+
+**54. First-class object binding** — The compact, bulk-shaped connection from
+user language to one or more verified domain objects. It preserves each
+object's domain-qualified type, owning source, provider-native primary ID,
+stable reference, human-facing display name, and source event numbers together.
+The ID and reference provide machine identity; the display name provides human
+identity. A binding makes the target exact but does not authorize an operation
+or replace the owning domain's freshness and business validation. Its normative
+runtime shape is
+`config/protocol-schemas/first-class-object-binding.v1.schema.json`, produced
+from Object Description metadata and consumed through object-input binding
+metadata.

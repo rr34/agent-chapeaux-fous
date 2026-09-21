@@ -18,6 +18,13 @@ catalog and selected by the TurnBrief's strict `contextRequests` field. No
 mutation or ordinary tool may run before its exact schema appears in execution.
 A model tool call must execute the named application function, and its result
 must be returned to the same model exchange before a final answer is accepted.
+Every identified first-class object must retain a compact bulk-shaped binding
+containing its domain type, owning source, provider ID, stable reference,
+human-facing display name, and source evidence. Names alone are search text;
+IDs alone lack human context. Exact bindings outrank repeated prose during
+context pruning and must be carried into later object use. The normative shape
+is `config/protocol-schemas/first-class-object-binding.v1.schema.json`; Object
+Descriptions produce it and object-input bindings consume it.
 The trace must record orientation, execution-context preparation, execution,
 conditional completion audit, repair, and per-step model usage literally. Never
 claim that an unavailable or merely cataloged tool is callable.

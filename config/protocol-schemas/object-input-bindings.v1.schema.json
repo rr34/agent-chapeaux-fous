@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-slayer.local/schemas/object-input-bindings.v1.schema.json",
+  "title": "Agent Slayer tool object-input bindings",
+  "description": "Provider-owned declarations connecting exact tool input locations to IDs or stable references consumed from runtime bindings conforming to https://agent-slayer.local/schemas/first-class-object-binding.v1.schema.json.",
+  "$comment": "Consumer contract in the Agent Slayer first-class object identity protocol suite.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "version", "bindings"],
+  "properties": {
+    "protocol": { "const": "agent-slayer.object-input-bindings" },
+    "version": { "const": 1 },
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 80,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "objectType", "value"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^\/(?:[^~\/]|~[01])+(?:\/(?:\\*|(?:[^~\/]|~[01])+))*$",
+            "maxLength": 500
+          },
+          "objectType": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$",
+            "maxLength": 120,
+            "description": "Must equal the type of the canonical first-class object binding consumed at this input path."
+          },
+          "value": {
+            "enum": ["id", "ref"],
+            "description": "Selects objects[].id or objects[].ref from the matching canonical first-class object binding."
+          },
+          "allowUnbound": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

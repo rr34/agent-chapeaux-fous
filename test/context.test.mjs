@@ -99,6 +99,13 @@ test("an explicitly referenced exchange remains literal context outside rolling 
     submittedAtUtc: "2026-08-30T14:00:00.000Z",
     request: "Move all of the Watch Jobs that you previously put on today.",
     response: "Tool-call limit reached after 24 individual updates.",
+    objectReferences: [{
+      mention: "the Watch Jobs",
+      type: "todos.personal_task",
+      source: "native:todos",
+      objects: [{ id: 42, ref: "agent-slayer://todos/42", display: "Watch Jobs" }],
+      sourceEventSeqs: [77],
+    }],
     status: "error",
     error: "Tool-call limit reached after 24 individual updates.",
   };
@@ -124,9 +131,13 @@ test("an explicitly referenced exchange remains literal context outside rolling 
   assert.match(result.developerInstructions, /Move all of the Watch Jobs/);
   assert.match(result.developerInstructions, /24 individual updates/);
   assert.match(result.developerInstructions, /requestEventSeq\":41/);
+  assert.match(result.developerInstructions, /agent-slayer:\/\/todos\/42/);
+  assert.match(result.developerInstructions, /\"id\":42/);
+  assert.match(result.developerInstructions, /\"display\":\"Watch Jobs\"/);
   assert.deepEqual(result.referencedExchanges, [{
-    ...Object.fromEntries(Object.entries(referenced).filter(([key]) => !["request", "response"].includes(key))),
+    ...Object.fromEntries(Object.entries(referenced).filter(([key]) => !["request", "response", "objectReferences"].includes(key))),
     requestCharacters: referenced.request.length,
     responseCharacters: referenced.response.length,
+    objectReferenceCount: 1,
   }]);
 });

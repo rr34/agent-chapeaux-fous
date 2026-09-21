@@ -122,6 +122,26 @@ test("the result boundary deterministically searches, projects, and limits a rec
   assert.match(result.deliveredResult.result_filter.requiredAction, /Do not treat this partial result/);
 });
 
+test("provider-declared identity, reference, and display fields survive projection", () => {
+  const result = new ResultFilterBoundary().filterReadResult({ records: [{
+    providerKey: "acct-178", locator: "accounting://accounts/178",
+    caption: "Operating Checking", balance: "100.00",
+  }] }, {
+    requestId: "request-object", interactionId: "call-object", tool: "provider_objects",
+    source: "mcp:provider",
+    protectedFields: ["providerKey", "locator", "caption"],
+    filterRequest: filterRequest({
+      collection_path: "/records", include_fields: ["balance"],
+      exclude_fields: ["providerKey", "locator", "caption"],
+    }),
+  });
+
+  assert.deepEqual(result.deliveredResult.records, [{
+    providerKey: "acct-178", locator: "accounting://accounts/178",
+    caption: "Operating Checking", balance: "100.00",
+  }]);
+});
+
 test("a matching account remains inline when MCP resource links duplicate source references", () => {
   const accounts = Array.from({ length: 273 }, (_, index) => ({
     id: index + 1,

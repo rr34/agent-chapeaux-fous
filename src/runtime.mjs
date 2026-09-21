@@ -38,6 +38,16 @@ import {
   temporalConsistencyFindings,
   temporalRepairContext,
 } from "./temporal-consistency.mjs";
+import {
+  mergeObjectReferenceGroups,
+  objectReferenceGroupsFromToolResult,
+  objectReferenceProtectedFields,
+  objectReferenceSelectionFindings,
+} from "./object-references.mjs";
+import {
+  constrainToolObjectInputs,
+  objectInputBindingProblem,
+} from "./object-input-bindings.mjs";
 
 function argumentsObject(value) {
   if (value == null) return {};
@@ -736,6 +746,10 @@ export class SlayerRuntime {
     const referencedExchanges = typeof this.ledger.referencedExchangesForRequest === "function"
       ? this.ledger.referencedExchangesForRequest(args.requestId, { limit: 8 })
       : [];
+    const availableObjectReferences = mergeObjectReferenceGroups([
+      ...recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
+      ...referencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
+    ]);
     const recentToolReceipts = recentToolReceiptIndex(this.ledger, [
       ...recentConversation,
       ...referencedExchanges.map(({ requestId }) => ({ requestId })),
@@ -757,6 +771,7 @@ export class SlayerRuntime {
       capabilities: [],
       conversationCheckpoint: null,
       includeRecentExchanges: false,
+      includeReferencedObjectReferences: false,
     });
     const requestEventSeq = typeof this.ledger.eventSequence === "function"
       ? this.ledger.eventSequence(args.requestEventId)
@@ -767,6 +782,7 @@ export class SlayerRuntime {
       catalog.flatMap(({ contextViews = [] }) => contextViews.map(({ id }) => id)),
       catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
       recentToolReceipts,
+      availableObjectReferences,
     );
     const orientationDeveloperInstructions = joinedInstructions(
       orientationBaseContext.developerInstructions ?? orientationBaseContext.text,
@@ -779,6 +795,7 @@ export class SlayerRuntime {
         capabilityCatalog: catalog,
         deferredActionReferences: activeActionReferences,
         recentToolReceipts,
+        availableObjectReferences,
         explicitHats: routing.explicitHats,
       }),
       args.supplementalInstructions,
@@ -820,12 +837,18 @@ export class SlayerRuntime {
           tool,
         }));
       const receiptFindings = receiptReferenceFindings(candidate, recentToolReceipts);
+      const objectFindings = objectReferenceSelectionFindings(
+        candidate.objectReferences,
+        availableObjectReferences,
+      );
       return {
         temporalFindings,
         capabilityFindings: [...capabilityFindings, ...contractToolFindings],
         receiptFindings,
+        objectFindings,
         findings: [
-          ...temporalFindings, ...capabilityFindings, ...contractToolFindings, ...receiptFindings,
+          ...temporalFindings, ...capabilityFindings, ...contractToolFindings,
+          ...receiptFindings, ...objectFindings,
         ],
       };
     };
@@ -853,6 +876,7 @@ export class SlayerRuntime {
           requiredCapabilities: candidate.requiredCapabilities,
           requiredTools: candidate.requiredTools,
           receiptReferences: candidate.receiptReferences,
+          objectReferences: candidate.objectReferences,
         },
         ...(valid ? {} : { error: content }),
       });
@@ -883,6 +907,13 @@ export class SlayerRuntime {
                 "Select only exact receiptEventSeq and tool pairs from the supplied recent receipt index. Include tool_receipt_read whenever receiptReferences is nonempty.",
               ].join("\n")
             : null,
+          validation.objectFindings.length
+            ? [
+                "# Object-reference validation requires repair",
+                JSON.stringify(validation.objectFindings, null, 2),
+                "Copy only exact verified object bindings from the supplied object-reference catalog. Preserve each ID, stable reference, display name, type, and source together.",
+              ].join("\n")
+            : null,
         ),
         requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
         outputSchema: schema,
@@ -907,6 +938,7 @@ export class SlayerRuntime {
       },
     });
     let preparedCapabilityContext;
+    let preparedObjectReferences = [];
     try {
       preparedCapabilityContext = await this.registry.prepareContext(brief.contextRequests, {
         requestId: args.requestId,
@@ -914,7 +946,7 @@ export class SlayerRuntime {
         requestText: args.text,
         channel,
       });
-      this.ledger.append({
+      const contextEventId = this.ledger.append({
         type: "context.prepared", status: "complete", actorType: "service",
         actorName: "Capability context", channel, turnId: args.requestId,
         operationId: contextOperationId, name: "Execution context prepared",
@@ -923,6 +955,29 @@ export class SlayerRuntime {
           : "No capability context requested",
         payload: { requests: brief.contextRequests, sections: preparedCapabilityContext },
       });
+      const contextEventSeq = typeof this.ledger.eventSequence === "function"
+        ? this.ledger.eventSequence(contextEventId)
+        : null;
+      preparedObjectReferences = mergeObjectReferenceGroups(preparedCapabilityContext.flatMap(
+        (section) => objectReferenceGroupsFromToolResult({
+          toolDefinition: {
+            name: `context:${section.view}`,
+            source: "local",
+            capabilityId: section.capability,
+          },
+          result: section.data ?? section,
+          sourceEventSeq: contextEventSeq,
+        }),
+      ));
+      if (preparedObjectReferences.length) {
+        this.ledger.append({
+          type: "object.references.observed", status: "complete", actorType: "service",
+          actorName: "Object reference binder", channel, turnId: args.requestId,
+          operationId: contextOperationId, name: "Verified context object references observed",
+          content: `${preparedObjectReferences.reduce((count, group) => count + group.objects.length, 0)} verified object references from prepared context`,
+          payload: { sourceContextEventSeq: contextEventSeq, objectReferences: preparedObjectReferences },
+        });
+      }
       this.ledger.append({
         type: "agent.step", phase: "end", status: "complete", actorType: "service",
         actorName: "Structured turn workflow", channel, turnId: args.requestId,
@@ -958,6 +1013,7 @@ export class SlayerRuntime {
         brief.contextRequests,
         catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
         recentToolReceipts,
+        availableObjectReferences,
       );
       refinementSchema.properties.contextRequests.minItems = brief.contextRequests.length;
       const refinementDeveloperInstructions = joinedInstructions(
@@ -1009,6 +1065,13 @@ export class SlayerRuntime {
                   "# Receipt-reference validation requires repair",
                   JSON.stringify(validation.receiptFindings, null, 2),
                   "Select only exact receiptEventSeq and tool pairs from the supplied recent receipt index. Include tool_receipt_read whenever receiptReferences is nonempty.",
+                ].join("\n")
+              : null,
+            validation.objectFindings.length
+              ? [
+                  "# Object-reference validation requires repair",
+                  JSON.stringify(validation.objectFindings, null, 2),
+                  "Copy only exact verified object bindings from the supplied object-reference catalog. Preserve each ID, stable reference, display name, type, and source together.",
                 ].join("\n")
               : null,
           ),
@@ -1081,6 +1144,8 @@ export class SlayerRuntime {
       confirmedActionReferences,
       preparedCapabilityContext,
       temporalResolutions: brief.temporalResolutions,
+      objectReferences: brief.objectReferences,
+      initialObjectReferences: preparedObjectReferences,
     };
     if (typeof args.awaitTurnBriefApproval === "function") {
       const capabilityById = new Map(catalog.map((entry) => [entry.capability, entry]));
@@ -1297,7 +1362,8 @@ export class SlayerRuntime {
     allowedToolNames: allowedToolNameList = null,
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
     activeActionReferences = [], confirmedActionReferences = [],
-    preparedCapabilityContext = null, temporalResolutions = [],
+    preparedCapabilityContext = null, temporalResolutions = [], objectReferences = [],
+    initialObjectReferences = [],
   }) {
     const registeredTools = this.registry.toolDefinitions();
     const allowedToolNames = Array.isArray(allowedToolNameList)
@@ -1389,6 +1455,10 @@ export class SlayerRuntime {
     let attempt = 0;
     let result;
     const sameRequestReceipts = [...initialReceipts];
+    let observedObjectReferences = mergeObjectReferenceGroups([
+      ...initialObjectReferences,
+      ...initialReceipts.flatMap((receipt) => receipt.objectReferences ?? []),
+    ]);
     const generatedActionReferences = [];
     let conversationCheckpoint = null;
     let finalAttemptStartedNewConversation = !conversationId;
@@ -1405,7 +1475,9 @@ export class SlayerRuntime {
         throw new Error(`Model execution timed out after ${configuredRunTimeoutMs}ms`);
       }
       finalAttemptStartedNewConversation = !conversationId;
-      const tools = compilation.tools;
+      const tools = compilation.tools.map((tool) => constrainToolObjectInputs(
+        tool, objectReferences, observedObjectReferences,
+      ));
       const callableToolNames = new Set(tools.map(({ name }) => name));
       const callableToolDefinitions = new Map(tools.map((tool) => [tool.name, tool]));
       if (
@@ -1775,6 +1847,30 @@ export class SlayerRuntime {
               });
               return { ok: true, result: toolResult };
             }
+            const objectBindingProblem = objectInputBindingProblem({
+              toolDefinition: registeredTool ?? callableToolDefinitions.get(name),
+              argumentsObject: toolArguments,
+              selectedGroups: objectReferences,
+              observedGroups: observedObjectReferences,
+            });
+            if (objectBindingProblem) {
+              sameRequestReceipts.push({
+                tool: name, arguments: toolArguments, ok: false, error: objectBindingProblem,
+              });
+              this.ledger.append({
+                type: "object.binding.rejected", phase: "error", status: "error",
+                actorType: "service", actorName: "Object binding guard", channel,
+                turnId: requestId, operationId: callId, name: `${name} object binding rejected`,
+                content: objectBindingProblem,
+                payload: { callId, name, arguments: toolArguments }, error: objectBindingProblem,
+              });
+              this.ledger.append({
+                type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                actorName: name, channel, turnId: requestId, operationId: callId, name,
+                payload: { callId, name }, error: objectBindingProblem,
+              });
+              return { ok: false, error: objectBindingProblem };
+            }
             const attemptKey = toolAttemptKey(name, args);
             const blocked = sameRequestReceipts.find((receipt) => (receipt.tool === name || !readOnly)
               && normalizedToolFailure(receipt.toolFailure)?.terminalForCurrentRequest);
@@ -1878,6 +1974,9 @@ export class SlayerRuntime {
                       source: registeredTool?.source ?? callableToolDefinitions.get(name)?.source,
                       filterRequest,
                       receiptEventSeq,
+                      protectedFields: objectReferenceProtectedFields(
+                        registeredTool ?? callableToolDefinitions.get(name),
+                      ),
                     })
                   : null;
                 if (filteredError) {
@@ -1933,6 +2032,9 @@ export class SlayerRuntime {
                     source: registeredTool?.source ?? callableToolDefinitions.get(name)?.source,
                     filterRequest,
                     receiptEventSeq,
+                    protectedFields: objectReferenceProtectedFields(
+                      registeredTool ?? callableToolDefinitions.get(name),
+                    ),
                   })
                 : null;
               if (filtered) {
@@ -1963,6 +2065,27 @@ export class SlayerRuntime {
                   ? Number.MAX_SAFE_INTEGER
                   : this.config.maxInlineToolResultCharacters ?? 32 * 1024,
               });
+              const objectReferences = objectReferenceGroupsFromToolResult({
+                toolDefinition: registeredTool ?? callableToolDefinitions.get(name),
+                toolDefinitions: this.registry.toolDefinitions(),
+                result: inline.deliveredResult,
+                sourceEventSeq: receiptEventSeq,
+              });
+              observedObjectReferences = mergeObjectReferenceGroups([
+                ...observedObjectReferences, ...objectReferences,
+              ]);
+              if (objectReferences.length) {
+                const objectCount = objectReferences.reduce(
+                  (count, group) => count + group.objects.length, 0,
+                );
+                this.ledger.append({
+                  type: "object.references.observed", status: "complete", actorType: "service",
+                  actorName: "Object reference binder", channel, turnId: requestId,
+                  operationId: callId, name: "Verified object references observed",
+                  content: `${objectCount} verified object reference${objectCount === 1 ? "" : "s"} from ${name}`,
+                  payload: { tool: name, sourceReceiptEventSeq: receiptEventSeq, objectReferences },
+                });
+              }
               sameRequestReceipts.push({
                 tool: name,
                 arguments: toolArguments,
@@ -1970,6 +2093,7 @@ export class SlayerRuntime {
                 ok: true,
                 result: inline.deliveredResult,
                 receiptEventSeq,
+                ...(objectReferences.length ? { objectReferences } : {}),
                 ...(sourcedActionReference ? { deferredActionReference: sourcedActionReference } : {}),
               });
               if (inline.paged) {
@@ -1986,7 +2110,11 @@ export class SlayerRuntime {
                   },
                 });
               }
-              return { ok: true, result: inline.deliveredResult };
+              return {
+                ok: true,
+                result: inline.deliveredResult,
+                ...(objectReferences.length ? { objectReferences } : {}),
+              };
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               const toolFailure = normalizedToolFailure(error?.toolFailure)

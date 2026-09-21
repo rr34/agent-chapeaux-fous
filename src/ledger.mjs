@@ -3,6 +3,9 @@ import { activeDeferredActionReferences } from "./deferred-actions.mjs";
 import { safeJson } from "./redaction.mjs";
 import { requestCallCounts } from "./request-metrics.mjs";
 import { llmCallCountForUsage } from "../public/ai-usage.js";
+import {
+  mergeObjectReferenceGroups, normalizeObjectReferenceGroups,
+} from "./object-references.mjs";
 
 function publicEvent(row) {
   if (!row) return null;
@@ -198,6 +201,18 @@ export function interactionObjectActivity(events, maximumItems = 12) {
   };
   for (const event of events ?? []) {
     if (event?.status !== "complete") continue;
+    for (const group of normalizeObjectReferenceGroups(event.payload?.objectReferences ?? [])) {
+      for (const object of group.objects) add({
+        type: group.type,
+        id: String(object.id),
+        title: object.display,
+        context: object.ref,
+        action: objectAction(event.type).action,
+        symbol: objectAction(event.type).symbol,
+        tool: event.payload?.tool ?? event.actorName ?? null,
+        eventSeq: event.eventSeq ?? null,
+      });
+    }
     if (event.type !== "tool.result" && event.actorType === "tool" && event.subjectType
       && event.subjectId && !event.subjectType.endsWith("_batch")) {
       const operation = objectAction(event.type || event.name);
@@ -222,6 +237,28 @@ export function interactionObjectActivity(events, maximumItems = 12) {
     for (const object of objects) add(object);
   }
   return selected;
+}
+
+export function interactionObjectReferences(events) {
+  const groups = [];
+  for (const event of events ?? []) {
+    if (event?.status !== "complete") continue;
+    if (event.type === "turn.brief") groups.push(...(event.payload?.brief?.objectReferences ?? []));
+    groups.push(...(event.payload?.objectReferences ?? []));
+  }
+  if (groups.length) return mergeObjectReferenceGroups(groups);
+
+  // Compatibility for exchanges recorded before canonical object-reference
+  // events existed. These retain the exact row ID and human display from the
+  // old activity projection, but are visibly legacy-scoped because the older
+  // trace did not preserve the provider's domain-qualified stable reference.
+  return mergeObjectReferenceGroups(interactionObjectActivity(events, 100).map((object) => ({
+    mention: `${object.type} used by the completed exchange`,
+    type: object.type.includes(".") ? object.type : `legacy.${object.type}`,
+    source: `legacy:${object.tool ?? "ledger"}`,
+    objects: [{ id: object.id, ref: `${object.type}:${object.id}`, display: object.title }],
+    sourceEventSeqs: Number.isSafeInteger(object.eventSeq) ? [object.eventSeq] : [],
+  })));
 }
 
 function placeholders(values) {
@@ -1063,6 +1100,7 @@ export class Ledger {
       request: transcript?.content || request.content || "",
       responseEventSeq: response?.eventSeq ?? terminal.eventSeq,
       response: response?.content || terminal.content || terminal.error || "",
+      objectReferences: interactionObjectReferences(events),
       status: terminal.status,
       error: terminal.status === "error" ? (terminal.error || terminal.content || null) : null,
     };
@@ -1225,12 +1263,22 @@ export class Ledger {
       before ?? null,
       Math.min(40, Math.max(2, limit * 2)),
     ).map(publicEvent).reverse();
+    const referencesByRequest = new Map();
+    const objectReferences = (requestId) => {
+      if (!referencesByRequest.has(requestId)) {
+        referencesByRequest.set(requestId, interactionObjectReferences(this.trace(requestId)));
+      }
+      return referencesByRequest.get(requestId);
+    };
     return rows.map((event) => ({
       eventSeq: event.eventSeq,
       role: receivedEventTypes.includes(event.type) ? "user" : "assistant",
       content: event.content,
       requestId: event.turnId,
       occurredAtUtc: event.occurredAtUtc,
+      ...(receivedEventTypes.includes(event.type)
+        ? {}
+        : { objectReferences: objectReferences(event.turnId) }),
     })).filter((entry) => entry.content);
   }
 

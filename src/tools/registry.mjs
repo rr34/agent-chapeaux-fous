@@ -1,5 +1,6 @@
 import { withReadResultFilterSchema } from "../search/result-filter.mjs";
 import { applyNativeToolDescription } from "../native-tool-descriptions.mjs";
+import { applyNativeObjectInputBindings } from "../native-object-input-bindings.mjs";
 import {
   toolDescriptionMetadataKey, validateToolDescription,
 } from "../tool-description.mjs";
@@ -155,7 +156,9 @@ export class ToolRegistry {
     if (!tool?.name || typeof tool.execute !== "function") throw new Error("A tool needs a name and execute function");
     if (this.tools.has(tool.name)) throw new Error(`Duplicate tool name: ${tool.name}`);
     const source = String(tool.source ?? "local");
-    const nativeDescribed = source === "local" ? applyNativeToolDescription(tool) : tool;
+    const nativeDescribed = source === "local"
+      ? applyNativeObjectInputBindings(applyNativeToolDescription(tool))
+      : tool;
     const nativeSelection = nativeDescribed.metadata?.[toolDescriptionMetadataKey];
     const described = nativeSelection && nativeDescribed.annotations == null
       ? {

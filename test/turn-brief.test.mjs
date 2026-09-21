@@ -6,6 +6,7 @@ import {
   parseStructuredModelOutput,
   turnBriefSchema,
 } from "../src/turn-brief.mjs";
+import { firstClassObjectBindingSchema } from "../src/first-class-object-binding.mjs";
 
 function validBrief() {
   const sourced = { text: "Create the offered reminder.", sourceEventSeqs: [4, 9] };
@@ -19,6 +20,7 @@ function validBrief() {
     requiredTools: ["todo_create"],
     confirmedActionReferenceIds: [],
     contextRequests: [],
+    objectReferences: [],
     receiptReferences: [],
     temporalResolutions: [],
     requestedActions: [sourced],
@@ -122,6 +124,36 @@ test("TurnBrief parsing enforces source references and unique capability selecti
     () => parseStructuredModelOutput(JSON.stringify(withReceipt), receiptSchema, "Orientation"),
     /receiptEventSeq must be one of 42/,
   );
+
+  const binding = {
+    mention: "that account",
+    type: "accounting.account",
+    source: "mcp:accounting",
+    objects: [{ id: 178, ref: "accounting://accounts/178", display: "Operating Checking" }],
+    sourceEventSeqs: [30_801],
+  };
+  const objectSchema = turnBriefSchema(
+    ["todos"], [], [], ["todo_create"], [], [binding],
+  );
+  const withObject = validBrief();
+  withObject.objectReferences = [binding];
+  assert.deepEqual(
+    objectSchema.properties.objectReferences.items.required,
+    firstClassObjectBindingSchema.required,
+  );
+  assert.deepEqual(
+    objectSchema.properties.objectReferences.items.properties.mention,
+    firstClassObjectBindingSchema.properties.mention,
+  );
+  assert.deepEqual(
+    parseStructuredModelOutput(JSON.stringify(withObject), objectSchema, "Orientation"),
+    withObject,
+  );
+  withObject.objectReferences[0].objects[0].id = 1;
+  assert.throws(
+    () => parseStructuredModelOutput(JSON.stringify(withObject), objectSchema, "Orientation"),
+    /objectReferences\[0\]\.objects\[0\] does not match any allowed schema/,
+  );
 });
 
 test("orientation treats conversation and focused knowledge as evidence for an actual answer", () => {
@@ -131,6 +163,8 @@ test("orientation treats conversation and focused knowledge as evidence for an a
   assert.match(orientationInstructions, /answering the user's actual question/);
   assert.match(orientationInstructions, /immediately preceding assistant question or active exchange/);
   assert.match(orientationInstructions, /never invent omitted units/);
+  assert.match(orientationInstructions, /complete matching bulk binding into objectReferences/);
+  assert.match(orientationInstructions, /not rediscovered by name/);
 });
 
 test("a repeated import request after a deleted attempt starts from current provider state", () => {

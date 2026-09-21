@@ -21,6 +21,7 @@ export function validateObjectDescription(value, { annotations, selection, label
   }
   const prose = value.types.flatMap((type) => [
     type.title, type.summary, ...(type.aliases ?? []),
+    type.identity.field, type.identity.summary,
     type.reference.field, type.reference.summary, type.display.field, type.display.summary,
     ...type.qualifiers.flatMap(({ field, summary }) => [field, summary]),
     ...(type.relationships ?? []).flatMap(({ name, summary }) => [name, summary]),

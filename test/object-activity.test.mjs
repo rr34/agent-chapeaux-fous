@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { interactionObjectActivity } from "../src/ledger.mjs";
+import { interactionObjectActivity, interactionObjectReferences } from "../src/ledger.mjs";
 
 test("object activity prefers the exact mutation event over its matching tool result", () => {
   const activity = interactionObjectActivity([
@@ -66,4 +66,16 @@ test("object activity recognizes provider-owned object identifiers without inter
   assert.equal(activity[0].id, "acct-5999");
   assert.equal(activity[0].title, "Checking ending in 5999");
   assert.equal(activity[0].action, "used");
+});
+
+test("canonical object bindings survive the ledger projection without being rebuilt from prose", () => {
+  const binding = {
+    mention: "that account", type: "accounting.account", source: "mcp:accounting",
+    objects: [{ id: 178, ref: "accounting://accounts/178", display: "Operating Checking" }],
+    sourceEventSeqs: [30_801],
+  };
+  assert.deepEqual(interactionObjectReferences([{
+    eventSeq: 30_802, type: "object.references.observed", status: "complete",
+    payload: { objectReferences: [binding] },
+  }]), [binding]);
 });

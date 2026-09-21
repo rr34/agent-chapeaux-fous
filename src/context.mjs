@@ -8,6 +8,7 @@ import {
   presentationInstructions,
   presentationProfileFactTypes,
 } from "./presentation-preferences.mjs";
+import { compactObjectReferenceContext } from "./object-references.mjs";
 
 function bounded(value, maximum) {
   const text = String(value ?? "");
@@ -46,7 +47,7 @@ function boundedContinuationAnchor(history, maximum = 3_000) {
   return `${prefix}${text.slice(-(maximum - prefix.length))}`;
 }
 
-function referencedExchangeContext(exchanges, maximum = 8_000) {
+function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectReferences = true) {
   if (!exchanges.length) return null;
   const contentCharactersPerExchange = Math.max(
     300,
@@ -71,6 +72,11 @@ function referencedExchangeContext(exchanges, maximum = 8_000) {
     return [
       `## Referenced exchange ${index + 1}`,
       `Source: ${JSON.stringify(source)}`,
+      ...(includeObjectReferences ? [
+        "<referenced_object_references>",
+        JSON.stringify(compactObjectReferenceContext(exchange.objectReferences ?? [])),
+        "</referenced_object_references>",
+      ] : []),
       "<referenced_user_request>",
       request.text,
       "</referenced_user_request>",
@@ -87,10 +93,13 @@ function referencedExchangeContext(exchanges, maximum = 8_000) {
 }
 
 function referencedExchangeSources(exchanges) {
-  return exchanges.map(({ request, response, ...source }) => ({
+  return exchanges.map(({ request, response, objectReferences, ...source }) => ({
     ...source,
     requestCharacters: String(request ?? "").length,
     responseCharacters: String(response ?? "").length,
+    objectReferenceCount: (objectReferences ?? []).reduce(
+      (count, group) => count + (group.objects?.length ?? 0), 0,
+    ),
   }));
 }
 
@@ -122,6 +131,7 @@ export class ContextBuilder {
     preparedCapabilityContext = null,
     conversationCheckpoint = null,
     includeRecentExchanges = true,
+    includeReferencedObjectReferences = true,
   } = {}) {
     const referencedExchanges = typeof this.ledger.referencedExchangesForRequest === "function"
       ? this.ledger.referencedExchangesForRequest(requestId, { limit: 8 })
@@ -175,7 +185,9 @@ export class ContextBuilder {
       presentationInstructions,
       "",
     ];
-    const referencedExchangeText = referencedExchangeContext(referencedExchanges);
+    const referencedExchangeText = referencedExchangeContext(
+      referencedExchanges, 8_000, includeReferencedObjectReferences,
+    );
     if (referencedExchangeText) sections.push(referencedExchangeText, "");
     if (continuationAnchor) {
       sections.push(

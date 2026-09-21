@@ -1,6 +1,6 @@
 const protocol = "agent-slayer.search-data";
 const protocolVersion = 1;
-const protectedField = /(?:^id$|_id$|Id$|^name$|^title$|^status$|^version$|^(?:source_)?occurrence_key$|Ref$|_ref$)/u;
+const protectedField = /(?:^id$|_id$|Id$|^objectType$|^name$|^title$|^status$|^version$|^(?:source_)?occurrence_key$|Ref$|_ref$)/u;
 
 export const readResultFilterSchema = {
   type: "object",
@@ -135,12 +135,12 @@ function queryMatches(value, query, mode) {
     : terms.every((term) => candidate.includes(term));
 }
 
-function projectedItem(value, includeFields, excludeFields) {
+function projectedItem(value, includeFields, excludeFields, protectedFields) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const include = new Set(includeFields);
   const exclude = new Set(excludeFields);
   return Object.fromEntries(Object.entries(value).filter(([field]) => {
-    if (protectedField.test(field)) return true;
+    if (protectedField.test(field) || protectedFields.has(field)) return true;
     if (exclude.has(field)) return false;
     return include.size === 0 || include.has(field);
   }));
@@ -269,6 +269,7 @@ function receiptPageWithinBudget(value, maximumCharacters) {
 export class ResultFilterBoundary {
   filterReadResult(result, {
     requestId, interactionId, tool, source, filterRequest, receiptEventSeq = null,
+    protectedFields = [],
   }) {
     const inputCharacters = JSON.stringify(result ?? null).length;
     let collectionPath = filterRequest.collection_path;
@@ -289,6 +290,7 @@ export class ResultFilterBoundary {
     }
 
     let filtered = structuredClone(result);
+    const protectedFieldSet = new Set(protectedFields);
     let candidates = null;
     let returned = null;
     const prunedByReason = {};
@@ -304,6 +306,7 @@ export class ResultFilterBoundary {
         if (limited.length !== matched.length) prunedByReason.max_items = matched.length - limited.length;
         const projected = limited.map((item) => projectedItem(
           item, filterRequest.include_fields, filterRequest.exclude_fields,
+          protectedFieldSet,
         ));
         if (filterRequest.include_fields.length || filterRequest.exclude_fields.length) {
           prunedByReason.fields = true;

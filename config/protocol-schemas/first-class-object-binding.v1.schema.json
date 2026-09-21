@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-slayer.local/schemas/first-class-object-binding.v1.schema.json",
+  "title": "Agent Slayer first-class object binding",
+  "description": "The canonical compact runtime binding from one user-language mention to one or more verified objects of the same domain-qualified type and owning source. Object Description metadata produces these bindings and object-input binding metadata consumes their exact IDs or stable references.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mention", "type", "source", "objects", "sourceEventSeqs"],
+  "properties": {
+    "mention": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Compact user-facing language connected to this verified object set."
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$",
+      "maxLength": 120,
+      "description": "Domain-qualified object type declared by the owning Object Description."
+    },
+    "source": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*:[^\\s]+$",
+      "maxLength": 200,
+      "description": "Owning provider or native domain, not merely the tool that happened to return the object."
+    },
+    "objects": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "uniqueItems": true,
+      "description": "One bulk-shaped set even when exactly one object is bound.",
+      "items": { "$ref": "#/$defs/objectIdentity" }
+    },
+    "sourceEventSeqs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 40,
+      "uniqueItems": true,
+      "items": { "type": "integer", "minimum": 1 },
+      "description": "Ledger event numbers proving where this exact binding was observed."
+    }
+  },
+  "$defs": {
+    "objectIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "ref", "display"],
+      "properties": {
+        "id": {
+          "anyOf": [
+            { "type": "integer" },
+            { "type": "string", "minLength": 1, "maxLength": 500 }
+          ],
+          "description": "Provider-native primary ID."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Stable domain-owned reference for this exact object."
+        },
+        "display": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Human-facing name or compact label for the same object."
+        }
+      }
+    }
+  }
+}

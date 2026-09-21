@@ -14,6 +14,14 @@ const objectDescriptionSchemaPath = new URL(
   "../config/protocol-schemas/object-description.v1.schema.json",
   import.meta.url,
 );
+const firstClassObjectBindingSchemaPath = new URL(
+  "../config/protocol-schemas/first-class-object-binding.v1.schema.json",
+  import.meta.url,
+);
+const objectInputBindingsSchemaPath = new URL(
+  "../config/protocol-schemas/object-input-bindings.v1.schema.json",
+  import.meta.url,
+);
 const manifestoPath = new URL("../AGENT-TOOL-MANIFESTO.md", import.meta.url);
 
 test("the manifesto references one authoritative versioned retry descriptor", () => {
@@ -72,8 +80,50 @@ test("the manifesto publishes a versioned remote Object Description and provider
   assert.equal(schema.properties.protocol.const, "agent-slayer.object-description");
   assert.equal(schema.properties.version.const, 1);
   assert.deepEqual(new Set(schema.required), new Set(["protocol", "version", "types"]));
+  assert.equal(schema.properties.types.items.required.includes("identity"), true);
   assert.equal(schema.additionalProperties, false);
   assert.match(manifesto, /config\/protocol-schemas\/object-description\.v1\.schema\.json/);
   assert.match(manifesto, /_meta\["agent-slayer\/objects"\]/);
   assert.match(manifesto, /Each owned provider keeps contract tests beside its implementation/);
+  assert.match(manifesto, /provider-native identity fields/);
+});
+
+test("the identity protocol centers producer and consumer contracts on one canonical runtime binding", () => {
+  const binding = JSON.parse(fs.readFileSync(firstClassObjectBindingSchemaPath, "utf8"));
+  const producer = JSON.parse(fs.readFileSync(objectDescriptionSchemaPath, "utf8"));
+  const consumer = JSON.parse(fs.readFileSync(objectInputBindingsSchemaPath, "utf8"));
+  const manifesto = fs.readFileSync(manifestoPath, "utf8");
+
+  assert.equal(
+    binding.$id,
+    "https://agent-slayer.local/schemas/first-class-object-binding.v1.schema.json",
+  );
+  assert.deepEqual(new Set(binding.required), new Set([
+    "mention", "type", "source", "objects", "sourceEventSeqs",
+  ]));
+  assert.deepEqual(
+    new Set(binding.$defs.objectIdentity.required),
+    new Set(["id", "ref", "display"]),
+  );
+  assert.equal(binding.properties.objects.minItems, 1);
+  assert.equal(binding.properties.sourceEventSeqs.minItems, 1);
+  assert.match(producer.description, /first-class-object-binding\.v1\.schema\.json/);
+  assert.match(consumer.description, /first-class-object-binding\.v1\.schema\.json/);
+  assert.match(manifesto, /producer, instance, and\s+consumer shapes/);
+  assert.match(
+    manifesto,
+    /config\/protocol-schemas\/first-class-object-binding\.v1\.schema\.json/,
+  );
+});
+
+test("the manifesto publishes provider-owned first-class object input bindings", () => {
+  const schema = JSON.parse(fs.readFileSync(objectInputBindingsSchemaPath, "utf8"));
+  const manifesto = fs.readFileSync(manifestoPath, "utf8");
+  assert.equal(schema.properties.protocol.const, "agent-slayer.object-input-bindings");
+  assert.equal(schema.properties.version.const, 1);
+  assert.deepEqual(new Set(schema.required), new Set(["protocol", "version", "bindings"]));
+  assert.deepEqual(schema.properties.bindings.items.properties.value.enum, ["id", "ref"]);
+  assert.match(manifesto, /2A\.2\. Object-input binding contract/);
+  assert.match(manifesto, /never guesses it from names such as/);
+  assert.match(manifesto, /cannot reach the tool/);
 });

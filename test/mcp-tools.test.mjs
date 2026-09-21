@@ -145,6 +145,7 @@ const accountObjectTool = {
         id: "accounting.account", title: "Accounting account",
         summary: "A ledger account; its name and currency describe this account.",
         aliases: ["account", "ledger account"],
+        identity: { field: "id", summary: "Provider-native account ID." },
         reference: { field: "sourceRef", summary: "Stable provider-owned account reference." },
         display: { field: "displayName", summary: "Account name shown to the user." },
         qualifiers: [
@@ -216,7 +217,7 @@ test("owned MCP discovery keeps its last valid tools when refreshed metadata fai
         assert.equal(name, "list_account_objects");
         reads += 1;
         return { content: [{ type: "text", text: JSON.stringify({ accounts: [{
-          sourceRef: "accounting:account:42", displayName: "coinbase", currencyCode: "BTC",
+          id: 42, sourceRef: "accounting:account:42", displayName: "coinbase", currencyCode: "BTC",
         }] }) }] };
       },
       async close() {},
@@ -233,7 +234,7 @@ test("owned MCP discovery keeps its last valid tools when refreshed metadata fai
   assert.equal(finance.objectTypes[0].readTool, "remote_finance_list_account_objects");
   const result = await registry.execute(finance.objectTypes[0].readTool, {});
   assert.deepEqual(JSON.parse(result[0]).accounts[0], {
-    sourceRef: "accounting:account:42", displayName: "coinbase", currencyCode: "BTC",
+    id: 42, sourceRef: "accounting:account:42", displayName: "coinbase", currencyCode: "BTC",
   });
   assert.equal(reads, 1);
 
