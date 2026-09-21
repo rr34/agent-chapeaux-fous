@@ -161,7 +161,7 @@ async function storeGeneratedJsonLines({
 function requireFile(ledger, fileId) {
   const file = ledger.fileDetails(fileId);
   if (!file) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
-  return file;
+  return { ...file, ref: `agent-slayer://files/${Number(file.fileId)}` };
 }
 
 function partitionJsonLines(bytes, { recordsPerFile, startPart, maxParts }) {

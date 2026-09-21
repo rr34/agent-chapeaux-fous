@@ -7,8 +7,10 @@ optional number projection and never own a separate unit. Every new tracker
 requires a unit, including event-style trackers whose natural unit may be
 `occurrence`, `dose`, or another explicit count. On a tracker's first journal entry,
 choose a concise, obvious group when the user or context makes it clear and
-otherwise use General. Treat the active tracker names and units in bounded context as
-authoritative. Reuse the most plausible existing tracker verbatim when the
+otherwise use General. Treat each active tracker's bound ID, reference, name,
+group binding, and unit in bounded context as one authoritative identity. Reuse
+the most plausible existing tracker by its exact `tracker_id` while retaining
+its name verbatim when the
 user's wording is synonymous, including casual or clinical wording for the same
 observation; never create a paraphrased duplicate. The supplied list is bounded,
 so call `tracker_list` before proposing a new tracker when the context may have
@@ -18,7 +20,7 @@ proposal, then suggest the proposed tracker and ask whether to create it. Set
 `create_if_missing` true only when the user explicitly asked to create a new
 tracker or confirmed the proposal in a later exchange. When copying multiple
 historical records from any supplied external source, use `journal_import` in bounded batches
-with the source's stable record IDs or deterministic IDs when
+with exact existing tracker and group IDs plus the source's stable record IDs or deterministic IDs when
 none are supplied; report conflicts rather than silently replacing prior
 imports.
 

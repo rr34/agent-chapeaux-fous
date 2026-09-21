@@ -33,9 +33,9 @@ test("native typing search reads contacts, tags, tasks, and the Journal hierarch
     .run(trackerId).lastInsertRowid);
 
   const contacts = organizer.searchNativeObjects({ query: "Lucas Ruffing" }).objects;
-  assert.equal(contacts[0].ref, `contacts:${contactId}`);
-  assert.deepEqual(contacts[0].related.map(({ ref }) => ref), [`todo_personal:${todoId}`]);
-  assert.equal(organizer.searchNativeObjects({ query: "Family" }).objects[0].ref, `contacts:${contactId}`);
+  assert.equal(contacts[0].ref, `agent-slayer://contacts/${contactId}`);
+  assert.deepEqual(contacts[0].related.map(({ ref }) => ref), [`agent-slayer://todos/${todoId}`]);
+  assert.equal(organizer.searchNativeObjects({ query: "Family" }).objects[0].ref, `agent-slayer://contacts/${contactId}`);
 
   const groups = organizer.searchNativeObjects({ query: "Exercise log items" }).objects;
   assert.equal(groups[0].ref, `journal1_groups:${journalGroupId}`);

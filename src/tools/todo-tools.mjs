@@ -23,6 +23,7 @@ const todoTaskRecordSchema = {
   description: "One non-temporal item in the user's authoritative personal to-do list. Calendar events own schedules and deadlines.",
   properties: {
     ...Object.fromEntries(todoFields.map((name) => [name, {}])),
+    ref: { description: "Stable Agent Slayer reference for this exact personal to-do." },
     group_name: {},
     interaction_guide: { type: ["object", "null"], properties: {
       interaction_guide_id: {}, name: {}, status: {}, version: {},
@@ -32,7 +33,10 @@ const todoTaskRecordSchema = {
 const todoGroupRecordSchema = {
   type: ["object", "null"],
   description: "A named group in the user's authoritative personal to-do list.",
-  properties: Object.fromEntries(groupFields.map((name) => [name, {}])),
+  properties: {
+    ...Object.fromEntries(groupFields.map((name) => [name, {}])),
+    ref: { description: "Stable Agent Slayer reference for this exact to-do group." },
+  },
 };
 
 function taskWithContext(database, taskId) {
@@ -53,6 +57,7 @@ function databaseTask(row) {
   if (!row) return null;
   return {
     ...selectedFields(row, todoFields),
+    ref: `agent-slayer://todos/${Number(row.personal_task_id)}`,
     group_name: row.group_name,
     interaction_guide: row.interaction_guide_id == null ? null : {
       interaction_guide_id: Number(row.interaction_guide_id),
@@ -64,7 +69,11 @@ function databaseTask(row) {
 }
 
 function databaseGroup(row) {
-  return selectedFields(row, groupFields);
+  if (!row) return null;
+  return {
+    ...selectedFields(row, groupFields),
+    ref: `agent-slayer://todo-groups/${Number(row.todo_group_id)}`,
+  };
 }
 
 function activeTodoGroupRows(store) {
@@ -80,11 +89,11 @@ function activeTodoGroupRows(store) {
   `).all();
 }
 
-function requireGroup(database, name) {
+function requireGroup(database, id) {
   const row = database.prepare(`
-    SELECT * FROM todo_groups WHERE name = ? AND archived_at_utc IS NULL
-  `).get(String(name || "Inbox").trim());
-  if (!row) throw new Error(`Unknown active to-do group: ${name || "Inbox"}`);
+    SELECT * FROM todo_groups WHERE todo_group_id = ? AND archived_at_utc IS NULL
+  `).get(id);
+  if (!row) throw new Error(`Active to-do group ${id} does not exist`);
   return row;
 }
 
@@ -179,21 +188,22 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_add",
-    description: "Add one non-temporal native personal to-do. To place work or a deadline on the calendar, create a calendar event and link it to the to-do.",
+    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. To place work or a deadline on the calendar, create a calendar event and link it to the to-do.",
     outputSchema: { type: "object", properties: { task: todoTaskRecordSchema } },
     parameters: { type: "object", additionalProperties: false, properties: {
       text: { type: "string", minLength: 1, maxLength: 10000 },
-      status: { type: "string", enum: todoStatuses }, group: optionalText,
+      status: { type: "string", enum: todoStatuses },
+      todo_group_id: { type: "integer", minimum: 1 },
       related_contact_id: { type: ["integer", "null"], minimum: 1 },
       interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
       planning_prompt_text: optionalText,
       position: { type: ["integer", "null"], minimum: 1, maximum: 1_000_000_000 },
-    }, required: ["text", "group"] },
+    }, required: ["text", "todo_group_id"] },
     async execute(input, context) {
       const database = store.requireReady();
       const text = input.text.trim();
       if (!text) throw new Error("To-do text cannot be empty");
-      const group = requireGroup(database, input.group);
+      const group = requireGroup(database, input.todo_group_id);
       requireActiveGuide(database, input.interaction_guide_id);
       if (input.related_contact_id != null && !database.prepare(
         "SELECT 1 FROM contacts WHERE contact_id = ?",
@@ -329,7 +339,8 @@ export function registerTodoTools(registry, store, ledger) {
     parameters: { type: "object", additionalProperties: false, properties: {
       updates: { type: "array", minItems: 1, maxItems: 500, items: {
         type: "object", additionalProperties: false, properties: {
-          personal_task_id: { type: "integer", minimum: 1 }, text: optionalText, group: optionalText,
+          personal_task_id: { type: "integer", minimum: 1 }, text: optionalText,
+          todo_group_id: { type: ["integer", "null"], minimum: 1 },
           status: { type: ["string", "null"], enum: [...todoStatuses, null] },
           related_contact_id: { type: ["integer", "null"], minimum: 1 }, clear_related_contact: { type: "boolean" },
           interaction_guide_id: { type: ["integer", "null"], minimum: 1 }, clear_interaction_guide: { type: "boolean" },
@@ -349,7 +360,7 @@ export function registerTodoTools(registry, store, ledger) {
           if (!before) throw new Error(`To-do ${input.personal_task_id} does not exist`);
           const values = {};
           if (input.text != null) values.text = input.text.trim();
-          if (input.group != null) values.todo_group_id = requireGroup(database, input.group).todo_group_id;
+          if (input.todo_group_id != null) values.todo_group_id = requireGroup(database, input.todo_group_id).todo_group_id;
           if (input.status != null) {
             values.status = input.status;
             values.completed_at_utc = input.status === "complete" ? now : null;

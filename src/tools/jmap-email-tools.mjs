@@ -52,6 +52,99 @@ function compact(object) {
   return Object.fromEntries(Object.entries(object).filter(([, value]) => value != null));
 }
 
+function stableRef(prefix, id) {
+  return `${prefix}${encodeURIComponent(String(id))}`;
+}
+
+function identifiedBlob(value, fallbackDisplay = null) {
+  if (!value || value.blobId == null) return value;
+  const display = String(value.name ?? fallbackDisplay ?? "").trim() || null;
+  return {
+    ...value,
+    blob_id: value.blobId,
+    blob_ref: stableRef("agent-slayer://email-blobs/", value.blobId),
+    blob_display: display,
+  };
+}
+
+function identifiedBodyPart(value) {
+  if (!value || typeof value !== "object") return value;
+  return identifiedBlob({
+    ...value,
+    ...(Array.isArray(value.subParts)
+      ? { subParts: value.subParts.map(identifiedBodyPart) }
+      : {}),
+  });
+}
+
+function identifiedEmail(value, fallbackDisplay = null) {
+  if (!value || value.id == null) return value;
+  const display = String(value.subject ?? value.preview ?? fallbackDisplay ?? "").trim() || null;
+  return {
+    ...value,
+    email_id: value.id,
+    email_ref: stableRef("agent-slayer://emails/", value.id),
+    email_display: display,
+    ...(value.blobId == null ? {} : {
+      raw_message_blob: identifiedBlob({ blobId: value.blobId }, display ? `${display} raw message` : null),
+    }),
+    ...(Array.isArray(value.attachments)
+      ? { attachments: value.attachments.map((item) => identifiedBlob(item)) }
+      : {}),
+    ...(value.bodyStructure ? { bodyStructure: identifiedBodyPart(value.bodyStructure) } : {}),
+  };
+}
+
+function identifiedMailbox(value) {
+  if (!value || value.id == null) return value;
+  return {
+    ...value,
+    mailbox_id: value.id,
+    mailbox_ref: stableRef("agent-slayer://email-mailboxes/", value.id),
+    mailbox_name: String(value.name ?? "").trim() || null,
+  };
+}
+
+function identifiedIdentity(value) {
+  if (!value || value.id == null) return value;
+  const display = [value.name, value.email].map((part) => String(part ?? "").trim())
+    .filter(Boolean).join(" <");
+  return {
+    ...value,
+    identity_id: value.id,
+    identity_ref: stableRef("agent-slayer://email-identities/", value.id),
+    identity_display: display ? `${display}${value.name && value.email ? ">" : ""}` : null,
+  };
+}
+
+function identifiedThread(value, messages = []) {
+  if (!value || value.id == null) return value;
+  const display = messages.map((message) => message.email_display).find(Boolean) ?? null;
+  return {
+    ...value,
+    thread_id: value.id,
+    thread_ref: stableRef("agent-slayer://email-threads/", value.id),
+    thread_display: display,
+  };
+}
+
+function identifiedGetResult(result, transform) {
+  return { ...result, list: (result.list ?? []).map(transform) };
+}
+
+function identifiedSession(session) {
+  const accounts = Object.fromEntries(Object.entries(session.accounts ?? {}).map(([id, value]) => [
+    id,
+    {
+      ...value,
+      account_id: id,
+      account_ref: stableRef("agent-slayer://email-accounts/", id),
+      account_display: String(value.name ?? "").trim() || null,
+    },
+  ]));
+  return { ...session, accounts };
+}
+
 function patchSegment(value) {
   return String(value).replaceAll("~", "~0").replaceAll("/", "~1");
 }
@@ -139,7 +232,7 @@ async function compactMessages(client, accountId, ids) {
       throw new Error("Email state changed while building the cleanup preview; retry the preview");
     }
     state = result.state;
-    list.push(...result.list);
+    list.push(...result.list.map(identifiedEmail));
     notFound.push(...result.notFound);
   }
   return { accountId, state, list, notFound };
@@ -254,7 +347,7 @@ export function registerJmapEmailTools(registry, client) {
     name: "email_account_list",
     description: "Inspect the live JMAP session, its mail accounts, selected primary account, and advertised capabilities. Credentials and provider endpoints are never returned.",
     parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
-    async execute() { return client.publicSession(); },
+    async execute() { return identifiedSession(client.publicSession()); },
   });
 
   registry.register({
@@ -267,7 +360,10 @@ export function registerJmapEmailTools(registry, client) {
     },
     async execute({ account_id, mailbox_ids }) {
       const accountId = account(client, account_id);
-      return client.call("Mailbox/get", { accountId, ids: mailbox_ids });
+      return identifiedGetResult(
+        await client.call("Mailbox/get", { accountId, ids: mailbox_ids }),
+        identifiedMailbox,
+      );
     },
   });
 
@@ -281,7 +377,10 @@ export function registerJmapEmailTools(registry, client) {
     },
     async execute({ account_id, identity_ids }) {
       const accountId = account(client, account_id, SUBMISSION);
-      return client.call("Identity/get", { accountId, ids: identity_ids }, { using: using(SUBMISSION) });
+      return identifiedGetResult(
+        await client.call("Identity/get", { accountId, ids: identity_ids }, { using: using(SUBMISSION) }),
+        identifiedIdentity,
+      );
     },
   });
 
@@ -367,7 +466,7 @@ export function registerJmapEmailTools(registry, client) {
         resolvedMailboxId: inMailbox ?? null,
         resultFormat: input.result_format,
         emailState: messages.state,
-        messages: messages.list,
+        messages: messages.list.map(identifiedEmail),
         notFound: messages.notFound,
       };
     },
@@ -388,10 +487,10 @@ export function registerJmapEmailTools(registry, client) {
     },
     async execute({ account_id, email_ids, body_mode, max_body_value_bytes }) {
       const accountId = account(client, account_id);
-      return client.call("Email/get", getArguments(
+      return identifiedGetResult(await client.call("Email/get", getArguments(
         accountId, email_ids, body_mode,
         boundedInteger(max_body_value_bytes, 100_000, 1, 1_000_000, "max_body_value_bytes"),
-      ));
+      )), identifiedEmail);
     },
   });
 
@@ -415,15 +514,15 @@ export function registerJmapEmailTools(registry, client) {
       const messages = ids.length
         ? await client.call("Email/get", getArguments(accountId, ids, body_mode, max_body_value_bytes))
         : { state: null, list: [], notFound: [] };
-      const byId = new Map(messages.list.map((message) => [message.id, message]));
+      const byId = new Map(messages.list.map((message) => [message.id, identifiedEmail(message)]));
       return {
         accountId,
         threadState: threads.state,
         emailState: messages.state,
-        threads: threads.list.map((thread) => ({
-          ...thread,
-          messages: thread.emailIds.map((id) => byId.get(id)).filter(Boolean),
-        })),
+        threads: threads.list.map((thread) => {
+          const selectedMessages = thread.emailIds.map((id) => byId.get(id)).filter(Boolean);
+          return identifiedThread({ ...thread, messages: selectedMessages }, selectedMessages);
+        }),
         notFoundThreads: threads.notFound,
         notFoundEmails: messages.notFound,
       };
@@ -458,7 +557,11 @@ export function registerJmapEmailTools(registry, client) {
       const current = await client.call(`${object_type}/get`, object_type === "Email"
         ? getArguments(accountId, ids)
         : { accountId, ids }, { using: using(capability) });
-      return { ...changes, current: current.list, notFound: current.notFound };
+      const transform = object_type === "Email" ? identifiedEmail
+        : object_type === "Mailbox" ? identifiedMailbox
+          : object_type === "Identity" ? identifiedIdentity
+            : object_type === "Thread" ? (item) => identifiedThread(item) : (item) => item;
+      return { ...changes, current: current.list.map(transform), notFound: current.notFound };
     },
   });
 
@@ -747,7 +850,12 @@ export function registerJmapEmailTools(registry, client) {
         destroy: input.replace_draft_email_id ? [input.replace_draft_email_id] : null,
       }));
       if (findSetFailures(result)) throw new Error(`Draft creation was rejected: ${JSON.stringify(result)}`);
-      return result;
+      return {
+        ...result,
+        created: Object.fromEntries(Object.entries(result.created ?? {}).map(([key, value]) => [
+          key, identifiedEmail(value, input.subject),
+        ])),
+      };
     },
   });
 
@@ -837,6 +945,9 @@ export function registerJmapEmailTools(registry, client) {
       const textual = result.type.startsWith("text/") || /(?:json|xml|javascript|yaml)$/.test(result.type);
       return {
         blobId: blob_id,
+        blob_id,
+        blob_ref: stableRef("agent-slayer://email-blobs/", blob_id),
+        blob_display: name,
         name,
         type: result.type,
         byteSize: result.bytes.byteLength,

@@ -116,7 +116,7 @@ test("the identity protocol centers producer and consumer contracts on one canon
   );
 });
 
-test("the manifesto publishes provider-owned first-class object input bindings", () => {
+test("the manifesto publishes domain-owned first-class object input bindings", () => {
   const schema = JSON.parse(fs.readFileSync(objectInputBindingsSchemaPath, "utf8"));
   const manifesto = fs.readFileSync(manifestoPath, "utf8");
   assert.equal(schema.properties.protocol.const, "agent-slayer.object-input-bindings");
@@ -124,6 +124,6 @@ test("the manifesto publishes provider-owned first-class object input bindings",
   assert.deepEqual(new Set(schema.required), new Set(["protocol", "version", "bindings"]));
   assert.deepEqual(schema.properties.bindings.items.properties.value.enum, ["id", "ref"]);
   assert.match(manifesto, /2A\.2\. Object-input binding contract/);
-  assert.match(manifesto, /never guesses it from names such as/);
+  assert.match(manifesto, /never guesses it at runtime from names such as/);
   assert.match(manifesto, /cannot reach the tool/);
 });

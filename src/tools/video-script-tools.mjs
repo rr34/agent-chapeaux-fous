@@ -1,3 +1,56 @@
+function stableRef(prefix, id) {
+  return `${prefix}${encodeURIComponent(String(id))}`;
+}
+
+function identifiedVideoScript(script) {
+  if (!script || script.id == null) return script;
+  return {
+    ...script,
+    video_script_id: script.id,
+    video_script_ref: stableRef("agent-slayer://video-scripts/", script.id),
+    video_script_title: script.title,
+  };
+}
+
+function identifiedContentGroup(group) {
+  if (!group || group.id == null) return group;
+  return {
+    ...group,
+    content_group_id: group.id,
+    content_group_ref: stableRef("agent-slayer://content-groups/", group.id),
+    content_group_name: group.name,
+  };
+}
+
+function identifiedContentItem(item) {
+  if (!item || item.id == null) return item;
+  return {
+    ...item,
+    content_id: item.id,
+    content_ref: stableRef("agent-slayer://content-items/", item.id),
+    content_title: item.title,
+  };
+}
+
+const videoScriptIdentityProperties = {
+  video_script_id: { type: "integer" },
+  video_script_ref: { type: "string" },
+  video_script_title: { type: "string" },
+};
+
+const compactVideoScriptSchema = {
+  type: "object", additionalProperties: false,
+  properties: {
+    id: { type: "integer" }, title: { type: "string" }, status: { type: "string" },
+    sourceRequestIds: { type: "array", items: { type: "string" } }, version: { type: "integer" },
+    ...videoScriptIdentityProperties,
+  },
+  required: [
+    "id", "title", "status", "sourceRequestIds", "version",
+    "video_script_id", "video_script_ref", "video_script_title",
+  ],
+};
+
 const outputSchema = {
   type: "object",
   additionalProperties: false,
@@ -5,14 +58,7 @@ const outputSchema = {
     created: { type: "boolean" },
     unchanged: { type: "boolean" },
     renderQueued: { type: "boolean" },
-    videoScript: {
-      type: "object", additionalProperties: false,
-      properties: {
-        id: { type: "integer" }, title: { type: "string" }, status: { type: "string" },
-        sourceRequestIds: { type: "array", items: { type: "string" } }, version: { type: "integer" },
-      },
-      required: ["id", "title", "status", "sourceRequestIds", "version"],
-    },
+    videoScript: compactVideoScriptSchema,
     render: {
       type: ["object", "null"],
       properties: {
@@ -36,8 +82,12 @@ const contentOutputSchema = {
       properties: {
         id: { type: "integer" }, groupId: { type: "integer" }, groupName: { type: "string" },
         sequence: { type: "integer" }, title: { type: "string" }, primaryFileId: { type: "integer" },
+        content_id: { type: "integer" }, content_ref: { type: "string" }, content_title: { type: "string" },
       },
-      required: ["id", "groupId", "groupName", "sequence", "title", "primaryFileId"],
+      required: [
+        "id", "groupId", "groupName", "sequence", "title", "primaryFileId",
+        "content_id", "content_ref", "content_title",
+      ],
     },
     video: {
       type: "object", additionalProperties: false,
@@ -70,12 +120,15 @@ const contentListItemSchema = {
     publishedAtUtc: { type: "string" },
     contentHost: { type: "string" },
     contentStatus: { type: "string" },
+    content_id: { type: "integer" },
+    content_ref: { type: "string" },
+    content_title: { type: "string" },
   },
   required: [
     "id", "groupId", "sequence", "contentType", "title", "titleCharacters", "titleTruncated",
     "descriptionExcerpt", "descriptionCharacters", "descriptionTruncated",
     "transcriptExcerpt", "transcriptCharacters", "transcriptTruncated",
-    "publishedAtUtc", "contentHost", "contentStatus",
+    "publishedAtUtc", "contentHost", "contentStatus", "content_id", "content_ref", "content_title",
   ],
 };
 
@@ -93,8 +146,14 @@ const contentListOutputSchema = {
         archivedAtUtc: { type: ["string", "null"] },
         createdAtUtc: { type: "string" },
         updatedAtUtc: { type: ["string", "null"] },
+        content_group_id: { type: ["integer", "string"] },
+        content_group_ref: { type: "string" },
+        content_group_name: { type: "string" },
       },
-      required: ["id", "name", "sortPosition", "archivedAtUtc", "createdAtUtc", "updatedAtUtc"],
+      required: [
+        "id", "name", "sortPosition", "archivedAtUtc", "createdAtUtc", "updatedAtUtc",
+        "content_group_id", "content_group_ref", "content_group_name",
+      ],
     },
     textFields: {
       type: "array", minItems: 1, maxItems: 2, uniqueItems: true,
@@ -136,13 +195,13 @@ function compactResult(result) {
     created: result.created,
     unchanged: result.unchanged,
     renderQueued: result.renderQueued,
-    videoScript: {
+    videoScript: identifiedVideoScript({
       id: result.script.id,
       title: result.script.title,
       status: result.script.status,
       sourceRequestIds: result.script.sources.map(({ requestId }) => requestId),
       version: result.script.version,
-    },
+    }),
     render: result.render,
   };
 }
@@ -151,6 +210,32 @@ export function registerVideoScriptTools(
   registry, videoScripts, { videoContent = null, onRenderQueued = () => {} } = {},
 ) {
   const capabilityRegistry = registry.withCapability?.("video") ?? registry;
+  capabilityRegistry.register({
+    name: "video_script_get",
+    title: "Read a generated-video script",
+    description: "Read one exact durable generated-video script by stable ID. Returns compact identity, source-request IDs, lifecycle status, version, and latest render status without loading the complete script body.",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { videoScriptId: { type: "integer", minimum: 1 } },
+      required: ["videoScriptId"],
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async execute({ videoScriptId }) {
+      const script = videoScripts.get(videoScriptId);
+      if (!script) throw new Error(`Unknown video script ID: ${videoScriptId}`);
+      return {
+        videoScript: identifiedVideoScript({
+          id: script.id,
+          title: script.title,
+          status: script.status,
+          sourceRequestIds: script.sources.map(({ requestId }) => requestId),
+          version: script.version,
+        }),
+        render: script.render,
+      };
+    },
+  });
+
   capabilityRegistry.register({
     name: "video_script_create",
     title: "Create an AI-video script",
@@ -196,7 +281,12 @@ export function registerVideoScriptTools(
       outputSchema: contentListOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       execute(args) {
-        return videoContent.list(args);
+        const result = videoContent.list(args);
+        return {
+          ...result,
+          group: identifiedContentGroup(result.group),
+          items: result.items.map(identifiedContentItem),
+        };
       },
     });
 
@@ -220,14 +310,14 @@ export function registerVideoScriptTools(
         return {
           created: result.created,
           unchanged: result.unchanged,
-          content: {
+          content: identifiedContentItem({
             id: result.content.id,
             groupId: result.content.groupId,
             groupName: result.content.groupName,
             sequence: result.content.sequence,
             title: result.content.title,
             primaryFileId: result.content.primaryFileId,
-          },
+          }),
           video: {
             scriptId: result.script.id,
             jobId: result.script.render.id,
@@ -270,7 +360,7 @@ export function registerVideoScriptTools(
     execute() {
       const groups = videoContent.listGroups().slice(0, 200);
       return {
-        data: { groups },
+        data: { groups: groups.map(identifiedContentGroup) },
         text: [
           "Active content-library groups:",
           ...groups.map((group) => `- ${group.name} [content_group_id=${group.id}]`),

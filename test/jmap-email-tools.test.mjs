@@ -7,7 +7,7 @@ class FakeJmapClient {
   constructor() { this.calls = []; }
   health() { return { ready: true }; }
   resolveAccountId(value) { return value || "account1"; }
-  publicSession() { return { selectedAccountId: "account1", accounts: { account1: {} } }; }
+  publicSession() { return { selectedAccountId: "account1", accounts: { account1: { name: "Personal" } } }; }
   async call(method, argumentsObject, options = {}) {
     this.calls.push({ method, argumentsObject, options });
     if (method === "Email/query") {
@@ -20,9 +20,11 @@ class FakeJmapClient {
       return {
         accountId: "account1", state: "mailbox-1", notFound: [],
         list: [
-          { id: "inbox/one", role: "inbox" }, { id: "archive/one", role: "archive" },
-          { id: "trash/one", role: "trash" }, { id: "drafts/one", role: "drafts" },
-          { id: "sent/one", role: "sent" },
+          { id: "inbox/one", name: "Inbox", role: "inbox" },
+          { id: "archive/one", name: "Archive", role: "archive" },
+          { id: "trash/one", name: "Trash", role: "trash" },
+          { id: "drafts/one", name: "Drafts", role: "drafts" },
+          { id: "sent/one", name: "Sent", role: "sent" },
         ],
       };
     }
@@ -103,6 +105,11 @@ test("email_search sends RFC 8621 filter names and returns both query and Email 
   assert.equal(result.emailState, "email-1");
   assert.equal(result.resultFormat, "compact");
   assert.equal(result.messages[0].subject, "Reality");
+  assert.deepEqual({
+    id: result.messages[0].email_id,
+    ref: result.messages[0].email_ref,
+    display: result.messages[0].email_display,
+  }, { id: "email1", ref: "agent-slayer://emails/email1", display: "Reality" });
 });
 
 test("email_search enforces its visible result limit before calling JMAP", async () => {
@@ -306,6 +313,11 @@ test("draft creation builds MIME alternatives and sending moves Drafts to Sent",
     attachments: [{ blob_id: "blob1", type: "application/pdf", name: "report.pdf", disposition: "attachment", cid: null }],
   });
   assert.equal(draft.created.draft.id, "draft1");
+  assert.deepEqual({
+    id: draft.created.draft.email_id,
+    ref: draft.created.draft.email_ref,
+    display: draft.created.draft.email_display,
+  }, { id: "draft1", ref: "agent-slayer://emails/draft1", display: "A complete draft" });
   const createCall = client.calls.find(({ method }) => method === "Email/set");
   const created = createCall.argumentsObject.create.draft;
   assert.deepEqual(created.mailboxIds, { "drafts/one": true });
@@ -346,4 +358,36 @@ test("attachment reads preserve text content within the requested boundary", asy
   assert.equal(result.encoding, "utf8");
   assert.equal(result.content, "attachment text");
   assert.equal(result.byteSize, 15);
+  assert.equal(result.blob_id, "blob1");
+  assert.equal(result.blob_ref, "agent-slayer://email-blobs/blob1");
+  assert.equal(result.blob_display, "note.txt");
+});
+
+test("account, mailbox, and sending-identity reads return complete bindings", async () => {
+  const { registry } = harness();
+  const accounts = await registry.execute("email_account_list", {});
+  assert.deepEqual(Object.values(accounts.accounts).map((item) => ({
+    id: item.account_id, ref: item.account_ref, display: item.account_display,
+  })), [{ id: "account1", ref: "agent-slayer://email-accounts/account1", display: "Personal" }]);
+
+  const mailboxes = await registry.execute("email_mailbox_list", {
+    account_id: null, mailbox_ids: null,
+  });
+  assert.deepEqual({
+    id: mailboxes.list[0].mailbox_id,
+    ref: mailboxes.list[0].mailbox_ref,
+    display: mailboxes.list[0].mailbox_name,
+  }, { id: "inbox/one", ref: "agent-slayer://email-mailboxes/inbox%2Fone", display: "Inbox" });
+
+  const identities = await registry.execute("email_identity_list", {
+    account_id: null, identity_ids: null,
+  });
+  assert.deepEqual({
+    id: identities.list[0].identity_id,
+    ref: identities.list[0].identity_ref,
+    display: identities.list[0].identity_display,
+  }, {
+    id: "identity1", ref: "agent-slayer://email-identities/identity1",
+    display: "Owner <owner@example.test>",
+  });
 });

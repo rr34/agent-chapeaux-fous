@@ -1,19 +1,11 @@
 import { objectDescriptionMetadataKey } from "./object-description.mjs";
 import { firstClassObjectBindingProblem } from "./first-class-object-binding.mjs";
+import {
+  nativeFirstClassObjectTypes, nativeObjectTypeForSearchType,
+} from "./native-object-types.mjs";
 
 const maximumObjectsPerBinding = 500;
 const maximumTraversalNodes = 20_000;
-
-const nativeObjectTypes = Object.freeze([
-  { capabilityId: "contacts", type: "contacts.contact", source: "native:contacts", displayPrefix: "Contact", idFields: ["contact_id", "contactId"], displayFields: ["display_name", "displayName", "formatted_name", "name"], refPrefix: "agent-slayer://contacts/" },
-  { capabilityId: "todos", type: "todos.personal_task", source: "native:todos", displayPrefix: "To-do", idFields: ["personal_task_id", "personalTaskId"], displayFields: ["text", "title"], refPrefix: "agent-slayer://todos/" },
-  { capabilityId: "todos", type: "todos.todo_group", source: "native:todos", displayPrefix: "To-do group", idFields: ["todo_group_id", "todoGroupId"], displayFields: ["name", "title"], refPrefix: "agent-slayer://todo-groups/" },
-  { capabilityId: "calendar", type: "calendar.event", source: "native:calendar", displayPrefix: "Calendar event", idFields: ["calendar_event_id", "calendarEventId"], displayFields: ["title", "summary", "name"], refPrefix: "agent-slayer://calendar-events/" },
-  { capabilityId: "journal", type: "journal.entry", source: "native:journal", displayPrefix: "Journal entry", idFields: ["journal_entry_id", "journalEntryId"], displayFields: ["content_text", "text", "title"], refPrefix: "agent-slayer://journal-entries/" },
-  { capabilityId: "journal", type: "journal.tracker", source: "native:journal", displayPrefix: "Journal tracker", idFields: ["tracker_id", "trackerId"], displayFields: ["name", "title"], refPrefix: "agent-slayer://journal-trackers/" },
-  { capabilityId: "journal", type: "journal.group", source: "native:journal", displayPrefix: "Journal group", idFields: ["journal_group_id", "journalGroupId"], displayFields: ["name", "title"], refPrefix: "agent-slayer://journal-groups/" },
-  { capabilityId: "files", type: "files.file", source: "native:files", displayPrefix: "File", idFields: ["file_id", "fileId"], displayFields: ["title", "original_filename", "originalFilename", "name"], refPrefix: "agent-slayer://files/" },
-]);
 
 function compactScalar(value, maximum = 300) {
   if (!["string", "number", "boolean"].includes(typeof value)) return null;
@@ -27,6 +19,19 @@ function nativeId(value) {
   return compactScalar(value, 500);
 }
 
+function canonicalId(value, type = null) {
+  if (type?.idKind === "integer") {
+    if (Number.isSafeInteger(value) && value > 0) return value;
+    if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) return null;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  if (type?.idKind === "string") {
+    return typeof value === "string" ? compactScalar(value, 500) : null;
+  }
+  return nativeId(value);
+}
+
 function firstDisplay(record, fields) {
   for (const field of fields) {
     const value = compactScalar(record?.[field]);
@@ -35,10 +40,18 @@ function firstDisplay(record, fields) {
   return null;
 }
 
-function firstId(record, fields) {
+function firstId(record, fields, type) {
   for (const field of fields) {
-    const id = nativeId(record?.[field]);
+    const id = canonicalId(record?.[field], type);
     if (id != null) return id;
+  }
+  return null;
+}
+
+function firstReference(record, fields) {
+  for (const field of fields) {
+    const reference = compactScalar(record?.[field], 1_000);
+    if (reference) return reference;
   }
   return null;
 }
@@ -103,22 +116,32 @@ function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSe
 
 function nativeReferences(toolDefinition, result, sourceEventSeq) {
   if (toolDefinition?.source !== "local") return [];
+  const byType = new Map(nativeFirstClassObjectTypes.map((type) => [type.id, new Map()]));
+  walkRecords(result, (record) => {
+    const searchType = nativeObjectTypeForSearchType(record?.type);
+    if (searchType) {
+      const id = canonicalId(record.id, searchType);
+      const display = compactScalar(record.display ?? record.title, 500);
+      if (id != null && display) {
+        const ref = `${searchType.refPrefix}${encodeURIComponent(String(id))}`;
+        byType.get(searchType.id).set(ref, { id, ref, display });
+      }
+    }
+    for (const type of nativeFirstClassObjectTypes) {
+      const id = firstId(record, type.idFields, type);
+      const display = firstDisplay(record, type.displayFields);
+      if (id == null || !display) continue;
+      const ref = firstReference(record, type.refFields)
+        ?? `${type.refPrefix}${encodeURIComponent(String(id))}`;
+      if (!byType.get(type.id).has(ref)) byType.get(type.id).set(ref, { id, ref, display });
+    }
+  });
   const groups = [];
-  for (const type of nativeObjectTypes) {
-    if (toolDefinition.capabilityId !== type.capabilityId
-      && toolDefinition.name !== "tool_receipt_read") continue;
-    const byRef = new Map();
-    walkRecords(result, (record) => {
-      const id = firstId(record, type.idFields);
-      if (id == null) return;
-      const display = firstDisplay(record, type.displayFields) ?? `${type.displayPrefix} #${id}`;
-      const ref = `${type.refPrefix}${encodeURIComponent(String(id))}`;
-      if (!byRef.has(ref)) byRef.set(ref, { id, ref, display });
-    });
-    const objects = [...byRef.values()].slice(0, maximumObjectsPerBinding);
+  for (const type of nativeFirstClassObjectTypes) {
+    const objects = [...byType.get(type.id).values()].slice(0, maximumObjectsPerBinding);
     if (objects.length) groups.push({
-      mention: `${type.type} returned by ${toolDefinition.name}`,
-      type: type.type,
+      mention: `${type.title} returned by ${toolDefinition.name}`,
+      type: type.id,
       source: type.source,
       objects,
       sourceEventSeqs: sourceEventSeq == null ? [] : [sourceEventSeq],
@@ -137,14 +160,24 @@ export function objectReferenceGroupsFromToolResult({
   );
 }
 
-export function objectReferenceProtectedFields(toolDefinition) {
-  return [...new Set((toolDefinition?.metadata?.[objectDescriptionMetadataKey]?.types ?? [])
-    .flatMap((type) => [type.identity?.field, type.reference?.field, type.display?.field])
+export function objectReferenceProtectedFields(toolDefinition, toolDefinitions = []) {
+  const sameSource = [toolDefinition, ...toolDefinitions].filter((candidate, index, values) => (
+    candidate?.source === toolDefinition?.source && values.indexOf(candidate) === index
+  ));
+  const described = sameSource.flatMap((candidate) => (
+    candidate?.metadata?.[objectDescriptionMetadataKey]?.types ?? []
+  ));
+  const native = toolDefinition?.source === "local" ? nativeFirstClassObjectTypes : [];
+  return [...new Set([...described, ...native]
+    .flatMap((type) => [
+      type.identity?.field, type.reference?.field, type.display?.field,
+      ...(type.idFields ?? []), ...(type.refFields ?? []), ...(type.displayFields ?? []),
+    ])
     .filter(Boolean))];
 }
 
-function normalizedObject(value) {
-  const id = nativeId(value?.id);
+function normalizedObject(value, type = null) {
+  const id = canonicalId(value?.id, type);
   const ref = compactScalar(value?.ref, 1_000);
   const display = compactScalar(value?.display, 500);
   return id == null || !ref || !display ? null : { id, ref, display };
@@ -160,8 +193,9 @@ export function normalizeObjectReferenceGroups(groups, { maximumObjects = 2_000 
     const mention = compactScalar(group?.mention, 500);
     if (!type || !source || !mention || !Array.isArray(group?.objects)) continue;
     const byRef = new Map();
+    const nativeType = nativeFirstClassObjectTypes.find((candidate) => candidate.id === type) ?? null;
     for (const value of group.objects) {
-      const object = normalizedObject(value);
+      const object = normalizedObject(value, nativeType);
       if (!object || byRef.has(object.ref)) continue;
       byRef.set(object.ref, object);
       if (byRef.size >= Math.min(remaining, maximumObjectsPerBinding)) break;

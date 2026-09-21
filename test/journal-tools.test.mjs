@@ -24,7 +24,9 @@ test("journal_add exposes one complete content field and no boolean or mandatory
   const { registry } = journalHarness(context);
   const definition = registry.toolDefinitions().find((tool) => tool.name === "journal_add");
   assert.deepEqual(Object.keys(definition.inputSchema.properties), [
+    "tracker_id",
     "tracker",
+    "journal_group_id",
     "group",
     "content_text",
     "number_value",
@@ -56,7 +58,9 @@ test("journal_add creates and reuses a grouped numeric tracker while preserving 
   const { store, ledger, request, registry } = journalHarness(context);
 
   const first = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Weight",
+    journal_group_id: null,
     group: "Health",
     content_text: "72.1 kg after dinner",
     number_value: 72.1,
@@ -78,7 +82,9 @@ test("journal_add creates and reuses a grouped numeric tracker while preserving 
   assert.equal(first.entry.occurred_at_utc, "2026-08-16T00:30:00.000Z");
 
   const second = await registry.execute("journal_add", {
-    tracker: "weight",
+    tracker_id: first.tracker.tracker_id,
+    tracker: "Weight",
+    journal_group_id: null,
     group: null,
     content_text: "71.8 kg before breakfast",
     number_value: 71.8,
@@ -127,7 +133,9 @@ test("journal_add records text-only events without a boolean or value kind", asy
   const { request, registry } = journalHarness(context, "Journal a bowel movement");
 
   const result = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Bowel movement",
+    journal_group_id: null,
     group: "Health",
     content_text: "Normal bowel movement, Bristol type 4",
     number_value: 4,
@@ -142,7 +150,9 @@ test("journal_add records text-only events without a boolean or value kind", asy
   assert.ok(result.entry.occurred_at_utc);
 
   const medication = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Medication",
+    journal_group_id: result.tracker.journal_group_id,
     group: "Health",
     content_text: "Took morning medication",
     number_value: null,
@@ -156,7 +166,9 @@ test("journal_add records text-only events without a boolean or value kind", asy
 test("journal_update corrects one historical entry without owning its tracker's unit", async (context) => {
   const { store, ledger, request, registry } = journalHarness(context, "Correct my old pain entry");
   const oldEntry = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Left arm pain",
+    journal_group_id: null,
     group: "Biometrics",
     content_text: "Left arm pain value: 8. It was as bad as it has ever been.",
     number_value: 8,
@@ -165,7 +177,9 @@ test("journal_update corrects one historical entry without owning its tracker's 
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "pain-old" });
   await registry.execute("journal_add", {
+    tracker_id: oldEntry.tracker.tracker_id,
     tracker: "Left arm pain",
+    journal_group_id: null,
     group: null,
     content_text: "Left arm pain is 4 out of 10.",
     number_value: 4,
@@ -201,7 +215,9 @@ test("journal_update corrects one historical entry without owning its tracker's 
 test("tracker units are canonical and journal_update clears only the numeric projection", async (context) => {
   const { request, registry } = journalHarness(context, "Correct a journal entry");
   const textEntry = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Medication",
+    journal_group_id: null,
     group: "Biometrics",
     content_text: "Took morning medication.",
     number_value: null,
@@ -212,7 +228,9 @@ test("tracker units are canonical and journal_update clears only the numeric pro
   assert.equal(Object.hasOwn(textEntry.entry, "unit"), false);
 
   const numericEntry = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Pain",
+    journal_group_id: textEntry.tracker.journal_group_id,
     group: "Biometrics",
     content_text: "Pain was present.",
     number_value: 3,
@@ -230,15 +248,18 @@ test("tracker units are canonical and journal_update clears only the numeric pro
   assert.equal(cleared.entry.number_value, null);
   assert.equal(cleared.entry.trackers.unit, "out of 10");
   await assert.rejects(registry.execute("journal_add", {
-    tracker: "Pain", group: null, content_text: "Pain was 4.", number_value: 4,
+    tracker_id: numericEntry.tracker.tracker_id, tracker: "Pain", journal_group_id: null,
+    group: null, content_text: "Pain was 4.", number_value: 4,
     tracker_unit: "percent", occurred_at_utc: null, create_if_missing: false,
   }, { requestId: request.requestId, callId: "mismatched-unit" }), /uses out of 10/);
 });
 
 test("tracker_update preserves canonical units after numeric history", async (context) => {
-  const { request, registry } = journalHarness(context);
+  const { store, request, registry } = journalHarness(context);
   const created = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Weight",
+    journal_group_id: null,
     group: "Health",
     content_text: "72.1 kg",
     number_value: 72.1,
@@ -247,10 +268,13 @@ test("tracker_update preserves canonical units after numeric history", async (co
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "journal-create" });
 
+  const fitnessGroupId = Number(store.requireReady().prepare(
+    "INSERT INTO journal1_groups (name) VALUES ('Fitness') RETURNING journal_group_id",
+  ).get().journal_group_id);
   const updated = await registry.execute("tracker_update", {
     tracker_id: created.tracker.tracker_id,
     name: "Body weight",
-    group: "Fitness",
+    journal_group_id: fitnessGroupId,
     unit: null,
     archived: true,
   }, { requestId: request.requestId, callId: "tracker-update" });
@@ -274,7 +298,7 @@ test("tracker_update preserves canonical units after numeric history", async (co
   await assert.rejects(registry.execute("tracker_update", {
     tracker_id: created.tracker.tracker_id,
     name: null,
-    group: null,
+    journal_group_id: null,
     unit: "pounds",
     archived: null,
   }, { requestId: request.requestId, callId: "change-unit" }), /cannot change after numeric entries/);
@@ -284,7 +308,9 @@ test("every new tracker requires a canonical unit, including text-only trackers"
   const { store, request, registry } = journalHarness(context);
   await assert.rejects(
     registry.execute("journal_add", {
+      tracker_id: null,
       tracker: "Mood",
+      journal_group_id: null,
       group: "Health",
       content_text: "Calm",
       number_value: null,
@@ -297,7 +323,8 @@ test("every new tracker requires a canonical unit, including text-only trackers"
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal2_trackers").get().count, 0);
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal3_entries").get().count, 0);
   const created = await registry.execute("journal_add", {
-    tracker: "Mood", group: "Health", content_text: "Calm", number_value: null,
+    tracker_id: null, tracker: "Mood", journal_group_id: null,
+    group: "Health", content_text: "Calm", number_value: null,
     tracker_unit: "out of 10", occurred_at_utc: null, create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "text-unit" });
   assert.equal(created.tracker.unit, "out of 10");
@@ -306,7 +333,9 @@ test("every new tracker requires a canonical unit, including text-only trackers"
 test("journal_add reuses an established tracker through a synonymous name", async (context) => {
   const { store, request, registry } = journalHarness(context, "Journal a poop");
   const poop = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Poop",
+    journal_group_id: null,
     group: "Health",
     content_text: "Poop.",
     number_value: null,
@@ -315,7 +344,9 @@ test("journal_add reuses an established tracker through a synonymous name", asyn
     create_if_missing: true,
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-first" });
   await registry.execute("journal_add", {
+    tracker_id: poop.tracker.tracker_id,
     tracker: "Poop",
+    journal_group_id: null,
     group: "Health",
     content_text: "Another poop.",
     number_value: null,
@@ -325,7 +356,9 @@ test("journal_add reuses an established tracker through a synonymous name", asyn
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-second" });
 
   const alias = await registry.execute("journal_add", {
-    tracker: "Bowel Movements",
+    tracker_id: poop.tracker.tracker_id,
+    tracker: "Poop",
+    journal_group_id: null,
     group: "Health",
     content_text: "Poop.",
     number_value: null,
@@ -335,7 +368,7 @@ test("journal_add reuses an established tracker through a synonymous name", asyn
   }, { requestId: request.requestId, requestEventId: request.eventId, callId: "poop-alias" });
 
   assert.equal(alias.tracker_created, false);
-  assert.equal(alias.tracker_resolution.match_type, "alias");
+  assert.equal(alias.tracker_resolution.match_type, "id");
   assert.equal(alias.tracker_resolution.actual_name, "Poop");
   assert.equal(alias.entry.tracker_id, poop.entry.tracker_id);
   assert.equal(
@@ -347,7 +380,9 @@ test("journal_add reuses an established tracker through a synonymous name", asyn
 test("journal_add proposes a missing tracker without writing until creation is confirmed", async (context) => {
   const { store, request, registry } = journalHarness(context, "Journal my mood");
   const proposed = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Mood",
+    journal_group_id: null,
     group: "Health",
     content_text: "Calm.",
     number_value: null,
@@ -364,7 +399,9 @@ test("journal_add proposes a missing tracker without writing until creation is c
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal3_entries").get().count, 0);
 
   const created = await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Mood",
+    journal_group_id: null,
     group: "Health",
     content_text: "Calm.",
     number_value: null,
@@ -379,7 +416,9 @@ test("journal_add proposes a missing tracker without writing until creation is c
 test("journal context includes authoritative active tracker names", async (context) => {
   const { store, ledger, request, registry } = journalHarness(context, "Journal a poop");
   await registry.execute("journal_add", {
+    tracker_id: null,
     tracker: "Poop",
+    journal_group_id: null,
     group: "Health",
     content_text: "Poop.",
     number_value: null,
@@ -399,7 +438,7 @@ test("journal context includes authoritative active tracker names", async (conte
   });
 
   assert.match(built.text, /# Active personal-journal trackers/);
-  assert.match(built.text, /name: Poop \| group: Health \| entries: 1/);
+  assert.match(built.text, /name: Poop \| group: Health \[journal_group_id=\d+\] \| entries: 1/);
   assert.deepEqual(built.activeTrackers.map(({ name }) => name), ["Poop"]);
 });
 
@@ -410,7 +449,9 @@ test("journal_import is source-agnostic, idempotent, and reports conflicting rep
     entries: [
       {
         external_id: "weight-2026-08-14",
+        tracker_id: null,
         tracker: "Weight",
+        journal_group_id: null,
         group: "Health",
         content_text: "72.4 kg in the morning",
         number_value: 72.4,
@@ -419,7 +460,9 @@ test("journal_import is source-agnostic, idempotent, and reports conflicting rep
       },
       {
         external_id: 4182,
+        tracker_id: null,
         tracker: "Food",
+        journal_group_id: null,
         group: "Health",
         content_text: "Oatmeal with blueberries",
         number_value: null,
@@ -474,7 +517,10 @@ test("journal_import is source-agnostic, idempotent, and reports conflicting rep
 
   const anotherSource = await registry.execute("journal_import", {
     source: "another-export",
-    entries: [batch.entries[0]],
+    entries: [{
+      ...batch.entries[0],
+      tracker_id: imported.items[0].entry.tracker_id,
+    }],
   }, {
     requestId: request.requestId,
     requestEventId: request.eventId,
@@ -497,7 +543,9 @@ test("journal_import rejects duplicate IDs within a batch and missing occurrence
   const { store, request, registry } = journalHarness(context, "Import invalid history");
   const entry = {
     external_id: "duplicate",
+    tracker_id: null,
     tracker: "Mood",
+    journal_group_id: null,
     group: "Health",
     content_text: "Calm",
     number_value: null,

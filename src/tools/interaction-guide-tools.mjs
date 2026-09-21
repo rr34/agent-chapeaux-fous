@@ -5,6 +5,7 @@ const guideStepRecordSchema = {
   description: "Stores each reusable exchange's literal opening, authoritative structured contract, current answers, and resumable progress.",
   properties: {
     interaction_guide_step_id: { description: "Stable local identifier for one numbered interaction-guide step." },
+    ref: { description: "Stable Agent Slayer reference for this exact briefing exchange." },
     interaction_guide_id: { description: "Identifier of the parent interaction guide that owns this step and its definition version." },
     step_number: { description: "Positive user-facing number ordering this step within its guide. Numbers may contain gaps; completion advances to the next higher enabled number rather than assuming current plus one. Units: ordinal number." },
     opening_text: { description: "Fixed opening text that begins this step every time it becomes current. Present this text literally rather than asking the model to paraphrase it." },
@@ -22,6 +23,7 @@ const guideRecordSchema = {
   description: "Stores named, versioned containers for durable user-owned structured interactions.",
   properties: {
     interaction_guide_id: { description: "Stable local identifier for one interaction guide." },
+    ref: { description: "Stable Agent Slayer reference for this exact briefing." },
     name: { description: "User-facing unique name used to select the guide without loading its text. Names are unique without regard to letter case." },
     status: { description: "Lifecycle state controlling whether the guide is available for new guided interactions. active: The guide is available to inspect, edit, start, and link from a repeating to-do. archived: The guide is retained as history but unavailable for new links or starts." },
     version: { description: "Monotonically increasing optimistic-concurrency version for agent and UI edits. An update or archive must match the current version and increments it on success. Units: revision number." },
@@ -31,10 +33,25 @@ const guideRecordSchema = {
   },
 };
 
+const guideRunRecordSchema = {
+  type: ["object", "null"],
+  description: "One exact resumable execution of a briefing.",
+  properties: {
+    run_id: { description: "Stable briefing-run ID." },
+    run_ref: { description: "Stable Agent Slayer reference for this exact briefing run." },
+    run_display: { description: "Human-facing briefing name for this exact run." },
+    interaction_guide_id: { description: "Stable ID of the briefing being executed." },
+    guide_version: {}, status: {}, current_step_number: {},
+    started_at_utc: {}, started_local_date: {}, current_local_date: {},
+    time_zone: {}, requires_daily_choice: {},
+  },
+};
+
 function databaseStep(step) {
   if (!step) return null;
   return {
     interaction_guide_step_id: step.id,
+    ref: `agent-slayer://interaction-guide-steps/${Number(step.id)}`,
     interaction_guide_id: step.guideId,
     step_number: step.stepNumber,
     opening_text: step.openingText,
@@ -51,6 +68,7 @@ function databaseGuide(guide) {
   if (!guide) return null;
   return {
     interaction_guide_id: guide.id,
+    ref: `agent-slayer://interaction-guides/${Number(guide.id)}`,
     name: guide.name,
     status: guide.status,
     version: guide.version,
@@ -60,6 +78,8 @@ function databaseGuide(guide) {
     ...(guide.activeRun ? {
       active_run: {
         run_id: guide.activeRun.id,
+        run_ref: `agent-slayer://interaction-guide-runs/${encodeURIComponent(guide.activeRun.id)}`,
+        run_display: `${guide.name} run`,
         guide_version: guide.activeRun.guideVersion,
         status: guide.activeRun.status,
         current_step_number: guide.activeRun.currentStepNumber,
@@ -73,9 +93,11 @@ function databaseGuide(guide) {
   };
 }
 
-function databaseRun(run) {
+function databaseRun(run, guideName = null) {
   return {
     run_id: run.id,
+    run_ref: `agent-slayer://interaction-guide-runs/${encodeURIComponent(run.id)}`,
+    run_display: guideName ? `${guideName} run` : null,
     interaction_guide_id: run.interactionGuideId,
     guide_version: run.guideVersion,
     status: run.status,
@@ -117,6 +139,8 @@ export function activeBriefingRunContext(interactionGuides, limit = 8, registere
       briefingName: guide.name,
       guideVersion: guide.version,
       runId: run.id,
+      runRef: `agent-slayer://interaction-guide-runs/${encodeURIComponent(run.id)}`,
+      runDisplay: `${guide.name} run`,
       startedLocalDate: run.startedLocalDate,
       currentLocalDate: run.currentLocalDate,
       timeZone: run.timeZone,
@@ -351,30 +375,29 @@ export function registerInteractionGuideTools(registry, interactionGuides) {
 
   registry.register({
     name: "interaction_guide_start",
-    description: "Start or resume one exact briefing. For an ordinary request, set stale_run_action to ask: an unfinished run from the current local day resumes, while an earlier-day run returns choice_required without advancing. Set stale_run_action to resume only after the user explicitly chooses to keep the earlier run. Set restart true only when the user explicitly asks to discard the unfinished run and start over. Completed runs remain in the ledger while their reusable exchange state is reset.",
+    description: "Start or resume one exact briefing selected by stable ID. For an ordinary request, set stale_run_action to ask: an unfinished run from the current local day resumes, while an earlier-day run returns choice_required without advancing. Set stale_run_action to resume only after the user explicitly chooses to keep the earlier run. Set restart true only when the user explicitly asks to discard the unfinished run and start over. Completed runs remain in the ledger while their reusable exchange state is reset.",
     outputSchema: {
       type: "object",
-      properties: { guide: guideRecordSchema, step: guideStepRecordSchema },
+      properties: { run: guideRunRecordSchema, guide: guideRecordSchema, step: guideStepRecordSchema },
     },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        interaction_guide_id: { type: ["integer", "null"], minimum: 1, description: "Stable local identifier for one interaction guide." },
-        name: { type: ["string", "null"], minLength: 1, maxLength: 200, description: "User-facing unique name used to select the guide without loading its text. Names are unique without regard to letter case." },
+        interaction_guide_id: { type: "integer", minimum: 1, description: "Stable local identifier for one interaction guide." },
         restart: { type: "boolean" },
         stale_run_action: { type: "string", enum: ["ask", "resume"] },
       },
-      required: ["interaction_guide_id", "name", "restart", "stale_run_action"],
+      required: ["interaction_guide_id", "restart", "stale_run_action"],
     },
-    async execute({ interaction_guide_id: guideId, name, restart, stale_run_action: staleRunAction }, context) {
-      const result = interactionGuides.begin({ guideId, name, restart, staleRunAction }, context);
+    async execute({ interaction_guide_id: guideId, restart, stale_run_action: staleRunAction }, context) {
+      const result = interactionGuides.begin({ guideId, restart, staleRunAction }, context);
       return {
         started: result.started,
         resumed: result.resumed,
         choice_required: result.choiceRequired,
         available_choices: result.choiceRequired ? ["resume", "start_over"] : [],
-        run: databaseRun(result.run),
+        run: databaseRun(result.run, result.guide.name),
         guide: databaseGuide(result.guide),
         current_step: databaseStep(result.currentStep),
       };
@@ -386,7 +409,7 @@ export function registerInteractionGuideTools(registry, interactionGuides) {
     description: "Merge the user's answers into answers_json for the active numbered exchange. Keep step_complete false while required contract inputs remain. Completion advances to the next enabled exchange and returns its fixed opening. The contract mode enforces validated answers, user advancement, or distinct same-request receipts whose paired calls match every declared destination operation.",
     outputSchema: {
       type: "object",
-      properties: { guide: guideRecordSchema, step: guideStepRecordSchema },
+      properties: { run: guideRunRecordSchema, guide: guideRecordSchema, step: guideStepRecordSchema },
     },
     parameters: {
       type: "object",
@@ -420,7 +443,7 @@ export function registerInteractionGuideTools(registry, interactionGuides) {
         recorded: result.recorded,
         step_complete: result.stepComplete,
         run_complete: result.runCompleted,
-        run: databaseRun(result.run),
+        run: databaseRun(result.run, interactionGuides.get({ guideId: result.run.interactionGuideId })?.name),
         step: databaseStep(result.step),
         current_step: databaseStep(result.currentStep),
       };
@@ -432,7 +455,7 @@ export function registerInteractionGuideTools(registry, interactionGuides) {
     description: "Cancel one exact active briefing, reset its current exchange progress and answers, and retain its prior state in ledger history. Use only when the user explicitly abandons it or needs to edit the briefing before starting again.",
     outputSchema: {
       type: "object",
-      properties: { guide: guideRecordSchema },
+      properties: { run: guideRunRecordSchema, guide: guideRecordSchema },
     },
     parameters: {
       type: "object",
@@ -445,10 +468,13 @@ export function registerInteractionGuideTools(registry, interactionGuides) {
     },
     async execute({ run_id: runId, reason }, context) {
       const result = interactionGuides.cancelRun({ runId, reason }, context);
+      const guide = interactionGuides.get({ guideId: result.run.interactionGuideId });
       return {
         cancelled: result.cancelled,
         run: {
           run_id: result.run.id,
+          run_ref: `agent-slayer://interaction-guide-runs/${encodeURIComponent(result.run.id)}`,
+          run_display: `${guide.name} run`,
           interaction_guide_id: result.run.interactionGuideId,
           guide_version: result.run.guideVersion,
           status: result.run.status,

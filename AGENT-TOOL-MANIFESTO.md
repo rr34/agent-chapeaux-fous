@@ -24,7 +24,7 @@ No stable object binding means no object has been identified. The normative
 runtime representation is the versioned
 `config/protocol-schemas/first-class-object-binding.v1.schema.json`. It is the
 center of one first-class object identity protocol suite: an Object Description
-declares how provider records produce its ID, reference, and display fields;
+declares how domain records produce their ID, reference, and display fields;
 the runtime binding carries the resulting exact identity and evidence; and an
 object-input binding declares where a tool consumes that bound ID or reference.
 These contracts are linked, but they remain separate producer, instance, and
@@ -44,6 +44,13 @@ an ID without type, source, display, and evidence is meaningless context for a
 person, while a name without an ID and stable reference is only search text and
 must never become an action target. Qualifiers remain available through the
 owning read path when the request needs more than identity.
+
+An ID's scalar type is part of its identity and must remain exact across tool
+results, bindings, schemas, and later arguments. Native database primary keys
+are positive integers, including when a database driver initially returns their
+decimal representation as text. Genuinely opaque provider IDs remain strings.
+The application never treats the string and integer forms as interchangeable at
+an action boundary and never performs a lossy numeric conversion.
 
 Object bindings are bulk-shaped even when they contain one object. A later
 interaction copies the exact binding; it does not regenerate an ID from prose,
@@ -170,9 +177,9 @@ definitions.
 *Object Oriented Agenting*
 
 The first-class object identity protocol has three linked contracts. The
-Object Description is the provider-owned producer declaration, the
+Object Description is the domain-owned producer declaration, the
 first-class object binding is the canonical application-owned runtime instance,
-and the object-input binding is the provider-owned consumer declaration. Their
+and the object-input binding is the domain-owned consumer declaration. Their
 shared domain-qualified `type` joins the producer and consumer to the runtime
 binding; its `source` records ownership, and each object's stable `ref` and
 provider-native `id` keep the instance exact. The runtime binding schema is
@@ -197,8 +204,11 @@ such as Running or Push-ups under Exercise;
 These are three levels of one Journal object family. Personal to-dos likewise
 have named groups and individual tasks. A contact's tags may help match or
 describe that contact, but tags and tag assignments are not separate
-first-class objects in this surface. `interaction_guides` and `video_scripts`
-are outside the initial user-referable object set.
+first-class objects in this surface. Briefings, their numbered exchanges and
+active runs are first-class because native tools consume their stable IDs.
+Video scripts and content groups are likewise first-class because native tools
+consume their stable IDs; numbered content items are first-class because users
+refer to the durable items returned by the owning sequence read.
 
 For a native object type, the catalog names its authoritative database table,
 primary key, selected columns for matching and display, and declared
@@ -245,19 +255,22 @@ and used objects. This is a presentation of existing receipts and domain-owned
 records: it does not infer effects from assistant prose, turn a tool into an
 object, or replace the literal conversation and trace.
 
-## 2A.1. Remote Object Description contract
+## 2A.1. Object Description contract
 
-An Agent Slayer owned MCP publishes every user-referable first-class object
-type it supports as provider-owned metadata on an authoritative read-only MCP
-tool. The single versioned contract is
+Every Agent Slayer-owned domain publishes each user-referable first-class
+object type it supports as metadata on an authoritative read-only tool. Native
+domains publish application-owned metadata from one reviewed native object
+catalog; Agent Slayer-owned MCPs publish provider-owned metadata. Both use the
+same single versioned contract:
 `config/protocol-schemas/object-description.v1.schema.json`, published in that
 tool's `_meta["agent-slayer/objects"]`. The enclosing tool is the read path;
 the metadata is a catalog, not an object instance, a callable tool, or evidence
 that a particular record exists. This is the producer contract: its declared
 identity, reference, and display fields populate `objects[].id`,
 `objects[].ref`, and `objects[].display` in the canonical
-`first-class-object-binding.v1.schema.json` runtime shape. Unrelated third-party
-MCPs may omit it.
+`first-class-object-binding.v1.schema.json` runtime shape. An unrelated
+third-party MCP may omit it, but then does not participate in automatic
+first-class identity continuity.
 
 Each described type has a domain-qualified type ID, title, concise meaning,
 optional user-facing aliases, a provider-native identity field, a stable
@@ -287,7 +300,7 @@ still require explicit TurnBrief `contextRequests` selection.
 
 ## 2A.2. Object-input binding contract
 
-A tool that accepts a first-class object identity publishes provider-owned
+A tool that accepts a first-class object identity publishes domain-owned
 `_meta["agent-slayer/object-input-bindings"]` conforming to
 `config/protocol-schemas/object-input-bindings.v1.schema.json`. Each entry maps
 an exact JSON Pointer in that tool's input schema to a domain-qualified Object
@@ -295,12 +308,18 @@ Description type and states whether the input carries its provider ID or stable
 reference. This is the consumer contract: `objectType` selects a canonical
 first-class object binding with the same `type`, and `value` selects that
 binding's `objects[].id` or `objects[].ref`. `*` pointer segments address every
-member of an input array. The provider owns this mapping; Agent Slayer never guesses it from names such as `account_id`, descriptions, or workflow conventions.
+member of an input array. The owning MCP publishes this mapping for remote
+tools; the application derives it from the same reviewed native object catalog
+for native tools. An application-owned cross-domain adapter, such as an MCP
+artifact-upload bridge consuming a native file, publishes an explicit reviewed
+mapping to the native catalog rather than inheriting the remote provider's
+source. Agent Slayer never guesses it at runtime from names such as
+`account_id`, descriptions, or workflow conventions.
 
 Discovery rejects an invalid mapping, a missing input-schema path, or an object
-type not declared by the same connection. An owned provider publishes mappings
-for every tool input that consumes one of its first-class objects and keeps
-those mappings in its provider contract tests.
+type not declared by the same connection or native catalog. Every owned domain
+publishes mappings for every tool input that consumes one of its first-class
+objects and keeps those mappings in contract tests.
 
 Before an exact tool schema becomes callable, the application narrows every
 mapped input to IDs or references in the accepted TurnBrief binding when one

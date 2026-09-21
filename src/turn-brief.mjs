@@ -279,17 +279,11 @@ function orientationCapabilityCatalog(catalog) {
       lines.push(`- context:${view.id} — ${view.title ?? view.id}: ${view.description ?? ""}`.trim());
     }
     for (const object of capability.objectTypes ?? []) {
-      lines.push(`- object:${object.id} — ${object.title}: ${object.summary} Read through tool:${object.readTool}.`);
-      if (object.aliases?.length) lines.push(`  aliases: ${object.aliases.join(", ")}`);
-      if (object.identity) lines.push(`  provider ID: ${object.identity.field} — ${object.identity.summary}`);
-      lines.push(`  stable reference: ${object.reference.field} — ${object.reference.summary}`);
-      lines.push(`  display: ${object.display.field} — ${object.display.summary}`);
-      for (const qualifier of object.qualifiers) {
-        lines.push(`  qualifier: ${qualifier.field} — ${qualifier.summary}`);
-      }
-      for (const relationship of object.relationships ?? []) {
-        lines.push(`  relationship: ${relationship.name} -> ${relationship.targetType} — ${relationship.summary}`);
-      }
+      const aliases = object.aliases?.length ? ` Aliases: ${object.aliases.join(", ")}.` : "";
+      lines.push(
+        `- object:${object.id} — ${object.title}: ${object.summary} Read: tool:${object.readTool}.`
+        + ` Identity fields: id=${object.identity.field}, ref=${object.reference.field}, display=${object.display.field}.${aliases}`,
+      );
     }
     for (const tool of capability.tools ?? []) {
       const status = tool.descriptionStatus ? ` [${tool.descriptionStatus}]` : "";

@@ -4,9 +4,10 @@ schedule, deadline, duration, all-day flag, time zone, or recurrence. Any time
 belongs to a calendar event. Never simulate scheduling by adding a date to the
 to-do text.
 
-Honor an explicitly named group. Without one, call `todo_group_list` and choose
-the best clear existing group. Do not invent a group; use Inbox only when no
-existing group reasonably fits. New user-authored work uses status `todo`;
+Honor an explicitly named group by retaining its complete binding and passing
+its exact `todo_group_id`. Without one, call `todo_group_list` and choose the
+best clear existing bound group. Do not target a group by name alone or invent
+a group; use Inbox only when no existing group reasonably fits. New user-authored work uses status `todo`;
 `ai_suggested` is reserved for agent-proposed work that the user has not
 accepted or dismissed. Preserve an exact user-supplied planning question in
 `planning_prompt_text`; the prompt and lifecycle status remain independent.
@@ -18,7 +19,7 @@ instant; there is no scheduled-date filter. Show stable task IDs as `#<id>` in
 user-facing lists and confirmations.
 
 Use one `todo_update` call for all independently identified tasks in the same
-request. Null values are no-change placeholders; clear flags apply only when
+request, preserving every selected `personal_task_id`. Null values are no-change placeholders; clear flags apply only when
 the user explicitly asks to remove a relationship or prompt. Use
 `todo_interaction_guide_set` to link a briefing directly to a to-do. That link
 does not repeat, schedule, or start the briefing.

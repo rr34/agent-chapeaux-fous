@@ -34,20 +34,20 @@ test("native object candidates come from selected authoritative tables and rank 
   assert.equal(statements.length, 0);
 
   const contacts = searchNativeObjects(database, { query: "Lucas Ruffing" }).objects;
-  assert.equal(contacts[0].ref, "contacts:7");
+  assert.equal(contacts[0].ref, "agent-slayer://contacts/7");
   assert.equal(contacts[0].title, "Lucas Ruffing");
-  assert.deepEqual(contacts[0].related.map(({ ref }) => ref), ["todo_personal:9"]);
+  assert.deepEqual(contacts[0].related.map(({ ref }) => ref), ["agent-slayer://todos/9"]);
   assert.ok(contacts[0].matchedOn.includes("title"));
   assert.ok(statements.some(({ parameters }) => parameters.includes("%lucas%")));
   assert.ok(statements.every(({ sql }) => !/SELECT\s+\*/iu.test(sql)));
 
   const exercise = searchNativeObjects(database, { query: "Exercise log items" }).objects;
-  assert.equal(exercise[0].ref, "journal1_groups:10");
-  assert.deepEqual(exercise[0].related.map(({ ref }) => ref), ["journal2_trackers:11"]);
-  assert.ok(exercise.find(({ ref }) => ref === "journal2_trackers:11")?.matchedOn.includes("parent"));
+  assert.equal(exercise[0].ref, "agent-slayer://journal-groups/10");
+  assert.deepEqual(exercise[0].related.map(({ ref }) => ref), ["agent-slayer://journal-trackers/11"]);
+  assert.ok(exercise.find(({ ref }) => ref === "agent-slayer://journal-trackers/11")?.matchedOn.includes("parent"));
   assert.equal(searchNativeObjects(database, { query: "Push ups" }).objects[0].ref,
-    "journal2_trackers:11");
-  assert.equal(searchNativeObjects(database, { query: "family" }).objects[0].ref, "contacts:7");
+    "agent-slayer://journal-trackers/11");
+  assert.equal(searchNativeObjects(database, { query: "family" }).objects[0].ref, "agent-slayer://contacts/7");
   assert.deepEqual(nativeObjectTypes.map(({ table }) => table), [
     "contacts", "todo_groups", "todo_personal", "journal1_groups", "journal2_trackers", "journal3_entries",
   ]);
@@ -69,7 +69,7 @@ test("native object context is advertised and read only after strict view select
     searchNativeObjects(input) {
       calls.push(input);
       return { source: "native_mariadb_object_tables", capturedAtUtc: "2026-09-15T12:00:00.000Z",
-        objects: [{ ref: "contacts:7", title: "Lucas Ruffing" }] };
+        objects: [{ ref: "agent-slayer://contacts/7", title: "Lucas Ruffing" }] };
     },
   });
   const advertised = registry.capabilityManifest("search").contextViews[0];
@@ -81,5 +81,5 @@ test("native object context is advertised and read only after strict view select
   });
   assert.deepEqual(calls, [{ query: "Do you see Lucas Ruffing?", limit: 6 }]);
   assert.equal(prepared[0].source, "native_mariadb_object_tables");
-  assert.match(prepared[0].text, /contacts:7/u);
+  assert.match(prepared[0].text, /agent-slayer:\/\/contacts\/7/u);
 });

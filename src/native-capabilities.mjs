@@ -106,7 +106,7 @@ export const nativeCapabilityManifests = [
   {
     id: "video", title: "Video scripts and productions", summary: "Read ordered content-library sequences, create grounded scripts and Agent-interface MP4 productions, or add a completed generated video to a sequence.",
     aliases: ["video", "video script", "script", "add video to content", "content sequence", "content library", "promo library"], instructionFile: "video.md",
-    readOnlyTools: ["video_content_list"],
+    readOnlyTools: ["video_script_get", "video_content_list"],
   },
   {
     id: "search", title: "Global search",

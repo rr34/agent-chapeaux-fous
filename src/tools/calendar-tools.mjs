@@ -20,6 +20,7 @@ const calendarEventRecordSchema = {
   description: "Stores every commitment and scheduled event in the user's one authoritative agent calendar.",
   properties: {
     calendar_event_id: { description: "Stable local identifier for this calendar event." },
+    ref: { description: "Stable Agent Slayer reference for this exact calendar event." },
     calendar_routine_id: { description: "Optional calendar routine that generated this concrete event." },
     routine_occurrence_key: { description: "Stable occurrence start used to make calendar-routine generation idempotent." },
     ical_uid: { description: "Persistent iCalendar UID used to identify an imported event or recurrence family and prevent duplicate imports. This identifies imported calendar data; it does not identify a separate calendar." },
@@ -71,7 +72,10 @@ const calendarRoutineRecordSchema = {
   type: ["object", "null"],
   description: "A reusable temporal definition that generates concrete calendar events and never creates to-dos.",
   properties: {
-    calendar_routine_id: {}, title: {}, description: {}, location_text: {},
+    calendar_routine_id: {},
+    routine_ref: { description: "Stable Agent Slayer reference for this exact calendar routine." },
+    routine_title: { description: "Human-facing title copied as the compact identity display." },
+    title: {}, description: {}, location_text: {},
     first_starts_at_utc: {}, first_ends_at_utc: {}, time_zone: {}, is_all_day: {},
     recurrence_rule: {}, disabled_at_utc: {}, planning_prompt_text: {},
     source_event_id: {}, created_at_utc: {}, updated_at_utc: {}, version: {},
@@ -85,7 +89,11 @@ function calendarRoutine(database, id) {
     "SELECT * FROM calendar_routines WHERE calendar_routine_id = ?",
   ).get(id);
   if (!row) return null;
-  return selectedFields({ ...row, version: row.updated_at_utc ?? row.created_at_utc }, calendarRoutineFields);
+  return {
+    ...selectedFields({ ...row, version: row.updated_at_utc ?? row.created_at_utc }, calendarRoutineFields),
+    routine_ref: `agent-slayer://calendar-routines/${Number(row.calendar_routine_id)}`,
+    routine_title: row.title,
+  };
 }
 
 function normalizedIso(value, label, { required = false } = {}) {
@@ -130,9 +138,13 @@ function normalizedText(value, label, maximum, { required = false } = {}) {
 }
 
 function calendarEvent(database, id) {
-  return selectedFields(database.prepare(
+  const event = selectedFields(database.prepare(
     "SELECT * FROM calendar_events WHERE calendar_event_id = ?",
   ).get(id), calendarEventFields);
+  return event ? {
+    ...event,
+    ref: `agent-slayer://calendar-events/${Number(event.calendar_event_id)}`,
+  } : null;
 }
 
 function calendarEventWithTodos(database, id) {

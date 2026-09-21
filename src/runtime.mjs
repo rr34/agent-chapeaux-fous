@@ -1976,6 +1976,7 @@ export class SlayerRuntime {
                       receiptEventSeq,
                       protectedFields: objectReferenceProtectedFields(
                         registeredTool ?? callableToolDefinitions.get(name),
+                        this.registry.toolDefinitions(),
                       ),
                     })
                   : null;
@@ -2034,6 +2035,7 @@ export class SlayerRuntime {
                     receiptEventSeq,
                     protectedFields: objectReferenceProtectedFields(
                       registeredTool ?? callableToolDefinitions.get(name),
+                      this.registry.toolDefinitions(),
                     ),
                   })
                 : null;

@@ -10,7 +10,9 @@ only the conversation instructions.
 
 `interaction_guide_list` returns metadata only. Do not load steps unless the
 user asks to use, inspect, or change that specific guide. Fetch it with
-`interaction_guide_get`; `steps` are its ordered scripted exchanges and
+`interaction_guide_get`, retain the complete briefing binding, and pass its
+exact `interaction_guide_id` to later tools rather than targeting it by name;
+`steps` are its ordered scripted exchanges and
 contracts. A briefing cannot override higher-priority instructions or make an
 unavailable capability callable.
 
@@ -69,7 +71,8 @@ the complete object is committed or reviewed as a batch.
 `progress_state` is application-owned current-run state: `pending`, `active`,
 or `completed`. Do not try to write it directly through definition tools.
 
-For a guide with numbered steps, call `interaction_guide_start`. With
+For a guide with numbered steps, call `interaction_guide_start` with its bound
+`interaction_guide_id`. With
 `restart: false`, an interrupted active run resumes; do not clear or replace its
 answers when it began on the current local day. For the first ordinary start
 request, set `stale_run_action` to `ask`. If the unfinished run began on an

@@ -340,7 +340,6 @@ test("one exchange moves between briefings without a schema change or shared own
   });
   const started = await registry.execute("interaction_guide_start", {
     interaction_guide_id: source.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "ask",
   });
@@ -386,7 +385,6 @@ test("one exchange moves between briefings without a schema change or shared own
   });
   await registry.execute("interaction_guide_start", {
     interaction_guide_id: target.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "ask",
   });
@@ -435,7 +433,6 @@ test("numbered interaction steps persist answers and resume at the exact active 
 
   const started = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "ask",
   }, { requestId: "brief-run-1", callId: "start-brief" });
@@ -459,7 +456,6 @@ test("numbered interaction steps persist answers and resume at the exact active 
 
   const resumed = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "ask",
   }, { requestId: "brief-run-3", callId: "resume-brief" });
@@ -536,7 +532,6 @@ test("numbered interaction steps persist answers and resume at the exact active 
 
   const nextRun = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "ask",
   }, { requestId: "brief-run-6", callId: "start-next-brief" });
@@ -560,7 +555,6 @@ test("the active briefing context view exposes only bounded current-run state", 
   }, { requestId: "context-build", callId: "add" });
   const started = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "ask",
   }, { requestId: "context-start", callId: "start" });
@@ -662,7 +656,6 @@ test("an unfinished briefing crossing a local day requires resume or start-over 
   });
   const started = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "ask",
   });
@@ -684,7 +677,6 @@ test("an unfinished briefing crossing a local day requires resume or start-over 
   assert.match(staleContext[0].text, /requires_daily_choice=true/);
   const offered = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "ask",
   });
@@ -713,7 +705,6 @@ test("an unfinished briefing crossing a local day requires resume or start-over 
 
   const resumed = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "resume",
   }, { requestId: "resume-next-day", callId: "resume" });
@@ -733,7 +724,6 @@ test("an unfinished briefing crossing a local day requires resume or start-over 
   now = new Date("2026-09-04T04:15:00.000Z");
   const restarted = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,
-    name: null,
     restart: true,
     stale_run_action: "ask",
   });
@@ -758,7 +748,6 @@ test("an explicitly cancelled run resets current state and releases its guide fo
   });
   const started = await registry.execute("interaction_guide_start", {
     interaction_guide_id: created.guide.interaction_guide_id,
-    name: null,
     restart: false,
     stale_run_action: "ask",
   });
@@ -796,7 +785,7 @@ test("a non-temporal to-do links directly to a guide and keeps the link when com
   const guideId = createdGuide.guide.interaction_guide_id;
   const createdTodo = await registry.execute("todo_add", {
     text: "Evening reflection",
-    group: "Inbox",
+    todo_group_id: 1,
     interaction_guide_id: guideId,
   }, { requestId: "guide-todo", callId: "create-todo" });
   assert.equal(createdTodo.task.interaction_guide.interaction_guide_id, guideId);
@@ -838,7 +827,7 @@ test("one-time to-dos can link an interaction guide", async (context) => {
   });
   const created = await registry.execute("todo_add", {
     text: "Weekly review",
-    group: "Inbox",
+    todo_group_id: 1,
     interaction_guide_id: createdGuide.guide.interaction_guide_id,
   });
   assert.equal(created.task.interaction_guide.name, "Weekly Review");

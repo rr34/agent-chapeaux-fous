@@ -255,14 +255,15 @@ test("existing task and journal mutation tools satisfy questions, while failed w
     starts_at_utc: "2026-09-01T04:00:00Z", recurrence }, {});
   await registry.execute("catch_up_refresh", scope, {});
   assert.equal(service.list().count, 2);
-  const change = { personal_task_id: taskId, text: null, group: null, status: "complete",
+  const change = { personal_task_id: taskId, text: null, todo_group_id: null, status: "complete",
     scheduled_at_utc: null, due_at_utc: null };
   await assert.rejects(registry.execute("todo_update", { updates: [{ ...change, personal_task_id: 999999 }] }, {}), /does not exist/);
   service.refresh(scope);
   assert.equal(service.list().count, 2);
   const completed = await registry.execute("todo_update", { updates: [change] }, {});
   assert.equal(completed.items[0].task.status, "complete");
-  await registry.execute("journal_add", { tracker: "Weight", group: null, content_text: "Weight was 72 kg this morning",
+  await registry.execute("journal_add", { tracker_id: trackerId, tracker: "Weight", journal_group_id: null,
+    group: null, content_text: "Weight was 72 kg this morning",
     number_value: 72, tracker_unit: null, occurred_at_utc: "2026-09-08T13:00:00Z", create_if_missing: false }, {});
   service.refresh(scope);
   assert.equal(service.list().count, 0);
@@ -273,7 +274,7 @@ const selection = overrides => ({ time_zone: "America/New_York", logs_date: null
 
 test("selected past-day logs include unscheduled trackers, persist scope across service instances, and record the selected day", async t => {
   const { service, registry, tracker, task, db, store, organizer } = harness(t);
-  tracker(); task();
+  const trackerId = tracker(); task();
   service.refresh(scope); // An unrelated due task must not leak into logs-only catch-up.
   const selected = selection({ logs_date: "2026-09-07" });
   const result = service.refresh({ ...scope, scope: selected });
@@ -285,7 +286,8 @@ test("selected past-day logs include unscheduled trackers, persist scope across 
   assert.equal(q.period_ends_at_utc, "2026-09-08T04:00:00.000Z");
   const resumed = new CatchUpService(store, organizer, new Ledger(store), { now: () => "2026-09-08T22:00:00.000Z" });
   assert.deepEqual(resumed.list().scope, selected);
-  await registry.execute("journal_add", { tracker: "Weight", group: null, content_text: "Yesterday's weight",
+  await registry.execute("journal_add", { tracker_id: trackerId, tracker: "Weight", journal_group_id: null,
+    group: null, content_text: "Yesterday's weight",
     number_value: 72, tracker_unit: null, occurred_at_utc: "2026-09-07T13:00:00Z", create_if_missing: false }, {});
   resumed.refresh(scope); // Null/omitted scope must retain yesterday.
   assert.equal(resumed.list().count, 0);

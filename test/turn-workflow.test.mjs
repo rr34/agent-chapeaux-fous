@@ -236,7 +236,12 @@ test("a number-only reply continues the active briefing from selected live conte
           "  Opening: What is your current weight?",
           "  Instructions: Record the supplied numeric value exactly without inferring a unit.",
         ].join("\n"),
-        data: { runs: [{ runId, currentExchange: { stepNumber: 1 } }] },
+        data: { runs: [{
+          runId,
+          runRef: `agent-slayer://interaction-guide-runs/${runId}`,
+          runDisplay: "Evening Briefing run",
+          currentExchange: { stepNumber: 1 },
+        }] },
       };
     },
   });
@@ -379,6 +384,8 @@ test("a receipt-gated briefing answer finalizes tool selection from active-run c
         data: {
           runs: [{
             runId,
+            runRef: `agent-slayer://interaction-guide-runs/${runId}`,
+            runDisplay: "Evening Briefing run",
             currentExchange: {
               stepNumber: 3,
               contract: {
@@ -695,8 +702,8 @@ test("a published account object leads from orientation to its exact read tool a
   const modelTransport = transport(async (payload, index) => {
     if (index === 0) {
       assert.match(payload.developerInstructions, /object:accounting\.account/);
-      assert.match(payload.developerInstructions, /qualifier: currencyCode/);
-      assert.match(payload.developerInstructions, /Read through tool:remote_accounting_list_account_objects/);
+      assert.match(payload.developerInstructions, /Identity fields: id=id, ref=sourceRef, display=displayName/);
+      assert.match(payload.developerInstructions, /Read: tool:remote_accounting_list_account_objects/);
       assert.doesNotMatch(payload.developerInstructions, /"inputSchema"/);
       assert.equal(reads, 0);
       return completed(JSON.stringify(accountBrief), 20);
@@ -1176,6 +1183,8 @@ test("a TurnBrief tool outside its selected capability is repaired before execut
       return {
         moves: [{
           personal_task_id: 322,
+          ref: "agent-slayer://todos/322",
+          text: "Watch Jobs",
           previous_scheduled_at_utc: "2026-09-02T11:00:00.000Z",
         }],
       };

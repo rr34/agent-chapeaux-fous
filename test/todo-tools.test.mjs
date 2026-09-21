@@ -48,7 +48,7 @@ test("native to-do contracts are entirely non-temporal", () => {
 test("to-dos can be created, listed, and completed without calendar fields", async (context) => {
   const { store, registry, toolContext } = harness(context);
   const created = await registry.execute("todo_add", {
-    text: "Bathe Ruby", group: "Inbox", status: "todo",
+    text: "Bathe Ruby", todo_group_id: 1, status: "todo",
     related_contact_id: null, interaction_guide_id: null,
     planning_prompt_text: null, position: null,
   }, toolContext);
@@ -75,7 +75,7 @@ test("any to-do may link directly to an active interaction guide", async (contex
     RETURNING interaction_guide_id
   `).get().interaction_guide_id);
   const created = await registry.execute("todo_add", {
-    text: "Bathe Ruby", group: "Inbox", status: "todo",
+    text: "Bathe Ruby", todo_group_id: 1, status: "todo",
     related_contact_id: null, interaction_guide_id: guideId,
     planning_prompt_text: null, position: null,
   }, toolContext);
@@ -89,7 +89,7 @@ test("any to-do may link directly to an active interaction guide", async (contex
 test("to-do update batches stay atomic", async (context) => {
   const { registry, toolContext } = harness(context);
   const first = await registry.execute("todo_add", {
-    text: "First", group: "Inbox", status: "todo", related_contact_id: null,
+    text: "First", todo_group_id: 1, status: "todo", related_contact_id: null,
     interaction_guide_id: null, planning_prompt_text: null, position: null,
   }, toolContext);
   await assert.rejects(registry.execute("todo_update", { updates: [

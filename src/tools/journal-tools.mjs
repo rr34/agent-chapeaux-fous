@@ -5,6 +5,8 @@ const journalGroupRecordSchema = {
   description: "Defines broad named groups that organize the user's personal trackers.",
   properties: {
     journal_group_id: { description: "Stable local identifier for one personal-journal group." },
+    group_ref: { description: "Stable Agent Slayer reference for this exact journal group." },
+    group_name: { description: "Human-facing journal-group name copied as the compact identity display." },
     name: { description: "Complete human-facing name of the group. Unique without regard to letter case." },
     archived_at_utc: { description: "UTC timestamp when this group was archived, or null while it is active." },
     created_at_utc: { description: "UTC timestamp when this group was created." },
@@ -17,7 +19,10 @@ const trackerRecordSchema = {
   description: "Defines the reusable subjects under which the user records personal observations over time.",
   properties: {
     tracker_id: { description: "Stable local identifier for one personal tracker." },
+    ref: { description: "Stable Agent Slayer reference for this exact journal tracker." },
     journal_group_id: { description: "Organizational group containing this tracker." },
+    group_ref: { description: "Stable Agent Slayer reference for the owning journal group." },
+    group_name: { description: "Human-facing name of the owning journal group." },
     name: { description: "Complete human-facing name of the tracked subject. Unique globally without regard to letter case." },
     unit: { description: "Canonical unit shared by every numeric entry in this tracker's trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me." },
     asking_starts_at_utc: { description: "Optional first scheduled logging period start, in UTC." },
@@ -35,7 +40,13 @@ const journalEntryRecordSchema = {
   description: "Stores the user's authoritative time-stamped personal observations under reusable trackers.",
   properties: {
     journal_entry_id: { description: "Stable local identifier for one personal journal entry." },
+    ref: { description: "Stable Agent Slayer reference for this exact journal entry." },
     tracker_id: { description: "Tracker under which this observation is recorded." },
+    tracker_ref: { description: "Stable Agent Slayer reference for the owning tracker." },
+    tracker_name: { description: "Human-facing name of the owning tracker." },
+    journal_group_id: { description: "Stable native ID of the owning journal group." },
+    group_ref: { description: "Stable Agent Slayer reference for the owning journal group." },
+    group_name: { description: "Human-facing name of the owning journal group." },
     occurred_at_utc: { description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
     content_text: { description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
     number_value: { description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
@@ -86,8 +97,12 @@ function databaseTracker(row) {
   if (!row) return null;
   return {
     ...selectedFields(row, trackerFields),
+    ref: `agent-slayer://journal-trackers/${Number(row.tracker_id)}`,
+    group_ref: `agent-slayer://journal-groups/${Number(row.journal_group_id)}`,
+    group_name: row.group_name ?? null,
     journal_groups: {
       journal_group_id: row.journal_group_id,
+      group_ref: `agent-slayer://journal-groups/${Number(row.journal_group_id)}`,
       name: row.group_name ?? null,
       archived_at_utc: row.group_archived_at_utc ?? null,
     },
@@ -100,14 +115,26 @@ function databaseEntry(row) {
   if (!row) return null;
   return {
     ...selectedFields(row, journalEntryFields),
+    ref: `agent-slayer://journal-entries/${Number(row.journal_entry_id)}`,
+    tracker_ref: `agent-slayer://journal-trackers/${Number(row.tracker_id)}`,
+    tracker_name: row.tracker_name ?? null,
+    journal_group_id: row.journal_group_id ?? null,
+    group_ref: row.journal_group_id == null
+      ? null
+      : `agent-slayer://journal-groups/${Number(row.journal_group_id)}`,
+    group_name: row.group_name ?? null,
     trackers: {
       tracker_id: row.tracker_id,
+      ref: `agent-slayer://journal-trackers/${Number(row.tracker_id)}`,
       journal_group_id: row.journal_group_id ?? null,
       name: row.tracker_name ?? null,
       unit: row.tracker_unit ?? null,
     },
     journal_groups: {
       journal_group_id: row.journal_group_id ?? null,
+      group_ref: row.journal_group_id == null
+        ? null
+        : `agent-slayer://journal-groups/${Number(row.journal_group_id)}`,
       name: row.group_name ?? null,
     },
   };
@@ -115,7 +142,7 @@ function databaseEntry(row) {
 
 export function journalCapabilityContext(store, limit = 200) {
   const trackers = !store?.status?.ready ? [] : store.requireReady().prepare(`
-    SELECT tracker.tracker_id, tracker.name, tracker.unit,
+    SELECT tracker.tracker_id, tracker.journal_group_id, tracker.name, tracker.unit,
            journal_group.name AS group_name,
            COUNT(entry.journal_entry_id) AS entry_count,
            MAX(entry.occurred_at_utc) AS last_recorded_at_utc
@@ -129,8 +156,11 @@ export function journalCapabilityContext(store, limit = 200) {
     LIMIT ?
   `).all(limit).map((row) => ({
     trackerId: Number(row.tracker_id),
-    name: row.name,
+    journalGroupId: Number(row.journal_group_id),
+    groupRef: `agent-slayer://journal-groups/${Number(row.journal_group_id)}`,
+    groupName: row.group_name,
     group: row.group_name,
+    name: row.name,
     unit: row.unit,
     entryCount: Number(row.entry_count),
     lastRecordedAtUtc: row.last_recorded_at_utc,
@@ -138,7 +168,7 @@ export function journalCapabilityContext(store, limit = 200) {
   const rows = trackers.length
     ? trackers.map((tracker) => [
         `- [tracker ${tracker.trackerId}] name: ${tracker.name}`,
-        `group: ${tracker.group}`,
+        `group: ${tracker.groupName} [journal_group_id=${tracker.journalGroupId}]`,
         `entries: ${tracker.entryCount}`,
         `unit: ${tracker.unit}`,
       ].join(" | ")).join("\n")
@@ -245,6 +275,10 @@ function findTracker(database, name) {
   return exact ? { row: exact, matchType: "exact" } : { row: null, matchType: "none" };
 }
 
+function trackerById(database, trackerId) {
+  return joinedTracker(database, trackerId);
+}
+
 function ensureGroup(database, name, now) {
   const existing = database.prepare(`
     SELECT * FROM journal1_groups WHERE name = ?
@@ -273,7 +307,20 @@ function ensureGroup(database, name, now) {
   };
 }
 
+function requireGroupById(database, groupId, now, { reactivate = false } = {}) {
+  const group = database.prepare("SELECT * FROM journal1_groups WHERE journal_group_id = ?").get(groupId);
+  if (!group) throw new Error(`Journal group ${groupId} does not exist`);
+  if (group.archived_at_utc === null || !reactivate) return group;
+  return database.prepare(`
+    UPDATE journal1_groups SET archived_at_utc = NULL, updated_at_utc = ?
+    WHERE journal_group_id = ? RETURNING *
+  `).get(now, groupId);
+}
+
 function normalizedJournalInput(argumentsObject, { requireOccurredAt = false } = {}) {
+  const trackerId = argumentsObject.tracker_id == null ? null : Number(argumentsObject.tracker_id);
+  const journalGroupId = argumentsObject.journal_group_id == null
+    ? null : Number(argumentsObject.journal_group_id);
   const trackerName = requiredText(argumentsObject.tracker, "Tracker name", 200);
   const requestedGroupWasNull = argumentsObject.group === null;
   const requestedGroup = requestedGroupWasNull
@@ -295,6 +342,8 @@ function normalizedJournalInput(argumentsObject, { requireOccurredAt = false } =
     label: "Journal occurrence time",
   });
   return {
+    trackerId,
+    journalGroupId,
     trackerName,
     requestedGroup,
     requestedGroupWasNull,
@@ -315,8 +364,23 @@ function normalizedExternalId(value) {
   return requiredText(value, "External journal ID", 1000);
 }
 
-function resolveTracker(database, input, now, { createIfMissing = false } = {}) {
-  const found = findTracker(database, input.trackerName);
+function resolveTracker(database, input, now, {
+  createIfMissing = false, requireBoundExisting = false,
+  allowedUnboundTrackerIds = new Set(), allowedUnboundGroupIds = new Set(),
+} = {}) {
+  const found = input.trackerId == null
+    ? findTracker(database, input.trackerName)
+    : { row: trackerById(database, input.trackerId), matchType: "id" };
+  if (input.trackerId != null && !found.row) {
+    throw new Error(`Journal tracker ${input.trackerId} does not exist`);
+  }
+  if (input.trackerId != null && input.trackerName !== found.row.name) {
+    throw new Error(`Journal tracker ${input.trackerId} must retain display name ${found.row.name}`);
+  }
+  if (requireBoundExisting && input.trackerId == null && found.row
+    && !allowedUnboundTrackerIds.has(Number(found.row.tracker_id))) {
+    throw new Error(`Existing journal tracker ${found.row.name} must be selected by tracker_id`);
+  }
   let tracker = found.row;
   let trackerCreated = false;
   let trackerReactivated = false;
@@ -339,7 +403,25 @@ function resolveTracker(database, input, now, { createIfMissing = false } = {}) 
     if (input.trackerUnit === null) {
       throw new Error("New journal trackers require a canonical unit");
     }
-    const selectedGroup = ensureGroup(database, input.requestedGroup, now);
+    let selectedGroup;
+    if (input.journalGroupId != null) {
+      const previous = database.prepare("SELECT * FROM journal1_groups WHERE journal_group_id = ?")
+        .get(input.journalGroupId);
+      const row = requireGroupById(database, input.journalGroupId, now, { reactivate: true });
+      if (!input.requestedGroupWasNull && input.requestedGroup !== row.name) {
+        throw new Error(`Journal group ${input.journalGroupId} must retain display name ${row.name}`);
+      }
+      selectedGroup = { row, created: false, reactivated: previous?.archived_at_utc != null };
+    } else {
+      if (requireBoundExisting) {
+        const existingGroup = database.prepare("SELECT * FROM journal1_groups WHERE name = ?")
+          .get(input.requestedGroup);
+        if (existingGroup && !allowedUnboundGroupIds.has(Number(existingGroup.journal_group_id))) {
+          throw new Error(`Existing journal group ${existingGroup.name} must be selected by journal_group_id`);
+        }
+      }
+      selectedGroup = ensureGroup(database, input.requestedGroup, now);
+    }
     const row = database.prepare(`
       INSERT INTO journal2_trackers (journal_group_id, name, unit, updated_at_utc)
       VALUES (?, ?, ?, ?)
@@ -452,7 +534,8 @@ function existingImportedEntry(database, source, externalId) {
 }
 
 function sameImportedEntry(row, input) {
-  return row.tracker_name.toLowerCase() === input.trackerName.toLowerCase()
+  return (input.trackerId == null || Number(row.tracker_id) === input.trackerId)
+    && row.tracker_name.toLowerCase() === input.trackerName.toLowerCase()
     && row.occurred_at_utc === input.occurredAtUtc
     && row.content_text === input.content
     && (row.number_value === null ? null : Number(row.number_value)) === input.number
@@ -471,7 +554,7 @@ export function registerJournalTools(registry, store, ledger) {
   });
   registry.register({
     name: "journal_add",
-    description: "Record one entry in the user's authoritative personal journal. The content must remain complete human-readable text; number_value is an optional trend projection whose canonical unit belongs to the tracker, never the entry. Supply tracker_unit when creating a tracker or replacing the migration marker; otherwise use null and the existing tracker unit remains authoritative. Reuse the most plausible existing tracker. If none matches and create_if_missing is false, return an unrecorded proposal for confirmation.",
+    description: "Record one entry in the user's authoritative personal journal. Select an existing tracker by stable tracker_id; tracker is its human-facing name. A null tracker_id is valid only while proposing or explicitly creating a missing tracker. Select an existing parent group by journal_group_id. The content remains complete human-readable text; number_value is an optional trend projection whose canonical unit belongs to the tracker.",
     outputSchema: {
       type: "object",
       properties: { entry: journalEntryRecordSchema, tracker: trackerRecordSchema },
@@ -480,7 +563,9 @@ export function registerJournalTools(registry, store, ledger) {
       type: "object",
       additionalProperties: false,
       properties: {
+        tracker_id: { type: ["integer", "null"], minimum: 1, description: "Stable ID of an existing tracker, or null only to propose or create a missing tracker." },
         tracker: { type: "string", minLength: 1, maxLength: 200, description: "Name of the reusable subject under which this observation is recorded." },
+        journal_group_id: { type: ["integer", "null"], minimum: 1, description: "Stable ID of an existing parent group, or null only when proposing or creating a new group." },
         group: nullableString,
         content_text: { type: "string", minLength: 1, maxLength: 10000, description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
         number_value: { type: ["number", "null"], description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
@@ -488,7 +573,7 @@ export function registerJournalTools(registry, store, ledger) {
         occurred_at_utc: { ...nullableString, description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
         create_if_missing: { type: "boolean" },
       },
-      required: ["tracker", "group", "content_text", "number_value", "tracker_unit", "occurred_at_utc", "create_if_missing"],
+      required: ["tracker_id", "tracker", "journal_group_id", "group", "content_text", "number_value", "tracker_unit", "occurred_at_utc", "create_if_missing"],
     },
     async execute(argumentsObject, context) {
       const input = normalizedJournalInput(argumentsObject);
@@ -498,6 +583,7 @@ export function registerJournalTools(registry, store, ledger) {
       try {
         const trackerResult = resolveTracker(database, input, now, {
           createIfMissing: argumentsObject.create_if_missing,
+          requireBoundExisting: true,
         });
         if (!trackerResult.tracker) {
           const result = {
@@ -584,7 +670,9 @@ export function registerJournalTools(registry, store, ledger) {
             additionalProperties: false,
             properties: {
               external_id: { type: ["string", "integer"], maxLength: 1000, description: "Optional stable record identifier assigned by source and used with source to make imports idempotent. Required by the generic import tool and null for ordinary native journal entries without an upstream identity. The pair of source and external_id is unique whenever external_id is present." },
+              tracker_id: { type: ["integer", "null"], minimum: 1, description: "Stable ID of an existing tracker, or null only when this import creates that tracker." },
               tracker: { type: "string", minLength: 1, maxLength: 200, description: "Name of the reusable subject under which this observation is recorded." },
+              journal_group_id: { type: ["integer", "null"], minimum: 1, description: "Stable ID of an existing parent group, or null only when this import creates that group." },
               group: nullableString,
               content_text: { type: "string", minLength: 1, maxLength: 10000, description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
               number_value: { type: ["number", "null"], description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
@@ -593,7 +681,9 @@ export function registerJournalTools(registry, store, ledger) {
             },
             required: [
               "external_id",
+              "tracker_id",
               "tracker",
+              "journal_group_id",
               "group",
               "content_text",
               "number_value",
@@ -627,6 +717,8 @@ export function registerJournalTools(registry, store, ledger) {
       database.exec("START TRANSACTION");
       try {
         const items = [];
+        const batchCreatedTrackerIds = new Set();
+        const batchCreatedGroupIds = new Set();
         for (const input of inputs) {
           const existingRow = existingImportedEntry(database, selectedSource, input.externalId);
           if (existingRow) {
@@ -640,7 +732,18 @@ export function registerJournalTools(registry, store, ledger) {
             });
             continue;
           }
-          const trackerResult = resolveTracker(database, input.journal, now, { createIfMissing: true });
+          const trackerResult = resolveTracker(database, input.journal, now, {
+            createIfMissing: true,
+            requireBoundExisting: true,
+            allowedUnboundTrackerIds: batchCreatedTrackerIds,
+            allowedUnboundGroupIds: batchCreatedGroupIds,
+          });
+          if (trackerResult.trackerCreated) {
+            batchCreatedTrackerIds.add(Number(trackerResult.tracker.tracker_id));
+          }
+          if (trackerResult.groupResolution.groupCreated) {
+            batchCreatedGroupIds.add(Number(trackerResult.tracker.journal_group_id));
+          }
           const entry = insertEntry(database, input.journal, trackerResult.tracker, {
             source: selectedSource,
             externalId: input.externalId,
@@ -835,6 +938,7 @@ export function registerJournalTools(registry, store, ledger) {
     outputSchema: {
       type: "object",
       properties: {
+        groups: { type: "array", items: journalGroupRecordSchema },
         trackers: { type: "array", items: trackerRecordSchema },
       },
     },
@@ -860,7 +964,8 @@ export function registerJournalTools(registry, store, ledger) {
         values.push(requiredText(group, "Journal group name", 200));
       }
       const boundedLimit = Math.min(200, Math.max(1, Number(limit) || 50));
-      const rows = store.requireReady().prepare(`
+      const database = store.requireReady();
+      const rows = database.prepare(`
         SELECT tracker.*, journal_group.name AS group_name,
                journal_group.archived_at_utc AS group_archived_at_utc,
                COUNT(entry.journal_entry_id) AS entry_count,
@@ -873,7 +978,16 @@ export function registerJournalTools(registry, store, ledger) {
         ORDER BY journal_group.name, tracker.name
         LIMIT ?
       `).all(...values, boundedLimit).map(databaseTracker);
-      return { count: rows.length, trackers: rows };
+      const groups = database.prepare(`
+        SELECT * FROM journal1_groups
+        ${includeArchived ? "" : "WHERE archived_at_utc IS NULL"}
+        ORDER BY name, journal_group_id LIMIT ?
+      `).all(boundedLimit).map((row) => ({
+        ...selectedFields(row, ["journal_group_id", "name", "archived_at_utc", "created_at_utc", "updated_at_utc"]),
+        group_ref: `agent-slayer://journal-groups/${Number(row.journal_group_id)}`,
+        group_name: row.name,
+      }));
+      return { count: rows.length, group_count: groups.length, groups, trackers: rows };
     },
   });
 
@@ -890,13 +1004,13 @@ export function registerJournalTools(registry, store, ledger) {
       properties: {
         tracker_id: { type: "integer", minimum: 1, description: "Tracker under which this observation is recorded." },
         name: { ...nullableString, description: "Complete human-facing name of the tracked subject. Unique globally without regard to letter case." },
-        group: nullableString,
+        journal_group_id: { type: ["integer", "null"], minimum: 1 },
         unit: { ...nullableString, description: "Canonical unit shared by every numeric entry in this tracker's trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me." },
         archived: { type: ["boolean", "null"] },
       },
-      required: ["tracker_id", "name", "group", "unit", "archived"],
+      required: ["tracker_id", "name", "journal_group_id", "unit", "archived"],
     },
-    async execute({ tracker_id: trackerId, name, group, unit, archived }, context) {
+    async execute({ tracker_id: trackerId, name, journal_group_id: groupId, unit, archived }, context) {
       const database = store.requireReady();
       const beforeRow = joinedTracker(database, trackerId);
       if (!beforeRow) throw new Error(`Tracker ${trackerId} does not exist`);
@@ -905,9 +1019,8 @@ export function registerJournalTools(registry, store, ledger) {
       try {
         const values = {};
         if (name !== null) values.name = requiredText(name, "Tracker name", 200);
-        if (group !== null) {
-          const selectedGroup = ensureGroup(database, requiredText(group, "Journal group name", 200), now);
-          values.journal_group_id = selectedGroup.row.journal_group_id;
+        if (groupId !== null) {
+          values.journal_group_id = requireGroupById(database, groupId, now, { reactivate: true }).journal_group_id;
         } else if (archived === false && beforeRow.group_archived_at_utc !== null) {
           database.prepare(`
             UPDATE journal1_groups

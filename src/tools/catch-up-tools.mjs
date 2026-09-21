@@ -18,6 +18,7 @@ export const catchUpQuestionSchema = {
   description: "A generated question whose authoritative source is exactly one foreign-key-linked event or journal tracker. Conversation history does not determine eligibility or resolution.",
   properties: {
     question_id: { ...id, description: "Stable generated question ID. This is not the task, event, or tracker ID." },
+    ref: { type: "string", description: "Stable Agent Slayer reference for this exact Check-in question." },
     calendar_event_id: { type: ["integer", "null"], description: "Foreign key to the event or recurring series. For an ISO source_occurrence_key use calendar_event_occurrence_update to change only that instance." },
     tracker_id: { type: ["integer", "null"], description: "Foreign key to the journal tracker. Use journal_add to record the observation." },
     occurrence_key: { type: "string", description: "Stable owned question identity. plan: prefixes planning occurrences; day:date:zone identifies an unscheduled tracker day. Never pass a prefixed question key to a calendar tool." },
@@ -35,6 +36,14 @@ export const catchUpQuestionSchema = {
   },
 };
 
+function questionWithIdentity(question) {
+  if (!question || question.question_id == null) return question;
+  return {
+    ...question,
+    ref: `agent-slayer://catch-up-questions/${Number(question.question_id)}`,
+  };
+}
+
 export function registerCatchUpTools(rootRegistry, service) {
   const registry = rootRegistry.withCapability("catch-up");
   rootRegistry.registerContextView("catch-up", {
@@ -43,6 +52,7 @@ export function registerCatchUpTools(rootRegistry, service) {
     execute() {
       const result = service.list({ limit: 3 });
       return { heading: "Pending catch-up questions", source: "catch_up_questions",
+        data: { ...result, questions: result.questions.map(questionWithIdentity) },
         text: JSON.stringify(result), count: result.count };
     },
   });
@@ -76,7 +86,10 @@ export function registerCatchUpTools(rootRegistry, service) {
       refresh_required: { type: "boolean" }, next_after_id: { type: ["integer", "null"] },
       scope: catchUpScopeSchema,
     } },
-    execute: input => service.list(input),
+    execute(input) {
+      const result = service.list(input);
+      return { ...result, questions: result.questions.map(questionWithIdentity) };
+    },
   });
   registry.register({
     name: "catch_up_question_update",
@@ -88,7 +101,10 @@ export function registerCatchUpTools(rootRegistry, service) {
       comment: { ...nullableText, maxLength: 10000, description: "User-supplied comment, null to preserve, or empty string to clear." },
     }, required: ["question_id", "expected_version", "action", "ask_after", "comment"] },
     outputSchema: { type: "object", properties: { question: catchUpQuestionSchema } },
-    execute: (input, context) => service.update(input, context),
+    execute(input, context) {
+      const result = service.update(input, context);
+      return { ...result, question: questionWithIdentity(result.question) };
+    },
   });
   rootRegistry.withCapability("journal").register({
     name: "tracker_asking_schedule_set",

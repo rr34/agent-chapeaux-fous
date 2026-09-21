@@ -1,6 +1,9 @@
 import { withReadResultFilterSchema } from "../search/result-filter.mjs";
 import { applyNativeToolDescription } from "../native-tool-descriptions.mjs";
 import { applyNativeObjectInputBindings } from "../native-object-input-bindings.mjs";
+import { applyNativeObjectDescription } from "../native-object-descriptions.mjs";
+import { normalizeNativeIdentityScalars } from "../native-object-types.mjs";
+import { objectDescriptionMetadataKey, validateObjectDescription } from "../object-description.mjs";
 import {
   toolDescriptionMetadataKey, validateToolDescription,
 } from "../tool-description.mjs";
@@ -157,7 +160,7 @@ export class ToolRegistry {
     if (this.tools.has(tool.name)) throw new Error(`Duplicate tool name: ${tool.name}`);
     const source = String(tool.source ?? "local");
     const nativeDescribed = source === "local"
-      ? applyNativeObjectInputBindings(applyNativeToolDescription(tool))
+      ? applyNativeObjectInputBindings(applyNativeObjectDescription(applyNativeToolDescription(tool)))
       : tool;
     const nativeSelection = nativeDescribed.metadata?.[toolDescriptionMetadataKey];
     const described = nativeSelection && nativeDescribed.annotations == null
@@ -173,6 +176,14 @@ export class ToolRegistry {
     if (publishedDescription) {
       validateToolDescription(publishedDescription, {
         annotations: described.annotations ?? null,
+        label: described.name,
+      });
+    }
+    const publishedObjects = described.metadata?.[objectDescriptionMetadataKey];
+    if (publishedObjects) {
+      validateObjectDescription(publishedObjects, {
+        annotations: described.annotations ?? null,
+        selection: publishedDescription ?? null,
         label: described.name,
       });
     }
@@ -239,6 +250,7 @@ export class ToolRegistry {
       const problem = schemaProblem(argumentsObject, tool.parameters);
       if (problem) throw new Error(`Invalid ${name} arguments: ${problem}`);
     }
-    return tool.execute(argumentsObject, context);
+    const result = await tool.execute(argumentsObject, context);
+    return tool.source === "local" ? normalizeNativeIdentityScalars(result) : result;
   }
 }

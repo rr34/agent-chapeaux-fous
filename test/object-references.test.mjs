@@ -130,7 +130,7 @@ test("native prepared context produces compact human and machine identity bindin
     result: { groups: [{ todoGroupId: 7, name: "Wedding" }] },
     sourceEventSeq: 55,
   }), [{
-    mention: "todos.todo_group returned by context:todos.active_groups",
+    mention: "To-do group returned by context:todos.active_groups",
     type: "todos.todo_group",
     source: "native:todos",
     objects: [{ id: 7, ref: "agent-slayer://todo-groups/7", display: "Wedding" }],

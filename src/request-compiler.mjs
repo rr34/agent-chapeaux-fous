@@ -342,6 +342,19 @@ function toolCatalogEntry(tool) {
   };
 }
 
+function objectCatalogEntry(type, readTool) {
+  return {
+    id: type.id,
+    title: type.title,
+    summary: type.summary,
+    ...(type.aliases?.length ? { aliases: type.aliases } : {}),
+    identity: { field: type.identity.field },
+    reference: { field: type.reference.field },
+    display: { field: type.display.field },
+    readTool,
+  };
+}
+
 export function requestCapabilityCatalog(tools) {
   const grouped = new Map();
   for (const tool of tools) {
@@ -361,10 +374,9 @@ export function requestCapabilityCatalog(tools) {
         summary: capabilitySummary(capability, entries),
         tools: entries.map(toolCatalogEntry),
         objectTypes: entries.flatMap((tool) => (
-          tool.metadata?.[objectDescriptionMetadataKey]?.types?.map((type) => ({
-            ...type,
-            readTool: tool.name,
-          })) ?? []
+          tool.metadata?.[objectDescriptionMetadataKey]?.types?.map((type) => (
+            objectCatalogEntry(type, tool.name)
+          )) ?? []
         )),
         contextViews: manifest?.contextViews ?? [],
       };

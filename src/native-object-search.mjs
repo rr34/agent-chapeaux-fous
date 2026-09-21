@@ -1,3 +1,5 @@
+import { nativeFirstClassObjectTypes } from "./native-object-types.mjs";
+
 // Native object search is a read path of the Contacts, To-do, and Journal
 // domains. The catalog names selected columns in their authoritative tables;
 // no object rows or searchable values are copied into another store.
@@ -11,14 +13,12 @@ const ignoredWords = new Set([
   "tracker", "trackers", "we", "what", "with", "would", "you",
 ]);
 
-export const nativeObjectTypes = Object.freeze([
-  { type: "contact", table: "contacts", key: "contact_id", label: "Contact", searchFields: ["display_name", "given_name", "family_name", "organization_name", "tags.label"] },
-  { type: "todo_group", table: "todo_groups", key: "todo_group_id", label: "To-do group", searchFields: ["name"] },
-  { type: "todo", table: "todo_personal", key: "personal_task_id", label: "To-do", searchFields: ["text", "todo_groups.name", "contacts.display_name"] },
-  { type: "journal_group", table: "journal1_groups", key: "journal_group_id", label: "Journal group", searchFields: ["name"] },
-  { type: "tracker", table: "journal2_trackers", key: "tracker_id", label: "Tracker", searchFields: ["name", "unit", "journal1_groups.name"] },
-  { type: "journal_entry", table: "journal3_entries", key: "journal_entry_id", label: "Journal entry", searchFields: ["content_text", "journal2_trackers.name", "journal1_groups.name"] },
-]);
+export const nativeObjectTypes = Object.freeze(nativeFirstClassObjectTypes
+  .filter(({ searchType }) => searchType)
+  .map((type) => Object.freeze({
+    type: type.searchType, domainType: type.id, table: type.table, key: type.key,
+    label: type.title, searchFields: type.searchFields, refPrefix: type.refPrefix,
+  })));
 
 const byType = new Map(nativeObjectTypes.map((definition) => [definition.type, definition]));
 
@@ -137,7 +137,7 @@ function scoreCandidate({ type, row }, tokens) {
         : type === "journal_entry" ? [row.parent_title, row.occurred_at_utc].filter(Boolean).join(" · ")
           : "";
   return {
-    type, table: definition.table, id, ref: `${definition.table}:${id}`,
+    type, table: definition.table, id, ref: `${definition.refPrefix}${id}`,
     label: definition.label, title, detail: String(detail).slice(0, 160),
     matchedOn: [...matchedOn], score, row,
   };
@@ -145,7 +145,7 @@ function scoreCandidate({ type, row }, tokens) {
 
 function relatedObject(type, id, title) {
   const definition = byType.get(type);
-  return { type, id: Number(id), ref: `${definition.table}:${Number(id)}`,
+  return { type, id: Number(id), ref: `${definition.refPrefix}${Number(id)}`,
     label: definition.label, title: String(title).trim().slice(0, 100) };
 }
 

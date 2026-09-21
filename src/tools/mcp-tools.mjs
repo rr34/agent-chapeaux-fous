@@ -12,6 +12,8 @@ import { objectDescriptionMetadataKey, validateObjectDescription } from "../obje
 import {
   objectInputBindingSchemaProblem,
   objectInputBindingsMetadataKey,
+  objectInputBindingsProtocol,
+  objectInputBindingsVersion,
   validateObjectInputBindings,
 } from "../object-input-bindings.mjs";
 
@@ -797,6 +799,11 @@ export class McpToolManager {
           maximumChunkBytes: upload.maximumChunkBytes,
           maximumBytes: upload.maximumBytes,
           consumerTool: upload.consumerTool.name,
+        },
+        [objectInputBindingsMetadataKey]: {
+          protocol: objectInputBindingsProtocol,
+          version: objectInputBindingsVersion,
+          bindings: [{ path: "/file_id", objectType: "files.file", value: "id" }],
         },
       },
       capabilityId: `integration:${serverName}`,

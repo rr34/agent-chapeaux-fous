@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-slayer.local/schemas/object-description.v1.schema.json",
-  "title": "Agent Slayer remote Object Description",
-  "description": "Provider-owned object types published on a read-only MCP tool in _meta[\"agent-slayer/objects\"]. The containing tool is the authoritative read path. Its identity, reference, and display declarations produce runtime bindings conforming to https://agent-slayer.local/schemas/first-class-object-binding.v1.schema.json.",
+  "title": "Agent Slayer Object Description",
+  "description": "Domain-owned object types published on an authoritative read-only native or MCP tool in _meta[\"agent-slayer/objects\"]. The containing tool is the authoritative read path. Its identity, reference, and display declarations produce runtime bindings conforming to https://agent-slayer.local/schemas/first-class-object-binding.v1.schema.json.",
   "$comment": "Producer contract in the Agent Slayer first-class object identity protocol suite.",
   "type": "object",
   "additionalProperties": false,

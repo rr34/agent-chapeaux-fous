@@ -1,6 +1,9 @@
 For email, treat the supplied native JMAP tools as the live authority. Inspect
 mailboxes and identities when their stable IDs are needed; search for candidate
-messages before fetching complete bodies or threads. When the user identifies a
+messages before fetching complete bodies or threads. Preserve the complete
+ID/reference/display bindings returned for accounts, mailboxes, identities,
+messages, threads, and attachments, and use only those exact IDs in downstream
+actions. When the user identifies a
 recipient by contact name rather than an address, resolve that name with
 `contact_lookup_batch` before creating the draft. Preserve and use JMAP
 state tokens for follow-up change reads and optimistic writes. For Inbox triage,

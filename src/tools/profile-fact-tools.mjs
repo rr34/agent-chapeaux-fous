@@ -3,6 +3,7 @@ const profileFactRecordSchema = {
   description: "Stores the current and archived durable facts and preferences that describe the user to the secretary.",
   properties: {
     profile_fact_id: { description: "Stable row identifier used by profile tools to replace or archive this exact fact." },
+    ref: { description: "Stable Agent Slayer reference for this exact profile fact." },
     fact_type: { description: "Broad repeatable category for this fact, shared by related rows when appropriate. Multiple active rows may have the same fact_type." },
     fact_text: { description: "Self-contained natural-language statement identifying the fact's person or item. The text must remain understandable without deriving a subject from fact_type." },
     fact_status: { description: "Whether the fact is current or retained only as archived history. active: Current fact eligible for first-call context when its type is relevant. archived: Historical fact omitted from ordinary model context." },
@@ -24,6 +25,7 @@ function databaseFact(fact) {
   if (!fact) return null;
   return {
     profile_fact_id: fact.id,
+    ref: `agent-slayer://profile-facts/${Number(fact.id)}`,
     fact_type: fact.factType,
     fact_text: fact.text,
     fact_status: fact.status,

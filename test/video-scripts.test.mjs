@@ -74,6 +74,9 @@ test("video scripts persist one ordered source join for every selected interacti
   );
 
   assert.equal(created.created, true);
+  assert.equal(created.videoScript.video_script_id, created.videoScript.id);
+  assert.equal(created.videoScript.video_script_ref, `agent-slayer://video-scripts/${created.videoScript.id}`);
+  assert.equal(created.videoScript.video_script_title, created.videoScript.title);
   const stored = videoScripts.get(created.videoScript.id);
   assert.equal(stored.sources.length, 2);
   assert.deepEqual(
@@ -117,6 +120,17 @@ test("video scripts persist one ordered source join for every selected interacti
   assert.equal(replayed.created, false);
   assert.equal(replayed.unchanged, true);
   assert.equal(replayed.videoScript.id, stored.id);
+
+  const identified = await registry.execute("video_script_get", { videoScriptId: stored.id });
+  assert.deepEqual({
+    id: identified.videoScript.video_script_id,
+    ref: identified.videoScript.video_script_ref,
+    display: identified.videoScript.video_script_title,
+  }, {
+    id: stored.id,
+    ref: `agent-slayer://video-scripts/${stored.id}`,
+    display: stored.title,
+  });
 
   const archived = videoScripts.archive(stored.id, stored.version, {
     actorType: "user", actorName: "test", channel: "web",

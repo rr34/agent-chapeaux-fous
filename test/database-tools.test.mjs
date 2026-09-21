@@ -209,7 +209,8 @@ test("native database-backed tools preserve their records without result decorat
   assert.equal(Object.hasOwn(groups.groups[0], "id"), false);
 
   const recorded = await registry.execute("journal_add", {
-    tracker: "Weight", group: "Health", content_text: "72.1 kg", number_value: 72.1,
+    tracker_id: null, tracker: "Weight", journal_group_id: null,
+    group: "Health", content_text: "72.1 kg", number_value: 72.1,
     tracker_unit: "kg", occurred_at_utc: "2026-08-16T12:00:00Z", create_if_missing: true,
   }, toolContext);
   assert.equal(recorded.entry.content_text, "72.1 kg");

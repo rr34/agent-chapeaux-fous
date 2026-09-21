@@ -18,6 +18,8 @@ const contactMethodRecordSchema = {
   description: "Stores the email addresses, phone numbers, postal addresses, handles, URLs, and other reachable identities belonging to contacts.",
   properties: {
     contact_method_id: { description: "Stable local identifier for this contact method." },
+    method_ref: { description: "Stable Agent Slayer reference for this exact contact method." },
+    method_display: { description: "Compact human-facing label and value for this contact method." },
     contact_id: { description: "Contact that owns this address or reachable identity." },
     method_kind: { description: "Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. other: Contact identity not covered by the named kinds." },
     label: { description: "Human-facing qualifier such as home, work, mobile, or billing." },
@@ -34,13 +36,19 @@ const resolvedContactMethodSchema = {
   description: "One contact method returned by contact resolution, using the native Contacts service field names.",
   properties: {
     id: { type: "integer", minimum: 1, description: "Stable contact-method identifier. Pass this as address_method_id when replacing a postal address." },
+    contact_method_id: { type: "integer", minimum: 1, description: "Stable native contact-method primary ID." },
+    method_ref: { type: "string", description: "Stable Agent Slayer reference for this exact contact method." },
+    method_display: { type: "string", description: "Human-facing contact-method label and value." },
     kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"], description: "Kind of contact method; postal_address identifies a physical mailing or street address." },
     label: { type: ["string", "null"], description: "Human-facing qualifier such as home, work, mobile, or billing." },
     value: { type: "string", description: "Original address or reachable identity as supplied." },
     isPrimary: { type: "boolean", description: "True when this is the preferred method of its kind." },
     canReceive: { type: "boolean", description: "True when this method may be used as a delivery destination." },
   },
-  required: ["id", "kind", "label", "value", "isPrimary", "canReceive"],
+  required: [
+    "id", "contact_method_id", "method_ref", "method_display",
+    "kind", "label", "value", "isPrimary", "canReceive",
+  ],
 };
 
 const contactRecordSchema = {
@@ -48,6 +56,7 @@ const contactRecordSchema = {
   description: "Provides one address book for people, organizations, and services that other agent records need to identify or relate to.",
   properties: {
     contact_id: { description: "Stable local identifier for this person, organization, or service." },
+    ref: { description: "Stable Agent Slayer reference for this exact contact." },
     contact_kind: { description: "Whether this contact represents a person, organization, or service identity. person: Individual human. organization: Company, group, agency, or other organization. service: Service or system represented as a contactable identity." },
     display_name: { description: "Preferred human-readable name used to show and refer to the contact." },
     given_name: { description: "Person's given or first name when the contact is a person." },
@@ -194,7 +203,11 @@ function contactFromDatabase(database, contactId) {
     SELECT * FROM contact_methods
     WHERE contact_id = ?
     ORDER BY CAST(method_kind AS CHAR), normalized_value, contact_method_id
-  `).all(contactId).map((method) => selectedFields(method, methodFields));
+  `).all(contactId).map((method) => ({
+    ...selectedFields(method, methodFields),
+    method_ref: `agent-slayer://contact-methods/${Number(method.contact_method_id)}`,
+    method_display: [method.label, method.value].filter(Boolean).join(": "),
+  }));
   const tags = database.prepare(`
     SELECT tag.* FROM tags AS tag
     JOIN contacts_tags_join AS assignment USING (tag_id)
@@ -203,8 +216,19 @@ function contactFromDatabase(database, contactId) {
   `).all(String(contactId)).map((tag) => selectedFields(tag, tagFields));
   return {
     ...selectedFields(row, contactFields),
+    ref: `agent-slayer://contacts/${Number(row.contact_id)}`,
     contact_methods: methods,
     tags,
+  };
+}
+
+function resolvedMethodWithIdentity(method) {
+  if (!method || method.id == null) return method;
+  return {
+    ...method,
+    contact_method_id: Number(method.id),
+    method_ref: `agent-slayer://contact-methods/${Number(method.id)}`,
+    method_display: [method.label, method.value].filter(Boolean).join(": "),
   };
 }
 
@@ -689,6 +713,7 @@ export function registerContactTools(
         matches: search.matches.map(({ contact, matchedQueries }) => ({
           matched_queries: matchedQueries,
           contact_id: contact.id,
+          ref: `agent-slayer://contacts/${contact.id}`,
           expected_version: contact.version,
           display_name: contact.displayName,
           given_name: contact.givenName,
@@ -700,7 +725,7 @@ export function registerContactTools(
           notes: contact.notes,
           source: contact.source,
           external_id: contact.externalId,
-          methods: contact.methods,
+          methods: contact.methods.map(resolvedMethodWithIdentity),
           tags: contact.tags,
         })),
       };
@@ -762,6 +787,7 @@ export function registerContactTools(
           matches_truncated: item.matchesTruncated,
           matches: item.matches.map((contact) => ({
             contact_id: contact.id,
+            ref: `agent-slayer://contacts/${contact.id}`,
             expected_version: contact.version,
             display_name: contact.displayName,
             contact_kind: contact.kind,
@@ -769,7 +795,7 @@ export function registerContactTools(
             source: contact.source,
             external_id: contact.externalId,
             birth_date: contact.birthDate,
-            methods: contact.methods,
+            methods: contact.methods.map(resolvedMethodWithIdentity),
             tags: contact.tags,
           })),
         })),

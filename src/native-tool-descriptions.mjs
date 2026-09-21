@@ -103,12 +103,12 @@ const descriptions = new Map(Object.entries({
   interaction_guide_update: update("Rename one exact briefing using its current version without changing its exchanges."),
   interaction_guide_archive: update("Archive one exact briefing using its current version when no enabled repeating to-do still links to it."),
 
-  journal_add: create("Record one authoritative personal-journal entry, optionally with a numeric trend value using the tracker's canonical unit."),
+  journal_add: create("Record one authoritative personal-journal entry, selecting an existing tracker and group by stable ID or explicitly creating missing ones."),
   journal_import: create("Idempotently import up to 100 personal-journal entries with stable source IDs and explicit occurrence times."),
   journal_list: read("List recent personal-journal entries, optionally filtered by tracker, group, source, or UTC occurrence range."),
   journal_update: update("Correct one personal-journal entry by stable ID without changing the tracker's canonical unit."),
   tracker_list: read("List personal-journal trackers with groups, canonical units, entry counts, and latest occurrence times."),
-  tracker_update: update("Rename, regroup, archive, reactivate, or establish the canonical unit of one personal-journal tracker."),
+  tracker_update: update("Rename, regroup by exact group ID, archive, reactivate, or establish the canonical unit of one personal-journal tracker."),
 
   profile_fact_list: read("List active or archived durable profile facts with stable IDs."),
   profile_fact_set: update("Add or replace one durable cross-task fact, relationship, or lasting preference."),
@@ -127,7 +127,7 @@ const descriptions = new Map(Object.entries({
   calendar_routine_generate: create("Generate missing concrete calendar events for active routines in a bounded range, then move unfinished work links from older occurrences to the earliest current or upcoming occurrence."),
   calendar_event_todo_links_set: update("Replace the many-to-many to-do links on one concrete calendar event; same-routine work placement moves while deadline and context links stay fixed."),
   calendar_todo_links_place: update("Atomically place existing to-dos on concrete calendar events, moving same-routine work links while keeping deadline and context links fixed."),
-  todo_add: create("Create one non-temporal native personal to-do with an optional planning prompt, group position, contact, and briefing."),
+  todo_add: create("Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, contact, and briefing."),
   todo_position_set: update("Move one native personal to-do to an exact position in its group's manual sort order."),
   todo_group_create: create("Create or reactivate one native to-do group after the user has confirmed it."),
   todo_group_rename: update("Rename one active native to-do group without changing its stable identity or contained tasks."),
@@ -137,6 +137,7 @@ const descriptions = new Map(Object.entries({
   todo_update: update("Atomically update up to 500 non-temporal native personal to-dos by stable ID."),
 
   video_script_create: create("Persist one portable source-grounded chat script from explicitly selected completed interactions without rendering video."),
+  video_script_get: read("Read one exact durable generated-video script by stable ID, including its title, status, source requests, version, and latest render status."),
   video_content_list: read("Read one active content-library group's numbered items in ascending sequence order with bounded source-text excerpts and explicit pagination."),
   video_content_add: create("Add one completed Agent-interface MP4 to one existing content-library group with the next sequence number."),
   video_production_create: external("Persist one source-grounded chat script and atomically queue its 1080x1620 Agent-interface MP4 render.", ["CREATE", "EXECUTE"]),

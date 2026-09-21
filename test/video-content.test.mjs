@@ -159,8 +159,20 @@ test("the Agent can read a bounded content sequence in ascending order", async (
     groupId: Number(group.id), afterSequence: 0, limit: 2, textCharactersPerField: 250,
   });
   assert.equal(firstPage.group.name, "Chapeaux Fous Promo");
+  assert.deepEqual({
+    id: firstPage.group.content_group_id,
+    ref: firstPage.group.content_group_ref,
+    display: firstPage.group.content_group_name,
+  }, {
+    id: group.id,
+    ref: `agent-slayer://content-groups/${group.id}`,
+    display: "Chapeaux Fous Promo",
+  });
   assert.deepEqual(firstPage.items.map(({ sequence }) => sequence), [1, 2]);
   assert.deepEqual(firstPage.items.map(({ title }) => title), ["First promo", "Second promo"]);
+  assert.equal(firstPage.items[0].content_id, firstPage.items[0].id);
+  assert.equal(firstPage.items[0].content_ref, `agent-slayer://content-items/${firstPage.items[0].id}`);
+  assert.equal(firstPage.items[0].content_title, "First promo");
   assert.equal(firstPage.items[0].descriptionExcerpt.length, 250);
   assert.equal(firstPage.items[0].descriptionCharacters, 300);
   assert.equal(firstPage.items[0].descriptionTruncated, true);

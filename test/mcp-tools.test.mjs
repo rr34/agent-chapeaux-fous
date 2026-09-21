@@ -7,6 +7,7 @@ import test from "node:test";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { FileOAuthClientProvider } from "../src/mcp-oauth.mjs";
 import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
+import { objectInputBindingsMetadataKey } from "../src/object-input-bindings.mjs";
 import { requestCapabilityCatalog } from "../src/request-compiler.mjs";
 import { SlayerRuntime } from "../src/runtime.mjs";
 import {
@@ -386,6 +387,9 @@ test("an advertised HTTP artifact receiver becomes one resumable file-upload app
     "agent-slayer.tool-description",
   );
   assert.deepEqual(definition.inputSchema.required, ["file_id"]);
+  assert.deepEqual(definition.metadata[objectInputBindingsMetadataKey].bindings, [{
+    path: "/file_id", objectType: "files.file", value: "id",
+  }]);
   assert.equal(definition.annotations.idempotentHint, true);
   assert.equal(definition.annotations.openWorldHint, true);
   assert.deepEqual(manager.health().accounting.artifactUploads, [

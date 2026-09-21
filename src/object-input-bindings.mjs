@@ -40,8 +40,10 @@ function valuesAt(value, segments, index = 0) {
 
 function referencesFor(toolDefinition, objectType, selectedGroups, observedGroups) {
   const source = toolDefinition?.source;
+  const artifactBridge = toolDefinition?.metadata?.["agent-slayer/artifactUpload"];
   const sourceMatches = (object) => object.source === source
-    || (source === "local" && object.source.startsWith("native:"));
+    || (source === "local" && object.source.startsWith("native:"))
+    || (artifactBridge && objectType === "files.file" && object.source === "native:files");
   const selected = flatObjectReferences(selectedGroups)
     .filter((object) => object.type === objectType && sourceMatches(object));
   return selected.length ? selected : flatObjectReferences(observedGroups)
