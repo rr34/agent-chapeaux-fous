@@ -299,6 +299,7 @@ const elements = {
   contentGroup: document.querySelector("#content-group"),
   contentNewGroup: document.querySelector("#content-new-group"),
   contentSequence: document.querySelector("#content-sequence"),
+  contentSequenceHint: document.querySelector("#content-sequence-hint"),
   contentType: document.querySelector("#content-type"),
   contentStatus: document.querySelector("#content-status"),
   contentHost: document.querySelector("#content-host"),
@@ -4013,6 +4014,9 @@ function renderContent() {
     const heading = node("header", "content-group-heading");
     const title = node("div", "content-group-heading-title");
     title.append(node("h3", "", group.name));
+    if (group.usesSequence) {
+      title.append(node("span", "todo-group-sequence-marker", "Auto sequence"));
+    }
     const editGroup = node("button", "secondary compact", "Edit group");
     editGroup.type = "button";
     editGroup.addEventListener("click", () => openContentGroupEditor(group.id));
@@ -4322,6 +4326,14 @@ function populateContentGroupEditor(selectedGroupId) {
     elements.contentGroup.append(option);
   }
   elements.contentGroup.value = String(selectedGroupId ?? "");
+  updateContentSequenceHint();
+}
+
+function updateContentSequenceHint() {
+  const selected = contentGroups.find(({ id }) => String(id) === elements.contentGroup.value);
+  elements.contentSequenceHint.textContent = selected?.usesSequence
+    ? "Assigned the next unique number when left blank."
+    : "Optional for this group. Entering a number starts its sequence.";
 }
 
 function openContentEditor(item = null, groupId = null) {
@@ -6346,6 +6358,7 @@ elements.contentNewGroup.addEventListener("click", async () => {
 elements.contentSearch.addEventListener("input", queueContentSearch);
 elements.contentStatusFilter.addEventListener("change", () => void refreshContent());
 elements.contentGroupFilter.addEventListener("change", () => void refreshContent());
+elements.contentGroup.addEventListener("change", updateContentSequenceHint);
 elements.contentForm.addEventListener("submit", saveContent);
 elements.contentDelete.addEventListener("click", () => void deleteEditedContent());
 elements.refreshVideoScripts.addEventListener("click", () => void refreshVideoScripts());

@@ -24,7 +24,7 @@ export function isoWeekNumber(value) {
 
 export function calendarMonthMarkerLabel(date, locale) {
   const month = new Intl.DateTimeFormat(locale, { month: "long" }).format(date);
-  return `${month} (${isoWeekNumber(date)})`;
+  return `${month} (week ${isoWeekNumber(date)})`;
 }
 
 export function routinePatternSection(recurrenceRule) {

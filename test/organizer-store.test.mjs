@@ -1267,3 +1267,36 @@ test("grouped content supports sequence-aware CRUD, filtering, and safe group li
     temporary.cleanup();
   }
 });
+
+test("content saves assign the next number only after a group becomes sequenced", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target);
+  try {
+    const group = organizer.createContentGroup({ name: "Numbered campaign" });
+    const unnumbered = organizer.createContent({ groupId: group.id, title: "Planning note" });
+    assert.equal(unnumbered.sequence, null);
+    assert.equal(
+      organizer.listContentGroups().find(({ id }) => id === group.id).usesSequence,
+      false,
+    );
+
+    const explicit = organizer.createContent({
+      groupId: group.id, sequence: 7, title: "First numbered item",
+    });
+    const generated = organizer.createContent({ groupId: group.id, title: "Next numbered item" });
+    assert.equal(explicit.sequence, 7);
+    assert.equal(generated.sequence, 8);
+    const numberedOnSave = organizer.updateContent(unnumbered.id, {
+      version: unnumbered.version,
+      description: "Saved after the group became sequenced.",
+    });
+    assert.equal(numberedOnSave.sequence, 9);
+    assert.equal(
+      organizer.listContentGroups().find(({ id }) => id === group.id).usesSequence,
+      true,
+    );
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});

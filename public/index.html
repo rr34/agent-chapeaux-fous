@@ -841,7 +841,7 @@
       </header>
       <input id="content-group-id" type="hidden">
       <label>Group name<input id="content-group-name" required maxlength="200"></label>
-      <p class="field-hint content-group-sequence-help">Every content group supports optional sequence numbers. Edit an individual content item to set or remove its sequence number.</p>
+      <p class="field-hint content-group-sequence-help">A content group becomes sequenced when one of its items has a number. New items in a sequenced group receive the next number when left blank.</p>
       <p id="content-group-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
         <button id="content-group-archive" class="danger editor-delete" type="button">Archive group</button>
@@ -865,7 +865,10 @@
           <label>Group<select id="content-group" required></select></label>
           <button id="content-new-group" class="secondary compact" type="button">New group</button>
         </div>
-        <label>Sequence<input id="content-sequence" type="number" min="1" step="1"></label>
+        <label>Sequence
+          <input id="content-sequence" type="number" min="1" step="1">
+          <span id="content-sequence-hint" class="field-hint">Optional for this group.</span>
+        </label>
         <label>Type<select id="content-type">
           <option value="mobileUGC_tutorial">Mobile UGC tutorial</option>
           <option value="mobileUGC_ad">Mobile UGC ad</option>

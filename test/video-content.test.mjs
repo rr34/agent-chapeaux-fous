@@ -146,7 +146,8 @@ test("the Agent can read a bounded content sequence in ascending order", async (
     title: "Third promo",
     transcript: "Third transcript.",
   });
-  organizer.createContent({ groupId: group.id, title: "Unnumbered draft" });
+  const autoNumbered = organizer.createContent({ groupId: group.id, title: "Auto-numbered draft" });
+  assert.equal(autoNumbered.sequence, 4);
 
   const registry = registerNativeCapabilities(new ToolRegistry());
   registerVideoScriptTools(registry, videoScripts, { videoContent });
@@ -191,8 +192,8 @@ test("the Agent can read a bounded content sequence in ascending order", async (
     groupId: Number(group.id), afterSequence: firstPage.nextAfterSequence,
     limit: 2, textCharactersPerField: 250,
   });
-  assert.deepEqual(secondPage.items.map(({ sequence }) => sequence), [3]);
+  assert.deepEqual(secondPage.items.map(({ sequence }) => sequence), [3, 4]);
   assert.equal(secondPage.hasMore, false);
   assert.equal(secondPage.nextAfterSequence, null);
-  assert.equal(secondPage.items.some(({ title }) => title === "Unnumbered draft"), false);
+  assert.equal(secondPage.items.some(({ title }) => title === "Auto-numbered draft"), true);
 });

@@ -2471,10 +2471,19 @@ export class OrganizerStore {
 
   listContentGroups({ includeArchived = false } = {}) {
     return this.database.prepare(`
-      SELECT * FROM content_groups
-      ${includeArchived ? "" : "WHERE archived_at_utc IS NULL"}
-      ORDER BY sort_position, content_group_id
-    `).all().map(publicContentGroup);
+      SELECT content_group.*,
+             EXISTS (
+               SELECT 1 FROM content_items AS content
+               WHERE content.content_group_id = content_group.content_group_id
+                 AND content.sequence IS NOT NULL
+             ) AS uses_sequence
+      FROM content_groups AS content_group
+      ${includeArchived ? "" : "WHERE content_group.archived_at_utc IS NULL"}
+      ORDER BY content_group.sort_position, content_group.content_group_id
+    `).all().map((row) => ({
+      ...publicContentGroup(row),
+      usesSequence: Boolean(row.uses_sequence),
+    }));
   }
 
   createContentGroup(input) {
@@ -2763,6 +2772,16 @@ export class OrganizerStore {
         "SELECT 1 FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
       ).get(item.groupId);
       if (!group) throw new OrganizerInputError("Content group not found.", 404);
+      if (item.sequence === null) {
+        const maximumSequence = this.database.prepare(`
+          SELECT MAX(sequence) AS value
+          FROM content_items
+          WHERE content_group_id = ?
+        `).get(item.groupId).value;
+        if (maximumSequence !== null) {
+          item.sequence = optionalPositiveInteger(Number(maximumSequence) + 1, "sequence");
+        }
+      }
       const result = this.database.prepare(`
         INSERT INTO content_items (
           content_group_id, sequence, content_type, title, transcript, description,
@@ -2894,6 +2913,16 @@ export class OrganizerStore {
       if (!this.database.prepare(
         "SELECT 1 FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
       ).get(after.groupId)) throw new OrganizerInputError("Content group not found.", 404);
+      if (after.sequence === null) {
+        const maximumSequence = this.database.prepare(`
+          SELECT MAX(sequence) AS value
+          FROM content_items
+          WHERE content_group_id = ? AND content_id <> ?
+        `).get(after.groupId, id).value;
+        if (maximumSequence !== null) {
+          after.sequence = optionalPositiveInteger(Number(maximumSequence) + 1, "sequence");
+        }
+      }
       const changes = changedFields(before, after, [
         "groupId", "sequence", "contentType", "title", "transcript", "description",
         "publishedAtUtc", "contentHost", "contentStatus", "contentUrl",

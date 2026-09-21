@@ -78,10 +78,10 @@ test("routine calendar always provides six Monday-first weeks", () => {
 });
 
 test("month markers show ISO week numbers across year boundaries", () => {
-  assert.equal(calendarMonthMarkerLabel(new Date(2026, 8, 17), "en-US"), "September (38)");
+  assert.equal(calendarMonthMarkerLabel(new Date(2026, 8, 17), "en-US"), "September (week 38)");
   assert.equal(isoWeekNumber(new Date(2020, 11, 31)), 53);
-  assert.equal(calendarMonthMarkerLabel(new Date(2021, 0, 1), "en-US"), "January (53)");
-  assert.equal(calendarMonthMarkerLabel(new Date(2021, 0, 4), "en-US"), "January (1)");
+  assert.equal(calendarMonthMarkerLabel(new Date(2021, 0, 1), "en-US"), "January (week 53)");
+  assert.equal(calendarMonthMarkerLabel(new Date(2021, 0, 4), "en-US"), "January (week 1)");
 });
 
 test("compact calendar events can identify newly generated routine events", () => {
