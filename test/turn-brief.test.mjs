@@ -135,6 +135,9 @@ test("TurnBrief parsing enforces source references and unique capability selecti
   const objectSchema = turnBriefSchema(
     ["todos"], [], [], ["todo_create"], [], [binding],
   );
+  const noObjectSchema = turnBriefSchema(["todos"], [], [], ["todo_create"], [], []);
+  assert.deepEqual(noObjectSchema.properties.objectReferences.items, { type: "string" });
+  assert.equal(noObjectSchema.properties.objectReferences.maxItems, 0);
   const withObject = validBrief();
   withObject.objectReferences = [binding];
   assert.deepEqual(

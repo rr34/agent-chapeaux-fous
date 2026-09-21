@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { redactText, redactValue } from "./redaction.mjs";
 
 function combinedInstructions(baseInstructions, developerInstructions) {
@@ -133,6 +134,28 @@ function safeErrorMessage(error, apiKey) {
   return redactText(apiKey ? message.replaceAll(apiKey, "[REDACTED]") : message);
 }
 
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function traceableProviderValue(value, key = "") {
+  if (
+    key === "image_url"
+    && typeof value === "string"
+    && /^data:[^;,]+;base64,/u.test(value)
+  ) {
+    const separator = value.indexOf(",");
+    const prefix = value.slice(0, separator + 1);
+    const encoded = value.slice(separator + 1);
+    return `${prefix}[REDACTED base64Characters=${encoded.length} sha256=${sha256(encoded)}]`;
+  }
+  if (Array.isArray(value)) return value.map((item) => traceableProviderValue(item));
+  if (value == null || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([childKey, child]) => (
+    [childKey, traceableProviderValue(child, childKey)]
+  )));
+}
+
 export class OpenAIResponsesClient {
   constructor({
     apiKey,
@@ -215,7 +238,7 @@ export class OpenAIResponsesClient {
     };
   }
 
-  async request(body, timeoutMs) {
+  async request(body, timeoutMs, serializedBody = JSON.stringify(body)) {
     if (!this.apiKey) throw new Error("OPENAI_API_KEY is required for the OpenAI Responses transport");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs ?? this.requestTimeoutMs);
@@ -228,7 +251,7 @@ export class OpenAIResponsesClient {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(body),
+        body: serializedBody,
         signal: controller.signal,
       });
     } catch (error) {
@@ -350,8 +373,27 @@ export class OpenAIResponsesClient {
         }
         response = null;
         modelCallCount += 1;
-        await onEvent?.({ type: "request.started", modelCallIndex: modelCallCount });
-        response = await this.request(requestBody, remainingMs);
+        const serializedRequestBody = JSON.stringify(requestBody);
+        const exactProviderBody = JSON.parse(serializedRequestBody);
+        await onEvent?.({
+          type: "request.started",
+          modelCallIndex: modelCallCount,
+          providerRequest: {
+            method: "POST",
+            endpoint: `${this.baseUrl}/responses`,
+            headers: {
+              Authorization: "[REDACTED]",
+              "Content-Type": "application/json",
+            },
+            body: redactValue(traceableProviderValue(exactProviderBody)),
+            bodyBytes: Buffer.byteLength(serializedRequestBody),
+            bodySha256: sha256(serializedRequestBody),
+            redactions: requestAttachmentInput?.mediaKind === "image"
+              ? ["Authorization header value redacted", "Input image data URL bytes replaced by length and SHA-256"]
+              : ["Authorization header value redacted"],
+          },
+        });
+        response = await this.request(requestBody, remainingMs, serializedRequestBody);
         const currentUsage = usageFor(response);
         const serviceTier = typeof response.service_tier === "string" && response.service_tier.trim()
           ? response.service_tier.trim()
@@ -365,6 +407,8 @@ export class OpenAIResponsesClient {
           model: response.model ?? model,
           serviceTier,
           status: response.status ?? null,
+          incompleteDetails: response.incomplete_details ?? null,
+          providerError: response.error ?? null,
           usage: currentUsage,
           outputTypes: (response.output ?? []).map((item) => item.type),
         };
@@ -372,7 +416,11 @@ export class OpenAIResponsesClient {
         await onEvent?.(responseEvent);
         messages.push(...normalizedMessages(response));
         if (response.status !== "completed") {
-          throw new Error(response.error?.message || `OpenAI response ended with status ${response.status}`);
+          const incompleteReason = response.incomplete_details?.reason;
+          throw new Error(response.error?.message || (
+            `OpenAI response ended with status ${response.status}`
+            + (incompleteReason ? ` (${incompleteReason})` : "")
+          ));
         }
         const calls = functionCalls(response);
         if (calls.length === 0) break;
@@ -449,6 +497,8 @@ export class OpenAIResponsesClient {
         conversationId: response?.id ?? previousResponseId ?? null,
         providerTurnId: response?.id ?? null,
         status: response?.status ?? null,
+        incompleteDetails: response?.incomplete_details ?? null,
+        providerError: response?.error ?? null,
         messages,
         protocolEvents: events,
         controlTransfers,

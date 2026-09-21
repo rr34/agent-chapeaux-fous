@@ -146,9 +146,15 @@ export function turnBriefSchema(
         type: "array",
         maxItems: Math.max(0, allowedObjects.length),
         description: "Bulk-shaped bindings from user language to exact verified first-class objects. Preserve every selected object's provider ID, stable reference, and human display name exactly. Names alone are not identity; IDs alone are not useful human context.",
-        items: constrainedObjectBindingSchema(
-          allowedObjects, allowedObjectTypes, allowedObjectSources,
-        ),
+        // When no binding is available, no item can legally occur. Avoid
+        // sending the provider a deep, unreachable binding schema alongside
+        // maxItems: 0; the complete exact schema is retained whenever at least
+        // one object can actually be selected.
+        items: allowedObjects.length
+          ? constrainedObjectBindingSchema(
+              allowedObjects, allowedObjectTypes, allowedObjectSources,
+            )
+          : { type: "string" },
       },
       receiptReferences: {
         type: "array",

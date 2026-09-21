@@ -88,6 +88,18 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
   assert.equal(result.usage.modelCallCount, 2);
   assert.deepEqual(observedEvents.filter(event => event.type === "request.started")
     .map(event => event.modelCallIndex), [1, 2]);
+  const firstProviderRequest = observedEvents.find(event => event.type === "request.started")
+    .providerRequest;
+  assert.equal(firstProviderRequest.method, "POST");
+  assert.equal(firstProviderRequest.endpoint, "https://api.openai.com/v1/responses");
+  assert.deepEqual(firstProviderRequest.headers, {
+    Authorization: "[REDACTED]",
+    "Content-Type": "application/json",
+  });
+  assert.match(firstProviderRequest.bodySha256, /^[a-f0-9]{64}$/);
+  assert.equal(firstProviderRequest.bodyBytes, Buffer.byteLength(requests[0].options.body));
+  assert.match(firstProviderRequest.body.input[0].content[2].image_url, /REDACTED.*sha256=/);
+  assert.doesNotMatch(JSON.stringify(firstProviderRequest), /sk_test_secret|\/9j\//);
   assert.equal(requests[0].url, "https://api.openai.com/v1/responses");
   assert.equal(requests[0].options.headers.Authorization, "Bearer sk_test_secret_value_123456");
   assert.match(requests[0].body.instructions, /BASE[\s\S]+BOUNDED CONTEXT/);
@@ -239,7 +251,17 @@ test("a failed API request records its call before sending and preserves the cou
   const client = new OpenAIResponsesClient({
     apiKey: "test-key",
     fetchImpl: async () => {
-      assert.deepEqual(events, [{ type: "request.started", modelCallIndex: 1 }]);
+      assert.equal(events.length, 1);
+      assert.equal(events[0].type, "request.started");
+      assert.equal(events[0].modelCallIndex, 1);
+      assert.equal(events[0].providerRequest.method, "POST");
+      assert.deepEqual(events[0].providerRequest.body, {
+        model: "test-model",
+        instructions: "# Base instructions\n\n# Request-specific developer context",
+        input: [{ role: "user", content: [{ type: "input_text", text: "Hello" }] }],
+        tools: [],
+        store: true,
+      });
       throw new Error("connection lost");
     },
   });
@@ -249,6 +271,30 @@ test("a failed API request records its call before sending and preserves the cou
   }), error => {
     assert.equal(error.data.usage.modelCallCount, 1);
     assert.equal(error.data.usage.tokenUsage.totalTokens, 0);
+    return true;
+  });
+});
+
+test("an incomplete response preserves the provider reason in events and failure diagnostics", async () => {
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async () => jsonResponse({
+      id: "resp_incomplete",
+      model: "gpt-5.6-terra",
+      status: "incomplete",
+      error: null,
+      incomplete_details: { reason: "max_messages" },
+      output: [],
+      usage: null,
+    }),
+  });
+  await assert.rejects(client.runTurn({
+    model: "gpt-5.6-terra", input: "Hello", tools: [], onToolCall: async () => null,
+  }), (error) => {
+    assert.match(error.message, /incomplete \(max_messages\)/);
+    assert.deepEqual(error.data.incompleteDetails, { reason: "max_messages" });
+    assert.equal(error.data.providerError, null);
+    assert.deepEqual(error.data.protocolEvents[0].incompleteDetails, { reason: "max_messages" });
     return true;
   });
 });
@@ -308,6 +354,7 @@ test("OpenAI schemas omit provider-unsupported uniqueness constraints without mu
 
 test("OpenAI Responses sends strict JSON Schema output contracts", async () => {
   const requests = [];
+  const events = [];
   const outputSchema = {
     type: "object",
     additionalProperties: false,
@@ -341,6 +388,7 @@ test("OpenAI Responses sends strict JSON Schema output contracts", async () => {
     model: "gpt-5.6-terra", effort: "medium", conversationId: null,
     baseInstructions: "ORIENT", developerInstructions: "SOURCES", input: "Continue.",
     tools: [], outputSchema, maxToolCalls: 0, onToolCall: async () => null,
+    onEvent: event => events.push(event),
   });
 
   const providerSchema = openAICompatibleSchema(outputSchema);
@@ -353,6 +401,7 @@ test("OpenAI Responses sends strict JSON Schema output contracts", async () => {
   assert.equal(outputSchema.properties.capabilities.uniqueItems, true);
   assert.equal(Object.hasOwn(requests[0], "tool_choice"), false);
   assert.equal(Object.hasOwn(requests[0], "parallel_tool_calls"), false);
+  assert.deepEqual(events[0].providerRequest.body, requests[0]);
   assert.equal(result.text, '{"objective":"Orient request","capabilities":[]}');
   assert.equal(result.protocol.structuredOutput, true);
 });

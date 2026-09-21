@@ -92,7 +92,19 @@ test("the first model turn contains the exact request, context, and callable too
         requestAttachmentInput: payload.requestAttachmentInput,
         tools: structuredClone(payload.tools),
       });
-      await payload.onEvent({ type: "request.started", modelCallIndex: 1 });
+      await payload.onEvent({
+        type: "request.started",
+        modelCallIndex: 1,
+        providerRequest: {
+          method: "POST",
+          endpoint: "https://api.openai.com/v1/responses",
+          headers: { Authorization: "[REDACTED]", "Content-Type": "application/json" },
+          body: { model: payload.model, input: "exact serialized request" },
+          bodyBytes: 123,
+          bodySha256: "request-sha",
+          redactions: ["Authorization header value redacted"],
+        },
+      });
       const toolResponse = await payload.onToolCall({
         callId: "call-1",
         tool: "echo_value",
@@ -154,6 +166,18 @@ test("the first model turn contains the exact request, context, and callable too
   assert.equal(result, "The tool returned hello.");
   assert.deepEqual(events.filter(event => event.type === "model.call")
     .map(event => event.payload.modelCallIndex), [1, 2]);
+  assert.deepEqual(
+    events.find(event => event.type === "model.call").payload.providerRequest,
+    {
+      method: "POST",
+      endpoint: "https://api.openai.com/v1/responses",
+      headers: { Authorization: "[REDACTED]", "Content-Type": "application/json" },
+      body: { model: "test-model", input: "exact serialized request" },
+      bodyBytes: 123,
+      bodySha256: "request-sha",
+      redactions: ["Authorization header value redacted"],
+    },
+  );
   assert.ok(events.findIndex(event => event.type === "model.call")
     < events.findIndex(event => event.type === "tool.call"));
   assert.equal(requests.length, 1);
@@ -201,8 +225,10 @@ test("failed model responses retain provider diagnostics and observed usage in t
         type: "response.completed",
         responseId: "resp_failed",
         status: "completed",
+        incompleteDetails: { reason: "max_messages" },
         outputTypes: ["reasoning"],
       }],
+      incompleteDetails: { reason: "max_messages" },
       usage: {
         provider: "openai",
         tokenUsage: { inputTokens: 20, outputTokens: 2, totalTokens: 22 },
@@ -236,6 +262,7 @@ test("failed model responses retain provider diagnostics and observed usage in t
   const response = events.find(({ type }) => type === "model.response");
   const usage = events.find(({ type }) => type === "model.usage");
   assert.equal(response.payload.providerTurnId, "resp_failed");
+  assert.deepEqual(response.payload.incompleteDetails, { reason: "max_messages" });
   assert.deepEqual(response.payload.protocolEvents[0].outputTypes, ["reasoning"]);
   assert.equal(usage.payload.tokenUsage.totalTokens, 22);
   assert.equal(usage.payload.responseFailed, true);
