@@ -41,6 +41,7 @@ test("remote object bindings preserve bulk IDs, stable references, displays, and
 
   assert.deepEqual(groups, [{
     mention: "Accounting account returned by remote_accounting_list_accounts",
+    role: "subject",
     type: "accounting.account",
     source: "mcp:accounting",
     objects: [
@@ -75,6 +76,37 @@ test("a non-owner tool result needs the provider objectType discriminator", () =
     result: { ...result, objectType: "accounting.account" }, sourceEventSeq: 12,
   });
   assert.equal(group.type, "accounting.account");
+});
+
+test("provider-declared object roles keep same-type returned objects in separate bindings", () => {
+  const action = { name: "remote_accounting_start_import", source: "mcp:accounting", metadata: {} };
+  const groups = objectReferenceGroupsFromToolResult({
+    toolDefinition: action,
+    toolDefinitions: [accountRead, action],
+    sourceEventSeq: 44,
+    result: {
+      account: {
+        objectType: "accounting.account", objectRole: "subject",
+        id: 178, ref: "accounting://accounts/178", name: "Fifth Third x5999",
+      },
+      suspenseAccount: {
+        objectType: "accounting.account", objectRole: "designated_suspense_account",
+        id: 279, ref: "accounting://accounts/279", name: "Ask Accountant Dollars",
+      },
+    },
+  });
+  assert.deepEqual(groups.map(({ role, objects }) => ({ role, ids: objects.map(({ id }) => id) })), [
+    { role: "subject", ids: [178] },
+    { role: "designated_suspense_account", ids: [279] },
+  ]);
+  assert.deepEqual(objectReferenceGroupsFromToolResult({
+    toolDefinition: action,
+    toolDefinitions: [accountRead, action],
+    result: {
+      objectType: "accounting.account", objectRole: "not a valid role",
+      id: 279, ref: "accounting://accounts/279", name: "Ask Accountant Dollars",
+    },
+  }), []);
 });
 
 test("the canonical runtime schema requires complete machine, human, and evidence identity", () => {
@@ -131,6 +163,7 @@ test("native prepared context produces compact human and machine identity bindin
     sourceEventSeq: 55,
   }), [{
     mention: "To-do group returned by context:todos.active_groups",
+    role: "subject",
     type: "todos.todo_group",
     source: "native:todos",
     objects: [{ id: 7, ref: "agent-slayer://todo-groups/7", display: "Wedding" }],

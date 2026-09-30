@@ -388,7 +388,7 @@ test("an advertised HTTP artifact receiver becomes one resumable file-upload app
   );
   assert.deepEqual(definition.inputSchema.required, ["file_id"]);
   assert.deepEqual(definition.metadata[objectInputBindingsMetadataKey].bindings, [{
-    path: "/file_id", objectType: "files.file", value: "id",
+    path: "/file_id", objectType: "files.file", role: "artifact_source", value: "id",
   }]);
   assert.equal(definition.annotations.idempotentHint, true);
   assert.equal(definition.annotations.openWorldHint, true);

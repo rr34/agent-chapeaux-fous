@@ -71,6 +71,7 @@ test("object activity recognizes provider-owned object identifiers without inter
 test("canonical object bindings survive the ledger projection without being rebuilt from prose", () => {
   const binding = {
     mention: "that account", type: "accounting.account", source: "mcp:accounting",
+    role: "subject",
     objects: [{ id: 178, ref: "accounting://accounts/178", display: "Operating Checking" }],
     sourceEventSeqs: [30_801],
   };

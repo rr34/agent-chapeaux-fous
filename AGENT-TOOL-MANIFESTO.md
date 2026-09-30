@@ -33,6 +33,8 @@ consumer shapes so none has to duplicate the others' data.
 Whenever the application or model resolves, selects, returns, or later refers
 to a first-class object, it preserves one compact binding containing:
 
+- the compact contextual role the object fills in the current request or
+  provider workflow;
 - the domain-qualified object type and owning source;
 - the provider-native primary ID and stable reference;
 - the human-facing display name; and
@@ -66,6 +68,13 @@ display binding. Referenced exchanges and accepted TurnBriefs carry bindings
 forward literally. Binding an object does not authorize an operation, make a
 tool callable, or bypass freshness and domain validation; it makes the target
 exact.
+
+Role is use-site context, not another identity and not provider business logic.
+It distinguishes same-type objects that are not interchangeable, such as a
+statement account and a designated suspense account, or the destination and
+sources of a contact merge. Reassigning a role never changes an object's ID,
+reference, display, source, or evidence. Once the TurnBrief assigns a role for
+an intended use, later interactions preserve that role with the binding.
 
 # 1. The LLM
 
@@ -272,6 +281,12 @@ identity, reference, and display fields populate `objects[].id`,
 third-party MCP may omit it, but then does not participate in automatic
 first-class identity continuity.
 
+A returned object record may carry the reserved `objectRole` field when the
+record fills a non-default consumer role. Its value follows the binding role
+grammar and enters the runtime binding literally; omission means `subject`.
+The field is protected alongside identity, reference, and display during result
+filtering. This is structural routing data, not inferred provider semantics.
+
 Each described type has a domain-qualified type ID, title, concise meaning,
 optional user-facing aliases, a provider-native identity field, a stable
 reference field, a compact human-facing display field, named qualifier fields,
@@ -304,17 +319,31 @@ A tool that accepts a first-class object identity publishes domain-owned
 `_meta["agent-slayer/object-input-bindings"]` conforming to
 `config/protocol-schemas/object-input-bindings.v1.schema.json`. Each entry maps
 an exact JSON Pointer in that tool's input schema to a domain-qualified Object
-Description type and states whether the input carries its provider ID or stable
-reference. This is the consumer contract: `objectType` selects a canonical
-first-class object binding with the same `type`, and `value` selects that
-binding's `objects[].id` or `objects[].ref`. `*` pointer segments address every
-member of an input array. The owning MCP publishes this mapping for remote
-tools; the application derives it from the same reviewed native object catalog
-for native tools. An application-owned cross-domain adapter, such as an MCP
+Description type, declares the compact contextual `role` required at that
+input, and states whether the input carries its provider ID or stable reference.
+This is the consumer contract: `objectType` and `role` select a canonical
+first-class object binding with the same `type` and intended use, and `value`
+selects that binding's `objects[].id` or `objects[].ref`. `*` pointer segments
+address every member of an input array. Legacy declarations without `role`
+normalize to `subject`. The owning MCP publishes this mapping for remote tools;
+the application derives it from the same reviewed native object catalog for
+native tools. An application-owned cross-domain adapter, such as an MCP
 artifact-upload bridge consuming a native file, publishes an explicit reviewed
 mapping to the native catalog rather than inheriting the remote provider's
 source. Agent Slayer never guesses it at runtime from names such as
 `account_id`, descriptions, or workflow conventions.
+
+Orientation treats `subject` as the compact default and advertises only a
+tool's non-default roles, avoiding repeated catalog prose while keeping every
+same-type distinction explicit.
+
+The provider-facing TurnBrief schema remains structurally strict but does not
+duplicate provider IDs, stable references, or human display text as JSON Schema
+literal enums. Those instance values may contain provider-owned or human text
+that is unsafe in a provider's strict-schema dialect, and repeating every tuple
+inflates context. Immediately after parsing, deterministic application
+validation requires every selected ID/reference/display tuple and its evidence
+to match the verified binding catalog exactly before execution can begin.
 
 Discovery rejects an invalid mapping, a missing input-schema path, or an object
 type not declared by the same connection or native catalog. Every owned domain
@@ -322,17 +351,26 @@ publishes mappings for every tool input that consumes one of its first-class
 objects and keeps those mappings in contract tests.
 
 Before an exact tool schema becomes callable, the application narrows every
-mapped input to IDs or references in the accepted TurnBrief binding when one
-exists. The call boundary validates the arguments again before invoking the
-provider. A substituted, guessed, conventional, or stale-context value such as
-`1` therefore cannot reach the tool. If orientation did not already bind that
-type, a mapped input may use an object observed from its owning read tool in the
-same execution. The accepted TurnBrief binding takes precedence over broader
-same-execution candidates. An absent optional mapped input remains absent; the
-contract does not invent tool arguments or provider workflow. A provider may
-explicitly mark an authoritative identifying read as accepting an unbound
-identity; that exception lets the read verify an exact user- or
-application-supplied ID and does not carry into downstream consuming tools.
+mapped input to IDs or references in the accepted TurnBrief binding with the
+same type, source, and role when one exists. The call boundary validates the
+arguments again before invoking the provider. A substituted, guessed,
+conventional, stale-context, or same-type-but-wrong-role value such as `1`
+therefore cannot reach the tool. If orientation did not already bind that role,
+a mapped input may use an object observed from its owning read tool in the same
+execution. An exact-role observation takes precedence over generic newly
+observed subjects; a selected object in another role never shadows it. An
+absent optional mapped input remains absent; the contract does not invent tool
+arguments or provider workflow. A provider may explicitly mark an
+authoritative identifying read as accepting an unbound identity; that exception
+lets the read verify an exact user- or application-supplied ID and does not
+carry into downstream consuming tools.
+
+When a successful tool result identifies a new object that changes any
+callable tool's exact narrowed schema, the current model interaction ends after
+that result. The runtime records the binding, recompiles the affected schemas,
+and continues the same Agent request with compact same-request receipts. A
+schema snapshot taken before an object existed must never force the model to
+use an older same-type object or prevent it from using the newly returned ID.
 
 For a singleton input the selected binding must contain one intended object.
 For a batch-shaped input every supplied member is checked, and completion must
@@ -447,6 +485,14 @@ current request. These terminal failures permit a final verification round,
 block further mutations, and suppress audit-driven repair. Audit may mark an
 already known unresolved blocker as blocked; an incomplete objective alone is
 not a reason to repeat the failing operation.
+
+An exact tool-and-arguments call that already failed in the current Agent
+request is never executed again. The first identical repeat makes the current
+model interaction no-tool: the runtime returns the recorded failure and forces
+that interaction to finish instead of permitting another tool-loop iteration.
+Completion audit may begin a repair interaction only with a materially
+different argument object supported by the receipts, owning tool's retry
+contract, and user's authorization; the unchanged call remains blocked.
 
 # 2D. Conversation types / structured interactions
 
@@ -1018,6 +1064,11 @@ workflow arguments remain entirely provider-owned; for example, Accounting's
 exposes a single application upload function only when this metadata and the
 consumer schema validate. It does not infer activation or workflow meaning from
 tool names, descriptions, field names, or server prose.
+
+That application upload function consumes one native `files.file` binding in
+the `artifact_source` role. Native transforms and partitions mark only their
+intended output files with that role, keeping original inputs and exception
+files distinct without copying file contents into model context.
 
 For version 1, Agent Slayer resolves `endpointPath` against the configured MCP
 server origin and refuses a cross-origin endpoint. It captures the exact bearer

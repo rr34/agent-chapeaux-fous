@@ -161,7 +161,9 @@ test("table tools inspect a TSV and transform the complete file into durable JSO
   assert.equal(result.accountedRecordCount, 3);
   assert.equal(result.complete, true);
   assert.ok(result.outputFile.fileId > file.fileId);
+  assert.equal(result.outputFile.objectRole, "artifact_source");
   assert.ok(result.exceptionFile.fileId > result.outputFile.fileId);
+  assert.equal(result.exceptionFile.objectRole, "transformation_exceptions");
   const outputRow = ledger.file(result.outputFile.fileId);
   const output = fs.readFileSync(path.join(mediaRoot, outputRow.storage_path.replace(/^media\//, "")), "utf8");
   assert.deepEqual(output.trim().split("\n").map(JSON.parse), [

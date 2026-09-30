@@ -583,6 +583,8 @@ export function registerFileTools(registry, {
             maximumBytes: maximumGeneratedBytes,
           })
         : null;
+      if (outputFile) outputFile.objectRole = "artifact_source";
+      if (exceptionFile) exceptionFile.objectRole = "transformation_exceptions";
       const result = {
         sourceFile: requireFile(ledger, fileId),
         sourceSha256: verified.sha256,
@@ -709,7 +711,7 @@ export function registerFileTools(registry, {
             firstRecord: part.firstRecord,
             lastRecord: part.lastRecord,
             recordCount: part.recordCount,
-            file,
+            file: { ...file, objectRole: "artifact_source" },
           });
         }
         const result = {

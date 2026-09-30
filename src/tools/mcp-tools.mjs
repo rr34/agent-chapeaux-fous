@@ -803,7 +803,9 @@ export class McpToolManager {
         [objectInputBindingsMetadataKey]: {
           protocol: objectInputBindingsProtocol,
           version: objectInputBindingsVersion,
-          bindings: [{ path: "/file_id", objectType: "files.file", value: "id" }],
+          bindings: [{
+            path: "/file_id", objectType: "files.file", value: "id", role: "artifact_source",
+          }],
         },
       },
       capabilityId: `integration:${serverName}`,

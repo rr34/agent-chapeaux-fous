@@ -34,6 +34,13 @@
             "enum": ["id", "ref"],
             "description": "Selects objects[].id or objects[].ref from the matching canonical first-class object binding."
           },
+          "role": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$",
+            "maxLength": 160,
+            "default": "subject",
+            "description": "Contextual role required at this input path. Legacy declarations without a role normalize to subject."
+          },
           "allowUnbound": { "type": "boolean" }
         }
       }

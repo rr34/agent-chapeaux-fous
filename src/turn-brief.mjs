@@ -47,31 +47,30 @@ const temporalResolution = {
   ],
 };
 
-function constrainedObjectBindingSchema(allowedObjects, allowedTypes, allowedSources) {
+function constrainedObjectBindingSchema(allowedObjectCount, allowedTypes, allowedSources, allowedRoles) {
   const binding = structuredClone(firstClassObjectBindingSchema);
   const objectIdentity = structuredClone(binding.$defs.objectIdentity);
   delete binding.$schema;
   delete binding.$id;
   delete binding.$defs;
   binding.description = "Bulk-shaped bindings from user language to exact verified first-class objects. Preserve every selected object's provider ID, stable reference, and human display name exactly. Names alone are not identity; IDs alone are not useful human context.";
+  binding.required = [...new Set([...(binding.required ?? []), "role"])];
+  binding.properties.role = allowedRoles.length
+    ? { ...binding.properties.role, enum: allowedRoles }
+    : binding.properties.role;
   binding.properties.type = allowedTypes.length
     ? { ...binding.properties.type, enum: allowedTypes }
     : binding.properties.type;
   binding.properties.source = allowedSources.length
     ? { ...binding.properties.source, enum: allowedSources }
     : binding.properties.source;
-  const exactObjects = allowedObjects.map(({ id, ref, display }) => ({
-    ...structuredClone(objectIdentity),
-    properties: {
-      id: { type: Number.isSafeInteger(id) ? "integer" : "string", enum: [id] },
-      ref: { type: "string", enum: [ref] },
-      display: { type: "string", enum: [display] },
-    },
-  }));
-  binding.properties.objects.maxItems = Math.max(1, allowedObjects.length);
-  binding.properties.objects.items = exactObjects.length
-    ? { anyOf: exactObjects }
-    : objectIdentity;
+  // Keep provider-facing JSON Schema structural. Human display text and opaque
+  // provider IDs can contain characters that strict structured-output schemas
+  // reject as literals, and one anyOf branch per object duplicates the complete
+  // binding catalog. Exact tuple membership is enforced immediately after
+  // parsing by objectReferenceSelectionFindings.
+  binding.properties.objects.maxItems = Math.max(1, allowedObjectCount);
+  binding.properties.objects.items = objectIdentity;
   return binding;
 }
 
@@ -82,6 +81,7 @@ export function turnBriefSchema(
   toolNames = [],
   toolReceipts = [],
   availableObjectReferences = [],
+  availableObjectRoles = ["subject"],
 ) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
   const allowedReferenceIds = [...new Set(actionReferenceIds)].sort();
@@ -96,6 +96,7 @@ export function turnBriefSchema(
   const allowedObjects = flatObjectReferences(availableObjectReferences);
   const allowedObjectTypes = [...new Set(allowedObjects.map(({ type }) => type))].sort();
   const allowedObjectSources = [...new Set(allowedObjects.map(({ source }) => source))].sort();
+  const allowedRoles = [...new Set(["subject", ...availableObjectRoles])].sort();
   return {
     type: "object",
     additionalProperties: false,
@@ -152,7 +153,7 @@ export function turnBriefSchema(
         // one object can actually be selected.
         items: allowedObjects.length
           ? constrainedObjectBindingSchema(
-              allowedObjects, allowedObjectTypes, allowedObjectSources,
+              allowedObjects.length, allowedObjectTypes, allowedObjectSources, allowedRoles,
             )
           : { type: "string" },
       },
@@ -294,6 +295,9 @@ function orientationCapabilityCatalog(catalog) {
     for (const tool of capability.tools ?? []) {
       const status = tool.descriptionStatus ? ` [${tool.descriptionStatus}]` : "";
       lines.push(`- tool:${tool.name}${tool.title ? ` — ${tool.title}` : ""}${status}: ${tool.summary}`);
+      if (tool.objectRoles?.length) {
+        lines.push(`  object roles: ${tool.objectRoles.map(({ role, objectType }) => `${role} (${objectType})`).join(", ")}`);
+      }
       if (tool.operations) {
         lines.push(`  operations exhaustive=${tool.operations.exhaustive}`);
         for (const operation of tool.operations.entries) {
@@ -328,7 +332,7 @@ export function orientationContext({
     JSON.stringify(recentConversation.map(sourceEntry), null, 2),
     "",
     "## Verified first-class object references available to this request",
-    "These compact bulk bindings are literal application evidence from completed exchanges. Preserve ID, stable reference, display name, type, source, and evidence together. Select only bindings needed by the current request in objectReferences. Do not rediscover a selected object's identity by name.",
+    "These compact bulk bindings are literal application evidence from completed exchanges. Preserve ID, stable reference, display name, type, source, and evidence together. Assign the compact role published by the selected consuming tool to state how the object will be used; role is use-site context and never changes identity. Select only bindings needed by the current request in objectReferences. Do not rediscover a selected object's identity by name.",
     JSON.stringify(compactObjectReferenceContext(availableObjectReferences), null, 2),
     "",
     "## Prior rolling conversation state",
@@ -386,7 +390,7 @@ export function turnBriefInstructions(brief, confirmedActionReferences = []) {
     "# Accepted TurnBrief",
     "This source-grounded contract defines the current request. Execute its objective and requested actions, respect prohibited and deferred actions, and continue until every completion criterion is satisfied or a genuinely new blocker is proven by a tool result or the complete callable-tool snapshot. Do not re-infer a narrower task from the latest sentence alone.",
     "When identifying a named first-class object, use its advertised owning read tool. If that tool requires an ID absent from verified evidence, first request and call an advertised discovery read in the same capability family, then pass its returned ID to the owning read tool. Search by the object's name, then verify qualifiers such as currency from the returned record instead of requiring every word in the user's description to match literally. Bind later actions to a returned stable reference or ID. A failed lookup of an unverified ID is not evidence that the named object is absent. Do not probe guessed IDs.",
-    "The TurnBrief's objectReferences are authoritative language-to-object bindings. Preserve each selected object's provider ID, stable reference, and display name together. Use those exact IDs for later calls; freshness checks reread the same IDs and never rediscover identity by name. A singleton tool requires a one-object binding, while batch tools consume the complete selected object set. Never silently choose the first object from a multi-object binding.",
+    "The TurnBrief's objectReferences are authoritative language-to-object bindings. Preserve each selected object's contextual role, provider ID, stable reference, and display name together. Use a consuming input's exact published role and ID for later calls; same-type roles are not interchangeable. Freshness checks reread the same IDs and never rediscover identity by name. A singleton tool requires a one-object binding, while batch tools consume the complete selected object set. Never silently choose the first object from a multi-object binding.",
     JSON.stringify(brief, null, 2),
     "",
     "# Confirmed prepared changes",
@@ -439,7 +443,7 @@ export const orientationInstructions = [
   "When the user confirms a prepared MCP change, select its exact active reference in confirmedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",
   "Use contextRequests to ask the application for small advertised read-only datasets that execution needs up front, such as existing tag, group, or tracker names and IDs. Do not request unrelated views.",
   "When the user names a type advertised as a first-class object, select its cataloged read tool. If it may require an ID absent from the source evidence, also select an advertised discovery read in the same capability family; execution must discover the ID before calling the ID-specific tool. Prefer the owning read alone when it can identify the object and its stable reference directly.",
-  "When supplied verified object references resolve a current mention, copy the complete matching bulk binding into objectReferences, including the exact provider ID, stable reference, display name, source, type, and evidence event numbers. An object already identified by a referenced exchange is not rediscovered by name. Leave unrelated candidates out. If no verified reference resolves the mention, keep it unresolved and select the owning read path; never invent or probe an ID.",
+  "When supplied verified object references resolve a current mention, copy the complete matching bulk binding into objectReferences, including the exact provider ID, stable reference, display name, source, type, and evidence event numbers. Set role to the exact compact role published by the selected consuming tool; when no selected input needs a more specific role, use subject. Role states intended use and does not alter identity. An object already identified by a referenced exchange is not rediscovered by name. Leave unrelated candidates out. If no verified reference resolves the mention, keep it unresolved and select the owning read path; never invent or probe an ID.",
   "For work from an uploaded file, select the destination provider's advertised intake workflow when it publishes one. File inspection and transformation support that workflow; do not substitute a general mapping path for a more focused provider-owned intake path.",
   "When a continuation needs an exact prior tool receipt, copy only each required receiptEventSeq and tool from the supplied recent receipt index into receiptReferences and state why execution needs it. Do not copy unrelated receipt entries. Prefer an advertised live domain context view when it directly supplies the current state; receipt recovery is the fallback for state unavailable from a selected view.",
   "Treat a nonempty reply that is incomplete by itself as a continuation when the immediately preceding assistant question or active exchange gives it one unambiguous interpretation. Preserve the exact supplied value and never invent omitted units, identities, dates, or intent; use responseMode clarify when more than one interpretation remains plausible.",

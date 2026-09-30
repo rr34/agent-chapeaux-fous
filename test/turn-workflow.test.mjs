@@ -739,6 +739,7 @@ test("an accepted account binding constrains and guards the later tool ID", asyn
   const requests = [];
   const binding = {
     mention: "that account", type: "accounting.account", source: "mcp:accounting",
+    role: "subject",
     objects: [{ id: 178, ref: "accounting://accounts/178", display: "Operating Checking" }],
     sourceEventSeqs: [4],
   };
@@ -795,6 +796,12 @@ test("an accepted account binding constrains and guards the later tool ID", asyn
     });
     assert.equal(wrong.ok, false);
     assert.match(wrong.error, /must use the exact id.*178/);
+    const duplicateWrong = await payload.onToolCall({
+      callId: "wrong-account-again", tool: "remote_accounting_search_transactions",
+      arguments: { account_id: 1, result_filter: identityResultFilter() },
+    });
+    assert.equal(duplicateWrong.ok, false);
+    assert.equal(duplicateWrong.stopToolLoop, true);
     const exact = await payload.onToolCall({
       callId: "exact-account", tool: "remote_accounting_search_transactions",
       arguments: { account_id: 178, result_filter: identityResultFilter() },
@@ -1232,12 +1239,17 @@ test("a TurnBrief tool outside its selected capability is repaired before execut
         arguments: { receiptEventSeq: 19686, result_filter: identityResultFilter() },
       });
       assert.equal(receipt.ok, true);
+      assert.equal(receipt.controlTransfer?.type, "object_binding_refresh");
+      return completed("The receipt identified the exact task; refreshing its bound schema.", 25);
+    }
+    if (index === 3) {
+      assert.deepEqual(payload.tools[1].inputSchema.properties.personal_task_id.enum, [322]);
       const update = await payload.onToolCall({
         callId: "restore-task",
         tool: "todo_update",
         arguments: {
           personal_task_id: 322,
-          scheduled_at_utc: receipt.result.moves[0].previous_scheduled_at_utc,
+          scheduled_at_utc: "2026-09-02T11:00:00.000Z",
         },
       });
       assert.equal(update.ok, true);
@@ -1275,7 +1287,7 @@ test("a TurnBrief tool outside its selected capability is repaired before execut
     requestEventId: "event-current",
     text: "Move #322 back to where it was.",
   }), "Restored #322 to its prior schedule.");
-  assert.equal(requests.length, 4);
+  assert.equal(requests.length, 5);
   assert.deepEqual(
     ledger.events.filter(({ type }) => type === "turn.brief.validation").map(({ status }) => status),
     ["error", "complete"],

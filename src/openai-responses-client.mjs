@@ -429,13 +429,21 @@ export class OpenAIResponsesClient {
         if (terminalVerificationRounds !== null) terminalVerificationRounds = 0;
         previousResponseId = response.id;
         nextInput = [];
+        let immediateControlTransfer = false;
+        let stopCurrentToolLoop = false;
         for (const call of calls) {
           toolCallCount += 1;
           if (maxToolCalls !== null && toolCallCount > maxToolCalls + 8) {
             throw new Error(`OpenAI continued requesting tools after the ${maxToolCalls}-call budget was exhausted`);
           }
           let result;
-          if (maxToolCalls !== null && toolCallCount > maxToolCalls) {
+          if (stopCurrentToolLoop) {
+            result = {
+              ok: false,
+              error: "The current tool loop was stopped after an identical failed call. No remaining calls from this model response were executed.",
+              stopToolLoop: true,
+            };
+          } else if (maxToolCalls !== null && toolCallCount > maxToolCalls) {
             result = {
               ok: false,
               error: `Tool-call budget exhausted after ${maxToolCalls} calls. Return a final answer without another tool call.`,
@@ -453,15 +461,29 @@ export class OpenAIResponsesClient {
           ) {
             controlTransfers.push({ tool: call.name, callId: call.call_id });
           }
+          if (result?.ok === true && result?.controlTransfer?.type === "object_binding_refresh") {
+            controlTransfers.push({
+              tool: call.name,
+              callId: call.call_id,
+              type: "object_binding_refresh",
+            });
+            immediateControlTransfer = true;
+          }
           if (result?.toolFailure?.terminalForCurrentRequest === true && terminalVerificationRounds === null) {
             terminalVerificationRounds = 1;
+          }
+          if (result?.stopToolLoop === true) {
+            terminalVerificationRounds = 0;
+            stopCurrentToolLoop = true;
           }
           nextInput.push({
             type: "function_call_output",
             call_id: call.call_id,
             output: JSON.stringify(result ?? null),
           });
+          if (immediateControlTransfer) break;
         }
+        if (immediateControlTransfer) break;
       }
       const text = responseText(response);
       if (!text && controlTransfers.length === 0) {

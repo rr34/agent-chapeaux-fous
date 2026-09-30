@@ -45,6 +45,50 @@ test("the call boundary rejects a substituted ID and accepts the exact bound ID"
   }), null);
 });
 
+test("same-type objects remain distinct across role-qualified input paths", () => {
+  const roleTool = {
+    name: "remote_accounting_preview_statement",
+    source: "mcp:accounting",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: {
+        account_id: { type: "integer", minimum: 1 },
+        suspense_account_id: { type: "integer", minimum: 1 },
+      },
+    },
+    metadata: {
+      [objectInputBindingsMetadataKey]: {
+        protocol: "agent-slayer.object-input-bindings", version: 1,
+        bindings: [
+          { path: "/account_id", objectType: "accounting.account", value: "id", role: "subject" },
+          { path: "/suspense_account_id", objectType: "accounting.account", value: "id", role: "designated_suspense_account" },
+        ],
+      },
+    },
+  };
+  const observed = [{
+    mention: "designated suspense account", role: "designated_suspense_account",
+    type: "accounting.account", source: "mcp:accounting",
+    objects: [{ id: 279, ref: "accounting://accounts/279", display: "Ask Accountant Dollars" }],
+    sourceEventSeqs: [30_802],
+  }];
+  const constrained = constrainToolObjectInputs(roleTool, selected, observed);
+  assert.deepEqual(constrained.inputSchema.properties.account_id.enum, [178]);
+  assert.deepEqual(constrained.inputSchema.properties.suspense_account_id.enum, [279]);
+  assert.equal(objectInputBindingProblem({
+    toolDefinition: roleTool,
+    argumentsObject: { account_id: 178, suspense_account_id: 279 },
+    selectedGroups: selected,
+    observedGroups: observed,
+  }), null);
+  assert.match(objectInputBindingProblem({
+    toolDefinition: roleTool,
+    argumentsObject: { account_id: 178, suspense_account_id: 178 },
+    selectedGroups: selected,
+    observedGroups: observed,
+  }), /role designated_suspense_account.*279/);
+});
+
 test("a declared object input cannot receive an ID before its object is identified", () => {
   assert.match(objectInputBindingProblem({
     toolDefinition: tool, argumentsObject: { account_id: 1 },
@@ -70,6 +114,7 @@ test("native tool registration declares first-class IDs, including IDs inside ba
   const [definition] = registry.toolDefinitions();
   assert.deepEqual(definition.metadata[objectInputBindingsMetadataKey].bindings, [{
     path: "/updates/*/personal_task_id", objectType: "todos.personal_task", value: "id",
+    role: "subject",
   }]);
   const selectedTodo = [{
     mention: "those tasks", type: "todos.personal_task", source: "native:todos",
@@ -158,12 +203,14 @@ test("the application-owned MCP upload bridge consumes an exact native file bind
       [objectInputBindingsMetadataKey]: {
         protocol: "agent-slayer.object-input-bindings",
         version: 1,
-        bindings: [{ path: "/file_id", objectType: "files.file", value: "id" }],
+        bindings: [{
+          path: "/file_id", objectType: "files.file", value: "id", role: "artifact_source",
+        }],
       },
     },
   };
   const files = [{
-    mention: "that CSV", type: "files.file", source: "native:files",
+    mention: "that CSV", role: "artifact_source", type: "files.file", source: "native:files",
     objects: [{ id: 293, ref: "agent-slayer://files/293", display: "x5999.csv" }],
     sourceEventSeqs: [30_801],
   }];

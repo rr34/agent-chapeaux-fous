@@ -104,6 +104,13 @@ test("native authoritative reads publish the same Object Description contract as
   assert.ok(catalogTypes.includes("email.blob:email_get"));
   assert.ok(catalogTypes.includes("video.script:video_script_get"));
   assert.ok(catalogTypes.includes("video.content_group:video_content_list"));
+  const catalogTools = requestCapabilityCatalog(registry.toolDefinitions())
+    .flatMap(({ tools }) => tools);
+  assert.deepEqual(catalogTools.find(({ name }) => name === "contact_merge").objectRoles, [
+    { role: "merge_destination", objectType: "contacts.contact" },
+    { role: "merge_source", objectType: "contacts.contact" },
+  ]);
+  assert.equal(catalogTools.find(({ name }) => name === "todo_update").objectRoles, undefined);
 });
 
 test("the reviewed native catalog exhaustively covers every declared producer and consumer", () => {
@@ -159,72 +166,72 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
   const bindings = (name) => definitions.get(name).metadata?.[objectInputBindingsMetadataKey]?.bindings ?? [];
   assert.deepEqual(bindings("todo_list"), [{
     path: "/queries/*/personal_task_ids/*", objectType: "todos.personal_task",
-    value: "id", allowUnbound: true,
+    value: "id", role: "subject", allowUnbound: true,
   }]);
   assert.deepEqual(bindings("todo_add"), [
-    { path: "/todo_group_id", objectType: "todos.todo_group", value: "id" },
-    { path: "/related_contact_id", objectType: "contacts.contact", value: "id" },
-    { path: "/interaction_guide_id", objectType: "interaction_guide.guide", value: "id" },
+    { path: "/todo_group_id", objectType: "todos.todo_group", value: "id", role: "subject" },
+    { path: "/related_contact_id", objectType: "contacts.contact", value: "id", role: "subject" },
+    { path: "/interaction_guide_id", objectType: "interaction_guide.guide", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("contact_merge"), [
-    { path: "/merges/*/keep_contact_id", objectType: "contacts.contact", value: "id" },
-    { path: "/merges/*/merge_contacts/*/contact_id", objectType: "contacts.contact", value: "id" },
+    { path: "/merges/*/keep_contact_id", objectType: "contacts.contact", value: "id", role: "merge_destination" },
+    { path: "/merges/*/merge_contacts/*/contact_id", objectType: "contacts.contact", value: "id", role: "merge_source" },
   ]);
   assert.deepEqual(bindings("calendar_event_contact_link_set"), [
-    { path: "/calendar_event_id", objectType: "calendar.event", value: "id" },
-    { path: "/contact_id", objectType: "contacts.contact", value: "id" },
+    { path: "/calendar_event_id", objectType: "calendar.event", value: "id", role: "subject" },
+    { path: "/contact_id", objectType: "contacts.contact", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("journal_update"), [
-    { path: "/journal_entry_id", objectType: "journal.entry", value: "id" },
+    { path: "/journal_entry_id", objectType: "journal.entry", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("journal_add"), [
-    { path: "/tracker_id", objectType: "journal.tracker", value: "id" },
-    { path: "/journal_group_id", objectType: "journal.group", value: "id" },
+    { path: "/tracker_id", objectType: "journal.tracker", value: "id", role: "subject" },
+    { path: "/journal_group_id", objectType: "journal.group", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("journal_import"), [
-    { path: "/entries/*/tracker_id", objectType: "journal.tracker", value: "id" },
-    { path: "/entries/*/journal_group_id", objectType: "journal.group", value: "id" },
+    { path: "/entries/*/tracker_id", objectType: "journal.tracker", value: "id", role: "subject" },
+    { path: "/entries/*/journal_group_id", objectType: "journal.group", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("file_update"), [
-    { path: "/file_id", objectType: "files.file", value: "id" },
+    { path: "/file_id", objectType: "files.file", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("interaction_guide_step_move"), [
-    { path: "/interaction_guide_step_id", objectType: "interaction_guide.step", value: "id" },
-    { path: "/target_interaction_guide_id", objectType: "interaction_guide.guide", value: "id" },
+    { path: "/interaction_guide_step_id", objectType: "interaction_guide.step", value: "id", role: "subject" },
+    { path: "/target_interaction_guide_id", objectType: "interaction_guide.guide", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("profile_fact_set"), [
-    { path: "/replaces_profile_fact_id", objectType: "profile.fact", value: "id" },
+    { path: "/replaces_profile_fact_id", objectType: "profile.fact", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("catch_up_question_update"), [
-    { path: "/question_id", objectType: "catch_up.question", value: "id" },
+    { path: "/question_id", objectType: "catch_up.question", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("email_update"), [
-    { path: "/account_id", objectType: "email.account", value: "id" },
-    { path: "/email_id", objectType: "email.message", value: "id" },
-    { path: "/replace_mailbox_ids/*", objectType: "email.mailbox", value: "id" },
-    { path: "/add_mailbox_ids/*", objectType: "email.mailbox", value: "id" },
-    { path: "/remove_mailbox_ids/*", objectType: "email.mailbox", value: "id" },
+    { path: "/account_id", objectType: "email.account", value: "id", role: "subject" },
+    { path: "/email_id", objectType: "email.message", value: "id", role: "subject" },
+    { path: "/replace_mailbox_ids/*", objectType: "email.mailbox", value: "id", role: "replacement_mailbox" },
+    { path: "/add_mailbox_ids/*", objectType: "email.mailbox", value: "id", role: "added_mailbox" },
+    { path: "/remove_mailbox_ids/*", objectType: "email.mailbox", value: "id", role: "removed_mailbox" },
   ]);
   assert.deepEqual(bindings("email_send"), [
-    { path: "/account_id", objectType: "email.account", value: "id" },
-    { path: "/email_id", objectType: "email.message", value: "id" },
-    { path: "/identity_id", objectType: "email.identity", value: "id" },
-    { path: "/drafts_mailbox_id", objectType: "email.mailbox", value: "id" },
-    { path: "/sent_mailbox_id", objectType: "email.mailbox", value: "id" },
+    { path: "/account_id", objectType: "email.account", value: "id", role: "subject" },
+    { path: "/email_id", objectType: "email.message", value: "id", role: "subject" },
+    { path: "/identity_id", objectType: "email.identity", value: "id", role: "subject" },
+    { path: "/drafts_mailbox_id", objectType: "email.mailbox", value: "id", role: "drafts_mailbox" },
+    { path: "/sent_mailbox_id", objectType: "email.mailbox", value: "id", role: "sent_mailbox" },
   ]);
   assert.deepEqual(bindings("email_attachment_get"), [
-    { path: "/account_id", objectType: "email.account", value: "id", allowUnbound: true },
-    { path: "/blob_id", objectType: "email.blob", value: "id", allowUnbound: true },
+    { path: "/account_id", objectType: "email.account", value: "id", role: "subject", allowUnbound: true },
+    { path: "/blob_id", objectType: "email.blob", value: "id", role: "subject", allowUnbound: true },
   ]);
   assert.deepEqual(bindings("video_script_get"), [
-    { path: "/videoScriptId", objectType: "video.script", value: "id", allowUnbound: true },
+    { path: "/videoScriptId", objectType: "video.script", value: "id", role: "subject", allowUnbound: true },
   ]);
   assert.deepEqual(bindings("video_content_list"), [
-    { path: "/groupId", objectType: "video.content_group", value: "id", allowUnbound: true },
+    { path: "/groupId", objectType: "video.content_group", value: "id", role: "subject", allowUnbound: true },
   ]);
   assert.deepEqual(bindings("video_content_add"), [
-    { path: "/videoScriptId", objectType: "video.script", value: "id" },
-    { path: "/groupId", objectType: "video.content_group", value: "id" },
+    { path: "/videoScriptId", objectType: "video.script", value: "id", role: "subject" },
+    { path: "/groupId", objectType: "video.content_group", value: "id", role: "subject" },
   ]);
 });
 
@@ -247,12 +254,14 @@ test("native results bind only complete identity and preserve the correct parent
   }), [
     {
       mention: "Journal group returned by tracker_list",
+      role: "subject",
       type: "journal.group", source: "native:journal",
       objects: [{ id: 5, ref: "agent-slayer://journal-groups/5", display: "Exercise" }],
       sourceEventSeqs: [91],
     },
     {
       mention: "Journal tracker returned by tracker_list",
+      role: "subject",
       type: "journal.tracker", source: "native:journal",
       objects: [{ id: 14, ref: "agent-slayer://journal-trackers/14", display: "Push-ups" }],
       sourceEventSeqs: [91],
@@ -278,7 +287,7 @@ test("native results bind only complete identity and preserve the correct parent
   ]);
 
   const protectedFields = objectReferenceProtectedFields(calendarSearch, definitions);
-  for (const field of ["contact_id", "display_name", "personal_task_id", "text", "calendar_event_id", "title", "ref"]) {
+  for (const field of ["objectRole", "contact_id", "display_name", "personal_task_id", "text", "calendar_event_id", "title", "ref"]) {
     assert.ok(protectedFields.includes(field), `${field} is protected from result projection`);
   }
 

@@ -18,6 +18,16 @@ const identifyingReads = new Set([
   "video_script_get", "video_content_list",
 ]);
 
+const roleOverrides = new Map([
+  ["contact_merge:/merges/*/keep_contact_id", "merge_destination"],
+  ["contact_merge:/merges/*/merge_contacts/*/contact_id", "merge_source"],
+  ["email_update:/replace_mailbox_ids/*", "replacement_mailbox"],
+  ["email_update:/add_mailbox_ids/*", "added_mailbox"],
+  ["email_update:/remove_mailbox_ids/*", "removed_mailbox"],
+  ["email_send:/drafts_mailbox_id", "drafts_mailbox"],
+  ["email_send:/sent_mailbox_id", "sent_mailbox"],
+]);
+
 function escaped(name) {
   return name.replaceAll("~", "~0").replaceAll("/", "~1");
 }
@@ -45,9 +55,13 @@ function declaredBindings(schema, path = "", output = [], visited = new Set()) {
 }
 
 export function applyNativeObjectInputBindings(tool) {
-  const bindings = declaredBindings(tool.parameters).map((binding) => (
-    identifyingReads.has(tool.name) ? { ...binding, allowUnbound: true } : binding
-  ));
+  const bindings = declaredBindings(tool.parameters).map((binding) => {
+    const withRole = {
+      ...binding,
+      role: roleOverrides.get(`${tool.name}:${binding.path}`) ?? "subject",
+    };
+    return identifyingReads.has(tool.name) ? { ...withRole, allowUnbound: true } : withRole;
+  });
   if (!bindings.length) return tool;
   const existing = tool.metadata?.[objectInputBindingsMetadataKey]?.bindings ?? [];
   const byPath = new Map([...existing, ...bindings].map((binding) => [binding.path, binding]));

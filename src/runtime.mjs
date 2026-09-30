@@ -60,6 +60,22 @@ function callableToolsFingerprint(tools) {
   return createHash("sha256").update(JSON.stringify(tools)).digest("hex");
 }
 
+function catalogObjectRoles(catalog) {
+  return [...new Set(catalog.flatMap(({ tools = [] }) => tools.flatMap(({ objectRoles = [] }) => (
+    objectRoles.map(({ role }) => role)
+  ))))].sort();
+}
+
+function selectedToolObjectRoles(candidate, availableTools, extraTools = []) {
+  const names = new Set([...(candidate?.requiredTools ?? []), ...extraTools]);
+  return [...new Set(["subject", ...availableTools
+    .filter(({ name }) => names.has(name))
+    .flatMap((tool) => (
+      tool.metadata?.["agent-slayer/object-input-bindings"]?.bindings ?? []
+    ))
+    .map(({ role }) => role ?? "subject")])];
+}
+
 function callableToolCatalog(tools) {
   return tools
     .filter(({ name }) => !["request_capabilities", "request_tools"].includes(name))
@@ -90,6 +106,13 @@ function canonicalToolArguments(value) {
 
 function toolAttemptKey(name, args) {
   return `${name}\n${JSON.stringify(canonicalToolArguments(args))}`;
+}
+
+function receiptAttemptKey(receipt) {
+  const argumentsObject = receipt?.resultFilter
+    ? { ...(receipt.arguments ?? {}), result_filter: receipt.resultFilter }
+    : receipt?.arguments;
+  return toolAttemptKey(receipt?.tool, argumentsObject);
 }
 
 function hasReceiptGatedActiveBriefing(preparedCapabilityContext) {
@@ -783,6 +806,7 @@ export class SlayerRuntime {
       catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
       recentToolReceipts,
       availableObjectReferences,
+      catalogObjectRoles(catalog),
     );
     const orientationDeveloperInstructions = joinedInstructions(
       orientationBaseContext.developerInstructions ?? orientationBaseContext.text,
@@ -840,6 +864,9 @@ export class SlayerRuntime {
       const objectFindings = objectReferenceSelectionFindings(
         candidate.objectReferences,
         availableObjectReferences,
+        selectedToolObjectRoles(candidate, availableTools, [
+          ...confirmedTargetTools(candidate), ...requiredContractTools,
+        ]),
       );
       return {
         temporalFindings,
@@ -911,7 +938,7 @@ export class SlayerRuntime {
             ? [
                 "# Object-reference validation requires repair",
                 JSON.stringify(validation.objectFindings, null, 2),
-                "Copy only exact verified object bindings from the supplied object-reference catalog. Preserve each ID, stable reference, display name, type, and source together.",
+                "Copy only exact verified object bindings from the supplied object-reference catalog. Preserve each ID, stable reference, display name, type, source, and evidence together, and assign only a role published by a selected consuming tool.",
               ].join("\n")
             : null,
         ),
@@ -1014,6 +1041,7 @@ export class SlayerRuntime {
         catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
         recentToolReceipts,
         availableObjectReferences,
+        catalogObjectRoles(catalog),
       );
       refinementSchema.properties.contextRequests.minItems = brief.contextRequests.length;
       const refinementDeveloperInstructions = joinedInstructions(
@@ -1071,7 +1099,7 @@ export class SlayerRuntime {
               ? [
                   "# Object-reference validation requires repair",
                   JSON.stringify(validation.objectFindings, null, 2),
-                  "Copy only exact verified object bindings from the supplied object-reference catalog. Preserve each ID, stable reference, display name, type, and source together.",
+                  "Copy only exact verified object bindings from the supplied object-reference catalog. Preserve each ID, stable reference, display name, type, source, and evidence together, and assign only a role published by a selected consuming tool.",
                 ].join("\n")
               : null,
           ),
@@ -1463,7 +1491,7 @@ export class SlayerRuntime {
     let conversationCheckpoint = null;
     let finalAttemptStartedNewConversation = !conversationId;
     const failedToolAttempts = new Set(initialReceipts.filter((receipt) => !receipt.ok)
-      .map((receipt) => toolAttemptKey(receipt.tool, receipt.arguments)));
+      .map(receiptAttemptKey));
     while (true) {
       attempt += 1;
       const runTimeoutMs = configuredRunTimeoutMs === null
@@ -1518,7 +1546,7 @@ export class SlayerRuntime {
         ...(workflowStep ? { includeRecentExchanges: false } : {}),
       });
       const continuingAfterExpansion = attempt > 1
-        ? "Capability expansion is complete. Continue and finish the original user request using the newly callable tools. Do not ask the user to repeat it, and do not repeat actions already confirmed by earlier tool results."
+        ? "Execution context has been refreshed. Continue and finish the original user request using the exact newly callable schemas and earlier receipts. Do not ask the user to repeat it, and do not repeat completed actions."
         : "";
       const developerInstructions = joinedInstructions(
         compilation.instructions,
@@ -1643,7 +1671,7 @@ export class SlayerRuntime {
       this.ledger.append({
         type: "model.request", phase: "start", status: "processing", actorType: "service",
         actorName: `${this.modelTransport.displayName} transport`, channel, turnId: requestId, operationId,
-        name: attempt === 1 ? "Model request" : "Model request after tool expansion",
+        name: attempt === 1 ? "Model request" : "Model request after execution refresh",
         payload: {
           ...providerRequest,
           workflowStep, workflowStepLabel, stepIndex, reasoningEffort: selectedEffort,
@@ -1653,6 +1681,7 @@ export class SlayerRuntime {
       const requestedCapabilities = new Set();
       const requestedTools = new Set();
       let expansionRequested = false;
+      let objectBindingRefreshRequested = false;
       try {
         result = await this.modelTransport.runTurn({
           ...turnRequest,
@@ -1708,6 +1737,21 @@ export class SlayerRuntime {
             const registeredTool = this.registry.get(name);
             const readOnly = registeredTool?.annotations?.readOnlyHint === true;
             const { toolArguments, filterRequest } = splitReadResultFilter(args, readOnly);
+            const attemptKey = toolAttemptKey(name, args);
+            if (failedToolAttempts.has(attemptKey)) {
+              const message = `An identical ${name} call with the same arguments already failed during this request. Do not repeat it; make a material correction or report the blocker.`;
+              sameRequestReceipts.push({
+                tool: name, arguments: toolArguments,
+                ...(filterRequest ? { resultFilter: filterRequest } : {}),
+                ok: false, error: message,
+              });
+              this.ledger.append({
+                type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                actorName: name, channel, turnId: requestId, operationId: callId, name,
+                payload: { callId, name, duplicateFailure: true }, error: message,
+              });
+              return { ok: false, error: message, stopToolLoop: true };
+            }
             if (readOnly) {
               const problem = schemaProblem(filterRequest, readResultFilterSchema, "result_filter");
               if (problem) {
@@ -1750,6 +1794,7 @@ export class SlayerRuntime {
                 ],
               );
               if (referenceProblem) {
+                failedToolAttempts.add(attemptKey);
                 sameRequestReceipts.push({ tool: name, arguments: toolArguments, ok: false, error: referenceProblem });
                 this.ledger.append({
                   type: "tool.result", phase: "error", status: "error", actorType: "tool",
@@ -1854,6 +1899,7 @@ export class SlayerRuntime {
               observedGroups: observedObjectReferences,
             });
             if (objectBindingProblem) {
+              failedToolAttempts.add(attemptKey);
               sameRequestReceipts.push({
                 tool: name, arguments: toolArguments, ok: false, error: objectBindingProblem,
               });
@@ -1871,7 +1917,6 @@ export class SlayerRuntime {
               });
               return { ok: false, error: objectBindingProblem };
             }
-            const attemptKey = toolAttemptKey(name, args);
             const blocked = sameRequestReceipts.find((receipt) => (receipt.tool === name || !readOnly)
               && normalizedToolFailure(receipt.toolFailure)?.terminalForCurrentRequest);
             if (blocked) {
@@ -1882,20 +1927,6 @@ export class SlayerRuntime {
                 payload: { callId, name, toolFailure: blocked.toolFailure }, error,
               });
               return { ok: false, error, toolFailure: blocked.toolFailure };
-            }
-            if (failedToolAttempts.has(attemptKey)) {
-              const message = `An identical ${name} call with the same arguments already failed during this request. Do not repeat it; make a material correction or report the blocker.`;
-              sameRequestReceipts.push({
-                tool: name, arguments: toolArguments,
-                ...(filterRequest ? { resultFilter: filterRequest } : {}),
-                ok: false, error: message,
-              });
-              this.ledger.append({
-                type: "tool.result", phase: "error", status: "error", actorType: "tool",
-                actorName: name, channel, turnId: requestId, operationId: callId, name,
-                payload: { callId, name }, error: message,
-              });
-              return { ok: false, error: message };
             }
             try {
               const toolResult = await this.registry.execute(name, toolArguments, {
@@ -2067,17 +2098,17 @@ export class SlayerRuntime {
                   ? Number.MAX_SAFE_INTEGER
                   : this.config.maxInlineToolResultCharacters ?? 32 * 1024,
               });
-              const objectReferences = objectReferenceGroupsFromToolResult({
+              const newObjectReferences = objectReferenceGroupsFromToolResult({
                 toolDefinition: registeredTool ?? callableToolDefinitions.get(name),
                 toolDefinitions: this.registry.toolDefinitions(),
                 result: inline.deliveredResult,
                 sourceEventSeq: receiptEventSeq,
               });
               observedObjectReferences = mergeObjectReferenceGroups([
-                ...observedObjectReferences, ...objectReferences,
+                ...observedObjectReferences, ...newObjectReferences,
               ]);
-              if (objectReferences.length) {
-                const objectCount = objectReferences.reduce(
+              if (newObjectReferences.length) {
+                const objectCount = newObjectReferences.reduce(
                   (count, group) => count + group.objects.length, 0,
                 );
                 this.ledger.append({
@@ -2085,7 +2116,10 @@ export class SlayerRuntime {
                   actorName: "Object reference binder", channel, turnId: requestId,
                   operationId: callId, name: "Verified object references observed",
                   content: `${objectCount} verified object reference${objectCount === 1 ? "" : "s"} from ${name}`,
-                  payload: { tool: name, sourceReceiptEventSeq: receiptEventSeq, objectReferences },
+                  payload: {
+                    tool: name, sourceReceiptEventSeq: receiptEventSeq,
+                    objectReferences: newObjectReferences,
+                  },
                 });
               }
               sameRequestReceipts.push({
@@ -2095,7 +2129,7 @@ export class SlayerRuntime {
                 ok: true,
                 result: inline.deliveredResult,
                 receiptEventSeq,
-                ...(objectReferences.length ? { objectReferences } : {}),
+                ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
                 ...(sourcedActionReference ? { deferredActionReference: sourcedActionReference } : {}),
               });
               if (inline.paged) {
@@ -2112,10 +2146,35 @@ export class SlayerRuntime {
                   },
                 });
               }
+              if (newObjectReferences.length) {
+                const refreshedTools = compilation.tools.map((tool) => constrainToolObjectInputs(
+                  tool, objectReferences, observedObjectReferences,
+                ));
+                if (callableToolsFingerprint(refreshedTools)
+                  !== callableToolsFingerprint(tools)) {
+                  objectBindingRefreshRequested = true;
+                  this.ledger.append({
+                    type: "tools.schema_refresh.requested", status: "complete", actorType: "service",
+                    actorName: "Object binding compiler", channel, turnId: requestId,
+                    operationId: callId, name: "Callable schemas require refreshed object bindings",
+                    content: `New verified object bindings from ${name} change at least one callable input schema`,
+                    payload: {
+                      callId, name, sourceReceiptEventSeq: receiptEventSeq,
+                      objectReferences: newObjectReferences,
+                    },
+                  });
+                }
+              }
               return {
                 ok: true,
                 result: inline.deliveredResult,
-                ...(objectReferences.length ? { objectReferences } : {}),
+                ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
+                ...(objectBindingRefreshRequested ? {
+                  controlTransfer: {
+                    type: "object_binding_refresh",
+                    continuation: "Agent Slayer will continue this request with refreshed exact object-bound tool schemas.",
+                  },
+                } : {}),
               };
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
@@ -2191,6 +2250,10 @@ export class SlayerRuntime {
         },
       });
 
+      if (objectBindingRefreshRequested) {
+        conversationId = null;
+        continue;
+      }
       if (requestedCapabilities.size === 0 && requestedTools.size === 0) break;
       if (!this.requestCompiler) throw new Error("Tool expansion requires the request compiler");
       conversationId = null;

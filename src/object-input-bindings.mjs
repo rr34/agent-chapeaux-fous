@@ -5,6 +5,7 @@ import { flatObjectReferences } from "./object-references.mjs";
 export const objectInputBindingsMetadataKey = "agent-slayer/object-input-bindings";
 export const objectInputBindingsProtocol = "agent-slayer.object-input-bindings";
 export const objectInputBindingsVersion = 1;
+export const defaultObjectBindingRole = "subject";
 
 const schema = JSON.parse(fs.readFileSync(
   new URL("../config/protocol-schemas/object-input-bindings.v1.schema.json", import.meta.url), "utf8",
@@ -38,16 +39,30 @@ function valuesAt(value, segments, index = 0) {
   return valuesAt(value[segment], segments, index + 1);
 }
 
-function referencesFor(toolDefinition, objectType, selectedGroups, observedGroups) {
+function bindingRole(value) {
+  return value?.role ?? defaultObjectBindingRole;
+}
+
+function referencesFor(toolDefinition, objectType, role, selectedGroups, observedGroups) {
   const source = toolDefinition?.source;
   const artifactBridge = toolDefinition?.metadata?.["agent-slayer/artifactUpload"];
   const sourceMatches = (object) => object.source === source
     || (source === "local" && object.source.startsWith("native:"))
     || (artifactBridge && objectType === "files.file" && object.source === "native:files");
-  const selected = flatObjectReferences(selectedGroups)
-    .filter((object) => object.type === objectType && sourceMatches(object));
-  return selected.length ? selected : flatObjectReferences(observedGroups)
-    .filter((object) => object.type === objectType && sourceMatches(object));
+  const matching = (object) => object.type === objectType && sourceMatches(object);
+  const selected = flatObjectReferences(selectedGroups).filter(matching);
+  const observed = flatObjectReferences(observedGroups).filter(matching);
+  const selectedForRole = selected.filter((object) => bindingRole(object) === role);
+  if (selectedForRole.length) return selectedForRole;
+  const observedForRole = observed.filter((object) => bindingRole(object) === role);
+  if (observedForRole.length) return observedForRole;
+  // A newly discovered generic object can fill a more specific role on the
+  // next schema interaction. Never apply this fallback to TurnBrief-selected
+  // subjects: that would once again let one selected object occupy every
+  // same-type input field.
+  return role === defaultObjectBindingRole
+    ? []
+    : observed.filter((object) => bindingRole(object) === defaultObjectBindingRole);
 }
 
 function schemaAtPointer(root, segments) {
@@ -66,8 +81,9 @@ export function constrainToolObjectInputs(toolDefinition, selectedGroups = [], o
   const inputSchema = structuredClone(toolDefinition.inputSchema);
   let changed = false;
   for (const binding of contract.bindings) {
+    const role = bindingRole(binding);
     const references = referencesFor(
-      toolDefinition, binding.objectType, selectedGroups, observedGroups,
+      toolDefinition, binding.objectType, role, selectedGroups, observedGroups,
     );
     if (!references.length) continue;
     const allowed = [...new Set(references.map((object) => object[binding.value]))];
@@ -85,21 +101,22 @@ export function objectInputBindingProblem({
   const contract = toolDefinition?.metadata?.[objectInputBindingsMetadataKey];
   if (!contract) return null;
   for (const binding of contract.bindings) {
+    const role = bindingRole(binding);
     const supplied = valuesAt(argumentsObject, pointerSegments(binding.path))
       .filter((value) => value !== undefined && value !== null);
     if (!supplied.length) continue;
     const references = referencesFor(
-      toolDefinition, binding.objectType, selectedGroups, observedGroups,
+      toolDefinition, binding.objectType, role, selectedGroups, observedGroups,
     );
     const allowed = new Set(references.map((object) => object[binding.value]));
     const invalid = supplied.find((value) => !allowed.has(value));
     if (invalid === undefined) continue;
     if (!references.length && binding.allowUnbound === true) continue;
     if (!references.length) {
-      return `${toolDefinition.name}${binding.path} requires a verified ${binding.objectType} binding from its owning read tool; ${JSON.stringify(invalid)} is not identified`;
+      return `${toolDefinition.name}${binding.path} requires a verified ${binding.objectType} binding in role ${role} from its owning read tool; ${JSON.stringify(invalid)} is not identified`;
     }
     const exact = references.map(({ id, ref, display }) => ({ id, ref, display }));
-    return `${toolDefinition.name}${binding.path} must use the exact ${binding.value} from the accepted ${binding.objectType} binding: ${JSON.stringify(exact)}`;
+    return `${toolDefinition.name}${binding.path} must use the exact ${binding.value} from the accepted ${binding.objectType} binding in role ${role}: ${JSON.stringify(exact)}`;
   }
   return null;
 }

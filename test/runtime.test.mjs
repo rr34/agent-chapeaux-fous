@@ -3,6 +3,11 @@ import test from "node:test";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
+import {
+  objectInputBindingsMetadataKey,
+  objectInputBindingsProtocol,
+  objectInputBindingsVersion,
+} from "../src/object-input-bindings.mjs";
 import { SlayerRuntime } from "../src/runtime.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
@@ -131,6 +136,7 @@ test("the first model turn contains the exact request, context, and callable too
     },
   });
   const events = [];
+  let eventSeq = 0;
   const runtime = new SlayerRuntime({
     modelTransport,
     registry,
@@ -151,7 +157,10 @@ test("the first model turn contains the exact request, context, and callable too
         };
       },
     },
-    ledger: { append(event) { events.push(event); } },
+    ledger: {
+      append(event) { eventSeq += 1; events.push(event); return eventSeq; },
+      eventSequence(eventId) { return eventId; },
+    },
     config: runtimeConfig(),
   });
   runtime.systemPrompt = "SYSTEM PROMPT";
@@ -1146,8 +1155,107 @@ test("an identical failed tool call is blocked while a materially corrected retr
   assert.match(responses[0].error, /VIGIX/);
   assert.equal(responses[1].ok, false);
   assert.match(responses[1].error, /identical import_account_tree call/);
+  assert.equal(responses[1].stopToolLoop, true);
   assert.equal(responses[2].ok, true);
   assert.equal(responses[2].result.totalCount, 273);
+});
+
+test("a newly observed object refreshes dependent callable schemas before its ID is used", async () => {
+  let modelTurns = 0;
+  let uploads = 0;
+  const modelTransport = fakeTransport(async (payload) => {
+    modelTurns += 1;
+    const upload = payload.tools.find(({ name }) => name === "upload_file");
+    if (modelTurns === 1) {
+      assert.equal(upload.inputSchema.properties.file_id.enum, undefined);
+      const produced = await payload.onToolCall({
+        callId: "produce-file", tool: "produce_file", arguments: {},
+      });
+      assert.equal(produced.ok, true);
+      assert.equal(produced.controlTransfer.type, "object_binding_refresh");
+      return completedTurn({ text: "" });
+    }
+    assert.deepEqual(upload.inputSchema.properties.file_id.enum, [295]);
+    const uploaded = await payload.onToolCall({
+      callId: "upload-file", tool: "upload_file", arguments: { file_id: 295 },
+    });
+    assert.equal(uploaded.ok, true);
+    return completedTurn({ text: "Uploaded file 295." });
+  });
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "produce_file", description: "Produce one canonical file.",
+    annotations: { readOnlyHint: false },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() {
+      return {
+        sourceFile: { fileId: 293, title: "Original statement.csv" },
+        outputFile: {
+          fileId: 295, title: "Canonical statement.jsonl", objectRole: "artifact_source",
+        },
+        exceptionFile: {
+          fileId: 296, title: "Transformation exceptions.jsonl",
+          objectRole: "transformation_exceptions",
+        },
+      };
+    },
+  });
+  registry.register({
+    name: "upload_file", description: "Upload one exact file.",
+    source: "mcp:accounting",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { file_id: { type: "integer", minimum: 1 } },
+      required: ["file_id"],
+    },
+    metadata: {
+      "agent-slayer/artifactUpload": { contractVersion: 1 },
+      [objectInputBindingsMetadataKey]: {
+        protocol: objectInputBindingsProtocol,
+        version: objectInputBindingsVersion,
+        bindings: [{
+          path: "/file_id", objectType: "files.file", value: "id", role: "artifact_source",
+        }],
+      },
+    },
+    async execute({ file_id }) {
+      uploads += 1;
+      return { file_id };
+    },
+  });
+  const events = [];
+  let refreshEventSeq = 0;
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: {
+      async build() {
+        return { text: "context", profileFacts: [], history: [], contextBudget: { truncated: false } };
+      },
+    },
+    ledger: {
+      append(event) { refreshEventSeq += 1; events.push(event); return refreshEventSeq; },
+      eventSequence(eventId) { return eventId; },
+    },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+
+  assert.equal(await runtime.run({
+    requestId: "object-refresh", requestEventId: "object-refresh-event",
+    text: "Produce and upload the canonical file.",
+    objectReferences: [{
+      mention: "the uploaded statement", role: "subject", type: "files.file",
+      source: "native:files",
+      objects: [{
+        id: 293, ref: "agent-slayer://files/293", display: "Original statement.csv",
+      }],
+      sourceEventSeqs: [12],
+    }],
+  }), "Uploaded file 295.");
+  assert.equal(modelTurns, 2);
+  assert.equal(uploads, 1);
+  assert.equal(events.some(({ type }) => type === "tools.schema_refresh.requested"), true);
 });
 
 test("strict tool schemas are enforced before application functions execute", async () => {

@@ -333,10 +333,19 @@ function capabilitySummary(capability, tools) {
 
 function toolCatalogEntry(tool) {
   const description = catalogToolDescription(tool);
+  const objectRoles = [...new Map(
+    (tool.metadata?.["agent-slayer/object-input-bindings"]?.bindings ?? [])
+      .map((binding) => {
+        const role = binding.role ?? "subject";
+        return [`${role}\n${binding.objectType}`, { role, objectType: binding.objectType }];
+      })
+      .filter(([, { role }]) => role !== "subject"),
+  ).values()];
   return {
     name: tool.name,
     title: tool.title ?? null,
     summary: description.summary,
+    ...(objectRoles.length ? { objectRoles } : {}),
     ...(description.operations ? { operations: description.operations } : {}),
     ...(description.status === "validated" ? {} : { descriptionStatus: description.status }),
   };

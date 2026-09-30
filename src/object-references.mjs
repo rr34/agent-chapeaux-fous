@@ -6,11 +6,25 @@ import {
 
 const maximumObjectsPerBinding = 500;
 const maximumTraversalNodes = 20_000;
+const defaultObjectBindingRole = "subject";
 
 function compactScalar(value, maximum = 300) {
   if (!["string", "number", "boolean"].includes(typeof value)) return null;
   const text = String(value).trim();
   return text ? text.slice(0, maximum) : null;
+}
+
+function objectRole(value) {
+  const role = compactScalar(value, 160);
+  return role && /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/u.test(role)
+    ? role
+    : defaultObjectBindingRole;
+}
+
+function recordObjectRole(record) {
+  if (!Object.hasOwn(record ?? {}, "objectRole")) return defaultObjectBindingRole;
+  const role = compactScalar(record.objectRole, 160);
+  return role && /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/u.test(role) ? role : null;
 }
 
 function nativeId(value) {
@@ -93,23 +107,30 @@ function remoteIdentity(record, type) {
 function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSeq) {
   const groups = [];
   for (const type of remoteObjectTypes(toolDefinition, toolDefinitions)) {
-    const byRef = new Map();
+    const byRole = new Map();
     walkRecords(result, (record) => {
       if (type.requireObjectType && record?.objectType !== type.id) return;
       const reference = compactScalar(record?.[type.reference.field], 1_000);
       const display = compactScalar(record?.[type.display.field], 500);
-      if (!reference || !display || byRef.has(reference)) return;
+      if (!reference || !display) return;
       const id = remoteIdentity(record, type);
-      if (id != null) byRef.set(reference, { id, ref: reference, display });
+      const role = recordObjectRole(record);
+      if (!role) return;
+      const byRef = byRole.get(role) ?? new Map();
+      if (id != null && !byRef.has(reference)) byRef.set(reference, { id, ref: reference, display });
+      byRole.set(role, byRef);
     });
-    const objects = [...byRef.values()].slice(0, maximumObjectsPerBinding);
-    if (objects.length) groups.push({
-      mention: `${type.title} returned by ${toolDefinition.name}`,
-      type: type.id,
-      source: type.source,
-      objects,
-      sourceEventSeqs: sourceEventSeq == null ? [] : [sourceEventSeq],
-    });
+    for (const [role, byRef] of byRole) {
+      const objects = [...byRef.values()].slice(0, maximumObjectsPerBinding);
+      if (objects.length) groups.push({
+        mention: `${type.title} returned by ${toolDefinition.name}`,
+        role,
+        type: type.id,
+        source: type.source,
+        objects,
+        sourceEventSeqs: sourceEventSeq == null ? [] : [sourceEventSeq],
+      });
+    }
   }
   return groups;
 }
@@ -117,6 +138,14 @@ function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSe
 function nativeReferences(toolDefinition, result, sourceEventSeq) {
   if (toolDefinition?.source !== "local") return [];
   const byType = new Map(nativeFirstClassObjectTypes.map((type) => [type.id, new Map()]));
+  const add = (type, record, object) => {
+    const role = recordObjectRole(record);
+    if (!role) return;
+    const byRole = byType.get(type.id);
+    const byRef = byRole.get(role) ?? new Map();
+    if (!byRef.has(object.ref)) byRef.set(object.ref, object);
+    byRole.set(role, byRef);
+  };
   walkRecords(result, (record) => {
     const searchType = nativeObjectTypeForSearchType(record?.type);
     if (searchType) {
@@ -124,7 +153,7 @@ function nativeReferences(toolDefinition, result, sourceEventSeq) {
       const display = compactScalar(record.display ?? record.title, 500);
       if (id != null && display) {
         const ref = `${searchType.refPrefix}${encodeURIComponent(String(id))}`;
-        byType.get(searchType.id).set(ref, { id, ref, display });
+        add(searchType, record, { id, ref, display });
       }
     }
     for (const type of nativeFirstClassObjectTypes) {
@@ -133,19 +162,22 @@ function nativeReferences(toolDefinition, result, sourceEventSeq) {
       if (id == null || !display) continue;
       const ref = firstReference(record, type.refFields)
         ?? `${type.refPrefix}${encodeURIComponent(String(id))}`;
-      if (!byType.get(type.id).has(ref)) byType.get(type.id).set(ref, { id, ref, display });
+      add(type, record, { id, ref, display });
     }
   });
   const groups = [];
   for (const type of nativeFirstClassObjectTypes) {
-    const objects = [...byType.get(type.id).values()].slice(0, maximumObjectsPerBinding);
-    if (objects.length) groups.push({
-      mention: `${type.title} returned by ${toolDefinition.name}`,
-      type: type.id,
-      source: type.source,
-      objects,
-      sourceEventSeqs: sourceEventSeq == null ? [] : [sourceEventSeq],
-    });
+    for (const [role, byRef] of byType.get(type.id)) {
+      const objects = [...byRef.values()].slice(0, maximumObjectsPerBinding);
+      if (objects.length) groups.push({
+        mention: `${type.title} returned by ${toolDefinition.name}`,
+        role,
+        type: type.id,
+        source: type.source,
+        objects,
+        sourceEventSeqs: sourceEventSeq == null ? [] : [sourceEventSeq],
+      });
+    }
   }
   return groups;
 }
@@ -168,12 +200,12 @@ export function objectReferenceProtectedFields(toolDefinition, toolDefinitions =
     candidate?.metadata?.[objectDescriptionMetadataKey]?.types ?? []
   ));
   const native = toolDefinition?.source === "local" ? nativeFirstClassObjectTypes : [];
-  return [...new Set([...described, ...native]
+  return [...new Set(["objectRole", ...[...described, ...native]
     .flatMap((type) => [
       type.identity?.field, type.reference?.field, type.display?.field,
       ...(type.idFields ?? []), ...(type.refFields ?? []), ...(type.displayFields ?? []),
     ])
-    .filter(Boolean))];
+    .filter(Boolean)])];
 }
 
 function normalizedObject(value, type = null) {
@@ -191,6 +223,7 @@ export function normalizeObjectReferenceGroups(groups, { maximumObjects = 2_000 
     const type = compactScalar(group?.type, 120);
     const source = compactScalar(group?.source, 200);
     const mention = compactScalar(group?.mention, 500);
+    const role = objectRole(group?.role);
     if (!type || !source || !mention || !Array.isArray(group?.objects)) continue;
     const byRef = new Map();
     const nativeType = nativeFirstClassObjectTypes.find((candidate) => candidate.id === type) ?? null;
@@ -204,7 +237,7 @@ export function normalizeObjectReferenceGroups(groups, { maximumObjects = 2_000 
     if (!objects.length) continue;
     const sourceEventSeqs = [...new Set((group.sourceEventSeqs ?? [])
       .filter((value) => Number.isSafeInteger(value) && value > 0))].slice(0, 40);
-    const binding = { mention, type, source, objects, sourceEventSeqs };
+    const binding = { mention, role, type, source, objects, sourceEventSeqs };
     if (firstClassObjectBindingProblem(binding)) continue;
     output.push(binding);
     remaining -= objects.length;
@@ -215,9 +248,9 @@ export function normalizeObjectReferenceGroups(groups, { maximumObjects = 2_000 
 export function mergeObjectReferenceGroups(groups) {
   const merged = new Map();
   for (const group of normalizeObjectReferenceGroups(groups)) {
-    const key = `${group.type}\n${group.source}`;
+    const key = `${group.role}\n${group.type}\n${group.source}`;
     const current = merged.get(key) ?? {
-      mention: group.mention, type: group.type, source: group.source,
+      mention: group.mention, role: group.role, type: group.type, source: group.source,
       objects: new Map(), sourceEventSeqs: new Set(),
     };
     for (const object of group.objects) current.objects.set(object.ref, object);
@@ -226,6 +259,7 @@ export function mergeObjectReferenceGroups(groups) {
   }
   return normalizeObjectReferenceGroups([...merged.values()].map((group) => ({
     mention: group.mention,
+    role: group.role,
     type: group.type,
     source: group.source,
     objects: [...group.objects.values()].slice(0, maximumObjectsPerBinding),
@@ -235,13 +269,15 @@ export function mergeObjectReferenceGroups(groups) {
 
 export function flatObjectReferences(groups) {
   return normalizeObjectReferenceGroups(groups).flatMap((group) => group.objects.map((object) => ({
-    type: group.type, source: group.source, ...object, sourceEventSeqs: group.sourceEventSeqs,
+    role: group.role, type: group.type, source: group.source,
+    ...object, sourceEventSeqs: group.sourceEventSeqs,
   })));
 }
 
 export function compactObjectReferenceContext(groups) {
   return normalizeObjectReferenceGroups(groups).map((group) => ({
     mention: group.mention,
+    role: group.role,
     type: group.type,
     source: group.source,
     objects: group.objects.map(({ id, ref, display }) => ({ id, ref, display })),
@@ -249,11 +285,20 @@ export function compactObjectReferenceContext(groups) {
   }));
 }
 
-export function objectReferenceSelectionFindings(selectedGroups, availableGroups) {
+export function objectReferenceSelectionFindings(selectedGroups, availableGroups, allowedRoles = null) {
   const available = new Map(flatObjectReferences(availableGroups).map((object) => [object.ref, object]));
+  const roles = allowedRoles === null ? null : new Set(allowedRoles);
   const seen = new Set();
   const findings = [];
   for (const [groupIndex, group] of (selectedGroups ?? []).entries()) {
+    const role = objectRole(group?.role);
+    if (roles && !roles.has(role)) {
+      findings.push({
+        code: "object_reference_role_not_available",
+        path: `brief.objectReferences[${groupIndex}].role`,
+        message: `${role} is not an object role published by a selected tool`,
+      });
+    }
     const expectedEventSeqs = new Set();
     for (const [objectIndex, object] of (group.objects ?? []).entries()) {
       const path = `brief.objectReferences[${groupIndex}].objects[${objectIndex}]`;
@@ -263,10 +308,11 @@ export function objectReferenceSelectionFindings(selectedGroups, availableGroups
         continue;
       }
       for (const seq of expected?.sourceEventSeqs ?? []) expectedEventSeqs.add(seq);
-      if (seen.has(object.ref)) {
-        findings.push({ code: "duplicate_object_reference", path, message: `${object.ref} is selected more than once` });
+      const selectionKey = `${role}\n${object.ref}`;
+      if (seen.has(selectionKey)) {
+        findings.push({ code: "duplicate_object_reference", path, message: `${object.ref} is selected more than once for role ${role}` });
       }
-      seen.add(object.ref);
+      seen.add(selectionKey);
       if (group.type !== expected.type || group.source !== expected.source
         || object.id !== expected.id || object.display !== expected.display) {
         findings.push({ code: "object_reference_mismatch", path, message: `${object.ref} must retain its exact type, source, ID, and display name` });

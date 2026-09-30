@@ -220,6 +220,88 @@ test("OpenAI Responses accepts an empty completion after a successful tool-expan
   ]);
 });
 
+test("an object-binding refresh returns control immediately without another stale-schema call", async () => {
+  let requests = 0;
+  const toolCalls = [];
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async () => {
+      requests += 1;
+      return jsonResponse({
+        id: "resp_object_refresh", status: "completed",
+        output: [
+          { type: "function_call", call_id: "produce", name: "produce_file", arguments: "{}" },
+          { type: "function_call", call_id: "stale", name: "upload_file", arguments: "{}" },
+        ],
+        usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+      });
+    },
+  });
+  const result = await client.runTurn({
+    model: "test", input: "Produce it.", tools: [{
+      name: "produce_file", description: "Produce a file.",
+      inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    }],
+    onToolCall: async (call) => {
+      toolCalls.push(call.tool);
+      return {
+        ok: true,
+        result: { outputFile: { fileId: 295 } },
+        controlTransfer: { type: "object_binding_refresh" },
+      };
+    },
+  });
+  assert.equal(requests, 1);
+  assert.deepEqual(toolCalls, ["produce_file"]);
+  assert.equal(result.text, "");
+  assert.deepEqual(result.controlTransfers, [{
+    tool: "produce_file", callId: "produce", type: "object_binding_refresh",
+  }]);
+});
+
+test("an identical failed-call marker forces the next model round to finish without tools", async () => {
+  const requests = [];
+  const responses = [
+    {
+      id: "duplicate", status: "completed",
+      output: [
+        { type: "function_call", call_id: "again", name: "write", arguments: "{}" },
+        { type: "function_call", call_id: "queued", name: "write", arguments: "{\"value\":2}" },
+      ],
+    },
+    {
+      id: "finish", status: "completed",
+      output: [{
+        type: "message", role: "assistant",
+        content: [{ type: "output_text", text: "The unchanged call remains blocked." }],
+      }],
+    },
+  ];
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse(responses.shift());
+    },
+  });
+  let toolCalls = 0;
+  const result = await client.runTurn({
+    model: "test", input: "Continue.", tools: [{
+      name: "write", description: "Write.",
+      inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    }],
+    onToolCall: async () => {
+      toolCalls += 1;
+      return { ok: false, error: "duplicate", stopToolLoop: true };
+    },
+  });
+  assert.equal(toolCalls, 1);
+  assert.deepEqual(requests.map(({ tool_choice }) => tool_choice), ["auto", "none"]);
+  assert.equal(requests[1].input.length, 2);
+  assert.equal(JSON.parse(requests[1].input[1].output).stopToolLoop, true);
+  assert.equal(result.text, "The unchanged call remains blocked.");
+});
+
 test("OpenAI Responses rejects an ordinary empty completion with accumulated diagnostics", async () => {
   const client = new OpenAIResponsesClient({
     apiKey: "sk_test_secret_value_123456",

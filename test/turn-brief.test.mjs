@@ -7,6 +7,7 @@ import {
   turnBriefSchema,
 } from "../src/turn-brief.mjs";
 import { firstClassObjectBindingSchema } from "../src/first-class-object-binding.mjs";
+import { objectReferenceSelectionFindings } from "../src/object-references.mjs";
 
 function validBrief() {
   const sourced = { text: "Create the offered reminder.", sourceEventSeqs: [4, 9] };
@@ -127,6 +128,7 @@ test("TurnBrief parsing enforces source references and unique capability selecti
 
   const binding = {
     mention: "that account",
+    role: "subject",
     type: "accounting.account",
     source: "mcp:accounting",
     objects: [{ id: 178, ref: "accounting://accounts/178", display: "Operating Checking" }],
@@ -142,20 +144,52 @@ test("TurnBrief parsing enforces source references and unique capability selecti
   withObject.objectReferences = [binding];
   assert.deepEqual(
     objectSchema.properties.objectReferences.items.required,
-    firstClassObjectBindingSchema.required,
+    [...firstClassObjectBindingSchema.required, "role"],
   );
   assert.deepEqual(
     objectSchema.properties.objectReferences.items.properties.mention,
     firstClassObjectBindingSchema.properties.mention,
   );
   assert.deepEqual(
+    objectSchema.properties.objectReferences.items.properties.objects.items,
+    firstClassObjectBindingSchema.$defs.objectIdentity,
+  );
+  assert.deepEqual(
     parseStructuredModelOutput(JSON.stringify(withObject), objectSchema, "Orientation"),
     withObject,
   );
+  const availableBinding = structuredClone(binding);
   withObject.objectReferences[0].objects[0].id = 1;
-  assert.throws(
-    () => parseStructuredModelOutput(JSON.stringify(withObject), objectSchema, "Orientation"),
-    /objectReferences\[0\]\.objects\[0\] does not match any allowed schema/,
+  assert.deepEqual(
+    parseStructuredModelOutput(JSON.stringify(withObject), objectSchema, "Orientation"),
+    withObject,
+  );
+  assert.equal(
+    objectReferenceSelectionFindings(withObject.objectReferences, [availableBinding])[0].code,
+    "object_reference_mismatch",
+  );
+});
+
+test("TurnBrief schemas do not inline human object displays as strict-schema literals", () => {
+  const binding = {
+    mention: "that task",
+    role: "subject",
+    type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{
+      id: 109,
+      ref: "agent-slayer://todos/109",
+      display: "jermaine house list\n\nTLOM property: 8850 Glacier Point Dr.",
+    }],
+    sourceEventSeqs: [32_086],
+  };
+  const schema = turnBriefSchema(["todos"], [], [], ["todo_create"], [], [binding]);
+  assert.doesNotMatch(JSON.stringify(schema), /jermaine house list/);
+  const brief = validBrief();
+  brief.objectReferences = [binding];
+  assert.deepEqual(
+    parseStructuredModelOutput(JSON.stringify(brief), schema, "Orientation"),
+    brief,
   );
 });
 
