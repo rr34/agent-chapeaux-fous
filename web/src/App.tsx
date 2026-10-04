@@ -63,6 +63,11 @@ function PageHeading({ eyebrow, title, detail, actions }: {
 }
 
 
+function shiftLocalDate(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
 function linkedTodosForEvents(events: DailyPaperModel["todayEvents"]) {
   const todos = new Map<number, DailyPaperModel["scheduledTodos"][number]>();
   for (const calendarEvent of events) {
@@ -96,12 +101,6 @@ function TokenGate({ children }: { children: ReactNode }) {
       <button className="button" disabled={!draft.trim()}>Open workspace</button>
     </form>
   </section></main>;
-}
-
-function referencedRequestIdsFromComposer(value: string) {
-  const requestIds = [...value.matchAll(/^Reference code:\s*request_id=([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\s*$/gimu)]
-    .map((match) => match[1].toLowerCase());
-  return [...new Set(requestIds)].slice(0, 8);
 }
 
 interface TraceEvent extends Entity {
@@ -434,10 +433,17 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
     clearReferenceNotice();
     setSending(true);
     try {
+      const referencedRequestIds = [...new Set(selections.flatMap(
+        ({ referencedRequestId }) => referencedRequestId ? [referencedRequestId] : [],
+      ))].slice(0, 8);
+      const selectedObjectCandidates = selections.flatMap(
+        ({ label: _label, detail: _detail, referencedRequestId, ...selection }) =>
+          referencedRequestId ? [] : [selection],
+      );
       await api("/api/requests", { method: "POST", body: JSON.stringify({
         text,
-        referencedRequestIds: referencedRequestIdsFromComposer(text),
-        selectedObjectCandidates: selections.map(({ label: _label, ...selection }) => selection),
+        referencedRequestIds,
+        selectedObjectCandidates,
       }) });
       setText("");
       setSelections([]);
@@ -596,7 +602,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = localToday(timeZone);
   const [selectedDate, setSelectedDate] = useState(date);
-  const query = new URLSearchParams({ date, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
+  const query = new URLSearchParams({ date: selectedDate, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${query}`);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<unknown>(null);
@@ -607,11 +613,6 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
     [selectedDay],
   );
   const selectedTodos = useMemo(() => linkedTodosForEvents(selectedEvents), [selectedEvents]);
-  useEffect(() => {
-    if (data && !data.calendarDays.some((day) => day.localDate === selectedDate)) {
-      setSelectedDate(data.date);
-    }
-  }, [data, selectedDate]);
   const generate = async () => {
     setGenerationError(null);
     setGenerating(true);
@@ -633,7 +634,12 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
     />}
     {loading && <Loading label="Composing your day" />}{error && <ErrorState error={error} retry={reload} />}
     {data && <div className="calendar-screen">
-      <section className="surface calendar-overview"><div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><button className="button button--quiet" onClick={() => window.print()}>Print browser view</button></div><CalendarGrid days={data.calendarDays} selectedDate={selectedDay?.localDate} onSelect={setSelectedDate} /></section>
+      <section className="surface calendar-overview">
+        <div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><button className="button button--quiet" onClick={() => window.print()}>Print browser view</button></div>
+        <button className="calendar-range-arrow" type="button" aria-label="Previous week" aria-controls="calendar-grid" title="Previous week" onClick={() => setSelectedDate((current) => shiftLocalDate(current, -7))}>▲</button>
+        <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDay?.localDate} onSelect={setSelectedDate} />
+        <button className="calendar-range-arrow" type="button" aria-label="Next week" aria-controls="calendar-grid" title="Next week" onClick={() => setSelectedDate((current) => shiftLocalDate(current, 7))}>▼</button>
+      </section>
       <div className="calendar-lower"><section className="surface"><p className="eyebrow">{formatLocalDate(selectedDay?.localDate || data.date)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} onReference={onReference} onChanged={reload} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} onReference={onReference} onChanged={reload} /></section></div>
       <details className="paper-preview surface"><summary>Preview the printed page</summary><DailyPaper model={data} preview /></details>
     </div>}
@@ -738,10 +744,13 @@ function Workspace() {
   const [traceError, setTraceError] = useState<unknown>(null);
   const go = (next: string) => { setView(next); history.replaceState(null, "", `#${next}`); };
   const referenceInAgent: AddAgentReference = (identity, subject) => {
-    setAgentDraft((current) => current.includes(identity)
-      ? current
-      : "In reference to:\n" + identity + "\n\n" + current);
-    setAgentReferenceNotice("Added " + subject + " to the Agent composer.");
+    const alreadySelected = agentObjectSelections.some(({ ref }) => ref === identity.ref);
+    if (!alreadySelected) {
+      setAgentObjectSelections((current) => [...current, identity]);
+      setAgentDraft((current) => identity.mention + (current ? ` ${current}` : " "));
+    }
+    setAgentReferenceNotice((alreadySelected ? "Already referencing " : "Added ")
+      + subject + " in the Agent composer.");
     go("agent");
   };
   const showTrace = async (requestId: string) => {

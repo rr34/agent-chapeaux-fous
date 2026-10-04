@@ -735,6 +735,10 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const routineMatch = /^\/api\/calendar-routines\/(\d+)$/.exec(url.pathname);
+    if (request.method === "GET" && routineMatch) {
+      sendJson(response, 200, { routine: organizer.getCalendarRoutine(routineMatch[1]) });
+      return;
+    }
     if (request.method === "PATCH" && routineMatch) {
       sendJson(response, 200, {
         routine: organizer.updateCalendarRoutine(routineMatch[1], await readJson(request)),

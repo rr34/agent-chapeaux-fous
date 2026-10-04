@@ -1,8 +1,8 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { api } from "../api";
-import type { CalendarEvent, Entity, LinkedTodo } from "../types";
+import type { CalendarEvent, CalendarRoutine, Entity, LinkedTodo } from "../types";
 import {
-  AgentReferenceButton, calendarEventIdentity, todoIdentity,
+  AgentReferenceButton, calendarEventIdentity, calendarRoutineIdentity, todoIdentity,
   type AddAgentReference,
 } from "./AgentReferenceButton";
 
@@ -144,6 +144,133 @@ function CalendarEventEditor({ eventId, recurring, onClose, onChanged }: {
   </EditorFrame>;
 }
 
+interface CalendarRoutineDraft {
+  title: string;
+  description: string;
+  location: string;
+  startsAt: string;
+  endsAt: string;
+  timeZone: string;
+  isAllDay: boolean;
+  recurrenceRule: string;
+  planningPromptText: string;
+}
+
+function calendarRoutineDraft(routine: CalendarRoutine): CalendarRoutineDraft {
+  return {
+    title: routine.title,
+    description: routine.description || "",
+    location: routine.location || "",
+    startsAt: localDateTimeValue(routine.startsAtUtc),
+    endsAt: localDateTimeValue(routine.endsAtUtc),
+    timeZone: routine.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    isAllDay: routine.isAllDay,
+    recurrenceRule: routine.recurrenceRule,
+    planningPromptText: routine.planningPromptText || "",
+  };
+}
+
+function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
+  routineId: number;
+  onClose: () => void;
+  onChanged: Changed;
+}) {
+  const [routine, setRoutine] = useState<CalendarRoutine | null>(null);
+  const [draft, setDraft] = useState<CalendarRoutineDraft | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void api<{ routine: CalendarRoutine | null }>(`/api/calendar-routines/${routineId}`).then(({ routine: current }) => {
+      if (!current) throw new Error("Calendar routine not found.");
+      if (!active) return;
+      setRoutine(current);
+      setDraft(calendarRoutineDraft(current));
+    }).catch((caught) => {
+      if (active) setError(caught instanceof Error ? caught.message : String(caught));
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [routineId]);
+
+  const save = async (submitEvent: FormEvent) => {
+    submitEvent.preventDefault();
+    if (!routine || !draft) return;
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/calendar-routines/${routineId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          version: routine.version,
+          title: draft.title,
+          description: draft.description,
+          location: draft.location,
+          startsAtUtc: localDateTimeIso(draft.startsAt),
+          endsAtUtc: localDateTimeIso(draft.endsAt),
+          timeZone: draft.timeZone,
+          isAllDay: draft.isAllDay,
+          recurrenceRule: draft.recurrenceRule,
+          planningPromptText: draft.planningPromptText,
+        }),
+      });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <EditorFrame title="Edit calendar routine" onClose={onClose}>
+    <form onSubmit={(submitEvent) => void save(submitEvent)}>
+      <header className="object-editor-heading"><div><p className="eyebrow">Routine</p><h2>Edit routine</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      {loading && <p className="object-editor-state">Loading current routine...</p>}
+      {draft && <>
+        <p className="object-editor-note">Changes affect future generated events. Events already placed on the calendar stay unchanged.</p>
+        <label>Title<input autoFocus required maxLength={500} value={draft.title} onChange={(change) => setDraft({ ...draft, title: change.target.value })} /></label>
+        <label className="object-editor-check"><input type="checkbox" checked={draft.isAllDay} onChange={(change) => setDraft({ ...draft, isAllDay: change.target.checked })} /><span>All day</span></label>
+        <div className="object-editor-grid">
+          <label>First start<input required type={draft.isAllDay ? "date" : "datetime-local"} value={draft.isAllDay ? draft.startsAt.slice(0, 10) : draft.startsAt} onChange={(change) => setDraft({ ...draft, startsAt: draft.isAllDay ? change.target.value + "T00:00" : change.target.value })} /></label>
+          <label>First end<input type={draft.isAllDay ? "date" : "datetime-local"} value={draft.isAllDay ? draft.endsAt.slice(0, 10) : draft.endsAt} onChange={(change) => setDraft({ ...draft, endsAt: draft.isAllDay && change.target.value ? change.target.value + "T00:00" : change.target.value })} /></label>
+        </div>
+        <label>Time zone<input required maxLength={100} value={draft.timeZone} onChange={(change) => setDraft({ ...draft, timeZone: change.target.value })} /></label>
+        <label>Recurrence rule<textarea required rows={3} maxLength={2000} placeholder="FREQ=WEEKLY;BYDAY=MO" value={draft.recurrenceRule} onChange={(change) => setDraft({ ...draft, recurrenceRule: change.target.value })} /></label>
+        <label>Location<input maxLength={1000} value={draft.location} onChange={(change) => setDraft({ ...draft, location: change.target.value })} /></label>
+        <label>Description<textarea rows={4} maxLength={10_000} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
+        <label>Planning prompt<textarea rows={3} maxLength={10_000} value={draft.planningPromptText} onChange={(change) => setDraft({ ...draft, planningPromptText: change.target.value })} /></label>
+      </>}
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : "Save routine"}</button></footer>
+    </form>
+  </EditorFrame>;
+}
+
+export function CalendarRoutineItem({ routine, timeLabel, onChanged, onReference }: {
+  routine: CalendarRoutine;
+  timeLabel: string;
+  onChanged?: Changed;
+  onReference?: AddAgentReference;
+}) {
+  const [editing, setEditing] = useState(false);
+  const id = Number(routine.id);
+  const editable = Boolean(onChanged && Number.isSafeInteger(id) && id > 0);
+  const body = <><strong className="multiline-item-text">{routine.title}</strong>{routine.description && <p className="multiline-item-text">{routine.description}</p>}</>;
+  return <article className="routine-agenda-item">
+    {editable
+      ? <button className="routine-item-content" type="button" onClick={() => setEditing(true)} title="Edit routine">{body}</button>
+      : <div className="routine-item-content">{body}</div>}
+    <div className="routine-agenda-actions">
+      <span>{timeLabel}</span>
+      {onReference && <AgentReferenceButton identity={calendarRoutineIdentity(routine)} subject={`calendar routine ${routine.title}`} onReference={onReference} />}
+    </div>
+    {editing && onChanged && <CalendarRoutineEditor routineId={id} onClose={() => setEditing(false)} onChanged={onChanged} />}
+  </article>;
+}
+
 export function CalendarEventItem({ event, timeZone, timeLabel, onChanged, onReference }: {
   event: CalendarEvent;
   timeZone: string;
@@ -156,9 +283,9 @@ export function CalendarEventItem({ event, timeZone, timeLabel, onChanged, onRef
   const generatedReadOnly = Boolean(event.readOnly && !event.seriesId);
   const editable = Boolean(onChanged && Number.isSafeInteger(eventId) && eventId > 0 && !generatedReadOnly);
   const content = <>
-    <strong>{event.title}</strong>
+    <strong className="multiline-item-text">{event.title}</strong>
     {event.location && <span className="event-place">{event.location}</span>}
-    {event.description && <p>{event.description}</p>}
+    {event.description && <p className="multiline-item-text">{event.description}</p>}
   </>;
   return <li>
     <time>{timeLabel}</time>
@@ -167,7 +294,7 @@ export function CalendarEventItem({ event, timeZone, timeLabel, onChanged, onRef
         ? <button className="editable-object-content" type="button" onClick={() => setEditing(true)} title={event.seriesId ? "Edit this recurring event series" : "Edit event"}>{content}</button>
         : <div className="editable-object-content" title={generatedReadOnly ? "This event is managed by its source record" : undefined}>{content}</div>}
     </div>
-    {onReference && <AgentReferenceButton identity={calendarEventIdentity(event, timeZone)} subject={`calendar event ${event.title}`} onReference={onReference} />}
+    {onReference && Number.isSafeInteger(eventId) && eventId > 0 && <AgentReferenceButton identity={calendarEventIdentity(event, timeZone)} subject={`calendar event ${event.title}`} onReference={onReference} />}
     {editing && onChanged && <CalendarEventEditor eventId={eventId} recurring={Boolean(event.seriesId)} onClose={() => setEditing(false)} onChanged={onChanged} />}
   </li>;
 }
@@ -313,9 +440,9 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
   };
 
   const body = <>
-    <strong>{text}</strong>
+    <strong className="multiline-item-text">{text}</strong>
     {variant === "row" && "sequence" in todo && todo.sequence != null && <small>#{String(todo.sequence)}</small>}
-    {eventTitles?.length ? <small>For {eventTitles.join(", ")}</small> : null}
+    {eventTitles?.length ? <small className="multiline-item-text">For {eventTitles.join(", ")}</small> : null}
   </>;
   const itemContent = <>
     {editable
@@ -326,7 +453,7 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
       : <div className="todo-item-content">{body}</div>}
     <div className="object-row-actions">
       {variant === "row" && <span className="pill">{status}</span>}
-      {onReference && <AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${text}`} onReference={onReference} />}
+      {onReference && status !== "complete" && <AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${text}`} onReference={onReference} />}
     </div>
     {error && <p className="inline-error todo-item-error" role="alert">{error}</p>}
     {editing && onChanged && <TodoEditor todoId={id} suppliedGroups={groups} onClose={() => setEditing(false)} onChanged={onChanged} />}

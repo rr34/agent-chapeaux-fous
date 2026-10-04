@@ -146,6 +146,9 @@ textarea { resize: vertical; }
 .trace-event pre { max-height: 60vh; margin: 0; padding: 13px; overflow: auto; border-top: 1px solid var(--line); background: #fffefa; color: var(--ink); font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
 .calendar-screen { display: grid; gap: 20px; }
+.calendar-range-arrow { width: 100%; height: 30px; min-height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-size: 12px; line-height: 1; cursor: pointer; }
+.calendar-range-arrow:hover { color: var(--olive-dark); background: var(--olive-soft); }
+.calendar-range-arrow:focus-visible { outline: 3px solid rgba(104, 116, 90, .24); outline-offset: -2px; }
 .calendar-lower { display: grid; grid-template-columns: 1.45fr 1fr; gap: 20px; }
 .two-week-grid { display: grid; gap: 7px; }
 .weekdays, .calendar-cells { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; }
@@ -162,7 +165,8 @@ button.calendar-cell:focus-visible { outline: 3px solid rgba(104, 116, 90, .3); 
 .calendar-cell-events { display: grid; gap: 3px; padding-top: 5px; }
 .calendar-chip { min-width: 0; display: flex; align-items: baseline; gap: 4px; padding-left: 5px; border-left: 2px solid var(--rust); font-size: 10px; line-height: 1.25; }
 .calendar-chip time { flex: 0 0 auto; color: var(--muted); font-size: 8px; }
-.calendar-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-chip span { min-width: 0; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.multiline-item-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .calendar-cell-events small { color: var(--muted); font-size: 9px; }
 .calendar-generation-notice { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 20px; color: var(--olive-dark); background: #f2f5ec; }
 
@@ -180,6 +184,10 @@ button.calendar-cell:focus-visible { outline: 3px solid rgba(104, 116, 90, .3); 
 .routine-agenda-item { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: #fdfcf8; }
 .routine-agenda-item strong { display: block; }
 .routine-agenda-item p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.routine-item-content { min-width: 0; flex: 1 1 auto; margin: -7px; padding: 7px; border: 0; border-radius: 8px; color: inherit; background: transparent; font: inherit; text-align: left; }
+button.routine-item-content { cursor: pointer; }
+button.routine-item-content:hover { background: var(--olive-soft); }
+button.routine-item-content:focus-visible { outline: 3px solid rgba(104, 116, 90, .22); outline-offset: 1px; }
 .routine-agenda-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 9px; }
 .routine-agenda-actions > span { color: var(--muted); font-size: 12px; }
 .routine-empty { margin: 18px 0 0; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-style: italic; }
@@ -372,12 +380,17 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 }
 
 .mention-composer { position: relative; min-width: 0; }
-.mention-composer textarea { width: 100%; }
-.mention-bindings { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px 7px; }
-.mention-binding { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 5px 6px 5px 9px; border: 1px solid #bdc8b4; border-radius: 999px; color: var(--olive-dark); background: var(--olive-soft); font-size: 11px; font-weight: 700; }
-.mention-binding > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mention-binding button { width: 20px; min-height: 20px; padding: 0; border-radius: 50%; color: inherit; background: transparent; font-size: 16px; line-height: 1; }
-.mention-binding button:hover { color: white; background: var(--olive-dark); }
+.mention-input-shell { position: relative; min-height: 68px; }
+.mention-composer textarea { position: relative; z-index: 1; width: 100%; margin: 0; line-height: 1.45; }
+.mention-highlight-layer { position: absolute; z-index: 2; inset: 0; overflow: hidden; padding: 10px 12px; color: transparent; font: inherit; line-height: 1.45; overflow-wrap: break-word; pointer-events: none; white-space: pre-wrap; }
+.mention-highlight-content { min-height: 100%; transform-origin: top left; }
+.mention-inline-token { position: relative; border-radius: 4px; color: var(--olive-dark); background: #d9e5cf; box-shadow: 0 0 0 2px #d9e5cf, inset 0 -1px 0 #9bac8d; cursor: help; font-weight: inherit; pointer-events: auto; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.mention-inline-token:hover, .mention-inline-token:focus-visible { color: #fff; background: var(--olive-dark); box-shadow: 0 0 0 2px var(--olive-dark); outline: none; }
+.mention-object-popover { position: absolute; z-index: 14; display: grid; gap: 3px; width: max-content; max-width: min(360px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #abb5a1; border-radius: 10px; color: var(--ink); background: #fffefa; box-shadow: 0 12px 34px rgba(25, 31, 21, .22); font-size: 11px; font-weight: 500; line-height: 1.35; pointer-events: none; text-align: left; white-space: normal; }
+.mention-object-popover::after { position: absolute; top: 100%; left: 14px; width: 9px; height: 9px; border-right: 1px solid #abb5a1; border-bottom: 1px solid #abb5a1; background: #fffefa; content: ""; transform: translateY(-5px) rotate(45deg); }
+.mention-object-popover strong { color: var(--olive-dark); font-size: 12px; }
+.mention-object-popover span { color: var(--muted); font-weight: 700; }
+.mention-object-popover small { color: var(--muted); font-size: 10px; white-space: pre-line; }
 .mention-picker { position: absolute; z-index: 12; right: 0; bottom: calc(100% + 11px); left: 0; max-height: min(440px, 55vh); overflow: auto; padding: 8px; border: 1px solid #b9c0b2; border-radius: 13px; background: #fffefa; box-shadow: 0 18px 55px rgba(25, 31, 21, .24); }
 .mention-group { display: grid; gap: 2px; }
 .mention-group + .mention-group { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }

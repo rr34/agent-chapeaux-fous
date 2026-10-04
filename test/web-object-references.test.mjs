@@ -33,12 +33,23 @@ test("the React UI can reference every displayed first-class object in Agent", (
   assert.match(app, /identity=\{journalEntryIdentity\(entry\)\}/);
   assert.match(editableItems, /identity=\{calendarEventIdentity\(event, timeZone\)\}/);
   assert.match(editableItems, /identity=\{todoIdentity\(todo\)\}/);
-  assert.match(routines, /identity=\{calendarRoutineIdentity\(routine\)\}/);
+  assert.match(editableItems, /onReference && Number\.isSafeInteger\(eventId\) && eventId > 0/);
+  assert.match(editableItems, /onReference && status !== "complete"/);
+  assert.match(editableItems, /identity=\{calendarRoutineIdentity\(routine\)\}/);
 });
 
-test("React exchange references retain explicit source metadata on submission", () => {
+test("React reference arrows add native inline objects while retaining exact source metadata", () => {
   const app = fs.readFileSync(path.join(root, "web", "src", "App.tsx"), "utf8");
-  assert.match(app, /"In reference to:\\n" \+ identity/);
-  assert.match(app, /referencedRequestIds: referencedRequestIdsFromComposer\(text\)/);
-  assert.match(app, /Reference code:\\s\*request_id=/);
+  const references = fs.readFileSync(path.join(root, "web", "src", "components", "AgentReferenceButton.tsx"), "utf8");
+  assert.doesNotMatch(app, /"In reference to:\\n" \+ identity/);
+  assert.match(app, /setAgentObjectSelections\(\(current\) => \[\.\.\.current, identity\]\)/);
+  assert.match(app, /identity\.mention \+ \(current/);
+  assert.match(app, /const referencedRequestIds = \[\.\.\.new Set\(selections\.flatMap/);
+  assert.match(app, /referencedRequestId \? \[\] : \[selection\]/);
+  assert.match(references, /mention: `@\$\{title\}`/);
+  assert.match(references, /type: "calendar\.event", source: "native:calendar"/);
+  assert.match(references, /collection: "calendar-events", label: "Calendar event"/);
+  assert.match(references, /const detail = \[\s*`Calendar event:/);
+  assert.match(references, /Reference code:/);
+  assert.match(references, /referencedRequestId: request\.requestId/);
 });

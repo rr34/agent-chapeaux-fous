@@ -45,7 +45,15 @@ export interface CalendarRoutine extends Entity {
   id: number;
   title: string;
   description?: string | null;
+  location?: string | null;
+  startsAtUtc: string;
+  endsAtUtc?: string | null;
+  timeZone?: string | null;
+  isAllDay: boolean;
   recurrenceRule: string;
+  planningPromptText?: string | null;
+  disabledAtUtc?: string | null;
+  version?: string;
 }
 
 export interface CalendarRoutineOccurrence {
@@ -126,6 +134,8 @@ export interface SelectedObjectCandidate {
   ref: string;
   display: string;
   label: string;
+  detail?: string;
+  referencedRequestId?: string;
 }
 
 export interface RequestProgress {

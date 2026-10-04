@@ -18,6 +18,16 @@ test("calendar days select the detailed timeline and linked to-dos", () => {
   assert.match(appSource, /todos=\{selectedTodos\}/);
 });
 
+test("calendar week arrows move the selected weekday and loaded range by seven days", () => {
+  assert.match(appSource, /aria-label="Previous week".*shiftLocalDate\(current, -7\)/);
+  assert.match(appSource, /aria-label="Next week".*shiftLocalDate\(current, 7\)/);
+  assert.match(appSource, /new URLSearchParams\(\{ date: selectedDate/);
+  assert.doesNotMatch(appSource, /setSelectedDate\(data\.date\)/);
+  assert.match(appSource, /<CalendarGrid id="calendar-grid"/);
+  assert.match(calendarSource, /<section id=\{id\} className=\{\`two-week-grid/);
+  assert.match(styles, /\.calendar-range-arrow \{[^}]*width: 100%/s);
+});
+
 test("calendar uses its day selection instead of separate date and paper controls", () => {
   assert.doesNotMatch(appSource, /className="compact-field"/);
   assert.match(appSource, /date: selectedDate, timeZone, paperSize: "letter"/);

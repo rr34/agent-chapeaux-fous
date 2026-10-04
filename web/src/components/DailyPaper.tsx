@@ -15,16 +15,18 @@ export function CalendarGrid({
   selectedDate,
   onSelect,
   ariaLabel = "Two-week calendar",
+  id,
 }: {
   days: CalendarDay[];
   compact?: boolean;
   selectedDate?: string;
   onSelect?: (localDate: string) => void;
   ariaLabel?: string;
+  id?: string;
 }) {
   const eventLimit = compact ? 3 : 8;
   return (
-    <section className={`two-week-grid ${compact ? "two-week-grid--compact" : ""}`} aria-label={ariaLabel}>
+    <section id={id} className={`two-week-grid ${compact ? "two-week-grid--compact" : ""}`} aria-label={ariaLabel}>
       <div className="weekdays" aria-hidden="true">
         {days.slice(0, 7).map((day) => <span key={day.weekday}>{day.weekday}</span>)}
       </div>
@@ -40,7 +42,7 @@ export function CalendarGrid({
               {day.events.slice(0, eventLimit).map((event) => (
                 <span className="calendar-chip" key={`${day.localDate}-${event.id}-${event.startsAtUtc}`}>
                   {!event.isAllDay && <time>{timeLabel(event, event.timeZone || "UTC").split("–")[0]}</time>}
-                  <span>{event.title}</span>
+                  <span className="multiline-item-text">{event.title}</span>
                 </span>
               ))}
               {day.events.length > eventLimit && <small>+{day.events.length - eventLimit} more</small>}

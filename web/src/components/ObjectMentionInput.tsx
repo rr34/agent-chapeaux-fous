@@ -26,6 +26,19 @@ interface ActiveMention {
   query: string;
 }
 
+interface MentionSegment {
+  start: number;
+  end: number;
+  text: string;
+  selection?: SelectedObjectCandidate;
+}
+
+interface MentionPopover {
+  selection: SelectedObjectCandidate;
+  left: number;
+  bottom: number;
+}
+
 function groupFor(type: string) {
   return groupOrder.find(([, prefixes]) => prefixes.some((prefix) => type.startsWith(prefix)))?.[0]
     || "Other";
@@ -53,7 +66,40 @@ function submissionCandidate(candidate: ObjectSearchCandidate): SelectedObjectCa
     ref: candidate.ref,
     display: candidate.title,
     label: candidate.label,
+    detail: candidate.detail,
   };
+}
+
+function mentionSegments(value: string, selections: SelectedObjectCandidate[]) {
+  const matches: MentionSegment[] = [];
+  for (const selection of selections) {
+    let offset = 0;
+    while (offset < value.length) {
+      const start = value.indexOf(selection.mention, offset);
+      if (start < 0) break;
+      const end = start + selection.mention.length;
+      const before = value[start - 1] ?? "";
+      const after = value[end] ?? "";
+      if ((!before || /[\s([{]/u.test(before))
+          && (!after || /[\s,.;:!?()[\]{}]/u.test(after))) {
+        matches.push({ start, end, text: selection.mention, selection });
+      }
+      offset = end;
+    }
+  }
+  matches.sort((left, right) => left.start - right.start || right.end - left.end);
+  const segments: MentionSegment[] = [];
+  let cursor = 0;
+  for (const match of matches) {
+    if (match.start < cursor) continue;
+    if (match.start > cursor) {
+      segments.push({ start: cursor, end: match.start, text: value.slice(cursor, match.start) });
+    }
+    segments.push(match);
+    cursor = match.end;
+  }
+  if (cursor < value.length) segments.push({ start: cursor, end: value.length, text: value.slice(cursor) });
+  return segments;
 }
 
 export function ObjectMentionInput({
@@ -70,6 +116,8 @@ export function ObjectMentionInput({
   const [activeIndex, setActiveIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scroll, setScroll] = useState({ left: 0, top: 0 });
+  const [popover, setPopover] = useState<MentionPopover | null>(null);
 
   useEffect(() => {
     const query = activeMention?.query.trim() || "";
@@ -114,6 +162,7 @@ export function ObjectMentionInput({
     return names.flatMap((name) => groups.has(name) ? [[name, groups.get(name)!] as const] : []);
   }, [results]);
   const orderedResults = grouped.flatMap(([, candidates]) => candidates);
+  const highlightedSegments = useMemo(() => mentionSegments(value, selections), [value, selections]);
   const open = activeMention !== null;
 
   const update = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -181,41 +230,74 @@ export function ObjectMentionInput({
     }
   };
 
-  const remove = (selection: SelectedObjectCandidate) => {
-    const start = value.indexOf(selection.mention);
-    let next = value;
-    if (start >= 0) {
-      const end = start + selection.mention.length;
-      const removeEnd = value[end] === " " ? end + 1 : end;
-      next = value.slice(0, start) + value.slice(removeEnd);
-    }
-    onChange(next);
-    onSelectionsChange(selections.filter(({ ref }) => ref !== selection.ref));
+  const selectMention = (start: number, end: number) => {
+    const field = textareaRef.current;
+    if (!field) return;
+    field.focus();
+    field.setSelectionRange(start, end);
+  };
+
+  const showMentionDetails = (target: HTMLElement, selection: SelectedObjectCandidate) => {
+    const composer = target.closest(".mention-composer");
+    if (!composer) return;
+    const composerBounds = composer.getBoundingClientRect();
+    const tokenBounds = target.getBoundingClientRect();
+    const maximumWidth = Math.min(360, composerBounds.width - 24);
+    setPopover({
+      selection,
+      left: Math.max(12, Math.min(
+        tokenBounds.left - composerBounds.left,
+        composerBounds.width - maximumWidth - 12,
+      )),
+      bottom: composerBounds.bottom - tokenBounds.top + 8,
+    });
   };
 
   return <div className="mention-composer">
-    {selections.length > 0 && <div className="mention-bindings" aria-label="Objects referenced in this request">
-      {selections.map((selection) => <span className="mention-binding" key={selection.ref}>
-        <span>{selection.label}: {selection.display}</span>
-        <button type="button" onClick={() => remove(selection)} aria-label={`Remove ${selection.display} from this request`}>×</button>
-      </span>)}
+    <div className="mention-input-shell">
+      <div className="mention-highlight-layer" aria-label="Selected object references">
+        <div className="mention-highlight-content" style={{ transform: `translate(${-scroll.left}px, ${-scroll.top}px)` }}>
+          {highlightedSegments.map((segment) => segment.selection
+            ? <span
+              className="mention-inline-token"
+              key={`${segment.selection.ref}-${segment.start}`}
+              tabIndex={0}
+              aria-describedby="mention-object-detail"
+              onMouseEnter={(event) => showMentionDetails(event.currentTarget, segment.selection!)}
+              onMouseLeave={() => setPopover(null)}
+              onFocus={(event) => showMentionDetails(event.currentTarget, segment.selection!)}
+              onBlur={() => setPopover(null)}
+              onMouseDown={(event) => { event.preventDefault(); selectMention(segment.start, segment.end); }}
+            >
+              {segment.text}
+            </span>
+            : <span aria-hidden="true" key={`text-${segment.start}`}>{segment.text}</span>)}
+        </div>
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={update}
+        onClick={refreshAtCursor}
+        onScroll={(event) => setScroll({ left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop })}
+        onKeyUp={(event) => { if (!["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) refreshAtCursor(); }}
+        onBlur={(event) => { if (!event.currentTarget.parentElement?.parentElement?.contains(event.relatedTarget as Node | null)) setActiveMention(null); }}
+        onKeyDown={onKeyDown}
+        placeholder="What would you like Chapeaux Fous to do? Type @ to reference an object."
+        rows={3}
+        aria-label="Agent request"
+        aria-autocomplete="list"
+        aria-expanded={open}
+        aria-controls="object-mention-listbox"
+        aria-activedescendant={open && orderedResults[activeIndex] ? `object-mention-${orderedResults[activeIndex].type}-${orderedResults[activeIndex].id}` : undefined}
+      />
+    </div>
+    {popover && <div className="mention-object-popover" role="tooltip" id="mention-object-detail" style={{ left: popover.left, bottom: popover.bottom }}>
+      <strong>{popover.selection.display}</strong>
+      <span>{popover.selection.label}</span>
+      {popover.selection.detail && <small>{popover.selection.detail}</small>}
+      <small>Delete the highlighted text to remove this reference.</small>
     </div>}
-    <textarea
-      ref={textareaRef}
-      value={value}
-      onChange={update}
-      onClick={refreshAtCursor}
-      onKeyUp={(event) => { if (!["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) refreshAtCursor(); }}
-      onBlur={(event) => { if (!event.currentTarget.parentElement?.contains(event.relatedTarget as Node | null)) setActiveMention(null); }}
-      onKeyDown={onKeyDown}
-      placeholder="What would you like Chapeaux Fous to do? Type @ to reference an object."
-      rows={3}
-      aria-label="Agent request"
-      aria-autocomplete="list"
-      aria-expanded={open}
-      aria-controls="object-mention-listbox"
-      aria-activedescendant={open && orderedResults[activeIndex] ? `object-mention-${orderedResults[activeIndex].type}-${orderedResults[activeIndex].id}` : undefined}
-    />
     {open && <div className="mention-picker" id="object-mention-listbox" role="listbox" aria-label="Objects">
       {!activeMention.query.trim() && <p className="mention-picker-state">Type after @ to find an object.</p>}
       {loading && <p className="mention-picker-state">Searching objects…</p>}

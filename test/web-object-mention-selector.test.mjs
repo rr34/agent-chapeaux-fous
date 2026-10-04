@@ -29,15 +29,19 @@ test("a chosen object remains visible and submits its exact identity tuple", () 
   assert.match(picker, /type: candidate\.domainType/);
   assert.match(picker, /source: candidate\.source/);
   assert.match(picker, /ref: candidate\.ref/);
-  assert.match(app, /selectedObjectCandidates: selections\.map/);
+  assert.match(picker, /detail: candidate\.detail/);
+  assert.match(app, /const selectedObjectCandidates = selections\.flatMap/);
+  assert.match(app, /detail: _detail/);
   assert.match(server, /normalizeSelectedObjectCandidates\(body\.selectedObjectCandidates\)/);
   assert.match(server, /selectedObjectMentionsAreVisible\(text, selectedObjectCandidates\)/);
 });
 
-test("the picker is draft-only and selected identities can be removed", () => {
-  assert.match(picker, /className="mention-bindings"/);
-  assert.match(picker, /Remove \$\{selection\.display\} from this request/);
-  assert.match(picker, /onSelectionsChange\(selections\.filter\(\(\{ ref \}\) => ref !== selection\.ref\)\)/);
+test("selected identities render as inline objects with hover details", () => {
+  assert.match(picker, /className="mention-highlight-layer"/);
+  assert.match(picker, /className="mention-inline-token"/);
+  assert.match(picker, /className="mention-object-popover" role="tooltip"/);
+  assert.match(picker, /popover\.selection\.detail/);
+  assert.match(picker, /setSelectionRange\(start, end\)/);
   assert.match(app, /setSelections\(\[\]\)/);
   assert.match(picker, /A request can reference up to \$\{maximumSelections\} objects/);
 });

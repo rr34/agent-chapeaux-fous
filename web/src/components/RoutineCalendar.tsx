@@ -11,10 +11,9 @@ import type {
   CalendarRoutinePreview,
 } from "../types";
 import { CalendarGrid } from "./DailyPaper";
+import { CalendarRoutineItem } from "./EditableItems";
 import { ErrorState, Loading } from "./State";
-import {
-  AgentReferenceButton, calendarRoutineIdentity, type AddAgentReference,
-} from "./AgentReferenceButton";
+import { type AddAgentReference } from "./AgentReferenceButton";
 
 function localDateKey(date: Date) {
   return [date.getFullYear(), date.getMonth() + 1, date.getDate()]
@@ -122,9 +121,10 @@ function recurrenceLabel(rule: string) {
   return interval === 1 ? `${name[0].toUpperCase()}${name.slice(1)}ly` : `Every ${interval} ${name}s`;
 }
 
-function RoutineAgenda({ day, routines, onReference }: {
+function RoutineAgenda({ day, routines, onChanged, onReference }: {
   day?: CalendarDay;
   routines: Map<number, CalendarRoutine>;
+  onChanged: () => void | Promise<void>;
   onReference: AddAgentReference;
 }) {
   if (!day) return null;
@@ -132,17 +132,9 @@ function RoutineAgenda({ day, routines, onReference }: {
   return <div className="routine-agenda" aria-label={`Routines for ${formatLocalDate(day.localDate)}`}>
     {day.events.map((event) => {
       const routine = routines.get(Number(event.id));
-      return <article className="routine-agenda-item" key={`${event.id}-${event.startsAtUtc}`}>
-        <div><strong>{event.title}</strong>{event.description && <p>{event.description}</p>}</div>
-        <div className="routine-agenda-actions">
-          <span>{event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, event.timeZone || undefined)} · {recurrenceLabel(routine?.recurrenceRule || "")}</span>
-          {routine && <AgentReferenceButton
-            identity={calendarRoutineIdentity(routine)}
-            subject={`calendar routine ${routine.title}`}
-            onReference={onReference}
-          />}
-        </div>
-      </article>;
+      if (!routine) return null;
+      const timeLabel = `${event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, event.timeZone || undefined)} · ${recurrenceLabel(routine.recurrenceRule)}`;
+      return <CalendarRoutineItem key={`${event.id}-${event.startsAtUtc}`} routine={routine} timeLabel={timeLabel} onChanged={onChanged} onReference={onReference} />;
     })}
   </div>;
 }
@@ -212,14 +204,14 @@ export function RoutineScreen({ onGenerated, onReference }: {
     {error && <ErrorState error={error} retry={reload} />}
     {data && <div className="routine-calendars">
       <section className="surface routine-calendar-section">
-        <div className="section-title"><div><p className="eyebrow">Reusable week</p><h2>Weekly &amp; daily</h2><p>Select a weekday to see its routines.</p></div></div>
+        <div className="section-title"><div><p className="eyebrow">Reusable week</p><h2>Weekly &amp; daily</h2><p>Select a weekday, then click a routine to edit it.</p></div></div>
         <div className="routine-calendar-scroll"><CalendarGrid days={weeklyDays} selectedDate={selectedWeekday} onSelect={setSelectedWeekday} ariaLabel="Weekly routine calendar, Monday through Sunday" /></div>
-        <RoutineAgenda day={selectedWeeklyDay} routines={routineMap} onReference={onReference} />
+        <RoutineAgenda day={selectedWeeklyDay} routines={routineMap} onChanged={reload} onReference={onReference} />
       </section>
       <section className="surface routine-calendar-section">
         <div className="section-title"><div><p className="eyebrow">Month pattern</p><h2>{monthName}</h2><p>Monthly and yearly routines. Daily and weekly patterns appear above.</p></div></div>
         <div className="routine-calendar-scroll"><CalendarGrid days={monthlyDays} selectedDate={selectedMonthDate} onSelect={setSelectedMonthDate} ariaLabel={`Monthly routine calendar for ${monthName}`} /></div>
-        <RoutineAgenda day={selectedMonthlyDay} routines={routineMap} onReference={onReference} />
+        <RoutineAgenda day={selectedMonthlyDay} routines={routineMap} onChanged={reload} onReference={onReference} />
       </section>
     </div>}
   </>;
