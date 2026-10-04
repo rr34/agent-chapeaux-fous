@@ -138,6 +138,10 @@ that identity, and orientation must select the bounded native-object context
 view before the application rereads it and exposes it as a verified TurnBrief
 object binding. Selection identifies an object; it never authorizes a write.
 
+Calendar candidates have no future cutoff but expire from the selector one
+month after they end (or start when no end is stored). To-do candidates include
+only open `todo` and `ai_suggested` items; completed items never appear.
+
 `.env` intentionally lives beside `.env.example` in the repository root. It is
 ignored by Git and loaded by the process before configuration is evaluated.
 

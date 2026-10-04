@@ -28,11 +28,11 @@ const byDomainType = new Map(nativeObjectTypes.map((definition) => [definition.d
 const exactCandidateReads = Object.freeze({
   contact: { display: "display_name", where: "status = 'active'" },
   todo_group: { display: "name", where: "archived_at_utc IS NULL" },
-  todo: { display: "text", where: "status NOT IN ('archive', 'ignore') AND EXISTS (SELECT 1 FROM todo_groups WHERE todo_group_id = todo_personal.todo_group_id AND archived_at_utc IS NULL)" },
+  todo: { display: "text", where: "status IN ('todo', 'ai_suggested') AND EXISTS (SELECT 1 FROM todo_groups WHERE todo_group_id = todo_personal.todo_group_id AND archived_at_utc IS NULL)" },
   journal_group: { display: "name", where: "archived_at_utc IS NULL" },
   tracker: { display: "name", where: "archived_at_utc IS NULL AND EXISTS (SELECT 1 FROM journal1_groups WHERE journal_group_id = journal2_trackers.journal_group_id AND archived_at_utc IS NULL)" },
   journal_entry: { display: "content_text", where: "EXISTS (SELECT 1 FROM journal2_trackers JOIN journal1_groups USING (journal_group_id) WHERE tracker_id = journal3_entries.tracker_id AND journal2_trackers.archived_at_utc IS NULL AND journal1_groups.archived_at_utc IS NULL)" },
-  calendar_event: { display: "title", where: "status <> 'cancelled'" },
+  calendar_event: { display: "title", where: "status <> 'cancelled' AND COALESCE(ends_at_utc, starts_at_utc) >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 1 MONTH)" },
   calendar_routine: { display: "title", where: "disabled_at_utc IS NULL" },
   file: { display: "COALESCE(title, original_filename)", where: "1 = 1" },
   interaction_guide: { display: "name", where: "status = 'active'" },
@@ -169,7 +169,7 @@ function readCandidates(database, tokens) {
       task.related_contact_id AS contact_id, contact.display_name AS contact_title`,
     `todo_personal AS task JOIN todo_groups AS todo_group USING (todo_group_id)
       LEFT JOIN contacts AS contact ON contact.contact_id = task.related_contact_id`,
-    "task.status NOT IN ('archive', 'ignore') AND todo_group.archived_at_utc IS NULL",
+    "task.status IN ('todo', 'ai_suggested') AND todo_group.archived_at_utc IS NULL",
     ["task.text", "todo_group.name", "contact.display_name"], [], "task.personal_task_id DESC");
 
   read("journal_group", "journal_group.journal_group_id AS id, journal_group.name AS title",
@@ -190,7 +190,7 @@ function readCandidates(database, tokens) {
     "entry.occurred_at_utc DESC, entry.journal_entry_id DESC");
   read("calendar_event", `event.calendar_event_id AS id, event.title,
       event.starts_at_utc, event.location_text, event.status`,
-    "calendar_events AS event", "event.status <> 'cancelled'",
+    "calendar_events AS event", "event.status <> 'cancelled' AND COALESCE(event.ends_at_utc, event.starts_at_utc) >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 1 MONTH)",
     ["event.title", "event.description", "event.location_text"], [],
     "event.starts_at_utc DESC, event.calendar_event_id DESC");
   read("calendar_routine", `routine.calendar_routine_id AS id, routine.title,

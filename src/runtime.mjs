@@ -1049,8 +1049,16 @@ export class SlayerRuntime {
       });
       throw error;
     }
+    const freshlyPreparedRefs = new Set(preparedObjectReferences.flatMap(
+      ({ objects }) => objects.map(({ ref }) => ref),
+    ));
+    const retainedBriefObjectReferences = brief.objectReferences
+      .map((group) => ({
+        ...group, objects: group.objects.filter(({ ref }) => !freshlyPreparedRefs.has(ref)),
+      }))
+      .filter(({ objects }) => objects.length);
     const refinementObjectReferences = mergeObjectReferenceGroups([
-      ...availableObjectReferences, ...preparedObjectReferences,
+      ...retainedBriefObjectReferences, ...preparedObjectReferences,
     ]);
     if (hasReceiptGatedActiveBriefing(preparedCapabilityContext)
         || ((args.selectedObjectCandidates?.length ?? 0) > 0 && preparedObjectReferences.length)) {

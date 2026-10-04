@@ -14,6 +14,14 @@ test("the Agent composer stays fixed and is rendered by the workspace", () => {
   assert.match(styles, /\.workspace \{[^}]*padding:[^;}]*170px/s);
 });
 
+test("the Agent conversation initially scrolls to its newest interaction", () => {
+  const agentScreen = app.slice(app.indexOf("function AgentScreen("), app.indexOf("function CalendarScreen("));
+  assert.match(agentScreen, /const initialScrollPending = useRef\(true\)/);
+  assert.match(agentScreen, /if \(loading \|\| error \|\| !data \|\| !initialScrollPending\.current\) return/);
+  assert.match(agentScreen, /window\.scrollTo\(\{[\s\S]*document\.documentElement\.scrollHeight[\s\S]*document\.body\.scrollHeight[\s\S]*behavior: "auto"/);
+  assert.match(agentScreen, /initialScrollPending\.current = false/);
+});
+
 test("plain Enter sends an Agent request while Shift+Enter keeps a newline", () => {
   assert.match(objectMentionInput, /event\.key === "Enter" && !event\.shiftKey && !event\.nativeEvent\.isComposing/);
   assert.match(objectMentionInput, /event\.preventDefault\(\);\s*event\.currentTarget\.form\?\.requestSubmit\(\);/s);

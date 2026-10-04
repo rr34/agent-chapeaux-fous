@@ -65,6 +65,45 @@ test("object search bounds text and result count before database work", () => {
   }), /limit must be from 1 to 48/u);
 });
 
+test("the selector keeps only recent-or-future events and open to-dos", () => {
+  const searchSql = [];
+  const exactSql = [];
+  const database = { prepare(sql) {
+    return {
+      all() {
+        searchSql.push(sql);
+        return [];
+      },
+      get() {
+        exactSql.push(sql);
+        if (sql.includes("calendar_events")) return { title: "Future meeting" };
+        if (sql.includes("todo_personal")) return { title: "Open task" };
+        return undefined;
+      },
+    };
+  } };
+
+  searchNativeObjects(database, { query: "meeting task" });
+  const todoSearch = searchSql.find((sql) => sql.includes("FROM todo_personal AS task"));
+  const eventSearch = searchSql.find((sql) => sql.includes("FROM calendar_events AS event"));
+  assert.match(todoSearch, /task\.status IN \('todo', 'ai_suggested'\)/u);
+  assert.doesNotMatch(todoSearch, /status NOT IN/u);
+  assert.match(eventSearch, /COALESCE\(event\.ends_at_utc, event\.starts_at_utc\) >= DATE_SUB\(UTC_TIMESTAMP\(3\), INTERVAL 1 MONTH\)/u);
+
+  const selected = [{
+    mention: "@Open task", type: "todos.personal_task", source: "native:todos",
+    id: 9, ref: "agent-slayer://todos/9", display: "Open task",
+  }, {
+    mention: "@Future meeting", type: "calendar.event", source: "native:calendar",
+    id: 14, ref: "agent-slayer://calendar-events/14", display: "Future meeting",
+  }];
+  assert.equal(resolveNativeObjectCandidates(database, selected).length, 2);
+  const todoExact = exactSql.find((sql) => sql.includes("FROM todo_personal"));
+  const eventExact = exactSql.find((sql) => sql.includes("FROM calendar_events"));
+  assert.match(todoExact, /status IN \('todo', 'ai_suggested'\)/u);
+  assert.match(eventExact, /COALESCE\(ends_at_utc, starts_at_utc\) >= DATE_SUB\(UTC_TIMESTAMP\(3\), INTERVAL 1 MONTH\)/u);
+});
+
 test("native object context is advertised and read only after strict view selection", async () => {
   const registry = new ToolRegistry();
   registry.registerCapability({ id: "search", title: "Global search" });

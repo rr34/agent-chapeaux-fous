@@ -838,9 +838,18 @@ test("an accepted account binding constrains and guards the later tool ID", asyn
   assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), true);
 });
 
-test("an @ selection is verified and bound by exact ID before execution", async () => {
+test("an @ selection uses its fresh exact-ID evidence when an older binding exists", async () => {
   const requests = [];
-  const ledger = fakeLedger();
+  const priorBinding = {
+    mention: "Lucas from an older exchange", type: "contacts.contact", source: "native:contacts",
+    role: "subject",
+    objects: [{ id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing" }],
+    sourceEventSeqs: [4],
+  };
+  const ledger = fakeLedger({ conversation: [{
+    eventSeq: 4, requestId: "request-prior", occurredAtUtc: "2026-09-20T12:00:00Z", role: "assistant",
+    content: "I found Lucas Ruffing.", objectReferences: [priorBinding],
+  }] });
   const registry = new ToolRegistry();
   registerNativeCapabilities(registry);
   registry.withCapability("search", {
@@ -904,7 +913,7 @@ test("an @ selection is verified and bound by exact ID before execution", async 
     summary: "Use the selected Lucas Ruffing contact.",
     requiredCapabilities: ["contacts"],
     requiredTools: ["contact_lookup_batch"],
-    contextRequests: [], objectReferences: [], requestedActions: [],
+    contextRequests: [], objectReferences: [priorBinding], requestedActions: [],
     completionCriteria: ["Summarize the verified contact."],
   };
   const withContext = { ...initial, contextRequests: ["search.native_object_candidates"] };
@@ -928,6 +937,7 @@ test("an @ selection is verified and bound by exact ID before execution", async 
       assert.deepEqual(binding.objects, [{
         id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing",
       }]);
+      assert.notDeepEqual(binding.sourceEventSeqs, priorBinding.sourceEventSeqs);
       return completed(JSON.stringify({ ...withContext, objectReferences: [binding] }), 20);
     }
     assert.equal(index, 3);

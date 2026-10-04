@@ -551,7 +551,19 @@ function AgentScreen({ onReference, onShowTrace, refreshKey }: {
   refreshKey: number;
 }) {
   const { data, error, loading, reload } = useApi<{ requests: RequestRecord[] }>("/api/requests?limit=50", 3000);
+  const initialScrollPending = useRef(true);
   useEffect(() => { if (refreshKey > 0) void reload(); }, [refreshKey, reload]);
+  useEffect(() => {
+    if (loading || error || !data || !initialScrollPending.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({
+        top: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
+        behavior: "auto",
+      });
+      initialScrollPending.current = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [data, error, loading]);
   const decide = async (request: RequestRecord, decision: "continue" | "cancel") => {
     if (!request.turnBriefApproval?.approvalId) return;
     await api(`/api/requests/${request.requestId}/turn-brief/${decision}`, { method: "POST", body: JSON.stringify({ approvalId: request.turnBriefApproval.approvalId }) });
