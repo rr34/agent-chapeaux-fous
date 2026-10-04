@@ -92,6 +92,11 @@ test("native authoritative reads publish the same Object Description contract as
   assert.deepEqual(objectTypes(definitions.get("video_content_list")), [
     "video.content_group", "video.content_item",
   ]);
+  for (const definition of definitions.values()) {
+    assert.equal(definition.nativeObjectTypes, undefined);
+    assert.equal(definition.allowUnboundObjectInputs, undefined);
+    assert.equal(definition.nativeObjectInputRoles, undefined);
+  }
 
   const catalogTypes = requestCapabilityCatalog(registry.toolDefinitions())
     .flatMap(({ objectTypes: types }) => types.map(({ id, readTool }) => `${id}:${readTool}`));

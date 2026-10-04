@@ -1,5 +1,19 @@
+
+const toolDescriptions = Object.freeze({
+  "global_search": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Search across selected native domains and return compact normalized discovery hits while preserving provider matching rules.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  }
+});
 export function registerSearchTools(registry, searchCoordinator) {
-  registry = registry.withCapability?.("search") ?? registry;
+  registry = registry.withCapability?.("search", toolDescriptions) ?? registry;
   const scopes = searchCoordinator.listProviders().map(({ id }) => id);
   registry.register({
     name: "global_search",

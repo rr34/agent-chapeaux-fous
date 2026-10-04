@@ -1,0 +1,20 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "todos",
+  "title": "To-dos",
+  "summary": "Read and manage non-temporal personal to-dos. Calendar events own schedules and deadlines and may link to multiple to-dos.",
+  "aliases": [
+    "todo",
+    "to-do",
+    "task",
+    "reminder",
+    "chore"
+  ],
+  "readOnlyTools": [
+    "todo_group_list",
+    "todo_list"
+  ],
+  "guidance": "guidance.md"
+}

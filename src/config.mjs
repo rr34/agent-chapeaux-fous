@@ -94,7 +94,7 @@ export function loadConfig(environment = process.env) {
     mediaRoot: resolveFromRoot(environment.SLAYER_MEDIA_ROOT, "media"),
     systemPromptPath: path.join(repositoryRoot, "config/system-prompt.md"),
     hatCatalogPath: path.join(repositoryRoot, "config/hats.json"),
-    capabilityInstructionsPath: path.join(repositoryRoot, "config/instructions"),
+    capabilityPackagesPath: path.join(repositoryRoot, "config/capabilities"),
     profileFactQuestionsPath: path.join(repositoryRoot, "config/profile-fact-questions.json"),
     mcpConfigPath: resolveFromRoot(environment.SLAYER_MCP_CONFIG, "config/mcp-servers.json"),
     mcpUserConfigPath: environment.SLAYER_MCP_USER_CONFIG?.trim()

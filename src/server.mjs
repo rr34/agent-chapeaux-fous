@@ -16,7 +16,7 @@ import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { registerNativeObjectContextView } from "./native-object-search.mjs";
 import { createModelTransport } from "./model-transport.mjs";
-import { registerNativeCapabilities, validateNativeCapabilityManifests } from "./native-capabilities.mjs";
+import { assertNativeCapabilityRegistrations, registerNativeCapabilities, validateNativeCapabilityPackages } from "./native-capabilities.mjs";
 import { assertNativeToolDescriptions } from "./native-tool-descriptions.mjs";
 import { loadHatCatalog } from "./hat-catalog.mjs";
 import { RequestQueue } from "./queue.mjs";
@@ -57,8 +57,8 @@ import { WebPageClient } from "./web-page-client.mjs";
 import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 
 const config = loadConfig();
-await validateNativeCapabilityManifests({
-  instructionRoot: config.capabilityInstructionsPath,
+const nativeCapabilities = validateNativeCapabilityPackages({
+  capabilityRoot: config.capabilityPackagesPath,
 });
 const identity = runtimeIdentity(config.repositoryRoot);
 const store = new SlayerDatabase(config.databaseTarget);
@@ -90,7 +90,7 @@ let videoRenderWorker = null;
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
 const registry = new ToolRegistry();
-registerNativeCapabilities(registry);
+registerNativeCapabilities(registry, nativeCapabilities);
 const searchCoordinator = store.status.ready
   ? createNativeSearchCoordinator({ store, organizer, ledger })
   : null;
@@ -156,6 +156,7 @@ registerAgentSelfTools(registry, {
   hatCatalog,
 });
 assertNativeToolDescriptions(registry.toolDefinitions());
+assertNativeCapabilityRegistrations(registry.toolDefinitions(), nativeCapabilities);
 const contextBuilder = new ContextBuilder({
   ledger,
   profileFacts,
@@ -164,7 +165,6 @@ const contextBuilder = new ContextBuilder({
   maximumAttachmentCharacters: config.maxAttachmentContextCharacters,
 });
 const requestCompiler = new RequestCompiler({
-  instructionRoot: config.capabilityInstructionsPath,
   hatCatalog,
   capabilityManifest: (capabilityId) => registry.capabilityManifest(capabilityId),
 });

@@ -54,10 +54,13 @@ test("the standalone tree contains no retired database-engine references", () =>
 
 test("base instructions stay universal while capability fragments retain domain behavior", () => {
   const baseInstructions = fs.readFileSync(path.join(root, "config", "system-prompt.md"), "utf8");
-  const capabilityRoot = path.join(root, "config", "instructions");
+  const capabilityRoot = path.join(root, "config", "capabilities");
   const instructions = fs.readdirSync(capabilityRoot)
+    .filter((directory) => fs.statSync(path.join(capabilityRoot, directory)).isDirectory())
     .sort()
-    .map((filename) => fs.readFileSync(path.join(capabilityRoot, filename), "utf8"))
+    .map((directory) => fs.readFileSync(
+      path.join(capabilityRoot, directory, "guidance.md"), "utf8",
+    ))
     .join("\n");
   assert.doesNotMatch(baseInstructions, /TLOM/i);
   assert.doesNotMatch(baseInstructions, /personal to-dos|native JMAP|contact_dedupe_clear/);

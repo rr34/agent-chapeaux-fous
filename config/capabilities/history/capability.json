@@ -1,0 +1,19 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "history",
+  "title": "Conversation history",
+  "summary": "Search prior Agent Slayer conversations.",
+  "aliases": [
+    "history",
+    "previous conversation",
+    "earlier"
+  ],
+  "readOnlyTools": [
+    "history_recent",
+    "history_search",
+    "history_range"
+  ],
+  "guidance": "guidance.md"
+}

@@ -28,6 +28,15 @@ const selected = [{
   objects: [{ id: 178, ref: "accounting://accounts/178", display: "Operating Checking" }],
   sourceEventSeqs: [30_801],
 }];
+function fixtureSelection(summary) {
+  return {
+    protocol: "agent-slayer.tool-description",
+    version: 1,
+    summary,
+    actionClasses: ["UPDATE"],
+    effectClassifications: ["MUTATING"],
+  };
+}
 
 test("provider-declared object inputs narrow the callable schema to accepted exact IDs", () => {
   assert.deepEqual(validateObjectInputBindings(contract), contract);
@@ -97,7 +106,9 @@ test("a declared object input cannot receive an ID before its object is identifi
 
 test("native tool registration declares first-class IDs, including IDs inside batches", () => {
   const registry = new ToolRegistry();
-  registry.register({
+  registry.withCapability("todos", {
+    todo_update_batch: fixtureSelection("Update explicitly selected to-dos in one batch."),
+  }).register({
     name: "todo_update_batch", description: "Update selected to-dos.", capabilityId: "todos",
     parameters: {
       type: "object", additionalProperties: false,
@@ -130,7 +141,9 @@ test("native tool registration declares first-class IDs, including IDs inside ba
 
 test("database string IDs canonicalize before a native calendar-contact action", () => {
   const registry = new ToolRegistry();
-  registry.register({
+  registry.withCapability("calendar", {
+    calendar_event_contact_link_set: fixtureSelection("Link one exact contact to one exact event."),
+  }).register({
     name: "calendar_event_contact_link_set",
     description: "Link a contact to an event.",
     capabilityId: "calendar",

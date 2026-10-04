@@ -1,5 +1,53 @@
 import { recurrenceSchema } from "../todo-recurrence.mjs";
 
+const toolDescriptions = Object.freeze({
+  "catch_up_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read eligible generated questions within the saved or supplied Check-in scope, or inspect one exact question. Checks live sources and preserves their foreign keys and occurrence identities.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "catch_up_question_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Resolve, defer, reopen, or comment on one source-linked catch-up question using its current version. Actual event and journal changes use their owning tools.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "catch_up_refresh": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Generate and reconcile source-linked questions for selected journal dates, upcoming event planning, and past-event review. Persists the exact Check-in scope. Returns counts; use catch_up_list for questions.",
+    "actionClasses": [
+      "CREATE",
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "tracker_asking_schedule_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Set or disable a journal tracker's asking schedule using structured recurrence. Existing observations satisfy each due logging period.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  }
+});
+
 const nullableText = { type: ["string", "null"] };
 const id = { type: "integer", minimum: 1 };
 export const catchUpScopeSchema = {
@@ -44,8 +92,12 @@ function questionWithIdentity(question) {
   };
 }
 
+const nativeToolContracts = Object.freeze({
+  catch_up_list: { objectTypes: ["catch_up.question"], allowUnboundInputs: true },
+});
+
 export function registerCatchUpTools(rootRegistry, service) {
-  const registry = rootRegistry.withCapability("catch-up");
+  const registry = rootRegistry.withCapability("catch-up", toolDescriptions, nativeToolContracts);
   rootRegistry.registerContextView("catch-up", {
     id: "catch-up.pending", title: "Pending catch-up questions", maximumItems: 3,
     description: "Read-only view of the active saved Check-in scope and up to three eligible source-linked questions already generated. Does not generate questions. Select to interpret an unambiguous answer or continue catch-up.",
@@ -106,7 +158,7 @@ export function registerCatchUpTools(rootRegistry, service) {
       return { ...result, question: questionWithIdentity(result.question) };
     },
   });
-  rootRegistry.withCapability("journal").register({
+  rootRegistry.withCapability("journal", toolDescriptions).register({
     name: "tracker_asking_schedule_set",
     description: "Set or disable scheduled catch-up questions on one existing journal tracker. Supply a first period start and structured recurrence; never ask the user to write RRULE. A period extends from one scheduled start to the next in its IANA time zone. Any recorded observation in that period satisfies the question. Only the latest due period is asked, so missed periods do not accumulate a logging backlog. Null recurrence and starts_at_utc disable scheduled questions without archiving the tracker or changing observations. Refresh catch-up afterward.",
     parameters: { type: "object", additionalProperties: false, properties: {

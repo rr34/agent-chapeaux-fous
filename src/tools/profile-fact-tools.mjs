@@ -1,3 +1,39 @@
+
+const toolDescriptions = Object.freeze({
+  "profile_fact_delete": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Archive one durable profile-fact row by stable ID without affecting other facts of the same type.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "profile_fact_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List active or archived durable profile facts with stable IDs.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "profile_fact_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Add or replace one durable cross-task fact, relationship, or lasting preference.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  }
+});
 const profileFactRecordSchema = {
   type: ["object", "null"],
   description: "Stores the current and archived durable facts and preferences that describe the user to the secretary.",
@@ -37,8 +73,12 @@ function databaseFact(fact) {
   };
 }
 
+const nativeToolContracts = Object.freeze({
+  profile_fact_list: { objectTypes: ["profile.fact"] },
+});
+
 export function registerProfileFactTools(registry, profileFacts) {
-  registry = registry.withCapability?.("profile") ?? registry;
+  registry = registry.withCapability?.("profile", toolDescriptions, nativeToolContracts) ?? registry;
   registry.register({
     name: "profile_fact_list",
     description: "List active or archived durable profile facts, including stable row IDs. The first model request automatically includes active rows only for profile types selected as relevant to that request; use this tool when other durable facts clearly need inspection.",

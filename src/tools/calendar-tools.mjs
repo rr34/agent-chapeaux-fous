@@ -5,6 +5,152 @@ import { searchCalendarEventRows } from "../calendar-search.mjs";
 import { localDateForInstant } from "../temporal-consistency.mjs";
 import { selectedFields } from "./record-fields.mjs";
 
+const toolDescriptions = Object.freeze({
+  "calendar_event_add": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Create one native calendar event, including an optional planning prompt, all-day event, or structured recurrence when requested.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "calendar_event_contact_link_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Link or unlink an existing contact on one concrete calendar event with an explicit role. A neutral association uses other; no invitation is sent and no to-do is changed.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "calendar_event_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List the calendar schedule in an explicit UTC range, expanding recurrence occurrences and including derived contact birthdays.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "calendar_event_occurrence_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Move, cancel, or update one exact occurrence of a recurring calendar event while preserving the rest of its series.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "calendar_event_recurrence_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Add, replace, or remove structured recurrence on one existing native calendar event.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "calendar_event_search": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Search stored native calendar series by terms in title, description, or location. Use calendar_event_list instead for occurrences in a UTC range.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "calendar_event_todo_links_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Replace the many-to-many to-do links on one concrete calendar event; same-routine work placement moves while deadline and context links stay fixed.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "calendar_event_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Update or cancel a stored calendar event with explicit event or whole-series scope. A recurring master requires series scope and affects all generated occurrences; use calendar_event_occurrence_update for just one occurrence.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "calendar_routine_add": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Create one reusable calendar routine that generates concrete calendar events and never creates to-dos.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "calendar_routine_generate": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Generate missing concrete calendar events for active routines in a bounded range, then move unfinished work links from older occurrences to the earliest current or upcoming occurrence.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "calendar_routine_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List reusable calendar routine definitions separately from generated calendar events.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "calendar_routine_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Update or disable one calendar routine without rewriting events already generated.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "calendar_todo_links_place": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically place existing to-dos on concrete calendar events, moving same-routine work links while keeping deadline and context links fixed.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  }
+});
+
 const contactRecordSchema = {
   type: ["object", "null"],
   description: "Provides one address book for people, organizations, and services that other agent records need to identify or relate to.",
@@ -240,10 +386,15 @@ function writeEvent(database, ledger, context, {
   return sourceEventId;
 }
 
+const nativeToolContracts = Object.freeze({
+  calendar_event_search: { objectTypes: ["calendar.event"] },
+  calendar_routine_list: { objectTypes: ["calendar.routine"] },
+});
+
 export function registerCalendarTools(
   registry, store, organizer, ledger, searchCoordinator = null, planningService = null,
 ) {
-  registry = registry.withCapability?.("calendar") ?? registry;
+  registry = registry.withCapability?.("calendar", toolDescriptions, nativeToolContracts) ?? registry;
   registry.register({
     name: "calendar_event_search",
     description: "Search stored native calendar event series by title, description, and location. Every whitespace-separated query term must match at least one of those fields. Results are stored event records, not expanded recurrence occurrences or derived contact birthdays, and archived events are excluded unless explicitly requested.",

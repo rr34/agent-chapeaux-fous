@@ -46,6 +46,19 @@ function identityResultFilter(overrides = {}) {
   };
 }
 
+function fixtureToolDescription(summary, {
+  actionClasses = ["READ"],
+  effectClassifications = ["READ-ONLY"],
+} = {}) {
+  return {
+    protocol: "agent-slayer.tool-description",
+    version: 1,
+    summary,
+    actionClasses,
+    effectClassifications,
+  };
+}
+
 function brief({ auditRequired = true, confirmedActionReferenceIds = [] } = {}) {
   const source = { text: "Run the previously offered action.", sourceEventSeqs: [4, 9] };
   return {
@@ -121,7 +134,9 @@ test("a TurnBrief can skip the audit for declared read-only work and the trace s
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
   registerNativeCapabilities(registry);
-  registry.withCapability("todos").register({
+  registry.withCapability("todos", {
+    todo_list: fixtureToolDescription("List current to-dos without changing them."),
+  }).register({
     name: "todo_list",
     description: "List to-dos without changing them.",
     parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
@@ -1177,7 +1192,9 @@ test("a TurnBrief tool outside its selected capability is repaired before execut
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
   registerNativeCapabilities(registry);
-  registry.withCapability("database").register({
+  registry.withCapability("database", {
+    tool_receipt_read: fixtureToolDescription("Read one exact durable tool receipt."),
+  }).register({
     name: "tool_receipt_read",
     description: "Read one exact durable tool receipt.",
     parameters: {
@@ -1197,7 +1214,12 @@ test("a TurnBrief tool outside its selected capability is repaired before execut
       };
     },
   });
-  registry.withCapability("todos").register({
+  registry.withCapability("todos", {
+    todo_update: fixtureToolDescription("Update identified to-dos atomically.", {
+      actionClasses: ["UPDATE"],
+      effectClassifications: ["MUTATING"],
+    }),
+  }).register({
     name: "todo_update",
     description: "Update identified to-dos atomically.",
     parameters: {
@@ -1657,7 +1679,9 @@ test("a historical receipt cannot masquerade as a new dry run and repair preserv
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
   let dryRuns = 0;
-  registry.register({
+  registry.withCapability("database", {
+    tool_receipt_read: fixtureToolDescription("Read one exact durable historical tool receipt."),
+  }).register({
     name: "tool_receipt_read",
     description: "Read an old receipt.",
     parameters: {

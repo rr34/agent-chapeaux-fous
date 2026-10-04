@@ -1,3 +1,17 @@
+
+const toolDescriptions = Object.freeze({
+  "email_cleanup_receipt_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Recover exact recent email-mutation receipts when a prior response omitted or misstated the affected messages.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  }
+});
 const mutationToolNames = ["email_cleanup_apply", "email_bulk_update", "email_update"];
 const receivedEventTypes = ["request.received", "voice.request.received"];
 const responseEventTypes = ["assistant.response", "agent.turn.end"];
@@ -78,7 +92,7 @@ export function recentEmailCleanupReceipts(ledger, limit = 5) {
 }
 
 export function registerEmailReceiptTools(registry, ledger) {
-  const emailRegistry = registry.withCapability?.("email") ?? registry;
+  const emailRegistry = registry.withCapability?.("email", toolDescriptions) ?? registry;
   emailRegistry.register({
     name: "email_cleanup_receipt_list",
     description: "Recover exact recent email mutation receipts from Agent Slayer's durable tool ledger. Use this when the user asks which messages were just trashed, archived, updated, or deleted, especially when a prior response omitted or misstated them. Results reconstruct message ids and available sender, subject, and received time from the successful mutation and its same-request search or preview results.",

@@ -1,0 +1,31 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "email",
+  "title": "Email",
+  "summary": "Read, draft, send, organize, and clean up email.",
+  "aliases": [
+    "email",
+    "mail",
+    "inbox",
+    "mailbox"
+  ],
+  "dependentTools": [
+    "contact_lookup_batch"
+  ],
+  "readOnlyTools": [
+    "email_account_list",
+    "email_mailbox_list",
+    "email_identity_list",
+    "email_search",
+    "email_get",
+    "email_thread_get",
+    "email_changes",
+    "email_cleanup_preview",
+    "email_submission_get",
+    "email_attachment_get",
+    "email_cleanup_receipt_list"
+  ],
+  "guidance": "guidance.md"
+}

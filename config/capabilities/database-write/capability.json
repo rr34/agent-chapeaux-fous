@@ -1,0 +1,13 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "database-write",
+  "title": "Transitional database writes",
+  "summary": "Write only explicitly allowlisted native tables that do not yet have a focused model mutation tool.",
+  "aliases": [
+    "database write",
+    "update database"
+  ],
+  "guidance": "guidance.md"
+}

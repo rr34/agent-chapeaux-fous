@@ -1,6 +1,123 @@
 import { parseContactAttachment } from "../contact-file-import.mjs";
 import { selectedFields } from "./record-fields.mjs";
 
+const toolDescriptions = Object.freeze({
+  "contact_address_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically set postal addresses on existing contacts using current IDs and versions, without creating contacts or replacing unrelated contact data.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "contact_dedupe_clear": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Recompute and merge conservative source-aware duplicate contact groups. Use only for automatically eligible exact-name groups.",
+    "actionClasses": [
+      "UPDATE",
+      "DELETE"
+    ],
+    "effectClassifications": [
+      "MUTATING",
+      "DESTRUCTIVE"
+    ]
+  },
+  "contact_duplicate_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List paginated possible duplicate-contact groups for review. Partial-name matches are never automatically merged.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "contact_file_import": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Import one complete verified CSV or vCard attachment directly, without copying its records through model arguments.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "contact_import": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Import up to 200 normalized structured contacts. Use contact_file_import when the source is an attached CSV or vCard.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "contact_lookup_batch": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Resolve up to 500 exact normalized display names in one bounded lookup, returning every current match and stable ID.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "contact_merge": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically merge up to 100 explicitly reviewed contact groups using current IDs and expected versions.",
+    "actionClasses": [
+      "UPDATE",
+      "DELETE"
+    ],
+    "effectClassifications": [
+      "MUTATING",
+      "DESTRUCTIVE"
+    ]
+  },
+  "contact_search": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Search contacts by descriptive or partial details using the Contacts UI's matching behavior.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "contact_tag_add_batch": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically add one tag to as many as 10,000 contacts while preserving existing tags.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "contact_tag_rename": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically rename or merge one contact tag across every assigned contact.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  }
+});
+
 const tagRecordSchema = {
   type: ["object", "null"],
   description: "Defines reusable human labels that can categorize many kinds of agent records.",
@@ -470,11 +587,21 @@ export function contactTagContext(store, limit = 200) {
   };
 }
 
+const nativeToolContracts = Object.freeze({
+  contact_search: { objectTypes: ["contacts.contact", "contacts.method"] },
+  contact_merge: {
+    inputRoles: {
+      "/merges/*/keep_contact_id": "merge_destination",
+      "/merges/*/merge_contacts/*/contact_id": "merge_source",
+    },
+  },
+});
+
 export function registerContactTools(
   registry, store, organizer, ledger, searchCoordinator = null,
 ) {
   const rootRegistry = registry;
-  registry = registry.withCapability?.("contacts") ?? registry;
+  registry = registry.withCapability?.("contacts", toolDescriptions, nativeToolContracts) ?? registry;
   rootRegistry.registerContextView?.("contacts", {
     id: "contacts.active_tags",
     title: "Active contact tags",

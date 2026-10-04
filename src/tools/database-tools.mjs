@@ -1,11 +1,144 @@
+
+const toolDescriptions = Object.freeze({
+  "database_read": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read bounded rows from one existing allowlisted native table or view using equality filters, never raw SQL.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "database_schema": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Inspect existing native database tables, views, columns, and foreign keys without changing schema.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "database_write": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Insert, update, or delete rows only in explicitly allowlisted transitional native tables. It cannot run raw SQL, change schema, or write tool-owned tables.",
+    "actionClasses": [
+      "CREATE",
+      "UPDATE",
+      "DELETE"
+    ],
+    "effectClassifications": [
+      "MUTATING",
+      "DESTRUCTIVE"
+    ],
+    "operations": {
+      "exhaustive": true,
+      "entries": [
+        {
+          "name": "insert",
+          "title": "Insert rows",
+          "summary": "Insert validated rows into one allowlisted transitional table.",
+          "actionClasses": [
+            "CREATE"
+          ],
+          "effectClassifications": [
+            "MUTATING"
+          ]
+        },
+        {
+          "name": "update",
+          "title": "Update rows",
+          "summary": "Update equality-filtered rows in one allowlisted transitional table.",
+          "actionClasses": [
+            "UPDATE"
+          ],
+          "effectClassifications": [
+            "MUTATING"
+          ]
+        },
+        {
+          "name": "delete",
+          "title": "Delete rows",
+          "summary": "Delete equality-filtered rows from one allowlisted transitional table.",
+          "actionClasses": [
+            "DELETE"
+          ],
+          "effectClassifications": [
+            "MUTATING",
+            "DESTRUCTIVE"
+          ]
+        }
+      ]
+    }
+  },
+  "history_range": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Return paired requests and responses within an explicit UTC range, optionally filtered by topic.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "history_recent": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Return recent user requests and Agent responses from application-owned conversation history.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "history_search": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Search older user requests and Agent responses by text.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "tool_receipt_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List durable tool-result receipts and their stable event numbers without loading full payloads.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "tool_receipt_read": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Page one exact durable tool call/result receipt. Use it to recover prior evidence instead of repeating an action.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  }
+});
 const nullableString = { type: ["string", "null"] };
 
 export function registerDatabaseTools(
   registry, store, ledger, searchCoordinator = null,
 ) {
-  const databaseRegistry = registry.withCapability?.("database") ?? registry;
-  const writeRegistry = registry.withCapability?.("database-write") ?? registry;
-  const historyRegistry = registry.withCapability?.("history") ?? registry;
+  const databaseRegistry = registry.withCapability?.("database", toolDescriptions) ?? registry;
+  const writeRegistry = registry.withCapability?.("database-write", toolDescriptions) ?? registry;
+  const historyRegistry = registry.withCapability?.("history", toolDescriptions) ?? registry;
   databaseRegistry.register({
     name: "database_schema",
     description: "Inspect the existing native database tables, views, columns, foreign keys, and MariaDB table/column comments. This never changes schema.",

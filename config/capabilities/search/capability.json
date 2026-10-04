@@ -1,0 +1,16 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "search",
+  "title": "Global search",
+  "summary": "Search across native calendar, contacts, durable uploads, and conversation history.",
+  "aliases": [
+    "global search",
+    "search everywhere"
+  ],
+  "readOnlyTools": [
+    "global_search"
+  ],
+  "guidance": "guidance.md"
+}

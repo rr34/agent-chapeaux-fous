@@ -1,8 +1,8 @@
 import { objectDescriptionMetadataKey } from "./object-description.mjs";
-import { nativeObjectDescriptionForTool } from "./native-object-types.mjs";
+import { nativeObjectDescriptionForTypes } from "./native-object-types.mjs";
 
 export function applyNativeObjectDescription(tool) {
-  const description = nativeObjectDescriptionForTool(tool.name);
+  const description = nativeObjectDescriptionForTypes(tool.nativeObjectTypes ?? []);
   if (!description) return tool;
   return {
     ...tool,

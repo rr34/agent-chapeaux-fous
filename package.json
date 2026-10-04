@@ -13,6 +13,7 @@
     "install:pdf-browser": "playwright-core install chromium",
     "prestart": "npm run build:web",
     "start": "node src/server.mjs",
+    "capabilities:verify": "node scripts/verify-capabilities.mjs",
     "start:built": "npm run build:web && node src/server.mjs",
     "pretest": "npm run build:web",
     "test": "node --test test/*.test.mjs",

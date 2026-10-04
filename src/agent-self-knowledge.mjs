@@ -131,8 +131,8 @@ export const agentSelfKnowledge = Object.freeze({
   sources: [
     { ref: "agent:system-prompt", location: "config/system-prompt.md", supports: "Public identity and universal behavior." },
     { ref: "agent:hats", location: "config/hats.json", supports: "Optional hat convention, invocation wording, role and destination meanings, configured hats, aliases, descriptions, and examples." },
-    { ref: "agent:self-description-guidance", location: "config/instructions/self.md", supports: "How focused self-knowledge is used to answer identity, interaction, hats, self-awareness, world-takeover, and video questions." },
-    { ref: "agent:video-production", location: "config/instructions/video.md; src/video-scripts.mjs; src/video-render-worker.mjs", supports: "Portable video scripts, built-in MP4 generation, user selection workflow, and production outputs." },
+    { ref: "agent:self-description-guidance", location: "config/capabilities/self/guidance.md", supports: "How focused self-knowledge is used to answer identity, interaction, hats, self-awareness, world-takeover, and video questions." },
+    { ref: "agent:video-production", location: "config/capabilities/video/guidance.md; src/video-scripts.mjs; src/video-render-worker.mjs", supports: "Portable video scripts, built-in MP4 generation, user selection workflow, and production outputs." },
     { ref: "agent:architecture", location: "README.md", supports: "Request loop, model transport, tools, voice, persistence, browser polling, and deployment behavior." },
     { ref: "agent:manifesto", location: "AGENT-TOOL-MANIFESTO.md", supports: "Orientation, exact-schema execution, receipts, audit, and repair boundaries." },
     { ref: "agent:terminology", location: "AGENT-TERMINOLOGY.md", supports: "Canonical names for the web client, HTTP service, transcription, memory, and ledger." },

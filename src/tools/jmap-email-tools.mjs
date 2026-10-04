@@ -1,6 +1,177 @@
 import { randomUUID } from "node:crypto";
 import { JMAP_CAPABILITIES } from "../jmap-client.mjs";
 
+const toolDescriptions = Object.freeze({
+  "email_account_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Inspect live JMAP mail accounts, the selected primary account, and advertised provider capabilities.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_attachment_get": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Retrieve one exact live JMAP message or attachment blob with a strict byte limit.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_bulk_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Apply one recoverable Trash, Archive, Inbox, or restore action to up to 100 explicit live email IDs.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "email_changes": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read authoritative JMAP changes since a prior Email, Thread, Mailbox, Identity, or Submission state token.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_cleanup_apply": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Apply Trash or Archive once to the exact saved selection produced by email_cleanup_preview.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "email_cleanup_preview": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Build and temporarily save one exact read-only Inbox cleanup selection for later authorized application.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_draft_create": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Create or atomically replace one live JMAP draft without sending it.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "email_get": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Fetch live JMAP messages by stable IDs, with optional bounded decoded bodies and attachment metadata.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_identity_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List live JMAP sending identities and their stable IDs, addresses, reply settings, and signatures.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_mailbox_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List live JMAP mailboxes with stable IDs, roles, hierarchy, rights, and current counts.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_search": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Search live JMAP mail and return bounded IDs, compact summaries, or full metadata with exact state tokens.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_send": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Submit one existing JMAP draft for external delivery. Draft creation or review alone never authorizes sending.",
+    "actionClasses": [
+      "EXECUTE"
+    ],
+    "effectClassifications": [
+      "MUTATING",
+      "EXTERNAL"
+    ]
+  },
+  "email_submission_get": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read live JMAP submission records and delivery status for known submission IDs.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_thread_get": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Fetch complete live JMAP threads and return their messages in chronological server order.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "email_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Update one live JMAP message's mailboxes or keywords, or permanently destroy it, with optional optimistic state checking.",
+    "actionClasses": [
+      "UPDATE",
+      "DELETE"
+    ],
+    "effectClassifications": [
+      "MUTATING",
+      "DESTRUCTIVE"
+    ]
+  }
+});
+
 const { core: CORE, mail: MAIL, submission: SUBMISSION } = JMAP_CAPABILITIES;
 const nullableString = { type: ["string", "null"] };
 const nullableBoolean = { type: ["boolean", "null"] };
@@ -329,8 +500,33 @@ function findSetFailures(result) {
     || Object.keys(result.notDestroyed ?? {}).length;
 }
 
+const nativeToolContracts = Object.freeze({
+  email_account_list: { objectTypes: ["email.account"] },
+  email_mailbox_list: { objectTypes: ["email.mailbox"], allowUnboundInputs: true },
+  email_identity_list: { objectTypes: ["email.identity"], allowUnboundInputs: true },
+  email_search: { objectTypes: ["email.message"], allowUnboundInputs: true },
+  email_get: { objectTypes: ["email.blob"], allowUnboundInputs: true },
+  email_thread_get: { objectTypes: ["email.thread"], allowUnboundInputs: true },
+  email_changes: { allowUnboundInputs: true },
+  email_submission_get: { allowUnboundInputs: true },
+  email_attachment_get: { allowUnboundInputs: true },
+  email_update: {
+    inputRoles: {
+      "/replace_mailbox_ids/*": "replacement_mailbox",
+      "/add_mailbox_ids/*": "added_mailbox",
+      "/remove_mailbox_ids/*": "removed_mailbox",
+    },
+  },
+  email_send: {
+    inputRoles: {
+      "/drafts_mailbox_id": "drafts_mailbox",
+      "/sent_mailbox_id": "sent_mailbox",
+    },
+  },
+});
+
 export function registerJmapEmailTools(registry, client) {
-  registry = registry.withCapability?.("email") ?? registry;
+  registry = registry.withCapability?.("email", toolDescriptions, nativeToolContracts) ?? registry;
   if (!client.health().ready) throw new Error("Cannot register JMAP email tools before the client is ready");
   const cleanupSelections = new Map();
   const cleanupLifetimeMs = 30 * 60 * 1000;

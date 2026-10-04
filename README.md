@@ -230,7 +230,7 @@ executor infers the same continuity.
 
 Execution is compiled from the accepted TurnBrief. It receives the exact schemas
 for the selected initial tools plus versioned guidance from
-`config/instructions/`; `config/system-prompt.md` contains only universal
+`config/capabilities/<id>/guidance.md`; `config/system-prompt.md` contains only universal
 behavior. A bounded `request_tools` call can add exact schemas for omitted tools
 inside the accepted capability families while preserving same-request receipts.
 A newly registered local tool that has not yet been assigned to a capability
@@ -260,6 +260,27 @@ execution uses the main configured effort, audit defaults to `low`, and repair
 uses its own strong effort. These are configurable with
 `SLAYER_ORIENTATION_REASONING_EFFORT`, `SLAYER_REASONING_EFFORT`,
 `SLAYER_AUDIT_REASONING_EFFORT`, and `SLAYER_REPAIR_REASONING_EFFORT`.
+
+## Native capability architecture
+
+Each native capability is a self-contained package under
+`config/capabilities/<id>/` with exactly two files:
+
+- `capability.json` is the schema-checked identity and routing contract.
+- `guidance.md` is bounded execution guidance for coordinating that
+  capability's tools.
+
+The versioned schemas and shared loader are the structural source of truth.
+Each tool registration beside its implementation owns the tool's title,
+selection description, exact input/output schemas, annotations, result states,
+and function. No central map can silently add semantic contracts by recognizing
+a tool name, and no native tool supplies semantics inherited by other tools.
+The `daily-paper` package and `daily_paper_generate` tool are the smallest
+complete reference examples.
+
+Run `npm run capabilities:verify` to validate every package. See
+[`config/capabilities/README.md`](config/capabilities/README.md) for the
+package contract.
 
 ## Tools
 

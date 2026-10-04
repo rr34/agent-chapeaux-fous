@@ -186,7 +186,6 @@ test("a TurnBrief tool override starts narrow and advertises exact in-capability
 
 test("durable file retrieval remains callable on a terse later request", async () => {
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
   });
   const compiled = await compiler.compile({
     tools: [
@@ -210,7 +209,6 @@ test("file search and partition schemas are callable when the files capability i
     ledger: {}, searchCoordinator: {}, mediaRoot: "/tmp", maximumTextBytes: 1024,
   });
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
   });
   const compiled = await compiler.compile({
     tools: registry.toolDefinitions(),
@@ -245,7 +243,6 @@ test("an explicit one-button production request selects the combined production 
 
 test("an application capability override ignores unrelated prior-conversation routing", async () => {
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
   });
   const compiled = await compiler.compile({
     tools: [...tools, tool("video_script_create")],
@@ -330,7 +327,6 @@ test("a broad cross-domain discovery request selects global search", () => {
 
 test("starting a linked guide selects guide and to-do capabilities", async () => {
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
   });
   const compiled = await compiler.compile({
     tools,
@@ -381,7 +377,6 @@ test("a terse answer to a guide question retains the guided interaction capabili
 
 test("guided to-do reviews compile stable handles and forward-only progress rules", async () => {
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
   });
   const compiled = await compiler.compile({
     tools,
@@ -622,7 +617,6 @@ test("ambiguous actionable requests keep a small core and expose the deferred ca
   assert.ok(selection.reasons.includes("catalog:ambiguous-request"));
 
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
   });
   const compiled = await compiler.compile({ tools, text: "Take care of it." });
   assert.equal(names(compiled).includes("request_capabilities"), true);
@@ -649,7 +643,6 @@ test("provider names select only that integration", () => {
 
 test("explicit hats add their tool families without labeling ordinary tool selection as inferred hats", async () => {
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
     hatCatalog,
   });
   const compiled = await compiler.compile({
@@ -668,7 +661,6 @@ test("explicit hats add their tool families without labeling ordinary tool selec
 
 test("multiple explicit hats remain ordered and receive exact schemas in the first compilation", async () => {
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
     hatCatalog,
   });
   const compiled = await compiler.compile({
@@ -742,7 +734,6 @@ test("an active integration scope remains additive for an ordinary project-task 
 
 test("compiled requests expose an organized deferred catalog and one capability-request tool", async () => {
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
   });
   const compiled = await compiler.compile({ tools, text: "Show my tasks." });
 
@@ -825,7 +816,6 @@ test("required tool capability validation rejects tools outside the TurnBrief fa
 
 test("the compiler loads instructions only for selected callable capabilities", async () => {
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
   });
   const compiled = await compiler.compile({ tools, text: "Search my inbox for the receipt email." });
   assert.match(compiled.instructions, /## email/);

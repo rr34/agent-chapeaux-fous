@@ -654,6 +654,31 @@ guidance registries are forbidden because they can drift from the capability
 manifest. User-authored procedures remain domain data rather than application
 capability guidance.
 
+Every native capability is one filesystem package at
+`config/capabilities/<capability-id>/`. The package contains exactly
+`capability.json` and `guidance.md`. Its manifest conforms to
+`config/protocol-schemas/capability-manifest.v1.schema.json`, its directory name
+equals its stable ID, and its `guidance` field names the sibling guidance file.
+The shared loader is the only native manifest discovery path. Startup rejects
+schema failures, missing or extra package files, empty guidance, duplicate
+identity, and conflicts between connected tool annotations and manifest
+expectations. No central JavaScript manifest array or parallel guidance map may
+duplicate these packages.
+
+A capability package is the architectural unit a person reads to understand why
+a family exists and how its tools coordinate. It is not the implementation of
+those tools. Each native tool still publishes layers 1 through 9 in the module
+that registers its layer-10 implementation. The registry may validate and
+assemble those owned fields, but it must not attach semantic contracts by
+recognizing a machine name in a central map.
+
+Versioned schemas and their shared validators are the structural source of
+truth. No individual native tool is the semantic source of truth for other
+native tools. `daily-paper` and `daily_paper_generate` are the smallest complete
+reference package and focused-tool example; new work may copy their shape, but
+never inherits their domain meaning, schemas, authorization, result claims, or
+effects.
+
 ## 3A. The Tool Description contract
 
 Tool use is the Agent's primary operational boundary, so every native and MCP
@@ -695,6 +720,18 @@ in its standard tool `_meta` field under the extension key
 instead supply explicit source-referenced metadata when that provider cannot
 publish the extension itself. Agent Slayer validates either source identically
 and never silently truncates an execution description into a selection summary.
+
+For native tools, “owned registration” means the Tool Description declaration
+is in the same implementation module that registers the callable function. A
+repository-wide name-to-description map is forbidden.
+
+Native Object Description producers, unbound identifying reads, and
+role-specific object inputs follow the same ownership rule: the registering
+module opts into them explicitly. The shared native object ontology remains the
+structural vocabulary for type identity, ID fields, references, displays, and
+relationships. The registry may compile declarations against that ontology, but
+it must not infer a declaration merely from a tool's machine name. Internal
+registration declarations never enter the provider-facing tool definition.
 
 The MCP extension is an Agent Slayer interoperability contract, not a claim
 that base MCP requires this field. Every tool published by an Agent Slayer

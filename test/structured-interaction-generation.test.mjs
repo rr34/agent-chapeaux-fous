@@ -139,7 +139,7 @@ test("repeatable exchange generation preserves exact named slots and completed d
 
 test("briefing execution guidance keeps source-generated input sets fixed", () => {
   const guidance = fs.readFileSync(path.join(
-    testDirectory, "..", "config", "instructions", "interaction-guides.md",
+    testDirectory, "..", "config", "capabilities", "interaction-guides", "guidance.md",
   ), "utf8");
   assert.match(guidance, /repeat that\s+exchange's concrete result/);
   assert.match(guidance, /Keep the exact named inputs, their count, meanings, units/);

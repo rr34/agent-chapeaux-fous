@@ -1,0 +1,34 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "catch-up",
+  "title": "Check-in catch-up",
+  "summary": "Generate questions for selected journal dates, upcoming event planning, and past-event follow-up. Ask one at a time and retain the exact selection, source-linked resolution, comments and deferral.",
+  "aliases": [
+    "catch me up",
+    "catch up on the day",
+    "check-in",
+    "check in",
+    "complete logs",
+    "plan ahead",
+    "daily review",
+    "nag me",
+    "hold me accountable",
+    "unresolved",
+    "get my life in order",
+    "keep going"
+  ],
+  "readOnlyTools": [
+    "catch_up_list"
+  ],
+  "dependentTools": [
+    "calendar_event_update",
+    "calendar_event_occurrence_update",
+    "journal_add",
+    "tracker_list",
+    "tracker_asking_schedule_set",
+    "contact_lookup_batch"
+  ],
+  "guidance": "guidance.md"
+}

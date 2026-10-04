@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import {
   catalogToolDescription, defineToolDescription, toolDescriptionMetadataKey,
 } from "./tool-description.mjs";
@@ -557,28 +555,17 @@ function ambiguousHatInstructions(selection, hatCatalog) {
 
 export class RequestCompiler {
   constructor({
-    instructionRoot, hatCatalog = null, readFile = fs.readFile, capabilityManifest = null,
+    hatCatalog = null, capabilityManifest = null,
   } = {}) {
-    this.instructionRoot = instructionRoot;
     this.hatCatalog = hatCatalog;
-    this.readFile = readFile;
     this.capabilityManifest = capabilityManifest;
-    this.instructions = new Map();
   }
 
   async #instruction(capability, tools = []) {
     const manifest = this.capabilityManifest?.(capability)
       ?? tools.find(({ capability: item }) => item)?.capability
       ?? nativeCapabilityManifest(capability);
-    const declaredGuidance = manifest?.guidance;
-    if (declaredGuidance) return declaredGuidance;
-    const filename = manifest?.instructionFile;
-    if (!filename || !this.instructionRoot) return null;
-    if (!this.instructions.has(capability)) {
-      const contents = await this.readFile(path.join(this.instructionRoot, filename), "utf8");
-      this.instructions.set(capability, contents.trim());
-    }
-    return this.instructions.get(capability);
+    return manifest?.guidance ?? null;
   }
 
   async compile(input) {

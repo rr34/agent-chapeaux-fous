@@ -7,6 +7,130 @@ import { inspectTextStructure } from "../file-structure-inspect.mjs";
 import { readTextAttachment } from "../request-attachments.mjs";
 import { inspectDelimitedText, readDelimitedRecords, transformDelimitedText } from "../tabular-transform.mjs";
 
+const toolDescriptions = Object.freeze({
+  "file_get": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Get authoritative metadata and stable provenance for one durable upload. Use file_read for verified contents.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "file_jsonl_partition": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Partition a verified JSON Lines artifact into ordered, reusable files with a declared maximum record count and exact ranges for downstream batch processing.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "file_read": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read a verified character range from one durable text, CSV, or vCard upload by stable file ID.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "file_search": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Search durable uploads by title, description, original filename, and originating request text.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "file_structure_inspect": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Verify a complete text attachment and report bounded structure and parse issues across supported text formats.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "file_table_inspect": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Inspect one complete verified delimited-text upload as a table, returning counts, headers, decimal precision profiles, and bounded samples.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "file_table_read_rows": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read exact parsed source records and cells from a verified delimited file to inspect irregular rows and renamed headers.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "file_table_transform": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Transform a complete verified table into durable JSON Lines using declared fields, RE2 regex extraction and replacement, date templates, exact decimal ratios, and row exceptions.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "file_table_transform_preview": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Test one declarative mapping and RE2 regex across a complete verified table, returning exact counts and bounded samples without saving data.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "file_text_search": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Search complete verified file contents with literal text or RE2 regex, returning exact matching-line counts and bounded, paged snippets.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "file_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Assign an AI-generated title and description to a newly uploaded file without overwriting user-authored metadata.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  }
+});
+
 const scalarSchema = { type: ["string", "number", "boolean", "null"] };
 const transformOperationSchema = {
   type: "object",
@@ -197,10 +321,19 @@ function partitionJsonLines(bytes, { recordsPerFile, startPart, maxParts }) {
   return { recordCount: records.length, totalParts, parts, nextPart: lastPart < totalParts ? lastPart + 1 : null };
 }
 
+const nativeToolContracts = Object.freeze({
+  file_get: { objectTypes: ["files.file"], allowUnboundInputs: true },
+  file_read: { allowUnboundInputs: true },
+  file_structure_inspect: { allowUnboundInputs: true },
+  file_text_search: { allowUnboundInputs: true },
+  file_table_inspect: { allowUnboundInputs: true },
+  file_table_read_rows: { allowUnboundInputs: true },
+});
+
 export function registerFileTools(registry, {
   ledger, searchCoordinator, mediaRoot, maximumTextBytes, maximumGeneratedBytes = 50 * 1024 * 1024,
 }) {
-  registry = registry.withCapability?.("files") ?? registry;
+  registry = registry.withCapability?.("files", toolDescriptions, nativeToolContracts) ?? registry;
   registry.register({
     name: "file_get",
     description: "Get authoritative metadata for one durably stored upload by its stable file ID, including title, description, original filename, integrity metadata, and originating requests. This does not return file contents; use file_read for verified text contents.",

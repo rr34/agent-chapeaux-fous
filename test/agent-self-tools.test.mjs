@@ -45,8 +45,8 @@ function buildRegistry() {
 }
 
 test("self guidance treats focused knowledge as evidence rather than canned answers", () => {
-  const guidance = fs.readFileSync(new URL("../config/instructions/self.md", import.meta.url), "utf8");
-  const videoGuidance = fs.readFileSync(new URL("../config/instructions/video.md", import.meta.url), "utf8");
+  const guidance = fs.readFileSync(new URL("../config/capabilities/self/guidance.md", import.meta.url), "utf8");
+  const videoGuidance = fs.readFileSync(new URL("../config/capabilities/video/guidance.md", import.meta.url), "utf8");
   assert.match(guidance, /When the user asks “Who are you\?”/);
   assert.match(guidance, /Use `agent_self_knowledge` to read a focused set of current facts/);
   assert.match(guidance, /Treat the\s+selected result as knowledge, not as a prepared answer/);

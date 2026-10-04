@@ -1,6 +1,14 @@
+import fs from "node:fs";
+import Ajv2020 from "ajv/dist/2020.js";
+
 export const toolDescriptionMetadataKey = "agent-slayer/selection";
 export const toolDescriptionProtocol = "agent-slayer.tool-description";
 export const toolDescriptionVersion = 1;
+const toolDescriptionSchema = JSON.parse(fs.readFileSync(
+  new URL("../config/protocol-schemas/tool-description.v1.schema.json", import.meta.url),
+  "utf8",
+));
+const validateToolDescriptionSchema = new Ajv2020({ allErrors: true }).compile(toolDescriptionSchema);
 
 const allowedActions = new Set(["CREATE", "READ", "UPDATE", "DELETE", "EXECUTE"]);
 const allowedEffects = new Set(["READ-ONLY", "MUTATING", "DESTRUCTIVE", "EXTERNAL"]);
@@ -88,6 +96,13 @@ export function defineToolDescription(value) {
       throw new Error("Tool description operation names must be unique");
     }
     description.operations = { exhaustive: operations.exhaustive, entries };
+  }
+  if (!validateToolDescriptionSchema(description)) {
+    const problem = validateToolDescriptionSchema.errors?.[0];
+    throw new Error(
+      `Tool description does not conform to ${toolDescriptionSchema.$id}: `
+      + `${problem?.instancePath || "/"} ${problem?.message}`,
+    );
   }
   return description;
 }

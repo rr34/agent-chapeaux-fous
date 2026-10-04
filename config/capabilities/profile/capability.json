@@ -1,0 +1,20 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "profile",
+  "title": "Profile facts",
+  "summary": "Read and maintain durable cross-task profile facts, including the standard core-profile onboarding brief and contextual defaults such as location.",
+  "aliases": [
+    "profile",
+    "profile setup",
+    "onboarding",
+    "onboard me",
+    "remember",
+    "preference"
+  ],
+  "readOnlyTools": [
+    "profile_fact_list"
+  ],
+  "guidance": "guidance.md"
+}

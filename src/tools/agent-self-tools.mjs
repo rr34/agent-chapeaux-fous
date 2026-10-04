@@ -1,6 +1,31 @@
 import { agentSelfKnowledge, agentSelfTopicKnowledge } from "../agent-self-knowledge.mjs";
 import { capabilityForTool, requestCapabilityCatalog } from "../request-compiler.mjs";
 
+const toolDescriptions = Object.freeze({
+  "agent_self_describe": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Return a broad current description of Chapeaux Fous infrastructure, request path, integrations, sources, and callable inventory.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "agent_self_knowledge": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read focused current facts about Chapeaux Fous identity, interaction, hats, self-conception, or video workflows.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  }
+});
+
 const focusedTopics = Object.freeze([
   "identity", "interaction", "self_awareness", "world_takeover", "video_generation", "video_user_creation",
 ]);
@@ -191,7 +216,7 @@ export function registerAgentSelfTools(registry, {
   if (!hatCatalog || typeof hatCatalog.publicManual !== "function") {
     throw new Error("registerAgentSelfTools requires the loaded hat catalog");
   }
-  registry.withCapability("self").register({
+  registry.withCapability("self", toolDescriptions).register({
     name: "agent_self_knowledge",
     title: "Read focused Chapeaux Fous self-knowledge",
     description: "Read focused current facts about Chapeaux Fous's identity and name, interaction and hats system, self-conception, or video workflows. Use when the request needs those facts; the result is evidence from which to answer the actual question, never a canned response to return verbatim. Actions: READ.",
@@ -222,7 +247,7 @@ export function registerAgentSelfTools(registry, {
     },
   });
 
-  registry.withCapability("self").register({
+  registry.withCapability("self", toolDescriptions).register({
     name: "agent_self_describe",
     title: "Describe Chapeaux Fous",
     description: "Return Chapeaux Fous's detailed infrastructure, request path, runtime, integrations, sources, and live tool inventory. Use for broad infrastructure and transport explanations; use agent_self_knowledge when a focused identity, interaction, hats, self-conception, or video topic is enough. Actions: READ.",

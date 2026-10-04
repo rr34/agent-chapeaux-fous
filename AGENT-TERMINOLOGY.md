@@ -229,3 +229,17 @@ runtime shape is
 `config/protocol-schemas/first-class-object-binding.v1.schema.json`, produced
 from Object Description metadata and consumed through object-input binding
 metadata.
+
+**55. Native capability package** — One self-contained filesystem unit at
+`config/capabilities/<capability-id>/` containing a schema-valid
+`capability.json` and its single declared `guidance.md`. The manifest owns the
+family's stable identity, routing summary, aliases, coordination-guidance
+reference, attachment hints, read-only expectations, and explicit
+cross-capability dependencies. Guidance coordinates tools but cannot redefine
+them. Each tool's exact description, schemas, annotations, and implementation
+remain owned by its registration module. The shared versioned schemas and
+validators are the structural source of truth; the daily-paper package is a
+reference example, not a base tool whose semantics other tools inherit. Native
+object producers, unbound identifying reads, and role-specific object inputs
+are also declared by the owning registration module against the shared object
+ontology rather than inferred from a central tool-name map.

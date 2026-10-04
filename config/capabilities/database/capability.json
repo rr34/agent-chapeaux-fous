@@ -1,0 +1,22 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "database",
+  "title": "Database reads and receipts",
+  "summary": "Inspect native schema and read bounded application data, history, and durable tool receipts.",
+  "aliases": [
+    "database",
+    "schema",
+    "table",
+    "receipt",
+    "ledger"
+  ],
+  "readOnlyTools": [
+    "database_schema",
+    "database_read",
+    "tool_receipt_list",
+    "tool_receipt_read"
+  ],
+  "guidance": "guidance.md"
+}

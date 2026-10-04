@@ -1,19 +1,16 @@
 import assert from "node:assert/strict";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import { objectReferenceGroupsFromToolResult } from "../src/object-references.mjs";
 import {
   nativeCapabilityManifest,
   registerNativeCapabilities,
-  validateNativeCapabilityManifests,
+  validateNativeCapabilityPackages,
 } from "../src/native-capabilities.mjs";
 import { requestCapabilityCatalog, RequestCompiler } from "../src/request-compiler.mjs";
 import { toolDescriptionMetadataKey } from "../src/tool-description.mjs";
 import { registerDailyPaperTools } from "../src/tools/daily-paper-tools.mjs";
 import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const generated = {
   model: {
     date: "2026-10-04",
@@ -42,10 +39,9 @@ function registryWithDailyPaper() {
 }
 
 test("native capability guidance has exactly one manifest-owned source", async () => {
-  await assert.doesNotReject(validateNativeCapabilityManifests({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
-  }));
-  assert.equal(nativeCapabilityManifest("daily-paper").instructionFile, "daily-paper.md");
+  assert.doesNotThrow(() => validateNativeCapabilityPackages());
+  assert.equal(nativeCapabilityManifest("daily-paper").guidanceFile, "guidance.md");
+  assert.match(nativeCapabilityManifest("daily-paper").guidance, /daily_paper_generate/);
   assert.equal(nativeCapabilityManifest("daily-paper").dependentTools, undefined);
 });
 
@@ -96,7 +92,6 @@ test("daily paper publishes all deferred Tool Description layers from its owning
 test("daily paper guidance is selected from its capability manifest", async () => {
   const registry = registryWithDailyPaper();
   const compiler = new RequestCompiler({
-    instructionRoot: path.join(repositoryRoot, "config", "instructions"),
     capabilityManifest: (id) => registry.capabilityManifest(id),
   });
   const compiled = await compiler.compile({

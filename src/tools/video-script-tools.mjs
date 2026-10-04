@@ -1,3 +1,63 @@
+
+const toolDescriptions = Object.freeze({
+  "video_content_add": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Add one completed Agent-interface MP4 to one existing content-library group with the next sequence number.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "video_content_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read one active content-library group's numbered items in ascending sequence order with bounded source-text excerpts and explicit pagination.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "video_production_create": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Persist one source-grounded chat script and atomically queue its 1080x1620 Agent-interface MP4 render.",
+    "actionClasses": [
+      "CREATE",
+      "EXECUTE"
+    ],
+    "effectClassifications": [
+      "MUTATING",
+      "EXTERNAL"
+    ]
+  },
+  "video_script_create": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Persist one portable source-grounded chat script from explicitly selected completed interactions without rendering video.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "video_script_get": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read one exact durable generated-video script by stable ID, including its title, status, source requests, version, and latest render status.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  }
+});
 function stableRef(prefix, id) {
   return `${prefix}${encodeURIComponent(String(id))}`;
 }
@@ -206,10 +266,20 @@ function compactResult(result) {
   };
 }
 
+const nativeToolContracts = Object.freeze({
+  video_script_get: { objectTypes: ["video.script"], allowUnboundInputs: true },
+  video_content_list: {
+    objectTypes: ["video.content_group", "video.content_item"],
+    allowUnboundInputs: true,
+  },
+});
+
 export function registerVideoScriptTools(
   registry, videoScripts, { videoContent = null, onRenderQueued = () => {} } = {},
 ) {
-  const capabilityRegistry = registry.withCapability?.("video") ?? registry;
+  const capabilityRegistry = registry.withCapability?.(
+    "video", toolDescriptions, nativeToolContracts,
+  ) ?? registry;
   capabilityRegistry.register({
     name: "video_script_get",
     title: "Read a generated-video script",

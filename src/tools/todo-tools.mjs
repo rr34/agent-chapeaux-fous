@@ -6,6 +6,119 @@ import {
   listTodoQueryPages, todoListInputSchema, todoQueryFilterProperties, todoStatuses,
 } from "../todo-list-queries.mjs";
 
+const toolDescriptions = Object.freeze({
+  "todo_add": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, contact, and briefing.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "todo_group_archive": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Archive one active native to-do group after all of its tasks are terminal.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "todo_group_create": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Create or reactivate one native to-do group after the user has confirmed it.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "todo_group_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List active native to-do groups and their open counts so a new task can use the best existing group.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "todo_group_rename": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Rename one active native to-do group without changing its stable identity or contained tasks.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "todo_group_sequence_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Enable or disable automatic stable sequence numbering for one active native to-do group.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "todo_interaction_guide_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Link or unlink one active briefing directly on an existing native to-do without scheduling it.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "todo_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Read paginated batches of non-temporal native personal to-dos by task IDs, group, status, or completion date.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "todo_position_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Move one native personal to-do to an exact position in its group's manual sort order.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "todo_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically update up to 500 non-temporal native personal to-dos by stable ID.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  }
+});
+
 const optionalText = { type: ["string", "null"] };
 const todoFields = [
   "personal_task_id", "todo_group_id", "interaction_guide_id", "sequence",
@@ -145,9 +258,14 @@ export function todoGroupContext(store, limit = 100) {
   };
 }
 
+const nativeToolContracts = Object.freeze({
+  todo_group_list: { objectTypes: ["todos.todo_group"] },
+  todo_list: { objectTypes: ["todos.personal_task"], allowUnboundInputs: true },
+});
+
 export function registerTodoTools(registry, store, ledger) {
   const rootRegistry = registry;
-  registry = registry.withCapability?.("todos") ?? registry;
+  registry = registry.withCapability?.("todos", toolDescriptions, nativeToolContracts) ?? registry;
   rootRegistry.registerContextView?.("todos", {
     id: "todos.active_groups", title: "Active to-do groups",
     description: "Active to-do group names and IDs; no individual to-do items.",

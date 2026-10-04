@@ -1,12 +1,19 @@
 import { withReadResultFilterSchema } from "../search/result-filter.mjs";
-import { applyNativeToolDescription } from "../native-tool-descriptions.mjs";
 import { applyNativeObjectInputBindings } from "../native-object-input-bindings.mjs";
 import { applyNativeObjectDescription } from "../native-object-descriptions.mjs";
 import { normalizeNativeIdentityScalars } from "../native-object-types.mjs";
 import { objectDescriptionMetadataKey, validateObjectDescription } from "../object-description.mjs";
 import {
-  toolDescriptionMetadataKey, validateToolDescription,
+  defineToolDescription, toolDescriptionMetadataKey, validateToolDescription,
 } from "../tool-description.mjs";
+
+function titleFromName(name) {
+  const words = String(name).split("_");
+  return words.map((word, index) => {
+    if (["ai", "id", "jmap", "mp4", "sql", "utc"].includes(word)) return word.toUpperCase();
+    return index === 0 ? `${word.slice(0, 1).toUpperCase()}${word.slice(1)}` : word;
+  }).join(" ");
+}
 
 function typeMatches(value, type) {
   if (type === "null") return value === null;
@@ -88,18 +95,26 @@ export class ToolRegistry {
     return this;
   }
 
-  withCapability(capabilityId) {
+  withCapability(capabilityId, descriptions = {}, nativeContracts = {}) {
     const registry = this;
     return {
       register(tool) {
-        const manifest = registry.capabilityManifest(capabilityId);
-        const declaredReadOnly = manifest?.readOnlyTools?.includes(tool.name);
-        registry.register({
+        const selection = descriptions[tool.name];
+        const nativeContract = nativeContracts[tool.name];
+        const described = selection ? {
           ...tool,
+          title: tool.title ?? titleFromName(tool.name),
+          ...(nativeContract?.objectTypes ? { nativeObjectTypes: nativeContract.objectTypes } : {}),
+          ...(nativeContract?.allowUnboundInputs ? { allowUnboundObjectInputs: true } : {}),
+          ...(nativeContract?.inputRoles ? { nativeObjectInputRoles: nativeContract.inputRoles } : {}),
+          metadata: {
+            ...(tool.metadata ?? {}),
+            [toolDescriptionMetadataKey]: defineToolDescription(selection),
+          },
+        } : tool;
+        registry.register({
+          ...described,
           capabilityId: tool.capabilityId ?? capabilityId,
-          annotations: tool.annotations ?? (declaredReadOnly === undefined ? null : {
-            readOnlyHint: declaredReadOnly,
-          }),
         });
         return this;
       },
@@ -159,8 +174,9 @@ export class ToolRegistry {
     if (!tool?.name || typeof tool.execute !== "function") throw new Error("A tool needs a name and execute function");
     if (this.tools.has(tool.name)) throw new Error(`Duplicate tool name: ${tool.name}`);
     const source = String(tool.source ?? "local");
-    const nativeDescribed = source === "local"
-      ? applyNativeObjectInputBindings(applyNativeObjectDescription(applyNativeToolDescription(tool)))
+    const publishesNativeContract = source === "local" && tool.metadata?.[toolDescriptionMetadataKey];
+    const nativeDescribed = publishesNativeContract
+      ? applyNativeObjectInputBindings(applyNativeObjectDescription(tool))
       : tool;
     const nativeSelection = nativeDescribed.metadata?.[toolDescriptionMetadataKey];
     const described = nativeSelection && nativeDescribed.annotations == null
@@ -187,10 +203,16 @@ export class ToolRegistry {
         label: described.name,
       });
     }
+    const {
+      nativeObjectTypes: _nativeObjectTypes,
+      allowUnboundObjectInputs: _allowUnboundObjectInputs,
+      nativeObjectInputRoles: _nativeObjectInputRoles,
+      ...published
+    } = described;
     this.tools.set(tool.name, {
       strict: true,
       source: "local",
-      ...described,
+      ...published,
       validateArguments: described.validateArguments ?? (described.strict !== false),
     });
     return this;
@@ -219,7 +241,8 @@ export class ToolRegistry {
       const manifest = this.capabilities.get(tool.capabilityId);
       const capability = manifest
         ? Object.fromEntries(Object.entries(manifest).filter(([name, value]) => (
-            typeof value !== "function" && name !== "guidance"
+            typeof value !== "function"
+            && !["guidance", "guidanceFile"].includes(name)
           )))
         : null;
       const annotations = tool.annotations ?? null;

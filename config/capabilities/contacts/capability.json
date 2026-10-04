@@ -1,0 +1,47 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "contacts",
+  "title": "Contacts",
+  "summary": "Search, import, update addresses, tag, and merge native contacts.",
+  "aliases": [
+    "contact",
+    "contacts",
+    "address book",
+    "vcard"
+  ],
+  "attachmentHints": [
+    {
+      "extensions": [
+        ".vcf",
+        ".vcard"
+      ],
+      "mimeIncludes": [
+        "vcard"
+      ]
+    },
+    {
+      "extensions": [
+        ".csv"
+      ],
+      "mimeIncludes": [
+        "csv"
+      ],
+      "headerTerms": [
+        "email",
+        "phone",
+        "given_name",
+        "family_name",
+        "display_name",
+        "categories"
+      ]
+    }
+  ],
+  "readOnlyTools": [
+    "contact_search",
+    "contact_lookup_batch",
+    "contact_duplicate_list"
+  ],
+  "guidance": "guidance.md"
+}

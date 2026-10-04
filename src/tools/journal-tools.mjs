@@ -1,5 +1,74 @@
 import { selectedFields } from "./record-fields.mjs";
 
+const toolDescriptions = Object.freeze({
+  "journal_add": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Record one authoritative personal-journal entry, selecting an existing tracker and group by stable ID or explicitly creating missing ones.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "journal_import": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Idempotently import up to 100 personal-journal entries with stable source IDs and explicit occurrence times.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "journal_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List recent personal-journal entries, optionally filtered by tracker, group, source, or UTC occurrence range.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "journal_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Correct one personal-journal entry by stable ID without changing the tracker's canonical unit.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "tracker_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List personal-journal trackers with groups, canonical units, entry counts, and latest occurrence times.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "tracker_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Rename, regroup by exact group ID, archive, reactivate, or establish the canonical unit of one personal-journal tracker.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  }
+});
+
 const journalGroupRecordSchema = {
   type: ["object", "null"],
   description: "Defines broad named groups that organize the user's personal trackers.",
@@ -542,9 +611,14 @@ function sameImportedEntry(row, input) {
     && (input.trackerUnit === null || row.tracker_unit === input.trackerUnit);
 }
 
+const nativeToolContracts = Object.freeze({
+  journal_list: { objectTypes: ["journal.entry"] },
+  tracker_list: { objectTypes: ["journal.group", "journal.tracker"] },
+});
+
 export function registerJournalTools(registry, store, ledger) {
   const rootRegistry = registry;
-  registry = registry.withCapability?.("journal") ?? registry;
+  registry = registry.withCapability?.("journal", toolDescriptions, nativeToolContracts) ?? registry;
   rootRegistry.registerContextView?.("journal", {
     id: "journal.active_trackers",
     title: "Active personal-journal trackers",

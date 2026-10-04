@@ -1,5 +1,131 @@
 import { interactionGuideContractSchema } from "../interaction-guide-contract.mjs";
 
+const toolDescriptions = Object.freeze({
+  "interaction_guide_archive": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Archive one exact briefing using its current version when no enabled repeating to-do still links to it.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "interaction_guide_create": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Create one named durable user-owned briefing. Add its numbered exchanges separately before starting it.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "interaction_guide_get": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Fetch one exact briefing with all numbered exchanges, answers, versions, and progress.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "interaction_guide_list": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "List briefing metadata without loading numbered exchanges. Use it to resolve the exact briefing before further work.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
+  "interaction_guide_run_cancel": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Cancel one active briefing run, resetting current progress and answers while retaining ledger history.",
+    "actionClasses": [
+      "UPDATE",
+      "DELETE"
+    ],
+    "effectClassifications": [
+      "MUTATING",
+      "DESTRUCTIVE"
+    ]
+  },
+  "interaction_guide_start": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Start or resume one briefing; require an explicit resume or start-over choice when an unfinished run began on an earlier local day.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "interaction_guide_step_add": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Add one numbered exchange to a selected briefing or atomically append it to the generic Exchange Inbox.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "interaction_guide_step_answer": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Merge answers into the active briefing exchange and advance only when its completion rule is satisfied.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "interaction_guide_step_move": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Move one exchange into a different active briefing after reading both current versions.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "interaction_guide_step_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Replace the complete definition of one numbered briefing exchange using the parent briefing's current version.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "interaction_guide_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Rename one exact briefing using its current version without changing its exchanges.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  }
+});
+
 const guideStepRecordSchema = {
   type: ["object", "null"],
   description: "Stores each reusable exchange's literal opening, authoritative structured contract, current answers, and resumable progress.",
@@ -192,9 +318,19 @@ export function activeBriefingRunContext(interactionGuides, limit = 8, registere
   };
 }
 
+const nativeToolContracts = Object.freeze({
+  interaction_guide_list: { objectTypes: ["interaction_guide.guide"] },
+  interaction_guide_get: {
+    objectTypes: ["interaction_guide.step", "interaction_guide.run"],
+    allowUnboundInputs: true,
+  },
+});
+
 export function registerInteractionGuideTools(registry, interactionGuides) {
   const rootRegistry = registry;
-  registry = registry.withCapability?.("interaction-guides") ?? registry;
+  registry = registry.withCapability?.(
+    "interaction-guides", toolDescriptions, nativeToolContracts,
+  ) ?? registry;
   rootRegistry.registerContextView?.("interaction-guides", {
     id: "interaction-guides.active_runs",
     title: "Active briefing runs",

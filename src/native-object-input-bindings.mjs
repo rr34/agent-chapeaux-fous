@@ -6,28 +6,6 @@ import {
 } from "./object-input-bindings.mjs";
 import { nativeObjectInputFields } from "./native-object-types.mjs";
 
-// This is an application-owned declaration, not a naming heuristic. Adding a
-// native first-class ID input requires review here just as a remote provider
-// must publish the equivalent metadata on its tool.
-const identifyingReads = new Set([
-  "file_get", "file_read", "file_structure_inspect", "file_text_search",
-  "file_table_inspect", "file_table_read_rows",
-  "todo_list", "interaction_guide_get", "catch_up_list",
-  "email_mailbox_list", "email_identity_list", "email_search", "email_get",
-  "email_thread_get", "email_changes", "email_submission_get", "email_attachment_get",
-  "video_script_get", "video_content_list",
-]);
-
-const roleOverrides = new Map([
-  ["contact_merge:/merges/*/keep_contact_id", "merge_destination"],
-  ["contact_merge:/merges/*/merge_contacts/*/contact_id", "merge_source"],
-  ["email_update:/replace_mailbox_ids/*", "replacement_mailbox"],
-  ["email_update:/add_mailbox_ids/*", "added_mailbox"],
-  ["email_update:/remove_mailbox_ids/*", "removed_mailbox"],
-  ["email_send:/drafts_mailbox_id", "drafts_mailbox"],
-  ["email_send:/sent_mailbox_id", "sent_mailbox"],
-]);
-
 function escaped(name) {
   return name.replaceAll("~", "~0").replaceAll("/", "~1");
 }
@@ -55,12 +33,15 @@ function declaredBindings(schema, path = "", output = [], visited = new Set()) {
 }
 
 export function applyNativeObjectInputBindings(tool) {
+  const roles = tool.nativeObjectInputRoles ?? {};
   const bindings = declaredBindings(tool.parameters).map((binding) => {
     const withRole = {
       ...binding,
-      role: roleOverrides.get(`${tool.name}:${binding.path}`) ?? "subject",
+      role: roles[binding.path] ?? "subject",
     };
-    return identifyingReads.has(tool.name) ? { ...withRole, allowUnbound: true } : withRole;
+    return tool.allowUnboundObjectInputs === true
+      ? { ...withRole, allowUnbound: true }
+      : withRole;
   });
   if (!bindings.length) return tool;
   const existing = tool.metadata?.[objectInputBindingsMetadataKey]?.bindings ?? [];

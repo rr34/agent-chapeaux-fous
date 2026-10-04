@@ -1,0 +1,17 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "daily-paper",
+  "title": "Printable daily paper",
+  "summary": "Generate a durable printable PDF from the authoritative two-week calendar, one day’s timeline, and to-dos linked to that day’s events.",
+  "aliases": [
+    "daily paper",
+    "daily sheet",
+    "print my day",
+    "print today",
+    "printable calendar",
+    "daily pdf"
+  ],
+  "guidance": "guidance.md"
+}

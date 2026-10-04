@@ -1,0 +1,40 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "journal",
+  "title": "Personal journal",
+  "summary": "Read, record, and correct native journal entries and trackers.",
+  "aliases": [
+    "journal",
+    "tracker",
+    "weight",
+    "mood",
+    "symptom",
+    "workout",
+    "sleep"
+  ],
+  "attachmentHints": [
+    {
+      "extensions": [
+        ".csv"
+      ],
+      "mimeIncludes": [
+        "csv"
+      ],
+      "headerTerms": [
+        "tracker",
+        "occurred_at",
+        "number_value",
+        "content_text",
+        "unit",
+        "tracker_unit"
+      ]
+    }
+  ],
+  "readOnlyTools": [
+    "journal_list",
+    "tracker_list"
+  ],
+  "guidance": "guidance.md"
+}

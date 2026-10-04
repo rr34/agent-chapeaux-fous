@@ -1,0 +1,18 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "web",
+  "title": "Web pages",
+  "summary": "Read specific web pages supplied by URL.",
+  "aliases": [
+    "web page",
+    "website",
+    "url",
+    "link"
+  ],
+  "readOnlyTools": [
+    "web_page_read"
+  ],
+  "guidance": "guidance.md"
+}

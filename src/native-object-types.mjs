@@ -377,8 +377,15 @@ const publicType = (type) => ({
   qualifiers: type.qualifiers, relationships: type.relationships,
 });
 
-export function nativeObjectDescriptionForTool(toolName) {
-  const types = nativeFirstClassObjectTypes.filter(({ readTool }) => readTool === toolName);
+export function nativeObjectDescriptionForTypes(typeIds = []) {
+  const requested = [...new Set(typeIds)];
+  if (requested.length !== typeIds.length) {
+    throw new Error("Native object type declarations must be unique");
+  }
+  const byId = new Map(nativeFirstClassObjectTypes.map((type) => [type.id, type]));
+  const unknown = requested.find((id) => !byId.has(id));
+  if (unknown) throw new Error(`Unknown native object type: ${unknown}`);
+  const types = requested.map((id) => byId.get(id));
   if (!types.length) return null;
   return {
     protocol: objectDescriptionProtocol,
