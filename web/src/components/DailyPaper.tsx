@@ -1,5 +1,9 @@
 import type { CalendarDay, CalendarEvent, DailyPaperModel, LinkedTodo } from "../types";
 import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
+import {
+  AgentReferenceButton, calendarEventIdentity, todoIdentity,
+  type AddAgentReference,
+} from "./AgentReferenceButton";
 
 function timeLabel(event: CalendarEvent, timeZone: string) {
   if (event.isAllDay) return "All day";
@@ -63,7 +67,11 @@ export function CalendarGrid({
   );
 }
 
-export function DayTimeline({ events, timeZone }: { events: CalendarEvent[]; timeZone: string }) {
+export function DayTimeline({ events, timeZone, onReference }: {
+  events: CalendarEvent[];
+  timeZone: string;
+  onReference?: AddAgentReference;
+}) {
   if (!events.length) return <p className="paper-empty">No events scheduled. The day is yours.</p>;
   return (
     <ol className="timeline-list">
@@ -75,13 +83,21 @@ export function DayTimeline({ events, timeZone }: { events: CalendarEvent[]; tim
             {event.location && <span className="event-place">{event.location}</span>}
             {event.description && <p>{event.description}</p>}
           </div>
+          {onReference && <AgentReferenceButton
+            identity={calendarEventIdentity(event, timeZone)}
+            subject={`calendar event ${event.title}`}
+            onReference={onReference}
+          />}
         </li>
       ))}
     </ol>
   );
 }
 
-export function ScheduledTodos({ todos }: { todos: LinkedTodo[] }) {
+export function ScheduledTodos({ todos, onReference }: {
+  todos: LinkedTodo[];
+  onReference?: AddAgentReference;
+}) {
   if (!todos.length) return <p className="paper-empty">No to-dos are attached to this day’s events.</p>;
   return (
     <ul className="paper-todos">
@@ -92,6 +108,11 @@ export function ScheduledTodos({ todos }: { todos: LinkedTodo[] }) {
             <strong>{todo.title}</strong>
             {todo.eventTitles?.length ? <small>For {todo.eventTitles.join(", ")}</small> : null}
           </div>
+          {onReference && <AgentReferenceButton
+            identity={todoIdentity(todo)}
+            subject={`task ${todo.title}`}
+            onReference={onReference}
+          />}
         </li>
       ))}
     </ul>

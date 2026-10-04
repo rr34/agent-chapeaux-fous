@@ -12,6 +12,9 @@ import type {
 } from "../types";
 import { CalendarGrid } from "./DailyPaper";
 import { ErrorState, Loading } from "./State";
+import {
+  AgentReferenceButton, calendarRoutineIdentity, type AddAgentReference,
+} from "./AgentReferenceButton";
 
 function localDateKey(date: Date) {
   return [date.getFullYear(), date.getMonth() + 1, date.getDate()]
@@ -119,21 +122,35 @@ function recurrenceLabel(rule: string) {
   return interval === 1 ? `${name[0].toUpperCase()}${name.slice(1)}ly` : `Every ${interval} ${name}s`;
 }
 
-function RoutineAgenda({ day, routines }: { day?: CalendarDay; routines: Map<number, CalendarRoutine> }) {
+function RoutineAgenda({ day, routines, onReference }: {
+  day?: CalendarDay;
+  routines: Map<number, CalendarRoutine>;
+  onReference: AddAgentReference;
+}) {
   if (!day) return null;
   if (!day.events.length) return <p className="routine-empty">No routines on this day.</p>;
   return <div className="routine-agenda" aria-label={`Routines for ${formatLocalDate(day.localDate)}`}>
     {day.events.map((event) => {
-      const routine = routines.get(event.id);
+      const routine = routines.get(Number(event.id));
       return <article className="routine-agenda-item" key={`${event.id}-${event.startsAtUtc}`}>
         <div><strong>{event.title}</strong>{event.description && <p>{event.description}</p>}</div>
-        <span>{event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, event.timeZone || undefined)} · {recurrenceLabel(routine?.recurrenceRule || "")}</span>
+        <div className="routine-agenda-actions">
+          <span>{event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, event.timeZone || undefined)} · {recurrenceLabel(routine?.recurrenceRule || "")}</span>
+          {routine && <AgentReferenceButton
+            identity={calendarRoutineIdentity(routine)}
+            subject={`calendar routine ${routine.title}`}
+            onReference={onReference}
+          />}
+        </div>
       </article>;
     })}
   </div>;
 }
 
-export function RoutineScreen({ onGenerated }: { onGenerated: (message: string) => void }) {
+export function RoutineScreen({ onGenerated, onReference }: {
+  onGenerated: (message: string) => void;
+  onReference: AddAgentReference;
+}) {
   const today = useMemo(() => startOfDay(new Date()), []);
   const monthDates = useMemo(() => routineMonthDates(today), [today]);
   const weekDates = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(today), index)), [today]);
@@ -197,12 +214,12 @@ export function RoutineScreen({ onGenerated }: { onGenerated: (message: string) 
       <section className="surface routine-calendar-section">
         <div className="section-title"><div><p className="eyebrow">Reusable week</p><h2>Weekly &amp; daily</h2><p>Select a weekday to see its routines.</p></div></div>
         <div className="routine-calendar-scroll"><CalendarGrid days={weeklyDays} selectedDate={selectedWeekday} onSelect={setSelectedWeekday} ariaLabel="Weekly routine calendar, Monday through Sunday" /></div>
-        <RoutineAgenda day={selectedWeeklyDay} routines={routineMap} />
+        <RoutineAgenda day={selectedWeeklyDay} routines={routineMap} onReference={onReference} />
       </section>
       <section className="surface routine-calendar-section">
         <div className="section-title"><div><p className="eyebrow">Month pattern</p><h2>{monthName}</h2><p>Monthly and yearly routines. Daily and weekly patterns appear above.</p></div></div>
         <div className="routine-calendar-scroll"><CalendarGrid days={monthlyDays} selectedDate={selectedMonthDate} onSelect={setSelectedMonthDate} ariaLabel={`Monthly routine calendar for ${monthName}`} /></div>
-        <RoutineAgenda day={selectedMonthlyDay} routines={routineMap} />
+        <RoutineAgenda day={selectedMonthlyDay} routines={routineMap} onReference={onReference} />
       </section>
     </div>}
   </>;

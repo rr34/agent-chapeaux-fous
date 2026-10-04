@@ -1,6 +1,7 @@
 export interface LinkedTodo {
   todoId: number;
   title: string;
+  groupName?: string | null;
   description?: string | null;
   status: string;
   relationshipKind?: string;
@@ -8,7 +9,10 @@ export interface LinkedTodo {
 }
 
 export interface CalendarEvent {
-  id: number;
+  id: number | string;
+  seriesId?: number;
+  isGeneratedOccurrence?: boolean;
+  contactId?: number;
   title: string;
   description?: string | null;
   location?: string | null;
