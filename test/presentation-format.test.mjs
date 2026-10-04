@@ -5,6 +5,7 @@ import {
   formatDisplayDate,
   formatDisplayTime,
   formatLocalDate,
+  formatLocalDateRange,
   formatUserFacingDates,
 } from "../public/presentation-format.js";
 
@@ -18,6 +19,9 @@ test("the shared presentation formatter uses the TLOM date and 24-hour time styl
   }), "Thu, 20 Aug 2026");
   assert.equal(formatDisplayTime(instant, { timeZone: "America/New_York" }), "18:30");
   assert.equal(formatDisplayDate(instant, { timeZone: "America/New_York" }), "Thu, 20 Aug 2026 at 18:30");
+  assert.equal(formatLocalDateRange("2026-08-03", "2026-08-20"), "3-20 Aug 2026");
+  assert.equal(formatLocalDateRange("2026-09-28", "2026-10-11"), "28 Sep - 11 Oct 2026");
+  assert.equal(formatLocalDateRange("2026-12-28", "2027-01-10"), "28 Dec 2026 - 10 Jan 2027");
 });
 
 test("final-response prose dates are normalized and weekdays are recomputed", () => {

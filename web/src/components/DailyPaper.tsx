@@ -1,12 +1,10 @@
 import type { CalendarDay, CalendarEvent, DailyPaperModel, LinkedTodo } from "../types";
+import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
 
 function timeLabel(event: CalendarEvent, timeZone: string) {
   if (event.isAllDay) return "All day";
-  const format = (value: string) => new Intl.DateTimeFormat("en-US", {
-    hour: "numeric", minute: "2-digit", timeZone,
-  }).format(new Date(value));
-  const start = format(event.startsAtUtc);
-  return event.endsAtUtc ? `${start}–${format(event.endsAtUtc)}` : start;
+  const start = formatDisplayTime(event.startsAtUtc, timeZone);
+  return event.endsAtUtc ? `${start}–${formatDisplayTime(event.endsAtUtc, timeZone)}` : start;
 }
 
 export function CalendarGrid({
@@ -14,15 +12,17 @@ export function CalendarGrid({
   compact = false,
   selectedDate,
   onSelect,
+  ariaLabel = "Two-week calendar",
 }: {
   days: CalendarDay[];
   compact?: boolean;
   selectedDate?: string;
   onSelect?: (localDate: string) => void;
+  ariaLabel?: string;
 }) {
   const eventLimit = compact ? 3 : 8;
   return (
-    <section className={`two-week-grid ${compact ? "two-week-grid--compact" : ""}`} aria-label="Two-week calendar">
+    <section className={`two-week-grid ${compact ? "two-week-grid--compact" : ""}`} aria-label={ariaLabel}>
       <div className="weekdays" aria-hidden="true">
         {days.slice(0, 7).map((day) => <span key={day.weekday}>{day.weekday}</span>)}
       </div>
@@ -31,12 +31,12 @@ export function CalendarGrid({
           const isSelected = selectedDate ? day.localDate === selectedDate : day.isToday;
           const contents = <>
             <span className="calendar-cell-header">
-              <span>{day.month}</span>
               <strong>{day.dayNumber}</strong>
+              <span>{day.month}</span>
             </span>
             <span className="calendar-cell-events">
               {day.events.slice(0, eventLimit).map((event) => (
-                <span className="calendar-chip" key={`${day.localDate}-${event.id}`}>
+                <span className="calendar-chip" key={`${day.localDate}-${event.id}-${event.startsAtUtc}`}>
                   {!event.isAllDay && <time>{timeLabel(event, event.timeZone || "UTC").split("–")[0]}</time>}
                   <span>{event.title}</span>
                 </span>
@@ -44,14 +44,14 @@ export function CalendarGrid({
               {day.events.length > eventLimit && <small>+{day.events.length - eventLimit} more</small>}
             </span>
           </>;
-          const className = `calendar-cell ${isSelected ? "is-selected" : ""}`;
+          const className = `calendar-cell ${isSelected ? "is-selected" : ""} ${day.isOutsideRange ? "is-outside-range" : ""}`;
           return onSelect ? (
             <button
               type="button"
               className={className}
               key={day.localDate}
               onClick={() => onSelect(day.localDate)}
-              aria-label={`${day.weekday}, ${day.month} ${day.dayNumber}`}
+              aria-label={formatLocalDate(day.localDate)}
               aria-pressed={isSelected}
             >
               {contents}
@@ -140,8 +140,8 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
       </section>
 
       <footer className="paper-footer">
-        <span>Printed {new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(model.generatedAtUtc))}</span>
-        <span>{model.date}</span>
+        <span>Printed {formatDisplayDate(model.generatedAtUtc, { timeZone: model.timeZone })}</span>
+        <span>For {formatLocalDate(model.date)}</span>
       </footer>
     </article>
   );

@@ -1376,7 +1376,7 @@ export class SlayerRuntime {
         channel: args.channel ?? "web", turnId: args.requestId,
         name: "User-facing dates formatted",
         content: "Formatted explicit prose dates as Mon, 31 Aug 2026",
-        payload: { dateStyle: "EEE, dd MMM yyyy" },
+        payload: { dateStyle: "EEE, d MMM yyyy" },
       });
     }
     return canonicalizeAgentName(presentedResponse);

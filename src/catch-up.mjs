@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { currentLoggingPeriod, previewRoutineOccurrenceStarts } from "./organizer-store.mjs";
 import { localDateUtcBounds } from "./temporal-consistency.mjs";
 import { buildRecurrenceRule, validateTimeZone } from "./todo-recurrence.mjs";
+import { formatDisplayDate } from "../public/presentation-format.js";
 
 const maximumSources = 2000;
 function publicQuestion(row, source = null) {
@@ -211,8 +212,7 @@ export class CatchUpService {
     const entry = this.database.prepare(`SELECT journal_entry_id FROM journal3_entries
       WHERE tracker_id = ? AND occurred_at_utc >= ? AND occurred_at_utc < ? LIMIT 1`)
       .get(id, period.startsAtUtc, period.endsAtUtc);
-    const periodLabel = new Intl.DateTimeFormat("en-US", { timeZone: zone,
-      month: "short", day: "numeric", year: "numeric" }).format(new Date(period.startsAtUtc));
+    const periodLabel = formatDisplayDate(period.startsAtUtc, { includeTime: false, timeZone: zone });
     const occurrence = row.asking_recurrence_rule ? period.startsAtUtc : `day:${day}:${zone}`;
     return { ...question({ tracker_id: id }, occurrence,
       [row.name, row.unit, row.asking_recurrence_rule, zone, period, Boolean(entry)],

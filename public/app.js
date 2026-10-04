@@ -2626,9 +2626,9 @@ function plannedTimeLabel(item, date) {
 
 function renderRoutineAgenda(date, section, heading, count, list) {
   const occurrences = routineOccurrencesOnDay(date, section);
-  heading.textContent = new Intl.DateTimeFormat(undefined, section === "weekly"
-    ? { weekday: "long" }
-    : { weekday: "long", month: "short", day: "numeric" }).format(date);
+  heading.textContent = section === "weekly"
+    ? new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(date)
+    : formatDisplayDate(date, { includeTime: false });
   count.textContent = `${occurrences.length} ${occurrences.length === 1 ? "item" : "items"}`;
   list.replaceChildren();
   if (occurrences.length === 0) {
@@ -4513,8 +4513,8 @@ function formatContactBirthday(value) {
   const partial = /^--(\d{2})-(\d{2})$/.exec(value);
   const date = new Date(`${partial ? `2000-${partial[1]}-${partial[2]}` : value}T12:00:00`);
   if (!Number.isFinite(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short", day: "numeric", ...(partial ? {} : { year: "numeric" }),
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric", month: "short", ...(partial ? {} : { year: "numeric" }),
   }).format(date);
 }
 

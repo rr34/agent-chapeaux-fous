@@ -892,7 +892,7 @@ test("hard-coded UI datetimes use the TLOM 24-hour display convention", () => {
   assert.match(application, /import \{ formatDisplayDate, formatDisplayTime, formatLocalDate \} from "\.\/presentation-format\.js"/);
   assert.match(presentation, /export function formatDisplayDate/);
   assert.match(presentation, /export function formatDisplayTime/);
-  assert.match(presentation, /weekday: "short", day: "2-digit", month: "short", year: "numeric"/);
+  assert.match(presentation, /weekday: "short", day: "numeric", month: "short", year: "numeric"/);
   assert.match(presentation, /hour: "2-digit", minute: "2-digit", hourCycle: "h23"/);
   assert.match(presentation, /`\$\{dateLabel\} at \$\{formatDisplayTime\(date, \{ timeZone, fallback \}\)\}`/);
   assert.match(application, /formatDisplayDate\(value, \{ includeTime: false, timeZone \}\)/);

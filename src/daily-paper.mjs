@@ -6,6 +6,10 @@ import {
   localCalendarSnapshot,
   localDateUtcBounds,
 } from "./temporal-consistency.mjs";
+import {
+  formatLocalDate as formatPresentationLocalDate,
+  formatLocalDateRange,
+} from "../public/presentation-format.js";
 
 const DAY_MS = 86_400_000;
 const PAPER_SIZES = new Set(["letter", "a4"]);
@@ -205,10 +209,8 @@ export class DailyPaperService {
       version: 1,
       generatedAtUtc: new Date().toISOString(),
       ...selected,
-      heading: formatLocalDate(selected.date, {
-        weekday: "long", month: "long", day: "numeric", year: "numeric",
-      }),
-      rangeHeading: `${formatLocalDate(dates[0], { month: "short", day: "numeric" })}–${formatLocalDate(dates.at(-1), { month: "short", day: "numeric", year: "numeric" })}`,
+      heading: formatPresentationLocalDate(selected.date),
+      rangeHeading: formatLocalDateRange(dates[0], dates.at(-1)),
       calendarDays,
       todayEvents,
       scheduledTodos: [...todoMap.values()],

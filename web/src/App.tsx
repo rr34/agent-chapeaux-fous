@@ -3,6 +3,8 @@ import { api, ApiError, downloadAuthenticated, getAccessToken, setAccessToken } 
 import { useApi, localToday } from "./hooks";
 import { CalendarGrid, DailyPaper, DayTimeline, ScheduledTodos } from "./components/DailyPaper";
 import { Empty, ErrorState, Loading } from "./components/State";
+import { RoutineScreen } from "./components/RoutineCalendar";
+import { formatDisplayDate, formatLocalDate } from "./date-format";
 import type { DailyPaperModel, Entity, RequestRecord, StoredFileBinding } from "./types";
 
 const navigation = [
@@ -11,6 +13,33 @@ const navigation = [
   ["files", "Files"], ["contacts", "Contacts"], ["journal", "Journal"],
   ["interactions", "Check-in"], ["ai-usage", "AI Usage"],
 ] as const;
+
+type NavigationItem = typeof navigation[number];
+
+function NavigationIcon({ id, label }: { id: NavigationItem[0]; label: NavigationItem[1] }) {
+  if (id === "contacts") {
+    return <span className="nav-icon nav-icon--contacts" aria-hidden="true">
+      <span className="tlom-person-icon">
+        <span className="tlom-person-icon-head" />
+        <span className="tlom-person-icon-body" />
+      </span>
+    </span>;
+  }
+  if (id === "todos") {
+    return <span className="nav-icon nav-icon--todos" aria-hidden="true">
+      <span className="tlom-todo-icon"><span className="tlom-todo-icon-check" /></span>
+    </span>;
+  }
+  if (id === "hats") {
+    return <span className="nav-icon nav-icon--hats" aria-hidden="true">
+      <svg viewBox="0 0 128 72">
+        <path d="M30 46 38 17Q64 5 90 17L98 46Z" />
+        <path d="M16 48Q64 39 112 48 103 62 64 62 25 62 16 48Z" />
+      </svg>
+    </span>;
+  }
+  return <span className="nav-icon nav-icon--letter" aria-hidden="true">{label.slice(0, 1)}</span>;
+}
 
 function readKey(entity: Entity, ...keys: string[]) {
   for (const key of keys) if (entity[key] != null && entity[key] !== "") return entity[key];
@@ -28,15 +57,6 @@ function PageHeading({ eyebrow, title, detail, actions }: {
   return <header className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{detail && <p>{detail}</p>}</div>{actions && <div className="heading-actions">{actions}</div>}</header>;
 }
 
-function calendarDateHeading(localDate: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${localDate}T12:00:00Z`));
-}
 
 function linkedTodosForEvents(events: DailyPaperModel["todayEvents"]) {
   const todos = new Map<number, DailyPaperModel["scheduledTodos"][number]>();
@@ -111,7 +131,10 @@ function AgentScreen() {
   </>;
 }
 
-function CalendarScreen() {
+function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
+  generationNotice?: string | null;
+  dismissGenerationNotice?: () => void;
+}) {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = localToday(timeZone);
   const [selectedDate, setSelectedDate] = useState(date);
@@ -144,6 +167,7 @@ function CalendarScreen() {
     <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={
       <button className="button" onClick={() => void generate()} disabled={generating || !selectedDay}>{generating ? "Making PDF…" : "Download daily PDF"}</button>
     } />
+    {generationNotice && <div className="calendar-generation-notice surface" role="status"><span>{generationNotice}</span>{dismissGenerationNotice && <button className="button button--quiet" onClick={dismissGenerationNotice}>Dismiss</button>}</div>}
     {generationError && <ErrorState
       error={generationError}
       retry={() => void generate()}
@@ -152,7 +176,7 @@ function CalendarScreen() {
     {loading && <Loading label="Composing your day" />}{error && <ErrorState error={error} retry={reload} />}
     {data && <div className="calendar-screen">
       <section className="surface calendar-overview"><div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><button className="button button--quiet" onClick={() => window.print()}>Print browser view</button></div><CalendarGrid days={data.calendarDays} selectedDate={selectedDay?.localDate} onSelect={setSelectedDate} /></section>
-      <div className="calendar-lower"><section className="surface"><p className="eyebrow">{calendarDateHeading(selectedDay?.localDate || data.date)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} /></section></div>
+      <div className="calendar-lower"><section className="surface"><p className="eyebrow">{formatLocalDate(selectedDay?.localDate || data.date)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} /></section></div>
       <details className="paper-preview surface"><summary>Preview the printed page</summary><DailyPaper model={data} preview /></details>
     </div>}
   </>;
@@ -196,16 +220,10 @@ function HatsScreen() {
   return <><PageHeading eyebrow="Ways of working" title="Hats" detail={String(data?.introduction || "Name a hat when you want a particular working stance.")} />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="hat-grid">{hats.map((hat, index) => <article className="hat-card" key={hat.id || index}><div className="hat-shape">{textKey(hat, "label", "title").slice(0, 10)}</div><h2>{textKey(hat, "title", "label", "name")}</h2><p>{textKey(hat, "description", "summary")}</p></article>)}</div></>;
 }
 
-function RoutineScreen() {
-  const today = localToday(); const start = new Date(`${today}T00:00:00`); const end = new Date(start); end.setDate(end.getDate() + 14);
-  const { data, error, loading, reload } = useApi<{ routines: Entity[]; occurrences: Entity[] }>(`/api/calendar-routines/preview?from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}`);
-  return <><PageHeading eyebrow="Reusable rhythms" title="Routine" detail="Patterns become concrete calendar events only when generated." />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="card-grid">{data?.routines?.map((routine) => <article className="entity-card" key={routine.id}><span className="pill">Routine</span><h2>{routine.title}</h2><p>{textKey(routine, "description", "recurrenceRule")}</p></article>)}</div></>;
-}
-
 function JournalScreen() {
   const { data: trackers, error, loading, reload } = useApi<{ trackers: Entity[] }>("/api/journal-trackers?limit=200");
   const { data: entries } = useApi<{ entries: Entity[] }>("/api/journal-entries?limit=100");
-  return <><PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="journal-layout"><div className="card-grid">{trackers?.trackers?.map((tracker) => <article className="entity-card" key={tracker.id}><span className="pill">Tracker</span><h2>{tracker.name || tracker.title}</h2><p>{textKey(tracker, "description", "unit")}</p></article>)}</div><section className="surface"><h2>Recent entries</h2>{entries?.entries?.map((entry, index) => <div className="journal-entry" key={entry.id || index}><strong>{textKey(entry, "trackerName", "title")}</strong><span>{textKey(entry, "occurredAtUtc", "createdAtUtc")}</span><p>{textKey(entry, "contentText", "text", "numberValue")}</p></div>)}</section></div></>;
+  return <><PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="journal-layout"><div className="card-grid">{trackers?.trackers?.map((tracker) => <article className="entity-card" key={tracker.id}><span className="pill">Tracker</span><h2>{tracker.name || tracker.title}</h2><p>{textKey(tracker, "description", "unit")}</p></article>)}</div><section className="surface"><h2>Recent entries</h2>{entries?.entries?.map((entry, index) => <div className="journal-entry" key={entry.id || index}><strong>{textKey(entry, "trackerName", "title")}</strong><span>{formatDisplayDate(textKey(entry, "occurredAtUtc", "createdAtUtc"))}</span><p>{textKey(entry, "contentText", "text", "numberValue")}</p></div>)}</section></div></>;
 }
 
 function UsageScreen() {
@@ -232,6 +250,7 @@ function Workspace() {
   const [view, setView] = useState(navigation.some(([id]) => id === fromHash) ? fromHash : "agent");
   const [editingToken, setEditingToken] = useState(false);
   const [tokenDraft, setTokenDraft] = useState(getAccessToken());
+  const [calendarGenerationNotice, setCalendarGenerationNotice] = useState<string | null>(null);
   const go = (next: string) => { setView(next); history.replaceState(null, "", `#${next}`); };
   const saveToken = (event: FormEvent) => {
     event.preventDefault();
@@ -241,15 +260,15 @@ function Workspace() {
   };
   let screen: ReactNode;
   if (view === "agent") screen = <AgentScreen />;
-  else if (view === "calendar") screen = <CalendarScreen />;
+  else if (view === "calendar") screen = <CalendarScreen generationNotice={calendarGenerationNotice} dismissGenerationNotice={() => setCalendarGenerationNotice(null)} />;
   else if (view === "todos") screen = <TodoScreen />;
   else if (view === "contacts") screen = <ContactsScreen />;
   else if (view === "hats") screen = <HatsScreen />;
-  else if (view === "routine") screen = <RoutineScreen />;
+  else if (view === "routine") screen = <RoutineScreen onGenerated={(message) => { setCalendarGenerationNotice(message); go("calendar"); }} />;
   else if (view === "journal") screen = <JournalScreen />;
   else if (view === "ai-usage") screen = <UsageScreen />;
   else screen = <GenericScreen kind={view as keyof typeof genericScreens} />;
-  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Chapeaux<br />Fous</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><span>{label.slice(0, 1)}</span>{label}</button>)}</nav><div className="token-settings">
+  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Chapeaux<br />Fous</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav><div className="token-settings">
     <button className="token-button" onClick={() => { setTokenDraft(getAccessToken()); setEditingToken((open) => !open); }}>Access token</button>
     {editingToken && <form className="token-editor" onSubmit={saveToken}>
       <label>Replace token<input autoFocus type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} /></label>

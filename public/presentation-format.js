@@ -40,7 +40,7 @@ function validCalendarParts(yearValue, monthValue, dayValue) {
 function calendarLabel(yearValue, monthValue, dayValue) {
   const parsed = validCalendarParts(yearValue, monthValue, dayValue);
   if (!parsed) return null;
-  return `${shortWeekdays[parsed.date.getUTCDay()]}, ${String(parsed.day).padStart(2, "0")} ${shortMonths[parsed.month - 1]} ${String(parsed.year).padStart(4, "0")}`;
+  return `${shortWeekdays[parsed.date.getUTCDay()]}, ${parsed.day} ${shortMonths[parsed.month - 1]} ${String(parsed.year).padStart(4, "0")}`;
 }
 
 export function formatDisplayTime(value, { timeZone = null, fallback = "—" } = {}) {
@@ -61,7 +61,7 @@ export function formatDisplayDate(value, {
   if (!Number.isFinite(date.getTime())) return fallback;
   const dateParts = new Intl.DateTimeFormat("en-GB", {
     ...(timeZone ? { timeZone } : {}),
-    weekday: "short", day: "2-digit", month: "short", year: "numeric",
+    weekday: "short", day: "numeric", month: "short", year: "numeric",
   }).formatToParts(date);
   const part = (type) => dateParts.find((candidate) => candidate.type === type)?.value ?? "";
   const dateLabel = `${part("weekday")}, ${part("day")} ${part("month")} ${part("year")}`;
@@ -72,6 +72,28 @@ export function formatDisplayDate(value, {
 export function formatLocalDate(value, { fallback = "—" } = {}) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? ""));
   return match ? calendarLabel(match[1], match[2], match[3]) ?? fallback : fallback;
+}
+
+export function formatLocalDateRange(startValue, endValue, { fallback = "—" } = {}) {
+  const parse = (value) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? ""));
+    return match ? validCalendarParts(match[1], match[2], match[3]) : null;
+  };
+  const start = parse(startValue);
+  const end = parse(endValue);
+  if (!start || !end) return fallback;
+  if (String(startValue) === String(endValue)) return formatLocalDate(startValue, { fallback });
+  const startDay = String(start.day);
+  const endDay = String(end.day);
+  const startMonth = shortMonths[start.month - 1];
+  const endMonth = shortMonths[end.month - 1];
+  if (start.year === end.year && start.month === end.month) {
+    return `${startDay}-${endDay} ${startMonth} ${start.year}`;
+  }
+  if (start.year === end.year) {
+    return `${startDay} ${startMonth} - ${endDay} ${endMonth} ${start.year}`;
+  }
+  return `${startDay} ${startMonth} ${start.year} - ${endDay} ${endMonth} ${end.year}`;
 }
 
 function replaceProseDates(text) {

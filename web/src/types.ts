@@ -27,6 +27,37 @@ export interface CalendarDay {
   dayNumber: number;
   month: string;
   isToday: boolean;
+  isOutsideRange?: boolean;
+  events: CalendarEvent[];
+}
+
+export interface CalendarRoutine extends Entity {
+  id: number;
+  title: string;
+  description?: string | null;
+  recurrenceRule: string;
+}
+
+export interface CalendarRoutineOccurrence {
+  routineId: number;
+  title: string;
+  startsAtUtc: string;
+  endsAtUtc?: string | null;
+  timeZone?: string | null;
+  isAllDay: boolean;
+  recurrenceRule: string;
+  planningPromptText?: string | null;
+}
+
+export interface CalendarRoutinePreview {
+  routines: CalendarRoutine[];
+  occurrences: CalendarRoutineOccurrence[];
+}
+
+export interface CalendarRoutineGeneration {
+  createdCount: number;
+  existingCount: number;
+  movedTodoCount: number;
   events: CalendarEvent[];
 }
 

@@ -65,6 +65,8 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
   assert.equal(model.calendarDays[0].localDate, "2026-09-28");
   assert.equal(model.calendarDays.at(-1).localDate, "2026-10-11");
   assert.equal(model.calendarDays.filter(({ isToday }) => isToday).length, 1);
+  assert.equal(model.heading, "Sun, 4 Oct 2026");
+  assert.equal(model.rangeHeading, "28 Sep - 11 Oct 2026");
   assert.deepEqual(model.todayEvents.map(({ id }) => id), [1, 2]);
   assert.deepEqual(model.scheduledTodos, [{
     todoId: 17,
