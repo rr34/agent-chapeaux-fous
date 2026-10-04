@@ -38,9 +38,10 @@ a { color: inherit; }
 .tlom-person-icon-body { width: 12px; height: 6px; border-radius: 6px 6px 3px 3px; background: currentColor; }
 .tlom-todo-icon { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid currentColor; }
 .tlom-todo-icon-check { width: 7px; height: 4px; border-left: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
-.nav-icon--hats svg { width: 20px; height: 16px; overflow: visible; fill: none; stroke: currentColor; stroke-linejoin: round; stroke-width: 7; }
+.nav-icon--hat-outline img { width: 19px; height: 19px; object-fit: contain; filter: invert(1); }
 .sidebar nav button:hover, .sidebar nav button.active { color: white; background: #3a4334; }
 .sidebar nav button.active > .nav-icon { background: #dfe5d7; color: #30382b; border-color: #dfe5d7; }
+.sidebar nav button.active > .nav-icon--hat-outline img { filter: none; }
 .token-settings { position: relative; margin-top: auto; }
 .token-button { width: 100%; border-top: 1px solid #424a3d; border-radius: 0; opacity: .75; }
 .token-editor { position: absolute; z-index: 8; bottom: 48px; left: 0; width: 300px; padding: 14px; border: 1px solid #596253; border-radius: 12px; background: #30382b; box-shadow: var(--shadow); }
@@ -155,6 +156,8 @@ button.calendar-cell:focus-visible { outline: 3px solid rgba(104, 116, 90, .3); 
 
 .inline-create { display: flex; gap: 8px; min-width: min(420px, 100%); }
 .todo-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
+.todo-group-filter { display: grid; grid-template-columns: auto minmax(140px, 190px); align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.todo-group-filter select { padding-block: 8px; }
 .todo-completed-filter { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .todo-completed-filter input { width: 17px; height: 17px; margin: 0; accent-color: var(--olive-dark); }
 .group-list { display: grid; gap: 26px; }
@@ -274,6 +277,7 @@ button.calendar-cell:focus-visible { outline: 3px solid rgba(104, 116, 90, .3); 
   .composer { grid-template-columns: 1fr; bottom: 10px; }
   .inline-create { min-width: 100%; }
   .todo-heading-actions { align-items: stretch; flex-direction: column; width: 100%; }
+  .todo-group-filter { grid-template-columns: auto 1fr; }
   .todo-completed-filter { min-height: 40px; }
   .metric-grid { grid-template-columns: 1fr; }
   .paper-preview .daily-paper { transform: scale(.72); margin-bottom: -3in; }

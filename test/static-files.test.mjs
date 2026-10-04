@@ -30,6 +30,15 @@ test("first visits serve the landing page without loading the token-prompting ap
   }
 });
 
+test("the landing-page logo is served from the public asset directory", async () => {
+  const response = await request("/logo-chapeaux-fous-1200-square-transparent.png");
+  assert.equal(response.handled, true);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers["Content-Type"], "image/png");
+  assert.equal(response.headers["Cache-Control"], "public, max-age=300");
+  assert.ok(response.body.length > 0);
+});
+
 test("app navigation and OAuth return URLs still load the application", async () => {
   const app = await fs.readFile(path.join(repositoryRoot, "public/ui/index.html"), "utf8");
   for (const url of ["/app", "/app/", "/app?oauth=connected"]) {

@@ -20,3 +20,11 @@ test("the React to-do page renders tasks in their stored groups", () => {
   assert.match(styles, /\.todo-group-heading/);
   assert.match(styles, /\.todo-group-items/);
 });
+
+test("the React to-do page can filter its visible tasks by group", () => {
+  assert.match(appSource, /const \[selectedGroupId, setSelectedGroupId\] = useState\("all"\)/);
+  assert.match(appSource, /useApi<\{ groups: Entity\[\] \}>\("\/api\/todo-groups"\)/);
+  assert.match(appSource, /selectedGroupId === "all"/);
+  assert.match(appSource, /<option value="all">All groups<\/option>/);
+  assert.match(styles, /\.todo-group-filter/);
+});

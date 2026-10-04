@@ -11,6 +11,7 @@ import {
 } from "./components/AgentReferenceButton";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
 import type { DailyPaperModel, Entity, RequestRecord, StoredFileBinding } from "./types";
+import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
   ["agent", "Agent"], ["hats", "Hats"], ["calendar", "Calendar"], ["routine", "Routine"],
@@ -35,12 +36,9 @@ function NavigationIcon({ id, label }: { id: NavigationItem[0]; label: Navigatio
       <span className="tlom-todo-icon"><span className="tlom-todo-icon-check" /></span>
     </span>;
   }
-  if (id === "hats") {
-    return <span className="nav-icon nav-icon--hats" aria-hidden="true">
-      <svg viewBox="0 0 128 72">
-        <path d="M30 46 38 17Q64 5 90 17L98 46Z" />
-        <path d="M16 48Q64 39 112 48 103 62 64 62 25 62 16 48Z" />
-      </svg>
+  if (id === "agent" || id === "hats") {
+    return <span className="nav-icon nav-icon--hat-outline" aria-hidden="true">
+      <img src={hatOutlineUrl} alt="" />
     </span>;
   }
   return <span className="nav-icon nav-icon--letter" aria-hidden="true">{label.slice(0, 1)}</span>;
@@ -208,14 +206,19 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
 
 function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
   const [showCompleted, setShowCompleted] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState("all");
   const scope = showCompleted ? "all" : "active";
   const { data, error, loading, reload } = useApi<{ todos: Entity[] }>(`/api/todos?scope=${scope}&limit=1000`);
+  const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/todo-groups");
   const [draft, setDraft] = useState("");
   const add = async (event: FormEvent) => { event.preventDefault(); await api("/api/todos", { method: "POST", body: JSON.stringify({ text: draft, status: "todo" }) }); setDraft(""); await reload(); };
   const toggle = async (todo: Entity) => { await api(`/api/todos/${todo.id}`, { method: "PATCH", body: JSON.stringify({ version: todo.version, status: todo.status === "complete" ? "todo" : "complete" }) }); await reload(); };
-  const todos = (data?.todos || []).filter((todo) =>
+  const statusTodos = (data?.todos || []).filter((todo) =>
     todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
   );
+  const todos = selectedGroupId === "all"
+    ? statusTodos
+    : statusTodos.filter((todo) => String(readKey(todo, "groupId")) === selectedGroupId);
   const groups = useMemo(() => {
     const grouped = new Map<string, { id: string; name: string; todos: Entity[] }>();
     for (const todo of todos) {
@@ -228,8 +231,8 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
     }
     return [...grouped.values()];
   }, [todos]);
-  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<div className="todo-heading-actions"><label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label><form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form></div>} />
-    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !error && !todos.length && <Empty>{showCompleted ? "No open or completed to-dos yet." : "No open to-dos."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></header><div className="todo-group-items">{group.todos.map((todo) => <article className={`todo-row ${todo.status === "complete" ? "is-complete" : ""}`} key={todo.id}><button className="todo-check" onClick={() => void toggle(todo)} aria-label={`Mark ${textKey(todo, "text", "title")} ${todo.status === "complete" ? "open" : "complete"}`}>{todo.status === "complete" ? "✓" : ""}</button><div><strong>{textKey(todo, "text", "title")}</strong>{readKey(todo, "sequence") != null && <small>#{String(readKey(todo, "sequence"))}</small>}</div><div className="object-row-actions"><span className="pill">{todo.status}</span><AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${textKey(todo, "text", "title")}`} onReference={onReference} /></div></article>)}</div></section>)}</div></>;
+  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<div className="todo-heading-actions"><label className="todo-group-filter"><span>Group</span><select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={groupsLoading}><option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}</select></label><label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label><form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form></div>} />
+    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !todos.length && <Empty>{showCompleted ? "No open or completed to-dos yet." : "No open to-dos."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></header><div className="todo-group-items">{group.todos.map((todo) => <article className={`todo-row ${todo.status === "complete" ? "is-complete" : ""}`} key={todo.id}><button className="todo-check" onClick={() => void toggle(todo)} aria-label={`Mark ${textKey(todo, "text", "title")} ${todo.status === "complete" ? "open" : "complete"}`}>{todo.status === "complete" ? "✓" : ""}</button><div><strong>{textKey(todo, "text", "title")}</strong>{readKey(todo, "sequence") != null && <small>#{String(readKey(todo, "sequence"))}</small>}</div><div className="object-row-actions"><span className="pill">{todo.status}</span><AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${textKey(todo, "text", "title")}`} onReference={onReference} /></div></article>)}</div></section>)}</div></>;
 }
 
 function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
