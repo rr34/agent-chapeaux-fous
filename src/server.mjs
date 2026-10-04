@@ -14,6 +14,7 @@ import { InteractionGuides } from "./interaction-guides.mjs";
 import { DailyPaperService } from "./daily-paper.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
+import { PaymentService } from "./payments.mjs";
 import { normalizeSelectedObjectCandidates, registerNativeObjectContextView, selectedObjectMentionsAreVisible } from "./native-object-search.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { assertNativeCapabilityRegistrations, registerNativeCapabilities, validateNativeCapabilityPackages } from "./native-capabilities.mjs";
@@ -48,6 +49,7 @@ import { ToolRegistry } from "./tools/registry.mjs";
 import { registerProfileFactTools } from "./tools/profile-fact-tools.mjs";
 import { registerSearchTools } from "./tools/search-tools.mjs";
 import { registerTodoTools } from "./tools/todo-tools.mjs";
+import { registerPaymentTools } from "./tools/payment-tools.mjs";
 import { registerWebPageTools } from "./tools/web-page-tools.mjs";
 import { registerAgentSelfTools } from "./tools/agent-self-tools.mjs";
 import { registerVideoScriptTools } from "./tools/video-script-tools.mjs";
@@ -64,6 +66,7 @@ const identity = runtimeIdentity(config.repositoryRoot);
 const store = new SlayerDatabase(config.databaseTarget);
 const ledger = new Ledger(store);
 const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget) : null;
+const payments = store.status.ready ? new PaymentService({ store, config, ledger }) : null;
 const catchUp = store.status.ready ? new CatchUpService(store, organizer, ledger) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
 const interactionGuides = new InteractionGuides({
@@ -123,6 +126,7 @@ if (store.status.ready) {
   registerContactTools(registry, store, organizer, ledger, searchCoordinator);
   registerDailyPaperTools(registry, dailyPaper);
   registerTodoTools(registry, store, ledger);
+  registerPaymentTools(registry, payments);
   registerJournalTools(registry, store, ledger);
   registerCatchUpTools(registry, catchUp);
   registerInteractionGuideTools(registry, interactionGuides);
@@ -152,7 +156,7 @@ registerAgentSelfTools(registry, {
   runtimeIdentity: identity,
   config,
   modelTransport,
-  integrationHealth: () => ({ ...mcp.health(), email: jmap.health() }),
+  integrationHealth: () => ({ ...mcp.health(), email: jmap.health(), stripe: payments?.health() ?? { ready: false } }),
   hatCatalog,
 });
 assertNativeToolDescriptions(registry.toolDefinitions());
@@ -250,6 +254,17 @@ async function readJson(request, maximumBytes = 64 * 1024) {
   catch { throw Object.assign(new Error("Body must be valid JSON"), { statusCode: 400 }); }
 }
 
+async function readRaw(request, maximumBytes = 2 * 1024 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maximumBytes) throw Object.assign(new Error("Request body is too large"), { statusCode: 413 });
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 function normalizeReferencedRequestIds(value) {
   if (value == null) return [];
   if (!Array.isArray(value) || value.length > 8) {
@@ -328,7 +343,7 @@ function health() {
     runtime: identity,
     model: { ...model, id: modelTransport.id, displayName: modelTransport.displayName, model: config.model },
     database: store.status,
-    integrations: { ...mcp.health(), email: jmap.health() },
+    integrations: { ...mcp.health(), email: jmap.health(), stripe: payments?.health() ?? { ready: false } },
     tools: registry.list().map((tool) => ({
       name: tool.name,
       source: tool.source,
@@ -340,6 +355,39 @@ function health() {
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   try {
+    if (request.method === "GET" && url.pathname === "/api/payments/stripe/oauth/callback") {
+      if (!payments) throw Object.assign(new Error("Payments are unavailable while the database is unavailable."), { statusCode: 503 });
+      if (url.searchParams.has("error")) {
+        sendOAuthPage(response, 400, {
+          title: "Stripe authorization failed",
+          message: url.searchParams.get("error_description") || url.searchParams.get("error"),
+        });
+        return;
+      }
+      try {
+        await payments.finishOAuth({ code: url.searchParams.get("code"), state: url.searchParams.get("state") });
+        sendOAuthPage(response, 200, {
+          title: "Stripe connected",
+          message: "Stripe authorization completed. Invoices can be prepared once the account can accept charges.",
+          redirect: true,
+        });
+      } catch (error) {
+        sendOAuthPage(response, error.statusCode || 400, {
+          title: "Stripe authorization failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/payments/stripe/webhook") {
+      if (!payments) throw Object.assign(new Error("Payments are unavailable while the database is unavailable."), { statusCode: 503 });
+      const result = await payments.handleWebhook(
+        await readRaw(request),
+        String(request.headers["stripe-signature"] ?? ""),
+      );
+      sendJson(response, 200, result);
+      return;
+    }
     const oauthCallbackMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)\/oauth\/callback$/.exec(url.pathname);
     if (request.method === "GET" && oauthCallbackMatch) {
       const serverName = oauthCallbackMatch[1];
@@ -412,6 +460,34 @@ const server = http.createServer(async (request, response) => {
     }
     if (!store.status.ready) {
       sendJson(response, 503, { error: store.status.reason });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/payments/stripe/status") {
+      sendJson(response, 200, { stripe: await payments.stripeStatus({ refresh: true }) });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/payments/stripe/oauth/start") {
+      sendJson(response, 200, payments.beginOAuth());
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/payment-invoices") {
+      const invoices = payments.listInvoices({ limit: url.searchParams.get("limit") || 100 });
+      sendJson(response, 200, { count: invoices.length, invoices });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/payment-invoices/prepare") {
+      sendJson(response, 201, await payments.prepareInvoice(
+        await readJson(request), { actorType: "user", actorName: "payments_page" },
+      ));
+      return;
+    }
+    const paymentInvoiceSendMatch = /^\/api\/payment-invoices\/(\d+)\/send$/.exec(url.pathname);
+    if (request.method === "POST" && paymentInvoiceSendMatch) {
+      const body = await readJson(request);
+      sendJson(response, 200, await payments.sendInvoice({
+        invoice_id: Number(paymentInvoiceSendMatch[1]),
+        preview_digest: body.previewDigest,
+      }, { actorType: "user", actorName: "payments_page" }));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/native-objects/search") {

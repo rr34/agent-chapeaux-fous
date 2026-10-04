@@ -17,6 +17,7 @@ import { registerJournalTools } from "../src/tools/journal-tools.mjs";
 import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 import { registerJmapEmailTools } from "../src/tools/jmap-email-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
+import { registerPaymentTools } from "../src/tools/payment-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { registerVideoScriptTools } from "../src/tools/video-script-tools.mjs";
@@ -26,6 +27,7 @@ function nativeRegistry() {
   registerCalendarTools(registry, null, null, null);
   registerContactTools(registry, null, null, null);
   registerTodoTools(registry, null, null);
+  registerPaymentTools(registry, null, null);
   registerJournalTools(registry, null, null);
   registerInteractionGuideTools(registry, null);
   registerProfileFactTools(registry, null);
@@ -71,6 +73,7 @@ test("native authoritative reads publish the same Object Description contract as
   assert.deepEqual(objectTypes(definitions.get("contact_search")), ["contacts.contact", "contacts.method"]);
   assert.deepEqual(objectTypes(definitions.get("todo_group_list")), ["todos.todo_group"]);
   assert.deepEqual(objectTypes(definitions.get("todo_list")), ["todos.personal_task"]);
+  assert.deepEqual(objectTypes(definitions.get("payment_invoice_list")), ["payments.invoice"]);
   assert.deepEqual(objectTypes(definitions.get("tracker_list")), ["journal.group", "journal.tracker"]);
   assert.deepEqual(objectTypes(definitions.get("journal_list")), ["journal.entry"]);
   assert.deepEqual(objectTypes(definitions.get("calendar_event_search")), ["calendar.event"]);
@@ -102,6 +105,7 @@ test("native authoritative reads publish the same Object Description contract as
     .flatMap(({ objectTypes: types }) => types.map(({ id, readTool }) => `${id}:${readTool}`));
   assert.ok(catalogTypes.includes("contacts.contact:contact_search"));
   assert.ok(catalogTypes.includes("todos.personal_task:todo_list"));
+  assert.ok(catalogTypes.includes("payments.invoice:payment_invoice_list"));
   assert.ok(catalogTypes.includes("files.file:file_get"));
   assert.ok(catalogTypes.includes("interaction_guide.guide:interaction_guide_list"));
   assert.ok(catalogTypes.includes("catch_up.question:catch_up_list"));

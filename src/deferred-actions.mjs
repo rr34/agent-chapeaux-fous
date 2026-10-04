@@ -30,7 +30,10 @@ function confirmationCandidate(result) {
 }
 
 function inspectActionHandoff({ toolDefinition, result, resolveProviderTool }) {
-  if (!toolDefinition?.source?.startsWith("mcp:")) return { intended: false };
+  const source = String(toolDefinition?.source ?? "");
+  const providerHandoff = source.startsWith("mcp:");
+  const nativeHandoff = source === "local" && toolDefinition?.confirmationHandoff === true;
+  if (!providerHandoff && !nativeHandoff) return { intended: false };
   const candidate = confirmationCandidate(result);
   if (!candidate) return { intended: false };
   const nextAction = candidate.nextAction;
@@ -48,15 +51,20 @@ function inspectActionHandoff({ toolDefinition, result, resolveProviderTool }) {
     return { intended: true, problem: "nextAction.onApproval must be an object" };
   }
   if (typeof approval.tool !== "string" || !approval.tool.trim()) {
-    return { intended: true, problem: "nextAction.onApproval.tool must name an MCP tool" };
+    return { intended: true, problem: "nextAction.onApproval.tool must name a callable tool" };
   }
   if (!approval.arguments || typeof approval.arguments !== "object" || Array.isArray(approval.arguments)) {
     return { intended: true, problem: "nextAction.onApproval.arguments must be an object" };
   }
-  const upstreamName = approval.tool.trim();
-  const target = resolveProviderTool?.(upstreamName);
-  if (!target || target.source !== toolDefinition.source || target.upstreamName !== upstreamName) {
-    return { intended: true, problem: "nextAction.onApproval.tool must resolve to a current tool on the same MCP connection" };
+  const targetName = approval.tool.trim();
+  const target = resolveProviderTool?.(targetName);
+  const sameProviderTarget = providerHandoff
+    ? target?.source === source && target?.upstreamName === targetName
+    : target?.source === "local" && target?.name === targetName;
+  if (!sameProviderTarget) {
+    return { intended: true, problem: providerHandoff
+      ? "nextAction.onApproval.tool must resolve to a current tool on the same MCP connection"
+      : "nextAction.onApproval.tool must resolve to a current native tool" };
   }
   const argumentsObject = structuredClone(approval.arguments);
   const problem = schemaProblem(argumentsObject, target.parameters ?? { type: "object" });
@@ -66,13 +74,13 @@ function inspectActionHandoff({ toolDefinition, result, resolveProviderTool }) {
   return { intended: true, problem: null, candidate, approval, target, argumentsObject };
 }
 
-function mcpExpiration(candidate) {
+function handoffExpiration(candidate) {
   const value = candidate.expiresAt ?? candidate.expires_at ?? null;
   return typeof value === "string" && value ? value : null;
 }
 
-// This binds the MCP's exact final call to its source receipt and the user's
-// one yes-or-no confirmation.
+// This binds a provider or explicitly opted-in native tool's exact final call
+// to its source receipt and the user's one yes-or-no confirmation.
 export function extractDeferredActionReference({
   tool,
   toolDefinition,
@@ -100,12 +108,12 @@ export function extractDeferredActionReference({
     sourceRequestId: requestId,
     sourceReceiptEventSeq: Number.isSafeInteger(receiptEventSeq) ? receiptEventSeq : null,
     targetTool: target.name,
-    targetUpstreamTool: target.upstreamName,
+    targetUpstreamTool: target.upstreamName ?? null,
     arguments: argumentsObject,
     readiness: {
       ready: true,
       status: typeof action.candidate.status === "string" ? action.candidate.status : null,
-      expiresAt: mcpExpiration(action.candidate),
+      expiresAt: handoffExpiration(action.candidate),
     },
   };
 }

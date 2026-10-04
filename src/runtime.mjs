@@ -324,6 +324,7 @@ function blockedAuditResponse(audit) {
 
 function finalConfirmationHandoffFailure(toolName, toolDefinition) {
   const source = String(toolDefinition?.source ?? "mcp:unknown");
+  const native = source === "local";
   const serverName = source.startsWith("mcp:") ? source.slice(4) : source;
   const contractFingerprint = createHash("sha256").update(JSON.stringify(canonicalToolArguments({
     source,
@@ -334,12 +335,14 @@ function finalConfirmationHandoffFailure(toolName, toolDefinition) {
   return {
     contractVersion: 1,
     kind: "contract_mismatch",
-    code: "MCP_FINAL_CONFIRMATION_INVALID",
+    code: native ? "NATIVE_FINAL_CONFIRMATION_INVALID" : "MCP_FINAL_CONFIRMATION_INVALID",
     terminalForCurrentRequest: true,
-    retry: "after_provider_contract_correction_and_integration_refresh",
+    retry: native
+      ? "after_native_contract_correction_and_application_restart"
+      : "after_provider_contract_correction_and_integration_refresh",
     serverName,
     capabilityId: toolDefinition?.capabilityId ?? `integration:${serverName}`,
-    transportId: "mcp-control-plane",
+    transportId: native ? "native-tool-registry" : "mcp-control-plane",
     contractFingerprint,
     step: "final_confirmation_handoff",
     method: null,
@@ -1970,10 +1973,9 @@ export class SlayerRuntime {
               });
               const toolDefinition = this.registry.get(name);
               const providerResult = mcpResultDetails(toolResult);
-              const resolveProviderTool = (upstreamName) => this.registry.resolveUpstreamTool(
-                toolDefinition?.source,
-                upstreamName,
-              );
+              const resolveProviderTool = (targetName) => toolDefinition?.source === "local"
+                ? this.registry.get(targetName)
+                : this.registry.resolveUpstreamTool(toolDefinition?.source, targetName);
               const deferredActionReference = providerResult?.isError ? null : extractDeferredActionReference({
                 tool: name,
                 toolDefinition,

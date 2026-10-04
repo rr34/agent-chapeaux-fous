@@ -27,8 +27,9 @@ function typeMatches(value, type) {
 export function schemaProblem(value, schema, path = "arguments") {
   if (!schema || typeof schema !== "object") return null;
   if (Array.isArray(schema.anyOf)) {
-    if (schema.anyOf.some((candidate) => schemaProblem(value, candidate, path) === null)) return null;
-    return `${path} does not match any allowed schema`;
+    if (!schema.anyOf.some((candidate) => schemaProblem(value, candidate, path) === null)) {
+      return `${path} does not match any allowed schema`;
+    }
   }
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];

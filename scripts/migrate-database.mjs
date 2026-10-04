@@ -319,6 +319,38 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 47) {
+    const requiredTables = ["payment_provider_accounts", "payment_invoices", "payment_invoice_lines"];
+    const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${requiredTables.map(() => "?").join(", ")})`,
+    [databaseName, ...requiredTables]);
+    const tableTypes = new Map(tables.map((row) => [row.TABLE_NAME, row.TABLE_TYPE]));
+    for (const name of requiredTables) {
+      if (tableTypes.get(name) !== "BASE TABLE") throw new Error(`Migration 0047 is missing ${name}`);
+    }
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND ((TABLE_NAME = 'todo_personal' AND COLUMN_NAME IN ('billable_amount_minor','billable_currency'))
+        OR TABLE_NAME IN ('payment_provider_accounts','payment_invoices','payment_invoice_lines'))`, [databaseName]);
+    const names = new Set(columns.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}`));
+    for (const name of [
+      "todo_personal.billable_amount_minor", "todo_personal.billable_currency",
+      "payment_invoices.payment_invoice_id", "payment_invoice_lines.payment_invoice_id",
+      "payment_invoice_lines.line_source", "payment_invoice_lines.personal_task_id",
+    ]) if (!names.has(name)) throw new Error(`Migration 0047 is missing ${name}`);
+    const [keys] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ?
+        AND TABLE_NAME IN ('payment_invoices','payment_invoice_lines')`, [databaseName]);
+    for (const [child, column, parent, target] of [
+      ["payment_invoices", "payer_contact_id", "contacts", "contact_id"],
+      ["payment_invoice_lines", "payment_invoice_id", "payment_invoices", "payment_invoice_id"],
+      ["payment_invoice_lines", "personal_task_id", "todo_personal", "personal_task_id"],
+    ]) {
+      if (!keys.some((row) => row.TABLE_NAME === child && row.COLUMN_NAME === column
+        && row.REFERENCED_TABLE_NAME === parent && row.REFERENCED_COLUMN_NAME === target)) {
+        throw new Error(`Migration 0047 is missing ${child} to ${parent} relationship`);
+      }
+    }
+  }
   if (migration.version === 46) {
     const pairs = [
       ["journal_groups", "journal1_groups", "journal_group_id"],

@@ -68,19 +68,19 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 46", () => {
+test("the authoritative MariaDB baseline is complete at schema version 47", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 34);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 37);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 30);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 52);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 73);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 35);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 63);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 80);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    30,
+    35,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -107,13 +107,18 @@ test("the authoritative MariaDB baseline is complete at schema version 46", () =
   assert.match(jmapSyncTable, /source_account_key\s+VARCHAR\(255\)[\s\S]*email_state\s+TEXT[\s\S]*synchronized_at_utc\s+DATETIME\(3\)/u);
   const todoTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_personal "));
   assert.ok(todoTable);
+  const invoiceLinesTable = statements.find((statement) => statement.startsWith("CREATE TABLE payment_invoice_lines "));
+  assert.ok(invoiceLinesTable);
+  assert.match(invoiceLinesTable, /line_source\s+ENUM\('todo', 'manual'\) NOT NULL/u);
+  assert.match(invoiceLinesTable, /personal_task_id\s+BIGINT UNSIGNED(?!\s+NOT NULL)/u);
+  assert.match(invoiceLinesTable, /line_source = 'todo' AND personal_task_id IS NOT NULL[\s\S]*line_source = 'manual' AND personal_task_id IS NULL/u);
   for (const retired of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
     assert.doesNotMatch(todoTable, new RegExp(`\\b${retired}\\b`, "u"));
   }
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 46, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 47, 'Chapeaux Fous MariaDB database'\)$/);
 });
 
 test("the unplanned to-do retirement preserves tasks before narrowing the enum", () => {

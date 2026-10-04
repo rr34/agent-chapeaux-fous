@@ -14,7 +14,7 @@ import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
 
 const ids = [
   "calendar", "catch-up", "contacts", "daily-paper", "database", "database-write",
-  "email", "files", "history", "interaction-guides", "journal", "profile", "search",
+  "email", "files", "history", "interaction-guides", "journal", "payments", "profile", "search",
   "self", "todos", "video", "web",
 ];
 

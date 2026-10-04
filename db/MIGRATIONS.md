@@ -11,6 +11,19 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 47: Billable to-dos and Stripe invoices
+
+Adds an optional positive amount and ISO currency pair to native to-dos, plus
+native payment-provider, invoice, and invoice-line tables. Invoice lines may
+either reference a to-do or be entered manually; both retain immutable
+descriptions and prices after preparation. Stripe identifiers
+and synchronized state are stored, but credentials remain environment-only.
+
+The matching application requires schema version 47. Apply this migration with
+writers stopped and a confirmed recoverable backup. It is additive and safe to
+replay after partial MariaDB DDL commits; verification requires all three
+payment tables, both priced-to-do columns, and their foreign-key relationships.
+
 ## Version 46: Numbered Journal table levels
 
 Renames `journal_groups` to `journal1_groups`, `trackers` to
@@ -20,7 +33,7 @@ The three Journal triggers are recreated with reads of the new table names;
 their guard behavior and stable trigger names remain the same. Historical
 migration blocks and activity receipts keep their original names.
 
-The matching application requires schema version 46. Apply this migration with
+The version 46 application requires schema version 46. Apply this migration with
 writers stopped and a confirmed recoverable backup, using the operator sequence
 below. A partial DDL commit can be resumed by replaying version 46 while
 writers remain stopped. Verification checks that the old tables are absent,

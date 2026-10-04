@@ -317,6 +317,36 @@ interface TodoDraft {
   groupId: string;
   sequence: string;
   status: string;
+  billableAmount: string;
+  billableCurrency: string;
+}
+
+function currencyDigits(currency: string): number {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency })
+      .resolvedOptions().maximumFractionDigits ?? 2;
+  } catch { throw new Error("Billable currency must be a valid three-letter currency code."); }
+}
+
+function formatBillableAmount(amountMinor: unknown, currencyValue: unknown) {
+  if (amountMinor == null || !currencyValue) return "";
+  const currency = String(currencyValue).toUpperCase();
+  const divisor = 10 ** currencyDigits(currency);
+  return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(Number(amountMinor) / divisor);
+}
+
+function billableMinorUnits(amount: string, currencyValue: string) {
+  if (!amount.trim()) return { billableAmountMinor: null, billableCurrency: null };
+  const currency = currencyValue.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Billable currency must be a three-letter currency code.");
+  const digits = currencyDigits(currency);
+  const match = new RegExp(`^(?:0|[1-9]\\d*)(?:\\.(\\d{1,${digits}}))?$`).exec(amount.trim());
+  if (!match) throw new Error(`Billable amount must be positive with at most ${digits} decimal places.`);
+  const whole = Number(amount.trim().split(".")[0] ?? "0");
+  const fraction = (match[1] || "").padEnd(digits, "0");
+  const minor = whole * (10 ** digits) + Number(fraction || 0);
+  if (!Number.isSafeInteger(minor) || minor <= 0) throw new Error("Billable amount must be greater than zero.");
+  return { billableAmountMinor: minor, billableCurrency: currency };
 }
 
 function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
@@ -347,6 +377,10 @@ function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
         groupId: String(current.groupId || ""),
         sequence: current.sequence == null ? "" : String(current.sequence),
         status: String(current.status || "todo"),
+        billableAmount: current.billableAmountMinor == null ? "" : String(
+          Number(current.billableAmountMinor) / (10 ** currencyDigits(String(current.billableCurrency || "USD"))),
+        ),
+        billableCurrency: String(current.billableCurrency || "USD"),
       });
     }).catch((caught) => {
       if (active) setError(caught instanceof Error ? caught.message : String(caught));
@@ -362,6 +396,7 @@ function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
     setSaving(true);
     setError("");
     try {
+      const price = billableMinorUnits(draft.billableAmount, draft.billableCurrency);
       await api(`/api/todos/${id}`, {
         method: "PATCH",
         body: JSON.stringify({
@@ -371,6 +406,7 @@ function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
           groupId: Number(draft.groupId),
           sequence: draft.sequence ? Number(draft.sequence) : null,
           status: draft.status,
+          ...price,
         }),
       });
       await onChanged();
@@ -393,6 +429,11 @@ function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
           <label>Group<select required value={draft.groupId} onChange={(change) => setDraft({ ...draft, groupId: change.target.value })}>{groups.map((group) => <option key={String(group.id)} value={String(group.id)}>{String(group.name)}</option>)}</select></label>
           <label>Sequence<input type="number" min={1} step={1} value={draft.sequence} onChange={(change) => setDraft({ ...draft, sequence: change.target.value })} /></label>
         </div>
+        <div className="object-editor-grid">
+          <label>Billable amount<input inputMode="decimal" placeholder="125.00" value={draft.billableAmount} onChange={(change) => setDraft({ ...draft, billableAmount: change.target.value })} /></label>
+          <label>Currency<input maxLength={3} value={draft.billableCurrency} onChange={(change) => setDraft({ ...draft, billableCurrency: change.target.value.toUpperCase() })} /></label>
+        </div>
+        <small>Leave the amount blank to make this to-do non-billable. Invoices preserve a snapshot after preparation.</small>
         <label>Status<select value={draft.status} onChange={(change) => setDraft({ ...draft, status: change.target.value })}><option value="todo">To do</option><option value="complete">Complete</option><option value="ignore">Ignore</option><option value="archive">Archive</option><option value="ai_suggested">AI suggested</option></select></label>
       </>}
       {error && <p className="inline-error" role="alert">{error}</p>}
@@ -415,6 +456,10 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
   const id = todoId(todo);
   const text = todoText(todo);
   const status = todoStatus(todo);
+  const billable = formatBillableAmount(
+    "billableAmountMinor" in todo ? todo.billableAmountMinor : null,
+    "billableCurrency" in todo ? todo.billableCurrency : null,
+  );
   const complete = status === "complete";
   const editable = Boolean(onChanged && Number.isSafeInteger(id) && id > 0);
 
@@ -442,6 +487,7 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
   const body = <>
     <strong className="multiline-item-text">{text}</strong>
     {variant === "row" && "sequence" in todo && todo.sequence != null && <small>#{String(todo.sequence)}</small>}
+    {billable && <small>{billable} billable</small>}
     {eventTitles?.length ? <small className="multiline-item-text">For {eventTitles.join(", ")}</small> : null}
   </>;
   const itemContent = <>

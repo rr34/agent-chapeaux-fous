@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 46.
+-- Target: MariaDB 10.11, schema version 47.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -528,6 +528,8 @@ CREATE TABLE todo_personal (
     updated_at_utc       DATETIME(3) COMMENT 'UTC instant of this task occurrence’s most recent material update; null until first updated. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     interaction_guide_id BIGINT UNSIGNED COMMENT 'Optional interaction guide offered when the user starts this task. The task owns this association independently of calendar placement.',
     planning_prompt_text TEXT COMMENT 'Optional question the agent should proactively ask to help turn this task into a concrete plan. Format: Plain text question. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status.',
+    billable_amount_minor BIGINT UNSIGNED COMMENT 'Optional fixed amount currently assigned to this work item, expressed in the smallest unit of billable_currency. Null means the task is not currently priced. Issued invoices retain their own immutable line snapshot when this value later changes.',
+    billable_currency     CHAR(3) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Uppercase ISO 4217 currency code for billable_amount_minor. It is null exactly when no billable amount is assigned.',
     PRIMARY KEY (personal_task_id),
     UNIQUE KEY todo_personal_group_sequence (todo_group_id, sequence),
     UNIQUE KEY todo_personal_source_external (source, external_id),
@@ -539,8 +541,91 @@ CREATE TABLE todo_personal (
     CONSTRAINT todo_personal_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_sequence CHECK (sequence IS NULL OR sequence > 0),
-    CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
-) ENGINE=InnoDB COMMENT='Stores actionable and historical records in the user’s authoritative personal To-Do List. To-dos have no scheduling, deadline, duration, all-day, or recurrence fields; all temporal placement belongs to calendar events. Every task belongs to one group and may be linked to any number of calendar events through calendar_events_todo_join. completed_at_utc records task lifecycle history. Sensitivity: Contains the user''s private tasks, plans, relationships, and source references.';
+    CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000),
+    CONSTRAINT todo_personal_billable CHECK (
+      (billable_amount_minor IS NULL AND billable_currency IS NULL)
+      OR (billable_amount_minor > 0 AND billable_currency REGEXP '^[A-Z]{3}$')
+    )
+) ENGINE=InnoDB COMMENT='Stores actionable and historical records in the user’s authoritative personal To-Do List. To-dos have no scheduling, deadline, duration, all-day, or recurrence fields; all temporal placement belongs to calendar events. Every task belongs to one group and may be linked to any number of calendar events through calendar_events_todo_join. A task may carry one current fixed billable amount, while invoices own immutable issued line snapshots and payment state. completed_at_utc records task lifecycle history. Sensitivity: Contains the user''s private tasks, plans, relationships, pricing, and source references.';
+
+CREATE TABLE payment_provider_accounts (
+    provider ENUM('stripe') NOT NULL COMMENT 'External payment processor owning the connected merchant account.',
+    connected_account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-issued connected account ID; identifier, not credential.',
+    account_status ENUM('pending', 'restricted', 'enabled', 'disabled') NOT NULL DEFAULT 'pending' COMMENT 'Last observed account readiness.',
+    charges_enabled TINYINT NOT NULL DEFAULT 0 COMMENT 'Whether Stripe reports charges enabled.',
+    payouts_enabled TINYINT NOT NULL DEFAULT 0 COMMENT 'Whether Stripe reports payouts enabled.',
+    details_submitted TINYINT NOT NULL DEFAULT 0 COMMENT 'Whether onboarding details were submitted.',
+    disabled_reason VARCHAR(500) COMMENT 'Bounded provider restriction reason.',
+    connected_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'First connection instant in UTC.',
+    last_synced_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'Last Stripe refresh instant in UTC.',
+    PRIMARY KEY (provider), UNIQUE KEY payment_provider_accounts_connected (connected_account_id),
+    CONSTRAINT payment_provider_accounts_charges CHECK (charges_enabled IN (0,1)),
+    CONSTRAINT payment_provider_accounts_payouts CHECK (payouts_enabled IN (0,1)),
+    CONSTRAINT payment_provider_accounts_details CHECK (details_submitted IN (0,1))
+) ENGINE=InnoDB COMMENT='Caches non-secret Stripe Connect readiness; Stripe remains authoritative.';
+
+CREATE TABLE payment_invoices (
+    payment_invoice_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable native invoice identifier.',
+    payer_contact_id BIGINT UNSIGNED NOT NULL COMMENT 'Native contact selected as customer.',
+    status ENUM('prepared', 'sending', 'open', 'processing', 'paid', 'failed', 'voided', 'uncollectible') NOT NULL DEFAULT 'prepared' COMMENT 'Invoice lifecycle synchronized from Stripe after sending.',
+    currency CHAR(3) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Uppercase ISO 4217 currency.',
+    amount_minor BIGINT UNSIGNED NOT NULL COMMENT 'Immutable line total in the smallest currency unit.',
+    due_on DATE NOT NULL COMMENT 'Customer-facing due date.',
+    payment_method_policy ENUM('ach_only', 'card_only', 'card_and_ach') NOT NULL DEFAULT 'ach_only' COMMENT 'Hosted invoice payment methods.',
+    description VARCHAR(1000) COMMENT 'Optional invoice description.',
+    payer_name_snapshot VARCHAR(500) NOT NULL COMMENT 'Customer name captured at preparation.',
+    payer_email_snapshot VARCHAR(320) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Customer email captured at preparation.',
+    preview_digest CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Digest binding exact prepared content.',
+    preparation_expires_at_utc DATETIME(3) NOT NULL COMMENT 'Preview expiration instant in UTC.',
+    local_idempotency_key VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable logical operation key.',
+    stripe_connected_account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
+    stripe_customer_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
+    stripe_invoice_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
+    stripe_payment_intent_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
+    stripe_charge_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
+    processor_status VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin,
+    hosted_invoice_url VARCHAR(2048),
+    amount_paid_minor BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    amount_refunded_minor BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    failure_code VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin,
+    failure_message VARCHAR(500),
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
+    opened_at_utc DATETIME(3), paid_at_utc DATETIME(3), failed_at_utc DATETIME(3),
+    voided_at_utc DATETIME(3), updated_at_utc DATETIME(3),
+    PRIMARY KEY (payment_invoice_id),
+    UNIQUE KEY payment_invoices_idempotency (local_idempotency_key),
+    UNIQUE KEY payment_invoices_stripe_invoice (stripe_invoice_id),
+    KEY payment_invoices_contact_status (payer_contact_id,status,payment_invoice_id),
+    KEY payment_invoices_status_created (status,created_at_utc,payment_invoice_id),
+    CONSTRAINT payment_invoices_contact FOREIGN KEY (payer_contact_id) REFERENCES contacts(contact_id) ON DELETE RESTRICT,
+    CONSTRAINT payment_invoices_amount CHECK (amount_minor > 0),
+    CONSTRAINT payment_invoices_paid CHECK (amount_paid_minor <= amount_minor),
+    CONSTRAINT payment_invoices_currency CHECK (currency REGEXP '^[A-Z]{3}$'),
+    CONSTRAINT payment_invoices_digest CHECK (preview_digest REGEXP '^sha256:[0-9a-f]{64}$')
+) ENGINE=InnoDB COMMENT='Owns exact prepared invoice snapshots and observed Stripe state; accounting postings remain separate.';
+
+CREATE TABLE payment_invoice_lines (
+    payment_invoice_line_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    payment_invoice_id BIGINT UNSIGNED NOT NULL,
+    line_source ENUM('todo', 'manual') NOT NULL COMMENT 'Whether this line was snapshotted from a native to-do or entered directly for this invoice.',
+    personal_task_id BIGINT UNSIGNED COMMENT 'Originating native to-do for todo lines; null for manual lines.',
+    line_position INT UNSIGNED NOT NULL,
+    description_snapshot VARCHAR(1000) NOT NULL,
+    amount_minor_snapshot BIGINT UNSIGNED NOT NULL,
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
+    PRIMARY KEY (payment_invoice_line_id),
+    UNIQUE KEY payment_invoice_lines_position (payment_invoice_id,line_position),
+    UNIQUE KEY payment_invoice_lines_task (payment_invoice_id,personal_task_id),
+    KEY payment_invoice_lines_todo (personal_task_id,payment_invoice_id),
+    CONSTRAINT payment_invoice_lines_invoice FOREIGN KEY (payment_invoice_id) REFERENCES payment_invoices(payment_invoice_id) ON DELETE CASCADE,
+    CONSTRAINT payment_invoice_lines_todo_fk FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE RESTRICT,
+    CONSTRAINT payment_invoice_lines_source CHECK (
+      (line_source = 'todo' AND personal_task_id IS NOT NULL)
+      OR (line_source = 'manual' AND personal_task_id IS NULL)
+    ),
+    CONSTRAINT payment_invoice_lines_position_check CHECK (line_position > 0),
+    CONSTRAINT payment_invoice_lines_amount CHECK (amount_minor_snapshot > 0)
+) ENGINE=InnoDB COMMENT='Immutable task-backed or manual line snapshots composing an invoice.';
 
 CREATE TABLE calendar_events_todo_join (
     -- sourceOfTruth: true
@@ -1272,4 +1357,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 46, 'Chapeaux Fous MariaDB database');
+VALUES (1, 47, 'Chapeaux Fous MariaDB database');

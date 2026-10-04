@@ -10,7 +10,7 @@ const toolDescriptions = Object.freeze({
   "todo_add": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, contact, and briefing.",
+    "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, contact, briefing, and fixed billable price.",
     "actionClasses": [
       "CREATE"
     ],
@@ -109,7 +109,7 @@ const toolDescriptions = Object.freeze({
   "todo_update": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Atomically update up to 500 non-temporal native personal to-dos by stable ID.",
+    "summary": "Atomically update up to 500 non-temporal native personal to-dos, including optional fixed billable prices, by stable ID.",
     "actionClasses": [
       "UPDATE"
     ],
@@ -123,7 +123,8 @@ const optionalText = { type: ["string", "null"] };
 const todoFields = [
   "personal_task_id", "todo_group_id", "interaction_guide_id", "sequence",
   "related_contact_id", "text", "status", "sort_position", "completed_at_utc",
-  "planning_prompt_text", "source", "external_id", "source_event_id",
+  "planning_prompt_text", "billable_amount_minor", "billable_currency",
+  "source", "external_id", "source_event_id",
   "created_at_utc", "updated_at_utc",
 ];
 const groupFields = [
@@ -306,7 +307,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_add",
-    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. To place work or a deadline on the calendar, create a calendar event and link it to the to-do.",
+    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. It may carry a fixed billable amount in minor currency units. To place work or a deadline on the calendar, create a calendar event and link it to the to-do.",
     outputSchema: { type: "object", properties: { task: todoTaskRecordSchema } },
     parameters: { type: "object", additionalProperties: false, properties: {
       text: { type: "string", minLength: 1, maxLength: 10000 },
@@ -315,6 +316,8 @@ export function registerTodoTools(registry, store, ledger) {
       related_contact_id: { type: ["integer", "null"], minimum: 1 },
       interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
       planning_prompt_text: optionalText,
+      billable_amount_minor: { type: ["integer", "null"], minimum: 1 },
+      billable_currency: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },
       position: { type: ["integer", "null"], minimum: 1, maximum: 1_000_000_000 },
     }, required: ["text", "todo_group_id"] },
     async execute(input, context) {
@@ -334,12 +337,14 @@ export function registerTodoTools(registry, store, ledger) {
         const inserted = database.prepare(`
           INSERT INTO todo_personal (
             todo_group_id, related_contact_id, interaction_guide_id, text, status,
-            sort_position, completed_at_utc, planning_prompt_text, source, source_event_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'agent-slayer', ?)
+            sort_position, completed_at_utc, planning_prompt_text, source, source_event_id,
+            billable_amount_minor, billable_currency
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'agent-slayer', ?, ?, ?)
           RETURNING personal_task_id
         `).get(group.todo_group_id, input.related_contact_id ?? null,
           input.interaction_guide_id ?? null, text, input.status ?? "todo", position,
-          completed, input.planning_prompt_text?.trim() || null, context.requestEventId || null);
+          completed, input.planning_prompt_text?.trim() || null, context.requestEventId || null,
+          input.billable_amount_minor ?? null, input.billable_currency ?? null);
         if (input.position != null) setTodoPosition(database, Number(inserted.personal_task_id), input.position);
         const task = databaseTask(taskWithContext(database, inserted.personal_task_id));
         appendLedger(ledger, context, { type: "personal_todo.created", actorName: "todo_add",
@@ -463,6 +468,9 @@ export function registerTodoTools(registry, store, ledger) {
           related_contact_id: { type: ["integer", "null"], minimum: 1 }, clear_related_contact: { type: "boolean" },
           interaction_guide_id: { type: ["integer", "null"], minimum: 1 }, clear_interaction_guide: { type: "boolean" },
           planning_prompt_text: optionalText, clear_planning_prompt: { type: "boolean" },
+          billable_amount_minor: { type: ["integer", "null"], minimum: 1 },
+          billable_currency: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },
+          clear_billable_price: { type: "boolean" },
         }, required: ["personal_task_id"] },
       },
     }, required: ["updates"] },
@@ -492,6 +500,16 @@ export function registerTodoTools(registry, store, ledger) {
           }
           if (input.clear_planning_prompt) values.planning_prompt_text = null;
           else if (input.planning_prompt_text != null) values.planning_prompt_text = input.planning_prompt_text.trim() || null;
+          if (input.clear_billable_price) {
+            values.billable_amount_minor = null;
+            values.billable_currency = null;
+          } else if (input.billable_amount_minor != null || input.billable_currency != null) {
+            if (input.billable_amount_minor == null || input.billable_currency == null) {
+              throw new Error("billable_amount_minor and billable_currency must be supplied together");
+            }
+            values.billable_amount_minor = input.billable_amount_minor;
+            values.billable_currency = input.billable_currency;
+          }
           if (Object.keys(values).length === 0) throw new Error(`No changes supplied for to-do ${input.personal_task_id}`);
           values.updated_at_utc = now;
           database.prepare(`UPDATE todo_personal SET ${Object.keys(values).map((key) => `\`${key}\` = ?`).join(", ")}

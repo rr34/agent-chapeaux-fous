@@ -15,6 +15,7 @@ function readHealth({ database, model, tlom }) {
     modelTransport: { health: () => model, id: "test-model", displayName: "Test model" },
     mcp: { health: () => ({ tlom }) },
     jmap: { health: () => ({ ready: true }) },
+    payments: { health: () => ({ ready: false, configured: false, connected: false }) },
     registry: { list: () => [{ name: "todo_list", source: "local" }] },
     identity: { component: "agent-slayer" },
     config: { model: "test-model" },

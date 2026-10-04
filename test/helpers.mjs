@@ -19,7 +19,7 @@ export function baselineBeforeJournalLevels(source) {
   return source.replaceAll("journal1_groups", "journal_groups")
     .replaceAll("journal2_trackers", "trackers")
     .replaceAll("journal3_entries", "journal_entries")
-    .replace("VALUES (1, 46,", "VALUES (1, 45,");
+    .replace("VALUES (1, 47,", "VALUES (1, 45,");
 }
 
 const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (

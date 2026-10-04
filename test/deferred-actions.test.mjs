@@ -83,6 +83,50 @@ test("an explicit same-provider next action produces an exact invocation referen
   assert.equal(Object.hasOwn(reference, "status"), false);
 });
 
+test("an explicitly opted-in native invoice preview produces an exact send reference", () => {
+  const digest = `sha256:${"a".repeat(64)}`;
+  const target = {
+    name: "payment_invoice_send",
+    source: "local",
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        invoice_id: { type: "integer", minimum: 1 },
+        preview_digest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
+      },
+      required: ["invoice_id", "preview_digest"],
+    },
+  };
+  const input = {
+    toolDefinition: { source: "local", name: "payment_invoice_prepare", confirmationHandoff: true },
+    result: {
+      status: "ready",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      nextAction: {
+        type: "request_user_confirmation",
+        instruction: "Send USD 125.00 to Ada?",
+        onApproval: { tool: target.name, arguments: { invoice_id: 17, preview_digest: digest } },
+      },
+    },
+    resolveProviderTool(name) { return name === target.name ? target : null; },
+  };
+  const reference = extractDeferredActionReference({
+    ...input, tool: "payment_invoice_prepare", requestId: "request-native", receiptEventSeq: 51,
+  });
+  assert.equal(deferredActionContractProblem(input), null);
+  assert.equal(reference.sourceConnection, "local");
+  assert.equal(reference.targetTool, "payment_invoice_send");
+  assert.equal(reference.targetUpstreamTool, null);
+  assert.deepEqual(reference.arguments, { invoice_id: 17, preview_digest: digest });
+
+  assert.equal(extractDeferredActionReference({
+    ...input,
+    tool: "ordinary_native_tool",
+    toolDefinition: { source: "local", name: "ordinary_native_tool" },
+    requestId: "request-not-opted-in",
+  }), null);
+});
+
 test("a provider confirmation request with an incomplete handoff is a deterministic contract problem", () => {
   const input = {
     toolDefinition: { source: "mcp:accounting", upstreamName: "preview_transaction_import_job" },

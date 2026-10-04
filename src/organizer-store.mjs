@@ -166,6 +166,22 @@ function optionalPositiveInteger(value, label) {
   return integer(value, label, { minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
 }
 
+function billablePrice(amountValue, currencyValue, fallback = { amount: null, currency: null }) {
+  const amount = amountValue === undefined
+    ? fallback.amount
+    : optionalPositiveInteger(amountValue, "billableAmountMinor");
+  const currency = currencyValue === undefined
+    ? fallback.currency
+    : (currencyValue == null || currencyValue === "" ? null : String(currencyValue).trim().toUpperCase());
+  if ((amount == null) !== (currency == null)) {
+    throw new OrganizerInputError("billableAmountMinor and billableCurrency must both be set or both be null.");
+  }
+  if (currency != null && !/^[A-Z]{3}$/.test(currency)) {
+    throw new OrganizerInputError("billableCurrency must be a three-letter ISO currency code.");
+  }
+  return { amount, currency };
+}
+
 function optionalFiniteNumber(value, label) {
   if (value == null || value === "") return null;
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -689,6 +705,8 @@ function publicTodo(row) {
     text: row.text,
     status: row.status,
     planningPromptText: row.planning_prompt_text ?? null,
+    billableAmountMinor: row.billable_amount_minor == null ? null : Number(row.billable_amount_minor),
+    billableCurrency: row.billable_currency ?? null,
     sortPosition: row.sort_position,
     completedAtUtc: row.completed_at_utc,
     interactionGuideId: row.interaction_guide_id ?? null,
@@ -3747,6 +3765,7 @@ export class OrganizerStore {
   }
 
   createTodo(input) {
+    const price = billablePrice(input?.billableAmountMinor, input?.billableCurrency);
     const todo = {
       groupId: input?.groupId == null ? null : identifier(input.groupId, "group id"),
       sequence: optionalPositiveInteger(input?.sequence, "sequence"),
@@ -3759,6 +3778,8 @@ export class OrganizerStore {
       interactionGuideId: input?.interactionGuideId == null
         ? null
         : identifier(input.interactionGuideId, "briefing id"),
+      billableAmountMinor: price.amount,
+      billableCurrency: price.currency,
     };
     const groupId = todo.groupId ?? this.database.prepare(
       "SELECT todo_group_id FROM todo_groups WHERE name = 'Inbox'",
@@ -3788,11 +3809,13 @@ export class OrganizerStore {
       const result = this.database.prepare(`
         INSERT INTO todo_personal (
           todo_group_id, sequence, related_contact_id, interaction_guide_id, text,
-          status, sort_position, completed_at_utc, planning_prompt_text, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
+          status, sort_position, completed_at_utc, planning_prompt_text,
+          billable_amount_minor, billable_currency, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
       `).run(
         groupId, todo.sequence, todo.relatedContactId, todo.interactionGuideId, todo.text,
         todo.status, sortPosition, completedAtUtc, todo.planningPromptText,
+        todo.billableAmountMinor, todo.billableCurrency,
       );
       const id = Number(result.lastInsertRowid);
       const created = this.getTodo(id);
@@ -3953,6 +3976,10 @@ export class OrganizerStore {
       : (input.interactionGuideId == null
         ? null
         : identifier(input.interactionGuideId, "briefing id"));
+    const price = billablePrice(input.billableAmountMinor, input.billableCurrency, {
+      amount: before.billableAmountMinor,
+      currency: before.billableCurrency,
+    });
     const after = {
       ...before,
       groupId: input.groupId === undefined ? before.groupId : identifier(input.groupId, "group id"),
@@ -3971,6 +3998,8 @@ export class OrganizerStore {
       planningPromptText: input.planningPromptText === undefined
         ? before.planningPromptText
         : optionalText(input.planningPromptText, "planningPromptText", 10_000),
+      billableAmountMinor: price.amount,
+      billableCurrency: price.currency,
     };
     const selectedAfterGroup = this.database.prepare(
       "SELECT name FROM todo_groups WHERE todo_group_id = ? AND archived_at_utc IS NULL",
@@ -3990,6 +4019,7 @@ export class OrganizerStore {
     const changes = changedFields(before, after, [
       "groupId", "sequence", "relatedContactId", "text", "status", "sortPosition",
       "completedAtUtc", "interactionGuideId", "planningPromptText",
+      "billableAmountMinor", "billableCurrency",
     ]);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
@@ -4000,13 +4030,15 @@ export class OrganizerStore {
         UPDATE todo_personal
         SET todo_group_id = ?, sequence = ?, related_contact_id = ?, interaction_guide_id = ?,
             text = ?, status = ?, sort_position = ?, completed_at_utc = ?,
-            planning_prompt_text = ?, updated_at_utc = ?
+            planning_prompt_text = ?, billable_amount_minor = ?, billable_currency = ?,
+            updated_at_utc = ?
         WHERE personal_task_id = ?
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
         after.groupId, after.sequence, after.relatedContactId, after.interactionGuideId,
         after.text, after.status, after.sortPosition, after.completedAtUtc,
-        after.planningPromptText, updatedAt, id, before.version,
+        after.planningPromptText, after.billableAmountMinor, after.billableCurrency,
+        updatedAt, id, before.version,
       );
       if (result.changes !== 1) {
         throw new OrganizerInputError("This todo changed while you were saving it. Refresh and try again.", 409);

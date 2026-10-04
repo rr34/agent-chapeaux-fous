@@ -114,6 +114,27 @@ test("the public URL controls browser OAuth callbacks", () => {
   assert.equal(config.mcpUserConfigPath, "/tmp/agent-slayer-state-test/agent-slayer/mcp-connections.json");
 });
 
+test("Stripe Connect secrets stay in server configuration", () => {
+  const config = loadTestConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    STRIPE_SECRET_KEY: "sk_test_example",
+    STRIPE_CONNECT_CLIENT_ID: "ca_example",
+    STRIPE_CONNECT_STATE_SECRET: "state-secret",
+    STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_example",
+  });
+  assert.deepEqual({
+    stripeSecretKey: config.stripeSecretKey,
+    stripeConnectClientId: config.stripeConnectClientId,
+    stripeConnectStateSecret: config.stripeConnectStateSecret,
+    stripeConnectWebhookSecret: config.stripeConnectWebhookSecret,
+  }, {
+    stripeSecretKey: "sk_test_example",
+    stripeConnectClientId: "ca_example",
+    stripeConnectStateSecret: "state-secret",
+    stripeConnectWebhookSecret: "whsec_example",
+  });
+});
+
 test("the public URL rejects credentials and non-HTTP schemes", () => {
   assert.throws(
     () => loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "file:///tmp/slayer" }),

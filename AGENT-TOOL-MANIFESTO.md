@@ -950,9 +950,16 @@ exact function, and returns its result to the same model exchange.
 
 ## One final confirmation
 
+The same exact prepare/confirm/execute contract may be used by an
+application-owned native tool only when its registration explicitly opts into
+the confirmation handoff. Its `onApproval.tool` must resolve to a current
+native tool and its arguments must validate against that tool's exact schema.
+This opt-in does not make ordinary native results executable handoffs.
+
 The Agent completes every available preparation and validation step before
-asking for final confirmation. An MCP emits the following handoff only when the
-work is ready for its final consequential call:
+asking for final confirmation. An MCP or explicitly opted-in native tool emits
+the following handoff only when the work is ready for its final consequential
+call:
 
 ```json
 {
@@ -981,12 +988,13 @@ ID, receipt ID, reference, token, or separate authorization. A changed preview
 is a different prepared change and requires its own final question; an
 unchanged saved preview does not acquire extra confirmation stages.
 
-This handoff is executable protocol, not advisory prose. If an MCP result
+This handoff is executable protocol, not advisory prose. If an eligible result
 declares `requiredAction=REQUEST_USER_CONFIRMATION`, uses
 `nextAction.type=request_user_confirmation`, or supplies
 `nextAction.onApproval`, then the complete handoff is mandatory:
-`nextAction.type`, a nonempty user-facing `instruction`, a same-connection MCP tool,
-and arguments valid against that tool's current schema. Agent Slayer validates
+`nextAction.type`, a nonempty user-facing `instruction`, a callable tool on the
+same provider connection or native registry, and arguments valid against that
+tool's current schema. Agent Slayer validates
 those fields before accepting the successful result as pending. A missing or
 invalid field is a typed, terminal contract mismatch for the current request.
 The full MCP result remains in its immutable receipt, but no pending change is

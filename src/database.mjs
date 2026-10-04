@@ -66,6 +66,22 @@ export const requiredDatabaseShape = {
   todo_personal: [
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
     "completed_at_utc", "source_event_id", "planning_prompt_text", "interaction_guide_id",
+    "billable_amount_minor", "billable_currency",
+  ],
+  payment_provider_accounts: [
+    "provider", "connected_account_id", "account_status", "charges_enabled",
+    "payouts_enabled", "details_submitted", "disabled_reason", "last_synced_at_utc",
+  ],
+  payment_invoices: [
+    "payment_invoice_id", "payer_contact_id", "status", "currency", "amount_minor",
+    "due_on", "payment_method_policy", "payer_name_snapshot", "payer_email_snapshot",
+    "preview_digest", "preparation_expires_at_utc", "local_idempotency_key",
+    "stripe_connected_account_id", "stripe_customer_id", "stripe_invoice_id",
+    "processor_status", "hosted_invoice_url", "amount_paid_minor", "created_at_utc",
+  ],
+  payment_invoice_lines: [
+    "payment_invoice_line_id", "payment_invoice_id", "line_source", "personal_task_id", "line_position",
+    "description_snapshot", "amount_minor_snapshot", "created_at_utc",
   ],
   journal1_groups: ["journal_group_id", "name", "archived_at_utc"],
   journal2_trackers: ["tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "asking_starts_at_utc", "asking_recurrence_rule", "asking_time_zone"],
@@ -111,6 +127,15 @@ export const requiredEnumColumns = {
   interaction_guide_steps: { progress_state: ["pending", "active", "completed"] },
   calendar_events_todo_join: { relationship_kind: ["work", "deadline", "context"] },
   todo_personal: { status: ["todo", "complete", "ignore", "archive", "ai_suggested"] },
+  payment_provider_accounts: {
+    provider: ["stripe"],
+    account_status: ["pending", "restricted", "enabled", "disabled"],
+  },
+  payment_invoices: {
+    status: ["prepared", "sending", "open", "processing", "paid", "failed", "voided", "uncollectible"],
+    payment_method_policy: ["ach_only", "card_only", "card_and_ach"],
+  },
+  payment_invoice_lines: { line_source: ["todo", "manual"] },
   reminders: {
     delivery_method: ["agent", "webhook", "notification", "email", "sms", "other"],
     status: ["pending", "processing", "delivered", "snoozed", "cancelled", "error"],
@@ -219,8 +244,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 46) {
-    problems.push(`Expected MariaDB schema version 46, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 47) {
+    problems.push(`Expected MariaDB schema version 47, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

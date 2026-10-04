@@ -1,0 +1,21 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "payments",
+  "title": "Payments",
+  "summary": "Prepare, explicitly confirm, send, and track Stripe-hosted invoices containing immutable priced to-do snapshots, manual lines, or both.",
+  "aliases": [
+    "payment",
+    "invoice",
+    "billing",
+    "charge",
+    "Stripe"
+  ],
+  "readOnlyTools": [
+    "payment_stripe_status",
+    "payment_stripe_connect_link",
+    "payment_invoice_list"
+  ],
+  "guidance": "guidance.md"
+}

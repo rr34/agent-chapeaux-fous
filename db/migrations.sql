@@ -16,6 +16,63 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0047: billable-todos-and-payment-invoices
+-- writer downtime: required; application readers and writers must switch to the priced to-do and invoice schema together.
+-- locking: adding nullable columns takes a metadata lock on todo_personal; three new empty tables and indexes are created.
+-- recovery: DDL commits implicitly. Keep writers stopped after failure and rerun this additive, guarded block; restore the verified backup only to revert the feature.
+
+ALTER TABLE todo_personal
+  ADD COLUMN IF NOT EXISTS billable_amount_minor BIGINT UNSIGNED COMMENT 'Optional fixed amount in the smallest billable_currency unit; issued invoices retain snapshots.' AFTER planning_prompt_text,
+  ADD COLUMN IF NOT EXISTS billable_currency CHAR(3) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Uppercase ISO 4217 code; null exactly when no billable amount is assigned.' AFTER billable_amount_minor;
+ALTER TABLE todo_personal DROP CONSTRAINT IF EXISTS todo_personal_billable;
+ALTER TABLE todo_personal ADD CONSTRAINT todo_personal_billable CHECK ((billable_amount_minor IS NULL AND billable_currency IS NULL) OR (billable_amount_minor > 0 AND billable_currency REGEXP '^[A-Z]{3}$'));
+ALTER TABLE todo_personal COMMENT='Stores actionable and historical records in the user’s authoritative personal To-Do List. To-dos own work and an optional current fixed billable amount; invoices own immutable issued line snapshots and payment state. Temporal placement belongs to calendar events. Sensitivity: Contains private tasks, plans, relationships, pricing, and source references.';
+
+CREATE TABLE IF NOT EXISTS payment_provider_accounts (
+  provider ENUM('stripe') NOT NULL, connected_account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  account_status ENUM('pending', 'restricted', 'enabled', 'disabled') NOT NULL DEFAULT 'pending', charges_enabled TINYINT NOT NULL DEFAULT 0,
+  payouts_enabled TINYINT NOT NULL DEFAULT 0, details_submitted TINYINT NOT NULL DEFAULT 0, disabled_reason VARCHAR(500),
+  connected_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)), last_synced_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
+  PRIMARY KEY (provider), UNIQUE KEY payment_provider_accounts_connected (connected_account_id),
+  CONSTRAINT payment_provider_accounts_charges CHECK (charges_enabled IN (0,1)), CONSTRAINT payment_provider_accounts_payouts CHECK (payouts_enabled IN (0,1)),
+  CONSTRAINT payment_provider_accounts_details CHECK (details_submitted IN (0,1))
+) ENGINE=InnoDB COMMENT='Caches non-secret Stripe Connect readiness; Stripe remains authoritative.';
+
+CREATE TABLE IF NOT EXISTS payment_invoices (
+  payment_invoice_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, payer_contact_id BIGINT UNSIGNED NOT NULL,
+  status ENUM('prepared', 'sending', 'open', 'processing', 'paid', 'failed', 'voided', 'uncollectible') NOT NULL DEFAULT 'prepared',
+  currency CHAR(3) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, amount_minor BIGINT UNSIGNED NOT NULL, due_on DATE NOT NULL,
+  payment_method_policy ENUM('ach_only', 'card_only', 'card_and_ach') NOT NULL DEFAULT 'ach_only', description VARCHAR(1000),
+  payer_name_snapshot VARCHAR(500) NOT NULL, payer_email_snapshot VARCHAR(320) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  preview_digest CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, preparation_expires_at_utc DATETIME(3) NOT NULL,
+  local_idempotency_key VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  stripe_connected_account_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin, stripe_customer_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
+  stripe_invoice_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin, stripe_payment_intent_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
+  stripe_charge_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin, processor_status VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin,
+  hosted_invoice_url VARCHAR(2048), amount_paid_minor BIGINT UNSIGNED NOT NULL DEFAULT 0, amount_refunded_minor BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  failure_code VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin, failure_message VARCHAR(500), created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
+  opened_at_utc DATETIME(3), paid_at_utc DATETIME(3), failed_at_utc DATETIME(3), voided_at_utc DATETIME(3), updated_at_utc DATETIME(3),
+  PRIMARY KEY (payment_invoice_id), UNIQUE KEY payment_invoices_idempotency (local_idempotency_key), UNIQUE KEY payment_invoices_stripe_invoice (stripe_invoice_id),
+  KEY payment_invoices_contact_status (payer_contact_id,status,payment_invoice_id), KEY payment_invoices_status_created (status,created_at_utc,payment_invoice_id),
+  CONSTRAINT payment_invoices_contact FOREIGN KEY (payer_contact_id) REFERENCES contacts(contact_id) ON DELETE RESTRICT,
+  CONSTRAINT payment_invoices_amount CHECK (amount_minor > 0), CONSTRAINT payment_invoices_paid CHECK (amount_paid_minor <= amount_minor),
+  CONSTRAINT payment_invoices_currency CHECK (currency REGEXP '^[A-Z]{3}$'), CONSTRAINT payment_invoices_digest CHECK (preview_digest REGEXP '^sha256:[0-9a-f]{64}$')
+) ENGINE=InnoDB COMMENT='Owns exact prepared invoice snapshots and observed Stripe state; accounting postings remain separate.';
+
+CREATE TABLE IF NOT EXISTS payment_invoice_lines (
+  payment_invoice_line_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, payment_invoice_id BIGINT UNSIGNED NOT NULL,
+  line_source ENUM('todo', 'manual') NOT NULL, personal_task_id BIGINT UNSIGNED, line_position INT UNSIGNED NOT NULL, description_snapshot VARCHAR(1000) NOT NULL,
+  amount_minor_snapshot BIGINT UNSIGNED NOT NULL, created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
+  PRIMARY KEY (payment_invoice_line_id), UNIQUE KEY payment_invoice_lines_position (payment_invoice_id,line_position),
+  UNIQUE KEY payment_invoice_lines_task (payment_invoice_id,personal_task_id), KEY payment_invoice_lines_todo (personal_task_id,payment_invoice_id),
+  CONSTRAINT payment_invoice_lines_invoice FOREIGN KEY (payment_invoice_id) REFERENCES payment_invoices(payment_invoice_id) ON DELETE CASCADE,
+  CONSTRAINT payment_invoice_lines_todo_fk FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE RESTRICT,
+  CONSTRAINT payment_invoice_lines_source CHECK ((line_source = 'todo' AND personal_task_id IS NOT NULL) OR (line_source = 'manual' AND personal_task_id IS NULL)),
+  CONSTRAINT payment_invoice_lines_position_check CHECK (line_position > 0), CONSTRAINT payment_invoice_lines_amount CHECK (amount_minor_snapshot > 0)
+) ENGINE=InnoDB COMMENT='Immutable task-backed or manual line snapshots composing an invoice.';
+
+-- end migration 0047
+
 -- migration 0046: numbered-journal-table-levels
 -- writer downtime: required; the Journal readers and writers must switch to
 -- the renamed tables together with this migration.
