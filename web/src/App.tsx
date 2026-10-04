@@ -28,6 +28,31 @@ function PageHeading({ eyebrow, title, detail, actions }: {
   return <header className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{detail && <p>{detail}</p>}</div>{actions && <div className="heading-actions">{actions}</div>}</header>;
 }
 
+function calendarDateHeading(localDate: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${localDate}T12:00:00Z`));
+}
+
+function linkedTodosForEvents(events: DailyPaperModel["todayEvents"]) {
+  const todos = new Map<number, DailyPaperModel["scheduledTodos"][number]>();
+  for (const calendarEvent of events) {
+    for (const todo of calendarEvent.linkedTodos || []) {
+      if (todo.status === "complete") continue;
+      const todoId = Number(todo.todoId);
+      const existing = todos.get(todoId) || { ...todo, todoId, eventTitles: [] };
+      const eventTitles = existing.eventTitles || [];
+      if (!eventTitles.includes(calendarEvent.title)) eventTitles.push(calendarEvent.title);
+      todos.set(todoId, { ...existing, eventTitles });
+    }
+  }
+  return [...todos.values()];
+}
+
 function TokenGate({ children }: { children: ReactNode }) {
   const [token, update] = useState(getAccessToken());
   const [draft, setDraft] = useState(token);
@@ -89,11 +114,24 @@ function AgentScreen() {
 function CalendarScreen() {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const [date, setDate] = useState(localToday(timeZone));
+  const [selectedDate, setSelectedDate] = useState(date);
   const [size, setSize] = useState<"letter" | "a4">("letter");
   const query = new URLSearchParams({ date, timeZone, paperSize: size, includeCompletedTodos: "false" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${query}`);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<unknown>(null);
+  const selectedDay = data?.calendarDays.find((day) => day.localDate === selectedDate)
+    || data?.calendarDays.find((day) => day.isToday);
+  const selectedEvents = useMemo(
+    () => [...(selectedDay?.events || [])].sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc)),
+    [selectedDay],
+  );
+  const selectedTodos = useMemo(() => linkedTodosForEvents(selectedEvents), [selectedEvents]);
+  useEffect(() => {
+    if (data && !data.calendarDays.some((day) => day.localDate === selectedDate)) {
+      setSelectedDate(data.date);
+    }
+  }, [data, selectedDate]);
   const generate = async () => {
     setGenerationError(null);
     setGenerating(true);
@@ -105,7 +143,7 @@ function CalendarScreen() {
   };
   return <>
     <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={<>
-      <label className="compact-field">Date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+      <label className="compact-field">Date<input type="date" value={date} onChange={(event) => { setDate(event.target.value); setSelectedDate(event.target.value); }} /></label>
       <label className="compact-field">Paper<select value={size} onChange={(event) => setSize(event.target.value as "letter" | "a4")}><option value="letter">Letter</option><option value="a4">A4</option></select></label>
       <button className="button" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button>
     </>} />
@@ -116,8 +154,8 @@ function CalendarScreen() {
     />}
     {loading && <Loading label="Composing your day" />}{error && <ErrorState error={error} retry={reload} />}
     {data && <div className="calendar-screen">
-      <section className="surface calendar-overview"><div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><button className="button button--quiet" onClick={() => window.print()}>Print browser view</button></div><CalendarGrid days={data.calendarDays} /></section>
-      <div className="calendar-lower"><section className="surface"><p className="eyebrow">{data.heading}</p><h2>Today’s timeline</h2><DayTimeline events={data.todayEvents} timeZone={data.timeZone} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={data.scheduledTodos} /></section></div>
+      <section className="surface calendar-overview"><div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><button className="button button--quiet" onClick={() => window.print()}>Print browser view</button></div><CalendarGrid days={data.calendarDays} selectedDate={selectedDay?.localDate} onSelect={setSelectedDate} /></section>
+      <div className="calendar-lower"><section className="surface"><p className="eyebrow">{calendarDateHeading(selectedDay?.localDate || data.date)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} /></section></div>
       <details className="paper-preview surface"><summary>Preview the printed page</summary><DailyPaper model={data} preview /></details>
     </div>}
   </>;

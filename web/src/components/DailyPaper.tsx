@@ -9,30 +9,55 @@ function timeLabel(event: CalendarEvent, timeZone: string) {
   return event.endsAtUtc ? `${start}–${format(event.endsAtUtc)}` : start;
 }
 
-export function CalendarGrid({ days, compact = false }: { days: CalendarDay[]; compact?: boolean }) {
+export function CalendarGrid({
+  days,
+  compact = false,
+  selectedDate,
+  onSelect,
+}: {
+  days: CalendarDay[];
+  compact?: boolean;
+  selectedDate?: string;
+  onSelect?: (localDate: string) => void;
+}) {
+  const eventLimit = compact ? 3 : 8;
   return (
     <section className={`two-week-grid ${compact ? "two-week-grid--compact" : ""}`} aria-label="Two-week calendar">
       <div className="weekdays" aria-hidden="true">
         {days.slice(0, 7).map((day) => <span key={day.weekday}>{day.weekday}</span>)}
       </div>
       <div className="calendar-cells">
-        {days.map((day) => (
-          <article className={`calendar-cell ${day.isToday ? "is-selected" : ""}`} key={day.localDate}>
-            <header>
+        {days.map((day) => {
+          const isSelected = selectedDate ? day.localDate === selectedDate : day.isToday;
+          const contents = <>
+            <span className="calendar-cell-header">
               <span>{day.month}</span>
               <strong>{day.dayNumber}</strong>
-            </header>
-            <div className="calendar-cell-events">
-              {day.events.slice(0, compact ? 3 : 5).map((event) => (
-                <div className="calendar-chip" key={`${day.localDate}-${event.id}`}>
+            </span>
+            <span className="calendar-cell-events">
+              {day.events.slice(0, eventLimit).map((event) => (
+                <span className="calendar-chip" key={`${day.localDate}-${event.id}`}>
                   {!event.isAllDay && <time>{timeLabel(event, event.timeZone || "UTC").split("–")[0]}</time>}
                   <span>{event.title}</span>
-                </div>
+                </span>
               ))}
-              {day.events.length > (compact ? 3 : 5) && <small>+{day.events.length - (compact ? 3 : 5)} more</small>}
-            </div>
-          </article>
-        ))}
+              {day.events.length > eventLimit && <small>+{day.events.length - eventLimit} more</small>}
+            </span>
+          </>;
+          const className = `calendar-cell ${isSelected ? "is-selected" : ""}`;
+          return onSelect ? (
+            <button
+              type="button"
+              className={className}
+              key={day.localDate}
+              onClick={() => onSelect(day.localDate)}
+              aria-label={`${day.weekday}, ${day.month} ${day.dayNumber}`}
+              aria-pressed={isSelected}
+            >
+              {contents}
+            </button>
+          ) : <article className={className} key={day.localDate}>{contents}</article>;
+        })}
       </div>
     </section>
   );
@@ -57,7 +82,7 @@ export function DayTimeline({ events, timeZone }: { events: CalendarEvent[]; tim
 }
 
 export function ScheduledTodos({ todos }: { todos: LinkedTodo[] }) {
-  if (!todos.length) return <p className="paper-empty">No to-dos are attached to today’s events.</p>;
+  if (!todos.length) return <p className="paper-empty">No to-dos are attached to this day’s events.</p>;
   return (
     <ul className="paper-todos">
       {todos.map((todo) => (
