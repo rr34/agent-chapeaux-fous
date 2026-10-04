@@ -105,6 +105,7 @@ export class RequestQueue {
         channel: request.channel,
         attachment,
         runLimits: request.payload?.runLimits ?? null,
+        selectedObjectCandidates: request.payload?.selectedObjectCandidates ?? [],
         model: request.payload?.model ?? null,
         effort: request.payload?.effort ?? null,
         allowedToolNames: request.payload?.requestKind === "structured_interaction_generation"

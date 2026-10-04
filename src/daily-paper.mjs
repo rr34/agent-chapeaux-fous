@@ -85,6 +85,9 @@ function compactEvent(event) {
     isAllDay: Boolean(event.isAllDay),
     status: event.status,
     planningState: event.planningState ?? null,
+    ...(event.seriesId != null ? { seriesId: event.seriesId } : {}),
+    ...(event.isGeneratedOccurrence ? { isGeneratedOccurrence: true } : {}),
+    ...(event.readOnly ? { readOnly: true } : {}),
     linkedTodos: event.linkedTodos ?? [],
   };
 }

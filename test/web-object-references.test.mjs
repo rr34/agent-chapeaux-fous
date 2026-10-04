@@ -10,6 +10,7 @@ test("the React UI can reference every displayed first-class object in Agent", (
   const app = fs.readFileSync(path.join(root, "web", "src", "App.tsx"), "utf8");
   const dailyPaper = fs.readFileSync(path.join(root, "web", "src", "components", "DailyPaper.tsx"), "utf8");
   const routines = fs.readFileSync(path.join(root, "web", "src", "components", "RoutineCalendar.tsx"), "utf8");
+  const editableItems = fs.readFileSync(path.join(root, "web", "src", "components", "EditableItems.tsx"), "utf8");
   const references = fs.readFileSync(path.join(root, "web", "src", "components", "AgentReferenceButton.tsx"), "utf8");
 
   assert.match(references, /M20 19c0-4\.4-3\.6-8-8-8H4/);
@@ -25,13 +26,13 @@ test("the React UI can reference every displayed first-class object in Agent", (
   assert.match(references, /calendar_routine_id/);
 
   assert.match(app, /identity=\{exchangeIdentity\(request\)\}/);
-  assert.match(app, /identity=\{todoIdentity\(todo\)\}/);
+  assert.match(editableItems, /identity=\{todoIdentity\(todo\)\}/);
   assert.match(app, /identity=\{contactIdentity\(contact\)\}/);
   assert.match(app, /identity=\{genericEntityIdentity\(kind, entity\)\}/);
   assert.match(app, /identity=\{journalTrackerIdentity\(tracker\)\}/);
   assert.match(app, /identity=\{journalEntryIdentity\(entry\)\}/);
-  assert.match(dailyPaper, /identity=\{calendarEventIdentity\(event, timeZone\)\}/);
-  assert.match(dailyPaper, /identity=\{todoIdentity\(todo\)\}/);
+  assert.match(editableItems, /identity=\{calendarEventIdentity\(event, timeZone\)\}/);
+  assert.match(editableItems, /identity=\{todoIdentity\(todo\)\}/);
   assert.match(routines, /identity=\{calendarRoutineIdentity\(routine\)\}/);
 });
 

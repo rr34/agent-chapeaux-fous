@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { openApplicationDatabase } from "./database-connection.mjs";
 import rrulePackage from "rrule";
 import { searchCalendarEventRows } from "./calendar-search.mjs";
-import { searchNativeObjects } from "./native-object-search.mjs";
+import { resolveNativeObjectCandidates, searchNativeObjects } from "./native-object-search.mjs";
 import {
   clearDuplicateGroup, findContactDuplicateGroups, findExactContactDuplicateGroups,
   normalizedContactName, selectDuplicateKeeper,
@@ -903,8 +903,12 @@ export class OrganizerStore {
     if (typeof query !== "string" || query.length > 400) {
       throw new OrganizerInputError("Object search text must be at most 400 characters.");
     }
-    const boundedLimit = integer(limit, "limit", { fallback: 4, minimum: 1, maximum: 6 });
+    const boundedLimit = integer(limit, "limit", { fallback: 4, minimum: 1, maximum: 48 });
     return searchNativeObjects(this.database, { query, limit: boundedLimit });
+  }
+
+  resolveNativeObjectCandidates(selectedCandidates = []) {
+    return resolveNativeObjectCandidates(this.database, selectedCandidates);
   }
 
   #activity({

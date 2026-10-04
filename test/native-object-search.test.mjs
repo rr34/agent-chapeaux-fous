@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nativeObjectTypes, objectSearchTerms, registerNativeObjectContextView, searchNativeObjects } from "../src/native-object-search.mjs";
+import { nativeObjectTypes, normalizeSelectedObjectCandidates, objectSearchTerms, registerNativeObjectContextView, resolveNativeObjectCandidates, searchNativeObjects, selectedObjectMentionsAreVisible } from "../src/native-object-search.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
 test("native object candidates come from selected authoritative tables and rank direct names above relationships", () => {
@@ -50,15 +50,19 @@ test("native object candidates come from selected authoritative tables and rank 
   assert.equal(searchNativeObjects(database, { query: "family" }).objects[0].ref, "agent-slayer://contacts/7");
   assert.deepEqual(nativeObjectTypes.map(({ table }) => table), [
     "contacts", "todo_groups", "todo_personal", "journal1_groups", "journal2_trackers", "journal3_entries",
+    "calendar_events", "calendar_routines", "files", "interaction_guides", "profile_facts",
+    "catch_up_questions", "video_scripts", "content_groups", "content_items",
   ]);
+  assert.equal(contacts[0].domainType, "contacts.contact");
+  assert.equal(contacts[0].source, "native:contacts");
 });
 
 test("object search bounds text and result count before database work", () => {
   assert.throws(() => objectSearchTerms("x".repeat(401)), /at most 400 characters/u);
   assert.throws(() => objectSearchTerms(null), /at most 400 characters/u);
   assert.throws(() => searchNativeObjects({ prepare() { throw new Error("unexpected read"); } }, {
-    query: "Exercise", limit: 7,
-  }), /limit must be from 1 to 6/u);
+    query: "Exercise", limit: 49,
+  }), /limit must be from 1 to 48/u);
 });
 
 test("native object context is advertised and read only after strict view selection", async () => {
@@ -74,7 +78,7 @@ test("native object context is advertised and read only after strict view select
   });
   const advertised = registry.capabilityManifest("search").contextViews[0];
   assert.equal(advertised.id, "search.native_object_candidates");
-  assert.equal(advertised.maximumItems, 6);
+  assert.equal(advertised.maximumItems, 12);
   assert.deepEqual(calls, []);
   const prepared = await registry.prepareContext(["search.native_object_candidates"], {
     requestText: "Do you see Lucas Ruffing?",
@@ -82,4 +86,72 @@ test("native object context is advertised and read only after strict view select
   assert.deepEqual(calls, [{ query: "Do you see Lucas Ruffing?", limit: 6 }]);
   assert.equal(prepared[0].source, "native_mariadb_object_tables");
   assert.match(prepared[0].text, /agent-slayer:\/\/contacts\/7/u);
+});
+
+
+test("composer object selections retain exact searchable identity fields", () => {
+  const selected = normalizeSelectedObjectCandidates([{
+    mention: "@Lucas Ruffing",
+    type: "contacts.contact",
+    source: "native:contacts",
+    id: 7,
+    ref: "agent-slayer://contacts/7",
+    display: "Lucas Ruffing",
+  }]);
+  assert.deepEqual(selected, [{
+    mention: "@Lucas Ruffing", type: "contacts.contact", source: "native:contacts",
+    id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing",
+  }]);
+  assert.throws(() => normalizeSelectedObjectCandidates([{
+    ...selected[0], ref: "agent-slayer://contacts/8",
+  }]), /not a valid Contact identity/u);
+  assert.throws(() => normalizeSelectedObjectCandidates([{
+    ...selected[0], mention: "@Someone else",
+  }]), /not a valid Contact identity/u);
+});
+
+test("every structured selection must have its own exact visible mention", () => {
+  const lucas = {
+    mention: "@Lucas", type: "contacts.contact", source: "native:contacts",
+    id: 7, ref: "agent-slayer://contacts/7", display: "Lucas",
+  };
+  const otherLucas = {
+    ...lucas, id: 8, ref: "agent-slayer://contacts/8",
+  };
+  assert.equal(selectedObjectMentionsAreVisible("Ask @Lucas about this.", [lucas]), true);
+  assert.equal(selectedObjectMentionsAreVisible("Ask @Lucas about this.", [lucas, otherLucas]), false);
+  assert.equal(selectedObjectMentionsAreVisible("Compare @Lucas and @Lucas.", [lucas, otherLucas]), true);
+  assert.equal(selectedObjectMentionsAreVisible("Ask @Lucasette about this.", [lucas]), false);
+  assert.equal(selectedObjectMentionsAreVisible("Ask Lucas about this.", [lucas]), false);
+});
+
+test("composer selections are verified by stable ID without ranked-search truncation", () => {
+  const statements = [];
+  const database = { prepare(sql) {
+    return { get(id) {
+      statements.push({ sql, id });
+      return id === 7 ? { title: "Lucas Ruffing" } : undefined;
+    } };
+  } };
+  const input = [{
+    mention: "@Lucas Ruffing",
+    type: "contacts.contact",
+    source: "native:contacts",
+    id: 7,
+    ref: "agent-slayer://contacts/7",
+    display: "Lucas Ruffing",
+  }];
+
+  assert.deepEqual(resolveNativeObjectCandidates(database, input), [{
+    type: "contact", domainType: "contacts.contact", source: "native:contacts",
+    table: "contacts", id: 7, ref: "agent-slayer://contacts/7", label: "Contact",
+    title: "Lucas Ruffing", detail: "", matchedOn: ["selected stable reference"], related: [],
+  }]);
+  assert.equal(statements.length, 1);
+  assert.match(statements[0].sql, /WHERE contact_id = \? AND status = 'active' LIMIT 1/u);
+  assert.equal(statements[0].id, 7);
+
+  assert.deepEqual(resolveNativeObjectCandidates(database, [{
+    ...input[0], display: "Lucas R.", mention: "@Lucas R.",
+  }]), []);
 });

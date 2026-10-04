@@ -820,6 +820,7 @@ export class SlayerRuntime {
         deferredActionReferences: activeActionReferences,
         recentToolReceipts,
         availableObjectReferences,
+        selectedObjectCandidates: args.selectedObjectCandidates ?? [],
         explicitHats: routing.explicitHats,
       }),
       args.supplementalInstructions,
@@ -841,11 +842,19 @@ export class SlayerRuntime {
     const confirmedTargetTools = (candidate) => activeActionReferences
       .filter(({ referenceId }) => candidate.confirmedActionReferenceIds.includes(referenceId))
       .map(({ targetTool }) => targetTool);
-    const validateBrief = (candidate, requiredContractTools = []) => {
+    const validateBrief = (candidate, requiredContractTools = [], objectReferenceCatalog = availableObjectReferences) => {
       const temporalFindings = temporalConsistencyFindings(candidate, {
         requestText: args.text,
         requestEventSeq,
       });
+      const selectionContextFindings = (args.selectedObjectCandidates?.length ?? 0) > 0
+        && !candidate.contextRequests.includes("search.native_object_candidates")
+        ? [{
+            code: "selected_object_context_not_requested",
+            path: "brief.contextRequests",
+            message: "search.native_object_candidates is required to verify the explicit @ object selection before execution",
+          }]
+        : [];
       const capabilityFindings = requiredToolCapabilityFindings(
         availableTools,
         candidate.requiredCapabilities,
@@ -863,18 +872,19 @@ export class SlayerRuntime {
       const receiptFindings = receiptReferenceFindings(candidate, recentToolReceipts);
       const objectFindings = objectReferenceSelectionFindings(
         candidate.objectReferences,
-        availableObjectReferences,
+        objectReferenceCatalog,
         selectedToolObjectRoles(candidate, availableTools, [
           ...confirmedTargetTools(candidate), ...requiredContractTools,
         ]),
       );
       return {
         temporalFindings,
+        selectionContextFindings,
         capabilityFindings: [...capabilityFindings, ...contractToolFindings],
         receiptFindings,
         objectFindings,
         findings: [
-          ...temporalFindings, ...capabilityFindings, ...contractToolFindings,
+          ...temporalFindings, ...selectionContextFindings, ...capabilityFindings, ...contractToolFindings,
           ...receiptFindings, ...objectFindings,
         ],
       };
@@ -924,6 +934,12 @@ export class SlayerRuntime {
           validation.temporalFindings.length
             ? temporalRepairContext(brief, validation.temporalFindings)
             : null,
+          validation.selectionContextFindings.length
+            ? [
+                "# Explicit object selection validation requires repair",
+                "The request contains structured @ selections. Include search.native_object_candidates in contextRequests so the application can verify those exact stable IDs before execution.",
+              ].join("\n")
+            : null,
           validation.capabilityFindings.length
             ? requiredToolCapabilityRepairContext(brief, validation.capabilityFindings)
             : null,
@@ -971,6 +987,7 @@ export class SlayerRuntime {
         requestId: args.requestId,
         requestEventId: args.requestEventId,
         requestText: args.text,
+        selectedObjectCandidates: args.selectedObjectCandidates ?? [],
         channel,
       });
       const contextEventId = this.ledger.append({
@@ -1032,7 +1049,11 @@ export class SlayerRuntime {
       });
       throw error;
     }
-    if (hasReceiptGatedActiveBriefing(preparedCapabilityContext)) {
+    const refinementObjectReferences = mergeObjectReferenceGroups([
+      ...availableObjectReferences, ...preparedObjectReferences,
+    ]);
+    if (hasReceiptGatedActiveBriefing(preparedCapabilityContext)
+        || ((args.selectedObjectCandidates?.length ?? 0) > 0 && preparedObjectReferences.length)) {
       const requiredContractTools = activeBriefingDestinationTools(preparedCapabilityContext);
       const refinementSchema = turnBriefSchema(
         catalog.map(({ capability }) => capability),
@@ -1040,7 +1061,7 @@ export class SlayerRuntime {
         brief.contextRequests,
         catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
         recentToolReceipts,
-        availableObjectReferences,
+        refinementObjectReferences,
         catalogObjectRoles(catalog),
       );
       refinementSchema.properties.contextRequests.minItems = brief.contextRequests.length;
@@ -1049,6 +1070,7 @@ export class SlayerRuntime {
         preparedContextOrientationContext({
           brief,
           preparedCapabilityContext,
+          preparedObjectReferences,
           capabilityCatalog: catalog,
         }),
         args.supplementalInstructions,
@@ -1068,7 +1090,7 @@ export class SlayerRuntime {
         runTimeoutMs: remainingTimeoutMs(),
       });
       brief = orientation.value;
-      validation = validateBrief(brief, requiredContractTools);
+      validation = validateBrief(brief, requiredContractTools, refinementObjectReferences);
       recordBriefValidation(validation.findings, brief);
       if (validation.findings.length) {
         orientation = await this.#runStructuredStep({
@@ -1084,6 +1106,12 @@ export class SlayerRuntime {
             refinementDeveloperInstructions,
             validation.temporalFindings.length
               ? temporalRepairContext(brief, validation.temporalFindings)
+              : null,
+            validation.selectionContextFindings.length
+              ? [
+                  "# Explicit object selection validation requires repair",
+                  "Keep search.native_object_candidates in contextRequests so the exact structured @ selections remain verified for execution.",
+                ].join("\n")
               : null,
             validation.capabilityFindings.length
               ? requiredToolCapabilityRepairContext(brief, validation.capabilityFindings)
@@ -1108,7 +1136,7 @@ export class SlayerRuntime {
           runTimeoutMs: remainingTimeoutMs(),
         });
         brief = orientation.value;
-        validation = validateBrief(brief, requiredContractTools);
+        validation = validateBrief(brief, requiredContractTools, refinementObjectReferences);
         recordBriefValidation(validation.findings, brief, true);
         if (validation.findings.length) {
           throw new Error(`Context-informed TurnBrief validation failed after repair: ${validation.findings.map(({ message }) => message).join("; ")}`);

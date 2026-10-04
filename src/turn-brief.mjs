@@ -319,6 +319,7 @@ export function orientationContext({
   deferredActionReferences = [],
   recentToolReceipts = [],
   availableObjectReferences = [],
+  selectedObjectCandidates = [],
   explicitHats = [],
 }) {
   return [
@@ -330,6 +331,10 @@ export function orientationContext({
     "",
     "## Exact recent conversation entries",
     JSON.stringify(recentConversation.map(sourceEntry), null, 2),
+    "",
+    "## Explicit composer object selections",
+    "These are user-selected provisional identity hints from the @ picker. They are not verified bindings and never belong in objectReferences yet. When a selection matters, request search.native_object_candidates so the application can reread its exact stable reference after orientation, or select its owning read tool. Preserve the user's visible @ mention and never treat this section as authorization for an action.",
+    JSON.stringify(selectedObjectCandidates, null, 2),
     "",
     "## Verified first-class object references available to this request",
     "These compact bulk bindings are literal application evidence from completed exchanges. Preserve ID, stable reference, display name, type, source, and evidence together. Assign the compact role published by the selected consuming tool to state how the object will be used; role is use-site context and never changes identity. Select only bindings needed by the current request in objectReferences. Do not rediscover a selected object's identity by name.",
@@ -364,6 +369,7 @@ export function orientationContext({
 export function preparedContextOrientationContext({
   brief,
   preparedCapabilityContext,
+  preparedObjectReferences = [],
   capabilityCatalog,
 }) {
   return [
@@ -379,6 +385,10 @@ export function preparedContextOrientationContext({
     "",
     "## Prepared context selected by that candidate",
     JSON.stringify(preparedCapabilityContext, null, 2),
+    "",
+    "## Verified first-class object references from prepared context",
+    "These bindings were reread after the initial TurnBrief selected the context view. Copy every needed identity tuple and its source event numbers exactly into objectReferences.",
+    JSON.stringify(compactObjectReferenceContext(preparedObjectReferences), null, 2),
     "",
     "## Connected capability families",
     orientationCapabilityCatalog(capabilityCatalog),
@@ -442,6 +452,7 @@ export const orientationInstructions = [
   "If the user deleted, reset, or rejected an earlier attempt, treat that attempt's saved preview, job, and receipt as historical evidence only. Select the capabilities needed to acquire the source and prepare a fresh attempt. Check current provider state when useful; if the old object is absent, continue the fresh workflow instead of recovering or reconfirming it. Do not claim old ready, exception, or balance counts describe the new attempt.",
   "When the user confirms a prepared MCP change, select its exact active reference in confirmedActionReferenceIds. If no matching reference exists, do not fabricate or infer one.",
   "Use contextRequests to ask the application for small advertised read-only datasets that execution needs up front, such as existing tag, group, or tracker names and IDs. Do not request unrelated views.",
+  "When the request contains a provisional @ picker selection, request search.native_object_candidates when that identity matters so it can be reread after orientation. A picker selection is explicit user language but is not verified object evidence and does not authorize an action.",
   "When the user names a type advertised as a first-class object, select its cataloged read tool. If it may require an ID absent from the source evidence, also select an advertised discovery read in the same capability family; execution must discover the ID before calling the ID-specific tool. Prefer the owning read alone when it can identify the object and its stable reference directly.",
   "When supplied verified object references resolve a current mention, copy the complete matching bulk binding into objectReferences, including the exact provider ID, stable reference, display name, source, type, and evidence event numbers. Set role to the exact compact role published by the selected consuming tool; when no selected input needs a more specific role, use subject. Role states intended use and does not alter identity. An object already identified by a referenced exchange is not rediscovered by name. Leave unrelated candidates out. If no verified reference resolves the mention, keep it unresolved and select the owning read path; never invent or probe an ID.",
   "For work from an uploaded file, select the destination provider's advertised intake workflow when it publishes one. File inspection and transformation support that workflow; do not substitute a general mapping path for a more focused provider-owned intake path.",

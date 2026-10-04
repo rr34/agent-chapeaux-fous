@@ -1,9 +1,7 @@
 import type { CalendarDay, CalendarEvent, DailyPaperModel, LinkedTodo } from "../types";
 import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
-import {
-  AgentReferenceButton, calendarEventIdentity, todoIdentity,
-  type AddAgentReference,
-} from "./AgentReferenceButton";
+import { type AddAgentReference } from "./AgentReferenceButton";
+import { CalendarEventItem, TodoItem } from "./EditableItems";
 
 function timeLabel(event: CalendarEvent, timeZone: string) {
   if (event.isAllDay) return "All day";
@@ -67,54 +65,43 @@ export function CalendarGrid({
   );
 }
 
-export function DayTimeline({ events, timeZone, onReference }: {
+export function DayTimeline({ events, timeZone, onReference, onChanged }: {
   events: CalendarEvent[];
   timeZone: string;
   onReference?: AddAgentReference;
+  onChanged?: () => void | Promise<void>;
 }) {
   if (!events.length) return <p className="paper-empty">No events scheduled. The day is yours.</p>;
   return (
     <ol className="timeline-list">
-      {events.map((event) => (
-        <li key={event.id}>
-          <time>{timeLabel(event, timeZone)}</time>
-          <div>
-            <strong>{event.title}</strong>
-            {event.location && <span className="event-place">{event.location}</span>}
-            {event.description && <p>{event.description}</p>}
-          </div>
-          {onReference && <AgentReferenceButton
-            identity={calendarEventIdentity(event, timeZone)}
-            subject={`calendar event ${event.title}`}
-            onReference={onReference}
-          />}
-        </li>
-      ))}
+      {events.map((event) => <CalendarEventItem
+        event={event}
+        timeZone={timeZone}
+        timeLabel={timeLabel(event, timeZone)}
+        onChanged={onChanged}
+        onReference={onReference}
+        key={event.id}
+      />)}
     </ol>
   );
 }
 
-export function ScheduledTodos({ todos, onReference }: {
+export function ScheduledTodos({ todos, onReference, onChanged }: {
   todos: LinkedTodo[];
   onReference?: AddAgentReference;
+  onChanged?: () => void | Promise<void>;
 }) {
   if (!todos.length) return <p className="paper-empty">No to-dos are attached to this day’s events.</p>;
   return (
     <ul className="paper-todos">
-      {todos.map((todo) => (
-        <li key={todo.todoId}>
-          <span className="paper-checkbox" aria-hidden="true" />
-          <div>
-            <strong>{todo.title}</strong>
-            {todo.eventTitles?.length ? <small>For {todo.eventTitles.join(", ")}</small> : null}
-          </div>
-          {onReference && <AgentReferenceButton
-            identity={todoIdentity(todo)}
-            subject={`task ${todo.title}`}
-            onReference={onReference}
-          />}
-        </li>
-      ))}
+      {todos.map((todo) => <TodoItem
+        todo={todo}
+        eventTitles={todo.eventTitles}
+        variant="scheduled"
+        onChanged={onChanged}
+        onReference={onReference}
+        key={todo.todoId}
+      />)}
     </ul>
   );
 }

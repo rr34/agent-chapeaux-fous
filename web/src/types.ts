@@ -1,6 +1,8 @@
 export interface LinkedTodo {
   todoId: number;
-  title: string;
+  title?: string;
+  text?: string;
+  groupId?: number;
   groupName?: string | null;
   description?: string | null;
   status: string;
@@ -12,7 +14,11 @@ export interface CalendarEvent {
   id: number | string;
   seriesId?: number;
   isGeneratedOccurrence?: boolean;
+  readOnly?: boolean;
   contactId?: number;
+  version?: string;
+  recurrenceRule?: string | null;
+  planningPromptText?: string | null;
   title: string;
   description?: string | null;
   location?: string | null;
@@ -100,6 +106,42 @@ export type Entity = Record<string, unknown> & {
   description?: string | null;
 };
 
+export interface ObjectSearchCandidate {
+  type: string;
+  domainType: string;
+  source: string;
+  id: number | string;
+  ref: string;
+  label: string;
+  title: string;
+  detail?: string;
+  matchedOn: string[];
+}
+
+export interface SelectedObjectCandidate {
+  mention: string;
+  type: string;
+  source: string;
+  id: number | string;
+  ref: string;
+  display: string;
+  label: string;
+}
+
+export interface RequestProgress {
+  label: string;
+  startedAtMs: number;
+  lastActivityAtMs: number;
+  modelCalls: number;
+  toolCalls: number;
+}
+
+export interface RequestUsage {
+  modelCallCount: number;
+  toolCallCount: number;
+  tokenUsage?: { totalTokens?: number };
+}
+
 export interface RequestRecord {
   requestId: string;
   request: string;
@@ -107,6 +149,10 @@ export interface RequestRecord {
   response?: string | null;
   error?: string | null;
   createdAt?: string;
+  submittedAtMs?: number;
+  elapsedMs?: number | null;
+  progress?: RequestProgress | null;
+  usage?: RequestUsage | null;
   turnBriefApproval?: {
     approvalId?: string;
     objective?: string;

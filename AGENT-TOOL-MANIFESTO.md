@@ -239,12 +239,15 @@ primary object. An object reference narrows what the user and agent are
 discussing; it does not make a tool callable, authorize a mutation, or bypass
 the owning tool's validation.
 
-While the user composes a request in the Objects presentation, the web client
-may show provisional candidates in a separate draft section of the object
-stream. Its authorized, read-only search uses selected database fields. The
-composer remains a text input; the candidate section is separate from durable
-request history. A user selection or rejection becomes explicit request text
-with a stable reference. A derived index is considered only if direct reads
+While the user composes a request, the web client may open a draft-only `@`
+picker above the text area. Its authorized, read-only search uses selected
+database fields and groups results by domain type. The picker and its identity
+chips are separate from durable request history; the composer remains the one
+text input. A selection must remain visible in the submitted request as
+`@Display name`, while the client submits the matching domain type, owning
+source, provider ID, stable reference, and display name as bounded request
+metadata. The server validates that tuple and its visible mention before
+accepting the request. A derived index is considered only if direct reads
 prove inadequate under the conditions above. Deterministic candidate matching
 does not decide what the user meant. Agent request processing does not make an
 unselected database read before execution or insert UI candidates into model

@@ -14,7 +14,7 @@ import { InteractionGuides } from "./interaction-guides.mjs";
 import { DailyPaperService } from "./daily-paper.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
-import { registerNativeObjectContextView } from "./native-object-search.mjs";
+import { normalizeSelectedObjectCandidates, registerNativeObjectContextView, selectedObjectMentionsAreVisible } from "./native-object-search.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { assertNativeCapabilityRegistrations, registerNativeCapabilities, validateNativeCapabilityPackages } from "./native-capabilities.mjs";
 import { assertNativeToolDescriptions } from "./native-tool-descriptions.mjs";
@@ -417,7 +417,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/api/native-objects/search") {
       sendJson(response, 200, organizer.searchNativeObjects({
         query: url.searchParams.get("q") || "",
-        limit: url.searchParams.get("limit") || 4,
+        limit: url.searchParams.get("limit") || 24,
       }));
       return;
     }
@@ -650,6 +650,12 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const calendarMatch = /^\/api\/calendar-events\/(\d+)$/.exec(url.pathname);
+    if (request.method === "GET" && calendarMatch) {
+      const event = organizer.getCalendar(calendarMatch[1]);
+      if (!event) throw Object.assign(new Error("Calendar event not found"), { statusCode: 404 });
+      sendJson(response, 200, { event });
+      return;
+    }
     if (request.method === "PATCH" && calendarMatch) {
       sendJson(response, 200, {
         event: organizer.updateCalendar(calendarMatch[1], await readJson(request)),
@@ -863,6 +869,12 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const todoMatch = /^\/api\/todos\/(\d+)$/.exec(url.pathname);
+    if (request.method === "GET" && todoMatch) {
+      const todo = organizer.getTodo(todoMatch[1]);
+      if (!todo) throw Object.assign(new Error("To-do not found"), { statusCode: 404 });
+      sendJson(response, 200, { todo });
+      return;
+    }
     if (request.method === "PATCH" && todoMatch) {
       sendJson(response, 200, { todo: organizer.updateTodo(todoMatch[1], await readJson(request)) });
       return;
@@ -1122,6 +1134,15 @@ const server = http.createServer(async (request, response) => {
       const primaryFileId = body.primaryFileId == null ? null : Number(body.primaryFileId);
       const runLimits = normalizeRunLimits(body.runLimits);
       const referencedRequestIds = normalizeReferencedRequestIds(body.referencedRequestIds);
+      let selectedObjectCandidates;
+      try {
+        selectedObjectCandidates = normalizeSelectedObjectCandidates(body.selectedObjectCandidates);
+      } catch (error) {
+        throw Object.assign(error, { statusCode: 400 });
+      }
+      if (!selectedObjectMentionsAreVisible(text, selectedObjectCandidates)) {
+        throw Object.assign(new Error("Every selected object must remain visible in the request text"), { statusCode: 400 });
+      }
       if (primaryFileId !== null) {
         if (!Number.isSafeInteger(primaryFileId) || primaryFileId <= 0) {
           throw Object.assign(new Error("Request attachment ID is invalid"), { statusCode: 400 });
@@ -1137,7 +1158,10 @@ const server = http.createServer(async (request, response) => {
         channel: "web",
         primaryFileId,
         runLimits,
-        metadata: referencedRequestIds.length ? { referencedRequestIds } : {},
+        metadata: {
+          ...(referencedRequestIds.length ? { referencedRequestIds } : {}),
+          ...(selectedObjectCandidates.length ? { selectedObjectCandidates } : {}),
+        },
       });
       queue.notify();
       sendJson(response, 202, created);

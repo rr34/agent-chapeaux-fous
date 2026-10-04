@@ -7,6 +7,7 @@ import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
 import { objectInputBindingsMetadataKey } from "../src/object-input-bindings.mjs";
 import { toolDescriptionMetadataKey } from "../src/tool-description.mjs";
+import { registerNativeObjectContextView } from "../src/native-object-search.mjs";
 
 function usage(totalTokens) {
   return {
@@ -835,6 +836,124 @@ test("an accepted account binding constrains and guards the later tool ID", asyn
   }), "Account 178 has one matching transaction.");
   assert.equal(calls, 1);
   assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), true);
+});
+
+test("an @ selection is verified and bound by exact ID before execution", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("search", {
+    global_search: fixtureToolDescription("Search across native records."),
+  }).register({
+    name: "global_search",
+    description: "Search across native records.",
+    annotations: { readOnlyHint: true },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { query: { type: "string" } }, required: ["query"],
+    },
+    async execute() { throw new Error("global_search should remain deferred"); },
+  });
+  const selectedObjectCandidates = [{
+    mention: "@Lucas Ruffing", type: "contacts.contact", source: "native:contacts",
+    id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing",
+  }];
+  let lookups = 0;
+  registry.withCapability("contacts", {
+    contact_lookup_batch: fixtureToolDescription("Read exact contacts by stable ID."),
+  }).register({
+    name: "contact_lookup_batch",
+    description: "Read exact contacts by stable ID.",
+    annotations: { readOnlyHint: true },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        contact_ids: {
+          type: "array", minItems: 1, maxItems: 10,
+          items: { type: "integer", minimum: 1 },
+        },
+      },
+      required: ["contact_ids"],
+    },
+    async execute({ contact_ids }) {
+      lookups += 1;
+      assert.deepEqual(contact_ids, [7]);
+      return { contacts: [{ contact_id: 7, display_name: "Lucas Ruffing" }] };
+    },
+  });
+  registerNativeObjectContextView(registry, {
+    searchNativeObjects({ query, limit }) {
+      assert.equal(query, "Summarize @Lucas Ruffing.");
+      assert.equal(limit, 6);
+      return { source: "native_mariadb_object_tables", capturedAtUtc: "2026-10-04T12:00:00.000Z", objects: [] };
+    },
+    resolveNativeObjectCandidates(candidates) {
+      assert.deepEqual(candidates, selectedObjectCandidates);
+      return [{
+        type: "contact", domainType: "contacts.contact", source: "native:contacts",
+        table: "contacts", id: 7, ref: "agent-slayer://contacts/7", label: "Contact",
+        title: "Lucas Ruffing", detail: "person", matchedOn: ["selected stable reference"], related: [],
+      }];
+    },
+  });
+  const initial = {
+    ...brief({ auditRequired: false }),
+    requestType: "informational", responseMode: "answer",
+    objective: "Read and summarize the explicitly selected contact.",
+    summary: "Use the selected Lucas Ruffing contact.",
+    requiredCapabilities: ["contacts"],
+    requiredTools: ["contact_lookup_batch"],
+    contextRequests: [], objectReferences: [], requestedActions: [],
+    completionCriteria: ["Summarize the verified contact."],
+  };
+  const withContext = { ...initial, contextRequests: ["search.native_object_candidates"] };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      assert.match(payload.developerInstructions, /Explicit composer object selections/);
+      assert.match(payload.developerInstructions, /@Lucas Ruffing/);
+      return completed(JSON.stringify(initial), 20);
+    }
+    if (index === 1) {
+      assert.match(payload.developerInstructions, /Explicit object selection validation requires repair/);
+      assert.match(payload.developerInstructions, /search\.native_object_candidates/);
+      return completed(JSON.stringify(withContext), 20);
+    }
+    if (index === 2) {
+      assert.match(payload.developerInstructions, /Verified first-class object references from prepared context/);
+      assert.match(payload.developerInstructions, /agent-slayer:\/\/contacts\/7/);
+      const binding = ledger.events.find(({ type }) => type === "object.references.observed")
+        .payload.objectReferences[0];
+      assert.equal(binding.type, "contacts.contact");
+      assert.deepEqual(binding.objects, [{
+        id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing",
+      }]);
+      return completed(JSON.stringify({ ...withContext, objectReferences: [binding] }), 20);
+    }
+    assert.equal(index, 3);
+    assert.deepEqual(payload.tools.map(({ name }) => name), ["contact_lookup_batch", "request_tools"]);
+    assert.deepEqual(payload.tools[0].inputSchema.properties.contact_ids.items.enum, [7]);
+    const result = await payload.onToolCall({
+      callId: "read-selected-contact", tool: "contact_lookup_batch",
+      arguments: { contact_ids: [7], result_filter: identityResultFilter() },
+    });
+    assert.equal(result.ok, true);
+    return completed("Lucas Ruffing is the selected contact.", 30);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport, registry, contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(), ledger, config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-selected-contact", requestEventId: "event-current",
+    text: "Summarize @Lucas Ruffing.", selectedObjectCandidates,
+  }), "Lucas Ruffing is the selected contact.");
+  assert.equal(lookups, 1);
+  assert.equal(requests.length, 4);
+  assert.equal(ledger.events.find(({ type }) => type === "turn.brief")
+    .payload.brief.objectReferences[0].objects[0].id, 7);
 });
 
 test("a generated repeatable exchange exposes only its authorized exchange-add tool", async () => {

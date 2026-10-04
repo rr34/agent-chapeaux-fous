@@ -128,6 +128,16 @@ composer. On submission, the server validates that ID and records it as bounded
 request metadata; orientation and execution then receive the source-referenced
 request and response even when that exchange is outside ordinary recent history.
 
+The Agent composer also supports first-class object mentions. Type `@` followed
+by a name to search the native object tables; results appear in fixed domain
+groups with Contacts first, then Events, To-dos, Routines, Files, Journal,
+Briefings, Check-in, Library and video, and Profile. Choosing a result inserts a
+visible `@Display name` mention and retains its exact type, source, primary ID,
+stable reference, and display name in request metadata. The server validates
+that identity, and orientation must select the bounded native-object context
+view before the application rereads it and exposes it as a verified TurnBrief
+object binding. Selection identifies an object; it never authorizes a write.
+
 `.env` intentionally lives beside `.env.example` in the repository root. It is
 ignored by Git and loaded by the process before configuration is evaluated.
 

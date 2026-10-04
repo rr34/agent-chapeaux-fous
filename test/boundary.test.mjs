@@ -701,7 +701,8 @@ test("completed exchanges expose a reply action that attaches literal source con
   assert.match(application, /function referencedRequestIdsFromComposer\(value\)/);
   assert.match(application, /querySelector\("\.reply-to-exchange"\)\.addEventListener\("click"/);
   assert.match(server, /ledger\.exchangeReference\(referencedRequestId\)/);
-  assert.match(server, /metadata: referencedRequestIds\.length \? \{ referencedRequestIds \} : \{\}/);
+  assert.match(server, /\.\.\.\(referencedRequestIds\.length \? \{ referencedRequestIds \} : \{\}\)/);
+  assert.match(server, /\.\.\.\(selectedObjectCandidates\.length \? \{ selectedObjectCandidates \} : \{\}\)/);
   assert.match(context, /# Explicitly referenced exchanges/);
   assert.match(context, /referencedExchangesForRequest\(requestId, \{ limit: 8 \}\)/);
 });
