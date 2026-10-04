@@ -1,8 +1,6 @@
-const cacheName = "agent-slayer-shell-v75";
+const cacheName = "agent-slayer-shell-v76";
 const shell = [
-  "/catch-up-settings.js",
-  "/", "/app", "/app/", "/app.js", "/ai-usage.js", "/calendar-grid.js", "/event-date-time.js", "/presentation-format.js", "/timing-editor.js", "/markdown.js", "/vendor/dompurify.js", "/vendor/marked.js",
-  "/styles.css", "/favicon.png", "/icon.svg", "/hats.svg", "/manifest.webmanifest",
+  "/", "/app", "/app/", "/favicon.png", "/icon.svg", "/hats.svg", "/manifest.webmanifest",
   "/logo-chapeaux-fous-1200-square-transparent.png",
 ];
 
@@ -12,10 +10,18 @@ self.addEventListener("activate", (event) => event.waitUntil(
 ));
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  // Only the application shell has an offline copy. Health, APIs, and other
-  // origins must keep their real network status instead of using a cache.
-  if (event.request.method !== "GET" || url.origin !== self.location.origin || !shell.includes(url.pathname)) return;
-  event.respondWith(fetch(event.request).catch(async () => {
+  // Only the application shell and its content-hashed React assets have an
+  // offline copy. Health, APIs, and other origins keep their network status.
+  const isShell = shell.includes(url.pathname);
+  const isBuiltAsset = url.pathname.startsWith("/ui/");
+  if (event.request.method !== "GET" || url.origin !== self.location.origin || (!isShell && !isBuiltAsset)) return;
+  event.respondWith(fetch(event.request).then(async (response) => {
+    if (response.ok) {
+      const cache = await caches.open(cacheName);
+      await cache.put(event.request, response.clone());
+    }
+    return response;
+  }).catch(async () => {
     try {
       const cache = await caches.open(cacheName);
       return await cache.match(url.pathname) || Response.error();

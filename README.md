@@ -73,6 +73,7 @@ and an initialized MariaDB database matching `db/mariadb/0001-baseline.sql`.
 cp .env.example .env
 # Set OPENAI_API_KEY, SLAYER_ACCESS_TOKEN, and the MARIADB_* values.
 npm install
+npm run install:pdf-browser
 npm run db:verify
 npm test
 npm start
@@ -106,6 +107,14 @@ full attachment. A task's Schedule
 button opens the calendar in day-pick mode; selecting a day writes the task's
 scheduled date as an all-day task. Timed tasks remain available through the
 to-do editor and agent tools.
+
+The **Calendar** screen composes a shared React daily-paper component from the
+authoritative two-week calendar, the selected day's timeline, and to-dos linked
+to those events. Choose Letter or A4 and click **Download daily PDF** to render,
+store, and download a printable document with ruled handwriting space. The
+agent can invoke the same behavior through `daily_paper_generate`. Chromium is
+required only on the server and can be overridden with
+`SLAYER_PDF_BROWSER_EXECUTABLE` when a system browser is preferred.
 
 Each finished Agent exchange also exposes a chat-style **↩ Reply** action. It
 places an `In reference to:` block with the full source request ID in the

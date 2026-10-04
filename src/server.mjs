@@ -11,11 +11,12 @@ import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
 import { JmapClient } from "./jmap-client.mjs";
 import { InteractionGuides } from "./interaction-guides.mjs";
+import { DailyPaperService } from "./daily-paper.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { registerNativeObjectContextView } from "./native-object-search.mjs";
 import { createModelTransport } from "./model-transport.mjs";
-import { registerNativeCapabilities } from "./native-capabilities.mjs";
+import { registerNativeCapabilities, validateNativeCapabilityManifests } from "./native-capabilities.mjs";
 import { assertNativeToolDescriptions } from "./native-tool-descriptions.mjs";
 import { loadHatCatalog } from "./hat-catalog.mjs";
 import { RequestQueue } from "./queue.mjs";
@@ -29,6 +30,7 @@ import { structuredInteractionGenerationPrompt } from "./structured-interaction-
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { OpenAISpeechService } from "./openai-speech.mjs";
 import { VideoRenderWorker } from "./video-render-worker.mjs";
+import { registerDailyPaperTools } from "./tools/daily-paper-tools.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
 import { registerFileTools } from "./tools/file-tools.mjs";
 import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
@@ -55,6 +57,9 @@ import { WebPageClient } from "./web-page-client.mjs";
 import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 
 const config = loadConfig();
+await validateNativeCapabilityManifests({
+  instructionRoot: config.capabilityInstructionsPath,
+});
 const identity = runtimeIdentity(config.repositoryRoot);
 const store = new SlayerDatabase(config.databaseTarget);
 const ledger = new Ledger(store);
@@ -68,6 +73,17 @@ const interactionGuides = new InteractionGuides({
     profileFacts.list({ status: "active", limit: null }).facts,
   ),
 });
+const dailyPaper = store.status.ready ? new DailyPaperService({
+  organizer,
+  ledger,
+  mediaRoot: config.mediaRoot,
+  publicUrl: config.publicUrl,
+  accessToken: config.accessToken,
+  browserExecutable: config.pdfBrowserExecutable,
+  timeZone: () => timeZoneFromProfileFacts(
+    profileFacts.list({ status: "active", limit: null }).facts,
+  ),
+}) : null;
 const videoScripts = store.status.ready ? new VideoScripts({ store, ledger }) : null;
 const videoContent = store.status.ready ? new VideoContent({ videoScripts, organizer }) : null;
 let videoRenderWorker = null;
@@ -105,6 +121,7 @@ const jmap = new JmapClient({
 if (store.status.ready) {
   registerCalendarTools(registry, store, organizer, ledger, searchCoordinator, catchUp);
   registerContactTools(registry, store, organizer, ledger, searchCoordinator);
+  registerDailyPaperTools(registry, dailyPaper);
   registerTodoTools(registry, store, ledger);
   registerJournalTools(registry, store, ledger);
   registerCatchUpTools(registry, catchUp);
@@ -488,6 +505,32 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, {
         reset: true,
         eventId: ledger.resetModelConversation({ channel: "web" }),
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/daily-paper") {
+      sendJson(response, 200, dailyPaper.build({
+        date: url.searchParams.get("date"),
+        timeZone: url.searchParams.get("timeZone"),
+        paperSize: url.searchParams.get("paperSize"),
+        includeCompletedTodos: url.searchParams.get("includeCompletedTodos") === "true",
+      }));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/daily-paper/pdf") {
+      const generated = await dailyPaper.generate(await readJson(request), {
+        actorType: "user",
+        actorName: "daily_paper_web",
+        channel: "web",
+      });
+      sendJson(response, 201, {
+        status: "complete",
+        date: generated.model.date,
+        timeZone: generated.model.timeZone,
+        paperSize: generated.model.paperSize,
+        eventCount: generated.model.todayEvents.length,
+        todoCount: generated.model.scheduledTodos.length,
+        file: generated.file,
       });
       return;
     }
@@ -967,6 +1010,30 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const contentMatch = /^\/api\/content-items\/(\d+)$/.exec(url.pathname);
+    const fileDownloadMatch = /^\/api\/files\/(\d+)\/download$/.exec(url.pathname);
+    if (request.method === "GET" && fileDownloadMatch) {
+      const file = ledger.file(Number(fileDownloadMatch[1]));
+      if (!file) {
+        sendJson(response, 404, { error: "File was not found" });
+        return;
+      }
+      const filename = safeMediaPath(config.mediaRoot, file.storage_path);
+      const stat = await fsp.stat(filename).catch(() => null);
+      if (!stat?.isFile()) {
+        sendJson(response, 404, { error: "The stored file is missing" });
+        return;
+      }
+      const downloadName = String(file.original_filename || `file-${file.file_id}`)
+        .replace(/[^A-Za-z0-9._-]+/g, "-");
+      response.writeHead(200, {
+        "Content-Type": file.mime_type || "application/octet-stream",
+        "Content-Length": stat.size,
+        "Content-Disposition": `attachment; filename="${downloadName}"`,
+        "Cache-Control": "private, no-store",
+      });
+      fs.createReadStream(filename).pipe(response);
+      return;
+    }
     if (request.method === "PATCH" && contentMatch) {
       sendJson(response, 200, { content: organizer.updateContent(contentMatch[1], await readJson(request)) });
       return;

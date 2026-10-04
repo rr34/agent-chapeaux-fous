@@ -7,17 +7,22 @@ const source = fs.readFileSync(new URL("../public/service-worker.js", import.met
 function worker({ fetch = async () => { throw new Error("Offline"); }, cached, cacheError = false } = {}) {
   const listeners = new Map();
   const cacheReads = [];
+  const cacheWrites = [];
   vm.runInNewContext(source, {
     URL, Response,
     self: { location: { origin: "https://chapeauxfous.com" }, addEventListener: (name, callback) => listeners.set(name, callback) },
     fetch,
     caches: { open: async () => {
       if (cacheError) throw new Error("Cache unavailable");
-      return { match: async key => { cacheReads.push(key); return typeof cached === "function" ? cached(key) : cached; } };
+      return {
+        match: async key => { cacheReads.push(key); return typeof cached === "function" ? cached(key) : cached; },
+        put: async key => { cacheWrites.push(key.url || String(key)); },
+      };
     } },
   });
   return {
     cacheReads,
+    cacheWrites,
     request(path, method = "GET") {
       let response;
       listeners.get("fetch")({ request: new Request(new URL(path, "https://chapeauxfous.com"), { method }),
@@ -39,8 +44,9 @@ test("health, APIs, unknown paths, external origins and mutations bypass the she
 test("shell requests return the real network response when online", async () => {
   const response = new Response("current app");
   const instance = worker({ fetch: async () => response });
-  assert.equal(await instance.request("/app.js"), response);
+  assert.equal(await instance.request("/ui/assets/app.js"), response);
   assert.deepEqual(instance.cacheReads, []);
+  assert.deepEqual(instance.cacheWrites, ["https://chapeauxfous.com/ui/assets/app.js"]);
 });
 
 test("offline shell requests fall back to their cached path including navigation query strings", async () => {
@@ -52,7 +58,7 @@ test("offline shell requests fall back to their cached path including navigation
 
 test("cache misses and unavailable cache storage return a Response instead of undefined or a rejected promise", async () => {
   for (const options of [{}, { cacheError: true }]) {
-    const response = await worker(options).request("/app.js");
+    const response = await worker(options).request("/ui/assets/app.js");
     assert.ok(response instanceof Response);
     assert.equal(response.type, "error");
   }

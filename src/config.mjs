@@ -158,6 +158,7 @@ export function loadConfig(environment = process.env) {
     videoModel: environment.SLAYER_VIDEO_MODEL?.trim() || "gpt-5.6-sol",
     videoReasoningEffort: environment.SLAYER_VIDEO_REASONING_EFFORT?.trim() || "high",
     remotionBrowserExecutable: environment.REMOTION_BROWSER_EXECUTABLE?.trim() || null,
+    pdfBrowserExecutable: environment.SLAYER_PDF_BROWSER_EXECUTABLE?.trim() || null,
     ttsModel: environment.SLAYER_TTS_MODEL?.trim() || "gpt-4o-mini-tts",
     ttsAgentVoice: environment.SLAYER_TTS_AGENT_VOICE?.trim()
       || environment.SLAYER_TTS_VOICE?.trim() || "verse",

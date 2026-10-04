@@ -4,6 +4,7 @@ import {
   catalogToolDescription, defineToolDescription, toolDescriptionMetadataKey,
 } from "./tool-description.mjs";
 import { objectDescriptionMetadataKey } from "./object-description.mjs";
+import { nativeCapabilityManifest } from "./native-capabilities.mjs";
 
 const localCapabilityMatchers = [
   ["web", (tool) => tool.name === "web_page_read"],
@@ -24,23 +25,6 @@ const localCapabilityMatchers = [
   ["search", (tool) => tool.name === "global_search"],
   ["orchestration", (tool) => tool.name === "request_capabilities"],
 ];
-
-const instructionFiles = new Map([
-  ["web", "web.md"],
-  ["calendar", "calendar.md"],
-  ["contacts", "contacts.md"],
-  ["todos", "todos.md"],
-  ["journal", "journal.md"],
-  ["interaction-guides", "interaction-guides.md"],
-  ["profile", "profile.md"],
-  ["files", "files.md"],
-  ["database", "database.md"],
-  ["database-write", "database-write.md"],
-  ["history", "history.md"],
-  ["email", "email.md"],
-  ["video", "video.md"],
-  ["search", "search.md"],
-]);
 
 const capabilityPatterns = new Map([
   ["self", /\bhow (?:do|did) you.{0,50}\b(?:make|create|generate|produce|render)(?:d|s|ing)?\b.{0,40}\bvideos?\b|\bhow (?:is|are|was|were).{0,40}\bvideos?\b.{0,30}\b(?:made|created|generated|produced|rendered)\b|\b(?:is it|is this).{0,30}\beasy\b.{0,40}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b|\bhow (?:long|many clicks).{0,50}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b/iu],
@@ -583,10 +567,12 @@ export class RequestCompiler {
   }
 
   async #instruction(capability, tools = []) {
-    const declaredGuidance = this.capabilityManifest?.(capability)?.guidance;
+    const manifest = this.capabilityManifest?.(capability)
+      ?? tools.find(({ capability: item }) => item)?.capability
+      ?? nativeCapabilityManifest(capability);
+    const declaredGuidance = manifest?.guidance;
     if (declaredGuidance) return declaredGuidance;
-    const filename = tools.find(({ capability: manifest }) => manifest)?.capability?.instructionFile
-      ?? instructionFiles.get(capability);
+    const filename = manifest?.instructionFile;
     if (!filename || !this.instructionRoot) return null;
     if (!this.instructions.has(capability)) {
       const contents = await this.readFile(path.join(this.instructionRoot, filename), "utf8");

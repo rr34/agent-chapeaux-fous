@@ -1,3 +1,6 @@
+import fsp from "node:fs/promises";
+import path from "node:path";
+
 export const nativeCapabilityManifests = [
   {
     id: "catch-up", title: "Check-in catch-up",
@@ -33,6 +36,12 @@ export const nativeCapabilityManifests = [
     aliases: ["calendar", "schedule", "agenda", "appointment", "meeting", "event", "routine", "habit", "deadline", "due date", "work window"],
     instructionFile: "calendar.md",
     readOnlyTools: ["calendar_event_search", "calendar_event_list", "calendar_routine_list"],
+  },
+  {
+    id: "daily-paper", title: "Printable daily paper",
+    summary: "Generate a durable printable PDF from the authoritative two-week calendar, one day’s timeline, and to-dos linked to that day’s events.",
+    aliases: ["daily paper", "daily sheet", "print my day", "print today", "printable calendar", "daily pdf"],
+    instructionFile: "daily-paper.md",
   },
   {
     id: "contacts", title: "Contacts", summary: "Search, import, update addresses, tag, and merge native contacts.",
@@ -119,4 +128,59 @@ export const nativeCapabilityManifests = [
 export function registerNativeCapabilities(registry) {
   for (const manifest of nativeCapabilityManifests) registry.registerCapability(manifest);
   return registry;
+}
+
+export function nativeCapabilityManifest(capabilityId) {
+  return nativeCapabilityManifests.find(({ id }) => id === capabilityId) ?? null;
+}
+
+export async function validateNativeCapabilityManifests({
+  instructionRoot,
+  readFile = fsp.readFile,
+  readDirectory = fsp.readdir,
+} = {}) {
+  if (!instructionRoot) throw new Error("Native capability validation requires instructionRoot");
+  const ids = new Set();
+  const instructionFiles = new Set();
+  for (const manifest of nativeCapabilityManifests) {
+    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+      throw new Error("Every native capability manifest must be an object");
+    }
+    const id = String(manifest.id ?? "").trim();
+    if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new Error(`Invalid native capability ID: ${id || "(empty)"}`);
+    if (ids.has(id)) throw new Error(`Duplicate native capability ID: ${id}`);
+    ids.add(id);
+    if (!String(manifest.title ?? "").trim()) throw new Error(`Native capability ${id} requires a title`);
+    if (!String(manifest.summary ?? "").trim()) throw new Error(`Native capability ${id} requires a summary`);
+    if (!Array.isArray(manifest.aliases) || manifest.aliases.length === 0) {
+      throw new Error(`Native capability ${id} requires at least one alias`);
+    }
+    if (new Set(manifest.aliases).size !== manifest.aliases.length) {
+      throw new Error(`Native capability ${id} aliases must be unique`);
+    }
+    const filename = String(manifest.instructionFile ?? "");
+    if (!filename || path.basename(filename) !== filename || !filename.endsWith(".md")) {
+      throw new Error(`Native capability ${id} has an invalid instructionFile`);
+    }
+    if (instructionFiles.has(filename)) throw new Error(`Duplicate native capability guidance source: ${filename}`);
+    instructionFiles.add(filename);
+    const contents = await readFile(path.join(instructionRoot, filename), "utf8");
+    if (!String(contents).trim()) throw new Error(`Native capability guidance is empty: ${filename}`);
+    for (const field of ["readOnlyTools", "dependentTools"]) {
+      const values = manifest[field] ?? [];
+      if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || !value)) {
+        throw new Error(`Native capability ${id}.${field} must be an array of tool names`);
+      }
+      if (new Set(values).size !== values.length) {
+        throw new Error(`Native capability ${id}.${field} must contain unique tool names`);
+      }
+    }
+  }
+  const onDisk = (await readDirectory(instructionRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map(({ name }) => name)
+    .sort();
+  const undeclared = onDisk.filter((filename) => !instructionFiles.has(filename));
+  if (undeclared.length) throw new Error(`Undeclared native capability guidance: ${undeclared.join(", ")}`);
+  return nativeCapabilityManifests;
 }

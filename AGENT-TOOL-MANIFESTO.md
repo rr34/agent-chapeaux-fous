@@ -637,6 +637,23 @@ Each MCP publishes a capability manifest containing:
 - named bounded read-only context views; and
 - current tool metadata exposed through discovery.
 
+Capability-scoped guidance is not an additional Tool Description layer. It may
+coordinate several tools, establish cross-tool selection policy, interpret
+ordinary user language, and state when another capability owns part of the
+request. It may reference exact published tool behavior when that is necessary
+to explain the coordination, but it cannot create, replace, broaden, or weaken
+a tool's selection summary, execution description, schemas, annotations, result
+states, or owning implementation. Those meanings remain authoritative at
+layers 3 through 10 below.
+
+Repository-owned guidance may be stored as a separate human-readable file, but
+the capability manifest is its sole declaration and must reference it exactly.
+The application validates every declared guidance source at startup and rejects
+missing, duplicate, or undeclared sources. Parallel filename maps or fallback
+guidance registries are forbidden because they can drift from the capability
+manifest. User-authored procedures remain domain data rather than application
+capability guidance.
+
 ## 3A. The Tool Description contract
 
 Tool use is the Agent's primary operational boundary, so every native and MCP

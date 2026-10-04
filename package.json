@@ -7,7 +7,14 @@
     "node": ">=22.5"
   },
   "scripts": {
+    "build:web": "vite build",
+    "dev:web": "vite",
+    "typecheck:web": "tsc -p web/tsconfig.json --noEmit",
+    "install:pdf-browser": "playwright-core install chromium",
+    "prestart": "npm run build:web",
     "start": "node src/server.mjs",
+    "start:built": "npm run build:web && node src/server.mjs",
+    "pretest": "npm run build:web",
     "test": "node --test test/*.test.mjs",
     "db:migrate": "node scripts/migrate-database.mjs",
     "db:verify": "node scripts/verify-database.mjs"
@@ -22,10 +29,18 @@
     "dompurify": "3.4.14",
     "marked": "18.0.10",
     "mysql2": "3.23.3",
+    "playwright-core": "^1.63.0",
     "re2js": "2.8.6",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "remotion": "4.0.507",
     "rrule": "2.8.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
   }
 }

@@ -31,13 +31,23 @@ test("first visits serve the landing page without loading the token-prompting ap
 });
 
 test("app navigation and OAuth return URLs still load the application", async () => {
-  const app = await fs.readFile(path.join(repositoryRoot, "public/index.html"), "utf8");
+  const app = await fs.readFile(path.join(repositoryRoot, "public/ui/index.html"), "utf8");
   for (const url of ["/app", "/app/", "/app?oauth=connected"]) {
     const response = await request(url);
     assert.equal(response.status, 200);
     assert.equal(response.body, app);
     assert.equal(response.headers["Cache-Control"], "no-cache");
   }
+});
+
+test("content-hashed React assets are served only from the built UI root", async () => {
+  const index = await fs.readFile(path.join(repositoryRoot, "public/ui/index.html"), "utf8");
+  const assetPath = index.match(/(?:src|href)="(\/ui\/assets\/[^"]+\.js)"/)?.[1];
+  assert.ok(assetPath);
+  const response = await request(assetPath);
+  assert.equal(response.status, 200);
+  assert.match(response.headers["Content-Type"], /^text\/javascript/);
+  assert.equal(response.headers["Cache-Control"], "public, max-age=300");
 });
 
 test("static serving leaves API requests, private files, unknown paths and mutations to the server", async () => {

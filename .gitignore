@@ -26,6 +26,7 @@ coverage/
 dist/
 tmp/
 .cache/
+public/ui/
 
 # Logs and process files
 *.log
