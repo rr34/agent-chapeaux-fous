@@ -128,3 +128,29 @@ test("PDF generation registers the rendered document and its provenance", async 
   assert.equal(result.file.ref, "agent-slayer://files/91");
   assert.equal(result.file.downloadUrl, "/api/files/91/download");
 });
+
+test("a missing server browser returns an actionable PDF error and removes its partial file", async (context) => {
+  const mediaRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "agent-slayer-daily-paper-browser-"));
+  context.after(() => fsp.rm(mediaRoot, { recursive: true, force: true }));
+  const service = new DailyPaperService({
+    organizer: { listCalendar: () => events() },
+    ledger: {},
+    mediaRoot,
+    publicUrl: "http://127.0.0.1:9123",
+    renderPdf: async ({ filename }) => {
+      await fsp.writeFile(filename, "partial");
+      throw new Error("browserType.launch: Executable doesn't exist at /missing/chromium");
+    },
+  });
+
+  await assert.rejects(
+    service.generate({ date: "2026-10-04" }),
+    (error) => {
+      assert.equal(error.statusCode, 503);
+      assert.match(error.message, /npm run install:pdf-browser/);
+      return true;
+    },
+  );
+  const entries = await fsp.readdir(mediaRoot, { recursive: true });
+  assert.equal(entries.some((entry) => String(entry).endsWith(".pdf")), false);
+});

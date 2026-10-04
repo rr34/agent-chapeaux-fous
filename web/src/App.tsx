@@ -52,11 +52,13 @@ function AgentScreen() {
   const { data, error, loading, reload } = useApi<{ requests: RequestRecord[] }>("/api/requests?limit=50", 3000);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [submitError, setSubmitError] = useState<unknown>(null);
   const submit = async (event: FormEvent) => {
     event.preventDefault(); if (!text.trim()) return;
+    setSubmitError(null);
     setSending(true);
     try { await api("/api/requests", { method: "POST", body: JSON.stringify({ text }) }); setText(""); await reload(); }
-    catch (caught) { window.alert(caught instanceof Error ? caught.message : String(caught)); }
+    catch (caught) { setSubmitError(caught); }
     finally { setSending(false); }
   };
   const decide = async (request: RequestRecord, decision: "continue" | "cancel") => {
@@ -66,6 +68,7 @@ function AgentScreen() {
   };
   return <>
     <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Chapeaux Fous orients, shows its brief, then acts with visible tools." />
+    {submitError && <ErrorState error={submitError} dismiss={() => setSubmitError(null)} />}
     <section className="conversation">
       {loading && <Loading label="Loading requests" />}{error ? <ErrorState error={error} retry={reload} /> : null}
       {data?.requests?.length ? [...data.requests].reverse().map((request) => <article className="request-card" key={request.requestId}>
@@ -90,12 +93,14 @@ function CalendarScreen() {
   const query = new URLSearchParams({ date, timeZone, paperSize: size, includeCompletedTodos: "false" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${query}`);
   const [generating, setGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<unknown>(null);
   const generate = async () => {
+    setGenerationError(null);
     setGenerating(true);
     try {
       const result = await api<{ file: StoredFileBinding }>("/api/daily-paper/pdf", { method: "POST", body: JSON.stringify({ date, timeZone, paperSize: size, includeCompletedTodos: false }) });
       await downloadAuthenticated(result.file.downloadUrl, result.file.originalFilename || `daily-paper-${date}.pdf`);
-    } catch (caught) { window.alert(caught instanceof Error ? caught.message : String(caught)); }
+    } catch (caught) { setGenerationError(caught); }
     finally { setGenerating(false); }
   };
   return <>
@@ -104,6 +109,11 @@ function CalendarScreen() {
       <label className="compact-field">Paper<select value={size} onChange={(event) => setSize(event.target.value as "letter" | "a4")}><option value="letter">Letter</option><option value="a4">A4</option></select></label>
       <button className="button" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button>
     </>} />
+    {generationError && <ErrorState
+      error={generationError}
+      retry={() => void generate()}
+      dismiss={() => setGenerationError(null)}
+    />}
     {loading && <Loading label="Composing your day" />}{error && <ErrorState error={error} retry={reload} />}
     {data && <div className="calendar-screen">
       <section className="surface calendar-overview"><div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><button className="button button--quiet" onClick={() => window.print()}>Print browser view</button></div><CalendarGrid days={data.calendarDays} /></section>
@@ -185,7 +195,15 @@ function DailyPaperRoute() {
 function Workspace() {
   const fromHash = location.hash.slice(1);
   const [view, setView] = useState(navigation.some(([id]) => id === fromHash) ? fromHash : "agent");
+  const [editingToken, setEditingToken] = useState(false);
+  const [tokenDraft, setTokenDraft] = useState(getAccessToken());
   const go = (next: string) => { setView(next); history.replaceState(null, "", `#${next}`); };
+  const saveToken = (event: FormEvent) => {
+    event.preventDefault();
+    if (!tokenDraft.trim()) return;
+    setAccessToken(tokenDraft);
+    setEditingToken(false);
+  };
   let screen: ReactNode;
   if (view === "agent") screen = <AgentScreen />;
   else if (view === "calendar") screen = <CalendarScreen />;
@@ -196,7 +214,13 @@ function Workspace() {
   else if (view === "journal") screen = <JournalScreen />;
   else if (view === "ai-usage") screen = <UsageScreen />;
   else screen = <GenericScreen kind={view as keyof typeof genericScreens} />;
-  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Chapeaux<br />Fous</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><span>{label.slice(0, 1)}</span>{label}</button>)}</nav><button className="token-button" onClick={() => { const next = window.prompt("Replace access token", getAccessToken()); if (next != null) setAccessToken(next); }}>Access token</button></aside><main className="workspace">{screen}</main></div>;
+  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Chapeaux<br />Fous</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><span>{label.slice(0, 1)}</span>{label}</button>)}</nav><div className="token-settings">
+    <button className="token-button" onClick={() => { setTokenDraft(getAccessToken()); setEditingToken((open) => !open); }}>Access token</button>
+    {editingToken && <form className="token-editor" onSubmit={saveToken}>
+      <label>Replace token<input autoFocus type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} /></label>
+      <div><button className="button">Save</button><button type="button" className="button button--quiet" onClick={() => setEditingToken(false)}>Cancel</button></div>
+    </form>}
+  </div></aside><main className="workspace">{screen}</main></div>;
 }
 
 export default function App() {

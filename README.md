@@ -73,11 +73,17 @@ and an initialized MariaDB database matching `db/mariadb/0001-baseline.sql`.
 cp .env.example .env
 # Set OPENAI_API_KEY, SLAYER_ACCESS_TOKEN, and the MARIADB_* values.
 npm install
+npm run build:web
 npm run install:pdf-browser
 npm run db:verify
 npm test
 npm start
 ```
+
+The React source lives in `web/`. `npm run build:web` generates
+`public/ui/index.html` and its assets; `public/ui/` is intentionally
+gitignored and therefore must be built separately in every checkout. Local
+`npm start` also runs this build through its `prestart` hook.
 
 The test suite creates and drops isolated databases. The configured application
 account may do that locally, or `MARIADB_TEST_*` can name a separate
@@ -679,14 +685,28 @@ copy it into the user systemd directory, and enable it during the separate
 deployment step.
 
 After deploying an application update with no pending database migration,
-restart the installed user service and inspect its status and recent startup
-output:
+install the exact dependency set, build the generated React client, and only
+then restart the installed user service:
 
 ```bash
+cd /home/nate/code/agent-slayer
+npm ci
+npm run build:web
+test -f public/ui/index.html
+
 systemctl --user restart agent-slayer.service
 systemctl --user status agent-slayer.service --no-pager
 journalctl --user -u agent-slayer.service -n 100 --no-pager
 ```
+
+`npm ci` does not run `build:web`. The installed systemd service launches
+`node src/server.mjs` directly, so it also does not invoke npm's `prestart`
+hook. A restart before the explicit build leaves the server without
+`public/ui/index.html`.
+
+PDF generation additionally requires one browser installation per server (and
+again when Playwright requests a newer revision): run
+`npm run install:pdf-browser` before restarting the service.
 
 When an update includes a database migration, stop the running writer before
 changing the database. If the dependency lock changed, install the exact
@@ -695,10 +715,12 @@ migration only after creating a current dump, then verify and start the service
 again:
 
 ```bash
-cd /home/nate/code/agent-chapeaux-fous
+cd /home/nate/code/agent-slayer
 
 systemctl --user stop agent-slayer.service
 npm ci
+npm run build:web
+test -f public/ui/index.html
 
 SLAYER_MIGRATION_BACKUP_CONFIRMED=1 \
 SLAYER_MIGRATION_WRITERS_STOPPED=1 \

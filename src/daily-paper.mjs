@@ -89,6 +89,17 @@ function formatLocalDate(localDate, options) {
   return new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" })
     .format(dateParts(localDate));
 }
+function normalizedPdfRenderError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/executable doesn't exist|browserType\.launch|failed to launch (?:the )?(?:browser|chromium)/iu.test(message)) {
+    return Object.assign(new Error(
+      "The PDF browser is unavailable on the server. Run `npm run install:pdf-browser` "
+      + "in the deployed checkout, then restart the service. Alternatively configure "
+      + "SLAYER_PDF_BROWSER_EXECUTABLE with an installed Chromium executable.",
+    ), { statusCode: 503, cause: error });
+  }
+  return error;
+}
 
 async function defaultRenderPdf({ url, filename, accessToken, format, browserExecutable }) {
   const browser = await chromium.launch({
@@ -100,7 +111,12 @@ async function defaultRenderPdf({ url, filename, accessToken, format, browserExe
       extraHTTPHeaders: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
     });
     const page = await context.newPage();
-    await page.goto(url, { waitUntil: "networkidle", timeout: 60_000 });
+    const navigation = await page.goto(url, { waitUntil: "networkidle", timeout: 60_000 });
+    if (!navigation?.ok()) {
+      throw Object.assign(new Error(
+        `Daily paper render page returned HTTP ${navigation?.status() ?? "unknown"}`,
+      ), { statusCode: 502 });
+    }
     await page.waitForFunction(() => window.__DAILY_PAPER_READY__ === true, null, {
       timeout: 60_000,
     });
@@ -270,7 +286,7 @@ export class DailyPaperService {
       };
     } catch (error) {
       await fsp.unlink(filename).catch(() => {});
-      throw error;
+      throw normalizedPdfRenderError(error);
     }
   }
 }
