@@ -113,10 +113,9 @@ function AgentScreen() {
 
 function CalendarScreen() {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const [date, setDate] = useState(localToday(timeZone));
+  const date = localToday(timeZone);
   const [selectedDate, setSelectedDate] = useState(date);
-  const [size, setSize] = useState<"letter" | "a4">("letter");
-  const query = new URLSearchParams({ date, timeZone, paperSize: size, includeCompletedTodos: "false" });
+  const query = new URLSearchParams({ date, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${query}`);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<unknown>(null);
@@ -136,17 +135,15 @@ function CalendarScreen() {
     setGenerationError(null);
     setGenerating(true);
     try {
-      const result = await api<{ file: StoredFileBinding }>("/api/daily-paper/pdf", { method: "POST", body: JSON.stringify({ date, timeZone, paperSize: size, includeCompletedTodos: false }) });
-      await downloadAuthenticated(result.file.downloadUrl, result.file.originalFilename || `daily-paper-${date}.pdf`);
+      const result = await api<{ file: StoredFileBinding }>("/api/daily-paper/pdf", { method: "POST", body: JSON.stringify({ date: selectedDate, timeZone, paperSize: "letter", includeCompletedTodos: false }) });
+      await downloadAuthenticated(result.file.downloadUrl, result.file.originalFilename || `daily-paper-${selectedDate}.pdf`);
     } catch (caught) { setGenerationError(caught); }
     finally { setGenerating(false); }
   };
   return <>
-    <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={<>
-      <label className="compact-field">Date<input type="date" value={date} onChange={(event) => { setDate(event.target.value); setSelectedDate(event.target.value); }} /></label>
-      <label className="compact-field">Paper<select value={size} onChange={(event) => setSize(event.target.value as "letter" | "a4")}><option value="letter">Letter</option><option value="a4">A4</option></select></label>
-      <button className="button" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button>
-    </>} />
+    <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={
+      <button className="button" onClick={() => void generate()} disabled={generating || !selectedDay}>{generating ? "Making PDF…" : "Download daily PDF"}</button>
+    } />
     {generationError && <ErrorState
       error={generationError}
       retry={() => void generate()}
