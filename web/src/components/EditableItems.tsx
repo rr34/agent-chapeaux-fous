@@ -505,6 +505,6 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
     {editing && onChanged && <TodoEditor todoId={id} suppliedGroups={groups} onClose={() => setEditing(false)} onChanged={onChanged} />}
   </>;
   return variant === "scheduled"
-    ? <li className={complete ? "is-complete" : ""}>{itemContent}</li>
+    ? <li className={`scheduled-todo-card${complete ? " is-complete" : ""}`}>{itemContent}</li>
     : <article className={`todo-row ${complete ? "is-complete" : ""}`}>{itemContent}</article>;
 }

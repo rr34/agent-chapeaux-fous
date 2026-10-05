@@ -202,6 +202,7 @@ button.routine-item-content:focus-visible { outline: 3px solid rgba(104, 116, 90
 .timeline-list li:not(:last-child)::after { content: ""; position: absolute; left: 101px; top: 18px; bottom: 0; border-left: 1px solid #cbd0c5; }
 .timeline-list time { color: var(--muted); font-size: 12px; text-align: right; padding-top: 2px; }
 .timeline-list .timeline-event-item { padding-left: 16px; position: relative; }
+.timeline-list .timeline-event-item .editable-object-content { border: 1px solid var(--line); }
 .timeline-list .timeline-event-item::before { content: ""; position: absolute; width: 7px; height: 7px; left: -3px; top: 6px; border-radius: 50%; background: var(--rust); box-shadow: 0 0 0 3px var(--paper); }
 .timeline-list strong { display: block; }
 .timeline-list p { color: var(--muted); margin: 5px 0 0; line-height: 1.45; }
@@ -212,6 +213,7 @@ button.editable-object-content:hover, button.todo-item-content:hover { backgroun
 button.editable-object-content:focus-visible, button.todo-item-content:focus-visible { outline: 3px solid rgba(104, 116, 90, .22); outline-offset: 1px; }
 .paper-todos { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 10px; }
 .paper-todos li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 9px; align-items: start; }
+.scheduled-todo-card { border: 1px solid var(--line); }
 .paper-todos small { display: block; color: var(--muted); margin-top: 2px; }
 .paper-checkbox { width: 17px; height: 17px; display: grid; place-items: center; border: 1.5px solid var(--olive-dark); border-radius: 3px; color: var(--olive-dark); font-size: 11px; font-weight: 800; }
 .paper-todos li.is-complete strong { color: var(--muted); text-decoration: line-through; }
@@ -257,7 +259,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .contact-monogram { width: 43px; height: 43px; display: grid; place-items: center; border-radius: 50%; background: var(--olive-dark); color: white; font: 600 17px "Newsreader", Georgia, serif; }
 .contact-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 15px 0; }
 .contact-actions .button { min-height: 34px; padding: 6px 10px; font-size: 12px; }
-.hat-shape { width: 104px; height: 54px; margin-bottom: 18px; display: grid; place-items: center; color: white; background: var(--olive-dark); border-radius: 52px 52px 12px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.hat-shape { width: 104px; height: 70px; display: block; margin-bottom: 18px; object-fit: cover; }
 .journal-layout { display: grid; gap: 20px; }
 .journal-entry { padding: 13px 0; border-bottom: 1px solid var(--line); }
 .tracker-schedule { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
@@ -332,6 +334,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .daily-paper .paper-empty { margin: .1in 0; font-size: 6.5pt; }
 .paper-trackers { display: grid; gap: .045in; margin: .08in 0 0; padding: 0; list-style: none; }
 .paper-trackers li { display: grid; grid-template-columns: .13in minmax(0, 1fr); align-items: start; gap: .055in; }
+.tracker-card { border: 1px solid var(--line); }
 .paper-tracker-check { box-sizing: border-box; width: .12in; height: .12in; display: grid; place-items: center; border: 1px solid #60675d; margin-top: .005in; color: #4f6544; font-size: 6.5pt; font-weight: 800; line-height: 1; }
 .paper-tracker-text { min-width: 0; display: grid; gap: .005in; }
 .paper-tracker-text strong { font-size: 7pt; line-height: 1.15; }

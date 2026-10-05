@@ -23,6 +23,7 @@ export function createStaticHandler(config) {
     ["/favicon.png", ["favicon.png", "image/png"]],
     ["/icon.svg", ["icon.svg", "image/svg+xml"]],
     ["/hats.svg", ["hats.svg", "image/svg+xml"]],
+    ["/logo-outline-hat.svg", ["logo-outline-hat.svg", "image/svg+xml"]],
     ["/vendor/dompurify.js", [path.join(config.repositoryRoot, "node_modules", "dompurify", "dist", "purify.es.mjs"), "text/javascript; charset=utf-8"]],
     ["/vendor/marked.js", [path.join(config.repositoryRoot, "node_modules", "marked", "lib", "marked.esm.js"), "text/javascript; charset=utf-8"]],
   ]);

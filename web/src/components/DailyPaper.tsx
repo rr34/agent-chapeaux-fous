@@ -131,7 +131,7 @@ function trackerCadenceLabel(tracker: ScheduledTracker) {
 export function ScheduledTrackers({ trackers }: { trackers: ScheduledTracker[] }) {
   if (!trackers.length) return <p className="paper-empty">No tracker logs scheduled for this day.</p>;
   return <ul className="paper-trackers">
-    {trackers.map((tracker) => <li className={tracker.logged ? "is-logged" : ""} key={tracker.trackerId}>
+    {trackers.map((tracker) => <li className={`tracker-card${tracker.logged ? " is-logged" : ""}`} key={tracker.trackerId}>
       <span className="paper-tracker-check" aria-label={tracker.logged ? "Logged" : "Not logged"}>{tracker.logged ? "✓" : ""}</span>
       <span className="paper-tracker-text">
         <strong className="multiline-item-text">{tracker.name}</strong>
@@ -181,7 +181,7 @@ function TodoWorksheet({ todos, model, page, pageCount, preview }: {
     </header>
 
     <ol className="paper-handwriting-todos">
-      {todos.map((todo) => <li key={todo.todoId} data-todo-id={todo.todoId}>
+      {todos.map((todo) => <li className="scheduled-todo-card" key={todo.todoId} data-todo-id={todo.todoId}>
         <header>
           <strong className="multiline-item-text">{todoTitle(todo)}</strong>
           <span className="paper-todo-id">#{todo.todoId}</span>
@@ -246,7 +246,7 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
 
       <section className="paper-section paper-notes">
         <header className="paper-section-heading">
-          <span>04</span><h2>Notes, ideas & the rest of the day</h2><small>Make it yours</small>
+          <span>04</span><h2>Notes</h2><small>Make it yours</small>
         </header>
         <div className="writing-lines" aria-label="Blank ruled writing area">
           {Array.from({ length: 9 }, (_, index) => <span key={index} />)}

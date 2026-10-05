@@ -39,6 +39,14 @@ test("the landing-page logo is served from the public asset directory", async ()
   assert.ok(response.body.length > 0);
 });
 
+test("the Hats card outline is served from the public asset directory", async () => {
+  const response = await request("/logo-outline-hat.svg");
+  assert.equal(response.handled, true);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers["Content-Type"], "image/svg+xml");
+  assert.match(response.body, /Chapeaux Fous hat outline/);
+});
+
 test("app navigation and OAuth return URLs still load the application", async () => {
   const app = await fs.readFile(path.join(repositoryRoot, "public/ui/index.html"), "utf8");
   for (const url of ["/app", "/app/", "/app?oauth=connected"]) {
