@@ -24,7 +24,7 @@ const generated = {
     fileId: 42,
     ref: "agent-slayer://files/42",
     title: "Daily paper — Sunday, October 4, 2026",
-    originalFilename: "daily-paper-2026-10-04.pdf",
+    originalFilename: "cf-clipboard-app-2026-10-04.pdf",
     mimeType: "application/pdf",
     byteSize: 1234,
     sourceEventSeqs: [91],

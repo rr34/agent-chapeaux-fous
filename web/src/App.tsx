@@ -642,7 +642,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
     setGenerating(true);
     try {
       const result = await api<{ file: StoredFileBinding }>("/api/daily-paper/pdf", { method: "POST", body: JSON.stringify({ date: selectedDate, timeZone, paperSize: "letter", includeCompletedTodos: false }) });
-      await downloadAuthenticated(result.file.downloadUrl, result.file.originalFilename || `daily-paper-${selectedDate}.pdf`);
+      await downloadAuthenticated(result.file.downloadUrl, result.file.originalFilename || `cf-clipboard-app-${selectedDate}.pdf`);
     } catch (caught) { setGenerationError(caught); }
     finally { setGenerating(false); }
   };

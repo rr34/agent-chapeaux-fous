@@ -267,7 +267,7 @@ export class DailyPaperService {
       const title = `Daily paper — ${model.heading}`;
       const file = this.ledger.registerFile({
         storagePath,
-        originalFilename: `daily-paper-${model.date}.pdf`,
+        originalFilename: `cf-clipboard-app-${model.date}.pdf`,
         title,
         description: `Printable daily calendar, timeline, scheduled to-dos, and tracker check-ins for ${model.heading}.`,
         mediaKind: "document",

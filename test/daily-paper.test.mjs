@@ -171,6 +171,7 @@ test("PDF generation registers the rendered document and its provenance", async 
   assert.equal(activity[0].type, "daily-paper.generated");
   assert.equal(activity[0].primaryFileId, 91);
   assert.deepEqual(result.file.sourceEventSeqs, [452]);
+  assert.equal(registrations[0].originalFilename, "cf-clipboard-app-2026-10-04.pdf");
   assert.equal(result.file.ref, "agent-slayer://files/91");
   assert.equal(result.file.downloadUrl, "/api/files/91/download");
 });
