@@ -51,8 +51,24 @@ function events() {
 
 test("daily paper starts its two-week grid on Monday and selects today's timeline and to-dos", () => {
   let calendarRange;
+  let trackerRequest;
   const service = new DailyPaperService({
     organizer: { listCalendar(range) { calendarRange = range; return events(); } },
+    trackerSchedule: { scheduledTrackersForDay(input) {
+      trackerRequest = input;
+      return [{
+        trackerId: 31,
+        ref: "agent-slayer://journal-trackers/31",
+        name: "Weight",
+        groupName: "Health",
+        unit: "kg",
+        frequency: "daily",
+        interval: 1,
+        periodStartsAtUtc: "2026-10-04T04:00:00.000Z",
+        periodEndsAtUtc: "2026-10-05T04:00:00.000Z",
+        logged: false,
+      }];
+    } },
     ledger: {},
     mediaRoot: "/tmp/unused-daily-paper",
     publicUrl: "http://127.0.0.1:8787",
@@ -76,6 +92,11 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
     relationshipKind: "supports",
     eventTitles: ["Planning breakfast", "Review the draft"],
   }]);
+  assert.deepEqual(trackerRequest, { localDate: "2026-10-04", timeZone: "America/New_York" });
+  assert.equal(model.scheduledTrackers.length, 1);
+  assert.equal(model.scheduledTrackers[0].name, "Weight");
+  assert.equal(model.scheduledTrackers[0].frequency, "daily");
+  assert.equal(model.scheduledTrackers[0].logged, false);
   assert.deepEqual(calendarRange, {
     from: "2026-09-28T04:00:00.000Z",
     to: "2026-10-12T04:00:00.000Z",

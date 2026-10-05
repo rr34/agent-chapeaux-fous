@@ -1,4 +1,4 @@
-import type { CalendarDay, CalendarEvent, DailyPaperModel, LinkedTodo } from "../types";
+import type { CalendarDay, CalendarEvent, DailyPaperModel, LinkedTodo, ScheduledTracker } from "../types";
 import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
 import { type AddAgentReference } from "./AgentReferenceButton";
 import { CalendarEventItem, TodoItem } from "./EditableItems";
@@ -121,7 +121,27 @@ export function ScheduledTodos({ todos, onReference, onChanged }: {
   );
 }
 
-const TODOS_PER_WORKSHEET = 5;
+function trackerCadenceLabel(tracker: ScheduledTracker) {
+  if (tracker.frequency === "scheduled") return "Scheduled";
+  if (tracker.interval === 1) return tracker.frequency[0].toUpperCase() + tracker.frequency.slice(1);
+  const units = { daily: "days", weekly: "weeks", monthly: "months", yearly: "years" };
+  return `Every ${tracker.interval} ${units[tracker.frequency]}`;
+}
+
+export function ScheduledTrackers({ trackers }: { trackers: ScheduledTracker[] }) {
+  if (!trackers.length) return <p className="paper-empty">No tracker logs scheduled for this day.</p>;
+  return <ul className="paper-trackers">
+    {trackers.map((tracker) => <li className={tracker.logged ? "is-logged" : ""} key={tracker.trackerId}>
+      <span className="paper-tracker-check" aria-label={tracker.logged ? "Logged" : "Not logged"}>{tracker.logged ? "✓" : ""}</span>
+      <span className="paper-tracker-text">
+        <strong className="multiline-item-text">{tracker.name}</strong>
+        <small>{trackerCadenceLabel(tracker)} · {tracker.groupName} · {tracker.unit}</small>
+      </span>
+    </li>)}
+  </ul>;
+}
+
+const TODOS_PER_WORKSHEET = 15;
 
 function todoTitle(todo: LinkedTodo) {
   return todo.text || todo.title || "Task";
@@ -208,17 +228,25 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
           <DayTimeline events={model.todayEvents} timeZone={model.timeZone} />
         </section>
 
-        <section className="paper-section paper-tasks">
-          <header className="paper-section-heading">
-            <span>02</span><h2>Scheduled to-dos</h2><small>{model.scheduledTodos.length} item{model.scheduledTodos.length === 1 ? "" : "s"}</small>
-          </header>
-          <p className="paper-task-worksheet-note">Handwriting sheets follow.</p>
-        </section>
+        <div className="paper-side-sections">
+          <section className="paper-section paper-tasks">
+            <header className="paper-section-heading">
+              <span>02</span><h2>Scheduled to-dos</h2><small>{model.scheduledTodos.length} item{model.scheduledTodos.length === 1 ? "" : "s"}</small>
+            </header>
+            <p className="paper-task-worksheet-note">Handwriting sheets follow.</p>
+          </section>
+          <section className="paper-section paper-tracker-section">
+            <header className="paper-section-heading">
+              <span>03</span><h2>Trackers</h2><small>{model.scheduledTrackers.length} scheduled</small>
+            </header>
+            <ScheduledTrackers trackers={model.scheduledTrackers} />
+          </section>
+        </div>
       </div>
 
       <section className="paper-section paper-notes">
         <header className="paper-section-heading">
-          <span>03</span><h2>Notes, ideas & the rest of the day</h2><small>Make it yours</small>
+          <span>04</span><h2>Notes, ideas & the rest of the day</h2><small>Make it yours</small>
         </header>
         <div className="writing-lines" aria-label="Blank ruled writing area">
           {Array.from({ length: 9 }, (_, index) => <span key={index} />)}

@@ -93,6 +93,20 @@ export interface DailyPaperModel {
   calendarDays: CalendarDay[];
   todayEvents: CalendarEvent[];
   scheduledTodos: LinkedTodo[];
+  scheduledTrackers: ScheduledTracker[];
+}
+
+export interface ScheduledTracker {
+  trackerId: number;
+  ref: string;
+  name: string;
+  groupName: string;
+  unit: string;
+  frequency: "daily" | "weekly" | "monthly" | "yearly" | "scheduled";
+  interval: number;
+  periodStartsAtUtc: string;
+  logged: boolean;
+  periodEndsAtUtc: string;
 }
 
 export interface StoredFileBinding {

@@ -6,7 +6,7 @@ export function registerDailyPaperTools(registry, service) {
     name: "daily_paper_generate",
     title: "Generate daily paper",
     metadata: toolMetadataWithDescription(null, {
-      summary: "Generate and store one printable daily PDF from current calendar data. This creates a snapshot; it does not update calendar events or to-dos.",
+      summary: "Generate and store one printable daily PDF from current calendar and scheduled journal-tracker data. This creates a snapshot; it does not update source records.",
       actionClasses: ["CREATE"],
       effectClassifications: ["MUTATING"],
     }),
@@ -16,7 +16,7 @@ export function registerDailyPaperTools(registry, service) {
       idempotentHint: false,
       openWorldHint: false,
     },
-    description: "Generate and durably store one printable PDF for an exact local calendar date. Read the authoritative Monday-to-Sunday two-week calendar range, the selected day's chronological event timeline, and to-dos linked to those events. Exclude completed linked to-dos unless includeCompletedTodos is true. Render the shared React paper view with the requested physical paper size and leave ruled handwriting space. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe the timeline events and included to-dos. The operation does not change calendar or to-do data. Validation, rendering, or storage failure returns an error and no successful generation result.",
+    description: "Generate and durably store one printable PDF for an exact local calendar date. Read the authoritative Monday-to-Sunday two-week calendar range, the selected day's chronological event timeline, to-dos linked to those events, and active journal trackers whose asking RRULE has a logging period containing that date. Mark a tracker logged when an observation exists in its period. Exclude completed linked to-dos unless includeCompletedTodos is true. Render the shared React paper view with the requested physical paper size and leave ruled handwriting space. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe the included events, to-dos, and trackers. The operation does not change calendar, to-do, or journal data. Validation, rendering, or storage failure returns an error and no successful generation result.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -66,6 +66,10 @@ export function registerDailyPaperTools(registry, service) {
           type: "integer", minimum: 0,
           description: "Number of distinct linked to-dos included on the page.",
         },
+        trackerCount: {
+          type: "integer", minimum: 0,
+          description: "Number of scheduled journal trackers included on the page.",
+        },
         file: {
           type: "object",
           additionalProperties: false,
@@ -87,7 +91,7 @@ export function registerDailyPaperTools(registry, service) {
           required: ["fileId", "ref", "title", "originalFilename", "mimeType", "byteSize", "sourceEventSeqs", "downloadUrl"],
         },
       },
-      required: ["status", "date", "timeZone", "paperSize", "eventCount", "todoCount", "file"],
+      required: ["status", "date", "timeZone", "paperSize", "eventCount", "todoCount", "trackerCount", "file"],
     },
     async execute(input, context = {}) {
       const result = await service.generate(input, {
@@ -102,6 +106,7 @@ export function registerDailyPaperTools(registry, service) {
         paperSize: result.model.paperSize,
         eventCount: result.model.todayEvents.length,
         todoCount: result.model.scheduledTodos.length,
+        trackerCount: result.model.scheduledTrackers.length,
         file: result.file,
       };
     },

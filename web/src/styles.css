@@ -260,6 +260,16 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .hat-shape { width: 104px; height: 54px; margin-bottom: 18px; display: grid; place-items: center; color: white; background: var(--olive-dark); border-radius: 52px 52px 12px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .journal-layout { display: grid; gap: 20px; }
 .journal-entry { padding: 13px 0; border-bottom: 1px solid var(--line); }
+.tracker-schedule { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.tracker-schedule label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.tracker-schedule select, .tracker-schedule input { min-height: 38px; padding: 7px 9px; font-size: 12px; }
+.tracker-schedule .button { min-height: 36px; padding: 7px 10px; }
+.tracker-schedule-message { align-self: center; color: var(--muted); font-size: 11px; }
+.tracker-schedule-message:last-child { grid-column: 2; }
+@media (max-width: 560px) {
+  .tracker-schedule { grid-template-columns: 1fr; }
+  .tracker-schedule-message:last-child { grid-column: auto; }
+}
 .journal-entry-heading { display: flex; align-items: center; gap: 9px; }
 .journal-entry-heading span { margin-left: auto; color: var(--muted); font-size: 11px; }
 .journal-entry p { margin: 5px 0 0; }
@@ -299,6 +309,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .two-week-grid--compact .calendar-chip time { font-size: 4.8pt; }
 .two-week-grid--compact .calendar-cell-events small { font-size: 5pt; }
 .paper-day-columns { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: .22in; border-top: 1px solid #272c24; padding-top: .12in; }
+.paper-side-sections { display: grid; align-content: start; gap: .14in; }
 .paper-section { break-inside: avoid; }
 .paper-section-heading { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: .07in; border-bottom: 1px solid #b8bdb2; padding-bottom: .045in; }
 .paper-section-heading > span { color: #a4492e; font: 700 6pt Inter, Arial, sans-serif; }
@@ -319,6 +330,13 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .daily-paper .paper-todos strong { display: block; font-size: 7.2pt; line-height: 1.2; }
 .daily-paper .paper-todos small { font-size: 5.6pt; }
 .daily-paper .paper-empty { margin: .1in 0; font-size: 6.5pt; }
+.paper-trackers { display: grid; gap: .045in; margin: .08in 0 0; padding: 0; list-style: none; }
+.paper-trackers li { display: grid; grid-template-columns: .13in minmax(0, 1fr); align-items: start; gap: .055in; }
+.paper-tracker-check { box-sizing: border-box; width: .12in; height: .12in; display: grid; place-items: center; border: 1px solid #60675d; margin-top: .005in; color: #4f6544; font-size: 6.5pt; font-weight: 800; line-height: 1; }
+.paper-tracker-text { min-width: 0; display: grid; gap: .005in; }
+.paper-tracker-text strong { font-size: 7pt; line-height: 1.15; }
+.paper-tracker-text small { overflow: hidden; color: #72796d; font-size: 5.2pt; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.paper-trackers li.is-logged .paper-tracker-text { color: #596253; }
 .paper-task-worksheet-note { margin: .1in 0; color: #70776b; font: italic 7pt/1.3 "Newsreader", Georgia, serif; }
 .paper-notes { min-height: 2.25in; flex: 1 0 2.25in; display: flex; flex-direction: column; border-top: 1px solid #272c24; margin-top: .14in; padding-top: .12in; }
 .writing-lines { flex: 1; min-height: 1.8in; display: grid; grid-template-rows: repeat(9, 1fr); margin-top: .04in; }
@@ -330,14 +348,14 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-task-worksheet-heading { min-height: .64in; display: flex; align-items: end; justify-content: space-between; gap: .3in; margin: 0 .12in .18in; padding: 0 .08in .11in; border-bottom: 2px solid #252b22; }
 .paper-task-worksheet-heading h1 { margin: .02in 0 0; font: 600 22pt/.95 "Newsreader", Georgia, serif; letter-spacing: -.02em; }
 .paper-task-worksheet-heading > p { margin: 0; color: #5b674e; font: 600 9pt "Newsreader", Georgia, serif; }
-.paper-handwriting-todos { flex: 1 1 auto; min-height: 0; display: grid; grid-auto-rows: 1fr; gap: .12in; margin: 0 .12in; padding: 0; list-style: none; }
-.paper-handwriting-todos > li { min-height: 0; display: flex; flex-direction: column; padding: .12in .15in .1in; border: 1.5px solid #484d45; border-radius: .055in; break-inside: avoid; }
-.paper-handwriting-todos header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .18in; }
-.paper-handwriting-todos strong { font: 600 10pt/1.2 "Newsreader", Georgia, serif; }
-.paper-handwriting-todos small { margin-top: .025in; color: #70776b; font-size: 6.5pt; }
-.paper-todo-id { color: #252b22; font: 700 9pt/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
-.paper-handwriting-space { min-height: .58in; flex: 1 1 auto; position: relative; margin-top: .035in; margin-left: .02in; }
-.paper-handwriting-space > span { position: absolute; top: 50%; left: 0; color: #a4492e; font: 400 48pt/.72 "Newsreader", Georgia, serif; transform: translateY(-50%) scaleX(.72); transform-origin: left center; }
+.paper-handwriting-todos { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); gap: .075in; margin: 0 .12in; padding: 0; list-style: none; }
+.paper-handwriting-todos > li { min-height: 0; display: flex; flex-direction: column; padding: .07in .09in .055in; border: 1px solid #484d45; border-radius: .04in; break-inside: avoid; }
+.paper-handwriting-todos header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .1in; }
+.paper-handwriting-todos strong { font: 600 8pt/1.15 "Newsreader", Georgia, serif; }
+.paper-handwriting-todos small { margin-top: .01in; color: #70776b; font-size: 5.5pt; line-height: 1.1; }
+.paper-todo-id { color: #252b22; font: 700 7pt/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+.paper-handwriting-space { min-height: .22in; flex: 1 1 auto; position: relative; margin-top: .01in; }
+.paper-handwriting-space > span { position: absolute; top: 50%; left: 0; color: #a4492e; font: 400 27pt/.72 "Newsreader", Georgia, serif; transform: translateY(-50%) scaleX(.72); transform-origin: left center; }
 .paper-corner-marker { position: absolute; z-index: 1; width: .09in; height: .09in; background: #161a14; }
 .paper-corner-marker--top-left { top: .13in; left: .13in; }
 .paper-corner-marker--top-right { top: .13in; right: .13in; width: .065in; height: .065in; }

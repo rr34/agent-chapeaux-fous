@@ -148,6 +148,7 @@ async function defaultRenderPdf({ url, filename, accessToken, format, browserExe
 export class DailyPaperService {
   constructor({
     organizer,
+    trackerSchedule = null,
     ledger,
     mediaRoot,
     publicUrl,
@@ -157,6 +158,7 @@ export class DailyPaperService {
     renderPdf = defaultRenderPdf,
   }) {
     this.organizer = organizer;
+    this.trackerSchedule = trackerSchedule;
     this.ledger = ledger;
     this.mediaRoot = path.resolve(mediaRoot);
     this.publicUrl = new URL(publicUrl);
@@ -204,6 +206,10 @@ export class DailyPaperService {
       }).map(compactEvent);
     const todayEvents = selectedEvents.filter((event) => eventOverlaps(event, todayBounds))
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc));
+    const scheduledTrackers = this.trackerSchedule?.scheduledTrackersForDay({
+      localDate: selected.date,
+      timeZone: selected.timeZone,
+    }) ?? [];
     const todoMap = new Map();
     for (const event of todayEvents) {
       for (const todo of event.linkedTodos) {
@@ -227,6 +233,7 @@ export class DailyPaperService {
       calendarDays,
       todayEvents,
       scheduledTodos: [...todoMap.values()],
+      scheduledTrackers,
     };
   }
 
@@ -262,7 +269,7 @@ export class DailyPaperService {
         storagePath,
         originalFilename: `daily-paper-${model.date}.pdf`,
         title,
-        description: `Printable daily calendar, timeline, and scheduled to-dos for ${model.heading}.`,
+        description: `Printable daily calendar, timeline, scheduled to-dos, and tracker check-ins for ${model.heading}.`,
         mediaKind: "document",
         mimeType: "application/pdf",
         sha256: createHash("sha256").update(bytes).digest("hex"),
@@ -288,6 +295,7 @@ export class DailyPaperService {
           includeCompletedTodos: model.includeCompletedTodos,
           eventCount: model.todayEvents.length,
           todoCount: model.scheduledTodos.length,
+          trackerCount: model.scheduledTrackers.length,
         },
       });
       return {

@@ -8,6 +8,9 @@ const calendarSource = fs.readFileSync(
   "utf8",
 );
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
+const trackerScheduleSource = fs.readFileSync(new URL("../web/src/components/TrackerSchedule.tsx", import.meta.url), "utf8");
+const serverSource = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
+const organizerSource = fs.readFileSync(new URL("../src/organizer-store.mjs", import.meta.url), "utf8");
 const dateFormatSource = fs.readFileSync(new URL("../web/src/date-format.ts", import.meta.url), "utf8");
 
 test("calendar days select the detailed timeline and linked to-dos", () => {
@@ -70,15 +73,39 @@ test("printable calendar shows every event with hanging-indented wrapped titles"
 });
 
 test("daily paper appends handwriting worksheets with database primary keys", () => {
-  assert.match(calendarSource, /const TODOS_PER_WORKSHEET = 5/);
+  assert.match(calendarSource, /const TODOS_PER_WORKSHEET = 15/);
   assert.match(calendarSource, /data-todo-id=\{todo\.todoId\}/);
   assert.match(calendarSource, /className="paper-todo-id">#\{todo\.todoId\}/);
   assert.match(calendarSource, /Write beside any item\./);
   assert.match(calendarSource, /className="paper-handwriting-space"/);
   assert.match(calendarSource, /<PaperCornerMarkers \/>/);
-  assert.match(styles, /\.paper-handwriting-todos > li \{[^}]*border: 1\.5px solid/s);
+  assert.match(styles, /\.paper-handwriting-todos > li \{[^}]*border: 1px solid/s);
   assert.match(calendarSource, /Handwriting sheets follow\./);
   assert.match(styles, /\.paper-corner-marker--bottom-right \{[^}]*border-radius: 50%/s);
+  assert.match(styles, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /grid-template-rows: repeat\(8, minmax\(0, 1fr\)\)/);
+});
+
+test("journal trackers expose basic daily, weekly, and monthly RRULE controls", () => {
+  assert.match(appSource, /<TrackerSchedule tracker=\{tracker\} onChanged=\{reload\}/);
+  assert.match(trackerScheduleSource, /<option value="off">Not scheduled<\/option>/);
+  assert.match(trackerScheduleSource, /<option value="daily">Daily<\/option>/);
+  assert.match(trackerScheduleSource, /<option value="weekly">Weekly<\/option>/);
+  assert.match(trackerScheduleSource, /<option value="monthly">Monthly<\/option>/);
+  assert.match(trackerScheduleSource, /method: "PATCH"/);
+  assert.match(trackerScheduleSource, /weekdays: frequency === "weekly"/);
+  assert.match(serverSource, /journal-trackers\\\/\(\\d\+\)\\\/schedule/);
+  assert.match(serverSource, /catchUp\.setTrackerSchedule/);
+  assert.match(organizerSource, /askingRecurrenceRule: row\.asking_recurrence_rule/);
+  assert.match(styles, /\.tracker-schedule \{/);
+});
+
+test("daily paper renders RRULE-driven tracker status", () => {
+  assert.match(calendarSource, /<h2>Trackers<\/h2>/);
+  assert.match(calendarSource, /<ScheduledTrackers trackers=\{model\.scheduledTrackers\}/);
+  assert.match(calendarSource, /tracker\.logged \? "✓" : ""/);
+  assert.match(calendarSource, /trackerCadenceLabel\(tracker\)/);
+  assert.match(styles, /\.paper-trackers \{/);
 });
 
 test("React calendar and printed paper use the day-first date contract", () => {

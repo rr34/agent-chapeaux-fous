@@ -18,6 +18,7 @@ const generated = {
     paperSize: "letter",
     todayEvents: [{ id: 1 }],
     scheduledTodos: [{ todoId: 2 }],
+    scheduledTrackers: [{ trackerId: 3 }],
   },
   file: {
     fileId: 42,
@@ -74,6 +75,7 @@ test("daily paper publishes all deferred Tool Description layers from its owning
     includeCompletedTodos: false,
   });
   assert.equal(schemaProblem(result, definition.outputSchema, "result"), null);
+  assert.equal(result.trackerCount, 1);
   assert.deepEqual(objectReferenceGroupsFromToolResult({
     toolDefinition: definition,
     toolDefinitions: registry.toolDefinitions(),

@@ -88,3 +88,57 @@ test("new requests are admitted while TLOM is disconnected", async () => {
   assert.equal(responses[0].body.requestId, "new-request");
   assert.equal(queueWakes, 1);
 });
+test("tracker schedule route delegates to the owning catch-up service", async () => {
+  const calls = [];
+  const responses = [];
+  const recurrence = {
+    frequency: "WEEKLY",
+    interval: 1,
+    weekdays: ["SU"],
+    count: null,
+    until_date: null,
+    time_zone: "America/New_York",
+  };
+  const context = vm.createContext({
+    URL,
+    http: { createServer: handler => ({ handler }) },
+    serveStatic: async () => false,
+    requireAuthorization: () => true,
+    store: { status: { ready: true } },
+    readJson: async () => ({ starts_at_utc: "2026-10-04T04:00:00.000Z", recurrence }),
+    catchUp: {
+      setTrackerSchedule(input, operation) {
+        calls.push({ input, operation });
+        return { tracker_id: input.tracker_id };
+      },
+    },
+    sendJson: (_response, status, body) => responses.push({ status, body }),
+    sendError: (_response, error) => { throw error; },
+    console: { error: error => { throw error; } },
+  });
+  vm.runInContext(requestHandlerSource, context);
+  const handler = vm.runInContext("server.handler", context);
+
+  await handler({
+    method: "PATCH",
+    url: "/api/journal-trackers/31/schedule",
+    headers: { host: "localhost" },
+  }, {});
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{
+    input: {
+      tracker_id: 31,
+      starts_at_utc: "2026-10-04T04:00:00.000Z",
+      recurrence,
+    },
+    operation: {
+      actorType: "user",
+      actorName: "tracker_schedule_web",
+      channel: "web",
+    },
+  }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(responses)), [{
+    status: 200,
+    body: { tracker_id: 31 },
+  }]);
+});

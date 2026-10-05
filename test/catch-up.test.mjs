@@ -115,11 +115,24 @@ test("tracker schedules are opt-in; existing observations satisfy periods and mi
   const id = tracker(); service.refresh(scope);
   assert.equal(service.list().count, 0);
   service.setTrackerSchedule({ tracker_id: id, starts_at_utc: "2026-08-01T04:00:00Z", recurrence });
+  assert.deepEqual(service.scheduledTrackersForDay({ localDate: "2026-09-08", timeZone: "America/New_York" }), [{
+    trackerId: id,
+    ref: `agent-slayer://journal-trackers/${id}`,
+    name: "Weight",
+    groupName: "Health",
+    unit: "kg",
+    frequency: "daily",
+    interval: 1,
+    periodStartsAtUtc: "2026-09-08T04:00:00.000Z",
+    periodEndsAtUtc: "2026-09-09T04:00:00.000Z",
+    logged: false,
+  }]);
   service.refresh(scope);
   const first = service.list().questions[0];
   assert.equal(first.occurrence_key, "2026-09-08T04:00:00.000Z");
   assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM catch_up_questions").get().n), 1);
   db.prepare("INSERT INTO journal3_entries (tracker_id, occurred_at_utc, content_text) VALUES (?, '2026-09-08T15:00:00.000Z', 'Skipped weighing today')").run(id);
+  assert.equal(service.scheduledTrackersForDay({ localDate: "2026-09-08", timeZone: "America/New_York" })[0].logged, true);
   service.refresh(scope);
   assert.equal(service.list().count, 0);
   setNow("2026-09-20T22:00:00.000Z"); service.refresh({ ...scope, local_date: "2026-09-20" });

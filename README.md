@@ -116,8 +116,10 @@ to-do editor and agent tools.
 
 The **Calendar** screen composes a shared React daily-paper component from the
 authoritative two-week calendar, the selected day's timeline, and to-dos linked
-to those events. Choose Letter or A4 and click **Download daily PDF** to render,
-store, and download a printable document with ruled handwriting space. The
+to those events. Its compact Trackers section uses tracker asking RRULEs and
+marks periods that already contain an observation. Choose Letter or A4 and click
+**Download daily PDF** to render, store, and download a printable document with
+ruled handwriting space. The
 agent can invoke the same behavior through `daily_paper_generate`. Chromium is
 required only on the server and can be overridden with
 `SLAYER_PDF_BROWSER_EXECUTABLE` when a system browser is preferred.
@@ -807,6 +809,10 @@ Trackers remain unscheduled until `tracker_asking_schedule_set` sets a first
 period start, structured recurrence, and time zone. A journal observation in the
 period satisfies its question. Explicitly selecting a log date does not assign
 permanent schedules to unscheduled trackers. Only the selected period is
+The React Journal screen exposes the basic schedule directly on each tracker:
+Not scheduled, Daily, Weekly, or Monthly, plus the first period date. Weekly
+schedules use that date's weekday and monthly schedules use its day of month;
+the browser's IANA time zone preserves local period boundaries.
 generated, so a month away does not produce a month of missing daily logs.
 Turning off the asking schedule preserves the tracker and its observations.
 

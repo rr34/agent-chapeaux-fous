@@ -78,6 +78,7 @@ const interactionGuides = new InteractionGuides({
 });
 const dailyPaper = store.status.ready ? new DailyPaperService({
   organizer,
+  trackerSchedule: catchUp,
   ledger,
   mediaRoot: config.mediaRoot,
   publicUrl: config.publicUrl,
@@ -607,6 +608,7 @@ const server = http.createServer(async (request, response) => {
         paperSize: generated.model.paperSize,
         eventCount: generated.model.todayEvents.length,
         todoCount: generated.model.scheduledTodos.length,
+        trackerCount: generated.model.scheduledTrackers.length,
         file: generated.file,
       });
       return;
@@ -1133,6 +1135,20 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "DELETE" && contentMatch) {
       sendJson(response, 200, organizer.deleteContent(contentMatch[1], await readJson(request)));
+      return;
+    }
+    const trackerScheduleMatch = /^\/api\/journal-trackers\/(\d+)\/schedule$/.exec(url.pathname);
+    if (request.method === "PATCH" && trackerScheduleMatch) {
+      const input = await readJson(request);
+      sendJson(response, 200, catchUp.setTrackerSchedule({
+        tracker_id: Number(trackerScheduleMatch[1]),
+        starts_at_utc: input.starts_at_utc ?? null,
+        recurrence: input.recurrence ?? null,
+      }, {
+        actorType: "user",
+        actorName: "tracker_schedule_web",
+        channel: "web",
+      }));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/journal-trackers") {

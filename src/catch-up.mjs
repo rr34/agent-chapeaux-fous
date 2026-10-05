@@ -56,6 +56,17 @@ const dateInZone = (instant, timeZone) => new Intl.DateTimeFormat("en-CA", {
 }).format(new Date(instant));
 const shiftDate = (date, days) => new Date(Date.parse(`${date}T12:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
 
+function recurrenceCadence(recurrenceRule) {
+  const parts = Object.fromEntries(String(recurrenceRule).replace(/^RRULE:/i, "").split(";")
+    .map(part => part.split("=", 2)).filter(([key, value]) => key && value));
+  const frequency = String(parts.FREQ || "").toLowerCase();
+  const interval = Number(parts.INTERVAL || 1);
+  return {
+    frequency: ["daily", "weekly", "monthly", "yearly"].includes(frequency) ? frequency : "scheduled",
+    interval: Number.isInteger(interval) && interval > 0 ? interval : 1,
+  };
+}
+
 export function normalizeCatchUpScope(scope) {
   if (!scope || typeof scope !== "object" || Array.isArray(scope)) throw new Error("A catch-up scope is required");
   const time_zone = validateTimeZone(scope.time_zone);
@@ -218,6 +229,35 @@ export class CatchUpService {
       [row.name, row.unit, row.asking_recurrence_rule, zone, period, Boolean(entry)],
       `What would you like to log for ${row.name} (${row.unit}) for the period starting ${periodLabel}?`,
       period.startsAtUtc, Boolean(entry)), period };
+  }
+  scheduledTrackersForDay({ localDate, timeZone }) {
+    const zone = validateTimeZone(timeZone);
+    const bounds = localDateUtcBounds({ localDate, timeZone: zone });
+    const at = new Date((Date.parse(bounds.startsAtUtc) + Date.parse(bounds.endsAtUtc)) / 2).toISOString();
+    const rows = bounded(this.database.prepare(`SELECT tracker.tracker_id, tracker.name, tracker.unit,
+        tracker.asking_recurrence_rule, journal_group.name AS group_name
+      FROM journal2_trackers AS tracker
+      JOIN journal1_groups AS journal_group USING (journal_group_id)
+      WHERE tracker.archived_at_utc IS NULL AND journal_group.archived_at_utc IS NULL
+        AND tracker.asking_recurrence_rule IS NOT NULL
+      ORDER BY journal_group.name, tracker.name, tracker.tracker_id LIMIT 2001`).all(), "Scheduled trackers");
+    return rows.flatMap(row => {
+      const source = this.tracker(row.tracker_id, at, localDate, zone);
+      if (!source) return [];
+      const cadence = recurrenceCadence(row.asking_recurrence_rule);
+      const trackerId = Number(row.tracker_id);
+      return [{
+        trackerId,
+        ref: `agent-slayer://journal-trackers/${trackerId}`,
+        name: row.name,
+        groupName: row.group_name,
+        unit: row.unit,
+        ...cadence,
+        periodStartsAtUtc: source.period.startsAtUtc,
+        periodEndsAtUtc: source.period.endsAtUtc,
+        logged: Boolean(source.satisfied),
+      }];
+    });
   }
   source(row, at) {
     if (row.calendar_event_id) return this.event(row.calendar_event_id, row.occurrence_key);
