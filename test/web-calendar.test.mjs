@@ -34,11 +34,40 @@ test("calendar uses its day selection instead of separate date and paper control
   assert.match(appSource, /disabled=\{generating \|\| !selectedDay\}/);
 });
 
+test("print preview follows the selected calendar day immediately", () => {
+  assert.match(appSource, /const previewModel = useMemo<DailyPaperModel \| null>/);
+  assert.match(appSource, /date: selectedDate/);
+  assert.match(appSource, /heading: formatLocalDate\(selectedDate\)/);
+  assert.match(appSource, /todayEvents: selectedEvents/);
+  assert.match(appSource, /scheduledTodos: selectedTodos/);
+  assert.match(appSource, /<DailyPaper model=\{previewModel\} preview \/>/);
+});
+
 test("screen and printable calendar days share a two-by-three aspect ratio", () => {
   assert.match(styles, /\.calendar-cell \{[^}]*aspect-ratio: 2 \/ 3;/);
   assert.match(styles, /\.calendar-cell \{[^}]*justify-content: flex-start;[^}]*align-items: stretch;/);
   assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*aspect-ratio: 2 \/ 3;/);
-  assert.match(calendarSource, /const eventLimit = compact \? 3 : 8/);
+  assert.match(calendarSource, /const visibleEvents = compact \? day\.events : day\.events\.slice\(0, eventLimit\)/);
+  assert.match(calendarSource, /!compact && day\.events\.length > eventLimit/);
+});
+
+test("printable calendar shows every event with hanging-indented wrapped titles", () => {
+  assert.match(calendarSource, /\{visibleEvents\.map\(\(event\) => \(/);
+  assert.doesNotMatch(calendarSource, /compact \? 3/);
+  assert.match(styles, /\.calendar-chip \{[^}]*align-items: flex-start;/s);
+  assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
+});
+
+test("daily paper appends handwriting worksheets with database primary keys", () => {
+  assert.match(calendarSource, /const TODOS_PER_WORKSHEET = 5/);
+  assert.match(calendarSource, /data-todo-id=\{todo\.todoId\}/);
+  assert.match(calendarSource, /className="paper-todo-id">#\{todo\.todoId\}/);
+  assert.match(calendarSource, /Write beside any item\./);
+  assert.match(calendarSource, /className="paper-handwriting-space"/);
+  assert.match(calendarSource, /<PaperCornerMarkers \/>/);
+  assert.match(styles, /\.paper-handwriting-todos > li \{[^}]*border: 1\.5px solid/s);
+  assert.match(calendarSource, /Handwriting sheets follow\./);
+  assert.match(styles, /\.paper-corner-marker--bottom-right \{[^}]*border-radius: 50%/s);
 });
 
 test("React calendar and printed paper use the day-first date contract", () => {

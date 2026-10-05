@@ -24,7 +24,7 @@ export function CalendarGrid({
   ariaLabel?: string;
   id?: string;
 }) {
-  const eventLimit = compact ? 3 : 8;
+  const eventLimit = 8;
   return (
     <section id={id} className={`two-week-grid ${compact ? "two-week-grid--compact" : ""}`} aria-label={ariaLabel}>
       <div className="weekdays" aria-hidden="true">
@@ -33,19 +33,20 @@ export function CalendarGrid({
       <div className="calendar-cells">
         {days.map((day) => {
           const isSelected = selectedDate ? day.localDate === selectedDate : day.isToday;
+          const visibleEvents = compact ? day.events : day.events.slice(0, eventLimit);
           const contents = <>
             <span className="calendar-cell-header">
               <strong>{day.dayNumber}</strong>
               <span>{day.month}</span>
             </span>
             <span className="calendar-cell-events">
-              {day.events.slice(0, eventLimit).map((event) => (
+              {visibleEvents.map((event) => (
                 <span className="calendar-chip" key={`${day.localDate}-${event.id}-${event.startsAtUtc}`}>
                   {!event.isAllDay && <time>{timeLabel(event, event.timeZone || "UTC").split("–")[0]}</time>}
                   <span className="multiline-item-text">{event.title}</span>
                 </span>
               ))}
-              {day.events.length > eventLimit && <small>+{day.events.length - eventLimit} more</small>}
+              {!compact && day.events.length > eventLimit && <small>+{day.events.length - eventLimit} more</small>}
             </span>
           </>;
           const className = `calendar-cell ${isSelected ? "is-selected" : ""} ${day.isOutsideRange ? "is-outside-range" : ""}`;
@@ -108,8 +109,71 @@ export function ScheduledTodos({ todos, onReference, onChanged }: {
   );
 }
 
+const TODOS_PER_WORKSHEET = 5;
+
+function todoTitle(todo: LinkedTodo) {
+  return todo.text || todo.title || "Task";
+}
+
+function todoWorksheetPages(todos: LinkedTodo[]) {
+  return Array.from(
+    { length: Math.ceil(todos.length / TODOS_PER_WORKSHEET) },
+    (_, index) => todos.slice(index * TODOS_PER_WORKSHEET, (index + 1) * TODOS_PER_WORKSHEET),
+  );
+}
+
+function PaperCornerMarkers() {
+  return <div className="paper-corner-markers" aria-hidden="true">
+    <span className="paper-corner-marker paper-corner-marker--top-left" />
+    <span className="paper-corner-marker paper-corner-marker--top-right" />
+    <span className="paper-corner-marker paper-corner-marker--bottom-left" />
+    <span className="paper-corner-marker paper-corner-marker--bottom-right" />
+  </div>;
+}
+
+function TodoWorksheet({ todos, model, page, pageCount, preview }: {
+  todos: LinkedTodo[];
+  model: DailyPaperModel;
+  page: number;
+  pageCount: number;
+  preview: boolean;
+}) {
+  return <article className={`daily-paper paper-${model.paperSize} paper-task-worksheet ${preview ? "daily-paper--preview" : ""}`}>
+    <PaperCornerMarkers />
+    <header className="paper-task-worksheet-heading">
+      <div>
+        <p className="paper-kicker">Scheduled to-dos</p>
+        <h1>{model.heading}</h1>
+      </div>
+      <p>Write beside any item.</p>
+    </header>
+
+    <ol className="paper-handwriting-todos">
+      {todos.map((todo) => <li key={todo.todoId} data-todo-id={todo.todoId}>
+        <header>
+          <strong className="multiline-item-text">{todoTitle(todo)}</strong>
+          <span className="paper-todo-id">#{todo.todoId}</span>
+        </header>
+        {todo.eventTitles?.length
+          ? <small className="multiline-item-text">For {todo.eventTitles.join(", ")}</small>
+          : null}
+        <div className="paper-handwriting-space" aria-label={`Blank writing area for to-do #${todo.todoId}`}>
+          <span aria-hidden="true">&#123;</span>
+        </div>
+      </li>)}
+    </ol>
+
+    <footer className="paper-footer">
+      <span>To-do worksheet</span>
+      <span>{page} of {pageCount}</span>
+    </footer>
+  </article>;
+}
+
 export function DailyPaper({ model, preview = false }: { model: DailyPaperModel; preview?: boolean }) {
+  const worksheetPages = todoWorksheetPages(model.scheduledTodos);
   return (
+    <div className="daily-paper-document">
     <article className={`daily-paper paper-${model.paperSize} ${preview ? "daily-paper--preview" : ""}`}>
       <header className="paper-masthead">
         <div>
@@ -136,7 +200,7 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
           <header className="paper-section-heading">
             <span>02</span><h2>Scheduled to-dos</h2><small>{model.scheduledTodos.length} item{model.scheduledTodos.length === 1 ? "" : "s"}</small>
           </header>
-          <ScheduledTodos todos={model.scheduledTodos} />
+          <p className="paper-task-worksheet-note">Handwriting sheets follow.</p>
         </section>
       </div>
 
@@ -154,5 +218,14 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
         <span>For {formatLocalDate(model.date)}</span>
       </footer>
     </article>
+    {worksheetPages.map((todos, index) => <TodoWorksheet
+      todos={todos}
+      model={model}
+      page={index + 1}
+      pageCount={worksheetPages.length}
+      preview={preview}
+      key={todos[0]?.todoId ?? index}
+    />)}
+    </div>
   );
 }

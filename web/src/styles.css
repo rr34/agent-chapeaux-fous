@@ -163,9 +163,10 @@ button.calendar-cell:focus-visible { outline: 3px solid rgba(104, 116, 90, .3); 
 .calendar-cell-header span { color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; }
 .calendar-cell-header strong { font: 600 20px/1 "Newsreader", Georgia, serif; }
 .calendar-cell-events { display: grid; gap: 3px; padding-top: 5px; }
-.calendar-chip { min-width: 0; display: flex; align-items: baseline; gap: 4px; padding-left: 5px; border-left: 2px solid var(--rust); font-size: 10px; line-height: 1.25; }
+.calendar-chip { min-width: 0; display: flex; align-items: flex-start; gap: 4px; padding-left: 5px; border-left: 2px solid var(--rust); font-size: 10px; line-height: 1.25; }
 .calendar-chip time { flex: 0 0 auto; color: var(--muted); font-size: 8px; }
 .calendar-chip span { min-width: 0; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.calendar-chip time + span { flex: 1 1 auto; }
 .multiline-item-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .calendar-cell-events small { color: var(--muted); font-size: 9px; }
 .calendar-generation-notice { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 20px; color: var(--olive-dark); background: #f2f5ec; }
@@ -272,7 +273,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .token-card label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
 
 /* The page is a component, not a screenshot: print and preview share this tree. */
-.daily-paper { width: 8.5in; min-height: 11in; margin: 20px auto; padding: .36in .42in .28in; display: flex; flex-direction: column; color: #161a14; background: #fffefa; box-shadow: 0 18px 70px rgba(25, 31, 21, .18); font-family: Inter, Arial, sans-serif; page: letter; }
+.daily-paper-document { width: max-content; max-width: 100%; margin: 0 auto; }
+.daily-paper { box-sizing: border-box; width: 8.5in; min-height: 11in; margin: 20px auto; padding: .36in .42in .28in; display: flex; flex-direction: column; color: #161a14; background: #fffefa; box-shadow: 0 18px 70px rgba(25, 31, 21, .18); font-family: Inter, Arial, sans-serif; page: letter; }
 .daily-paper.paper-a4 { width: 8.27in; min-height: 11.69in; page: a4; }
 .daily-paper--preview { max-width: 100%; width: 8.5in; box-shadow: 0 8px 28px rgba(25, 31, 21, .12); transform-origin: top left; }
 .paper-masthead { min-height: .66in; display: flex; justify-content: space-between; align-items: end; gap: .3in; border-bottom: 2px solid #252b22; padding-bottom: .11in; margin-bottom: .13in; }
@@ -313,10 +315,30 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .daily-paper .paper-todos strong { display: block; font-size: 7.2pt; line-height: 1.2; }
 .daily-paper .paper-todos small { font-size: 5.6pt; }
 .daily-paper .paper-empty { margin: .1in 0; font-size: 6.5pt; }
+.paper-task-worksheet-note { margin: .1in 0; color: #70776b; font: italic 7pt/1.3 "Newsreader", Georgia, serif; }
 .paper-notes { min-height: 2.25in; flex: 1 0 2.25in; display: flex; flex-direction: column; border-top: 1px solid #272c24; margin-top: .14in; padding-top: .12in; }
 .writing-lines { flex: 1; min-height: 1.8in; display: grid; grid-template-rows: repeat(9, 1fr); margin-top: .04in; }
 .writing-lines span { border-bottom: 1px solid #d5d8d0; }
 .paper-footer { display: flex; justify-content: space-between; border-top: 1px solid #272c24; margin-top: .11in; padding-top: .045in; color: #73796e; font-size: 5.5pt; }
+
+.paper-task-worksheet { position: relative; height: 11in; overflow: hidden; }
+.paper-a4.paper-task-worksheet { height: 11.69in; }
+.paper-task-worksheet-heading { min-height: .64in; display: flex; align-items: end; justify-content: space-between; gap: .3in; margin: 0 .12in .18in; padding: 0 .08in .11in; border-bottom: 2px solid #252b22; }
+.paper-task-worksheet-heading h1 { margin: .02in 0 0; font: 600 22pt/.95 "Newsreader", Georgia, serif; letter-spacing: -.02em; }
+.paper-task-worksheet-heading > p { margin: 0; color: #5b674e; font: 600 9pt "Newsreader", Georgia, serif; }
+.paper-handwriting-todos { flex: 1 1 auto; min-height: 0; display: grid; grid-auto-rows: 1fr; gap: .12in; margin: 0 .12in; padding: 0; list-style: none; }
+.paper-handwriting-todos > li { min-height: 0; display: flex; flex-direction: column; padding: .12in .15in .1in; border: 1.5px solid #484d45; border-radius: .055in; break-inside: avoid; }
+.paper-handwriting-todos header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .18in; }
+.paper-handwriting-todos strong { font: 600 10pt/1.2 "Newsreader", Georgia, serif; }
+.paper-handwriting-todos small { margin-top: .025in; color: #70776b; font-size: 6.5pt; }
+.paper-todo-id { color: #252b22; font: 700 9pt/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+.paper-handwriting-space { min-height: .58in; flex: 1 1 auto; position: relative; margin-top: .035in; margin-left: .02in; }
+.paper-handwriting-space > span { position: absolute; top: 50%; left: 0; color: #a4492e; font: 400 48pt/.72 "Newsreader", Georgia, serif; transform: translateY(-50%) scaleX(.72); transform-origin: left center; }
+.paper-corner-marker { position: absolute; z-index: 1; width: .09in; height: .09in; background: #161a14; }
+.paper-corner-marker--top-left { top: .13in; left: .13in; }
+.paper-corner-marker--top-right { top: .13in; right: .13in; width: .065in; height: .065in; }
+.paper-corner-marker--bottom-left { bottom: .13in; left: .13in; width: .065in; height: .065in; }
+.paper-corner-marker--bottom-right { right: .13in; bottom: .13in; border-radius: 50%; }
 
 @page letter { size: Letter; margin: 0; }
 @page a4 { size: A4; margin: 0; }
@@ -376,7 +398,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .app-shell .sidebar, .app-shell .page-heading, .app-shell .calendar-screen > :not(.paper-preview), .paper-preview > summary { display: none !important; }
   .app-shell, .workspace, .calendar-screen, .paper-preview { display: block !important; width: auto !important; max-width: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; background: white !important; box-shadow: none !important; }
   .paper-preview:not([open]) { display: block !important; }
-  .daily-paper { margin: 0 !important; box-shadow: none !important; }
+  .daily-paper-document { width: auto !important; max-width: none !important; margin: 0 !important; }
+  .daily-paper { margin: 0 !important; box-shadow: none !important; break-after: page; }
+  .daily-paper:last-child { break-after: auto; }
 }
 
 .mention-composer { position: relative; min-width: 0; }
