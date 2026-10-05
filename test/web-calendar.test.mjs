@@ -18,20 +18,31 @@ test("calendar days select the detailed timeline and linked to-dos", () => {
   assert.match(appSource, /todos=\{selectedTodos\}/);
 });
 
-test("calendar week arrows move the selected weekday and loaded range by seven days", () => {
-  assert.match(appSource, /aria-label="Previous week".*shiftLocalDate\(current, -7\)/);
-  assert.match(appSource, /aria-label="Next week".*shiftLocalDate\(current, 7\)/);
-  assert.match(appSource, /new URLSearchParams\(\{ date: selectedDate/);
+test("calendar week arrows move only the displayed range and Today restores today", () => {
+  assert.match(appSource, /rangeDate: displayDate/);
+  assert.match(appSource, /aria-label="Previous week".*setDisplayDate.*shiftLocalDate\(current, -7\)/);
+  assert.match(appSource, /aria-label="Next week".*setDisplayDate.*shiftLocalDate\(current, 7\)/);
+  assert.doesNotMatch(appSource, /aria-label="Previous week".*setSelectedDate/);
+  assert.doesNotMatch(appSource, /aria-label="Next week".*setSelectedDate/);
+  assert.match(appSource, />Today<\/button>/);
+  assert.match(appSource, /setSelectedDate\(date\); setDisplayDate\(date\);/);
   assert.doesNotMatch(appSource, /setSelectedDate\(data\.date\)/);
   assert.match(appSource, /<CalendarGrid id="calendar-grid"/);
   assert.match(calendarSource, /<section id=\{id\} className=\{\`two-week-grid/);
   assert.match(styles, /\.calendar-range-arrow \{[^}]*width: 100%/s);
 });
 
+test("calendar marks the first displayed day with its month and ISO week", () => {
+  assert.match(calendarSource, /calendarRangeMarkerLabel\(days\[0\]\.localDate\)/);
+  assert.match(calendarSource, /calendar-range-marker/);
+  assert.match(calendarSource, /\`\$\{monthLabel\} \(week \$\{week\}\)\`/);
+  assert.match(styles, /\.calendar-range-marker \{[^}]*writing-mode: vertical-rl;[^}]*transform: rotate\(180deg\);/s);
+});
+
 test("calendar uses its day selection instead of separate date and paper controls", () => {
   assert.doesNotMatch(appSource, /className="compact-field"/);
-  assert.match(appSource, /date: selectedDate, timeZone, paperSize: "letter"/);
-  assert.match(appSource, /disabled=\{generating \|\| !selectedDay\}/);
+  assert.match(appSource, /date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter"/);
+  assert.match(appSource, /disabled=\{generating \|\| !data\}/);
 });
 
 test("print preview follows the selected calendar day immediately", () => {

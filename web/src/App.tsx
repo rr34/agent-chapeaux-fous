@@ -38,6 +38,15 @@ function NavigationIcon({ id, label }: { id: NavigationItem[0]; label: Navigatio
       <span className="tlom-todo-icon"><span className="tlom-todo-icon-check" /></span>
     </span>;
   }
+  if (id === "calendar") {
+    return <span className="nav-icon nav-icon--calendar" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M8 3v4M16 3v4M3 10h18" />
+        <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
+      </svg>
+    </span>;
+  }
   if (id === "agent" || id === "hats") {
     return <span className="nav-icon nav-icon--hat-outline" aria-hidden="true">
       <img src={hatOutlineUrl} alt="" />
@@ -602,18 +611,19 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = localToday(timeZone);
   const [selectedDate, setSelectedDate] = useState(date);
-  const query = new URLSearchParams({ date: selectedDate, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
+  const [displayDate, setDisplayDate] = useState(date);
+  const query = new URLSearchParams({ date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${query}`);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<unknown>(null);
   const selectedDay = data?.calendarDays.find((day) => day.localDate === selectedDate);
   const selectedEvents = useMemo(
-    () => [...(selectedDay?.events || [])].sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc)),
-    [selectedDay],
+    () => [...(selectedDay?.events || data?.todayEvents || [])].sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc)),
+    [data?.todayEvents, selectedDay],
   );
   const selectedTodos = useMemo(() => linkedTodosForEvents(selectedEvents), [selectedEvents]);
   const previewModel = useMemo<DailyPaperModel | null>(() => {
-    if (!data || !selectedDay) return null;
+    if (!data) return null;
     return {
       ...data,
       date: selectedDate,
@@ -625,7 +635,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
       todayEvents: selectedEvents,
       scheduledTodos: selectedTodos,
     };
-  }, [data, selectedDate, selectedDay, selectedEvents, selectedTodos]);
+  }, [data, selectedDate, selectedEvents, selectedTodos]);
   const generate = async () => {
     setGenerationError(null);
     setGenerating(true);
@@ -637,7 +647,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
   };
   return <>
     <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={
-      <button className="button" onClick={() => void generate()} disabled={generating || !selectedDay}>{generating ? "Making PDF…" : "Download daily PDF"}</button>
+      <button className="button" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button>
     } />
     {generationNotice && <div className="calendar-generation-notice surface" role="status"><span>{generationNotice}</span>{dismissGenerationNotice && <button className="button button--quiet" onClick={dismissGenerationNotice}>Dismiss</button>}</div>}
     {generationError && <ErrorState
@@ -648,12 +658,12 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
     {loading && <Loading label="Composing your day" />}{error && <ErrorState error={error} retry={reload} />}
     {data && <div className="calendar-screen">
       <section className="surface calendar-overview">
-        <div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><button className="button button--quiet" onClick={() => window.print()}>Print browser view</button></div>
-        <button className="calendar-range-arrow" type="button" aria-label="Previous week" aria-controls="calendar-grid" title="Previous week" onClick={() => setSelectedDate((current) => shiftLocalDate(current, -7))}>▲</button>
-        <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDay?.localDate} onSelect={setSelectedDate} />
-        <button className="calendar-range-arrow" type="button" aria-label="Next week" aria-controls="calendar-grid" title="Next week" onClick={() => setSelectedDate((current) => shiftLocalDate(current, 7))}>▼</button>
+        <div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><div className="calendar-overview-actions"><button className="button button--quiet" type="button" onClick={() => { setSelectedDate(date); setDisplayDate(date); }}>Today</button><button className="button button--quiet" type="button" onClick={() => window.print()}>Print browser view</button></div></div>
+        <button className="calendar-range-arrow" type="button" aria-label="Previous week" aria-controls="calendar-grid" title="Previous week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, -7))}>▲</button>
+        <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDate} onSelect={setSelectedDate} />
+        <button className="calendar-range-arrow" type="button" aria-label="Next week" aria-controls="calendar-grid" title="Next week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, 7))}>▼</button>
       </section>
-      <div className="calendar-lower"><section className="surface"><p className="eyebrow">{formatLocalDate(selectedDay?.localDate || data.date)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} onReference={onReference} onChanged={reload} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} onReference={onReference} onChanged={reload} /></section></div>
+      <div className="calendar-lower"><section className="surface"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} onReference={onReference} onChanged={reload} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} onReference={onReference} onChanged={reload} /></section></div>
       <details className="paper-preview surface">
         <summary>Preview the printed page</summary>
         {previewModel ? <DailyPaper model={previewModel} preview /> : <Loading label="Refreshing preview" />}

@@ -9,6 +9,16 @@ function timeLabel(event: CalendarEvent, timeZone: string) {
   return event.endsAtUtc ? `${start}–${formatDisplayTime(event.endsAtUtc, timeZone)}` : start;
 }
 
+function calendarRangeMarkerLabel(localDate: string) {
+  const [year, month, day] = localDate.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", timeZone: "UTC" }).format(date);
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1);
+  const week = Math.ceil(((date.getTime() - yearStart) / 86_400_000 + 1) / 7);
+  return `${monthLabel} (week ${week})`;
+}
+
 export function CalendarGrid({
   days,
   compact = false,
@@ -25,16 +35,18 @@ export function CalendarGrid({
   id?: string;
 }) {
   const eventLimit = 8;
+  const rangeMarkerLabel = !compact && days[0] ? calendarRangeMarkerLabel(days[0].localDate) : null;
   return (
     <section id={id} className={`two-week-grid ${compact ? "two-week-grid--compact" : ""}`} aria-label={ariaLabel}>
       <div className="weekdays" aria-hidden="true">
         {days.slice(0, 7).map((day) => <span key={day.weekday}>{day.weekday}</span>)}
       </div>
       <div className="calendar-cells">
-        {days.map((day) => {
+        {days.map((day, index) => {
           const isSelected = selectedDate ? day.localDate === selectedDate : day.isToday;
           const visibleEvents = compact ? day.events : day.events.slice(0, eventLimit);
           const contents = <>
+            {index === 0 && rangeMarkerLabel && <span className="calendar-range-marker" aria-hidden="true">{rangeMarkerLabel}</span>}
             <span className="calendar-cell-header">
               <strong>{day.dayNumber}</strong>
               <span>{day.month}</span>
@@ -49,14 +61,14 @@ export function CalendarGrid({
               {!compact && day.events.length > eventLimit && <small>+{day.events.length - eventLimit} more</small>}
             </span>
           </>;
-          const className = `calendar-cell ${isSelected ? "is-selected" : ""} ${day.isOutsideRange ? "is-outside-range" : ""}`;
+          const className = `calendar-cell ${index === 0 && rangeMarkerLabel ? "has-range-marker" : ""} ${isSelected ? "is-selected" : ""} ${day.isOutsideRange ? "is-outside-range" : ""}`;
           return onSelect ? (
             <button
               type="button"
               className={className}
               key={day.localDate}
               onClick={() => onSelect(day.localDate)}
-              aria-label={formatLocalDate(day.localDate)}
+              aria-label={`${formatLocalDate(day.localDate)}${index === 0 && rangeMarkerLabel ? `, ${rangeMarkerLabel}` : ""}`}
               aria-pressed={isSelected}
             >
               {contents}

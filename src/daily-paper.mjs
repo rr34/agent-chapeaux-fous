@@ -54,12 +54,15 @@ function normalizeInput(input = {}, defaultTimeZone = "UTC") {
   }
   const date = String(input.date || localCalendarSnapshot(new Date(), timeZone, 1).localDate);
   dateParts(date);
+  const rangeDate = String(input.rangeDate || date);
+  dateParts(rangeDate);
   const paperSize = String(input.paperSize || "letter").toLowerCase();
   if (!PAPER_SIZES.has(paperSize)) {
     throw Object.assign(new Error("paperSize must be letter or a4"), { statusCode: 400 });
   }
   return {
     date,
+    rangeDate,
     timeZone,
     paperSize,
     includeCompletedTodos: input.includeCompletedTodos === true,
@@ -166,14 +169,14 @@ export class DailyPaperService {
   build(input = {}) {
     if (!this.organizer) throw Object.assign(new Error("Calendar storage is unavailable"), { statusCode: 503 });
     const selected = normalizeInput(input, this.timeZone());
-    const rangeStartDate = mondayOnOrBefore(selected.date);
+    const rangeStartDate = mondayOnOrBefore(selected.rangeDate);
     const dates = Array.from({ length: 14 }, (_, index) => addLocalDays(rangeStartDate, index));
     const rangeStart = localDateUtcBounds({ localDate: dates[0], timeZone: selected.timeZone });
     const rangeEnd = localDateUtcBounds({
       localDate: addLocalDays(dates.at(-1), 1),
       timeZone: selected.timeZone,
     });
-    const events = this.organizer.listCalendar({
+    const rangeEvents = this.organizer.listCalendar({
       from: rangeStart.startsAtUtc,
       to: rangeEnd.startsAtUtc,
     }).map(compactEvent);
@@ -185,14 +188,21 @@ export class DailyPaperService {
         dayNumber: Number(localDate.slice(-2)),
         month: formatLocalDate(localDate, { month: "short" }),
         isToday: localDate === selected.date,
-        events: events.filter((event) => eventOverlaps(event, bounds)),
+        events: rangeEvents.filter((event) => eventOverlaps(event, bounds)),
       };
     });
     const todayBounds = localDateUtcBounds({
       localDate: selected.date,
       timeZone: selected.timeZone,
     });
-    const todayEvents = events.filter((event) => eventOverlaps(event, todayBounds))
+    const selectedDateIsVisible = selected.date >= dates[0] && selected.date <= dates.at(-1);
+    const selectedEvents = selectedDateIsVisible
+      ? rangeEvents
+      : this.organizer.listCalendar({
+        from: todayBounds.startsAtUtc,
+        to: todayBounds.endsAtUtc,
+      }).map(compactEvent);
+    const todayEvents = selectedEvents.filter((event) => eventOverlaps(event, todayBounds))
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc));
     const todoMap = new Map();
     for (const event of todayEvents) {

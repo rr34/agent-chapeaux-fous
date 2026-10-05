@@ -84,6 +84,7 @@ export interface DailyPaperModel {
   version: 1;
   generatedAtUtc: string;
   date: string;
+  rangeDate: string;
   timeZone: string;
   paperSize: "letter" | "a4";
   includeCompletedTodos: boolean;

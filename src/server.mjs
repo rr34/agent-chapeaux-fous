@@ -587,6 +587,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/api/daily-paper") {
       sendJson(response, 200, dailyPaper.build({
         date: url.searchParams.get("date"),
+        rangeDate: url.searchParams.get("rangeDate"),
         timeZone: url.searchParams.get("timeZone"),
         paperSize: url.searchParams.get("paperSize"),
         includeCompletedTodos: url.searchParams.get("includeCompletedTodos") === "true",

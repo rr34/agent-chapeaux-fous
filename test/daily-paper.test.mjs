@@ -89,6 +89,29 @@ test("daily paper validates physical-page inputs", () => {
   assert.equal(normalizeInput({ date: "2026-10-04", paperSize: "A4" }).paperSize, "a4");
 });
 
+test("daily paper can move its visible range without changing the selected day", () => {
+  const ranges = [];
+  const service = new DailyPaperService({
+    organizer: { listCalendar(range) { ranges.push(range); return events(); } },
+    ledger: {},
+    mediaRoot: "/tmp/unused-daily-paper",
+    publicUrl: "http://127.0.0.1:8787",
+    timeZone: () => "America/New_York",
+  });
+
+  const model = service.build({ date: "2026-10-04", rangeDate: "2026-10-19" });
+  assert.equal(model.date, "2026-10-04");
+  assert.equal(model.rangeDate, "2026-10-19");
+  assert.equal(model.calendarDays[0].localDate, "2026-10-19");
+  assert.equal(model.calendarDays.at(-1).localDate, "2026-11-01");
+  assert.deepEqual(model.todayEvents.map(({ id }) => id), [1, 2]);
+  assert.equal(ranges.length, 2);
+  assert.deepEqual(ranges[1], {
+    from: "2026-10-04T04:00:00.000Z",
+    to: "2026-10-05T04:00:00.000Z",
+  });
+});
+
 test("PDF generation registers the rendered document and its provenance", async (context) => {
   const mediaRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "agent-slayer-daily-paper-"));
   context.after(() => fsp.rm(mediaRoot, { recursive: true, force: true }));
