@@ -56,6 +56,9 @@ function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectRefe
   const blocks = exchanges.map((exchange, index) => {
     const request = bounded(exchange.request, Math.floor(contentCharactersPerExchange * 0.45));
     const response = bounded(exchange.response, Math.ceil(contentCharactersPerExchange * 0.55));
+    const requiresFreshRead = exchange.objectReferencePolicy === "fresh_read_required"
+      || exchange.taskOutcome === "incomplete"
+      || exchange.status === "error";
     const source = {
       position: index + 1,
       requestId: exchange.requestId,
@@ -65,6 +68,8 @@ function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectRefe
       responseEventSeq: exchange.responseEventSeq,
       submittedAtUtc: exchange.submittedAtUtc,
       status: exchange.status,
+      taskOutcome: exchange.taskOutcome ?? (exchange.status === "error" ? "incomplete" : "unknown"),
+      objectReferencePolicy: requiresFreshRead ? "fresh_read_required" : "reusable",
       error: exchange.error,
       requestTruncated: request.truncated,
       responseTruncated: response.truncated,
@@ -74,8 +79,13 @@ function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectRefe
       `Source: ${JSON.stringify(source)}`,
       ...(includeObjectReferences ? [
         "<referenced_object_references>",
-        JSON.stringify(compactObjectReferenceContext(exchange.objectReferences ?? [])),
+        JSON.stringify(compactObjectReferenceContext(
+          requiresFreshRead ? [] : exchange.objectReferences ?? [],
+        )),
         "</referenced_object_references>",
+        ...(requiresFreshRead ? [
+          "This exchange did not complete its requested work. Its prose remains intent evidence, but its object bindings are withheld from reuse. Select the owning read tool and establish fresh exact bindings before any mutation.",
+        ] : []),
       ] : []),
       "<referenced_user_request>",
       request.text,
@@ -93,14 +103,25 @@ function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectRefe
 }
 
 function referencedExchangeSources(exchanges) {
-  return exchanges.map(({ request, response, objectReferences, ...source }) => ({
-    ...source,
-    requestCharacters: String(request ?? "").length,
-    responseCharacters: String(response ?? "").length,
-    objectReferenceCount: (objectReferences ?? []).reduce(
+  return exchanges.map(({ request, response, objectReferences, ...source }) => {
+    const requiresFreshRead = source.objectReferencePolicy === "fresh_read_required"
+      || source.taskOutcome === "incomplete"
+      || source.status === "error";
+    const suppliedObjectCount = (objectReferences ?? []).reduce(
       (count, group) => count + (group.objects?.length ?? 0), 0,
-    ),
-  }));
+    );
+    return {
+      ...source,
+      taskOutcome: source.taskOutcome ?? (source.status === "error" ? "incomplete" : "unknown"),
+      objectReferencePolicy: requiresFreshRead ? "fresh_read_required" : "reusable",
+      requestCharacters: String(request ?? "").length,
+      responseCharacters: String(response ?? "").length,
+      objectReferenceCount: requiresFreshRead ? 0 : suppliedObjectCount,
+      withheldObjectReferenceCount: requiresFreshRead
+        ? source.withheldObjectReferenceCount ?? suppliedObjectCount
+        : 0,
+    };
+  });
 }
 
 export class ContextBuilder {

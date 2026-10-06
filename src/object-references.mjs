@@ -291,31 +291,36 @@ export function mergeObjectReferenceGroups(groups) {
   return normalizeObjectReferenceGroups([...bulkGroups.values()]);
 }
 
-export function explicitReferenceObjectCatalog(recentGroups, referencedGroups) {
-  const referenced = mergeObjectReferenceGroups(referencedGroups);
-  if (!referenced.length) return mergeObjectReferenceGroups(recentGroups);
+export function authoritativeObjectReferenceCatalog(fallbackGroups, authoritativeGroups) {
+  const authoritative = mergeObjectReferenceGroups(authoritativeGroups);
+  if (!authoritative.length) return mergeObjectReferenceGroups(fallbackGroups);
 
-  const referencedObjects = flatObjectReferences(referenced);
-  const referencedRefs = new Set(referencedObjects.map(({ ref }) => ref));
-  const referencedHumanKeys = new Set(referencedObjects.map((object) => JSON.stringify([
+  const authoritativeObjects = flatObjectReferences(authoritative);
+  const authoritativeRefs = new Set(authoritativeObjects.map(({ ref }) => ref));
+  const authoritativeHumanKeys = new Set(authoritativeObjects.map((object) => JSON.stringify([
     object.role, object.type, object.source, object.display,
   ])));
-  const retainedRecent = normalizeObjectReferenceGroups(recentGroups).map((group) => ({
+  const retainedFallback = normalizeObjectReferenceGroups(fallbackGroups).map((group) => ({
     ...group,
     objects: group.objects.filter((object) => {
-      if (referencedRefs.has(object.ref)) return true;
+      if (authoritativeRefs.has(object.ref)) return true;
       const humanKey = JSON.stringify([
         group.role, group.type, group.source, object.display,
       ]);
       // This does not identify an object by its display name. Both sides are
-      // already verified bindings. It only prevents an unrelated recent
-      // binding with the same human identity from competing with the binding
-      // carried by the exchange the user explicitly attached.
-      return !referencedHumanKeys.has(humanKey);
+      // already verified bindings. It only resolves a conflict between a
+      // fallback binding and the source that is authoritative for this view.
+      return !authoritativeHumanKeys.has(humanKey);
     }),
   })).filter(({ objects }) => objects.length);
 
-  return mergeObjectReferenceGroups([...retainedRecent, ...referenced]);
+  return mergeObjectReferenceGroups([...retainedFallback, ...authoritative]);
+}
+
+export function explicitReferenceObjectCatalog(recentGroups, referencedGroups) {
+  // When the user explicitly attaches an exchange, its verified bindings are
+  // authoritative over otherwise-relevant recent conversation bindings.
+  return authoritativeObjectReferenceCatalog(recentGroups, referencedGroups);
 }
 
 export function flatObjectReferences(groups) {

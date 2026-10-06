@@ -131,13 +131,16 @@ test("an explicitly referenced exchange remains literal context outside rolling 
   assert.match(result.developerInstructions, /Move all of the Watch Jobs/);
   assert.match(result.developerInstructions, /24 individual updates/);
   assert.match(result.developerInstructions, /requestEventSeq\":41/);
-  assert.match(result.developerInstructions, /agent-slayer:\/\/todos\/42/);
-  assert.match(result.developerInstructions, /\"id\":42/);
-  assert.match(result.developerInstructions, /\"display\":\"Watch Jobs\"/);
+  assert.doesNotMatch(result.developerInstructions, /agent-slayer:\/\/todos\/42/);
+  assert.match(result.developerInstructions, /\"objectReferencePolicy\":\"fresh_read_required\"/);
+  assert.match(result.developerInstructions, /object bindings are withheld from reuse/);
   assert.deepEqual(result.referencedExchanges, [{
     ...Object.fromEntries(Object.entries(referenced).filter(([key]) => !["request", "response", "objectReferences"].includes(key))),
+    taskOutcome: "incomplete",
+    objectReferencePolicy: "fresh_read_required",
     requestCharacters: referenced.request.length,
     responseCharacters: referenced.response.length,
-    objectReferenceCount: 1,
+    objectReferenceCount: 0,
+    withheldObjectReferenceCount: 1,
   }]);
 });

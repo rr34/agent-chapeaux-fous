@@ -4,7 +4,8 @@ import { safeJson } from "./redaction.mjs";
 import { requestCallCounts } from "./request-metrics.mjs";
 import { llmCallCountForUsage } from "../public/ai-usage.js";
 import {
-  mergeObjectReferenceGroups, normalizeObjectReferenceGroups,
+  mergeObjectReferenceGroups,
+  normalizeObjectReferenceGroups,
 } from "./object-references.mjs";
 
 function publicEvent(row) {
@@ -236,13 +237,23 @@ export function interactionObjectActivity(events, maximumItems = 12) {
 }
 
 export function interactionObjectReferences(events) {
-  const groups = [];
+  const selectedGroups = [];
+  const observedGroups = [];
   for (const event of events ?? []) {
     if (event?.status !== "complete") continue;
-    if (event.type === "turn.brief") groups.push(...(event.payload?.brief?.objectReferences ?? []));
-    groups.push(...(event.payload?.objectReferences ?? []));
+    if (event.type === "turn.brief") {
+      selectedGroups.push(...(event.payload?.brief?.objectReferences ?? []));
+    } else if (event.type === "object.references.observed") {
+      observedGroups.push(...(event.payload?.objectReferences ?? []));
+    }
   }
-  if (groups.length) return mergeObjectReferenceGroups(groups);
+  if (selectedGroups.length || observedGroups.length) {
+    // Only canonical binding producers contribute. Validation, context, and
+    // schema-refresh events may carry copies for traceability, but copies are
+    // not new identity evidence. Preserve every distinct exact binding here;
+    // exchange outcome policy decides whether later requests may reuse them.
+    return mergeObjectReferenceGroups([...selectedGroups, ...observedGroups]);
+  }
 
   // Compatibility for exchanges recorded before canonical object-reference
   // events existed. These retain the exact row ID and human display from the
@@ -255,6 +266,55 @@ export function interactionObjectReferences(events) {
     objects: [{ id: object.id, ref: `${object.type}:${object.id}`, display: object.title }],
     sourceEventSeqs: Number.isSafeInteger(object.eventSeq) ? [object.eventSeq] : [],
   })));
+}
+
+export function interactionTaskOutcome(events) {
+  const ordered = [...(events ?? [])].sort(
+    (left, right) => Number(left?.eventSeq ?? 0) - Number(right?.eventSeq ?? 0),
+  );
+  const terminal = [...ordered].reverse().find((event) => terminalEventTypes.includes(event?.type));
+  if (terminal && terminal.status !== "complete") return "incomplete";
+
+  const decisiveFailure = [...ordered].reverse().find((event) => (
+    ["tool.retry.blocked", "completion.guard", "confirmation.required"].includes(event?.type)
+    || (event?.type === "tool.result"
+      && event?.payload?.toolFailure?.terminalForCurrentRequest === true)
+    || (event?.type === "tool.result" && event?.status === "error"
+      && /tool-call budget exhausted/iu.test(String(event?.error ?? event?.content ?? "")))
+  ));
+  const audit = [...ordered].reverse().find((event) => (
+    event?.type === "agent.step"
+    && event?.status === "complete"
+    && event?.payload?.workflowStep === "audit"
+    && event?.payload?.result?.outcome
+  ));
+  if (decisiveFailure && (!audit || decisiveFailure.eventSeq > audit.eventSeq)) return "incomplete";
+  if (audit) {
+    if (audit.payload.result.outcome === "complete") return "complete";
+    if (audit.payload.result.outcome === "repair_needed") {
+      const repaired = ordered.some((event) => (
+        event?.type === "agent.step"
+        && event?.status === "complete"
+        && event?.payload?.workflowStep === "repair"
+        && event.eventSeq > audit.eventSeq
+      ));
+      return repaired ? "complete" : "incomplete";
+    }
+    return "incomplete";
+  }
+  const skippedAudit = ordered.some((event) => (
+    event?.type === "agent.step"
+    && event?.status === "complete"
+    && event?.payload?.workflowStep === "audit"
+    && event?.payload?.skipped === true
+  ));
+  return skippedAudit ? "complete" : "unknown";
+}
+
+export function reusableInteractionObjectReferences(events) {
+  return interactionTaskOutcome(events) === "incomplete"
+    ? []
+    : interactionObjectReferences(events);
 }
 
 function placeholders(values) {
@@ -1066,6 +1126,9 @@ export class Ledger {
     if (!terminal) throw Object.assign(new Error("Wait for the referenced exchange to finish"), { statusCode: 409 });
     const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
+    const taskOutcome = interactionTaskOutcome(events);
+    const allObjectReferences = interactionObjectReferences(events);
+    const objectReferencesReusable = taskOutcome !== "incomplete";
     return {
       requestId,
       requestEventId: request.eventId,
@@ -1076,7 +1139,12 @@ export class Ledger {
       request: transcript?.content || request.content || "",
       responseEventSeq: response?.eventSeq ?? terminal.eventSeq,
       response: response?.content || terminal.content || terminal.error || "",
-      objectReferences: interactionObjectReferences(events),
+      taskOutcome,
+      objectReferencePolicy: objectReferencesReusable ? "reusable" : "fresh_read_required",
+      objectReferences: objectReferencesReusable ? allObjectReferences : [],
+      withheldObjectReferenceCount: objectReferencesReusable
+        ? 0
+        : allObjectReferences.reduce((count, group) => count + group.objects.length, 0),
       status: terminal.status,
       error: terminal.status === "error" ? (terminal.error || terminal.content || null) : null,
     };
@@ -1242,7 +1310,7 @@ export class Ledger {
     const referencesByRequest = new Map();
     const objectReferences = (requestId) => {
       if (!referencesByRequest.has(requestId)) {
-        referencesByRequest.set(requestId, interactionObjectReferences(this.trace(requestId)));
+        referencesByRequest.set(requestId, reusableInteractionObjectReferences(this.trace(requestId)));
       }
       return referencesByRequest.get(requestId);
     };

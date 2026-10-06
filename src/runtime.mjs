@@ -747,9 +747,17 @@ export class SlayerRuntime {
     const referencedExchanges = typeof this.ledger.referencedExchangesForRequest === "function"
       ? this.ledger.referencedExchangesForRequest(args.requestId, { limit: 8 })
       : [];
+    const reusableReferencedExchanges = referencedExchanges.filter((exchange) => (
+      exchange.objectReferencePolicy !== "fresh_read_required"
+      && exchange.taskOutcome !== "incomplete"
+      && exchange.status !== "error"
+    ));
+    const incompleteExchangeReferenced = reusableReferencedExchanges.length < referencedExchanges.length;
     const availableObjectReferences = explicitReferenceObjectCatalog(
-      recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
-      referencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
+      incompleteExchangeReferenced
+        ? []
+        : recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
+      reusableReferencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
     );
     const recentToolReceipts = recentToolReceiptIndex(this.ledger, [
       ...recentConversation,
@@ -1496,6 +1504,12 @@ export class SlayerRuntime {
     let attempt = 0;
     let result;
     const sameRequestReceipts = [...initialReceipts];
+    const successfulMutationAttempts = new Set(initialReceipts.flatMap((receipt) => {
+      if (!receipt?.ok) return [];
+      const definition = this.registry.get(receipt.tool);
+      if (definition?.annotations?.readOnlyHint === true) return [];
+      return [toolAttemptKey(receipt.tool, receipt.arguments)];
+    }));
     let observedObjectReferences = mergeObjectReferenceGroups([
       ...initialObjectReferences,
       ...initialReceipts.flatMap((receipt) => receipt.objectReferences ?? []),
@@ -1905,6 +1919,18 @@ export class SlayerRuntime {
               });
               return { ok: true, result: toolResult };
             }
+            if (!readOnly && successfulMutationAttempts.has(attemptKey)) {
+              const message = `An identical successful ${name} mutation with the same arguments already has a receipt in this request. It will not be executed again; use the existing receipt and verify state with a read if needed.`;
+              sameRequestReceipts.push({
+                tool: name, arguments: toolArguments, ok: false, error: message,
+              });
+              this.ledger.append({
+                type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                actorName: name, channel, turnId: requestId, operationId: callId, name,
+                payload: { callId, name, duplicateSuccessfulMutation: true }, error: message,
+              });
+              return { ok: false, error: message, stopToolLoop: true };
+            }
             const objectBindingProblem = objectInputBindingProblem({
               toolDefinition: registeredTool ?? callableToolDefinitions.get(name),
               argumentsObject: toolArguments,
@@ -2144,6 +2170,7 @@ export class SlayerRuntime {
                 ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
                 ...(sourcedActionReference ? { deferredActionReference: sourcedActionReference } : {}),
               });
+              if (!readOnly) successfulMutationAttempts.add(attemptKey);
               if (inline.paged) {
                 this.ledger.append({
                   type: "tool.result.paged", status: "complete", actorType: "service",

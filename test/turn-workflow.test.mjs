@@ -614,6 +614,263 @@ test("an explicitly referenced exchange deterministically excludes stale same-na
   assert.equal(updatedId, 3128);
 });
 
+test("an incomplete referenced exchange cannot contribute callable object IDs", async () => {
+  const staleBinding = {
+    mention: "morning events selected by the failed attempt",
+    role: "subject",
+    type: "calendar.event",
+    source: "native:calendar",
+    objects: [{
+      id: 3129, ref: "agent-slayer://calendar-events/3129", display: "Morning Exercise",
+    }],
+    sourceEventSeqs: [34405],
+  };
+  const ledger = fakeLedger({
+    conversation: [{
+      eventSeq: 34405,
+      requestId: "recent-but-not-referenced",
+      occurredAtUtc: "2026-10-06T05:31:00.000Z",
+      role: "assistant",
+      content: "A prior attempt selected another Morning Exercise event.",
+      objectReferences: [staleBinding],
+    }],
+    referencedExchanges: [{
+      requestId: "failed-calendar-request",
+      requestEventSeq: 34440,
+      responseEventSeq: 34499,
+      request: "Move today's morning events earlier.",
+      response: "I couldn't complete the correction. The intended time is 05:20.",
+      objectReferences: [staleBinding],
+      taskOutcome: "incomplete",
+      objectReferencePolicy: "fresh_read_required",
+      status: "complete",
+      error: null,
+    }],
+  });
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.register({
+    name: "test_calendar_list",
+    description: "Read today's exact calendar events.",
+    capabilityId: "calendar",
+    source: "local",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    metadata: {
+      [toolDescriptionMetadataKey]: fixtureToolDescription("Read today's exact calendar events."),
+      [objectDescriptionMetadataKey]: {
+        protocol: "agent-slayer.object-description",
+        version: 1,
+        types: [{
+          id: "calendar.event",
+          title: "Calendar event",
+          summary: "One concrete stored calendar event.",
+          identity: { field: "calendar_event_id", summary: "Stored event ID." },
+          reference: { field: "ref", summary: "Stable event reference." },
+          display: { field: "title", summary: "Displayed event title." },
+          qualifiers: [{ field: "starts_at_utc", summary: "Current start time." }],
+        }],
+      },
+    },
+    async execute() {
+      return { events: [{
+        calendar_event_id: 3128,
+        ref: "agent-slayer://calendar-events/3128",
+        title: "Morning Exercise",
+        starts_at_utc: "2026-10-06T10:10:00.000Z",
+      }] };
+    },
+  });
+  let updatedId = null;
+  registry.register({
+    name: "test_calendar_update",
+    description: "Update one freshly bound calendar event.",
+    capabilityId: "calendar",
+    source: "local",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { calendar_event_id: { type: "integer" } },
+      required: ["calendar_event_id"],
+    },
+    metadata: {
+      [toolDescriptionMetadataKey]: fixtureToolDescription("Update one freshly bound calendar event.", {
+        actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
+      }),
+      [objectInputBindingsMetadataKey]: {
+        protocol: "agent-slayer.object-input-bindings",
+        version: 1,
+        bindings: [{
+          path: "/calendar_event_id", objectType: "calendar.event", value: "id", role: "subject",
+        }],
+      },
+    },
+    async execute({ calendar_event_id }) {
+      updatedId = calendar_event_id;
+      return { updated: true, calendar_event_id };
+    },
+  });
+  const safeBrief = {
+    ...brief(),
+    requestType: "continuation",
+    responseMode: "act",
+    objective: "Reread today's Morning Exercise event and apply the referenced correction.",
+    summary: "Use a fresh calendar binding instead of the failed attempt's event ID.",
+    requiredCapabilities: ["calendar"],
+    requiredTools: ["test_calendar_list", "test_calendar_update"],
+    objectReferences: [],
+    requestedActions: [{ text: "Move today's Morning Exercise after rereading it.", sourceEventSeqs: [9] }],
+    completionCriteria: ["The freshly read Morning Exercise event is updated once."],
+  };
+  const requests = [];
+  const runtime = new SlayerRuntime({
+    registry,
+    ledger,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    config: workflowConfig(),
+    modelTransport: transport(async (payload, index) => {
+      if (index === 0) {
+        const catalog = payload.developerInstructions
+          .split("## Verified first-class object references available to this request")[1]
+          .split("## Prior rolling conversation state")[0];
+        assert.doesNotMatch(catalog, /calendar-events\/3129/);
+        return completed(JSON.stringify(safeBrief), 20);
+      }
+      if (index === 1) {
+        const updateSchema = payload.tools.find(({ name }) => name === "test_calendar_update");
+        assert.equal(updateSchema.inputSchema.properties.calendar_event_id.enum, undefined);
+        const staleUpdate = await payload.onToolCall({
+          callId: "reject-stale-calendar-event",
+          tool: "test_calendar_update",
+          arguments: { calendar_event_id: 3129 },
+        });
+        assert.equal(staleUpdate.ok, false);
+        assert.match(staleUpdate.error, /requires a verified calendar\.event binding/);
+        const read = await payload.onToolCall({
+          callId: "fresh-calendar-read",
+          tool: "test_calendar_list",
+          arguments: { result_filter: identityResultFilter() },
+        });
+        assert.equal(read.ok, true);
+        assert.equal(read.controlTransfer?.type, "object_binding_refresh");
+        return completed("Refreshing the update schema from the live event.", 30);
+      }
+      if (index === 2) {
+        const updateSchema = payload.tools.find(({ name }) => name === "test_calendar_update");
+        assert.deepEqual(updateSchema.inputSchema.properties.calendar_event_id.enum, [3128]);
+        const update = await payload.onToolCall({
+          callId: "update-fresh-calendar-event",
+          tool: "test_calendar_update",
+          arguments: { calendar_event_id: 3128 },
+        });
+        assert.equal(update.ok, true);
+        return completed("Updated today's Morning Exercise event.", 30);
+      }
+      assert.equal(index, 3);
+      return completed(JSON.stringify({
+        contractVersion: 1,
+        outcome: "complete",
+        summary: "The freshly bound event was updated.",
+        satisfiedCriteria: safeBrief.completionCriteria,
+        remainingActions: [],
+        repairInstructions: [],
+      }), 10);
+    }, requests),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-retry-failed-calendar",
+    requestEventId: "event-current",
+    text: "Try that failed calendar correction again.",
+  }), "Updated today's Morning Exercise event.");
+  assert.equal(updatedId, 3128);
+});
+
+test("an identical successful mutation cannot be replayed in the same request", async () => {
+  const ledger = fakeLedger();
+  const requests = [];
+  const registry = new ToolRegistry();
+  registry.registerCapability({
+    id: "calendar", title: "Calendar", summary: "Read and update calendar events.",
+  });
+  let writes = 0;
+  registry.withCapability("calendar", {
+    test_event_update: fixtureToolDescription("Update one exact stored calendar event.", {
+      actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
+    }),
+  }).register({
+    name: "test_event_update",
+    description: "Update one exact stored calendar event.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        value: { type: "string" },
+      },
+      required: ["value"],
+    },
+    async execute({ value }) {
+      writes += 1;
+      return { updated: true, value };
+    },
+  });
+  const updateBrief = {
+    ...brief({ auditRequired: false }),
+    requestType: "correction",
+    responseMode: "act",
+    objective: "Update one calendar event once.",
+    summary: "Apply one exact event update.",
+    requiredCapabilities: ["calendar"],
+    requiredTools: ["test_event_update"],
+    requestedActions: [{ text: "Update event 3128 once.", sourceEventSeqs: [9] }],
+    completionCriteria: ["One successful update receipt exists."],
+  };
+  const runtime = new SlayerRuntime({
+    registry,
+    ledger,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    config: workflowConfig(),
+    modelTransport: transport(async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(updateBrief), 20);
+      if (index === 2) return completed(JSON.stringify({
+        contractVersion: 1,
+        outcome: "complete",
+        summary: "The update has one successful mutation receipt.",
+        satisfiedCriteria: updateBrief.completionCriteria,
+        remainingActions: [],
+        repairInstructions: [],
+      }), 10);
+      const argumentsObject = {
+        value: "event-3128@2026-10-06T09:20:00.000Z",
+      };
+      const first = await payload.onToolCall({
+        callId: "first-update", tool: "test_event_update", arguments: argumentsObject,
+      });
+      assert.equal(first.ok, true, JSON.stringify(first));
+      const replay = await payload.onToolCall({
+        callId: "replayed-update", tool: "test_event_update", arguments: argumentsObject,
+      });
+      assert.equal(replay.ok, false);
+      assert.equal(replay.stopToolLoop, true);
+      assert.match(replay.error, /identical successful.*already has a receipt/);
+      return completed("Updated the event once.", 30);
+    }, requests),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-no-mutation-replay",
+    requestEventId: "event-current",
+    text: "Update that event.",
+  }), "Updated the event once.");
+  assert.equal(writes, 1);
+  assert.equal(ledger.events.some(({ payload }) => payload?.duplicateSuccessfulMutation === true), true);
+});
+
 test("an @ selection uses its fresh exact-ID evidence when an older binding exists", async () => {
   const requests = [];
   const priorBinding = {
