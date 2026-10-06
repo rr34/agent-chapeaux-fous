@@ -14,6 +14,8 @@ import { CalendarGrid } from "./DailyPaper";
 import { CalendarRoutineItem } from "./EditableItems";
 import { ErrorState, Loading } from "./State";
 import { type AddAgentReference } from "./AgentReferenceButton";
+import { SectionFilter } from "./SectionFilter";
+import { matchesSearch } from "../search-filter";
 
 function localDateKey(date: Date) {
   return [date.getFullYear(), date.getMonth() + 1, date.getDate()]
@@ -121,16 +123,18 @@ function recurrenceLabel(rule: string) {
   return interval === 1 ? `${name[0].toUpperCase()}${name.slice(1)}ly` : `Every ${interval} ${name}s`;
 }
 
-function RoutineAgenda({ day, routines, onChanged, onReference }: {
+function RoutineAgenda({ day, routines, query, onChanged, onReference }: {
   day?: CalendarDay;
   routines: Map<number, CalendarRoutine>;
+  query: string;
   onChanged: () => void | Promise<void>;
   onReference: AddAgentReference;
 }) {
   if (!day) return null;
-  if (!day.events.length) return <p className="routine-empty">No routines on this day.</p>;
+  const visibleEvents = day.events.filter((event) => matchesSearch(routines.get(Number(event.id)), query));
+  if (!visibleEvents.length) return <p className="routine-empty">{query.trim() ? "No routines on this day match the filter." : "No routines on this day."}</p>;
   return <div className="routine-agenda" aria-label={`Routines for ${formatLocalDate(day.localDate)}`}>
-    {day.events.map((event) => {
+    {visibleEvents.map((event) => {
       const routine = routines.get(Number(event.id));
       if (!routine) return null;
       const timeLabel = `${event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, event.timeZone || undefined)} · ${recurrenceLabel(routine.recurrenceRule)}`;
@@ -154,6 +158,7 @@ export function RoutineScreen({ onGenerated, onReference }: {
   const [selectedMonthDate, setSelectedMonthDate] = useState(localDateKey(today));
   const [generating, setGenerating] = useState<"current" | "next" | null>(null);
   const [generationError, setGenerationError] = useState<unknown>(null);
+  const [filterQuery, setFilterQuery] = useState("");
   const routineMap = useMemo(() => new Map((data?.routines || []).map((routine) => [routine.id, routine])), [data]);
   const weeklyDays = useMemo(
     () => weeklyRoutineDays(weekDates, monthDates, data?.occurrences || [], routineMap),
@@ -190,8 +195,10 @@ export function RoutineScreen({ onGenerated, onReference }: {
   const selectedWeeklyDay = weeklyDays.find((day) => day.localDate === selectedWeekday);
   const selectedMonthlyDay = monthlyDays.find((day) => day.localDate === selectedMonthDate);
   const monthName = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(today);
+  const matchingRoutineCount = (data?.routines || []).filter((routine) => matchesSearch(routine, filterQuery)).length;
   return <>
     <header className="page-heading"><div><p className="eyebrow">Reusable rhythms</p><h1>Routine</h1><p>Your daily and weekly rhythm, followed by routines tied to the month.</p></div></header>
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={matchingRoutineCount} noun="routine" />
     <section className="surface routine-publish-panel">
       <div><p className="eyebrow">Populate the calendar</p><h2>Generate concrete events</h2><p>Choose a bounded week. Existing routine events will not be duplicated.</p></div>
       <div className="routine-publish-actions">
@@ -205,13 +212,13 @@ export function RoutineScreen({ onGenerated, onReference }: {
     {data && <div className="routine-calendars">
       <section className="surface routine-calendar-section">
         <div className="section-title"><div><p className="eyebrow">Reusable week</p><h2>Weekly &amp; daily</h2><p>Select a weekday, then click a routine to edit it.</p></div></div>
-        <div className="routine-calendar-scroll"><CalendarGrid days={weeklyDays} selectedDate={selectedWeekday} onSelect={setSelectedWeekday} ariaLabel="Weekly routine calendar, Monday through Sunday" /></div>
-        <RoutineAgenda day={selectedWeeklyDay} routines={routineMap} onChanged={reload} onReference={onReference} />
+        <div className="routine-calendar-scroll"><CalendarGrid days={weeklyDays} selectedDate={selectedWeekday} onSelect={setSelectedWeekday} ariaLabel="Weekly routine calendar, Monday through Sunday" searchQuery={filterQuery} /></div>
+        <RoutineAgenda day={selectedWeeklyDay} routines={routineMap} query={filterQuery} onChanged={reload} onReference={onReference} />
       </section>
       <section className="surface routine-calendar-section">
         <div className="section-title"><div><p className="eyebrow">Month pattern</p><h2>{monthName}</h2><p>Monthly and yearly routines. Daily and weekly patterns appear above.</p></div></div>
-        <div className="routine-calendar-scroll"><CalendarGrid days={monthlyDays} selectedDate={selectedMonthDate} onSelect={setSelectedMonthDate} ariaLabel={`Monthly routine calendar for ${monthName}`} /></div>
-        <RoutineAgenda day={selectedMonthlyDay} routines={routineMap} onChanged={reload} onReference={onReference} />
+        <div className="routine-calendar-scroll"><CalendarGrid days={monthlyDays} selectedDate={selectedMonthDate} onSelect={setSelectedMonthDate} ariaLabel={`Monthly routine calendar for ${monthName}`} searchQuery={filterQuery} /></div>
+        <RoutineAgenda day={selectedMonthlyDay} routines={routineMap} query={filterQuery} onChanged={reload} onReference={onReference} />
       </section>
     </div>}
   </>;

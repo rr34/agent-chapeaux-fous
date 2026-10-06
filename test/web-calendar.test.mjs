@@ -61,7 +61,7 @@ test("screen and printable calendar days share a two-by-three aspect ratio", () 
   assert.match(styles, /\.calendar-cell \{[^}]*aspect-ratio: 2 \/ 3;/);
   assert.match(styles, /\.calendar-cell \{[^}]*justify-content: flex-start;[^}]*align-items: stretch;/);
   assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*aspect-ratio: 2 \/ 3;/);
-  assert.match(calendarSource, /const visibleEvents = compact \? day\.events : day\.events\.slice\(0, eventLimit\)/);
+  assert.match(calendarSource, /const visibleEvents = compact \? orderedEvents : orderedEvents\.slice\(0, eventLimit\)/);
   assert.match(calendarSource, /!compact && day\.events\.length > eventLimit/);
 });
 
@@ -72,18 +72,19 @@ test("printable calendar shows every event with hanging-indented wrapped titles"
   assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
 });
 
-test("daily paper appends handwriting worksheets with database primary keys", () => {
-  assert.match(calendarSource, /const TODOS_PER_WORKSHEET = 15/);
-  assert.match(calendarSource, /data-todo-id=\{todo\.todoId\}/);
-  assert.match(calendarSource, /className="paper-todo-id">#\{todo\.todoId\}/);
-  assert.match(calendarSource, /Write beside any item\./);
+test("daily paper keeps identified to-dos under their single heading in the larger right column", () => {
+  const paperLayout = calendarSource.slice(calendarSource.indexOf("export function DailyPaper"));
+  assert.doesNotMatch(calendarSource, /TodoWorksheet|Handwriting sheets follow|TODOS_PER_WORKSHEET/);
+  assert.match(calendarSource, /className="paper-day-left"/);
+  assert.ok(paperLayout.indexOf("Today’s timeline") < paperLayout.indexOf("Trackers"));
+  assert.match(calendarSource, /<PrintableTodos todos=\{model\.scheduledTodos\} \/>/);
+  assert.match(calendarSource, /return `personal_task_id:\$\{todo\.todoId\}`/);
+  assert.match(calendarSource, /data-object-reference=\{todoPrintIdentifier\(todo\)\}/);
+  assert.match(calendarSource, /className="paper-todo-id">\{todoPrintIdentifier\(todo\)\}/);
+  assert.match(calendarSource, /Blank writing area for \$\{todoPrintIdentifier\(todo\)\}/);
   assert.match(calendarSource, /className="paper-handwriting-space"/);
-  assert.match(calendarSource, /<PaperCornerMarkers \/>/);
-  assert.match(styles, /\.paper-handwriting-todos > li \{[^}]*border: 1px solid/s);
-  assert.match(calendarSource, /Handwriting sheets follow\./);
-  assert.match(styles, /\.paper-corner-marker--bottom-right \{[^}]*border-radius: 50%/s);
-  assert.match(styles, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
-  assert.match(styles, /grid-template-rows: repeat\(8, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /\.paper-day-columns \{[^}]*grid-template-columns: minmax\(0, \.9fr\) minmax\(0, 1\.4fr\)/s);
+  assert.match(styles, /\.paper-todo-cards > li \{[^}]*border: 1px solid/s);
 });
 
 test("journal trackers expose basic daily, weekly, and monthly RRULE controls", () => {

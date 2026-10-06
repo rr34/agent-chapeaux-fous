@@ -7,12 +7,14 @@ import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput } from "./components/ObjectMentionInput";
 import { TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
+import { SectionFilter } from "./components/SectionFilter";
 import {
   AgentReferenceButton, contactIdentity, exchangeIdentity,
   genericEntityIdentity, journalEntryIdentity, journalTrackerIdentity,
   type AddAgentReference, type GenericObjectKind,
 } from "./components/AgentReferenceButton";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
+import { matchesSearch } from "./search-filter";
 import type { DailyPaperModel, Entity, RequestRecord, SelectedObjectCandidate, StoredFileBinding } from "./types";
 import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
@@ -567,6 +569,7 @@ function AgentScreen({ onReference, onShowTrace, refreshKey }: {
   refreshKey: number;
 }) {
   const { data, error, loading, reload } = useApi<{ requests: RequestRecord[] }>("/api/requests?limit=50", 3000);
+  const [filterQuery, setFilterQuery] = useState("");
   const initialScrollPending = useRef(true);
   useEffect(() => { if (refreshKey > 0) void reload(); }, [refreshKey, reload]);
   useEffect(() => {
@@ -585,11 +588,13 @@ function AgentScreen({ onReference, onShowTrace, refreshKey }: {
     await api(`/api/requests/${request.requestId}/turn-brief/${decision}`, { method: "POST", body: JSON.stringify({ approvalId: request.turnBriefApproval.approvalId }) });
     await reload();
   };
+  const visibleRequests = (data?.requests || []).filter((request) => matchesSearch(request, filterQuery));
   return <>
     <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Chapeaux Fous orients, shows its brief, then acts with visible tools." />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleRequests.length} noun="exchange" />
     <section className="conversation">
       {loading && <Loading label="Loading requests" />}{error ? <ErrorState error={error} retry={reload} /> : null}
-      {data?.requests?.length ? [...data.requests].reverse().map((request) => <article className="request-card" key={request.requestId}>
+      {visibleRequests.length ? [...visibleRequests].reverse().map((request) => <article className="request-card" key={request.requestId}>
         <div className="request-question"><span>You</span><p>{request.request}</p></div>
         {request.turnBriefApproval?.approvalId && <div className="turn-brief">
           <p className="eyebrow">Turn brief</p><strong>{request.turnBriefApproval.objective || request.turnBriefApproval.summary}</strong><p>{request.turnBriefApproval.summary}</p>
@@ -599,7 +604,7 @@ function AgentScreen({ onReference, onShowTrace, refreshKey }: {
         {request.error && <p className="inline-error">{request.error}</p>}
         <RequestInteractionMetrics request={request} />
         <footer><span className={`status-dot status-${request.status}`} />{request.status.replaceAll("_", " ")}<code>{request.requestId.slice(0, 8)}</code><button className="trace-button" type="button" onClick={() => onShowTrace(request.requestId)}>Show trace</button>{["complete", "error"].includes(request.status) && <AgentReferenceButton identity={exchangeIdentity(request)} subject={`exchange ${request.requestId.slice(0, 8)}`} onReference={onReference} />}</footer>
-      </article>) : !loading && <Empty>No requests yet. Start with what is on your mind.</Empty>}
+      </article>) : !loading && <Empty>{filterQuery.trim() ? "No exchanges match the filter." : "No requests yet. Start with what is on your mind."}</Empty>}
     </section>
   </>;
 }
@@ -613,8 +618,9 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
   const date = localToday(timeZone);
   const [selectedDate, setSelectedDate] = useState(date);
   const [displayDate, setDisplayDate] = useState(date);
-  const query = new URLSearchParams({ date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
-  const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${query}`);
+  const [filterQuery, setFilterQuery] = useState("");
+  const requestParameters = new URLSearchParams({ date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
+  const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${requestParameters}`);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<unknown>(null);
   const selectedDay = data?.calendarDays.find((day) => day.localDate === selectedDate);
@@ -637,6 +643,9 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
       scheduledTodos: selectedTodos,
     };
   }, [data, selectedDate, selectedEvents, selectedTodos]);
+  const matchingEventCount = (data?.calendarDays || [])
+    .flatMap((day) => day.events)
+    .filter((event) => matchesSearch(event, filterQuery)).length;
   const generate = async () => {
     setGenerationError(null);
     setGenerating(true);
@@ -650,6 +659,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
     <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={
       <button className="button" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button>
     } />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={matchingEventCount} noun="event" />
     {generationNotice && <div className="calendar-generation-notice surface" role="status"><span>{generationNotice}</span>{dismissGenerationNotice && <button className="button button--quiet" onClick={dismissGenerationNotice}>Dismiss</button>}</div>}
     {generationError && <ErrorState
       error={generationError}
@@ -661,7 +671,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
       <section className="surface calendar-overview">
         <div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><div className="calendar-overview-actions"><button className="button button--quiet" type="button" onClick={() => { setSelectedDate(date); setDisplayDate(date); }}>Today</button><button className="button button--quiet" type="button" onClick={() => window.print()}>Print browser view</button></div></div>
         <button className="calendar-range-arrow" type="button" aria-label="Previous week" aria-controls="calendar-grid" title="Previous week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, -7))}>▲</button>
-        <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDate} onSelect={setSelectedDate} />
+        <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDate} onSelect={setSelectedDate} searchQuery={filterQuery} />
         <button className="calendar-range-arrow" type="button" aria-label="Next week" aria-controls="calendar-grid" title="Next week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, 7))}>▼</button>
       </section>
       <div className="calendar-lower"><section className="surface"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} onReference={onReference} onChanged={reload} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} onReference={onReference} onChanged={reload} /></section></div>
@@ -676,6 +686,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
 function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const [filterQuery, setFilterQuery] = useState("");
   const scope = showCompleted ? "all" : "active";
   const { data, error, loading, reload } = useApi<{ todos: Entity[] }>(`/api/todos?scope=${scope}&limit=1000`);
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/todo-groups");
@@ -684,9 +695,10 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
   const statusTodos = (data?.todos || []).filter((todo) =>
     todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
   );
-  const todos = selectedGroupId === "all"
+  const groupTodos = selectedGroupId === "all"
     ? statusTodos
     : statusTodos.filter((todo) => String(readKey(todo, "groupId")) === selectedGroupId);
+  const todos = groupTodos.filter((todo) => matchesSearch(todo, filterQuery));
   const groups = useMemo(() => {
     const grouped = new Map<string, { id: string; name: string; todos: Entity[] }>();
     for (const todo of todos) {
@@ -700,15 +712,41 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
     return [...grouped.values()];
   }, [todos]);
   return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<div className="todo-heading-actions"><label className="todo-group-filter"><span>Group</span><select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={groupsLoading}><option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}</select></label><label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label><form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form></div>} />
-    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !todos.length && <Empty>{showCompleted ? "No open or completed to-dos yet." : "No open to-dos."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div></>;
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" />
+    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !todos.length && <Empty>{filterQuery.trim() ? "No to-dos match the filter." : showCompleted ? "No open or completed to-dos yet." : "No open to-dos."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div></>;
 }
 
 function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=all&limit=10000");
   const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
   const create = async (event: FormEvent) => { event.preventDefault(); await api("/api/contacts", { method: "POST", body: JSON.stringify({ displayName: draft, kind: "person", methods: [], tags: [] }) }); setDraft(""); await reload(); };
+  const contacts = data?.contacts || [];
+  const visibleContacts = contacts.filter((contact) => matchesSearch(contact, query));
   return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<form className="inline-create" onSubmit={(event) => void create(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Contact name" required /><button className="button">Add</button></form>} />
-    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="contact-grid">{data?.contacts?.map((contact) => { const methods = (contact.methods as Entity[] | undefined) || []; return <article className="contact-card" key={contact.id}><div className="contact-monogram">{textKey(contact, "displayName", "name").slice(0, 2).toUpperCase()}</div><h2>{textKey(contact, "displayName", "name")}</h2><p>{textKey(contact, "organizationName")}</p><div className="contact-actions"><AgentReferenceButton identity={contactIdentity(contact)} subject={`contact ${textKey(contact, "displayName", "name")}`} onReference={onReference} />{methods.map((method, index) => { const kind = String(method.kind); const value = String(method.value || ""); const href = kind === "phone" ? `tel:${value}` : kind === "email" ? `mailto:${value}` : kind === "url" ? value : null; return href ? <a className="button button--quiet" href={href} key={index}>{kind === "phone" ? "Call" : kind === "email" ? "Email" : "Open"}</a> : null; })}{methods.filter((method) => method.kind === "phone").map((method, index) => <a className="button button--quiet" href={`sms:${method.value}`} key={`sms-${index}`}>Text</a>)}</div>{(contact.tags as string[] | undefined)?.map((tag) => <span className="pill" key={tag}>{tag}</span>)}</article>; })}</div></>;
+    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
+    {!loading && !error && <>
+      <SectionFilter query={query} onChange={setQuery} count={visibleContacts.length} noun="contact" />
+      {!visibleContacts.length ? <Empty>{query.trim() ? "No contacts match the filter." : "No contacts yet."}</Empty> : <div className="contact-list surface">
+        {visibleContacts.map((contact) => {
+          const name = textKey(contact, "displayName", "name");
+          const methods = (contact.methods as Entity[] | undefined) || [];
+          const tags = (contact.tags as string[] | undefined) || [];
+          return <article className="contact-row" key={contact.id}>
+            <div className="contact-row-identity">
+              <div className="contact-monogram" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</div>
+              <div><h2>{name}</h2>{textKey(contact, "organizationName") && <p>{textKey(contact, "organizationName")}</p>}</div>
+            </div>
+            <div className="contact-method-list">
+              {methods.length ? methods.map((method, index) => <div className="contact-method" key={`${String(method.kind)}-${index}`}><span>{textKey(method, "label") || String(method.kind).replaceAll("_", " ")}</span><strong>{textKey(method, "value")}</strong></div>) : <span className="contact-empty">No contact details</span>}
+            </div>
+            <div className="contact-tag-list">{tags.map((tag) => <span className="pill" key={tag}>{tag}</span>)}</div>
+            <div className="contact-actions"><AgentReferenceButton identity={contactIdentity(contact)} subject={`contact ${name}`} onReference={onReference} />{methods.map((method, index) => { const kind = String(method.kind); const value = String(method.value || ""); const href = kind === "phone" ? `tel:${value}` : kind === "email" ? `mailto:${value}` : kind === "url" ? value : null; return href ? <a className="button button--quiet" href={href} key={index}>{kind === "phone" ? "Call" : kind === "email" ? "Email" : "Open"}</a> : null; })}{methods.filter((method) => method.kind === "phone").map((method, index) => <a className="button button--quiet" href={`sms:${method.value}`} key={`sms-${index}`}>Text</a>)}</div>
+          </article>;
+        })}
+      </div>}
+    </>}
+  </>;
 }
 
 const genericScreens: Record<GenericObjectKind, { eyebrow: string; title: string; detail: string; url: string; key: string }> = {
@@ -721,28 +759,38 @@ const genericScreens: Record<GenericObjectKind, { eyebrow: string; title: string
 function GenericScreen({ kind, onReference }: { kind: keyof typeof genericScreens; onReference: AddAgentReference }) {
   const config = genericScreens[kind];
   const { data, error, loading, reload } = useApi<Record<string, unknown>>(config.url);
+  const [filterQuery, setFilterQuery] = useState("");
   const entities = ((data?.[config.key] as Entity[] | undefined) || []);
-  return <><PageHeading eyebrow={config.eyebrow} title={config.title} detail={config.detail} />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !entities.length && <Empty>Nothing here yet.</Empty>}<div className="card-grid">{entities.map((entity, index) => { const entityId = entity.id || entity.fileId; return <article className="entity-card" key={entityId || index}><div className="entity-meta"><span className="pill">{textKey(entity, "status", "contentStatus", "mediaKind") || config.title}</span><AgentReferenceButton identity={genericEntityIdentity(kind, entity)} subject={`${config.title.toLowerCase()} ${textKey(entity, "title", "name", "originalFilename") || entityId}`} onReference={onReference} />{readKey(entity, "sequence") != null && <span>#{String(entity.sequence)}</span>}</div><h2>{textKey(entity, "title", "name", "originalFilename") || `Item ${entityId || index + 1}`}</h2><p>{textKey(entity, "description", "summary", "contentText")}</p>{kind === "files" && entityId && <button className="button button--quiet" onClick={() => void downloadAuthenticated(`/api/files/${entityId}/download`, textKey(entity, "originalFilename") || `file-${entityId}`)}>Download</button>}</article>; })}</div></>;
+  const visibleEntities = entities.filter((entity) => matchesSearch(entity, filterQuery));
+  return <><PageHeading eyebrow={config.eyebrow} title={config.title} detail={config.detail} /><SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleEntities.length} noun="item" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !visibleEntities.length && <Empty>{filterQuery.trim() ? `No ${config.title.toLowerCase()} items match the filter.` : "Nothing here yet."}</Empty>}<div className="card-grid">{visibleEntities.map((entity, index) => { const entityId = entity.id || entity.fileId; return <article className="entity-card" key={entityId || index}><div className="entity-meta"><span className="pill">{textKey(entity, "status", "contentStatus", "mediaKind") || config.title}</span><AgentReferenceButton identity={genericEntityIdentity(kind, entity)} subject={`${config.title.toLowerCase()} ${textKey(entity, "title", "name", "originalFilename") || entityId}`} onReference={onReference} />{readKey(entity, "sequence") != null && <span>#{String(entity.sequence)}</span>}</div><h2>{textKey(entity, "title", "name", "originalFilename") || `Item ${entityId || index + 1}`}</h2><p>{textKey(entity, "description", "summary", "contentText")}</p>{kind === "files" && entityId && <button className="button button--quiet" onClick={() => void downloadAuthenticated(`/api/files/${entityId}/download`, textKey(entity, "originalFilename") || `file-${entityId}`)}>Download</button>}</article>; })}</div></>;
 }
 
 function HatsScreen() {
   const { data, error, loading, reload } = useApi<Record<string, unknown>>("/api/hats");
+  const [filterQuery, setFilterQuery] = useState("");
   const hats = ((data?.hats as Entity[] | undefined) || (data?.catalog as Entity[] | undefined) || []);
-  return <><PageHeading eyebrow="Ways of working" title="Hats" detail={String(data?.introduction || "Name a hat when you want a particular working stance.")} />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="hat-grid">{hats.map((hat, index) => <article className="hat-card" key={hat.id || index}><img className="hat-shape" src="/logo-outline-hat.svg" alt="" aria-hidden="true" /><h2>{textKey(hat, "title", "label", "name")}</h2><p>{textKey(hat, "description", "summary")}</p></article>)}</div></>;
+  const visibleHats = hats.filter((hat) => matchesSearch(hat, filterQuery));
+  return <><PageHeading eyebrow="Ways of working" title="Hats" detail={String(data?.introduction || "Name a hat when you want a particular working stance.")} /><SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleHats.length} noun="hat" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !visibleHats.length && <Empty>{filterQuery.trim() ? "No hats match the filter." : "No hats are available."}</Empty>}<div className="hat-grid">{visibleHats.map((hat, index) => <article className="hat-card" key={hat.id || index}><img className="hat-shape" src="/logo-outline-hat.svg" alt="" aria-hidden="true" /><h2>{textKey(hat, "title", "label", "name")}</h2><p>{textKey(hat, "description", "summary")}</p></article>)}</div></>;
 }
 
 function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data: trackers, error, loading, reload } = useApi<{ trackers: Entity[] }>("/api/journal-trackers?limit=200");
   const { data: entries } = useApi<{ entries: Entity[] }>("/api/journal-entries?limit=100");
-  return <><PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="journal-layout"><div className="card-grid">{trackers?.trackers?.map((tracker) => <article className="entity-card tracker-card" key={tracker.id}><div className="entity-meta"><span className="pill">Tracker</span><AgentReferenceButton identity={journalTrackerIdentity(tracker)} subject={`journal tracker ${textKey(tracker, "name", "title")}`} onReference={onReference} /></div><h2>{tracker.name || tracker.title}</h2><p>{textKey(tracker, "description", "unit")}</p><TrackerSchedule tracker={tracker} onChanged={reload} /></article>)}</div><section className="surface"><h2>Recent entries</h2>{entries?.entries?.map((entry, index) => <div className="journal-entry" key={entry.id || index}><div className="journal-entry-heading"><strong>{textKey(entry, "trackerName", "title")}</strong><span>{formatDisplayDate(textKey(entry, "occurredAtUtc", "createdAtUtc"))}</span><AgentReferenceButton identity={journalEntryIdentity(entry)} subject={`journal entry ${entry.id}`} onReference={onReference} /></div><p>{textKey(entry, "contentText", "text", "numberValue")}</p></div>)}</section></div></>;
+  const [filterQuery, setFilterQuery] = useState("");
+  const visibleTrackers = (trackers?.trackers || []).filter((tracker) => matchesSearch(tracker, filterQuery));
+  const visibleEntries = (entries?.entries || []).filter((entry) => matchesSearch(entry, filterQuery));
+  const visibleCount = visibleTrackers.length + visibleEntries.length;
+  return <><PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." /><SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleCount} noun="result" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !visibleCount && <Empty>{filterQuery.trim() ? "No journal items match the filter." : "No journal items yet."}</Empty>}{Boolean(visibleCount) && <div className="journal-layout"><div className="card-grid">{visibleTrackers.map((tracker) => <article className="entity-card tracker-card" key={tracker.id}><div className="entity-meta"><span className="pill">Tracker</span><AgentReferenceButton identity={journalTrackerIdentity(tracker)} subject={`journal tracker ${textKey(tracker, "name", "title")}`} onReference={onReference} /></div><h2>{tracker.name || tracker.title}</h2><p>{textKey(tracker, "description", "unit")}</p><TrackerSchedule tracker={tracker} onChanged={reload} /></article>)}</div>{Boolean(visibleEntries.length) && <section className="surface"><h2>Recent entries</h2>{visibleEntries.map((entry, index) => <div className="journal-entry" key={entry.id || index}><div className="journal-entry-heading"><strong>{textKey(entry, "trackerName", "title")}</strong><span>{formatDisplayDate(textKey(entry, "occurredAtUtc", "createdAtUtc"))}</span><AgentReferenceButton identity={journalEntryIdentity(entry)} subject={`journal entry ${entry.id}`} onReference={onReference} /></div><p>{textKey(entry, "contentText", "text", "numberValue")}</p></div>)}</section>}</div>}</>;
 }
 
 function UsageScreen() {
   const { data, error, loading, reload } = useApi<{ entries: Entity[]; current: Entity }>("/api/ai-usage?limit=10000");
-  const totals = useMemo(() => (data?.entries || []).reduce<{ calls: number; input: number; output: number }>(
+  const [filterQuery, setFilterQuery] = useState("");
+  const visibleEntries = (data?.entries || []).filter((entry) => matchesSearch(entry, filterQuery));
+  const totals = useMemo(() => visibleEntries.reduce<{ calls: number; input: number; output: number }>(
     (result, entry) => ({ calls: result.calls + 1, input: result.input + Number(readKey(entry, "inputTokens", "input_tokens") || 0), output: result.output + Number(readKey(entry, "outputTokens", "output_tokens") || 0) }), { calls: 0, input: 0, output: 0 },
-  ), [data]);
-  return <><PageHeading eyebrow="Metered model work" title="AI Usage" detail={`${textKey(data?.current || {}, "transport")} · ${textKey(data?.current || {}, "model")}`} />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="metric-grid"><article><span>Calls</span><strong>{totals.calls.toLocaleString()}</strong></article><article><span>Input tokens</span><strong>{totals.input.toLocaleString()}</strong></article><article><span>Output tokens</span><strong>{totals.output.toLocaleString()}</strong></article></div></>;
+  ), [visibleEntries]);
+  return <><PageHeading eyebrow="Metered model work" title="AI Usage" detail={`${textKey(data?.current || {}, "transport")} · ${textKey(data?.current || {}, "model")}`} /><SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleEntries.length} noun="call" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="metric-grid"><article><span>Calls</span><strong>{totals.calls.toLocaleString()}</strong></article><article><span>Input tokens</span><strong>{totals.input.toLocaleString()}</strong></article><article><span>Output tokens</span><strong>{totals.output.toLocaleString()}</strong></article></div></>;
 }
 
 function DailyPaperRoute() {
