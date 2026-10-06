@@ -388,6 +388,16 @@ test("changing another person's address selects the supported contact update too
   assert.equal(selfUpdate.capabilities.includes("contacts"), false);
 });
 
+test("changing another person's birthday selects the standard contact update tool", () => {
+  const selection = selectRequestCapabilities({
+    tools: [...tools, tool("contact_update")],
+    text: "Set Jermaine Fox's birthday to 25 May 1979.",
+  });
+  assert.equal(selection.capabilities.includes("contacts"), true);
+  assert.equal(names(selection).includes("contact_update"), true);
+  assert.equal(selection.fallbackAll, false);
+});
+
 test("common plural request words select their focused tool families", () => {
   const examples = [
     ["Read these webpages.", "web", "web_page_read"],

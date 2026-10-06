@@ -5,7 +5,7 @@ import { CalendarGrid, DailyPaper, DayTimeline, ScheduledTodos } from "./compone
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput } from "./components/ObjectMentionInput";
-import { TodoItem } from "./components/EditableItems";
+import { ContactEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
 import {
@@ -59,6 +59,12 @@ function NavigationIcon({ id, label }: { id: NavigationItem[0]; label: Navigatio
     </span>;
   }
   return <span className="nav-icon nav-icon--letter" aria-hidden="true">{label.slice(0, 1)}</span>;
+}
+
+function PaperPinIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 17v5M5 17h14M15 17v-5l-1-1V5h2V2H8v3h2v6l-1 1v5" />
+  </svg>;
 }
 
 function readKey(entity: Entity, ...keys: string[]) {
@@ -258,9 +264,21 @@ function TracePanel({ requestId, trace, error, onClose }: {
 
 type RecordingPhase = "idle" | "requesting" | "recording" | "saving" | "cancelling";
 
+type RunLimits = {
+  maxToolCalls: number | null;
+  timeoutMs: number | null;
+  promptForTurnBrief: boolean;
+};
+
 function formatRecordingClock(milliseconds: number) {
   const totalSeconds = Math.floor(Math.max(0, milliseconds) / 1000);
   return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+function runLimitsText(runLimits: RunLimits) {
+  const calls = runLimits.maxToolCalls === null ? "unlimited calls" : `${runLimits.maxToolCalls} calls`;
+  const time = runLimits.timeoutMs === null ? "no deadline" : `${Math.round(runLimits.timeoutMs / 60_000)} min`;
+  return `${calls} · ${time}${runLimits.promptForTurnBrief ? " · TurnBrief review" : ""}`;
 }
 
 function AgentComposer({ text, setText, selections, setSelections, referenceNotice, clearReferenceNotice, onSubmitted }: {
@@ -292,6 +310,13 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
   const [recordingPhase, setRecordingPhase] = useState<RecordingPhase>("idle");
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const [recordingStatus, setRecordingStatus] = useState("");
+  const [pendingRunLimits, setPendingRunLimits] = useState<RunLimits | null>(null);
+  const [runLimitsOpen, setRunLimitsOpen] = useState(false);
+  const [toolCallLimit, setToolCallLimit] = useState(256);
+  const [toolCallsUnlimited, setToolCallsUnlimited] = useState(false);
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState(60);
+  const [timeUnlimited, setTimeUnlimited] = useState(false);
+  const [promptForTurnBrief, setPromptForTurnBrief] = useState(false);
   const recordingSupported = typeof navigator !== "undefined"
     && Boolean(navigator.mediaDevices?.getUserMedia)
     && typeof MediaRecorder !== "undefined";
@@ -398,11 +423,15 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
     recordingChunks.current = [];
     setRecordingStatus("Uploading voice request…");
     try {
-      await api<{ requestId: string; fileId: number }>("/api/voice", {
+      const runLimitsQuery = pendingRunLimits === null
+        ? ""
+        : `?runLimits=${encodeURIComponent(JSON.stringify(pendingRunLimits))}`;
+      await api<{ requestId: string; fileId: number }>(`/api/voice${runLimitsQuery}`, {
         method: "POST",
         headers: { "Content-Type": blob.type },
         body: blob,
       });
+      setPendingRunLimits(null);
       setRecordingStatus("Voice request queued.");
       onSubmitted();
     } catch (caught) {
@@ -488,6 +517,32 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
     };
   }, []);
 
+  const openRunLimits = () => {
+    setToolCallsUnlimited(pendingRunLimits?.maxToolCalls === null && pendingRunLimits !== null);
+    setTimeUnlimited(pendingRunLimits?.timeoutMs === null && pendingRunLimits !== null);
+    setToolCallLimit(pendingRunLimits?.maxToolCalls ?? 256);
+    setTimeLimitMinutes(pendingRunLimits?.timeoutMs == null
+      ? 60
+      : Math.max(1, Math.round(pendingRunLimits.timeoutMs / 60_000)));
+    setPromptForTurnBrief(pendingRunLimits?.promptForTurnBrief === true);
+    setRunLimitsOpen(true);
+  };
+
+  const applyRunLimits = (event: FormEvent) => {
+    event.preventDefault();
+    setPendingRunLimits({
+      maxToolCalls: toolCallsUnlimited ? null : toolCallLimit,
+      timeoutMs: timeUnlimited ? null : timeLimitMinutes * 60_000,
+      promptForTurnBrief,
+    });
+    setRunLimitsOpen(false);
+  };
+
+  const useDefaultRunLimits = () => {
+    setPendingRunLimits(null);
+    setRunLimitsOpen(false);
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (recordingPhase === "recording") {
@@ -511,7 +566,9 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
         text,
         referencedRequestIds,
         selectedObjectCandidates,
+        runLimits: pendingRunLimits,
       }) });
+      setPendingRunLimits(null);
       setText("");
       setSelections([]);
       onSubmitted();
@@ -531,10 +588,14 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
             ? "Cancelling recording"
             : "Record a voice request";
 
-  return <form className={`composer ${isRecording ? "recording" : ""}`} onSubmit={submit}>
+  return <><form className={`composer ${isRecording ? "recording" : ""}`} onSubmit={submit}>
     {referenceNotice && <div className="composer-feedback" role="status">{referenceNotice}</div>}
     {recordingStatus && <div className="composer-feedback recording-status" role="status">{recordingStatus}</div>}
     {submitError && <ErrorState error={submitError} dismiss={() => setSubmitError(null)} />}
+    {!isRecording && <div className="composer-run-limits">
+      <button className={`button button--quiet run-limits-button${pendingRunLimits ? " ready" : ""}`} type="button" onClick={openRunLimits}>Increase limits</button>
+      {pendingRunLimits && <span className="run-limits-summary" role="status">Next interaction: {runLimitsText(pendingRunLimits)}</span>}
+    </div>}
     <div className="composer-input-row">
       {isRecording && <button className="button button--quiet cancel-recording" type="button" onClick={cancelRecording} aria-label="Cancel recording" title="Cancel recording"><span aria-hidden="true">×</span><span>Cancel</span></button>}
       {!isRecording && <ObjectMentionInput
@@ -570,7 +631,37 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
         disabled={sending || ["requesting", "saving", "cancelling"].includes(recordingPhase) || (recordingPhase === "idle" && !text.trim())}
       >{sending ? "Sending…" : recordingPhase === "saving" ? "Saving…" : "Send"}</button>
     </div>
-  </form>;
+  </form>
+  {runLimitsOpen && <div className="run-limits-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setRunLimitsOpen(false); }}>
+    <section className="run-limits-dialog" role="dialog" aria-modal="true" aria-labelledby="run-limits-heading">
+      <form onSubmit={applyRunLimits}>
+        <header className="run-limits-heading">
+          <div><p className="eyebrow">Next interaction only</p><h2 id="run-limits-heading">Increase limits</h2></div>
+          <button className="button button--quiet" type="button" onClick={() => setRunLimitsOpen(false)}>Close</button>
+        </header>
+        <p className="run-limits-intro">Override the normal limits for the next submitted interaction. These settings reset after it queues successfully.</p>
+        <fieldset className="run-limit-fieldset">
+          <legend>Tool calls</legend>
+          <label>Maximum tool calls<input type="number" min="1" max="10000" step="1" value={toolCallLimit} disabled={toolCallsUnlimited} onChange={(event) => setToolCallLimit(Number(event.target.value))} required /></label>
+          <label className="run-limit-check"><input type="checkbox" checked={toolCallsUnlimited} onChange={(event) => setToolCallsUnlimited(event.target.checked)} /><span>Unlimited tool calls</span></label>
+        </fieldset>
+        <fieldset className="run-limit-fieldset">
+          <legend>Run time</legend>
+          <label>Maximum minutes<input type="number" min="1" max="1440" step="1" value={timeLimitMinutes} disabled={timeUnlimited} onChange={(event) => setTimeLimitMinutes(Number(event.target.value))} required /></label>
+          <label className="run-limit-check"><input type="checkbox" checked={timeUnlimited} onChange={(event) => setTimeUnlimited(event.target.checked)} /><span>No run deadline</span></label>
+        </fieldset>
+        <fieldset className="run-limit-fieldset run-limit-supervision">
+          <legend>Supervision</legend>
+          <label className="run-limit-check"><input type="checkbox" checked={promptForTurnBrief} onChange={(event) => setPromptForTurnBrief(event.target.checked)} /><span>Pause for TurnBrief review before execution</span></label>
+        </fieldset>
+        <footer className="run-limits-actions">
+          <button className="button button--quiet" type="button" onClick={useDefaultRunLimits}>Use defaults</button>
+          <button className="button" type="submit">Apply to next interaction</button>
+        </footer>
+      </form>
+    </section>
+  </div>}
+  </>;
 }
 
 function formatRequestDuration(milliseconds: number) {
@@ -796,12 +887,13 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
   }, [filterQuery, groupData?.groups, selectedGroupId, todos]);
   return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<div className="todo-heading-actions"><label className="todo-group-filter"><span>Group</span><select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={groupsLoading}><option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}</select></label><label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label><form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form></div>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" />
-    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}>{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div></>;
+    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div></>;
 }
 
 function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=all&limit=10000");
   const [draft, setDraft] = useState("");
+  const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [selectedKind, setSelectedKind] = useState("all");
   const [selectedTag, setSelectedTag] = useState("all");
@@ -849,21 +941,22 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
           const methods = (contact.methods as Entity[] | undefined) || [];
           const tags = (contact.tags as string[] | undefined) || [];
           return <li className="contact-row" key={contact.id}>
-            <div className="contact-row-identity">
+            <button className="contact-row-identity contact-row-edit" type="button" title={`Edit ${name}`} onClick={() => setEditingContactId(Number(contact.id))}>
               <div className="contact-monogram" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</div>
               <div><h2>{name}</h2>{textKey(contact, "organizationName") && <p>{textKey(contact, "organizationName")}</p>}</div>
-            </div>
+            </button>
             <div className="contact-method-list">
               {methods.length ? methods.map((method, index) => <div className="contact-method" key={`${String(method.kind)}-${index}`}><span>{textKey(method, "label") || String(method.kind).replaceAll("_", " ")}</span><strong>{textKey(method, "value")}</strong></div>) : <span className="contact-empty">No contact details</span>}
             </div>
             <div className="contact-tag-list">{tags.map((tag) => <span className="pill" key={tag}>{tag}</span>)}</div>
-            <div className="contact-actions"><AgentReferenceButton identity={contactIdentity(contact)} subject={`contact ${name}`} onReference={onReference} />{methods.map((method, index) => { const kind = String(method.kind); const value = String(method.value || ""); const href = kind === "phone" ? `tel:${value}` : kind === "email" ? `mailto:${value}` : kind === "url" ? value : null; return href ? <a className="button button--quiet" href={href} key={index}>{kind === "phone" ? "Call" : kind === "email" ? "Email" : "Open"}</a> : null; })}{methods.filter((method) => method.kind === "phone").map((method, index) => <a className="button button--quiet" href={`sms:${method.value}`} key={`sms-${index}`}>Text</a>)}</div>
+            <div className="contact-actions"><button className="button button--quiet" type="button" onClick={() => setEditingContactId(Number(contact.id))}>Edit</button><AgentReferenceButton identity={contactIdentity(contact)} subject={`contact ${name}`} onReference={onReference} />{methods.map((method, index) => { const kind = String(method.kind); const value = String(method.value || ""); const href = kind === "phone" ? `tel:${value}` : kind === "email" ? `mailto:${value}` : kind === "url" ? value : null; return href ? <a className="button button--quiet" href={href} key={index}>{kind === "phone" ? "Call" : kind === "email" ? "Email" : "Open"}</a> : null; })}{methods.filter((method) => method.kind === "phone").map((method, index) => <a className="button button--quiet" href={`sms:${method.value}`} key={`sms-${index}`}>Text</a>)}</div>
           </li>;
           })}
           </ul>
         </section>)}
       </div>}
     </>}
+    {editingContactId != null && <ContactEditor contactId={editingContactId} onClose={() => setEditingContactId(null)} onChanged={reload} />}
   </>;
 }
 

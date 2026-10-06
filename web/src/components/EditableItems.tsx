@@ -40,6 +40,145 @@ function localDateTimeIso(value: string) {
   return value ? new Date(value).toISOString() : null;
 }
 
+interface ContactMethodDraft {
+  id?: number;
+  kind: string;
+  label: string;
+  value: string;
+  isPrimary: boolean;
+  canReceive: boolean;
+}
+
+interface ContactDraft {
+  kind: string;
+  displayName: string;
+  givenName: string;
+  familyName: string;
+  organizationName: string;
+  status: string;
+  birthDate: string;
+  notes: string;
+  methods: ContactMethodDraft[];
+  tags: string[];
+}
+
+function contactDraft(contact: Entity): ContactDraft {
+  return {
+    kind: String(contact.kind || "person"),
+    displayName: String(contact.displayName || ""),
+    givenName: String(contact.givenName || ""),
+    familyName: String(contact.familyName || ""),
+    organizationName: String(contact.organizationName || ""),
+    status: String(contact.status || "active"),
+    birthDate: String(contact.birthDate || ""),
+    notes: String(contact.notes || ""),
+    methods: ((contact.methods as Entity[] | undefined) || []).map((method) => ({
+      ...(method.id == null ? {} : { id: Number(method.id) }),
+      kind: String(method.kind || "other"),
+      label: String(method.label || ""),
+      value: String(method.value || ""),
+      isPrimary: Boolean(method.isPrimary),
+      canReceive: method.canReceive !== false,
+    })),
+    tags: ((contact.tags as string[] | undefined) || []).map(String),
+  };
+}
+
+export function ContactEditor({ contactId, onClose, onChanged }: {
+  contactId: number;
+  onClose: () => void;
+  onChanged: Changed;
+}) {
+  const [contact, setContact] = useState<Entity | null>(null);
+  const [draft, setDraft] = useState<ContactDraft | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    void api<{ contact: Entity }>(`/api/contacts/${contactId}`).then(({ contact: current }) => {
+      if (!active) return;
+      setContact(current);
+      setDraft(contactDraft(current));
+    }).catch((caught) => {
+      if (active) setError(caught instanceof Error ? caught.message : String(caught));
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [contactId]);
+
+  const updateMethod = (index: number, update: Partial<ContactMethodDraft>) => {
+    if (!draft) return;
+    setDraft({
+      ...draft,
+      methods: draft.methods.map((method, methodIndex) => methodIndex === index ? { ...method, ...update } : method),
+    });
+  };
+
+  const save = async (submitEvent: FormEvent) => {
+    submitEvent.preventDefault();
+    if (!contact || !draft) return;
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/contacts/${contactId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ version: contact.version, ...draft }),
+      });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <EditorFrame title="Edit contact" onClose={onClose}>
+    <form onSubmit={(submitEvent) => void save(submitEvent)}>
+      <header className="object-editor-heading"><div><p className="eyebrow">Contacts</p><h2>Edit contact</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      {loading && <p className="object-editor-state">Loading current contact...</p>}
+      {draft && <>
+        <div className="object-editor-grid">
+          <label>Name<input autoFocus required maxLength={500} value={draft.displayName} onChange={(change) => setDraft({ ...draft, displayName: change.target.value })} /></label>
+          <label>Type<select value={draft.kind} onChange={(change) => setDraft({ ...draft, kind: change.target.value })}><option value="person">Person</option><option value="organization">Organization</option><option value="service">Service</option></select></label>
+        </div>
+        <div className="object-editor-grid">
+          <label>Given name<input maxLength={500} value={draft.givenName} onChange={(change) => setDraft({ ...draft, givenName: change.target.value })} /></label>
+          <label>Family name<input maxLength={500} value={draft.familyName} onChange={(change) => setDraft({ ...draft, familyName: change.target.value })} /></label>
+        </div>
+        <div className="object-editor-grid">
+          <label>Organization<input maxLength={500} value={draft.organizationName} onChange={(change) => setDraft({ ...draft, organizationName: change.target.value })} /></label>
+          <label>Birthday<input maxLength={10} placeholder="YYYY-MM-DD or --MM-DD" value={draft.birthDate} onChange={(change) => setDraft({ ...draft, birthDate: change.target.value })} /></label>
+        </div>
+        <section className="contact-editor-section" aria-labelledby="contact-methods-heading">
+          <div className="contact-editor-section-heading"><h3 id="contact-methods-heading">Contact details</h3><button className="button button--quiet" type="button" disabled={draft.methods.length >= 100} onClick={() => setDraft({ ...draft, methods: [...draft.methods, { kind: "email", label: "", value: "", isPrimary: false, canReceive: true }] })}>Add detail</button></div>
+          {!draft.methods.length && <p className="contact-empty">No contact details yet.</p>}
+          {draft.methods.map((method, index) => <div className="contact-editor-method" key={method.id ?? `new-${index}`}>
+            <label>Type<select value={method.kind} onChange={(change) => updateMethod(index, { kind: change.target.value })}><option value="email">Email</option><option value="phone">Phone</option><option value="postal_address">Postal address</option><option value="handle">Handle</option><option value="url">URL</option><option value="other">Other</option></select></label>
+            <label>Label<input maxLength={100} placeholder="Work, mobile…" value={method.label} onChange={(change) => updateMethod(index, { label: change.target.value })} /></label>
+            <label className="contact-editor-method-value">Value<input required maxLength={2000} value={method.value} onChange={(change) => updateMethod(index, { value: change.target.value })} /></label>
+            <label className="object-editor-check"><input type="checkbox" checked={method.isPrimary} onChange={(change) => updateMethod(index, { isPrimary: change.target.checked })} /><span>Primary</span></label>
+            <label className="object-editor-check"><input type="checkbox" checked={method.canReceive} onChange={(change) => updateMethod(index, { canReceive: change.target.checked })} /><span>Can receive</span></label>
+            <button className="button button--quiet contact-editor-remove" type="button" onClick={() => setDraft({ ...draft, methods: draft.methods.filter((_, methodIndex) => methodIndex !== index) })}>Remove</button>
+          </div>)}
+        </section>
+        <section className="contact-editor-section" aria-labelledby="contact-tags-heading">
+          <div className="contact-editor-section-heading"><h3 id="contact-tags-heading">Tags</h3><button className="button button--quiet" type="button" disabled={draft.tags.length >= 50} onClick={() => setDraft({ ...draft, tags: [...draft.tags, ""] })}>Add tag</button></div>
+          {!draft.tags.length && <p className="contact-empty">No tags yet.</p>}
+          <div className="contact-editor-tags">{draft.tags.map((tag, index) => <div key={index}><input required maxLength={100} aria-label={`Tag ${index + 1}`} value={tag} onChange={(change) => setDraft({ ...draft, tags: draft.tags.map((current, tagIndex) => tagIndex === index ? change.target.value : current) })} /><button className="button button--quiet" type="button" aria-label={`Remove tag ${tag || index + 1}`} onClick={() => setDraft({ ...draft, tags: draft.tags.filter((_, tagIndex) => tagIndex !== index) })}>Remove</button></div>)}</div>
+        </section>
+        <label>Notes<textarea rows={4} maxLength={10_000} value={draft.notes} onChange={(change) => setDraft({ ...draft, notes: change.target.value })} /></label>
+        <label>Status<select value={draft.status} onChange={(change) => setDraft({ ...draft, status: change.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option><option value="blocked">Blocked</option><option value="deceased">Deceased</option></select></label>
+      </>}
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : "Save contact"}</button></footer>
+    </form>
+  </EditorFrame>;
+}
+
 interface CalendarDraft {
   title: string;
   description: string;
@@ -478,6 +617,7 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
   );
   const complete = status === "complete";
   const editable = Boolean(onChanged && Number.isSafeInteger(id) && id > 0);
+  const sequence = variant === "row" && todo.sequence != null ? String(todo.sequence) : null;
 
   const toggle = async () => {
     if (!onChanged || !editable) return;
@@ -502,7 +642,6 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
 
   const body = <>
     <strong className="multiline-item-text">{text}</strong>
-    {variant === "row" && "sequence" in todo && todo.sequence != null && <small>#{String(todo.sequence)}</small>}
     {billable && <small>{billable} billable</small>}
     {eventTitles?.length ? <small className="multiline-item-text">For {eventTitles.join(", ")}</small> : null}
   </>;
@@ -510,6 +649,7 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
     {editable
       ? <button className="todo-check" type="button" disabled={updating} onClick={() => void toggle()} aria-label={`Mark ${text} ${complete ? "open" : "complete"}`}>{complete ? "✓" : ""}</button>
       : <span className={`paper-checkbox ${complete ? "is-complete" : ""}`} aria-hidden="true">{complete ? "✓" : ""}</span>}
+    {sequence && <span className="todo-sequence" aria-label={`Sequence ${sequence}`}>#{sequence}</span>}
     {editable
       ? <button className="todo-item-content" type="button" onClick={() => setEditing(true)} title="Edit to-do">{body}</button>
       : <div className="todo-item-content">{body}</div>}
@@ -522,5 +662,5 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
   </>;
   return variant === "scheduled"
     ? <li className={`scheduled-todo-card${complete ? " is-complete" : ""}`}>{itemContent}</li>
-    : <article className={`todo-row ${complete ? "is-complete" : ""}`}>{itemContent}</article>;
+    : <article className={`todo-row${sequence ? " has-sequence" : ""}${complete ? " is-complete" : ""}`}>{itemContent}</article>;
 }

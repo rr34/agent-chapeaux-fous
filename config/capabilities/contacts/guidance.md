@@ -31,6 +31,15 @@ method ID only when the contact has no postal address. This tool changes the
 existing contact in place and preserves every unrelated method, tag, and
 identity field; never use `contact_import` to represent an address correction.
 
+When the user asks to change an existing contact's birthday, name,
+organization, notes, kind, or status, resolve that contact with
+`contact_search` or `contact_lookup_batch`, then call `contact_update` with the
+returned contact ID and expected version. Supply only the requested new values
+and the false clear flags required by the schema. Use a clear flag only when
+the user explicitly asks to remove that field. The tool preserves contact
+methods, tags, source identity, and every unmentioned field. Never use
+`contact_import` to represent an edit to an existing contact.
+
 When resolving or tagging a large user-supplied contact list, send all names in
 one `contact_lookup_batch` call, review its exact matches, then send every
 approved ID in one `contact_tag_add_batch` call. New contacts can receive the

@@ -30,10 +30,27 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(app, /<ScheduledTodos[^>]+onChanged=\{reload\}/);
   assert.match(items, /className="todo-check"[^>]+onClick=\{\(\) => void toggle\(\)\}/);
   assert.match(items, /className="todo-item-content"[^>]+onClick=\{\(\) => setEditing\(true\)\}/);
+  assert.match(items, /className="todo-sequence"[^>]*>#\{sequence\}<\/span>/);
+  assert.match(items, /className=\{`todo-row\$\{sequence \? " has-sequence" : ""\}/);
+  assert.match(styles, /\.todo-row\.has-sequence \{ grid-template-columns: auto 54px minmax\(0, 1fr\) auto; \}/);
+  assert.match(styles, /\.todo-sequence \{[^}]*font-weight: 750;/);
   assert.match(items, /version: current\.version/);
   assert.match(items, /status: current\.status === "complete" \? "todo" : "complete"/);
   assert.match(items, /version: todo\.version/);
   assert.match(server, /request\.method === "GET" && todoMatch/);
+});
+
+test("contacts are click-to-edit and expose a complete versioned editor", () => {
+  assert.match(app, /<ContactEditor contactId=\{editingContactId\}/);
+  assert.match(app, /className="contact-row-identity contact-row-edit"[^>]+onClick=\{\(\) => setEditingContactId/);
+  assert.match(app, />Edit<\/button>/);
+  assert.match(items, /export function ContactEditor/);
+  assert.match(items, /api<\{ contact: Entity \}>\(`\/api\/contacts\/\$\{contactId\}`\)/);
+  assert.match(items, /version: contact\.version/);
+  assert.match(items, /Save contact/);
+  assert.match(items, /Add detail/);
+  assert.match(items, /Add tag/);
+  assert.match(server, /request\.method === "GET" && contactMatch/);
 });
 
 

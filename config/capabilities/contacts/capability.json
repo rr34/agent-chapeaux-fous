@@ -4,7 +4,7 @@
   "version": 1,
   "id": "contacts",
   "title": "Contacts",
-  "summary": "Search, import, update addresses, tag, and merge native contacts.",
+  "summary": "Search, import, update, tag, and merge native contacts.",
   "aliases": [
     "contact",
     "contacts",

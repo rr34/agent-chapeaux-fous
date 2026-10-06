@@ -27,7 +27,7 @@ const capabilityPatterns = new Map([
   ["self", /\bhow (?:do|did) you.{0,50}\b(?:make|create|generate|produce|render)(?:d|s|ing)?\b.{0,40}\bvideos?\b|\bhow (?:is|are|was|were).{0,40}\bvideos?\b.{0,30}\b(?:made|created|generated|produced|rendered)\b|\b(?:is it|is this).{0,30}\beasy\b.{0,40}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b|\bhow (?:long|many clicks).{0,50}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b/iu],
   ["web", /https?:\/\/|\b(?:web ?page|website|url|link)\b/iu],
   ["calendar", /\b(?:calendar|schedule|agenda|appointment|meeting|event|birthday|invite|routines?|habits?|deadline|due date|work window)\b/iu],
-  ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b|\b(?:add|change|correct|set|update)\b(?![^\n]{0,60}\bmy\s+(?:home\s+|work\s+|mailing\s+|postal\s+|street\s+)?address\b)[^\n]{0,60}\baddress\b/iu],
+  ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b|\b(?:add|change|correct|set|update)\b(?![^\n]{0,60}\bmy\s+(?:home\s+|work\s+|mailing\s+|postal\s+|street\s+)?address\b)[^\n]{0,60}\baddress\b|\b(?:change|clear|correct|remove|set|update)\b[^\n]{0,80}\b(?:birthday|birth date|date of birth)\b/iu],
   ["todos", /\b(?:to[ -]?do|todo|task|remind(?:er)?|chore)\b/iu],
   ["journal", /\b(?:personal journals?|journal entr(?:y|ies)|(?:my|the) journals?|food journal|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
   ["profile", /\b(?:remember that|remember my|keep on file|profile fact|forget (?:that|my)|my preference|i prefer|i am allergic|my address|my phone|my vehicle|my car|my time ?zone|my\b.{0,80}\b(?:is|are|changed))\b/iu],
@@ -52,7 +52,7 @@ const personalActionPattern = /\b(?:my|mine|current|latest|today|now|look up|fin
 const capabilitySummaries = new Map([
   ["web", "Read specific web pages supplied by URL."],
   ["calendar", "Read and manage calendar events, deadlines, reusable routines, generated events, and event-to-do links."],
-  ["contacts", "Search, import, update addresses, tag, and merge contacts."],
+  ["contacts", "Search, import, update, tag, and merge contacts."],
   ["todos", "Read and manage non-temporal native personal to-dos and their content-library links."],
   ["journal", "Read, record, and correct journal entries and trackers."],
   ["profile", "Read and maintain durable profile facts."],

@@ -44,7 +44,7 @@ test("recording takes over the composer and Cancel exits before voice upload", (
   assert.match(recorder, /audio: \{ echoCancellation: true, noiseSuppression: true, autoGainControl: true \}/);
   assert.match(recorder, /aria-label="Cancel recording"/);
   assert.match(recorder, /recordingCancelled\.current = true;[\s\S]+recorder\.current\.stop\(\)/);
-  assert.ok(recorder.indexOf("if (recordingCancelled.current)") < recorder.indexOf('"\/api\/voice"'));
+  assert.ok(recorder.indexOf("if (recordingCancelled.current)") < recorder.indexOf("runLimitsQuery"));
   assert.match(recorder, /setRecordingStatus\("Recording cancelled\."\)/);
   assert.match(styles, /\.composer\.recording \.composer-input-row \{[^}]*grid-template-areas: "cancel recorder send"/s);
   assert.match(styles, /\.composer\.recording \.composer-input-row textarea \{ display: none; \}/);
@@ -64,6 +64,17 @@ test("request cards show live and persisted LLM and tool call metrics", () => {
   assert.match(app, /<RequestInteractionMetrics request=\{request\} \/>/);
   assert.match(styles, /\.progress-spinner \{[^}]*animation: progress-spin/s);
   assert.match(styles, /\.interaction-metrics \{/);
+});
+
+test("the Agent composer restores one-interaction run limit controls", () => {
+  const composer = app.slice(app.indexOf("function AgentComposer("), app.indexOf("function AgentScreen("));
+  assert.match(composer, />Increase limits<\/button>/);
+  assert.match(composer, /Next interaction only/);
+  assert.match(composer, /runLimits: pendingRunLimits/);
+  assert.match(composer, /`\/api\/voice\$\{runLimitsQuery\}`/);
+  assert.match(composer, /setPendingRunLimits\(null\)/);
+  assert.match(styles, /\.run-limits-backdrop \{/);
+  assert.match(styles, /\.run-limit-fieldset \{/);
 });
 
 test("request cards open the whole trace in collapsed sections with a copy action", () => {

@@ -115,6 +115,17 @@ const toolDescriptions = Object.freeze({
     "effectClassifications": [
       "MUTATING"
     ]
+  },
+  "contact_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically update standard identity and profile fields on existing contacts while preserving methods, tags, and import identity.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
   }
 });
 
@@ -1027,6 +1038,181 @@ export function registerContactTools(
           };
         }),
       };
+    },
+  });
+
+  registry.register({
+    name: "contact_update",
+    description: "Atomically update standard fields on 1 through 100 existing contacts. Resolve every contact with contact_search or contact_lookup_batch and use its current expected_version. This changes only explicitly supplied identity or profile fields and always preserves contact methods, tags, source, external ID, and self identity. Null means leave a value unchanged; use the matching clear flag to remove an optional value. A replay that already matches the requested state is unchanged even with the prior version. Use contact_address_update for postal addresses and the dedicated tag tools for tag additions or global tag renames.",
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        selected_contact_count: { type: "integer", minimum: 1, description: "Number of distinct existing contacts validated by this call." },
+        updated_contact_count: { type: "integer", minimum: 0, description: "Number of contacts whose stored fields changed." },
+        unchanged_contact_count: { type: "integer", minimum: 0, description: "Number of contacts already in the requested state." },
+        results: {
+          type: "array",
+          description: "One correlated result for each requested contact, in input order.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              status: { type: "string", enum: ["updated", "unchanged"] },
+              contact_id: { type: "integer", minimum: 1 },
+              expected_version: { type: "string", minLength: 1, description: "Current contact version after this result; use it for a later mutation." },
+              changed_fields: {
+                type: "array",
+                items: {
+                  type: "string",
+                  enum: [
+                    "contact_kind", "display_name", "given_name", "family_name",
+                    "organization_name", "status", "birth_date", "notes",
+                  ],
+                },
+              },
+              contact: { ...contactRecordSchema, type: "object" },
+            },
+            required: ["status", "contact_id", "expected_version", "changed_fields", "contact"],
+          },
+        },
+      },
+      required: [
+        "selected_contact_count", "updated_contact_count", "unchanged_contact_count", "results",
+      ],
+    },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        updates: {
+          type: "array", minItems: 1, maxItems: 100,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              contact_id: { type: "integer", minimum: 1, description: "Stable ID of the existing contact to change. This tool never creates a contact." },
+              expected_version: { type: "string", minLength: 1, maxLength: 100, description: "Current contact version returned by contact_search or contact_lookup_batch." },
+              contact_kind: { type: ["string", "null"], enum: ["person", "organization", "service", null], description: "New contact kind, or null to leave unchanged." },
+              display_name: { ...nullableString, maxLength: 500, description: "New non-empty display name, or null to leave unchanged." },
+              given_name: { ...nullableString, minLength: 1, maxLength: 500, description: "New given name, or null to leave unchanged." },
+              clear_given_name: { type: "boolean", description: "True to remove the given name. Cannot be combined with given_name." },
+              family_name: { ...nullableString, minLength: 1, maxLength: 500, description: "New family name, or null to leave unchanged." },
+              clear_family_name: { type: "boolean", description: "True to remove the family name. Cannot be combined with family_name." },
+              organization_name: { ...nullableString, minLength: 1, maxLength: 500, description: "New organization name, or null to leave unchanged." },
+              clear_organization_name: { type: "boolean", description: "True to remove the organization name. Cannot be combined with organization_name." },
+              status: { type: ["string", "null"], enum: ["active", "inactive", "blocked", "deceased", null], description: "New address-book status, or null to leave unchanged." },
+              birth_date: { ...nullableString, minLength: 1, maxLength: 10, description: "New birth date as YYYY-MM-DD or --MM-DD, or null to leave unchanged. Never invent a year." },
+              clear_birth_date: { type: "boolean", description: "True to remove the stored birth date. Cannot be combined with birth_date." },
+              notes: { ...nullableString, minLength: 1, maxLength: 10000, description: "Complete replacement notes, or null to leave unchanged." },
+              clear_notes: { type: "boolean", description: "True to remove the notes. Cannot be combined with notes." },
+            },
+            required: [
+              "contact_id", "expected_version", "contact_kind", "display_name",
+              "given_name", "clear_given_name", "family_name", "clear_family_name",
+              "organization_name", "clear_organization_name", "status", "birth_date",
+              "clear_birth_date", "notes", "clear_notes",
+            ],
+          },
+        },
+      },
+      required: ["updates"],
+    },
+    async execute({ updates }, context) {
+      const database = store.requireReady();
+      const ids = updates.map(({ contact_id: contactId }) => contactId);
+      if (new Set(ids).size !== ids.length) {
+        throw new Error("updates cannot contain the same contact more than once");
+      }
+      database.exec("START TRANSACTION");
+      try {
+        const plans = updates.map((input, index) => {
+          const before = contactFromDatabase(database, input.contact_id);
+          if (!before) throw new Error(`Contact ${input.contact_id} was not found`);
+          const currentVersion = before.updated_at_utc ?? before.created_at_utc;
+          const values = {};
+          const setOptional = (field, clearField, maximumLength) => {
+            if (input[clearField] && input[field] !== null) {
+              throw new Error(`updates[${index}].${clearField} cannot be combined with ${field}`);
+            }
+            if (input[clearField]) values[field] = null;
+            else if (input[field] !== null) values[field] = requiredText(input[field], field, maximumLength);
+          };
+          if (input.contact_kind !== null) {
+            if (!contactKinds.has(input.contact_kind)) throw new Error(`updates[${index}].contact_kind is invalid`);
+            values.contact_kind = input.contact_kind;
+          }
+          if (input.display_name !== null) {
+            values.display_name = requiredText(input.display_name, `updates[${index}].display_name`, 500);
+          }
+          setOptional("given_name", "clear_given_name", 500);
+          setOptional("family_name", "clear_family_name", 500);
+          setOptional("organization_name", "clear_organization_name", 500);
+          if (input.status !== null) {
+            if (!contactStatuses.has(input.status)) throw new Error(`updates[${index}].status is invalid`);
+            values.status = input.status;
+          }
+          if (input.clear_birth_date && input.birth_date !== null) {
+            throw new Error(`updates[${index}].clear_birth_date cannot be combined with birth_date`);
+          }
+          if (input.clear_birth_date) values.birth_date = null;
+          else if (input.birth_date !== null) values.birth_date = birthDate(input.birth_date);
+          setOptional("notes", "clear_notes", 10_000);
+          if (Object.keys(values).length === 0) {
+            throw new Error(`No changes supplied for contact ${input.contact_id}`);
+          }
+          const changedFields = Object.keys(values).filter((field) => (
+            (before[field] ?? null) !== (values[field] ?? null)
+          ));
+          if (input.expected_version !== currentVersion && changedFields.length > 0) {
+            throw new Error(`Contact ${input.contact_id} changed after it was read; search again before updating`);
+          }
+          return { input, before, currentVersion, values, changedFields };
+        });
+        const results = plans.map((plan) => {
+          if (plan.changedFields.length > 0) {
+            const candidate = new Date().toISOString();
+            const nextVersion = candidate > plan.currentVersion
+              ? candidate
+              : new Date(new Date(plan.currentVersion).getTime() + 1).toISOString();
+            const assignments = [...plan.changedFields, "updated_at_utc"];
+            database.prepare(`UPDATE contacts SET ${assignments.map((field) => `\`${field}\` = ?`).join(", ")} WHERE contact_id = ?`)
+              .run(...plan.changedFields.map((field) => plan.values[field]), nextVersion, plan.input.contact_id);
+          }
+          const contact = contactFromDatabase(database, plan.input.contact_id);
+          return {
+            status: plan.changedFields.length > 0 ? "updated" : "unchanged",
+            contact_id: Number(plan.input.contact_id),
+            expected_version: contact.updated_at_utc ?? contact.created_at_utc,
+            changed_fields: plan.changedFields,
+            contact,
+          };
+        });
+        const updatedCount = results.filter(({ status }) => status === "updated").length;
+        const result = {
+          selected_contact_count: results.length,
+          updated_contact_count: updatedCount,
+          unchanged_contact_count: results.length - updatedCount,
+          results,
+        };
+        ledger.append({
+          type: "contacts.updated", status: "complete", actorType: "tool",
+          actorName: "contact_update", source: "model_tool", channel: context.channel,
+          turnId: context.requestId, operationId: context.callId,
+          name: results.length === 1 ? "Contact updated" : "Contacts updated",
+          content: results.length === 1
+            ? results[0].contact.display_name
+            : `${updatedCount} updated, ${results.length - updatedCount} unchanged`,
+          payload: result,
+          subjectType: results.length === 1 ? "contact" : "contact_batch",
+          subjectId: results.length === 1 ? String(results[0].contact_id) : String(results.length),
+        });
+        database.exec("COMMIT");
+        return result;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     },
   });
 

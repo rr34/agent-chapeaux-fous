@@ -185,6 +185,9 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     { path: "/merges/*/keep_contact_id", objectType: "contacts.contact", value: "id", role: "merge_destination" },
     { path: "/merges/*/merge_contacts/*/contact_id", objectType: "contacts.contact", value: "id", role: "merge_source" },
   ]);
+  assert.deepEqual(bindings("contact_update"), [{
+    path: "/updates/*/contact_id", objectType: "contacts.contact", value: "id", role: "subject",
+  }]);
   assert.deepEqual(bindings("calendar_event_contact_link_set"), [
     { path: "/calendar_event_id", objectType: "calendar.event", value: "id", role: "subject" },
     { path: "/contact_id", objectType: "contacts.contact", value: "id", role: "subject" },

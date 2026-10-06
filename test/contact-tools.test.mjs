@@ -298,6 +298,122 @@ test("contact_address_update adds only to an addressless contact and validates b
   assert.equal(organizer.getContact(existing.id).methods[0].value, "1 Current Lane");
 });
 
+test("contact_update changes standard fields while preserving unrelated contact data", async (context) => {
+  const { store, organizer, registry, request } = harness(context);
+  const created = organizer.createContact({
+    kind: "person",
+    displayName: "Jermaine Fox",
+    givenName: "Jermaine",
+    familyName: "Fox",
+    organizationName: "Fox Workshop",
+    notes: "Met at the market.",
+    methods: [{ kind: "email", label: "Work", value: "jermaine@example.test", isPrimary: true }],
+    tags: ["Friend"],
+  });
+  const definition = registry.toolDefinitions().find(({ name }) => name === "contact_update");
+  assert.deepEqual(definition.inputSchema.required, ["updates"]);
+  assert.match(definition.description, /preserves contact methods, tags, source, external ID/);
+
+  const unchangedFields = {
+    contact_kind: null,
+    display_name: null,
+    given_name: null,
+    clear_given_name: false,
+    family_name: null,
+    clear_family_name: false,
+    organization_name: null,
+    clear_organization_name: false,
+    status: null,
+    clear_birth_date: false,
+    notes: null,
+    clear_notes: false,
+  };
+  const input = {
+    updates: [{
+      contact_id: created.id,
+      expected_version: created.version,
+      ...unchangedFields,
+      birth_date: "1979-05-25",
+    }],
+  };
+  const updated = await registry.execute("contact_update", input, {
+    requestId: request.requestId,
+    callId: "contact-update-birthday",
+    channel: "web",
+  });
+  assert.deepEqual(
+    [updated.selected_contact_count, updated.updated_contact_count, updated.unchanged_contact_count],
+    [1, 1, 0],
+  );
+  assert.deepEqual(updated.results[0].changed_fields, ["birth_date"]);
+  assert.equal(updated.results[0].contact.birth_date, "1979-05-25");
+
+  const stored = organizer.getContact(created.id);
+  assert.equal(stored.birthDate, "1979-05-25");
+  assert.equal(stored.organizationName, "Fox Workshop");
+  assert.equal(stored.notes, "Met at the market.");
+  assert.equal(stored.methods[0].value, "jermaine@example.test");
+  assert.deepEqual(stored.tags, ["Friend"]);
+
+  const replay = await registry.execute("contact_update", input, {
+    requestId: request.requestId,
+    callId: "contact-update-birthday-replay",
+    channel: "web",
+  });
+  assert.deepEqual(
+    [replay.updated_contact_count, replay.unchanged_contact_count],
+    [0, 1],
+  );
+  assert.deepEqual(replay.results[0].changed_fields, []);
+  assert.equal(store.requireReady().prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'contacts.updated'
+      AND actor_type = 'tool' AND actor_name = 'contact_update'
+  `).get().count, 2);
+});
+
+test("contact_update validates a stale batch atomically and supports explicit clears", async (context) => {
+  const { organizer, registry, request } = harness(context);
+  const first = organizer.createContact({ displayName: "First", notes: "Keep until cleared" });
+  const second = organizer.createContact({ displayName: "Second" });
+  const emptyPatch = {
+    contact_kind: null,
+    display_name: null,
+    given_name: null,
+    clear_given_name: false,
+    family_name: null,
+    clear_family_name: false,
+    organization_name: null,
+    clear_organization_name: false,
+    status: null,
+    birth_date: null,
+    clear_birth_date: false,
+    notes: null,
+    clear_notes: false,
+  };
+  await assert.rejects(
+    registry.execute("contact_update", {
+      updates: [
+        { contact_id: first.id, expected_version: first.version, ...emptyPatch, display_name: "Changed" },
+        { contact_id: second.id, expected_version: "stale", ...emptyPatch, birth_date: "--05-25" },
+      ],
+    }, { requestId: request.requestId, callId: "contact-update-stale", channel: "web" }),
+    /changed after it was read/,
+  );
+  assert.equal(organizer.getContact(first.id).displayName, "First");
+
+  const cleared = await registry.execute("contact_update", {
+    updates: [{
+      contact_id: first.id,
+      expected_version: first.version,
+      ...emptyPatch,
+      clear_notes: true,
+    }],
+  }, { requestId: request.requestId, callId: "contact-update-clear", channel: "web" });
+  assert.equal(cleared.results[0].contact.notes, null);
+  assert.deepEqual(cleared.results[0].changed_fields, ["notes"]);
+});
+
 test("contact_search exposes the Contacts UI substring search to the agent", async (context) => {
   const { organizer, registry, request } = harness(context);
   organizer.createContact({

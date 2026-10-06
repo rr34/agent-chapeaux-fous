@@ -665,6 +665,12 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const contactMatch = /^\/api\/contacts\/(\d+)$/.exec(url.pathname);
+    if (request.method === "GET" && contactMatch) {
+      const contact = organizer.getContact(contactMatch[1]);
+      if (!contact) throw Object.assign(new Error("Contact not found"), { statusCode: 404 });
+      sendJson(response, 200, { contact });
+      return;
+    }
     if (request.method === "PATCH" && contactMatch) {
       sendJson(response, 200, { contact: organizer.updateContact(contactMatch[1], await readJson(request)) });
       return;
