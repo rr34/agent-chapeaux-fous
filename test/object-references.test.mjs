@@ -3,6 +3,8 @@ import test from "node:test";
 import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
 import { validateFirstClassObjectBinding } from "../src/first-class-object-binding.mjs";
 import {
+  explicitReferenceObjectCatalog,
+  mergeObjectReferenceGroups,
   normalizeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
   objectReferenceSelectionFindings,
@@ -50,6 +52,124 @@ test("remote object bindings preserve bulk IDs, stable references, displays, and
     ],
     sourceEventSeqs: [30_801],
   }]);
+});
+
+test("merging bindings keeps source evidence attached to the exact observed objects", () => {
+  const merged = mergeObjectReferenceGroups([
+    {
+      mention: "Calendar event returned by an older search",
+      role: "subject",
+      type: "calendar.event",
+      source: "native:calendar",
+      objects: [
+        { id: 3129, ref: "agent-slayer://calendar-events/3129", display: "Morning Exercise" },
+        { id: 3136, ref: "agent-slayer://calendar-events/3136", display: "Meditate" },
+      ],
+      sourceEventSeqs: [34253],
+    },
+    {
+      mention: "Calendar event returned by the referenced exchange",
+      role: "subject",
+      type: "calendar.event",
+      source: "native:calendar",
+      objects: [
+        { id: 3128, ref: "agent-slayer://calendar-events/3128", display: "Morning Exercise" },
+        { id: 3135, ref: "agent-slayer://calendar-events/3135", display: "Meditate" },
+      ],
+      sourceEventSeqs: [34319, 34331],
+    },
+  ]);
+
+  assert.deepEqual(merged, [
+    {
+      mention: "Calendar event returned by an older search",
+      role: "subject",
+      type: "calendar.event",
+      source: "native:calendar",
+      objects: [
+        { id: 3129, ref: "agent-slayer://calendar-events/3129", display: "Morning Exercise" },
+        { id: 3136, ref: "agent-slayer://calendar-events/3136", display: "Meditate" },
+      ],
+      sourceEventSeqs: [34253],
+    },
+    {
+      mention: "Calendar event returned by the referenced exchange",
+      role: "subject",
+      type: "calendar.event",
+      source: "native:calendar",
+      objects: [
+        { id: 3128, ref: "agent-slayer://calendar-events/3128", display: "Morning Exercise" },
+        { id: 3135, ref: "agent-slayer://calendar-events/3135", display: "Meditate" },
+      ],
+      sourceEventSeqs: [34319, 34331],
+    },
+  ]);
+});
+
+test("repeated observations merge evidence only for the repeated stable object", () => {
+  const merged = mergeObjectReferenceGroups([
+    {
+      mention: "First account read",
+      role: "subject",
+      type: "accounting.account",
+      source: "mcp:accounting",
+      objects: [
+        { id: 178, ref: "accounting://accounts/178", display: "Operating Checking" },
+        { id: 179, ref: "accounting://accounts/179", display: "Payroll Checking" },
+      ],
+      sourceEventSeqs: [10],
+    },
+    {
+      mention: "Fresh account read",
+      role: "subject",
+      type: "accounting.account",
+      source: "mcp:accounting",
+      objects: [
+        { id: 178, ref: "accounting://accounts/178", display: "Operating Checking" },
+      ],
+      sourceEventSeqs: [20],
+    },
+  ]);
+
+  const operating = merged.find(({ objects }) => objects[0].id === 178);
+  const payroll = merged.find(({ objects }) => objects[0].id === 179);
+  assert.deepEqual(operating.sourceEventSeqs, [10, 20]);
+  assert.equal(operating.mention, "Fresh account read");
+  assert.deepEqual(payroll.sourceEventSeqs, [10]);
+  assert.equal(payroll.mention, "First account read");
+});
+
+test("an explicit exchange binding removes stale same-named competitors without hiding unrelated objects", () => {
+  const catalog = explicitReferenceObjectCatalog([
+    {
+      mention: "Events from unrelated recent conversation",
+      role: "subject",
+      type: "calendar.event",
+      source: "native:calendar",
+      objects: [
+        { id: 3129, ref: "agent-slayer://calendar-events/3129", display: "Morning Exercise" },
+        { id: 3136, ref: "agent-slayer://calendar-events/3136", display: "Meditate" },
+        { id: 3148, ref: "agent-slayer://calendar-events/3148", display: "Luzia’s dentist appointment" },
+      ],
+      sourceEventSeqs: [34253],
+    },
+  ], [
+    {
+      mention: "Events from the explicitly referenced exchange",
+      role: "subject",
+      type: "calendar.event",
+      source: "native:calendar",
+      objects: [
+        { id: 3128, ref: "agent-slayer://calendar-events/3128", display: "Morning Exercise" },
+        { id: 3135, ref: "agent-slayer://calendar-events/3135", display: "Meditate" },
+      ],
+      sourceEventSeqs: [34319, 34331],
+    },
+  ]);
+
+  const objects = catalog.flatMap(({ objects: groupObjects }) => groupObjects);
+  assert.deepEqual(objects.map(({ id }) => id).sort((left, right) => left - right), [3128, 3135, 3148]);
+  assert.equal(objects.some(({ id }) => id === 3129 || id === 3136), false);
 });
 
 test("a provider record is not identified when its declared primary ID is absent", () => {

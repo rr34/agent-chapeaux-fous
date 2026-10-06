@@ -35,18 +35,24 @@ Use `calendar_routine_add`, `calendar_routine_list`, and
 `calendar_routine_update` for reusable routines and habits. A calendar routine
 is a temporal definition, not a task template. `calendar_routine_generate`
 materializes missing concrete events for a bounded range and is safe to repeat.
+Each materialized event is independently editable: move or otherwise change its
+returned `calendar_event_id` with `calendar_event_update` and `scope="event"`.
+Its `calendar_routine_id` and `routine_occurrence_key` retain its relationship
+to the routine, but the edit does not rewrite the routine or sibling events.
 After generating the full range, it moves incomplete work links from older
 occurrences to the earliest current or upcoming occurrence in the same routine.
 It never creates to-dos, and task completion never advances a routine.
 
-When updating a recurring event, distinguish just one occurrence from the whole
-series. A plan for a specific date belongs to `calendar_event_occurrence_update`
-with the series ID and exact original occurrence start from `calendar_event_list`.
+Do not confuse a calendar routine with an RRULE recurring calendar-event master.
+When updating an RRULE event, distinguish just one computed occurrence from the
+whole series. A plan for one computed RRULE occurrence belongs to
+`calendar_event_occurrence_update` with the series ID and exact original
+occurrence start from `calendar_event_list`.
 Use `calendar_event_update` with `scope="series"` only when the user requests a
 whole-series change: it changes the recurring master and all generated past and
 future occurrences, while separately edited exceptions are not rewritten. Use
-`scope="event"` for a one-time event or an already materialized exception. If the
-request does not establish scope, explain the effect and offer “just this
-occurrence” or “the whole series” before making changes. An explicit date or
-whole-series request already establishes scope; do not ask again. State the
-applied scope when confirming the change.
+`scope="event"` for a one-time event, a routine-generated concrete event, or an
+already materialized RRULE exception. If the request does not establish scope,
+explain the effect and offer “just this occurrence” or “the whole series” before
+making changes. An explicit date or whole-series request already establishes
+scope; do not ask again. State the applied scope when confirming the change.

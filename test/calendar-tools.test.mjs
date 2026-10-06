@@ -266,6 +266,48 @@ test("calendar updates distinguish series changes from one occurrence and preser
     ["Standing family commitment", "Revised weekend plan", "Standing family commitment"]);
 });
 
+test("a routine-generated concrete event moves independently without changing its routine or siblings", async (context) => {
+  const { organizer, registry } = calendarFixture(context);
+  const routine = organizer.createCalendarRoutine({
+    title: "Morning Exercise",
+    startsAtUtc: "2026-09-13T10:00:00.000Z",
+    endsAtUtc: "2026-09-13T10:15:00.000Z",
+    timeZone: "America/New_York",
+    recurrenceRule: "FREQ=WEEKLY;BYDAY=SU",
+  }).routine;
+  const generated = organizer.generateCalendarRoutines({
+    from: "2026-09-13T00:00:00.000Z",
+    to: "2026-09-28T00:00:00.000Z",
+  }, { nowUtc: "2026-09-12T12:00:00.000Z" }).events;
+  assert.equal(generated.length, 3);
+  const [target, sibling] = generated;
+  const originalOccurrenceKey = target.routineOccurrenceKey;
+  const siblingBefore = organizer.getCalendar(sibling.id);
+  const routineBefore = organizer.getCalendarRoutine(routine.id);
+
+  const moved = await registry.execute("calendar_event_update", {
+    calendar_event_id: target.id,
+    scope: "event",
+    title: null,
+    description: null,
+    location_text: null,
+    starts_at_utc: "2026-09-13T09:10:00.000Z",
+    ends_at_utc: "2026-09-13T09:25:00.000Z",
+    time_zone: null,
+    is_all_day: null,
+    status: null,
+  }, { requestId: "move-generated-event", callId: "move-one-event" });
+
+  assert.equal(moved.scope, "event");
+  assert.equal(moved.event.calendar_event_id, target.id);
+  assert.equal(moved.event.calendar_routine_id, routine.id);
+  assert.equal(moved.event.routine_occurrence_key, originalOccurrenceKey);
+  assert.equal(moved.event.starts_at_utc, "2026-09-13T09:10:00.000Z");
+  assert.equal(moved.event.ends_at_utc, "2026-09-13T09:25:00.000Z");
+  assert.deepEqual(organizer.getCalendarRoutine(routine.id), routineBefore);
+  assert.deepEqual(organizer.getCalendar(sibling.id), siblingBefore);
+});
+
 test("calendar events store and clear an optional planning prompt", async (context) => {
   const { registry } = calendarFixture(context);
   const created = await registry.execute("calendar_event_add", {

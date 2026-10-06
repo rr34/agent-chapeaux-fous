@@ -39,6 +39,7 @@ import {
   temporalRepairContext,
 } from "./temporal-consistency.mjs";
 import {
+  explicitReferenceObjectCatalog,
   mergeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
   objectReferenceProtectedFields,
@@ -746,10 +747,10 @@ export class SlayerRuntime {
     const referencedExchanges = typeof this.ledger.referencedExchangesForRequest === "function"
       ? this.ledger.referencedExchangesForRequest(args.requestId, { limit: 8 })
       : [];
-    const availableObjectReferences = mergeObjectReferenceGroups([
-      ...recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
-      ...referencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
-    ]);
+    const availableObjectReferences = explicitReferenceObjectCatalog(
+      recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
+      referencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
+    );
     const recentToolReceipts = recentToolReceiptIndex(this.ledger, [
       ...recentConversation,
       ...referencedExchanges.map(({ requestId }) => ({ requestId })),

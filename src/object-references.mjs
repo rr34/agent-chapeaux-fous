@@ -246,25 +246,76 @@ export function normalizeObjectReferenceGroups(groups, { maximumObjects = 2_000 
 }
 
 export function mergeObjectReferenceGroups(groups) {
-  const merged = new Map();
+  // Evidence belongs to each identified object, not merely to its domain type.
+  // First merge repeated observations of the exact same stable reference, then
+  // bulk together only objects whose mention and complete evidence set match.
+  // Otherwise unrelated batches of same-type objects become one misleading
+  // binding whose sourceEventSeqs appear to support every member.
+  const byObject = new Map();
   for (const group of normalizeObjectReferenceGroups(groups)) {
-    const key = `${group.role}\n${group.type}\n${group.source}`;
-    const current = merged.get(key) ?? {
-      mention: group.mention, role: group.role, type: group.type, source: group.source,
-      objects: new Map(), sourceEventSeqs: new Set(),
-    };
-    for (const object of group.objects) current.objects.set(object.ref, object);
-    for (const seq of group.sourceEventSeqs) current.sourceEventSeqs.add(seq);
-    merged.set(key, current);
+    for (const object of group.objects) {
+      const key = `${group.role}\n${group.type}\n${group.source}\n${object.ref}`;
+      const current = byObject.get(key) ?? {
+        mention: group.mention,
+        role: group.role,
+        type: group.type,
+        source: group.source,
+        object,
+        sourceEventSeqs: new Set(),
+      };
+      // Prefer the latest observation's human-facing producer description
+      // while retaining every exact event number that proved this identity.
+      current.mention = group.mention;
+      current.object = object;
+      for (const seq of group.sourceEventSeqs) current.sourceEventSeqs.add(seq);
+      byObject.set(key, current);
+    }
   }
-  return normalizeObjectReferenceGroups([...merged.values()].map((group) => ({
-    mention: group.mention,
-    role: group.role,
-    type: group.type,
-    source: group.source,
-    objects: [...group.objects.values()].slice(0, maximumObjectsPerBinding),
-    sourceEventSeqs: [...group.sourceEventSeqs].sort((left, right) => left - right),
-  })));
+  const bulkGroups = new Map();
+  for (const entry of byObject.values()) {
+    const sourceEventSeqs = [...entry.sourceEventSeqs].sort((left, right) => left - right);
+    const key = JSON.stringify([
+      entry.mention, entry.role, entry.type, entry.source, sourceEventSeqs,
+    ]);
+    const current = bulkGroups.get(key) ?? {
+      mention: entry.mention,
+      role: entry.role,
+      type: entry.type,
+      source: entry.source,
+      objects: [],
+      sourceEventSeqs,
+    };
+    current.objects.push(entry.object);
+    bulkGroups.set(key, current);
+  }
+  return normalizeObjectReferenceGroups([...bulkGroups.values()]);
+}
+
+export function explicitReferenceObjectCatalog(recentGroups, referencedGroups) {
+  const referenced = mergeObjectReferenceGroups(referencedGroups);
+  if (!referenced.length) return mergeObjectReferenceGroups(recentGroups);
+
+  const referencedObjects = flatObjectReferences(referenced);
+  const referencedRefs = new Set(referencedObjects.map(({ ref }) => ref));
+  const referencedHumanKeys = new Set(referencedObjects.map((object) => JSON.stringify([
+    object.role, object.type, object.source, object.display,
+  ])));
+  const retainedRecent = normalizeObjectReferenceGroups(recentGroups).map((group) => ({
+    ...group,
+    objects: group.objects.filter((object) => {
+      if (referencedRefs.has(object.ref)) return true;
+      const humanKey = JSON.stringify([
+        group.role, group.type, group.source, object.display,
+      ]);
+      // This does not identify an object by its display name. Both sides are
+      // already verified bindings. It only prevents an unrelated recent
+      // binding with the same human identity from competing with the binding
+      // carried by the exchange the user explicitly attached.
+      return !referencedHumanKeys.has(humanKey);
+    }),
+  })).filter(({ objects }) => objects.length);
+
+  return mergeObjectReferenceGroups([...retainedRecent, ...referenced]);
 }
 
 export function flatObjectReferences(groups) {

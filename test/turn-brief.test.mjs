@@ -193,6 +193,13 @@ test("TurnBrief schemas do not inline human object displays as strict-schema lit
   );
 });
 
+test("orientation tells the model not to replace referenced-exchange bindings with same-named objects", () => {
+  assert.match(
+    orientationInstructions,
+    /explicitly references an exchange.*do not substitute same-named objects from another exchange/,
+  );
+});
+
 test("orientation treats conversation and focused knowledge as evidence for an actual answer", () => {
   assert.match(orientationInstructions, /exact recent conversation entries as evidence/);
   assert.match(orientationInstructions, /leave requiredTools empty/);

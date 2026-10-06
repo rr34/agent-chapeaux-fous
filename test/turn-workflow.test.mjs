@@ -93,7 +93,9 @@ function brief({ auditRequired = true, confirmedActionReferenceIds = [] } = {}) 
   };
 }
 
-function fakeLedger({ actionReferences = [], toolReceipts = [], conversation = null } = {}) {
+function fakeLedger({
+  actionReferences = [], toolReceipts = [], conversation = null, referencedExchanges = [],
+} = {}) {
   const events = [];
   const sequences = new Map([["event-current", 9]]);
   let nextSequence = 10;
@@ -127,6 +129,7 @@ function fakeLedger({ actionReferences = [], toolReceipts = [], conversation = n
         },
       ];
     },
+    referencedExchangesForRequest() { return structuredClone(referencedExchanges); },
   };
 }
 
@@ -486,6 +489,129 @@ test("an accepted account binding constrains and guards the later tool ID", asyn
   }), "Account 178 has one matching transaction.");
   assert.equal(calls, 1);
   assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), true);
+});
+
+test("an explicitly referenced exchange deterministically excludes stale same-named IDs", async () => {
+  const requests = [];
+  const staleBinding = {
+    mention: "Events from unrelated recent conversation",
+    role: "subject",
+    type: "calendar.event",
+    source: "native:calendar",
+    objects: [{
+      id: 3129, ref: "agent-slayer://calendar-events/3129", display: "Morning Exercise",
+    }],
+    sourceEventSeqs: [34253],
+  };
+  const referencedBinding = {
+    mention: "Events from the explicitly referenced exchange",
+    role: "subject",
+    type: "calendar.event",
+    source: "native:calendar",
+    objects: [{
+      id: 3128, ref: "agent-slayer://calendar-events/3128", display: "Morning Exercise",
+    }],
+    sourceEventSeqs: [34319],
+  };
+  const ledger = fakeLedger({
+    conversation: [{
+      eventSeq: 34253,
+      requestId: "unrelated-request",
+      occurredAtUtc: "2026-10-06T05:30:00.000Z",
+      role: "assistant",
+      content: "I found another Morning Exercise event.",
+      objectReferences: [staleBinding],
+    }],
+    referencedExchanges: [{
+      requestId: "referenced-request",
+      requestEventSeq: 34295,
+      responseEventSeq: 34368,
+      request: "Shift today's morning events.",
+      response: "Shifted today's Morning Exercise event.",
+      objectReferences: [referencedBinding],
+      status: "complete",
+      error: null,
+    }],
+  });
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  let updatedId = null;
+  registry.withCapability("calendar", {
+    calendar_event_update: fixtureToolDescription("Update one exact stored calendar event.", {
+      actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
+    }),
+  }).register({
+    name: "calendar_event_update",
+    description: "Update one exact stored calendar event.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { calendar_event_id: { type: "integer", minimum: 1 } },
+      required: ["calendar_event_id"],
+    },
+    async execute({ calendar_event_id }) {
+      updatedId = calendar_event_id;
+      return { updated: true, calendar_event_id };
+    },
+  });
+  const correctionBrief = {
+    ...brief({ auditRequired: false }),
+    requestType: "correction",
+    responseMode: "act",
+    objective: "Move the Morning Exercise event from the explicitly referenced exchange.",
+    summary: "Update the exact referenced calendar event.",
+    requiredCapabilities: ["calendar"],
+    requiredTools: ["calendar_event_update"],
+    objectReferences: [referencedBinding],
+    requestedActions: [{ text: "Move the referenced event.", sourceEventSeqs: [9] }],
+    completionCriteria: ["The exact referenced calendar event receives a successful update receipt."],
+  };
+  const modelTransport = transport(async (payload, index) => {
+    if (index === 0) {
+      const catalog = payload.developerInstructions
+        .split("## Verified first-class object references available to this request")[1]
+        .split("## Prior rolling conversation state")[0];
+      assert.match(catalog, /calendar-events\/3128/);
+      assert.doesNotMatch(catalog, /calendar-events\/3129/);
+      return completed(JSON.stringify(correctionBrief), 20);
+    }
+    if (index === 1) {
+      assert.deepEqual(payload.tools[0].inputSchema.properties.calendar_event_id.enum, [3128]);
+      const result = await payload.onToolCall({
+        callId: "move-referenced-event",
+        tool: "calendar_event_update",
+        arguments: { calendar_event_id: 3128 },
+      });
+      assert.equal(result.ok, true);
+      return completed("Moved the referenced Morning Exercise event.", 30);
+    }
+    assert.equal(index, 2);
+    return completed(JSON.stringify({
+      contractVersion: 1,
+      outcome: "complete",
+      summary: "The exact referenced event was updated.",
+      satisfiedCriteria: correctionBrief.completionCriteria,
+      remainingActions: [],
+      repairInstructions: [],
+    }), 10);
+  }, requests);
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-current",
+    requestEventId: "event-current",
+    text: "Use the event from the referenced exchange.",
+  }), "Moved the referenced Morning Exercise event.");
+  assert.equal(updatedId, 3128);
 });
 
 test("an @ selection uses its fresh exact-ID evidence when an older binding exists", async () => {
