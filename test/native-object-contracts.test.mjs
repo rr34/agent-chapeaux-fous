@@ -173,6 +173,10 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     { path: "/todo_group_id", objectType: "todos.todo_group", value: "id", role: "subject" },
     { path: "/related_contact_id", objectType: "contacts.contact", value: "id", role: "subject" },
   ]);
+  assert.deepEqual(bindings("todo_group_daily_paper_pin_set"), [{
+    path: "/updates/*/todo_group_id", objectType: "todos.todo_group",
+    value: "id", role: "subject",
+  }]);
   assert.deepEqual(bindings("todo_content_link_set"), [
     { path: "/personal_task_id", objectType: "todos.personal_task", value: "id", role: "subject" },
     { path: "/content_id", objectType: "video.content_item", value: "id", role: "subject" },
@@ -233,7 +237,7 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     { path: "/videoScriptId", objectType: "video.script", value: "id", role: "subject" },
     { path: "/groupId", objectType: "video.content_group", value: "id", role: "subject" },
   ]);
-  assert.deepEqual(bindings("video_content_import"), [
+  assert.deepEqual(bindings("video_content_create"), [
     { path: "/groupId", objectType: "video.content_group", value: "id", role: "subject" },
   ]);
 });
@@ -306,6 +310,33 @@ test("native results bind only complete identity and preserve the correct parent
   }).map(({ type, objects }) => [type, objects]), [
     ["video.content_group", [{
       id: 9, ref: "agent-slayer://content-groups/9", display: "What to Watch",
+    }]],
+  ]);
+
+  const contentCreate = definitions.find(({ name }) => name === "video_content_create");
+  assert.deepEqual(objectReferenceGroupsFromToolResult({
+    toolDefinition: contentCreate,
+    toolDefinitions: definitions,
+    sourceEventSeq: 96,
+    result: {
+      group: {
+        content_group_id: 9,
+        content_group_ref: "agent-slayer://content-groups/9",
+        content_group_name: "What to Watch",
+      },
+      createdCount: 1,
+      items: [{
+        content_id: 31,
+        content_ref: "agent-slayer://content-items/31",
+        content_title: "What to Watch 1",
+      }],
+    },
+  }).map(({ type, objects }) => [type, objects]), [
+    ["video.content_group", [{
+      id: 9, ref: "agent-slayer://content-groups/9", display: "What to Watch",
+    }]],
+    ["video.content_item", [{
+      id: 31, ref: "agent-slayer://content-items/31", display: "What to Watch 1",
     }]],
   ]);
 

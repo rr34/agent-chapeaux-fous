@@ -110,8 +110,10 @@ scheduled date as an all-day task. Timed tasks remain available through the
 to-do editor and agent tools.
 
 The **Calendar** screen composes a shared React daily-paper component from the
-authoritative two-week calendar, the selected day's timeline, and to-dos linked
-to those events. Printed to-dos are grouped by their configured to-do group,
+authoritative two-week calendar, the selected day's timeline, to-dos linked
+to those events, and active to-do groups pinned to the daily paper. Pinned
+groups contribute all open tasks and remain as writable sections when empty.
+Printed to-dos are grouped by their configured to-do group,
 then clustered once by their strongest shared contact or calendar event.
 Its compact Trackers section uses tracker asking RRULEs and
 marks periods that already contain an observation. Choose Letter or A4 and click
@@ -325,7 +327,8 @@ capability selector, which controls which exact tool schemas are callable.
   local network targets are rejected, DNS is pinned for the request, and binary
   responses are not returned to the model.
 - `todo_group_list`, `todo_group_create`, `todo_group_rename`,
-  `todo_group_sequence_set`, `todo_group_archive`, `todo_list`, `todo_add`,
+  `todo_group_sequence_set`, `todo_group_daily_paper_pin_set`,
+  `todo_group_archive`, `todo_list`, `todo_add`,
   `todo_position_set`, and `todo_update` provide the native personal to-do path
   without requiring the model to invent SQL. The agent inspects existing groups before
   assigning an otherwise ungrouped task; Inbox is the catchall when no group is
@@ -647,15 +650,13 @@ content bindings without changing either parent record.
 
 The Agent can also create a named content-library group with
 `video_content_group_create`, then use the returned stable group binding with
-`video_content_import` to catalog as many as 50 externally hosted videos or
-canonical post pages in one atomic metadata batch. Each sequence value is the
-number printed in its source title, or null when the title is unnumbered; array
-or archive order never generates one. The canonical content URL is the
-per-group idempotency key: exact replays are unchanged, while duplicate or
-conflicting records reject the whole batch. The import stores metadata and the
-source URL only—it does not download the media. These focused video-domain
-tools own content mutations, so generic database writes cannot change content
-tables.
+`video_content_create` to create as many as 50 ordinary content items in one
+atomic batch. Each item carries an explicit positive sequence or null, and
+array order never generates numbering. URLs are optional metadata rather than
+import identities, and the operation does not download media. This is a
+non-idempotent create operation: successful batches must not be replayed.
+These focused video-domain tools own content mutations, so generic database
+writes cannot change content tables.
 
 Rendering is deliberately outside the FIFO Agent request queue so a long MP4
 does not block ordinary requests; interrupted `preparing` or `rendering` jobs

@@ -95,6 +95,56 @@ function compactEvent(event) {
   };
 }
 
+function compactPinnedTodo(todo, group) {
+  return {
+    todoId: Number(todo.id),
+    text: todo.text,
+    status: todo.status,
+    groupId: Number(group.id),
+    groupName: group.name,
+    groupSortPosition: Number(group.sortPosition),
+    sequence: todo.sequence == null ? null : Number(todo.sequence),
+    sortPosition: Number(todo.sortPosition),
+    relatedContact: todo.relatedContactId == null ? null : {
+      contactId: Number(todo.relatedContactId),
+      displayName: todo.relatedContactName,
+    },
+    eventTitles: [],
+    eventLinks: [],
+  };
+}
+
+function buildPrintableTodoGroups(scheduledTodos, pinnedGroups) {
+  const groups = new Map();
+  for (const group of pinnedGroups) {
+    groups.set(Number(group.id), {
+      id: Number(group.id),
+      name: group.name,
+      sortPosition: Number(group.sortPosition),
+      dailyPaperPinned: true,
+      todos: new Map((group.todos || []).map((todo) => {
+        const compact = compactPinnedTodo(todo, group);
+        return [compact.todoId, compact];
+      })),
+    });
+  }
+  for (const todo of scheduledTodos) {
+    const groupId = Number(todo.groupId);
+    const existing = groups.get(groupId) ?? {
+      id: groupId,
+      name: todo.groupName?.trim() || "Inbox",
+      sortPosition: Number(todo.groupSortPosition ?? Number.MAX_SAFE_INTEGER),
+      dailyPaperPinned: false,
+      todos: new Map(),
+    };
+    existing.todos.set(Number(todo.todoId), todo);
+    groups.set(groupId, existing);
+  }
+  return [...groups.values()]
+    .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name))
+    .map((group) => ({ ...group, todos: [...group.todos.values()] }));
+}
+
 function formatLocalDate(localDate, options) {
   return new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" })
     .format(dateParts(localDate));
@@ -234,6 +284,11 @@ export class DailyPaperService {
         todoMap.set(current.todoId, current);
       }
     }
+    const scheduledTodos = [...todoMap.values()];
+    const printableTodoGroups = buildPrintableTodoGroups(
+      scheduledTodos,
+      this.organizer.listDailyPaperTodoGroups?.() ?? [],
+    );
     return {
       protocol: "agent-slayer.daily-paper",
       version: 1,
@@ -243,7 +298,8 @@ export class DailyPaperService {
       rangeHeading: formatLocalDateRange(dates[0], dates.at(-1)),
       calendarDays,
       todayEvents,
-      scheduledTodos: [...todoMap.values()],
+      scheduledTodos,
+      printableTodoGroups,
       scheduledTrackers,
     };
   }
@@ -305,7 +361,7 @@ export class DailyPaperService {
           paperSize: model.paperSize,
           includeCompletedTodos: model.includeCompletedTodos,
           eventCount: model.todayEvents.length,
-          todoCount: model.scheduledTodos.length,
+          todoCount: model.printableTodoGroups.reduce((count, group) => count + group.todos.length, 0),
           trackerCount: model.scheduledTrackers.length,
         },
       });

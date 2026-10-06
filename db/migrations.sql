@@ -16,6 +16,25 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0050: pin-todo-groups-to-daily-paper
+-- writer downtime: not required; this adds one default-false group preference
+-- and does not rewrite existing group choices or to-do rows.
+-- locking: ALTER TABLE briefly takes a metadata lock on todo_groups while the
+-- column and check constraint are established.
+-- recovery: MariaDB DDL commits implicitly. Both statements are safe to replay
+-- after a partial commit; existing groups retain the default unpinned value.
+
+ALTER TABLE todo_groups
+  ADD COLUMN IF NOT EXISTS daily_paper_pinned TINYINT NOT NULL DEFAULT 0
+    COMMENT 'Whether this active group and all of its open tasks always appear on the daily-paper PDF, including when the group is empty or its tasks are not linked to that day''s events. 0: Include only when a task is otherwise selected for the paper. 1: Always include the active group.'
+    AFTER uses_sequence;
+
+ALTER TABLE todo_groups
+  ADD CONSTRAINT IF NOT EXISTS todo_groups_daily_paper_pinned
+    CHECK (daily_paper_pinned IN (0, 1));
+
+-- end migration 0050
+
 -- migration 0049: join-todos-to-library-content
 -- writer downtime: not required; this adds an empty association table without
 -- changing either parent table or existing task and content rows.

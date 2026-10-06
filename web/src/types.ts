@@ -110,7 +110,16 @@ export interface DailyPaperModel {
   calendarDays: CalendarDay[];
   todayEvents: CalendarEvent[];
   scheduledTodos: LinkedTodo[];
+  printableTodoGroups: DailyPaperTodoGroup[];
   scheduledTrackers: ScheduledTracker[];
+}
+
+export interface DailyPaperTodoGroup {
+  id: number;
+  name: string;
+  sortPosition: number;
+  dailyPaperPinned: boolean;
+  todos: LinkedTodo[];
 }
 
 export interface ScheduledTracker {

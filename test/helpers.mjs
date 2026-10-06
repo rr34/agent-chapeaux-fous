@@ -13,8 +13,18 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
-export function baselineBeforeTodoContentJoin(source) {
+export function baselineBeforeDailyPaperPin(source) {
   return source
+    .replace(/^    -- daily_paper_pinned .+\n/gmu, "")
+    .replace(/^    daily_paper_pinned .+\n/mu, "")
+    .replace(/^    CONSTRAINT todo_groups_daily_paper_pinned .+\n/mu, "")
+    .replace("    CONSTRAINT todo_groups_sequence CHECK (uses_sequence IN (0, 1)),\n",
+      "    CONSTRAINT todo_groups_sequence CHECK (uses_sequence IN (0, 1))\n")
+    .replace("VALUES (1, 50,", "VALUES (1, 49,");
+}
+
+export function baselineBeforeTodoContentJoin(source) {
+  return baselineBeforeDailyPaperPin(source)
     .replace(/CREATE TABLE todo_content_join \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
     .replace("VALUES (1, 49,", "VALUES (1, 48,");
 }

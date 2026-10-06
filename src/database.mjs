@@ -63,7 +63,10 @@ export const requiredDatabaseShape = {
   ],
   calendar_events_todo_join: ["calendar_event_id", "personal_task_id", "relationship_kind", "created_at_utc"],
   calendar_event_exclusions: ["calendar_event_id", "excluded_starts_at_utc"],
-  todo_groups: ["todo_group_id", "name", "sort_position", "uses_sequence", "archived_at_utc"],
+  todo_groups: [
+    "todo_group_id", "name", "sort_position", "uses_sequence",
+    "daily_paper_pinned", "archived_at_utc",
+  ],
   todo_personal: [
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
     "completed_at_utc", "source_event_id", "planning_prompt_text",

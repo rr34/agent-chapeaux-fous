@@ -15,7 +15,10 @@ import {
 } from "./components/AgentReferenceButton";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
 import { matchesSearch } from "./search-filter";
-import type { DailyPaperModel, Entity, RequestRecord, SelectedObjectCandidate, StoredFileBinding } from "./types";
+import type {
+  DailyPaperModel, DailyPaperTodoGroup, Entity, LinkedTodo, RequestRecord,
+  SelectedObjectCandidate, StoredFileBinding,
+} from "./types";
 import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
@@ -117,6 +120,34 @@ function linkedTodosForEvents(events: DailyPaperModel["todayEvents"]) {
     }
   }
   return [...todos.values()];
+}
+
+function printableTodoGroupsForPreview(
+  groups: DailyPaperTodoGroup[], scheduledTodos: LinkedTodo[],
+) {
+  const byGroup = new Map<number, DailyPaperTodoGroup & { todoMap: Map<number, LinkedTodo> }>();
+  for (const group of groups.filter(({ dailyPaperPinned }) => dailyPaperPinned)) {
+    byGroup.set(group.id, {
+      ...group,
+      todoMap: new Map(group.todos.map((todo) => [todo.todoId, todo])),
+    });
+  }
+  for (const todo of scheduledTodos) {
+    const groupId = Number(todo.groupId);
+    const group = byGroup.get(groupId) || {
+      id: groupId,
+      name: todo.groupName?.trim() || "Inbox",
+      sortPosition: Number(todo.groupSortPosition ?? Number.MAX_SAFE_INTEGER),
+      dailyPaperPinned: false,
+      todos: [],
+      todoMap: new Map<number, LinkedTodo>(),
+    };
+    group.todoMap.set(todo.todoId, todo);
+    byGroup.set(groupId, group);
+  }
+  return [...byGroup.values()]
+    .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name))
+    .map(({ todoMap, ...group }) => ({ ...group, todos: [...todoMap.values()] }));
 }
 
 function TokenGate({ children }: { children: ReactNode }) {
@@ -665,6 +696,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
       })),
       todayEvents: selectedEvents,
       scheduledTodos: selectedTodos,
+      printableTodoGroups: printableTodoGroupsForPreview(data.printableTodoGroups, selectedTodos),
     };
   }, [data, selectedDate, selectedEvents, selectedTodos]);
   const matchingEventCount = (data?.calendarDays || [])
@@ -723,21 +755,48 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
     ? statusTodos
     : statusTodos.filter((todo) => String(readKey(todo, "groupId")) === selectedGroupId);
   const todos = groupTodos.filter((todo) => matchesSearch(todo, filterQuery));
+  const setDailyPaperPinned = async (groupId: number, dailyPaperPinned: boolean) => {
+    await api(`/api/todo-groups/${groupId}/daily-paper-pin`, {
+      method: "POST",
+      body: JSON.stringify({ dailyPaperPinned }),
+    });
+    await reloadGroups();
+  };
   const groups = useMemo(() => {
-    const grouped = new Map<string, { id: string; name: string; todos: Entity[] }>();
+    const grouped = new Map<string, {
+      id: string; groupId: number | null; name: string; dailyPaperPinned: boolean; todos: Entity[];
+    }>();
+    for (const group of groupData?.groups || []) {
+      const groupId = Number(group.id);
+      if (selectedGroupId !== "all" && String(groupId) !== selectedGroupId) continue;
+      if (filterQuery.trim() && !matchesSearch(group, filterQuery)) continue;
+      grouped.set(`id:${groupId}`, {
+        id: `id:${groupId}`,
+        groupId,
+        name: textKey(group, "name") || "Untitled group",
+        dailyPaperPinned: Boolean(group.dailyPaperPinned),
+        todos: [],
+      });
+    }
     for (const todo of todos) {
       const name = textKey(todo, "groupName") || "Inbox";
       const groupId = readKey(todo, "groupId");
       const id = groupId == null ? `name:${name}` : `id:${String(groupId)}`;
-      const group = grouped.get(id) || { id, name, todos: [] };
+      const group = grouped.get(id) || {
+        id,
+        groupId: groupId == null ? null : Number(groupId),
+        name,
+        dailyPaperPinned: false,
+        todos: [],
+      };
       group.todos.push(todo);
       grouped.set(id, group);
     }
     return [...grouped.values()];
-  }, [todos]);
+  }, [filterQuery, groupData?.groups, selectedGroupId, todos]);
   return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<div className="todo-heading-actions"><label className="todo-group-filter"><span>Group</span><select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={groupsLoading}><option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}</select></label><label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label><form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form></div>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" />
-    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !todos.length && <Empty>{filterQuery.trim() ? "No to-dos match the filter." : showCompleted ? "No open or completed to-dos yet." : "No open to-dos."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div></>;
+    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}>{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div></>;
 }
 
 function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {

@@ -46,8 +46,8 @@ test("video content service creates, reuses, and rejects archived named groups",
   );
 });
 
-test("external content tools publish compact identified mutation results", async () => {
-  const importedContent = {
+test("content creation tools publish compact identified mutation results", async () => {
+  const createdContent = {
     id: 31,
     groupId: 7,
     sequence: null,
@@ -60,12 +60,11 @@ test("external content tools publish compact identified mutation results", async
   };
   const videoContent = {
     createGroup() { return { created: true, unchanged: false, group }; },
-    importSequence() {
+    createItems() {
       return {
         group,
-        importedCount: 1,
-        unchangedCount: 0,
-        items: [{ status: "imported", content: importedContent }],
+        createdCount: 1,
+        items: [createdContent],
       };
     },
     listGroups() { return []; },
@@ -81,11 +80,12 @@ test("external content tools publish compact identified mutation results", async
   const definitions = new Map(registry.toolDefinitions().map((definition) => [
     definition.name, definition,
   ]));
-  const importDefinition = definitions.get("video_content_import");
-  assert.match(importDefinition.description, /does not download, render, or publish/);
-  assert.ok(importDefinition.inputSchema.properties.items.items.required.includes("sequence"));
+  const createDefinition = definitions.get("video_content_create");
+  assert.match(createDefinition.description, /does not download, render, or publish/);
+  assert.equal(createDefinition.annotations.idempotentHint, false);
+  assert.ok(createDefinition.inputSchema.properties.items.items.required.includes("sequence"));
   assert.deepEqual(
-    importDefinition.inputSchema.properties.items.items.properties.sequence.type,
+    createDefinition.inputSchema.properties.items.items.properties.sequence.type,
     ["integer", "null"],
   );
   assert.equal(
@@ -99,30 +99,29 @@ test("external content tools publish compact identified mutation results", async
     content_group_name: "What to Watch",
   });
 
-  const imported = await registry.execute("video_content_import", {
+  const createdItems = await registry.execute("video_content_create", {
     groupId: 7,
     items: [{
       sequence: null,
-      title: importedContent.title,
+      title: createdContent.title,
       description: null,
       transcript: null,
-      publishedAtUtc: importedContent.publishedAtUtc,
-      contentHost: importedContent.contentHost,
-      contentType: importedContent.contentType,
-      contentUrl: importedContent.contentUrl,
+      publishedAtUtc: createdContent.publishedAtUtc,
+      contentHost: createdContent.contentHost,
+      contentType: createdContent.contentType,
+      contentStatus: createdContent.contentStatus,
+      contentUrl: createdContent.contentUrl,
     }],
   });
   assert.equal(
-    schemaProblem(imported, importDefinition.outputSchema, "result"),
+    schemaProblem(createdItems, createDefinition.outputSchema, "result"),
     null,
   );
-  assert.deepEqual(imported.items[0], {
-    status: "imported",
-    content: {
-      ...importedContent,
-      content_id: 31,
-      content_ref: "agent-slayer://content-items/31",
-      content_title: "What to Watch Today",
-    },
+  assert.equal(createdItems.createdCount, 1);
+  assert.deepEqual(createdItems.items[0], {
+    ...createdContent,
+    content_id: 31,
+    content_ref: "agent-slayer://content-items/31",
+    content_title: "What to Watch Today",
   });
 });

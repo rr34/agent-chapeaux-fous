@@ -1,5 +1,6 @@
 import {
-  archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupSequenceMode,
+  archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupDailyPaperPinned,
+  setTodoGroupSequenceMode,
 } from "../todo-group-operations.mjs";
 import { selectedFields } from "./record-fields.mjs";
 import {
@@ -46,6 +47,17 @@ const toolDescriptions = Object.freeze({
     "summary": "Create or reactivate one native to-do group after the user has confirmed it.",
     "actionClasses": [
       "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "todo_group_daily_paper_pin_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Pin or unpin one or more exact native to-do groups on every daily-paper PDF.",
+    "actionClasses": [
+      "UPDATE"
     ],
     "effectClassifications": [
       "MUTATING"
@@ -128,7 +140,7 @@ const todoFields = [
   "created_at_utc", "updated_at_utc",
 ];
 const groupFields = [
-  "todo_group_id", "name", "sort_position", "uses_sequence", "archived_at_utc",
+  "todo_group_id", "name", "sort_position", "uses_sequence", "daily_paper_pinned", "archived_at_utc",
   "created_at_utc", "updated_at_utc",
 ];
 const linkedContentFields = [
@@ -292,12 +304,15 @@ export function todoGroupContext(store, limit = 100) {
   const allRows = activeTodoGroupRows(store);
   const groups = allRows.slice(0, limit).map((row) => ({
     todoGroupId: Number(row.todo_group_id), name: row.name,
+    dailyPaperPinned: Boolean(row.daily_paper_pinned),
   }));
   return {
     heading: "Active to-do groups",
     text: groups.length
       ? ["Use these exact existing group names and IDs when they match the request.",
-          ...groups.map(({ todoGroupId, name }) => `- [group ${todoGroupId}] ${name}`)].join("\n")
+          ...groups.map(({ todoGroupId, name, dailyPaperPinned }) => (
+            `- [group ${todoGroupId}] ${name}${dailyPaperPinned ? " (pinned to daily paper)" : ""}`
+          ))].join("\n")
       : "No active to-do groups exist.",
     data: { groups, totalCount: allRows.length, omittedCount: allRows.length - groups.length },
   };
@@ -497,6 +512,57 @@ export function registerTodoTools(registry, store, ledger) {
           subjectType: "todo_group", subjectId: String(group.todo_group_id) });
       }
       return { created, group: databaseGroup(group) };
+    },
+  });
+
+  registry.register({
+    name: "todo_group_daily_paper_pin_set",
+    description: "Atomically pin or unpin one or more exact active to-do groups on the daily paper. A pinned group and all of its open tasks appear on every generated paper, including when the group is empty. Pinning never changes an individual task or its calendar links.",
+    outputSchema: { type: "object", additionalProperties: false, properties: {
+      updated_count: { type: "integer", minimum: 1 },
+      items: { type: "array", minItems: 1, items: { type: "object", additionalProperties: false,
+        properties: { changed: { type: "boolean" }, group: todoGroupRecordSchema },
+        required: ["changed", "group"] } },
+    }, required: ["updated_count", "items"] },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      updates: { type: "array", minItems: 1, maxItems: 100, items: {
+        type: "object", additionalProperties: false, properties: {
+          todo_group_id: { type: "integer", minimum: 1 },
+          daily_paper_pinned: { type: "boolean" },
+        }, required: ["todo_group_id", "daily_paper_pinned"],
+      } },
+    }, required: ["updates"] },
+    async execute({ updates }, context) {
+      const database = store.requireReady();
+      const ids = updates.map(({ todo_group_id: id }) => id);
+      if (new Set(ids).size !== ids.length) {
+        throw new Error("Duplicate to-do group ID in daily-paper pin batch");
+      }
+      database.exec("START TRANSACTION");
+      try {
+        const items = updates.map(({ todo_group_id: id, daily_paper_pinned: pinned }) => {
+          const result = setTodoGroupDailyPaperPinned(database, {
+            groupId: id, dailyPaperPinned: pinned,
+          });
+          return {
+            changed: result.changed,
+            group: databaseGroup(database.prepare(
+              "SELECT * FROM todo_groups WHERE todo_group_id = ?",
+            ).get(id)),
+          };
+        });
+        appendLedger(ledger, context, {
+          type: "personal_todo_group.daily_paper_pin_set",
+          actorName: "todo_group_daily_paper_pin_set",
+          name: "To-do group daily-paper pins set",
+          content: `${items.length} ${items.length === 1 ? "group" : "groups"} updated`,
+          payload: { updated_count: items.length, items },
+          subjectType: "todo_group_set",
+          subjectId: ids.join(","),
+        });
+        database.exec("COMMIT");
+        return { updated_count: items.length, items };
+      } catch (error) { database.exec("ROLLBACK"); throw error; }
     },
   });
 

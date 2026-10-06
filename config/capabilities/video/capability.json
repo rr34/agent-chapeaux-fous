@@ -4,7 +4,7 @@
   "version": 1,
   "id": "video",
   "title": "Video scripts and productions",
-  "summary": "Create and read ordered content libraries, import external video/post sequences, create grounded scripts and Agent-interface MP4 productions, or add a completed generated video to a sequence.",
+  "summary": "Create and read content-library groups and items, create grounded scripts and Agent-interface MP4 productions, or add a completed generated video to a sequence.",
   "aliases": [
     "video",
     "video script",
@@ -14,7 +14,7 @@
     "content library",
     "video series",
     "external videos",
-    "import videos",
+    "add content items",
     "promo library"
   ],
   "readOnlyTools": [

@@ -10,7 +10,7 @@ import { VideoContent } from "../src/video-content.mjs";
 import { VideoScripts } from "../src/video-scripts.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
-test("the Agent can create a library and atomically import an external sequence", async (context) => {
+test("the Agent can create a library and atomically create ordinary content items", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const store = new SlayerDatabase(temporary.target);
@@ -43,11 +43,11 @@ test("the Agent can create a library and atomically import an external sequence"
   assert.equal(replayedGroup.unchanged, true);
   assert.equal(replayedGroup.group.id, createdGroup.group.id);
 
-  const importDefinition = registry.toolDefinitions()
-    .find(({ name }) => name === "video_content_import");
-  assert.deepEqual(importDefinition.inputSchema.required, ["groupId", "items"]);
-  assert.equal(importDefinition.inputSchema.properties.items.maxItems, 50);
-  assert.equal(importDefinition.annotations.idempotentHint, true);
+  const contentCreateDefinition = registry.toolDefinitions()
+    .find(({ name }) => name === "video_content_create");
+  assert.deepEqual(contentCreateDefinition.inputSchema.required, ["groupId", "items"]);
+  assert.equal(contentCreateDefinition.inputSchema.properties.items.maxItems, 50);
+  assert.equal(contentCreateDefinition.annotations.idempotentHint, false);
   const items = [
     {
       sequence: null,
@@ -57,6 +57,7 @@ test("the Agent can create a library and atomically import an external sequence"
       publishedAtUtc: "2020-01-01",
       contentHost: "none",
       contentType: "unknown",
+      contentStatus: "active",
       contentUrl: "https://example.com/what-to-watch-today/",
     },
     {
@@ -67,44 +68,28 @@ test("the Agent can create a library and atomically import an external sequence"
       publishedAtUtc: "2020-01-02T12:00:00.000Z",
       contentHost: "youtube",
       contentType: "unknown",
+      contentStatus: "active",
       contentUrl: "https://youtu.be/example-one",
     },
   ];
-  const imported = await registry.execute("video_content_import", {
+  const createdItems = await registry.execute("video_content_create", {
     groupId: Number(createdGroup.group.id), items,
   }, {
     requestId: "external-content-request", callId: "external-content-call", channel: "web",
   });
-  assert.equal(imported.importedCount, 2);
-  assert.equal(imported.unchangedCount, 0);
-  assert.deepEqual(imported.items.map(({ content }) => content.sequence), [null, 1]);
-  assert.deepEqual(imported.items.map(({ content }) => content.title), [
+  assert.equal(createdItems.createdCount, 2);
+  assert.deepEqual(createdItems.items.map(({ sequence }) => sequence), [null, 1]);
+  assert.deepEqual(createdItems.items.map(({ title }) => title), [
     "What to Watch Today", "What to Watch 1",
   ]);
-  assert.ok(imported.items.every(({ content }) => (
+  assert.ok(createdItems.items.every((content) => (
     content.content_ref === `agent-slayer://content-items/${content.id}`
   )));
 
-  const replayed = await registry.execute("video_content_import", {
-    groupId: Number(createdGroup.group.id), items,
-  });
-  assert.equal(replayed.importedCount, 0);
-  assert.equal(replayed.unchangedCount, 2);
-  assert.deepEqual(replayed.items.map(({ content }) => content.sequence), [null, 1]);
-
-  const reversedReplay = await registry.execute("video_content_import", {
-    groupId: Number(createdGroup.group.id), items: [...items].reverse(),
-  });
-  assert.equal(reversedReplay.unchangedCount, 2);
-
   await assert.rejects(
-    () => registry.execute("video_content_import", {
+    () => registry.execute("video_content_create", {
       groupId: Number(createdGroup.group.id),
       items: [
-        {
-          ...items[0],
-          title: "A conflicting replacement",
-        },
         {
           ...items[1],
           sequence: 2,
@@ -112,14 +97,19 @@ test("the Agent can create a library and atomically import an external sequence"
           contentUrl: "https://example.com/what-to-watch-2/",
           publishedAtUtc: "2020-01-03T12:00:00.000Z",
         },
+        {
+          ...items[1],
+          title: "A conflicting sequence",
+          contentUrl: "https://example.com/conflicting-sequence/",
+        },
       ],
     }),
-    /already contains different content/,
+    /sequence is already used/,
   );
   assert.equal(organizer.listContent({ groupId: createdGroup.group.id }).length, 2);
   assert.equal(organizer.database.prepare(`
     SELECT COUNT(*) AS count FROM activity_events
-    WHERE event_type = 'content.sequence_imported'
+    WHERE event_type = 'content.batch_created'
   `).get().count, 1);
 });
 

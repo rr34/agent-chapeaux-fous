@@ -117,6 +117,9 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
       relationshipKind: "deadline",
     }],
   }]);
+  assert.deepEqual(model.printableTodoGroups.map(({ id, name, dailyPaperPinned, todos }) => ({
+    id, name, dailyPaperPinned, todoIds: todos.map(({ todoId }) => todoId),
+  })), [{ id: 4, name: "Writing", dailyPaperPinned: false, todoIds: [17] }]);
   assert.deepEqual(trackerRequest, { localDate: "2026-10-04", timeZone: "America/New_York" });
   assert.equal(model.scheduledTrackers.length, 1);
   assert.equal(model.scheduledTrackers[0].name, "Weight");
@@ -126,6 +129,44 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
     from: "2026-09-28T04:00:00.000Z",
     to: "2026-10-12T04:00:00.000Z",
   });
+});
+
+test("daily paper includes pinned groups, their open tasks, and empty group containers", () => {
+  const service = new DailyPaperService({
+    organizer: {
+      listCalendar: () => events(),
+      listDailyPaperTodoGroups: () => [{
+        id: 4, name: "Writing", sortPosition: 2, dailyPaperPinned: true,
+        todos: [{
+          id: 17, text: "Bring the annotated draft", status: "todo",
+          groupId: 4, sequence: 12, sortPosition: 3,
+          relatedContactId: 8, relatedContactName: "Jane Smith",
+        }],
+      }, {
+        id: 5, name: "Shopping", sortPosition: 3, dailyPaperPinned: true,
+        todos: [{
+          id: 19, text: "Coffee beans", status: "todo", groupId: 5,
+          sequence: null, sortPosition: 1, relatedContactId: null,
+        }],
+      }, {
+        id: 6, name: "Packing", sortPosition: 4, dailyPaperPinned: true, todos: [],
+      }],
+    },
+    ledger: {},
+    mediaRoot: "/tmp/unused-daily-paper",
+    publicUrl: "http://127.0.0.1:8787",
+    timeZone: () => "America/New_York",
+  });
+
+  const model = service.build({ date: "2026-10-04" });
+  assert.deepEqual(model.printableTodoGroups.map(({ name, dailyPaperPinned, todos }) => ({
+    name, dailyPaperPinned, todoIds: todos.map(({ todoId }) => todoId),
+  })), [
+    { name: "Writing", dailyPaperPinned: true, todoIds: [17] },
+    { name: "Shopping", dailyPaperPinned: true, todoIds: [19] },
+    { name: "Packing", dailyPaperPinned: true, todoIds: [] },
+  ]);
+  assert.equal(model.printableTodoGroups[0].todos[0].eventLinks.length, 2);
 });
 
 test("daily paper validates physical-page inputs", () => {

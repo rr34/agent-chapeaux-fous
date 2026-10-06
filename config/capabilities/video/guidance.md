@@ -26,16 +26,16 @@ content-library group:
 - Base summaries on the returned item evidence, preserve the sequence order, and mention material source-text truncation when it limits the answer.
 - This is read-only. Do not add, move, edit, or remove content unless the user separately requests that action and the exact owning tool is callable.
 
-If the user asks to create a content library from externally hosted videos or
-canonical post pages:
+If the user asks to create a content-library group or ordinary content items,
+including items based on externally hosted pages:
 
 - Use an authorized bounded source reader such as `web_page_read` to read the complete requested source. Follow every pagination continuation, then read each canonical post page needed to obtain its title, description, and transcript when present. Do not fetch linked video or audio files, and do not import from a partial result.
-- Derive `sequence` only from a number explicitly present in each source title. Use null when a title has no sequence number. Never generate sequence from archive position, publication date, or batch order.
+- Interpret sequence from the user's request and source evidence. When the user asks for title-derived sequence, use only a number explicitly present in each source title and use null when the title has none. Never use array order to invent sequence.
 - Request `video.content_groups` during orientation. Reuse an exact matching active group when one exists. Otherwise call `video_content_group_create` with the requested human-facing name and wait for its returned first-class-object binding before using its ID.
-- Call `video_content_import` with one complete batch of at most 50 items. For a post-based series, use each item's canonical post URL as `contentUrl`; do not use an archive page URL for several items or substitute a linked media-file URL.
-- Supply source-reported titles and publication dates or instants. A source date without a time may stay date-only; the tool normalizes it to midnight UTC solely as a storage representation. Preserve useful source descriptions or transcripts when they were actually read; use null rather than inventing missing text. Select the exact known host, using `none` for a canonical post page or when no named host applies. Use `unknown` when the content-type vocabulary does not precisely describe the video.
-- The import is atomic and URL-idempotent within the destination group. An exact replay is unchanged. A duplicate URL in the batch or a differing stored item rejects the complete call, so correct the evidence instead of issuing one mutation per item.
-- Report the returned group name, imported count, unchanged count, and which title-derived sequence numbers were present or absent. The successful group-creation and import receipts are the completion evidence.
+- Call `video_content_create` with one complete batch of at most 50 items. For a post-based series, use each item's canonical post URL as `contentUrl`; do not use one archive URL for several items or substitute a linked media-file URL.
+- Supply the requested or source-reported titles and publication dates or instants. A source date without a time may stay date-only; the tool normalizes it to midnight UTC solely as a storage representation. Preserve useful descriptions or transcripts when they were actually read; use null rather than inventing missing text. Select the exact known host, using `none` when no named host applies, and use `unknown` when the content-type vocabulary does not precisely describe the item. Use the requested lifecycle status, normally `active` for current source material.
+- Creation is atomic and non-idempotent. A duplicate non-null sequence or another validation error rejects the complete batch. After a successful receipt, do not replay the mutation; use a read to verify current state when needed.
+- Report the returned group name, created count, and relevant sequence values. The successful group-creation and content-creation receipts are the completion evidence.
 
 If the user asks to add an already-completed generated video to content:
 

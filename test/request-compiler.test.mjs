@@ -81,7 +81,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("video_content_list")), "video");
   assert.equal(capabilityForTool(tool("video_content_add")), "video");
   assert.equal(capabilityForTool(tool("video_content_group_create")), "video");
-  assert.equal(capabilityForTool(tool("video_content_import")), "video");
+  assert.equal(capabilityForTool(tool("video_content_create")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
   assert.equal(capabilityForTool(tool("file_read")), "files");
 });
@@ -142,14 +142,14 @@ test("an external video-series library request selects the video and web familie
     tools: [
       ...tools,
       tool("video_content_group_create"),
-      tool("video_content_import"),
+      tool("video_content_create"),
     ],
     text: "Read every post at https://example.com/video-series/ and make a sequenced content library.",
   });
   assert.equal(selection.capabilities.includes("web"), true);
   assert.equal(selection.capabilities.includes("video"), true);
   assert.equal(names(selection).includes("video_content_group_create"), true);
-  assert.equal(names(selection).includes("video_content_import"), true);
+  assert.equal(names(selection).includes("video_content_create"), true);
   assert.equal(selection.fallbackAll, false);
 });
 

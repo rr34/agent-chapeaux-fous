@@ -18,6 +18,11 @@ removes it. A to-do owns only its current price. Preparing and sending a
 customer invoice belongs to the Payments capability, which snapshots the
 selected to-do text and price.
 
+Daily-paper pinning belongs to a to-do group, never to an individual task. Use
+`todo_group_daily_paper_pin_set` with every exact bound group the user names.
+A pinned active group and all of its open tasks appear on every daily paper,
+including when that group is empty; unpinning does not alter its tasks.
+
 Use `todo_list.queries` for lookups. Batch independent lookups, use
 `personal_task_ids` for known tasks, and follow each `next_cursor` until the
 needed result is complete. `completed_date_range` filters the task's completion

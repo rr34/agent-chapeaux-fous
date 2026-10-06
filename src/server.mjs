@@ -562,7 +562,9 @@ const server = http.createServer(async (request, response) => {
         timeZone: generated.model.timeZone,
         paperSize: generated.model.paperSize,
         eventCount: generated.model.todayEvents.length,
-        todoCount: generated.model.scheduledTodos.length,
+        todoCount: generated.model.printableTodoGroups.reduce(
+          (count, group) => count + group.todos.length, 0,
+        ),
         trackerCount: generated.model.scheduledTrackers.length,
         file: generated.file,
       });
@@ -805,6 +807,13 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && todoGroupSequenceMatch) {
       sendJson(response, 200, organizer.setTodoGroupSequenceMode(
         todoGroupSequenceMatch[1], await readJson(request),
+      ));
+      return;
+    }
+    const todoGroupDailyPaperPinMatch = /^\/api\/todo-groups\/(\d+)\/daily-paper-pin$/.exec(url.pathname);
+    if (request.method === "POST" && todoGroupDailyPaperPinMatch) {
+      sendJson(response, 200, organizer.setTodoGroupDailyPaperPinned(
+        todoGroupDailyPaperPinMatch[1], await readJson(request),
       ));
       return;
     }

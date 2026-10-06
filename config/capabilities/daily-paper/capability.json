@@ -4,7 +4,7 @@
   "version": 1,
   "id": "daily-paper",
   "title": "Printable daily paper",
-  "summary": "Generate a durable printable PDF from the authoritative two-week calendar, one day’s timeline, and to-dos linked to that day’s events.",
+  "summary": "Generate a durable printable PDF from the authoritative two-week calendar, one day’s timeline, linked to-dos, pinned to-do groups, and scheduled trackers.",
   "aliases": [
     "daily paper",
     "daily sheet",

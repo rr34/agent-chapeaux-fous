@@ -39,14 +39,14 @@ test("removing a populated notes table preserves Journal and contact notes and s
     assert.deepEqual(database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'notes'`).all(), []);
   };
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
   assertPreserved();
   assert.deepEqual((await runDatabaseMigrations(settings)).applied, []);
   // Simulate the drop committing before the durable version marker advances.
   restoreLegacyJoinTableNames(database);
   restorePre46JournalTableNames(database);
   database.exec("UPDATE database_meta SET schema_version = 32 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
+  assert.deepEqual((await runDatabaseMigrations(settings)).applied, [33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
   const migration = readMigrationLedger(migrationsFilename).find(({ version }) => version === 33);
   for (const statement of splitMariaDbStatements(migration.sql)) database.exec(statement);
   assertPreserved();

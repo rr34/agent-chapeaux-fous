@@ -139,3 +139,33 @@ export function setTodoGroupSequenceMode(database, {
     },
   };
 }
+
+export function setTodoGroupDailyPaperPinned(database, {
+  groupId = null, groupName = null, dailyPaperPinned,
+} = {}) {
+  const group = selectedActiveGroup(database, { groupId, groupName });
+  if (!group) throw new TodoGroupOperationError("To-do group not found.", 404);
+  if (typeof dailyPaperPinned !== "boolean") {
+    throw new TodoGroupOperationError("dailyPaperPinned must be true or false.");
+  }
+
+  const updatedAtUtc = new Date().toISOString();
+  const updated = database.prepare(`
+    UPDATE todo_groups
+    SET daily_paper_pinned = ?, updated_at_utc = ?
+    WHERE todo_group_id = ? AND archived_at_utc IS NULL
+  `).run(dailyPaperPinned ? 1 : 0, updatedAtUtc, group.todo_group_id);
+  if (updated.changes !== 1) {
+    throw new TodoGroupOperationError("To-do group daily-paper pin could not be changed.", 409);
+  }
+  return {
+    changed: Boolean(group.daily_paper_pinned) !== dailyPaperPinned,
+    group: {
+      id: Number(group.todo_group_id),
+      name: group.name,
+      dailyPaperPinned,
+      archivedAtUtc: null,
+      updatedAtUtc,
+    },
+  };
+}

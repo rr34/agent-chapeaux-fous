@@ -113,6 +113,25 @@ const model = {
     },
   ],
 };
+model.printableTodoGroups = [{
+  id: 4,
+  name: "Writing",
+  sortPosition: 1,
+  dailyPaperPinned: false,
+  todos: model.scheduledTodos.filter(({ groupId }) => groupId === 4),
+}, {
+  id: 7,
+  name: "Personal",
+  sortPosition: 2,
+  dailyPaperPinned: false,
+  todos: model.scheduledTodos.filter(({ groupId }) => groupId === 7),
+}, {
+  id: 9,
+  name: "Shopping",
+  sortPosition: 3,
+  dailyPaperPinned: true,
+  todos: [],
+}];
 
 const serveStatic = createStaticHandler({ repositoryRoot, publicRoot: path.join(repositoryRoot, "public") });
 const server = http.createServer(async (request, response) => {
@@ -150,7 +169,10 @@ try {
   await page.waitForFunction(() => window.__DAILY_PAPER_READY__ === true, null, { timeout: 60_000 });
   const groupLabels = await page.locator(".paper-todo-group > h3").allTextContents();
   const clusterLabels = await page.locator(".paper-todo-cluster-heading").allTextContents();
-  if (groupLabels.join("|") !== "Writing|Personal") throw new Error(`Unexpected to-do groups: ${groupLabels.join("|")}`);
+  if (groupLabels.join("|") !== "Writing|Personal|Shopping") throw new Error(`Unexpected to-do groups: ${groupLabels.join("|")}`);
+  if (await page.locator(".paper-todo-empty-lines").count() !== 1) {
+    throw new Error("Expected one empty pinned to-do group checklist");
+  }
   if (clusterLabels.filter((label) => label.includes("Jane Smith")).length !== 1) {
     throw new Error(`Expected one Jane Smith cluster: ${clusterLabels.join("|")}`);
   }

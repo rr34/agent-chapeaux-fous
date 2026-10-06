@@ -14,7 +14,7 @@ const toolDescriptions = Object.freeze({
   "video_content_group_create": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Create or reuse one named active content-library group before adding an ordered sequence to it.",
+    "summary": "Create or reuse one named active content-library group before creating items in it.",
     "actionClasses": [
       "CREATE"
     ],
@@ -22,10 +22,10 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "video_content_import": {
+  "video_content_create": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Atomically catalog up to 50 externally hosted videos or posts with exact title-derived sequence numbers.",
+    "summary": "Create up to 50 ordinary content-library items in one exact group, preserving each explicit sequence value and metadata.",
     "actionClasses": [
       "CREATE"
     ],
@@ -213,7 +213,7 @@ const contentGroupCreateOutputSchema = {
   required: ["created", "unchanged", "group"],
 };
 
-const importedContentSchema = {
+const createdContentSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -225,7 +225,7 @@ const importedContentSchema = {
     publishedAtUtc: { type: "string" },
     contentHost: { type: "string" },
     contentStatus: { type: "string" },
-    contentUrl: { type: "string" },
+    contentUrl: { type: ["string", "null"] },
     content_id: { type: "integer" },
     content_ref: { type: "string" },
     content_title: { type: "string" },
@@ -237,27 +237,18 @@ const importedContentSchema = {
   ],
 };
 
-const contentImportOutputSchema = {
+const contentCreateOutputSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
     group: contentGroupSchema,
-    importedCount: { type: "integer" },
-    unchangedCount: { type: "integer" },
+    createdCount: { type: "integer" },
     items: {
       type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          status: { type: "string", enum: ["imported", "unchanged"] },
-          content: importedContentSchema,
-        },
-        required: ["status", "content"],
-      },
+      items: createdContentSchema,
     },
   },
-  required: ["group", "importedCount", "unchangedCount", "items"],
+  required: ["group", "createdCount", "items"],
 };
 
 const contentListItemSchema = {
@@ -427,9 +418,9 @@ export function registerVideoScriptTools(
     });
 
     capabilityRegistry.register({
-      name: "video_content_import",
-      title: "Import an external content sequence",
-      description: "Atomically catalog a bounded batch of 1 through 50 externally hosted videos or their canonical post pages in one exact active content-library group. Supply the exact positive sequence number printed in each source title, or null when the title has no sequence number; the tool never invents sequence from batch or archive order. contentUrl is the idempotency key within the destination group: exact replays are unchanged, while a differing replay, duplicate URL, or duplicate non-null sequence rejects the complete call without partial writes. Use unknown when the existing content-type vocabulary does not precisely describe a video. This tool stores text metadata and the source URL only; it does not download, render, or publish the video.",
+      name: "video_content_create",
+      title: "Create content-library items",
+      description: "Atomically create a bounded batch of 1 through 50 ordinary items in one exact active content-library group. Each item carries its own title, optional text, publication time, type, host, status, optional HTTP(S) source URL, and explicit positive sequence or null. Null remains unnumbered and array order never generates sequence. Duplicate non-null sequences reject the complete call without partial writes. This is a general content mutation, not an external-source import or media transfer; it does not download, render, or publish media. A successful result proves new items were created, so do not replay the call.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -437,25 +428,25 @@ export function registerVideoScriptTools(
           groupId: { type: "integer", minimum: 1, description: "The exact active destination content-group ID." },
           items: {
             type: "array", minItems: 1, maxItems: 50,
-            description: "The complete intended metadata batch; array order does not determine sequence.",
+            description: "The complete intended content-item batch; array order does not determine sequence.",
             items: {
               type: "object",
               additionalProperties: false,
               properties: {
                 sequence: {
                   type: ["integer", "null"], minimum: 1,
-                  description: "Exact positive sequence number printed in the source title, or null when the title has no sequence number.",
+                  description: "Explicit positive sequence number for this item, or null to keep it unnumbered.",
                 },
                 title: { type: "string", minLength: 1, maxLength: 10_000 },
                 description: { type: ["string", "null"], maxLength: 10_000 },
                 transcript: { type: ["string", "null"], maxLength: 50_000 },
                 publishedAtUtc: {
                   type: "string", minLength: 1, maxLength: 64,
-                  description: "Source-reported ISO-8601 publication date or instant. A date without a reported time is normalized to midnight UTC as a storage representation, without claiming the source reported that time.",
+                  description: "ISO-8601 publication date or instant. A date without a time is normalized to midnight UTC as a storage representation.",
                 },
                 contentHost: {
                   type: "string", enum: ["youtube", "vimeo", "spotify", "mytlomdotcom", "none"],
-                  description: "Known external media host; use none when the canonical URL is a post page or no named host applies.",
+                  description: "Known content host; use none when no named host applies.",
                 },
                 contentType: {
                   type: "string",
@@ -464,41 +455,40 @@ export function registerVideoScriptTools(
                     "video_ad", "podcast", "image", "unknown",
                   ],
                 },
+                contentStatus: {
+                  type: "string", enum: ["active", "obsolete", "unused", "queued"],
+                },
                 contentUrl: {
-                  type: "string", minLength: 1, maxLength: 2048,
-                  description: "Canonical HTTP(S) URL for this source item; unique within the supplied batch.",
+                  type: ["string", "null"], minLength: 1, maxLength: 2048,
+                  description: "Optional HTTP(S) source or destination URL for this content item.",
                 },
               },
               required: [
                 "sequence", "title", "description", "transcript", "publishedAtUtc",
-                "contentHost", "contentType", "contentUrl",
+                "contentHost", "contentType", "contentStatus", "contentUrl",
               ],
             },
           },
         },
         required: ["groupId", "items"],
       },
-      outputSchema: contentImportOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      outputSchema: contentCreateOutputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       execute(args, context) {
-        const result = videoContent.importSequence(args, { ...context, actorName: "video_content_import" });
+        const result = videoContent.createItems(args, { ...context, actorName: "video_content_create" });
         return {
           group: identifiedContentGroup(result.group),
-          importedCount: result.importedCount,
-          unchangedCount: result.unchangedCount,
-          items: result.items.map(({ status, content }) => ({
-            status,
-            content: identifiedContentItem({
-              id: Number(content.id),
-              groupId: Number(content.groupId),
-              sequence: content.sequence == null ? null : Number(content.sequence),
-              contentType: content.contentType,
-              title: content.title,
-              publishedAtUtc: content.publishedAtUtc,
-              contentHost: content.contentHost,
-              contentStatus: content.contentStatus,
-              contentUrl: content.contentUrl,
-            }),
+          createdCount: result.createdCount,
+          items: result.items.map((content) => identifiedContentItem({
+            id: Number(content.id),
+            groupId: Number(content.groupId),
+            sequence: content.sequence == null ? null : Number(content.sequence),
+            contentType: content.contentType,
+            title: content.title,
+            publishedAtUtc: content.publishedAtUtc,
+            contentHost: content.contentHost,
+            contentStatus: content.contentStatus,
+            contentUrl: content.contentUrl,
           })),
         };
       },

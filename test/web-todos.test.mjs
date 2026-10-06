@@ -28,3 +28,11 @@ test("the React to-do page can filter its visible tasks by group", () => {
   assert.match(appSource, /<option value="all">All groups<\/option>/);
   assert.match(styles, /\.todo-group-filter/);
 });
+
+test("the React to-do page pins group containers rather than individual tasks", () => {
+  assert.match(appSource, /\/api\/todo-groups\/\$\{groupId\}\/daily-paper-pin/);
+  assert.match(appSource, /JSON\.stringify\(\{ dailyPaperPinned \}\)/);
+  assert.match(appSource, /group\.dailyPaperPinned \? "Pinned to paper" : "Pin to paper"/);
+  assert.match(appSource, /for \(const group of groupData\?\.groups \|\| \[\]\)/);
+  assert.match(styles, /\.todo-group-pin\.is-pinned/);
+});

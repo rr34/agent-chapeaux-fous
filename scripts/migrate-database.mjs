@@ -319,6 +319,24 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 50) {
+    const [columns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'todo_groups'
+        AND COLUMN_NAME = 'daily_paper_pinned'`, [databaseName]);
+    const column = columns[0];
+    if (column?.DATA_TYPE !== "tinyint" || column.IS_NULLABLE !== "NO"
+      || Number(column.COLUMN_DEFAULT) !== 0) {
+      throw new Error("Migration 0050 is missing the required default-false todo_groups.daily_paper_pinned column");
+    }
+    const [constraints] = await connection.query(`SELECT CONSTRAINT_NAME, CONSTRAINT_TYPE
+      FROM information_schema.TABLE_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'todo_groups'
+        AND CONSTRAINT_NAME = 'todo_groups_daily_paper_pinned'`, [databaseName]);
+    if (constraints[0]?.CONSTRAINT_TYPE !== "CHECK") {
+      throw new Error("Migration 0050 is missing todo_groups_daily_paper_pinned");
+    }
+  }
   if (migration.version === 49) {
     const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'todo_content_join'`, [databaseName]);

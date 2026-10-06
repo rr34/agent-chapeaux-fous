@@ -24,6 +24,33 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("daily-paper group pin integrity requires a default-false column and check", async () => {
+  const validColumn = [{
+    COLUMN_NAME: "daily_paper_pinned", DATA_TYPE: "tinyint",
+    IS_NULLABLE: "NO", COLUMN_DEFAULT: "0",
+  }];
+  const validConstraint = [{
+    CONSTRAINT_NAME: "todo_groups_daily_paper_pinned", CONSTRAINT_TYPE: "CHECK",
+  }];
+  const connection = ({ columns = validColumn, constraints = validConstraint } = {}) => ({
+    async query(sql, parameters) {
+      assert.equal(parameters[0], "test_database");
+      if (sql.includes("information_schema.COLUMNS")) return [columns];
+      if (sql.includes("information_schema.TABLE_CONSTRAINTS")) return [constraints];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+  await assertMigrationSpecificIntegrity(connection(), { version: 50 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: [] }), { version: 50 }, "test_database"),
+    /default-false todo_groups\.daily_paper_pinned/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ constraints: [] }), { version: 50 }, "test_database"),
+    /missing todo_groups_daily_paper_pinned/u,
+  );
+});
+
 test("to-do content join integrity requires the table, columns, and both parent relationships", async () => {
   const expectedColumns = [
     { TABLE_NAME: "todo_content_join", COLUMN_NAME: "personal_task_id" },
@@ -344,11 +371,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
-  for (let current = 29; current <= 49; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
+  for (let current = 29; current <= 50; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 49 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 50 - current }, (_, index) => current + index + 1),
     );
   }
 });

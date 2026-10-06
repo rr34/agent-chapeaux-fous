@@ -36,8 +36,8 @@ export class VideoContent {
     };
   }
 
-  importSequence(input, context = {}) {
-    return this.organizer.importContentSequence(input, context);
+  createItems(input, context = {}) {
+    return this.organizer.createContentItems(input, context);
   }
 
   add({ videoScriptId, groupId }, context = {}) {

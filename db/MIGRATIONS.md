@@ -11,6 +11,17 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 50: Pin to-do groups to the daily paper
+
+Adds the default-false `todo_groups.daily_paper_pinned` preference. A pinned
+active group and its open tasks appear on every daily-paper PDF; the group also
+appears when it is empty. The preference belongs to the group, not to
+individual to-dos.
+
+The matching application requires schema version 50. This additive migration
+does not require writer downtime. Its guarded column and constraint additions
+are safe to replay after a partial MariaDB DDL commit.
+
 ## Version 49: Join to-dos to library content
 
 Adds `todo_content_join` as the authoritative many-to-many relationship between

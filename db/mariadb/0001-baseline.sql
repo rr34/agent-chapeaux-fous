@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 49.
+-- Target: MariaDB 10.11, schema version 50.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -271,6 +271,8 @@ CREATE TABLE todo_groups (
     -- keywords: ["group", "project", "inbox", "watch jobs"]
     -- uses_sequence synonyms: ["auto sequence", "sequenced group"]
     -- uses_sequence keywords: ["sequence", "next number", "increment"]
+    -- daily_paper_pinned synonyms: ["pinned to daily paper", "always print group"]
+    -- daily_paper_pinned keywords: ["daily paper", "pdf", "print", "pinned"]
 
     todo_group_id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable internal identifier for one personal to-do group.',
     name              VARCHAR(255) NOT NULL COMMENT 'Complete human-facing name of the group; the schema intentionally has no separate description. Unique without regard to letter case. Sensitivity: May identify a private project or area of responsibility.',
@@ -280,11 +282,13 @@ CREATE TABLE todo_groups (
     updated_at_utc    DATETIME(3) COMMENT 'UTC instant of the group record’s most recent material update; null until first updated. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     sort_position     BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable presentation order used to place this group and all of its tasks in the to-do list. Lower values appear first; moving a group does not change task membership or task order within the group.',
     uses_sequence     TINYINT NOT NULL DEFAULT 0 COMMENT 'Whether this group automatically assigns the next unique positive sequence number to tasks added without one. 0: Sequence numbers are optional and are not assigned automatically. 1: Unnumbered tasks receive the next number after the group''s current maximum. Disabling automatic sequencing preserves numbers already assigned.',
+    daily_paper_pinned TINYINT NOT NULL DEFAULT 0 COMMENT 'Whether this active group and all of its open tasks always appear on the daily-paper PDF, including when the group is empty or its tasks are not linked to that day''s events. 0: Include only when a task is otherwise selected for the paper. 1: Always include the active group.',
     PRIMARY KEY (todo_group_id),
     UNIQUE KEY todo_groups_name (name),
     KEY todo_groups_order (archived_at_utc, sort_position, todo_group_id),
-    CONSTRAINT todo_groups_sequence CHECK (uses_sequence IN (0, 1))
-) ENGINE=InnoDB COMMENT='Defines the named groups that organize the user''s one authoritative personal To-Do List. One row represents one named task group, such as Inbox or Watches. Groups are named containers, not tasks and not a second hierarchy. Group names are unique without regard to letter case. When uses_sequence is 1, a newly inserted task with no sequence receives max(sequence) + 1 within this group; when it is 0, sequence remains optional. Sensitivity: Group names may reveal the user''s private projects and areas of responsibility.';
+    CONSTRAINT todo_groups_sequence CHECK (uses_sequence IN (0, 1)),
+    CONSTRAINT todo_groups_daily_paper_pinned CHECK (daily_paper_pinned IN (0, 1))
+) ENGINE=InnoDB COMMENT='Defines the named groups that organize the user''s one authoritative personal To-Do List. One row represents one named task group, such as Inbox or Watches. Groups are named containers, not tasks and not a second hierarchy. Group names are unique without regard to letter case. uses_sequence controls automatic task numbering. daily_paper_pinned controls whether the active group and its open tasks always appear on the daily paper; pinning belongs to the group rather than to individual tasks. Sensitivity: Group names may reveal the user''s private projects and areas of responsibility.';
 
 CREATE TABLE journal2_trackers (
     -- sourceOfTruth: true
@@ -1318,4 +1322,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 49, 'Chapeaux Fous MariaDB database');
+VALUES (1, 50, 'Chapeaux Fous MariaDB database');

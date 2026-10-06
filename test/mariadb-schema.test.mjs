@@ -68,14 +68,14 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 49", () => {
+test("the authoritative MariaDB baseline is complete at schema version 50", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 36);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
   assert.equal(source.match(/\bENUM\(/gu)?.length, 33);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 56);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 57);
   assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 77);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
@@ -107,6 +107,9 @@ test("the authoritative MariaDB baseline is complete at schema version 49", () =
   assert.match(jmapSyncTable, /source_account_key\s+VARCHAR\(255\)[\s\S]*email_state\s+TEXT[\s\S]*synchronized_at_utc\s+DATETIME\(3\)/u);
   const todoTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_personal "));
   assert.ok(todoTable);
+  const todoGroupTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_groups "));
+  assert.match(todoGroupTable, /daily_paper_pinned\s+TINYINT NOT NULL DEFAULT 0/u);
+  assert.match(todoGroupTable, /todo_groups_daily_paper_pinned CHECK \(daily_paper_pinned IN \(0, 1\)\)/u);
   assert.doesNotMatch(source, /CREATE TABLE interaction_guides\b|CREATE TABLE interaction_guide_steps\b/u);
   assert.doesNotMatch(todoTable, /\binteraction_guide_id\b|\btodo_personal_guide\b/u);
   const todoContentJoin = statements.find((statement) => statement.startsWith("CREATE TABLE todo_content_join "));
@@ -128,7 +131,17 @@ test("the authoritative MariaDB baseline is complete at schema version 49", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 49, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 50, 'Chapeaux Fous MariaDB database'\)$/);
+});
+
+test("the daily-paper pin migration adds only the group-owned preference", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 50);
+  assert.equal(migration.label, "0050:pin-todo-groups-to-daily-paper");
+  assert.match(migration.sql, /writer downtime: not required/u);
+  assert.match(migration.sql, /ADD COLUMN IF NOT EXISTS daily_paper_pinned TINYINT NOT NULL DEFAULT 0/u);
+  assert.match(migration.sql, /ADD CONSTRAINT IF NOT EXISTS todo_groups_daily_paper_pinned/u);
+  assert.doesNotMatch(migration.sql, /^\s*(?:UPDATE|DELETE|DROP|TRUNCATE)\b/gimu);
 });
 
 test("the to-do content migration adds only the many-to-many association", () => {

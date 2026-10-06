@@ -1,5 +1,6 @@
 import type {
-  CalendarDay, CalendarEvent, DailyPaperModel, LinkedTodo, ScheduledTracker, TodoEventLink,
+  CalendarDay, CalendarEvent, DailyPaperModel, DailyPaperTodoGroup, LinkedTodo,
+  ScheduledTracker, TodoEventLink,
 } from "../types";
 import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
 import { type AddAgentReference } from "./AgentReferenceButton";
@@ -229,22 +230,14 @@ function compareTodoOrder(left: LinkedTodo, right: LinkedTodo) {
     || left.todoId - right.todoId;
 }
 
-function printableTodoGroups(todos: LinkedTodo[], timeZone: string) {
-  const groups = new Map<string, Omit<PrintableTodoGroup, "clusters"> & { todos: LinkedTodo[] }>();
-  for (const todo of todos) {
-    const name = todo.groupName?.trim() || "Inbox";
-    const key = todo.groupId == null ? `group-name:${name}` : `group:${todo.groupId}`;
-    const group = groups.get(key) || {
-      key,
-      name,
-      sortPosition: Number(todo.groupSortPosition ?? Number.MAX_SAFE_INTEGER),
-      todos: [],
-    };
-    group.todos.push(todo);
-    groups.set(key, group);
-  }
-  return [...groups.values()]
-    .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name))
+function clusteredTodoGroups(groups: DailyPaperTodoGroup[], timeZone: string) {
+  return groups
+    .map((group) => ({
+      key: `group:${group.id}`,
+      name: group.name,
+      sortPosition: group.sortPosition,
+      todos: group.todos,
+    }))
     .map((group): PrintableTodoGroup => {
       const counts = new Map<string, number>();
       for (const todo of group.todos) {
@@ -300,12 +293,12 @@ function remainingRelationshipLabels(todo: LinkedTodo, cluster: PrintableTodoClu
   return labels;
 }
 
-function PrintableTodos({ todos, timeZone }: { todos: LinkedTodo[]; timeZone: string }) {
-  if (!todos.length) return <p className="paper-empty">No to-dos are attached to this day’s events.</p>;
+function PrintableTodos({ groups, timeZone }: { groups: DailyPaperTodoGroup[]; timeZone: string }) {
+  if (!groups.length) return <p className="paper-empty">No to-dos are attached to this day’s events.</p>;
   return <div className="paper-todo-groups">
-    {printableTodoGroups(todos, timeZone).map((group) => <section className="paper-todo-group" key={group.key}>
+    {clusteredTodoGroups(groups, timeZone).map((group) => <section className="paper-todo-group" key={group.key}>
       <h3>{group.name}</h3>
-      <div className="paper-todo-clusters">
+      {group.clusters.length ? <div className="paper-todo-clusters">
         {group.clusters.map((cluster) => <section className="paper-todo-cluster" key={cluster.key}>
           <header className="paper-todo-cluster-heading">
             <span>{cluster.kind}</span><strong className="multiline-item-text">{cluster.label}</strong>
@@ -328,12 +321,16 @@ function PrintableTodos({ todos, timeZone }: { todos: LinkedTodo[]; timeZone: st
             })}
           </ul>
         </section>)}
-      </div>
+      </div> : <div className="paper-todo-empty-lines" aria-label={`Blank checklist for ${group.name}`}>
+        {Array.from({ length: 3 }, (_, index) => <span key={index} />)}
+      </div>}
     </section>)}
   </div>;
 }
 
 export function DailyPaper({ model, preview = false }: { model: DailyPaperModel; preview?: boolean }) {
+  const printableTodoCount = model.printableTodoGroups
+    .reduce((count, group) => count + group.todos.length, 0);
   return (
     <div className="daily-paper-document">
     <article className={`daily-paper paper-${model.paperSize} ${preview ? "daily-paper--preview" : ""}`}>
@@ -368,9 +365,9 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
 
         <section className="paper-section paper-tasks">
           <header className="paper-section-heading">
-            <span>03</span><h2>Scheduled to-dos</h2><small>{model.scheduledTodos.length} item{model.scheduledTodos.length === 1 ? "" : "s"}</small>
+            <span>03</span><h2>To-dos</h2><small>{printableTodoCount} item{printableTodoCount === 1 ? "" : "s"}</small>
           </header>
-          <PrintableTodos todos={model.scheduledTodos} timeZone={model.timeZone} />
+          <PrintableTodos groups={model.printableTodoGroups} timeZone={model.timeZone} />
         </section>
       </div>
 

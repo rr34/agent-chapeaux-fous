@@ -77,7 +77,8 @@ test("daily paper groups identified to-dos once by group and joined object in th
   assert.doesNotMatch(calendarSource, /TodoWorksheet|Handwriting sheets follow|TODOS_PER_WORKSHEET/);
   assert.match(calendarSource, /className="paper-day-left"/);
   assert.ok(paperLayout.indexOf("Today’s timeline") < paperLayout.indexOf("Trackers"));
-  assert.match(calendarSource, /<PrintableTodos todos=\{model\.scheduledTodos\} timeZone=\{model\.timeZone\} \/>/);
+  assert.match(calendarSource, /<PrintableTodos groups=\{model\.printableTodoGroups\} timeZone=\{model\.timeZone\} \/>/);
+  assert.match(calendarSource, /className="paper-todo-empty-lines"/);
   assert.match(calendarSource, /className="paper-todo-group"/);
   assert.match(calendarSource, /className="paper-todo-cluster"/);
   assert.match(calendarSource, /key: `contact:\$\{todo\.relatedContact\.contactId\}`/);

@@ -123,3 +123,25 @@ test("to-do update batches stay atomic", async (context) => {
   }] });
   assert.equal(listed.results[0].tasks[0].text, "First");
 });
+
+test("daily-paper pin updates are group-bound, batched, and atomic", async (context) => {
+  const { store, registry, toolContext } = harness(context);
+  const first = await registry.execute("todo_group_create", { name: "Shopping" }, toolContext);
+  const second = await registry.execute("todo_group_create", { name: "Packing" }, toolContext);
+  const result = await registry.execute("todo_group_daily_paper_pin_set", { updates: [{
+    todo_group_id: first.group.todo_group_id, daily_paper_pinned: true,
+  }, {
+    todo_group_id: second.group.todo_group_id, daily_paper_pinned: true,
+  }] }, toolContext);
+  assert.equal(result.updated_count, 2);
+  assert.ok(result.items.every(({ group }) => group.daily_paper_pinned === 1));
+
+  await assert.rejects(registry.execute("todo_group_daily_paper_pin_set", { updates: [{
+    todo_group_id: first.group.todo_group_id, daily_paper_pinned: false,
+  }, {
+    todo_group_id: 999999, daily_paper_pinned: true,
+  }] }, toolContext), /not found/u);
+  assert.equal(store.requireReady().prepare(`
+    SELECT daily_paper_pinned FROM todo_groups WHERE todo_group_id = ?
+  `).get(first.group.todo_group_id).daily_paper_pinned, 1);
+});

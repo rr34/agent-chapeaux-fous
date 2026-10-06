@@ -1086,6 +1086,42 @@ test("to-do group reordering atomically moves whole groups", () => {
   }
 });
 
+test("to-do groups own their daily-paper pin and expose open pinned-list contents", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target);
+  try {
+    const shopping = organizer.createTodoGroup({ name: "Shopping" });
+    const empty = organizer.createTodoGroup({ name: "Packing" });
+    const coffee = organizer.createTodo({ text: "Coffee beans", groupId: shopping.id });
+    organizer.createTodo({ text: "Already bought", groupId: shopping.id, status: "complete" });
+
+    assert.equal(shopping.dailyPaperPinned, false);
+    assert.equal(organizer.setTodoGroupDailyPaperPinned(shopping.id, {
+      dailyPaperPinned: true,
+    }).changed, true);
+    organizer.setTodoGroupDailyPaperPinned(empty.id, { dailyPaperPinned: true });
+
+    const pinned = organizer.listDailyPaperTodoGroups();
+    assert.deepEqual(pinned.map(({ name, dailyPaperPinned, todos }) => ({
+      name, dailyPaperPinned, todoIds: todos.map(({ id }) => id),
+    })), [
+      { name: "Shopping", dailyPaperPinned: true, todoIds: [coffee.id] },
+      { name: "Packing", dailyPaperPinned: true, todoIds: [] },
+    ]);
+    assert.equal(organizer.listTodoGroups().find(({ id }) => id === shopping.id).dailyPaperPinned, true);
+    assert.equal(organizer.setTodoGroupDailyPaperPinned(shopping.id, {
+      dailyPaperPinned: true,
+    }).changed, false);
+    assert.throws(
+      () => organizer.setTodoGroupDailyPaperPinned(shopping.id, { dailyPaperPinned: "yes" }),
+      /must be true or false/u,
+    );
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("renaming a group preserves membership and explicit ordering", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);

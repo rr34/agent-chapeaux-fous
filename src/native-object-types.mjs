@@ -51,7 +51,10 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     identity: field("todo_group_id", "Stable native to-do group primary ID."),
     reference: field("ref", "Stable Agent Slayer to-do group reference."),
     display: field("name", "Human-facing to-do group name."),
-    qualifiers: [field("open_task_count", "Current number of non-terminal tasks in the group.")],
+    qualifiers: [
+      field("open_task_count", "Current number of non-terminal tasks in the group."),
+      field("daily_paper_pinned", "Whether the group always appears on the daily paper."),
+    ],
     relationships: [relationship("tasks", "todos.personal_task", "Personal to-dos contained by this group.")],
     idFields: ["todo_group_id", "todoGroupId"], displayFields: ["group_name", "name"],
     refFields: ["group_ref", "ref"], refPrefix: "agent-slayer://todo-groups/",
