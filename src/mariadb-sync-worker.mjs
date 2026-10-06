@@ -76,12 +76,54 @@ function closingParenthesis(source, opening) {
   return -1;
 }
 
+function topLevelKeyword(source, start, keyword) {
+  let depth = 0;
+  let quote = null;
+  const selectedKeyword = keyword.toUpperCase();
+  for (let index = start; index <= source.length - selectedKeyword.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === quote && source[index + 1] === quote) index += 1;
+      else if (character === quote && source[index - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (["'", '"', "`"].includes(character)) quote = character;
+    else if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    else if (
+      depth === 0
+      && source.slice(index, index + selectedKeyword.length).toUpperCase() === selectedKeyword
+      && !/[A-Za-z0-9_]/u.test(source[index - 1] ?? "")
+      && !/[A-Za-z0-9_]/u.test(source[index + selectedKeyword.length] ?? "")
+    ) return index;
+  }
+  return -1;
+}
+
 function insertInstantParameterIndexes(sql, offsets) {
   const marked = new Set();
-  const match = /\bINSERT\s+(?:IGNORE\s+)?INTO\s+[`"A-Za-z_][`"A-Za-z0-9_]*\s*\(([^)]*)\)\s*VALUES\s*\(/iu.exec(sql);
+  const match = /\bINSERT\s+(?:IGNORE\s+)?INTO\s+[`"A-Za-z_][`"A-Za-z0-9_]*\s*\(([^)]*)\)\s*/iu.exec(sql);
   if (!match) return marked;
   const columns = match[1].split(",").map((column) => column.trim().replace(/[`"]/gu, ""));
-  let opening = match.index + match[0].length - 1;
+  const bodyStart = match.index + match[0].length;
+  const values = /^VALUES\s*\(/iu.exec(sql.slice(bodyStart));
+  const selected = /^SELECT\b/iu.exec(sql.slice(bodyStart));
+  if (selected) {
+    const start = bodyStart + selected[0].length;
+    const from = topLevelKeyword(sql, start, "FROM");
+    const end = from < 0 ? sql.replace(/;\s*$/u, "").length : from;
+    const expressions = commaSeparatedExpressions(sql, start, end);
+    for (let index = 0; index < Math.min(columns.length, expressions.length); index += 1) {
+      if (!instantColumn.test(columns[index])) continue;
+      const [expressionStart, expressionEnd] = expressions[index];
+      offsets.forEach((offset, parameterIndex) => {
+        if (offset >= expressionStart && offset < expressionEnd) marked.add(parameterIndex);
+      });
+    }
+    return marked;
+  }
+  if (!values) return marked;
+  let opening = bodyStart + values[0].lastIndexOf("(");
   while (opening >= 0) {
     const closing = closingParenthesis(sql, opening);
     if (closing < 0) return marked;

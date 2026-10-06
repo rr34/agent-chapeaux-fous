@@ -119,6 +119,11 @@ test("only parameters bound to native instant columns use MariaDB DATETIME liter
     ["first", instant, "second", instant],
   ), ["first", "2026-09-13 01:02:03.456", "second", "2026-09-13 01:02:03.456"]);
   assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    `INSERT INTO content_groups (name, sort_position, created_at_utc)
+     SELECT ?, COALESCE(MAX(sort_position), 0) + 10, ? FROM content_groups`,
+    ["What to Watch", instant],
+  ), ["What to Watch", "2026-09-13 01:02:03.456"]);
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
     'SELECT * FROM "calendar_events" WHERE "starts_at_utc" >= ? AND "ical_recurrence_id" = ?',
     [instant, instant],
   ), ["2026-09-13 01:02:03.456", instant]);
