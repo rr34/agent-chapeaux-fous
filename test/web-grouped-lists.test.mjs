@@ -56,7 +56,7 @@ test("grouped list rows have shared and responsive styling", () => {
   assert.match(styles, /\.journal-entry-row/);
 });
 
-test("every grouped section exposes its group filter at the top", () => {
+test("every grouped section puts its group selector in the text-filter card", () => {
   const contacts = screenSource("ContactsScreen", "LibraryScreen");
   const library = screenSource("LibraryScreen", "VideoScriptsScreen");
   const scripts = screenSource("VideoScriptsScreen", "FilesScreen");
@@ -74,6 +74,10 @@ test("every grouped section exposes its group filter at the top", () => {
   assert.match(journal, /selectedGroupId === "all"/);
   assert.match(journal, /<SectionSelectFilter label="Group"/);
   assert.match(styles, /\.section-select-filter/);
+  for (const source of [contacts, library, scripts, files, journal]) {
+    assert.match(source, /<SectionFilter[^>]*controls=\{(?:<>\s*)?<SectionSelectFilter label="Group"/s);
+  }
+  assert.match(styles, /\.section-filter-controls/);
 });
 
 test("contacts expose a tag filter and combine it with group and text filtering", () => {

@@ -134,9 +134,22 @@ function matchWhere(tokens, fields, extra = []) {
   return { sql: `(${parts.join(" OR ")})`, values };
 }
 
-function readCandidates(database, tokens) {
+function selectedSearchTypes(domainTypes) {
+  if (domainTypes == null) return null;
+  if (!Array.isArray(domainTypes)) throw new TypeError("Object search domainTypes must be an array.");
+  const selected = new Set();
+  for (const domainType of domainTypes) {
+    const definition = byDomainType.get(domainType);
+    if (!definition) throw new TypeError(`Object search domain type ${String(domainType)} is not searchable.`);
+    selected.add(definition.type);
+  }
+  return selected;
+}
+
+function readCandidates(database, tokens, selectedTypes = null) {
   const candidates = [];
   const read = (type, select, from, baseWhere, fields, extras = [], order = "id DESC") => {
+    if (selectedTypes && !selectedTypes.has(type)) return;
     const match = matchWhere(tokens, fields, extras);
     const rows = database.prepare(`SELECT ${select} FROM ${from}
       WHERE ${baseWhere} AND ${match.sql} ORDER BY ${order} LIMIT ?`)
@@ -316,7 +329,8 @@ function relatedFor(database, item) {
   return [];
 }
 
-export function searchNativeObjects(database, { query, limit = 4 } = {}) {
+export function searchNativeObjects(database, { query, limit = 4, domainTypes = null } = {}) {
+  const selectedTypes = selectedSearchTypes(domainTypes);
   const tokens = objectSearchTerms(query ?? "");
   if (!tokens.length) return { query: String(query ?? ""), source: "native_mariadb_object_tables",
     capturedAtUtc: new Date().toISOString(), objects: [] };
@@ -324,7 +338,7 @@ export function searchNativeObjects(database, { query, limit = 4 } = {}) {
   if (!Number.isSafeInteger(boundedLimit) || boundedLimit < 1 || boundedLimit > 48) {
     throw new TypeError("Object search limit must be from 1 to 48.");
   }
-  const ranked = readCandidates(database, tokens)
+  const ranked = readCandidates(database, tokens, selectedTypes)
     .map((candidate) => scoreCandidate(candidate, tokens)).filter(Boolean)
     .sort((left, right) => right.score - left.score
       || left.label.localeCompare(right.label) || left.title.localeCompare(right.title));

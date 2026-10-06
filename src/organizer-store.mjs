@@ -930,12 +930,12 @@ export class OrganizerStore {
     this.database.close();
   }
 
-  searchNativeObjects({ query = "", limit = 4 } = {}) {
+  searchNativeObjects({ query = "", limit = 4, domainTypes = null } = {}) {
     if (typeof query !== "string" || query.length > 400) {
       throw new OrganizerInputError("Object search text must be at most 400 characters.");
     }
     const boundedLimit = integer(limit, "limit", { fallback: 4, minimum: 1, maximum: 48 });
-    return searchNativeObjects(this.database, { query, limit: boundedLimit });
+    return searchNativeObjects(this.database, { query, limit: boundedLimit, domainTypes });
   }
 
   resolveNativeObjectCandidates(selectedCandidates = []) {

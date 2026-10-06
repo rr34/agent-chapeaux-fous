@@ -17,9 +17,15 @@ test("first-class object controls expose one lazy visual network without editing
   assert.match(component, /\/api\/object-network\?/u);
   assert.match(component, /\/api\/object-network\/connections/u);
   assert.match(component, /className="network-rail"/u);
+  assert.match(component, /<NetworkCard object=\{graph\.focus\} focus/u);
+  assert.doesNotMatch(component, /<h2>Object network<\/h2>/u);
+  assert.match(component, /className="network-open-button"/u);
+  assert.match(component, /Open network for \$\{object\.display\}/u);
   assert.match(component, /onOpen=\{\(\) => openObject\(object\)\}/u);
+  assert.match(component, /parameters\.append\("domainType", domainType\)/u);
   assert.doesNotMatch(component, /relationshipKind|relationship label|Linked to/u);
   assert.match(styles, /\.network-rail::before/u);
+  assert.match(styles, /\.network-heading-object \.network-object-card/u);
   assert.doesNotMatch(editor, /ObjectNetworkButton|relatedContactId[^\n]*<select/u);
 });
 
@@ -28,5 +34,5 @@ test("the HTTP adapter keeps object graph reads and exact connection mutations s
   assert.match(server, /request\.method === "GET" && url\.pathname === "\/api\/object-network"/u);
   assert.match(server, /request\.method === "POST" && url\.pathname === "\/api\/object-network\/connections"/u);
   assert.match(server, /objectNetwork\.setConnection\(await readJson\(request\)/u);
+  assert.match(server, /url\.searchParams\.getAll\("domainType"\)/u);
 });
-

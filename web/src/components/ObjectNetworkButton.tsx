@@ -44,24 +44,32 @@ function NetworkCard({ object, focus = false, onOpen, onDisconnect, busy }: {
 }) {
   const content = <>
     <span className="network-object-label">{object.label}</span>
-    <strong>{object.display}</strong>
+    {focus ? <h2>{object.display}</h2> : <strong>{object.display}</strong>}
     {object.body && object.body !== object.display && <p>{object.body}</p>}
     {object.attributes.length > 0 && <dl>{object.attributes.map(({ label, value }) => <div key={`${label}-${value}`}>
       <dt>{label}</dt><dd>{value}</dd>
     </div>)}</dl>}
   </>;
-  return <article className={`network-object-card${focus ? " is-focus" : ""}`}>
-    {onOpen
-      ? <button className="network-object-open" type="button" onClick={onOpen} aria-label={`Open ${object.display}`}>{content}</button>
-      : <div className="network-object-open">{content}</div>}
-    {onDisconnect && <button
-      className="network-disconnect-button"
-      type="button"
-      disabled={busy}
-      onClick={onDisconnect}
-      title={`Disconnect ${object.display}`}
-      aria-label={`Disconnect ${object.display}`}
-    ><NetworkGlyph broken /></button>}
+  const hasActions = Boolean(onOpen || onDisconnect);
+  return <article className={`network-object-card${focus ? " is-focus" : ""}${hasActions ? " has-actions" : ""}`}>
+    <div className="network-object-open">{content}</div>
+    {hasActions && <div className="network-card-actions">
+      {onOpen && <button
+        className="network-open-button"
+        type="button"
+        onClick={onOpen}
+        title={`Open network for ${object.display}`}
+        aria-label={`Open network for ${object.display}`}
+      ><NetworkGlyph /></button>}
+      {onDisconnect && <button
+        className="network-disconnect-button"
+        type="button"
+        disabled={busy}
+        onClick={onDisconnect}
+        title={`Disconnect ${object.display}`}
+        aria-label={`Disconnect ${object.display}`}
+      ><NetworkGlyph broken /></button>}
+    </div>}
   </article>;
 }
 
@@ -94,6 +102,7 @@ function ObjectNetworkExplorer({ initial, onClose }: {
   const load = async (object: NetworkObject | SelectedObjectCandidate) => {
     setLoading(true);
     setError("");
+    setGraph(null);
     try {
       setGraph(await api<ObjectNetworkGraph>(graphUrl(object)));
       setLinking(false);
@@ -106,7 +115,10 @@ function ObjectNetworkExplorer({ initial, onClose }: {
     }
   };
 
-  useEffect(() => { void load(initial); }, [initial.ref]);
+  useEffect(() => {
+    setHistory([]);
+    void load(initial);
+  }, [initial.ref]);
   useEffect(() => {
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", close);
@@ -123,8 +135,10 @@ function ObjectNetworkExplorer({ initial, onClose }: {
     const timer = window.setTimeout(async () => {
       setSearching(true);
       try {
+        const parameters = new URLSearchParams({ q: text, limit: "48" });
+        graph.connectableTypes.forEach((domainType) => parameters.append("domainType", domainType));
         const response = await api<{ objects: ObjectSearchCandidate[] }>(
-          `/api/native-objects/search?q=${encodeURIComponent(text)}&limit=48`,
+          `/api/native-objects/search?${parameters}`,
           { signal: controller.signal },
         );
         if (!controller.signal.aborted) setResults(response.objects || []);
@@ -183,17 +197,16 @@ function ObjectNetworkExplorer({ initial, onClose }: {
     if (event.target === event.currentTarget) onClose();
   }}>
     <section className="object-editor object-network" role="dialog" aria-modal="true" aria-label="Object connections">
-      <header className="object-editor-heading network-heading">
-        <div className="network-heading-title">
+      <header className="network-heading">
+        <div className="network-heading-object">
           {history.length > 0 && <button className="network-back-button" type="button" onClick={goBack} aria-label="Back">←</button>}
-          <div><p className="eyebrow">Connections</p><h2>Object network</h2></div>
+          {graph && <NetworkCard object={graph.focus} focus />}
         </div>
         <button className="button button--quiet" type="button" onClick={onClose}>Close</button>
       </header>
-      {loading && <p className="object-editor-state">Opening object…</p>}
+      {loading && !graph && <p className="object-editor-state">Opening object…</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
       {graph && <>
-        <NetworkCard object={graph.focus} focus />
         <div className="network-rail" aria-label="Connected objects">
           {graph.connections.map(({ object, removable }) => <NetworkCard
             key={object.ref}

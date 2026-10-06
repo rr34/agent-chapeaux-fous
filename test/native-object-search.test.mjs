@@ -55,6 +55,14 @@ test("native object candidates come from selected authoritative tables and rank 
   ]);
   assert.equal(contacts[0].domainType, "contacts.contact");
   assert.equal(contacts[0].source, "native:contacts");
+
+  statements.length = 0;
+  const connectable = searchNativeObjects(database, {
+    query: "Lucas", limit: 48, domainTypes: ["todos.personal_task"],
+  }).objects;
+  assert.deepEqual(connectable.map(({ domainType }) => domainType), ["todos.personal_task"]);
+  assert.equal(statements.some(({ sql }) => sql.includes("FROM contacts AS c")), false);
+  assert.equal(statements.some(({ sql }) => sql.includes("FROM todo_personal AS task")), true);
 });
 
 test("object search bounds text and result count before database work", () => {
@@ -63,6 +71,9 @@ test("object search bounds text and result count before database work", () => {
   assert.throws(() => searchNativeObjects({ prepare() { throw new Error("unexpected read"); } }, {
     query: "Exercise", limit: 49,
   }), /limit must be from 1 to 48/u);
+  assert.throws(() => searchNativeObjects({ prepare() { throw new Error("unexpected read"); } }, {
+    query: "Exercise", domainTypes: ["unknown.object"],
+  }), /domain type unknown\.object is not searchable/u);
 });
 
 test("the selector keeps only recent-or-future events and open to-dos", () => {

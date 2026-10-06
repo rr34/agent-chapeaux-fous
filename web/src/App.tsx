@@ -885,8 +885,10 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
     }
     return [...grouped.values()];
   }, [filterQuery, groupData?.groups, selectedGroupId, todos]);
-  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<div className="todo-heading-actions"><label className="todo-group-filter"><span>Group</span><select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={groupsLoading}><option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}</select></label><label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label><form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form></div>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" />
+  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<div className="todo-heading-actions"><label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label><form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form></div>} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
+      <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
+    </SectionSelectFilter>} />
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div></>;
 }
 
@@ -918,17 +920,18 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
   }, [visibleContacts]);
   const contactsFiltered = query.trim() || selectedKind !== "all" || selectedTag !== "all";
   return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<div className="section-heading-actions">
-    <SectionSelectFilter label="Group" value={selectedKind} onChange={setSelectedKind}>
-      <option value="all">All groups</option><option value="person">People</option><option value="organization">Organizations</option><option value="service">Services</option>
-    </SectionSelectFilter>
-    <SectionSelectFilter label="Tag" value={selectedTag} onChange={setSelectedTag} disabled={!contactTags.length}>
-      <option value="all">All tags</option>{contactTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
-    </SectionSelectFilter>
     <form className="inline-create" onSubmit={(event) => void create(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Contact name" required /><button className="button">Add</button></form>
   </div>} />
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && <>
-      <SectionFilter query={query} onChange={setQuery} count={visibleContacts.length} noun="contact" />
+      <SectionFilter query={query} onChange={setQuery} count={visibleContacts.length} noun="contact" controls={<>
+        <SectionSelectFilter label="Group" value={selectedKind} onChange={setSelectedKind}>
+          <option value="all">All groups</option><option value="person">People</option><option value="organization">Organizations</option><option value="service">Services</option>
+        </SectionSelectFilter>
+        <SectionSelectFilter label="Tag" value={selectedTag} onChange={setSelectedTag} disabled={!contactTags.length}>
+          <option value="all">All tags</option>{contactTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
+        </SectionSelectFilter>
+      </>} />
       {!visibleContacts.length ? <Empty>{contactsFiltered ? "No contacts match the filters." : "No contacts yet."}</Empty> : <div className="library-groups">
         {contactGroups.map((group) => <section className="library-group" key={group.id} aria-labelledby={`contact-group-${group.id}`}>
           <header className="library-group-heading">
@@ -1001,10 +1004,10 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
   }, [filterQuery, groupData?.groups, selectedGroupId, visibleContent]);
   const reloadLibrary = () => { void reload(); void reloadGroups(); };
   return <>
-    <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." actions={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
+    <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleContent.length} noun="item" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
       <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
     </SectionSelectFilter>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleContent.length} noun="item" />
     {(loading || groupsLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadLibrary} />}
     {groupError && <ErrorState error={groupError} retry={reloadLibrary} />}
@@ -1065,10 +1068,10 @@ function VideoScriptsScreen({ onReference }: { onReference: AddAgentReference })
     return filterQuery.trim() ? allGroups.filter((group) => group.scripts.length) : allGroups;
   }, [filterQuery, selectedStatus, visibleScripts]);
   return <>
-    <PageHeading eyebrow="Production" title="Video Scripts" detail="Scripts grounded in completed conversations." actions={<SectionSelectFilter label="Group" value={selectedStatus} onChange={setSelectedStatus}>
+    <PageHeading eyebrow="Production" title="Video Scripts" detail="Scripts grounded in completed conversations." />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleScripts.length} noun="script" controls={<SectionSelectFilter label="Group" value={selectedStatus} onChange={setSelectedStatus}>
       <option value="all">All groups</option><option value="draft">Drafts</option><option value="archived">Archived</option>
     </SectionSelectFilter>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleScripts.length} noun="script" />
     {loading && <Loading />}
     {error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No video scripts match the filter." : "Nothing here yet."}</Empty>}
@@ -1136,10 +1139,10 @@ function FilesScreen({ onReference }: { onReference: AddAgentReference }) {
     });
   }, [visibleFiles]);
   return <>
-    <PageHeading eyebrow="Durable artifacts" title="Files" detail="Uploads, generated documents, and their source evidence." actions={<SectionSelectFilter label="Group" value={selectedMediaKind} onChange={setSelectedMediaKind} disabled={!fileGroupOptions.length}>
+    <PageHeading eyebrow="Durable artifacts" title="Files" detail="Uploads, generated documents, and their source evidence." />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleFiles.length} noun="file" controls={<SectionSelectFilter label="Group" value={selectedMediaKind} onChange={setSelectedMediaKind} disabled={!fileGroupOptions.length}>
       <option value="all">All groups</option>{fileGroupOptions.map((kind) => <option value={kind} key={kind}>{fileGroupLabels[kind] || `${kind.replaceAll("_", " ")} files`}</option>)}
     </SectionSelectFilter>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleFiles.length} noun="file" />
     {loading && <Loading />}
     {error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No files match the filter." : "Nothing here yet."}</Empty>}
@@ -1233,10 +1236,10 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
   }, [visibleEntries, visibleTrackers]);
   const reloadJournal = () => { void reload(); void reloadEntries(); };
   return <>
-    <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." actions={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={!journalGroupOptions.length}>
+    <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleCount} noun="result" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={!journalGroupOptions.length}>
       <option value="all">All groups</option>{journalGroupOptions.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}
     </SectionSelectFilter>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleCount} noun="result" />
     {(loading || entriesLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadJournal} />}
     {entryError && <ErrorState error={entryError} retry={reloadJournal} />}

@@ -26,7 +26,8 @@ test("the React to-do page can filter its visible tasks by group", () => {
   assert.match(appSource, /useApi<\{ groups: Entity\[\] \}>\("\/api\/todo-groups"\)/);
   assert.match(appSource, /selectedGroupId === "all"/);
   assert.match(appSource, /<option value="all">All groups<\/option>/);
-  assert.match(styles, /\.todo-group-filter/);
+  assert.match(appSource, /<SectionFilter[^>]*controls=\{<SectionSelectFilter label="Group"/);
+  assert.match(styles, /\.section-filter-controls/);
 });
 
 test("the React to-do page pins group containers rather than individual tasks", () => {

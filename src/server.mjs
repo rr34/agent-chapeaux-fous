@@ -485,9 +485,11 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/native-objects/search") {
+      const domainTypes = url.searchParams.getAll("domainType");
       sendJson(response, 200, organizer.searchNativeObjects({
         query: url.searchParams.get("q") || "",
         limit: url.searchParams.get("limit") || 24,
+        ...(domainTypes.length ? { domainTypes } : {}),
       }));
       return;
     }
