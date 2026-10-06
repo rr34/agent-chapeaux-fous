@@ -49,9 +49,30 @@ const model = {
   calendarDays: dates,
   todayEvents: events,
   scheduledTodos: [
-    { todoId: 17, title: "Bring the annotated draft", status: "todo", eventTitles: ["Review the draft"] },
-    { todoId: 18, title: "Choose three priorities", status: "todo", eventTitles: ["Planning breakfast"] },
-    { todoId: 19, title: "Pick up birthday card", status: "todo", eventTitles: ["Call Mom"] },
+    {
+      todoId: 17, title: "Bring the annotated draft", status: "todo",
+      groupId: 4, groupName: "Writing", groupSortPosition: 1, sortPosition: 1,
+      relatedContact: { contactId: 8, displayName: "Jane Smith" }, interactionGuide: null,
+      eventLinks: [{ eventId: 3, title: "Review the draft", startsAtUtc: events[2].startsAtUtc, isAllDay: false, relationshipKind: "work" }],
+    },
+    {
+      todoId: 18, title: "Choose three priorities", status: "todo",
+      groupId: 4, groupName: "Writing", groupSortPosition: 1, sortPosition: 2,
+      relatedContact: { contactId: 8, displayName: "Jane Smith" }, interactionGuide: null,
+      eventLinks: [{ eventId: 2, title: "Planning breakfast", startsAtUtc: events[1].startsAtUtc, isAllDay: false, relationshipKind: "context" }],
+    },
+    {
+      todoId: 19, title: "Pick up birthday card", status: "todo",
+      groupId: 7, groupName: "Personal", groupSortPosition: 2, sortPosition: 1,
+      relatedContact: { contactId: 12, displayName: "Mom" }, interactionGuide: null,
+      eventLinks: [{ eventId: 4, title: "Call Mom", startsAtUtc: events[3].startsAtUtc, isAllDay: false, relationshipKind: "deadline" }],
+    },
+    {
+      todoId: 20, title: "Ask Alex for the restaurant name", status: "todo",
+      groupId: 7, groupName: "Personal", groupSortPosition: 2, sortPosition: 2,
+      relatedContact: { contactId: 13, displayName: "Alex" }, interactionGuide: null,
+      eventLinks: [{ eventId: 4, title: "Call Mom", startsAtUtc: events[3].startsAtUtc, isAllDay: false, relationshipKind: "context" }],
+    },
   ],
   scheduledTrackers: [
     {
@@ -127,6 +148,19 @@ try {
   page.on("pageerror", error => browserErrors.push(error.message));
   await page.goto(`${origin}/app?paper=daily&date=2026-10-04&timeZone=America%2FNew_York&paperSize=letter`, { waitUntil: "networkidle", timeout: 60_000 });
   await page.waitForFunction(() => window.__DAILY_PAPER_READY__ === true, null, { timeout: 60_000 });
+  const groupLabels = await page.locator(".paper-todo-group > h3").allTextContents();
+  const clusterLabels = await page.locator(".paper-todo-cluster-heading").allTextContents();
+  if (groupLabels.join("|") !== "Writing|Personal") throw new Error(`Unexpected to-do groups: ${groupLabels.join("|")}`);
+  if (clusterLabels.filter((label) => label.includes("Jane Smith")).length !== 1) {
+    throw new Error(`Expected one Jane Smith cluster: ${clusterLabels.join("|")}`);
+  }
+  if (clusterLabels.filter((label) => label.includes("Call Mom")).length !== 1) {
+    throw new Error(`Expected one Call Mom cluster: ${clusterLabels.join("|")}`);
+  }
+  const cardTexts = await page.locator(".scheduled-todo-card").allTextContents();
+  if (cardTexts.some((text) => text.includes("Jane Smith") || text.includes("Call Mom"))) {
+    throw new Error(`Cluster labels were repeated on to-do cards: ${cardTexts.join("|")}`);
+  }
   await page.emulateMedia({ media: "print" });
   await page.screenshot({ path: screenshotPath, fullPage: true });
   await page.pdf({ path: pdfPath, format: "Letter", printBackground: true, preferCSSPageSize: true, tagged: true, outline: true });

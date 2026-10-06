@@ -21,7 +21,6 @@ test("the React UI can reference every displayed first-class object in Agent", (
   assert.match(references, /content_id/);
   assert.match(references, /video_script_id/);
   assert.match(references, /file_id/);
-  assert.match(references, /interaction_guide_id/);
   assert.match(references, /journal_entry_id/);
   assert.match(references, /calendar_routine_id/);
 

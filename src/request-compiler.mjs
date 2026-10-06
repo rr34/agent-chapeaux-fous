@@ -10,7 +10,6 @@ const localCapabilityMatchers = [
   ["contacts", (tool) => tool.name.startsWith("contact_")],
   ["todos", (tool) => tool.name.startsWith("todo_")],
   ["journal", (tool) => tool.name.startsWith("journal_") || tool.name.startsWith("tracker_")],
-  ["interaction-guides", (tool) => tool.name.startsWith("interaction_guide_")],
   ["profile", (tool) => tool.name.startsWith("profile_fact_")],
   ["files", (tool) => tool.name.startsWith("file_")],
   ["database-write", (tool) => tool.name === "database_write"],
@@ -31,7 +30,6 @@ const capabilityPatterns = new Map([
   ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b|\b(?:add|change|correct|set|update)\b(?![^\n]{0,60}\bmy\s+(?:home\s+|work\s+|mailing\s+|postal\s+|street\s+)?address\b)[^\n]{0,60}\baddress\b/iu],
   ["todos", /\b(?:to[ -]?do|todo|task|remind(?:er)?|chore)\b/iu],
   ["journal", /\b(?:personal journals?|journal entr(?:y|ies)|(?:my|the) journals?|food journal|tracker|track my|weight|weigh-in|mood|symptom|workout|exercise|slept|sleep|blood pressure|i ate|my meal)\b/iu],
-  ["interaction-guides", /\b(?:briefings?|interaction guides?|guided interactions?)\b|\b(?:start|use|update|change|edit|create|make|show|list|archive|schedule).{0,60}\bguide\b/iu],
   ["profile", /\b(?:remember that|remember my|keep on file|profile fact|forget (?:that|my)|my preference|i prefer|i am allergic|my address|my phone|my vehicle|my car|my time ?zone|my\b.{0,80}\b(?:is|are|changed))\b/iu],
   ["files", /\b(?:file\s*#?\s*\d+|file id|uploaded file|previous upload|past upload|attachment|document|csv|tsv|tab[ -]separated|json lines?|jsonl|delimited (?:text|file)|original filename)\b/iu],
   ["database", /\b(?:database|db|mariadb|schema|table|ledger|audit trail|tool receipts?|activity events?|stored row|content item|content group|video job|correspondence)\b/iu],
@@ -57,7 +55,6 @@ const capabilitySummaries = new Map([
   ["contacts", "Search, import, update addresses, tag, and merge contacts."],
   ["todos", "Read and manage non-temporal native personal to-dos."],
   ["journal", "Read, record, and correct journal entries and trackers."],
-  ["interaction-guides", "Create, inspect, update, and conduct user-owned briefings and their ordered exchanges."],
   ["profile", "Read and maintain durable profile facts."],
   ["files", "Find, retrieve, inspect, and safely transform durable text and tabular uploads."],
   ["database", "Inspect schema and read supported native application data, including the durable activity ledger."],
@@ -170,25 +167,16 @@ export function selectRequestCapabilities({
   }
 
   const currentText = normalizedText(text);
-  const previousAssistantText = [...recentConversation].reverse()
-    .find(({ role }) => role === "assistant")?.content ?? "";
-  const guidedContinuation = previousCapabilities.includes("interaction-guides")
-    && currentText.trim().length > 0
-    && currentText.length <= 2000
-    && /\?\s*$/u.test(previousAssistantText);
   const followsPriorTurn = recentConversation.length > 0 && (
     followupPattern.test(currentText)
     || compactFollowupPattern.test(currentText)
-    || guidedContinuation
     || (
       !attachment
       && !/https?:\/\//iu.test(currentText)
       && referencesPriorTurn(currentText)
     )
   );
-  const routingText = guidedContinuation
-    ? enrichedRoutingText(currentText)
-    : followsPriorTurn
+  const routingText = followsPriorTurn
     ? enrichedRoutingText(`${recentRoutingText(recentConversation)}\nuser: ${currentText}`)
     : enrichedRoutingText(currentText);
   const selected = new Set([
@@ -218,15 +206,6 @@ export function selectRequestCapabilities({
     if (selected.has(capability) || !capabilityAliasMatches(entries, routingText)) continue;
     selected.add(capability);
     reasons.push(`${capability}:declared-alias`);
-  }
-
-  if (
-    selected.has("interaction-guides")
-    && grouped.has("calendar")
-    && /(?:\b(?:schedule|repeat|repeating|recurring|every)\b.{0,80}\bguide\b)|(?:\bguide\b.{0,80}\b(?:daily|weekly|monthly|yearly|weekday|weekend|every)\b)/iu.test(routingText)
-  ) {
-    selected.add("calendar");
-    reasons.push("calendar:interaction-guide-schedule");
   }
 
   for (const capability of grouped.keys()) {
@@ -260,7 +239,6 @@ export function selectRequestCapabilities({
       if (grouped.has(capability)) selected.add(capability);
     }
     if (previousCapabilities.length) reasons.push("prior-capabilities:continuation");
-    if (guidedContinuation) reasons.push("interaction-guides:question-answer-continuation");
   }
 
   const meaningfulSelections = [...selected]

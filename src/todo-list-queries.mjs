@@ -131,14 +131,9 @@ export function listTodoQueryPages(database, queries) {
   const prepared = queries.map(prepareQuery);
   const results = prepared.map(({ query, filters, conditions, parameters, order, fingerprint }) => {
     const rows = database.prepare(`
-      SELECT task.*, todo_group.name AS group_name,
-             interaction_guide.name AS interaction_guide_name,
-             interaction_guide.status AS interaction_guide_status,
-             interaction_guide.version AS interaction_guide_version
+      SELECT task.*, todo_group.name AS group_name
       FROM todo_personal AS task
       JOIN todo_groups AS todo_group USING (todo_group_id)
-      LEFT JOIN interaction_guides AS interaction_guide
-        ON interaction_guide.interaction_guide_id = task.interaction_guide_id
       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       ORDER BY ${order.map(field => `${field.sql} ${field.direction}`).join(", ")}
       LIMIT ?

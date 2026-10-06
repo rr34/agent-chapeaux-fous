@@ -35,7 +35,6 @@ const exactCandidateReads = Object.freeze({
   calendar_event: { display: "title", where: "status <> 'cancelled' AND COALESCE(ends_at_utc, starts_at_utc) >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 1 MONTH)" },
   calendar_routine: { display: "title", where: "disabled_at_utc IS NULL" },
   file: { display: "COALESCE(title, original_filename)", where: "1 = 1" },
-  interaction_guide: { display: "name", where: "status = 'active'" },
   profile_fact: { display: "fact_text", where: "fact_status = 'active'" },
   catch_up_question: { display: "question_text", where: "resolved_at IS NULL" },
   video_script: { display: "title", where: "status = 'draft'" },
@@ -202,9 +201,6 @@ function readCandidates(database, tokens) {
       file.original_filename, file.media_kind, file.mime_type`,
     "files AS file", "1 = 1", ["file.title", "file.original_filename", "file.description"], [],
     "file.created_at_utc DESC, file.file_id DESC");
-  read("interaction_guide", "guide.interaction_guide_id AS id, guide.name AS title, guide.status",
-    "interaction_guides AS guide", "guide.status = 'active'", ["guide.name"], [],
-    "guide.name, guide.interaction_guide_id");
   read("profile_fact", "fact.profile_fact_id AS id, fact.fact_text AS title, fact.fact_type, fact.fact_status",
     "profile_facts AS fact", "fact.fact_status = 'active'", ["fact.fact_text", "fact.fact_type"], [],
     "fact.profile_fact_id DESC");

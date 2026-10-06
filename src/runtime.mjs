@@ -115,32 +115,6 @@ function receiptAttemptKey(receipt) {
   return toolAttemptKey(receipt?.tool, argumentsObject);
 }
 
-function hasReceiptGatedActiveBriefing(preparedCapabilityContext) {
-  return preparedCapabilityContext.some(({ view, data }) => (
-    view === "interaction-guides.active_runs"
-    && Array.isArray(data?.runs)
-    && data.runs.some(({ currentExchange }) => (
-      currentExchange?.contractSummary?.completionMode === "tool_receipt"
-      || currentExchange?.contract?.completion?.mode === "tool_receipt"
-    ))
-  ));
-}
-
-function activeBriefingDestinationTools(preparedCapabilityContext) {
-  return [...new Set(preparedCapabilityContext.flatMap(({ view, data }) => (
-    view === "interaction-guides.active_runs" && Array.isArray(data?.runs)
-      ? data.runs.flatMap(({ currentExchange }) => (
-          currentExchange?.contractSummary
-            ? [
-                ...(currentExchange.contractSummary.operationTools ?? []),
-                ...(currentExchange.contractSummary.legacyInstructionTools ?? []),
-              ]
-            : currentExchange?.contract?.operations?.map(({ tool }) => tool).filter(Boolean) ?? []
-        ))
-      : []
-  )))];
-}
-
 function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 24) {
   if (typeof ledger?.toolReceiptList !== "function") return [];
   const requestIds = [...new Set(
@@ -1063,9 +1037,8 @@ export class SlayerRuntime {
     const refinementObjectReferences = mergeObjectReferenceGroups([
       ...retainedBriefObjectReferences, ...preparedObjectReferences,
     ]);
-    if (hasReceiptGatedActiveBriefing(preparedCapabilityContext)
-        || ((args.selectedObjectCandidates?.length ?? 0) > 0 && preparedObjectReferences.length)) {
-      const requiredContractTools = activeBriefingDestinationTools(preparedCapabilityContext);
+    if ((args.selectedObjectCandidates?.length ?? 0) > 0 && preparedObjectReferences.length) {
+      const requiredContractTools = [];
       const refinementSchema = turnBriefSchema(
         catalog.map(({ capability }) => capability),
         activeActionReferences.map(({ referenceId }) => referenceId),

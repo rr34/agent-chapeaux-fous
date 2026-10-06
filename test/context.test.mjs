@@ -38,7 +38,7 @@ test("a replacement model thread receives its bounded conversation checkpoint wi
 test("a continued native thread receives the exact prior assistant response as a bounded continuation anchor", async () => {
   const previousResponse = [
     "#41 — Resubmit taxes — scheduled Aug 19",
-    "#42 — Briefing templates — scheduled Aug 20",
+    "#42 — Project templates — scheduled Aug 20",
     "Were either of these completed?",
   ].join("\n");
   const builder = new ContextBuilder({

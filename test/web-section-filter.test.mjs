@@ -18,7 +18,7 @@ test("section filters require every query term while allowing terms in any field
 
 test("React sections share one consistent filter control", () => {
   assert.match(filterComponentSource, /placeholder="Type words in any order…"/);
-  for (const screen of ["AgentScreen", "CalendarScreen", "TodoScreen", "ContactsScreen", "GenericScreen", "HatsScreen", "JournalScreen", "UsageScreen"]) {
+  for (const screen of ["AgentScreen", "CalendarScreen", "TodoScreen", "ContactsScreen", "LibraryScreen", "VideoScriptsScreen", "FilesScreen", "GenericScreen", "HatsScreen", "JournalScreen", "UsageScreen"]) {
     const start = appSource.indexOf(`function ${screen}`);
     assert.notEqual(start, -1, `${screen} exists`);
     const next = appSource.indexOf("\nfunction ", start + 1);

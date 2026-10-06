@@ -1,4 +1,6 @@
-import type { CalendarDay, CalendarEvent, DailyPaperModel, LinkedTodo, ScheduledTracker } from "../types";
+import type {
+  CalendarDay, CalendarEvent, DailyPaperModel, LinkedTodo, ScheduledTracker, TodoEventLink,
+} from "../types";
 import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
 import { type AddAgentReference } from "./AgentReferenceButton";
 import { CalendarEventItem, TodoItem } from "./EditableItems";
@@ -156,22 +158,179 @@ function todoPrintIdentifier(todo: LinkedTodo) {
   return `personal_task_id:${todo.todoId}`;
 }
 
-function PrintableTodos({ todos }: { todos: LinkedTodo[] }) {
+interface PrintableTodoCluster {
+  key: string;
+  kind: "Contact" | "Event" | "Other";
+  label: string;
+  eventId?: number | string;
+  todos: LinkedTodo[];
+}
+
+interface PrintableTodoGroup {
+  key: string;
+  name: string;
+  sortPosition: number;
+  clusters: PrintableTodoCluster[];
+}
+
+const todoClusterRank = { Contact: 0, Event: 1, Other: 2 };
+
+function orderedEventLinks(todo: LinkedTodo) {
+  return [...(todo.eventLinks || [])].sort((left, right) => (
+    left.startsAtUtc.localeCompare(right.startsAtUtc)
+    || String(left.eventId).localeCompare(String(right.eventId))
+  ));
+}
+
+function eventClusterLabel(event: TodoEventLink, timeZone: string) {
+  const when = event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, timeZone);
+  return `${when} · ${event.title}`;
+}
+
+function clusterCandidatesForTodo(todo: LinkedTodo, timeZone: string): Omit<PrintableTodoCluster, "todos">[] {
+  const candidates: Omit<PrintableTodoCluster, "todos">[] = [];
+  if (todo.relatedContact) candidates.push({
+    key: `contact:${todo.relatedContact.contactId}`,
+    kind: "Contact",
+    label: todo.relatedContact.displayName,
+  });
+  candidates.push(...orderedEventLinks(todo).map((event) => ({
+    key: `event:${String(event.eventId)}`, kind: "Event" as const,
+    label: eventClusterLabel(event, timeZone), eventId: event.eventId,
+  })));
+  if (!todo.eventLinks?.length) candidates.push(...(todo.eventTitles || []).map((title) => ({
+    key: `event-title:${title}`, kind: "Event" as const, label: title,
+  })));
+  if (!candidates.length) candidates.push({
+    key: "other", kind: "Other", label: "No linked item",
+  });
+  return candidates;
+}
+
+function bestClusterForTodo(todo: LinkedTodo, timeZone: string, counts: Map<string, number>) {
+  const candidates = clusterCandidatesForTodo(todo, timeZone);
+  candidates.sort((left, right) => (
+    Number(counts.get(right.key) || 0) - Number(counts.get(left.key) || 0)
+    || todoClusterRank[left.kind] - todoClusterRank[right.kind]
+    || left.label.localeCompare(right.label)
+  ));
+  return candidates[0];
+}
+
+function compareTodoOrder(left: LinkedTodo, right: LinkedTodo) {
+  const leftHasSequence = left.sequence != null;
+  const rightHasSequence = right.sequence != null;
+  if (leftHasSequence !== rightHasSequence) return leftHasSequence ? -1 : 1;
+  if (leftHasSequence && rightHasSequence && left.sequence !== right.sequence) {
+    return Number(right.sequence) - Number(left.sequence);
+  }
+  return Number(left.sortPosition ?? Number.MAX_SAFE_INTEGER)
+    - Number(right.sortPosition ?? Number.MAX_SAFE_INTEGER)
+    || left.todoId - right.todoId;
+}
+
+function printableTodoGroups(todos: LinkedTodo[], timeZone: string) {
+  const groups = new Map<string, Omit<PrintableTodoGroup, "clusters"> & { todos: LinkedTodo[] }>();
+  for (const todo of todos) {
+    const name = todo.groupName?.trim() || "Inbox";
+    const key = todo.groupId == null ? `group-name:${name}` : `group:${todo.groupId}`;
+    const group = groups.get(key) || {
+      key,
+      name,
+      sortPosition: Number(todo.groupSortPosition ?? Number.MAX_SAFE_INTEGER),
+      todos: [],
+    };
+    group.todos.push(todo);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name))
+    .map((group): PrintableTodoGroup => {
+      const counts = new Map<string, number>();
+      for (const todo of group.todos) {
+        for (const candidate of clusterCandidatesForTodo(todo, timeZone)) {
+          counts.set(candidate.key, Number(counts.get(candidate.key) || 0) + 1);
+        }
+      }
+      const clusters = new Map<string, PrintableTodoCluster>();
+      for (const todo of group.todos) {
+        const selected = bestClusterForTodo(todo, timeZone, counts);
+        const cluster = clusters.get(selected.key) || { ...selected, todos: [] };
+        cluster.todos.push(todo);
+        clusters.set(selected.key, cluster);
+      }
+      return {
+        key: group.key,
+        name: group.name,
+        sortPosition: group.sortPosition,
+        clusters: [...clusters.values()]
+          .sort((left, right) => {
+            return todoClusterRank[left.kind] - todoClusterRank[right.kind]
+              || left.label.localeCompare(right.label);
+          })
+          .map((cluster) => ({
+            ...cluster,
+            todos: cluster.todos.sort(compareTodoOrder),
+          })),
+      };
+    });
+}
+
+function relationshipKindLabel(value: string | null) {
+  return value ? value[0].toUpperCase() + value.slice(1) : null;
+}
+
+function remainingRelationshipLabels(todo: LinkedTodo, cluster: PrintableTodoCluster) {
+  const labels: string[] = [];
+  if (todo.relatedContact && cluster.key !== `contact:${todo.relatedContact.contactId}`) {
+    labels.push(`Contact · ${todo.relatedContact.displayName}`);
+  }
+  const eventLinks = orderedEventLinks(todo);
+  for (const event of eventLinks) {
+    const relationship = relationshipKindLabel(event.relationshipKind);
+    if (cluster.eventId != null && String(cluster.eventId) === String(event.eventId)) {
+      if (relationship) labels.push(relationship);
+      continue;
+    }
+    labels.push(["Event", event.title, relationship].filter(Boolean).join(" · "));
+  }
+  if (!eventLinks.length && cluster.kind !== "Event") {
+    labels.push(...(todo.eventTitles || []).map((title) => `Event · ${title}`));
+  }
+  return labels;
+}
+
+function PrintableTodos({ todos, timeZone }: { todos: LinkedTodo[]; timeZone: string }) {
   if (!todos.length) return <p className="paper-empty">No to-dos are attached to this day’s events.</p>;
-  return <ul className="paper-todo-cards">
-    {todos.map((todo) => <li className="scheduled-todo-card" key={todo.todoId} data-object-reference={todoPrintIdentifier(todo)}>
-      <header>
-        <strong className="multiline-item-text">{todoTitle(todo)}</strong>
-        <span className="paper-todo-id">{todoPrintIdentifier(todo)}</span>
-      </header>
-      {todo.eventTitles?.length
-        ? <small className="multiline-item-text">For {todo.eventTitles.join(", ")}</small>
-        : null}
-      <div className="paper-handwriting-space" aria-label={`Blank writing area for ${todoPrintIdentifier(todo)}`}>
-        <span aria-hidden="true">&#123;</span>
+  return <div className="paper-todo-groups">
+    {printableTodoGroups(todos, timeZone).map((group) => <section className="paper-todo-group" key={group.key}>
+      <h3>{group.name}</h3>
+      <div className="paper-todo-clusters">
+        {group.clusters.map((cluster) => <section className="paper-todo-cluster" key={cluster.key}>
+          <header className="paper-todo-cluster-heading">
+            <span>{cluster.kind}</span><strong className="multiline-item-text">{cluster.label}</strong>
+          </header>
+          <ul className="paper-todo-cards">
+            {cluster.todos.map((todo) => {
+              const relationshipLabels = remainingRelationshipLabels(todo, cluster);
+              return <li className="scheduled-todo-card" key={todo.todoId} data-object-reference={todoPrintIdentifier(todo)}>
+                <header>
+                  <strong className="multiline-item-text">{todoTitle(todo)}</strong>
+                  <span className="paper-todo-id">{todoPrintIdentifier(todo)}</span>
+                </header>
+                {relationshipLabels.length
+                  ? <small className="paper-todo-relationships multiline-item-text">{relationshipLabels.join("; ")}</small>
+                  : null}
+                <div className="paper-handwriting-space" aria-label={`Blank writing area for ${todoPrintIdentifier(todo)}`}>
+                  <span aria-hidden="true">&#123;</span>
+                </div>
+              </li>;
+            })}
+          </ul>
+        </section>)}
       </div>
-    </li>)}
-  </ul>;
+    </section>)}
+  </div>;
 }
 
 export function DailyPaper({ model, preview = false }: { model: DailyPaperModel; preview?: boolean }) {
@@ -211,7 +370,7 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
           <header className="paper-section-heading">
             <span>03</span><h2>Scheduled to-dos</h2><small>{model.scheduledTodos.length} item{model.scheduledTodos.length === 1 ? "" : "s"}</small>
           </header>
-          <PrintableTodos todos={model.scheduledTodos} />
+          <PrintableTodos todos={model.scheduledTodos} timeZone={model.timeZone} />
         </section>
       </div>
 

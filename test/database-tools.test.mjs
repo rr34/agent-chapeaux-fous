@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
-import { InteractionGuides } from "../src/interaction-guides.mjs";
 import { ProfileFacts } from "../src/profile-facts.mjs";
 
 import { ToolRegistry } from "../src/tools/registry.mjs";
@@ -10,7 +9,6 @@ import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
 import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerJournalTools } from "../src/tools/journal-tools.mjs";
-import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { OrganizerStore } from "../src/organizer-store.mjs";
@@ -117,30 +115,6 @@ test("structured database reads preserve native fields and access boundaries", a
     }),
     /limit must be an integer from 1 to 200/,
   );
-  await assert.rejects(
-    registry.execute("database_read", {
-      objectName: "interaction_guides",
-      columns: ["name"],
-      where: {},
-      orderBy: "name",
-      orderDirection: "asc",
-      limit: 20,
-      offset: 0,
-    }),
-    /generic database reads do not load private briefing or answer rows/,
-  );
-  await assert.rejects(
-    registry.execute("database_read", {
-      objectName: "interaction_guide_steps",
-      columns: ["step_number", "answers_json"],
-      where: {},
-      orderBy: "step_number",
-      orderDirection: "asc",
-      limit: 20,
-      offset: 0,
-    }),
-    /generic database reads do not load private briefing or answer rows/,
-  );
 });
 
 test("native database-backed tools preserve their records without result decoration", async (context) => {
@@ -157,10 +131,6 @@ test("native database-backed tools preserve their records without result decorat
   registerContactTools(registry, store, organizer, ledger);
   registerTodoTools(registry, store, ledger);
   registerJournalTools(registry, store, ledger);
-  registerInteractionGuideTools(
-    registry,
-    new InteractionGuides({ store, ledger }),
-  );
   registerProfileFactTools(registry, profileFacts);
   const definitions = Object.fromEntries(
     registry.toolDefinitions().map((definition) => [definition.name, definition.inputSchema.properties]),
@@ -178,9 +148,6 @@ test("native database-backed tools preserve their records without result decorat
   assert.equal(Object.hasOwn(definitions.journal_update, "journal_entry_id"), true);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "fact_type"), true);
   assert.equal(Object.hasOwn(definitions.profile_fact_set, "factType"), false);
-  assert.equal(Object.hasOwn(definitions.interaction_guide_update, "guide_text"), false);
-  assert.equal(Object.hasOwn(definitions.interaction_guide_step_add, "opening_text"), true);
-  assert.equal(Object.hasOwn(definitions.interaction_guide_step_answer, "answers"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "starts_at_utc"), true);
   assert.equal(Object.hasOwn(definitions.calendar_event_add, "startsAtUtc"), false);
   assert.equal(Object.hasOwn(definitions.todo_update, "updates"), true);
@@ -223,27 +190,4 @@ test("native database-backed tools preserve their records without result decorat
   assert.equal(fact.fact.fact_text, "My preferred name is Nate.");
   assert.equal(Object.hasOwn(fact.fact, "text"), false);
 
-  const guide = await registry.execute("interaction_guide_create", {
-    name: "Morning Check-in",
-  }, toolContext);
-  assert.equal(guide.guide.name, "Morning Check-in");
-  const step = await registry.execute("interaction_guide_step_add", {
-    interaction_guide_id: guide.guide.interaction_guide_id,
-    expected_version: guide.guide.version,
-    step_number: 1,
-    opening_text: "1. What outcome do you need?",
-    contract: {
-      version: 1,
-      instructions: "Capture the exact desired outcome.",
-      inputs: [],
-      operations: [],
-      recoveryReads: [],
-      completion: { mode: "response_valid" },
-    },
-    enabled: true,
-  }, toolContext);
-  assert.equal(step.step.opening_text, "1. What outcome do you need?");
-  assert.deepEqual(step.step.answers_json, {});
-  assert.equal(step.step.progress_state, "pending");
-  
 });

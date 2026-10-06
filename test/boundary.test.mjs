@@ -196,69 +196,16 @@ test("the todo editor builds recurrence without exposing an RRULE input", () => 
   assert.doesNotMatch(document, /Routine RRULE|todo-recurrence-rule/);
 });
 
-test("briefings have a dedicated management page without a second execution path", () => {
+test("the removed briefing subsystem has no UI or server execution path", () => {
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
-
-  assert.match(document, /data-view="interactions"[^>]*>Briefings<\/button>/);
   assert.match(document, /id="interactions-view"/);
-  assert.match(document, /id="interaction-guide-list"/);
-  assert.match(document, /id="interaction-guide-detail"/);
-  assert.match(document, /id="interaction-guide-dialog"/);
-  assert.match(document, /id="interaction-step-dialog"/);
-  assert.match(document, /id="interaction-step-guide"/);
-  assert.match(document, /id="delete-interaction-step"[^>]*class="danger editor-delete"[^>]*>Delete exchange<\/button>/);
-  assert.doesNotMatch(document, /id="interaction-step-move-dialog"|id="interaction-step-move-target"/);
-  assert.match(document, /id="interaction-step-opening"/);
-  assert.match(document, /id="interaction-step-contract"/);
-  assert.doesNotMatch(document, /id="interaction-step-instructions"|id="interaction-step-completion-mode"/);
-  assert.doesNotMatch(document, /id="interaction-guide-text"|id="interaction-step-name"|id="interaction-step-objective"/);
-  assert.doesNotMatch(document, /Make this exchange repeatable|save-structured-interaction/);
-  assert.match(document, />Briefing exchange<\/p>/);
-  assert.match(document, /<label>Opening<textarea/);
-  assert.match(document, /<label>Contract JSON<textarea/);
+  assert.match(document, /id="catch-up"/);
+  assert.doesNotMatch(document, /interaction-guide|interaction-step|Briefings|New briefing/);
   assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
-  assert.match(application, /function renderInteractionGuideDetail/);
-  assert.match(application, /function openInteractionStepEditor/);
-  assert.match(application, /function interactionStepIdentity/);
-  assert.match(application, /interaction_guide_step_id: step\.id/);
-  assert.match(application, /interaction-turn-opening-copy/);
-  assert.match(application, /Copy exchange opening/);
-  assert.match(application, /copyText\(step\.openingText, event\.currentTarget\)/);
-  assert.match(application, /agentReferenceButton\(interactionStepIdentity\(guide, step\), `briefing exchange/);
-  assert.match(application, /function deleteEditedInteractionStep/);
-  assert.match(application, /function enableInteractionStepDragging/);
-  assert.match(application, /interaction-turn-drag-handle/);
-  assert.match(application, /interaction-turn-placeholder/);
-  assert.match(application, /card\.style\.top/);
-  assert.match(application, /pointermove/);
-  assert.match(application, /orderedStepIds/);
-  assert.match(application, /method: "DELETE"/);
-  assert.match(application, /Resume this briefing/);
-  assert.match(application, /Start this briefing/);
-  assert.match(application, /Resume previous run/);
-  assert.match(application, /"Start over"/);
-  assert.match(application, /requiresDailyChoice/);
-  assert.match(application, /I explicitly choose to keep its unfinished answers/);
-  assert.match(application, /I explicitly authorize discarding its unfinished current-run answers/);
-  assert.doesNotMatch(application, /Resume in Agent|Start in Agent/);
-  assert.doesNotMatch(application, /node\("button", "secondary compact", "Copy exchange identity"\)/);
-  assert.doesNotMatch(application, /function openInteractionStepMoveEditor|function moveInteractionStep/);
-  assert.doesNotMatch(application, /interaction-turn-instructions|"Agent instructions"/);
-  assert.match(application, /Start or resume briefing/);
-  assert.doesNotMatch(application, /saveAsStructuredInteraction|structuredGenerationStatuses/);
-  assert.match(application, /api\("\/api\/requests"/);
-  assert.doesNotMatch(application, /interaction-guides\/\$\{guide\.id\}\/start/);
-  assert.match(server, /interactionGuides\.create/);
-  assert.match(server, /interactionGuides\.addStep/);
-  assert.match(server, /interactionGuides\.updateStep/);
-  assert.match(server, /interactionGuides\.deleteStep/);
-  assert.match(server, /interactionGuides\.moveStep/);
-  assert.match(server, /interactionGuides\.reorderSteps/);
-  assert.match(server, /structuredInteractionGenerationPrompt/);
-  assert.match(server, /requestKind: "structured_interaction_generation"/);
-  assert.match(server, /actorType: "user", actorName: "structured_interactions_page"/);
+  assert.doesNotMatch(application, /interactionGuide|interaction_guide|briefing/i);
+  assert.doesNotMatch(server, /interactionGuides|interaction_guide|structuredInteractionGeneration/);
 });
 
 test("the calendar event editor exposes recurrence only after its repeat checkbox", () => {

@@ -11,7 +11,7 @@ import type {
   CalendarRoutinePreview,
 } from "../types";
 import { CalendarGrid } from "./DailyPaper";
-import { CalendarRoutineItem } from "./EditableItems";
+import { CalendarRoutineEditor, CalendarRoutineItem } from "./EditableItems";
 import { ErrorState, Loading } from "./State";
 import { type AddAgentReference } from "./AgentReferenceButton";
 import { SectionFilter } from "./SectionFilter";
@@ -159,6 +159,7 @@ export function RoutineScreen({ onGenerated, onReference }: {
   const [generating, setGenerating] = useState<"current" | "next" | null>(null);
   const [generationError, setGenerationError] = useState<unknown>(null);
   const [filterQuery, setFilterQuery] = useState("");
+  const [adding, setAdding] = useState(false);
   const routineMap = useMemo(() => new Map((data?.routines || []).map((routine) => [routine.id, routine])), [data]);
   const weeklyDays = useMemo(
     () => weeklyRoutineDays(weekDates, monthDates, data?.occurrences || [], routineMap),
@@ -197,7 +198,7 @@ export function RoutineScreen({ onGenerated, onReference }: {
   const monthName = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(today);
   const matchingRoutineCount = (data?.routines || []).filter((routine) => matchesSearch(routine, filterQuery)).length;
   return <>
-    <header className="page-heading"><div><p className="eyebrow">Reusable rhythms</p><h1>Routine</h1><p>Your daily and weekly rhythm, followed by routines tied to the month.</p></div></header>
+    <header className="page-heading"><div><p className="eyebrow">Reusable rhythms</p><h1>Routine</h1><p>Your daily and weekly rhythm, followed by routines tied to the month.</p></div><div className="heading-actions"><button className="button" type="button" onClick={() => setAdding(true)}>Add routine</button></div></header>
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={matchingRoutineCount} noun="routine" />
     <section className="surface routine-publish-panel">
       <div><p className="eyebrow">Populate the calendar</p><h2>Generate concrete events</h2><p>Choose a bounded week. Existing routine events will not be duplicated.</p></div>
@@ -221,5 +222,6 @@ export function RoutineScreen({ onGenerated, onReference }: {
         <RoutineAgenda day={selectedMonthlyDay} routines={routineMap} query={filterQuery} onChanged={reload} onReference={onReference} />
       </section>
     </div>}
+    {adding && <CalendarRoutineEditor onClose={() => setAdding(false)} onChanged={reload} />}
   </>;
 }

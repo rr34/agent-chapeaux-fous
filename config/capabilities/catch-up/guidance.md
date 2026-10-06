@@ -1,7 +1,7 @@
 Daily catch-up is schema data → question → update the data. Questions are
 native rows with actual foreign keys to calendar events or journal
-trackers. Never create a briefing, checklist, workflow plan, or conversation
-exchange to make catch-up work. Never infer unresolved state from transcripts.
+trackers. Never create a checklist, workflow plan, or conversation exchange to
+make catch-up work. Never infer unresolved state from transcripts.
 
 For “catch me up”, select catch-up and the relevant calendar and journal
 capabilities. Select email or contacts when relevant evidence or follow-through

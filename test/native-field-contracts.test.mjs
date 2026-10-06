@@ -7,7 +7,6 @@ import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerJournalTools } from "../src/tools/journal-tools.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
-import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 
 test("owning tool contracts explain inputs and results without a database or schema catalog", () => {
   const registry = registerNativeCapabilities(new ToolRegistry());
@@ -15,7 +14,6 @@ test("owning tool contracts explain inputs and results without a database or sch
   registerContactTools(registry, {}, {}, {});
   registerJournalTools(registry, {}, {});
   registerTodoTools(registry, {}, {});
-  registerInteractionGuideTools(registry, {});
   const definitions = Object.fromEntries(registry.toolDefinitions().map(tool => [tool.name, tool]));
   assert.match(definitions.journal_add.inputSchema.properties.number_value.description, /parent tracker's canonical unit/);
   assert.match(definitions.journal_list.outputSchema.properties.entries.items.properties.external_id.description, /idempotent/);
@@ -26,7 +24,6 @@ test("owning tool contracts explain inputs and results without a database or sch
     ["needs_planning", "deferred", "planned", null],
   );
   assert.match(definitions.calendar_event_add.inputSchema.properties.is_all_day.description, /^True when/);
-  assert.match(definitions.interaction_guide_get.outputSchema.properties.guide.properties.steps.items.properties.answers_json.description, /actually supplied/);
   assert.equal(Object.hasOwn(definitions.todo_update.inputSchema.properties.updates.items.properties, "duration_minutes"), false);
   assert.equal(Object.hasOwn(definitions.todo_add.inputSchema.properties, "scheduled_at_utc"), false);
   assert.equal(definitions.todo_add.inputSchema.properties.status.enum.includes("unplanned"), false);

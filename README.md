@@ -93,12 +93,7 @@ Open `http://127.0.0.1:8787/app`. The root URL serves the public landing page.
 The app asks for `SLAYER_ACCESS_TOKEN` and
 stores it only in that browser. The same client includes the Agent request
 feed, the calendar, the grouped to-do list, a searchable contacts address book,
-a grouped personal journal with native entry creation, and a dedicated **Briefings**
-screen for maintaining reusable, agent-led conversations and their numbered
-exchanges. Starting or resuming a briefing from that screen queues a normal
-Agent request, so the conversation still passes through orientation, TurnBrief
-selection, exact tool schemas, and the literal trace. The screen itself is a
-domain-management page, not an additional model-callable tool. Contacts support
+and a grouped personal journal with native entry creation. Contacts support
 people, organizations, and services with tags, birthday, notes, and stacked
 contact methods. Possible duplicates are reviewed and merged explicitly; source records
 remain as inactive history so existing references are preserved. Stored birthdays
@@ -116,7 +111,9 @@ to-do editor and agent tools.
 
 The **Calendar** screen composes a shared React daily-paper component from the
 authoritative two-week calendar, the selected day's timeline, and to-dos linked
-to those events. Its compact Trackers section uses tracker asking RRULEs and
+to those events. Printed to-dos are grouped by their configured to-do group,
+then clustered once by their strongest shared contact or calendar event.
+Its compact Trackers section uses tracker asking RRULEs and
 marks periods that already contain an observation. Choose Letter or A4 and click
 **Download daily PDF** to render, store, and download a printable document with
 ruled handwriting space. The
@@ -133,7 +130,7 @@ request and response even when that exchange is outside ordinary recent history.
 The Agent composer also supports first-class object mentions. Type `@` followed
 by a name to search the native object tables; results appear in fixed domain
 groups with Contacts first, then Events, To-dos, Routines, Files, Journal,
-Briefings, Check-in, Library and video, and Profile. Choosing a result inserts a
+Check-in, Library and video, and Profile. Choosing a result inserts a
 visible `@Display name` mention and retains its exact type, source, primary ID,
 stable reference, and display name in request metadata. The server validates
 that identity, and orientation must select the bounded native-object context
@@ -329,7 +326,7 @@ capability selector, which controls which exact tool schemas are callable.
   responses are not returned to the model.
 - `todo_group_list`, `todo_group_create`, `todo_group_rename`,
   `todo_group_sequence_set`, `todo_group_archive`, `todo_list`, `todo_add`,
-  `todo_interaction_guide_set`, `todo_position_set`, and `todo_update` provide the native personal to-do path
+  `todo_position_set`, and `todo_update` provide the native personal to-do path
   without requiring the model to invent SQL. The agent inspects existing groups before
   assigning an otherwise ungrouped task; Inbox is the catchall when no group is
   a clear match. Group archival fails while active tasks remain and preserves
@@ -402,24 +399,6 @@ capability selector, which controls which exact tool schemas are callable.
   distinct imports; ambiguous groups remain queued for AI judgment.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
-- `interaction_guide_list`, `interaction_guide_get`,
-  `interaction_guide_create`, `interaction_guide_update`,
-  `interaction_guide_step_add`, `interaction_guide_step_update`,
-  `interaction_guide_step_move`,
-  `interaction_guide_start`, `interaction_guide_step_answer`,
-  `interaction_guide_run_cancel`, and
-  `interaction_guide_archive` manage durable user-owned briefings for
-  potentially multi-request conversations. A briefing is a named, versioned
-  container for numbered exchanges. Each exchange has a fixed opening, agent
-  instructions, JSON answers, explicit pending/active/completed progress, and a
-  constrained completion mode. Current progress supports exact interruption
-  and resumption; immutable run and answer history remains in the ledger. A
-  recurring to-do may link to a briefing while continuing to own its schedule and
-  recurrence. An exchange can move to one other briefing without shared
-  ownership; it is appended there while prior run history remains in the ledger.
-  Under Briefings on the Check-in page, editable exchanges can be dragged into a new order (or
-  moved with the handle's Up and Down arrow keys); saving renumbers the complete
-  exchange sequence atomically and records the change in the ledger.
 - `database_schema` and paginated `database_read` are a small read-only core
   capability available on every model request, including access to the native
   activity ledger. `database_write` is a separately routed capability, so broad
@@ -758,11 +737,9 @@ deployed revision.
 
 Open **Check-in**, choose the catch-up settings at the top, and click **Start
 catch-up**. You can also ask for the same selections in chat. This generates
-questions directly from current tasks, calendar occurrences, and journal trackers. No briefing needs to be
-created. The agent asks one question at a time and uses the existing domain tools
+questions directly from current tasks, calendar occurrences, and journal trackers. The agent asks one question at a time and uses the existing domain tools
 to complete or move tasks, update appointments, and record observations.
 The button sends a normal agent request and preserves any draft text or attachment.
-Existing briefings remain below Catch up in the same section.
 
 Each category can be enabled independently:
 

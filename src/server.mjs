@@ -10,7 +10,6 @@ import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
 import { JmapClient } from "./jmap-client.mjs";
-import { InteractionGuides } from "./interaction-guides.mjs";
 import { DailyPaperService } from "./daily-paper.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
@@ -27,7 +26,6 @@ import { receiveRequestAttachment, safeMediaPath } from "./request-attachments.m
 import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
-import { structuredInteractionGenerationPrompt } from "./structured-interaction-generation.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { OpenAISpeechService } from "./openai-speech.mjs";
 import { VideoRenderWorker } from "./video-render-worker.mjs";
@@ -41,7 +39,6 @@ import { registerContactTools } from "./tools/contact-tools.mjs";
 import { CatchUpService } from "./catch-up.mjs";
 import { registerCatchUpTools } from "./tools/catch-up-tools.mjs";
 import { registerJournalTools } from "./tools/journal-tools.mjs";
-import { registerInteractionGuideTools } from "./tools/interaction-guide-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
 import { ProfileFacts } from "./profile-facts.mjs";
 import { loadProfileFactQuestions } from "./profile-fact-questions.mjs";
@@ -69,13 +66,6 @@ const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget)
 const payments = store.status.ready ? new PaymentService({ store, config, ledger }) : null;
 const catchUp = store.status.ready ? new CatchUpService(store, organizer, ledger) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
-const interactionGuides = new InteractionGuides({
-  store,
-  ledger,
-  timeZone: () => timeZoneFromProfileFacts(
-    profileFacts.list({ status: "active", limit: null }).facts,
-  ),
-});
 const dailyPaper = store.status.ready ? new DailyPaperService({
   organizer,
   trackerSchedule: catchUp,
@@ -130,7 +120,6 @@ if (store.status.ready) {
   registerPaymentTools(registry, payments);
   registerJournalTools(registry, store, ledger);
   registerCatchUpTools(registry, catchUp);
-  registerInteractionGuideTools(registry, interactionGuides);
   registerProfileFactTools(registry, profileFacts);
   registerDatabaseTools(registry, store, ledger, searchCoordinator);
   registerFileTools(registry, {
@@ -537,40 +526,6 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
-    const structuredInteractionGenerationMatch = /^\/api\/requests\/([0-9a-f][0-9a-f-]{7,35})\/structured-interaction$/.exec(url.pathname);
-    if (request.method === "POST" && structuredInteractionGenerationMatch) {
-      const resolved = ledger.resolveRequestId(structuredInteractionGenerationMatch[1]);
-      if (resolved.status === "missing") {
-        sendJson(response, 404, { error: `No request matches ${structuredInteractionGenerationMatch[1]}` });
-        return;
-      }
-      if (resolved.status === "ambiguous") {
-        sendJson(response, 409, { error: `More than one request matches ${structuredInteractionGenerationMatch[1]}` });
-        return;
-      }
-      if (resolved.status === "invalid") {
-        sendJson(response, 400, { error: "Request ID must be an 8-36 character hexadecimal UUID or prefix" });
-        return;
-      }
-      const body = await readJson(request);
-      const source = ledger.interactionReplaySource(resolved.requestId);
-      const text = structuredInteractionGenerationPrompt(source, {
-        toolDefinitions: registry.toolDefinitions(),
-      });
-      const runLimits = normalizeRunLimits(body.runLimits);
-      const created = ledger.createRequest({
-        text,
-        channel: "web",
-        runLimits,
-        metadata: {
-          requestKind: "structured_interaction_generation",
-          sourceRequestId: source.requestId,
-        },
-      });
-      queue.notify();
-      sendJson(response, 202, { ...created, sourceRequestId: source.requestId });
-      return;
-    }
     if (request.method === "POST" && url.pathname === "/api/conversation/reset") {
       const unfinished = ledger.unfinishedRequestCount();
       if (unfinished > 0) {
@@ -822,93 +777,6 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, {
         routine: organizer.updateCalendarRoutine(routineMatch[1], await readJson(request)),
       });
-      return;
-    }
-    if (request.method === "GET" && url.pathname === "/api/interaction-guides") {
-      sendJson(response, 200, {
-        guides: interactionGuides.list({
-          status: url.searchParams.get("status") || "active",
-          limit: Number(url.searchParams.get("limit") || 500),
-        }).guides,
-      });
-      return;
-    }
-    if (request.method === "POST" && url.pathname === "/api/interaction-guides") {
-      sendJson(response, 201, interactionGuides.create(
-        await readJson(request),
-        { actorType: "user", actorName: "structured_interactions_page" },
-      ));
-      return;
-    }
-    const interactionGuideMatch = /^\/api\/interaction-guides\/(\d+)$/.exec(url.pathname);
-    if (request.method === "GET" && interactionGuideMatch) {
-      const guide = interactionGuides.get({ guideId: Number(interactionGuideMatch[1]) });
-      if (!guide) {
-        throw Object.assign(new Error("Briefing not found"), { statusCode: 404 });
-      }
-      sendJson(response, 200, { guide });
-      return;
-    }
-    if (request.method === "PATCH" && interactionGuideMatch) {
-      sendJson(response, 200, interactionGuides.update(
-        { ...await readJson(request), guideId: Number(interactionGuideMatch[1]) },
-        { actorType: "user", actorName: "structured_interactions_page" },
-      ));
-      return;
-    }
-    const interactionGuideArchiveMatch = /^\/api\/interaction-guides\/(\d+)\/archive$/.exec(url.pathname);
-    if (request.method === "POST" && interactionGuideArchiveMatch) {
-      sendJson(response, 200, interactionGuides.archive(
-        { ...await readJson(request), guideId: Number(interactionGuideArchiveMatch[1]) },
-        { actorType: "user", actorName: "structured_interactions_page" },
-      ));
-      return;
-    }
-    const interactionGuideStepsMatch = /^\/api\/interaction-guides\/(\d+)\/steps$/.exec(url.pathname);
-    if (request.method === "POST" && interactionGuideStepsMatch) {
-      sendJson(response, 201, interactionGuides.addStep(
-        { ...await readJson(request), guideId: Number(interactionGuideStepsMatch[1]) },
-        { actorType: "user", actorName: "structured_interactions_page" },
-      ));
-      return;
-    }
-    const interactionGuideStepOrderMatch = /^\/api\/interaction-guides\/(\d+)\/steps\/order$/.exec(url.pathname);
-    if (request.method === "PATCH" && interactionGuideStepOrderMatch) {
-      sendJson(response, 200, interactionGuides.reorderSteps(
-        { ...await readJson(request), guideId: Number(interactionGuideStepOrderMatch[1]) },
-        { actorType: "user", actorName: "structured_interactions_page" },
-      ));
-      return;
-    }
-    const interactionGuideStepMatch = /^\/api\/interaction-guide-steps\/(\d+)$/.exec(url.pathname);
-    if (request.method === "PATCH" && interactionGuideStepMatch) {
-      sendJson(response, 200, interactionGuides.updateStep(
-        { ...await readJson(request), stepId: Number(interactionGuideStepMatch[1]) },
-        { actorType: "user", actorName: "structured_interactions_page" },
-      ));
-      return;
-    }
-    if (request.method === "DELETE" && interactionGuideStepMatch) {
-      sendJson(response, 200, interactionGuides.deleteStep(
-        { ...await readJson(request), stepId: Number(interactionGuideStepMatch[1]) },
-        { actorType: "user", actorName: "structured_interactions_page" },
-      ));
-      return;
-    }
-    const interactionGuideStepMoveMatch = /^\/api\/interaction-guide-steps\/(\d+)\/move$/.exec(url.pathname);
-    if (request.method === "POST" && interactionGuideStepMoveMatch) {
-      sendJson(response, 200, interactionGuides.moveStep(
-        { ...await readJson(request), stepId: Number(interactionGuideStepMoveMatch[1]) },
-        { actorType: "user", actorName: "structured_interactions_page" },
-      ));
-      return;
-    }
-    const interactionGuideRunCancelMatch = /^\/api\/interaction-guide-runs\/([^/]+)\/cancel$/.exec(url.pathname);
-    if (request.method === "POST" && interactionGuideRunCancelMatch) {
-      sendJson(response, 200, interactionGuides.cancelRun(
-        { ...await readJson(request), runId: decodeURIComponent(interactionGuideRunCancelMatch[1]) },
-        { actorType: "user", actorName: "structured_interactions_page" },
-      ));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/todo-groups") {

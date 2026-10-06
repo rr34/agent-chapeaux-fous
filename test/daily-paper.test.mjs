@@ -11,7 +11,13 @@ function events() {
     title: "Bring the annotated draft",
     description: null,
     status: "todo",
-    relationshipKind: "supports",
+    relationshipKind: "work",
+    groupId: 4,
+    groupName: "Writing",
+    groupSortPosition: 2,
+    sequence: 12,
+    sortPosition: 3,
+    relatedContact: { contactId: 8, displayName: "Jane Smith" },
   };
   return [
     {
@@ -34,7 +40,7 @@ function events() {
       timeZone: "America/New_York",
       isAllDay: false,
       status: "confirmed",
-      linkedTodos: [openTodo],
+      linkedTodos: [{ ...openTodo, relationshipKind: "deadline" }],
     },
     {
       id: 3,
@@ -89,8 +95,27 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
     title: "Bring the annotated draft",
     description: null,
     status: "todo",
-    relationshipKind: "supports",
+    relationshipKind: "work",
+    groupId: 4,
+    groupName: "Writing",
+    groupSortPosition: 2,
+    sequence: 12,
+    sortPosition: 3,
+    relatedContact: { contactId: 8, displayName: "Jane Smith" },
     eventTitles: ["Planning breakfast", "Review the draft"],
+    eventLinks: [{
+      eventId: 1,
+      title: "Planning breakfast",
+      startsAtUtc: "2026-10-04T13:00:00.000Z",
+      isAllDay: false,
+      relationshipKind: "work",
+    }, {
+      eventId: 2,
+      title: "Review the draft",
+      startsAtUtc: "2026-10-04T18:00:00.000Z",
+      isAllDay: false,
+      relationshipKind: "deadline",
+    }],
   }]);
   assert.deepEqual(trackerRequest, { localDate: "2026-10-04", timeZone: "America/New_York" });
   assert.equal(model.scheduledTrackers.length, 1);

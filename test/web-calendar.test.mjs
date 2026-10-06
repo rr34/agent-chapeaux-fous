@@ -72,18 +72,28 @@ test("printable calendar shows every event with hanging-indented wrapped titles"
   assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
 });
 
-test("daily paper keeps identified to-dos under their single heading in the larger right column", () => {
+test("daily paper groups identified to-dos once by group and joined object in the larger right column", () => {
   const paperLayout = calendarSource.slice(calendarSource.indexOf("export function DailyPaper"));
   assert.doesNotMatch(calendarSource, /TodoWorksheet|Handwriting sheets follow|TODOS_PER_WORKSHEET/);
   assert.match(calendarSource, /className="paper-day-left"/);
   assert.ok(paperLayout.indexOf("Today’s timeline") < paperLayout.indexOf("Trackers"));
-  assert.match(calendarSource, /<PrintableTodos todos=\{model\.scheduledTodos\} \/>/);
+  assert.match(calendarSource, /<PrintableTodos todos=\{model\.scheduledTodos\} timeZone=\{model\.timeZone\} \/>/);
+  assert.match(calendarSource, /className="paper-todo-group"/);
+  assert.match(calendarSource, /className="paper-todo-cluster"/);
+  assert.match(calendarSource, /key: `contact:\$\{todo\.relatedContact\.contactId\}`/);
+  assert.match(calendarSource, /key: `event:\$\{String\(event\.eventId\)\}`/);
+  assert.match(calendarSource, /cluster\.eventId != null && String\(cluster\.eventId\) === String\(event\.eventId\)/);
+  assert.doesNotMatch(calendarSource, /For \{todo\.eventTitles\.join/);
+  assert.match(organizerSource, /related_contact\.display_name AS related_contact_name/);
+  assert.match(organizerSource, /linkedTodos: links\.get\(eventId\(event\)\) \?\? \[\]/);
   assert.match(calendarSource, /return `personal_task_id:\$\{todo\.todoId\}`/);
   assert.match(calendarSource, /data-object-reference=\{todoPrintIdentifier\(todo\)\}/);
   assert.match(calendarSource, /className="paper-todo-id">\{todoPrintIdentifier\(todo\)\}/);
   assert.match(calendarSource, /Blank writing area for \$\{todoPrintIdentifier\(todo\)\}/);
   assert.match(calendarSource, /className="paper-handwriting-space"/);
   assert.match(styles, /\.paper-day-columns \{[^}]*grid-template-columns: minmax\(0, \.9fr\) minmax\(0, 1\.4fr\)/s);
+  assert.match(styles, /\.paper-todo-group > h3 \{/);
+  assert.match(styles, /\.paper-todo-cluster::before \{/);
   assert.match(styles, /\.paper-todo-cards > li \{[^}]*border: 1px solid/s);
 });
 

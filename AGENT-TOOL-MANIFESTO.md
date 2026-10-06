@@ -213,9 +213,7 @@ such as Running or Push-ups under Exercise;
 These are three levels of one Journal object family. Personal to-dos likewise
 have named groups and individual tasks. A contact's tags may help match or
 describe that contact, but tags and tag assignments are not separate
-first-class objects in this surface. Briefings, their numbered exchanges and
-active runs are first-class because native tools consume their stable IDs.
-Video scripts and content groups are likewise first-class because native tools
+first-class objects in this surface. Video scripts and content groups are first-class because native tools
 consume their stable IDs; numbered content items are first-class because users
 refer to the durable items returned by the owning sequence read.
 

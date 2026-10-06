@@ -76,10 +76,6 @@ const terminalEventTypes = [
   "voice.transcription.error",
 ];
 
-const generatedRequestKinds = new Set([
-  "interaction_video", "video_script", "video_production", "structured_interaction_generation",
-]);
-
 const objectIdentityFields = [
   ["personal_task_id", "personal_task"],
   ["todo_group_id", "todo_group"],
@@ -629,25 +625,10 @@ export class Ledger {
       : null;
     const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
     const requestKind = request.payload?.requestKind ?? null;
-    const structuredGuideStep = requestKind === "structured_interaction_generation"
-      ? events.find((event) => event.type === "tool.result"
-        && event.status === "complete" && event.name === "interaction_guide_step_add")
-      : null;
-    const structuredInteractionGuideId = Number(
-      structuredGuideStep?.payload?.result?.guide?.interaction_guide_id
-      ?? structuredGuideStep?.payload?.result?.guide?.id,
-    );
-    const structuredInteractionGenerationStatus = requestKind === "structured_interaction_generation"
-      ? terminal
-        ? structuredGuideStep
-          ? "complete"
-          : "error"
-        : status
-      : null;
     const sourceFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
     const sourceInteractionSelectable = terminal?.status === "complete"
       && Boolean(response?.content)
-      && !generatedRequestKinds.has(requestKind);
+      && requestKind == null;
     const ownRenderedVideo = requestKind === "interaction_video"
       ? [...events].reverse().find((event) => event.type === "video.render.completed")
       : null;
@@ -682,13 +663,8 @@ export class Ledger {
       ...(turnBriefApproval ? { turnBriefApproval } : {}),
       ...(requestKind ? { requestKind } : {}),
       ...(request.payload?.sourceRequestId ? { sourceRequestId: request.payload.sourceRequestId } : {}),
-      ...(structuredInteractionGenerationStatus ? { structuredInteractionGenerationStatus } : {}),
-      ...(Number.isSafeInteger(structuredInteractionGuideId) && structuredInteractionGuideId > 0
-        ? { structuredInteractionGuideId }
-        : {}),
       ...(sourceInteractionSelectable ? {
         scriptSelectable: true,
-        structuredInteractionSelectable: true,
       } : {}),
       ...(video ? { video } : {}),
       ...(events.some((event) => event.type === "conversation.started")

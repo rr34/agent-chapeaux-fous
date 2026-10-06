@@ -12,7 +12,6 @@ const groupOrder = [
   ["Routines", ["calendar.routine"]],
   ["Files", ["files."]],
   ["Journal", ["journal."]],
-  ["Briefings", ["interaction_guide."]],
   ["Check-in", ["catch_up."]],
   ["Library and video", ["video."]],
   ["Profile", ["profile."]],

@@ -439,34 +439,6 @@
         <p id="catch-up-time-zone" class="muted"></p>
         <p id="catch-up-status" class="status" role="status"></p>
       </section>
-      <header class="organizer-heading">
-        <div>
-          <p class="eyebrow">Reusable agent-led conversations</p>
-          <h3>Briefings</h3>
-        </div>
-        <button id="new-interaction-guide" type="button">New briefing</button>
-      </header>
-      <div class="interaction-toolbar organizer-panel">
-        <label for="interaction-guide-status">Show</label>
-        <select id="interaction-guide-status">
-          <option value="active">Active</option>
-          <option value="archived">Archived</option>
-          <option value="all">Everything</option>
-        </select>
-        <button id="refresh-interaction-guides" class="secondary compact" type="button">Refresh</button>
-        <span id="interaction-guide-count" class="toolbar-count"></span>
-      </div>
-      <div class="interaction-workspace">
-        <nav id="interaction-guide-list" class="interaction-guide-list organizer-panel" aria-label="Briefings"></nav>
-        <section id="interaction-guide-detail" class="interaction-guide-detail organizer-panel" aria-live="polite">
-          <div class="interaction-detail-empty">
-            <p class="eyebrow">Definition</p>
-            <h3>Select a briefing</h3>
-            <p class="muted">Choose a briefing to review its exchanges, or create a new one.</p>
-          </div>
-        </section>
-      </div>
-      <p id="interaction-guide-status-message" class="status" role="status"></p>
     </section>
 
     <section id="ai-usage-view" class="app-view ai-usage-view" hidden>
@@ -793,10 +765,6 @@
           <option value="ai_suggested">AI suggested</option>
         </select></label>
       </div>
-      <label>Briefing
-        <select id="todo-direct-interaction-guide"><option value="">No briefing</option></select>
-        <span class="field-hint">Optional. This does not schedule or repeat the task.</span>
-      </label>
       <p id="todo-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>
@@ -945,48 +913,6 @@
       <footer class="editor-actions">
         <button class="secondary dialog-close" type="button">Cancel</button>
         <button type="submit">Save entry</button>
-      </footer>
-    </form>
-  </dialog>
-
-  <dialog id="interaction-guide-dialog" class="editor-dialog interaction-guide-dialog">
-    <form id="interaction-guide-form" method="dialog">
-      <header class="dialog-heading">
-        <div><p class="eyebrow">Agent-led conversation</p><h2 id="interaction-guide-dialog-title">New briefing</h2></div>
-        <button class="secondary compact dialog-close" type="button">Close</button>
-      </header>
-      <input id="interaction-guide-id" type="hidden">
-      <input id="interaction-guide-version" type="hidden">
-      <label>Name<input id="interaction-guide-name" required maxlength="200" autocomplete="off" placeholder="Evening planning briefing"></label>
-      <p class="field-hint">A briefing is an ordered series of exchanges initiated by the agent.</p>
-      <p id="interaction-guide-form-error" class="form-error" role="alert"></p>
-      <footer class="editor-actions">
-        <button id="archive-interaction-guide" class="danger editor-delete" type="button" hidden>Archive briefing</button>
-        <button class="secondary dialog-close" type="button">Cancel</button>
-        <button type="submit">Save briefing</button>
-      </footer>
-    </form>
-  </dialog>
-
-  <dialog id="interaction-step-dialog" class="editor-dialog interaction-step-dialog">
-    <form id="interaction-step-form" method="dialog">
-      <header class="dialog-heading">
-        <div><p class="eyebrow">Briefing exchange</p><h2 id="interaction-step-dialog-title">New exchange</h2></div>
-        <button class="secondary compact dialog-close" type="button">Close</button>
-      </header>
-      <input id="interaction-step-id" type="hidden">
-      <label>Briefing<select id="interaction-step-guide" required></select></label>
-      <p id="interaction-step-guide-hint" class="field-hint">Changing the briefing moves this exchange. Saved run answers and progress reset; ledger history remains available.</p>
-      <label>Exchange number<input id="interaction-step-number" type="number" min="1" step="1" required></label>
-      <label>Opening<textarea id="interaction-step-opening" rows="4" required maxlength="10000" placeholder="What the agent says to begin this exchange."></textarea></label>
-      <label>Contract JSON<textarea id="interaction-step-contract" rows="14" maxlength="200000" spellcheck="false" required></textarea></label>
-      <p class="field-hint">Defines optional instructions, typed inputs, exact destination operations, recovery reads, and completion. Structured fields are authoritative.</p>
-      <label class="checkbox-row interaction-step-enabled"><input id="interaction-step-enabled" type="checkbox" checked><span>Exchange is enabled</span></label>
-      <p id="interaction-step-form-error" class="form-error" role="alert"></p>
-      <footer class="editor-actions">
-        <button id="delete-interaction-step" class="danger editor-delete" type="button" hidden>Delete exchange</button>
-        <button class="secondary dialog-close" type="button">Cancel</button>
-        <button type="submit">Save exchange</button>
       </footer>
     </form>
   </dialog>

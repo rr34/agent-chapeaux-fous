@@ -10,7 +10,7 @@ const toolDescriptions = Object.freeze({
   "todo_add": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, contact, briefing, and fixed billable price.",
+    "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, contact, and fixed billable price.",
     "actionClasses": [
       "CREATE"
     ],
@@ -73,17 +73,6 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "todo_interaction_guide_set": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Link or unlink one active briefing directly on an existing native to-do without scheduling it.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
   "todo_list": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -121,7 +110,7 @@ const toolDescriptions = Object.freeze({
 
 const optionalText = { type: ["string", "null"] };
 const todoFields = [
-  "personal_task_id", "todo_group_id", "interaction_guide_id", "sequence",
+  "personal_task_id", "todo_group_id", "sequence",
   "related_contact_id", "text", "status", "sort_position", "completed_at_utc",
   "planning_prompt_text", "billable_amount_minor", "billable_currency",
   "source", "external_id", "source_event_id",
@@ -139,9 +128,6 @@ const todoTaskRecordSchema = {
     ...Object.fromEntries(todoFields.map((name) => [name, {}])),
     ref: { description: "Stable Agent Slayer reference for this exact personal to-do." },
     group_name: {},
-    interaction_guide: { type: ["object", "null"], properties: {
-      interaction_guide_id: {}, name: {}, status: {}, version: {},
-    } },
   },
 };
 const todoGroupRecordSchema = {
@@ -155,14 +141,9 @@ const todoGroupRecordSchema = {
 
 function taskWithContext(database, taskId) {
   return database.prepare(`
-    SELECT task.*, todo_group.name AS group_name,
-           interaction_guide.name AS interaction_guide_name,
-           interaction_guide.status AS interaction_guide_status,
-           interaction_guide.version AS interaction_guide_version
+    SELECT task.*, todo_group.name AS group_name
     FROM todo_personal AS task
     JOIN todo_groups AS todo_group USING (todo_group_id)
-    LEFT JOIN interaction_guides AS interaction_guide
-      ON interaction_guide.interaction_guide_id = task.interaction_guide_id
     WHERE task.personal_task_id = ?
   `).get(taskId);
 }
@@ -173,12 +154,6 @@ function databaseTask(row) {
     ...selectedFields(row, todoFields),
     ref: `agent-slayer://todos/${Number(row.personal_task_id)}`,
     group_name: row.group_name,
-    interaction_guide: row.interaction_guide_id == null ? null : {
-      interaction_guide_id: Number(row.interaction_guide_id),
-      name: row.interaction_guide_name,
-      status: row.interaction_guide_status,
-      version: row.interaction_guide_version == null ? null : Number(row.interaction_guide_version),
-    },
   };
 }
 
@@ -209,13 +184,6 @@ function requireGroup(database, id) {
   `).get(id);
   if (!row) throw new Error(`Active to-do group ${id} does not exist`);
   return row;
-}
-
-function requireActiveGuide(database, id) {
-  if (id == null) return;
-  if (!database.prepare(`
-    SELECT 1 FROM interaction_guides WHERE interaction_guide_id = ? AND status = 'active'
-  `).get(id)) throw new Error(`Active briefing ${id} does not exist`);
 }
 
 function appendLedger(ledger, context, input) {
@@ -314,7 +282,6 @@ export function registerTodoTools(registry, store, ledger) {
       status: { type: "string", enum: todoStatuses },
       todo_group_id: { type: "integer", minimum: 1 },
       related_contact_id: { type: ["integer", "null"], minimum: 1 },
-      interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
       planning_prompt_text: optionalText,
       billable_amount_minor: { type: ["integer", "null"], minimum: 1 },
       billable_currency: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },
@@ -325,7 +292,6 @@ export function registerTodoTools(registry, store, ledger) {
       const text = input.text.trim();
       if (!text) throw new Error("To-do text cannot be empty");
       const group = requireGroup(database, input.todo_group_id);
-      requireActiveGuide(database, input.interaction_guide_id);
       if (input.related_contact_id != null && !database.prepare(
         "SELECT 1 FROM contacts WHERE contact_id = ?",
       ).get(input.related_contact_id)) throw new Error(`Related contact ${input.related_contact_id} does not exist`);
@@ -336,13 +302,13 @@ export function registerTodoTools(registry, store, ledger) {
         const completed = input.status === "complete" ? new Date().toISOString() : null;
         const inserted = database.prepare(`
           INSERT INTO todo_personal (
-            todo_group_id, related_contact_id, interaction_guide_id, text, status,
+            todo_group_id, related_contact_id, text, status,
             sort_position, completed_at_utc, planning_prompt_text, source, source_event_id,
             billable_amount_minor, billable_currency
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'agent-slayer', ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'agent-slayer', ?, ?, ?)
           RETURNING personal_task_id
         `).get(group.todo_group_id, input.related_contact_id ?? null,
-          input.interaction_guide_id ?? null, text, input.status ?? "todo", position,
+          text, input.status ?? "todo", position,
           completed, input.planning_prompt_text?.trim() || null, context.requestEventId || null,
           input.billable_amount_minor ?? null, input.billable_currency ?? null);
         if (input.position != null) setTodoPosition(database, Number(inserted.personal_task_id), input.position);
@@ -431,30 +397,6 @@ export function registerTodoTools(registry, store, ledger) {
   });
 
   registry.register({
-    name: "todo_interaction_guide_set",
-    description: "Link or unlink one active briefing on a personal to-do. This does not schedule either record.",
-    outputSchema: { type: "object", properties: { task: todoTaskRecordSchema } },
-    parameters: { type: "object", additionalProperties: false, properties: {
-      personal_task_id: { type: "integer", minimum: 1 },
-      interaction_guide_id: { type: ["integer", "null"], minimum: 1 },
-    }, required: ["personal_task_id", "interaction_guide_id"] },
-    async execute({ personal_task_id: id, interaction_guide_id: guideId }, context) {
-      const database = store.requireReady();
-      const before = databaseTask(taskWithContext(database, id));
-      if (!before) throw new Error(`To-do ${id} does not exist`);
-      requireActiveGuide(database, guideId);
-      const now = new Date().toISOString();
-      database.prepare(`UPDATE todo_personal SET interaction_guide_id = ?, updated_at_utc = ?
-        WHERE personal_task_id = ?`).run(guideId, now, id);
-      const task = databaseTask(taskWithContext(database, id));
-      appendLedger(ledger, context, { type: "personal_todo.interaction_guide_set",
-        actorName: "todo_interaction_guide_set", name: "To-do briefing link set",
-        content: task.text, payload: { before, task }, subjectType: "personal_task", subjectId: String(id) });
-      return { updated: before.interaction_guide_id !== guideId, task };
-    },
-  });
-
-  registry.register({
     name: "todo_update",
     description: "Atomically update one or more non-temporal native personal to-dos. Calendar placement and deadlines must be changed through calendar events.",
     outputSchema: { type: "object", properties: { updated_count: { type: "integer" },
@@ -466,7 +408,6 @@ export function registerTodoTools(registry, store, ledger) {
           todo_group_id: { type: ["integer", "null"], minimum: 1 },
           status: { type: ["string", "null"], enum: [...todoStatuses, null] },
           related_contact_id: { type: ["integer", "null"], minimum: 1 }, clear_related_contact: { type: "boolean" },
-          interaction_guide_id: { type: ["integer", "null"], minimum: 1 }, clear_interaction_guide: { type: "boolean" },
           planning_prompt_text: optionalText, clear_planning_prompt: { type: "boolean" },
           billable_amount_minor: { type: ["integer", "null"], minimum: 1 },
           billable_currency: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },
@@ -493,11 +434,6 @@ export function registerTodoTools(registry, store, ledger) {
           }
           if (input.clear_related_contact) values.related_contact_id = null;
           else if (input.related_contact_id != null) values.related_contact_id = input.related_contact_id;
-          if (input.clear_interaction_guide) values.interaction_guide_id = null;
-          else if (input.interaction_guide_id != null) {
-            requireActiveGuide(database, input.interaction_guide_id);
-            values.interaction_guide_id = input.interaction_guide_id;
-          }
           if (input.clear_planning_prompt) values.planning_prompt_text = null;
           else if (input.planning_prompt_text != null) values.planning_prompt_text = input.planning_prompt_text.trim() || null;
           if (input.clear_billable_price) {

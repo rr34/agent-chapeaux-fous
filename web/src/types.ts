@@ -4,10 +4,27 @@ export interface LinkedTodo {
   text?: string;
   groupId?: number;
   groupName?: string | null;
+  groupSortPosition?: number;
+  sequence?: number | null;
+  sortPosition?: number;
   description?: string | null;
   status: string;
   relationshipKind?: string;
   eventTitles?: string[];
+  eventLinks?: TodoEventLink[];
+  relatedContact?: {
+    contactId: number;
+    displayName: string;
+  } | null;
+}
+
+export interface TodoEventLink {
+  eventId: number | string;
+  seriesId?: number;
+  title: string;
+  startsAtUtc: string;
+  isAllDay: boolean;
+  relationshipKind: string | null;
 }
 
 export interface CalendarEvent {

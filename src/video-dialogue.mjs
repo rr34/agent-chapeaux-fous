@@ -3,13 +3,11 @@ import { marked } from "marked";
 const machineReferenceKeys = new Set([
   "file_id", "title", "original_filename", "media_kind",
   "video_script_id", "video_job_id", "output_file_id", "content_id",
-  "briefing_name", "interaction_guide_id", "interaction_guide_step_id",
   "exchange_number", "opening_text",
 ]);
 
 const machineIdentityKeys = new Set([
   "file_id", "video_script_id", "video_job_id", "output_file_id",
-  "interaction_guide_id", "interaction_guide_step_id",
 ]);
 
 const uuidPattern = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/giu;

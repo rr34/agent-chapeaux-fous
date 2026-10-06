@@ -170,17 +170,33 @@ function calendarRoutineDraft(routine: CalendarRoutine): CalendarRoutineDraft {
   };
 }
 
-function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
-  routineId: number;
+function newCalendarRoutineDraft(): CalendarRoutineDraft {
+  return {
+    title: "",
+    description: "",
+    location: "",
+    startsAt: localDateTimeValue(new Date().toISOString()),
+    endsAt: "",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    isAllDay: false,
+    recurrenceRule: "FREQ=WEEKLY",
+    planningPromptText: "",
+  };
+}
+
+export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
+  routineId?: number;
   onClose: () => void;
   onChanged: Changed;
 }) {
+  const creating = routineId == null;
   const [routine, setRoutine] = useState<CalendarRoutine | null>(null);
-  const [draft, setDraft] = useState<CalendarRoutineDraft | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState<CalendarRoutineDraft | null>(() => creating ? newCalendarRoutineDraft() : null);
+  const [loading, setLoading] = useState(!creating);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
+    if (routineId == null) return;
     let active = true;
     void api<{ routine: CalendarRoutine | null }>(`/api/calendar-routines/${routineId}`).then(({ routine: current }) => {
       if (!current) throw new Error("Calendar routine not found.");
@@ -197,14 +213,14 @@ function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
 
   const save = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
-    if (!routine || !draft) return;
+    if (!draft || (!creating && !routine)) return;
     setSaving(true);
     setError("");
     try {
-      await api(`/api/calendar-routines/${routineId}`, {
-        method: "PATCH",
+      await api(creating ? "/api/calendar-routines" : `/api/calendar-routines/${routineId}`, {
+        method: creating ? "POST" : "PATCH",
         body: JSON.stringify({
-          version: routine.version,
+          ...(!creating && routine ? { version: routine.version } : {}),
           title: draft.title,
           description: draft.description,
           location: draft.location,
@@ -225,12 +241,12 @@ function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
     }
   };
 
-  return <EditorFrame title="Edit calendar routine" onClose={onClose}>
+  return <EditorFrame title={creating ? "Add calendar routine" : "Edit calendar routine"} onClose={onClose}>
     <form onSubmit={(submitEvent) => void save(submitEvent)}>
-      <header className="object-editor-heading"><div><p className="eyebrow">Routine</p><h2>Edit routine</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      <header className="object-editor-heading"><div><p className="eyebrow">Routine</p><h2>{creating ? "Add routine" : "Edit routine"}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
       {loading && <p className="object-editor-state">Loading current routine...</p>}
       {draft && <>
-        <p className="object-editor-note">Changes affect future generated events. Events already placed on the calendar stay unchanged.</p>
+        <p className="object-editor-note">{creating ? "Set the first occurrence and how it repeats. You can generate calendar events after saving." : "Changes affect future generated events. Events already placed on the calendar stay unchanged."}</p>
         <label>Title<input autoFocus required maxLength={500} value={draft.title} onChange={(change) => setDraft({ ...draft, title: change.target.value })} /></label>
         <label className="object-editor-check"><input type="checkbox" checked={draft.isAllDay} onChange={(change) => setDraft({ ...draft, isAllDay: change.target.checked })} /><span>All day</span></label>
         <div className="object-editor-grid">
@@ -244,7 +260,7 @@ function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
         <label>Planning prompt<textarea rows={3} maxLength={10_000} value={draft.planningPromptText} onChange={(change) => setDraft({ ...draft, planningPromptText: change.target.value })} /></label>
       </>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : "Save routine"}</button></footer>
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : creating ? "Add routine" : "Save routine"}</button></footer>
     </form>
   </EditorFrame>;
 }

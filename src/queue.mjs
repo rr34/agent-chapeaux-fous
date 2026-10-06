@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { readRequestAttachment, safeMediaPath } from "./request-attachments.mjs";
-import { repeatableExchangeToolNames } from "./structured-interaction-generation.mjs";
 
 export class RequestCancelledError extends Error {
   constructor(message = "Request cancelled before execution") {
@@ -108,9 +107,7 @@ export class RequestQueue {
         selectedObjectCandidates: request.payload?.selectedObjectCandidates ?? [],
         model: request.payload?.model ?? null,
         effort: request.payload?.effort ?? null,
-        allowedToolNames: request.payload?.requestKind === "structured_interaction_generation"
-          ? repeatableExchangeToolNames
-          : null,
+        allowedToolNames: null,
         supplementalInstructions: "",
         ...(request.payload?.runLimits?.promptForTurnBrief === true
           ? { awaitTurnBriefApproval: (plan) => this.awaitTurnBriefApproval(request, plan) }

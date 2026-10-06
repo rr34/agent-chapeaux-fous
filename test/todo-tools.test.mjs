@@ -40,7 +40,6 @@ test("native to-do contracts are entirely non-temporal", () => {
     }
     assert.equal(properties.status.enum.includes("unplanned"), false, `${name}.status`);
   }
-  assert.ok(tools.todo_interaction_guide_set);
   assert.equal(schemaProblem({ created: true, task: { personal_task_id: 1, text: "Call Ruby" } },
     tools.todo_add.outputSchema), null);
 });
@@ -49,7 +48,7 @@ test("to-dos can be created, listed, and completed without calendar fields", asy
   const { store, registry, toolContext } = harness(context);
   const created = await registry.execute("todo_add", {
     text: "Bathe Ruby", todo_group_id: 1, status: "todo",
-    related_contact_id: null, interaction_guide_id: null,
+    related_contact_id: null,
     planning_prompt_text: null, position: null,
   }, toolContext);
   assert.equal(created.task.text, "Bathe Ruby");
@@ -68,29 +67,11 @@ test("to-dos can be created, listed, and completed without calendar fields", asy
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM calendar_events").get().count, 0);
 });
 
-test("any to-do may link directly to an active interaction guide", async (context) => {
-  const { store, registry, toolContext } = harness(context);
-  const guideId = Number(store.requireReady().prepare(`
-    INSERT INTO interaction_guides (name, status) VALUES ('Ruby care', 'active')
-    RETURNING interaction_guide_id
-  `).get().interaction_guide_id);
-  const created = await registry.execute("todo_add", {
-    text: "Bathe Ruby", todo_group_id: 1, status: "todo",
-    related_contact_id: null, interaction_guide_id: guideId,
-    planning_prompt_text: null, position: null,
-  }, toolContext);
-  assert.equal(created.task.interaction_guide.interaction_guide_id, guideId);
-  const cleared = await registry.execute("todo_interaction_guide_set", {
-    personal_task_id: created.task.personal_task_id, interaction_guide_id: null,
-  }, toolContext);
-  assert.equal(cleared.task.interaction_guide, null);
-});
-
 test("to-do update batches stay atomic", async (context) => {
   const { registry, toolContext } = harness(context);
   const first = await registry.execute("todo_add", {
     text: "First", todo_group_id: 1, status: "todo", related_contact_id: null,
-    interaction_guide_id: null, planning_prompt_text: null, position: null,
+    planning_prompt_text: null, position: null,
   }, toolContext);
   await assert.rejects(registry.execute("todo_update", { updates: [
     { personal_task_id: first.task.personal_task_id, text: "Changed" },

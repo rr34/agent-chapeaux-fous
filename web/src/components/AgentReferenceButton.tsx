@@ -137,7 +137,7 @@ export function contactIdentity(contact: Entity) {
   });
 }
 
-export type GenericObjectKind = "content" | "video-scripts" | "files" | "interactions";
+export type GenericObjectKind = "content" | "video-scripts" | "files";
 
 const genericReferenceConfig: Record<GenericObjectKind, {
   label: string; idKey: string; collection: string; type: string; source: string;
@@ -153,10 +153,6 @@ const genericReferenceConfig: Record<GenericObjectKind, {
   files: {
     label: "File", idKey: "file_id", collection: "files",
     type: "files.file", source: "native:files",
-  },
-  interactions: {
-    label: "Briefing", idKey: "interaction_guide_id", collection: "interaction-guides",
-    type: "interaction_guide.guide", source: "native:interaction-guides",
   },
 };
 

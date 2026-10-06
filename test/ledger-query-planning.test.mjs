@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { InteractionGuides } from "../src/interaction-guides.mjs";
 import { Ledger } from "../src/ledger.mjs";
 
 function requestRow(id, sequence) {
@@ -84,40 +83,4 @@ test("AI usage avoids the reserved usage alias and uses selective indexes", () =
   assert.match(calls[0].sql, /usage_event FORCE INDEX \(activity_events_type\)/u);
   assert.match(calls[0].sql, /response FORCE INDEX \(activity_events_operation\)/u);
   assert.deepEqual(calls[0].parameters, [10]);
-});
-
-test("briefing summaries constrain activity lookups to event and subject indexes", () => {
-  const calls = [];
-  const guide = {
-    interaction_guide_id: 7,
-    name: "Daily briefing",
-    status: "active",
-    version: 1,
-    created_at_utc: "2023-11-14T22:13:20.000Z",
-    updated_at_utc: null,
-  };
-  const database = {
-    prepare(sql) {
-      return {
-        all(...parameters) {
-          calls.push({ mode: "all", sql, parameters });
-          return /FROM interaction_guides/u.test(sql) ? [guide] : [];
-        },
-        get(...parameters) {
-          calls.push({ mode: "get", sql, parameters });
-          return undefined;
-        },
-      };
-    },
-  };
-  const guides = new InteractionGuides({
-    store: { requireReady: () => database },
-    ledger: {},
-  });
-
-  assert.equal(guides.list({ status: "active", limit: 10 }).count, 1);
-  const activeRun = calls.find(({ sql }) => /interaction_guide\.run_started/u.test(sql));
-  assert.ok(activeRun);
-  assert.match(activeRun.sql, /started FORCE INDEX \(activity_events_type\)/u);
-  assert.match(activeRun.sql, /terminal FORCE INDEX \(activity_events_subject\)/u);
 });

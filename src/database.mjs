@@ -65,7 +65,7 @@ export const requiredDatabaseShape = {
   todo_groups: ["todo_group_id", "name", "sort_position", "uses_sequence", "archived_at_utc"],
   todo_personal: [
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
-    "completed_at_utc", "source_event_id", "planning_prompt_text", "interaction_guide_id",
+    "completed_at_utc", "source_event_id", "planning_prompt_text",
     "billable_amount_minor", "billable_currency",
   ],
   payment_provider_accounts: [
@@ -95,15 +95,6 @@ export const requiredDatabaseShape = {
     "archived_by_event_id",
     "created_at_utc", "updated_at_utc", "archived_at_utc",
   ],
-  interaction_guides: [
-    "interaction_guide_id", "name", "status", "version",
-    "created_at_utc", "updated_at_utc",
-  ],
-  interaction_guide_steps: [
-    "interaction_guide_step_id", "interaction_guide_id", "step_number",
-    "opening_text", "contract_json", "answers_json", "progress_state",
-    "enabled", "created_at_utc", "updated_at_utc",
-  ],
 };
 
 export const requiredEnumColumns = {
@@ -121,10 +112,8 @@ export const requiredEnumColumns = {
     status: ["active", "inactive", "blocked", "deceased"],
   },
   contact_methods: { method_kind: ["email", "phone", "postal_address", "handle", "url", "other"] },
-  interaction_guides: { status: ["active", "archived"] },
   calendar_events: { status: ["tentative", "confirmed", "cancelled"] },
   calendar_event_contacts_join: { participant_role: ["organizer", "attendee", "customer", "other"] },
-  interaction_guide_steps: { progress_state: ["pending", "active", "completed"] },
   calendar_events_todo_join: { relationship_kind: ["work", "deadline", "context"] },
   todo_personal: { status: ["todo", "complete", "ignore", "archive", "ai_suggested"] },
   payment_provider_accounts: {

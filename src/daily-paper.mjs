@@ -218,8 +218,19 @@ export class DailyPaperService {
           ...todo,
           todoId: Number(todo.todoId),
           eventTitles: [],
+          eventLinks: [],
         };
         if (!current.eventTitles.includes(event.title)) current.eventTitles.push(event.title);
+        if (!current.eventLinks.some(({ eventId }) => String(eventId) === String(event.id))) {
+          current.eventLinks.push({
+            eventId: event.id,
+            ...(event.seriesId != null ? { seriesId: event.seriesId } : {}),
+            title: event.title,
+            startsAtUtc: event.startsAtUtc,
+            isAllDay: event.isAllDay,
+            relationshipKind: todo.relationshipKind ?? null,
+          });
+        }
         todoMap.set(current.todoId, current);
       }
     }
@@ -315,4 +326,3 @@ export class DailyPaperService {
 }
 
 export { addLocalDays, mondayOnOrBefore, normalizeInput };
-

@@ -266,7 +266,6 @@ const elements = {
   todoSequenceHint: document.querySelector("#todo-sequence-hint"),
   todoContact: document.querySelector("#todo-contact"),
   todoStatus: document.querySelector("#todo-status"),
-  todoDirectInteractionGuide: document.querySelector("#todo-direct-interaction-guide"),
   todoFormError: document.querySelector("#todo-form-error"),
   todoCalendarDialog: document.querySelector("#todo-calendar-dialog"),
   todoCalendarForm: document.querySelector("#todo-calendar-form"),
@@ -367,33 +366,6 @@ const elements = {
   journalTrackerUnit: document.querySelector("#journal-tracker-unit"),
   journalOccurred: document.querySelector("#journal-occurred"),
   journalFormError: document.querySelector("#journal-form-error"),
-  interactionGuideStatus: document.querySelector("#interaction-guide-status"),
-  interactionGuideCount: document.querySelector("#interaction-guide-count"),
-  interactionGuideList: document.querySelector("#interaction-guide-list"),
-  interactionGuideDetail: document.querySelector("#interaction-guide-detail"),
-  interactionGuideStatusMessage: document.querySelector("#interaction-guide-status-message"),
-  refreshInteractionGuides: document.querySelector("#refresh-interaction-guides"),
-  newInteractionGuide: document.querySelector("#new-interaction-guide"),
-  interactionGuideDialog: document.querySelector("#interaction-guide-dialog"),
-  interactionGuideForm: document.querySelector("#interaction-guide-form"),
-  interactionGuideDialogTitle: document.querySelector("#interaction-guide-dialog-title"),
-  interactionGuideId: document.querySelector("#interaction-guide-id"),
-  interactionGuideVersion: document.querySelector("#interaction-guide-version"),
-  interactionGuideName: document.querySelector("#interaction-guide-name"),
-  interactionGuideFormError: document.querySelector("#interaction-guide-form-error"),
-  archiveInteractionGuide: document.querySelector("#archive-interaction-guide"),
-  interactionStepDialog: document.querySelector("#interaction-step-dialog"),
-  interactionStepForm: document.querySelector("#interaction-step-form"),
-  interactionStepDialogTitle: document.querySelector("#interaction-step-dialog-title"),
-  interactionStepId: document.querySelector("#interaction-step-id"),
-  interactionStepGuide: document.querySelector("#interaction-step-guide"),
-  interactionStepGuideHint: document.querySelector("#interaction-step-guide-hint"),
-  interactionStepNumber: document.querySelector("#interaction-step-number"),
-  interactionStepOpening: document.querySelector("#interaction-step-opening"),
-  interactionStepContract: document.querySelector("#interaction-step-contract"),
-  interactionStepEnabled: document.querySelector("#interaction-step-enabled"),
-  interactionStepFormError: document.querySelector("#interaction-step-form-error"),
-  deleteInteractionStep: document.querySelector("#delete-interaction-step"),
 };
 
 let accessToken = localStorage.getItem("agent-slayer-token") || "";
@@ -436,7 +408,6 @@ let eventInviteCreated = false;
 let displayedTodos = [];
 let todoGroups = [];
 let todoContacts = [];
-let todoGuides = [];
 let contentItems = [];
 let contentGroups = [];
 let contentSearchTimer = null;
@@ -449,10 +420,6 @@ let contactDuplicateReview = { groups: [], hasMore: false };
 const selectedContactIds = new Set();
 let journalTrackers = [];
 let journalEntries = [];
-let interactionGuideSummaries = [];
-let selectedInteractionGuide = null;
-let interactionGuideLoadSequence = 0;
-let interactionGuideReorderInProgress = false;
 let aiUsageData = null;
 let requestImagePreviewUrl = null;
 let storedFiles = [];
@@ -2484,7 +2451,6 @@ function switchView(view) {
   if (view === "files") void loadFiles();
   if (view === "contacts") void refreshContacts();
   if (view === "journal") void refreshJournal();
-  if (view === "interactions") void refreshInteractionGuides();
   if (view === "interactions") renderCatchUpSettings();
   if (view === "ai-usage") void loadAiUsage();
   if (view === "agent" && previousView !== "agent") {
@@ -2562,14 +2528,12 @@ async function refreshHats() {
 async function refreshCalendar() {
   const { gridStart, gridEnd } = twoWeekCalendarRange(calendarRangeStart);
   try {
-    const [calendarBody, groupBody, guideBody] = await Promise.all([
+    const [calendarBody, groupBody] = await Promise.all([
       api(`/api/calendar-events?from=${encodeURIComponent(gridStart.toISOString())}&to=${encodeURIComponent(gridEnd.toISOString())}`),
       api("/api/todo-groups"),
-      api("/api/interaction-guides?status=active&limit=500"),
     ]);
     calendarEvents = calendarBody.events;
     todoGroups = groupBody.groups;
-    todoGuides = guideBody.guides;
     renderCalendar();
     if (elements.calendarSearch.value.trim()) void searchCalendarEvents();
   } catch (error) {
@@ -2586,18 +2550,16 @@ async function refreshRoutine() {
   const from = startOfDay(dates[0]);
   const to = addDays(startOfDay(dates.at(-1)), 1);
   try {
-    const [previewBody, groupBody, contactBody, guideBody] = await Promise.all([
+    const [previewBody, groupBody, contactBody] = await Promise.all([
       api(`/api/calendar-routines/preview?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`),
       api("/api/todo-groups"),
       api("/api/contacts?scope=all&limit=10000"),
-      api("/api/interaction-guides?status=active&limit=500"),
     ]);
     routineOccurrences = previewBody.occurrences;
     routineDefinitions = previewBody.routines;
     routineWeekPattern = weeklyRoutinePattern(routineOccurrences, dates);
     todoGroups = groupBody.groups;
     todoContacts = contactBody.contacts;
-    todoGuides = guideBody.guides;
     renderRoutine();
   } catch (error) {
     elements.routineGrid.replaceChildren(node("p", "empty", error.message || "Routine unavailable."));
@@ -3316,16 +3278,14 @@ async function deleteEditedEvent() {
 
 async function refreshTodos() {
   try {
-    const [body, groupBody, contactBody, guideBody] = await Promise.all([
+    const [body, groupBody, contactBody] = await Promise.all([
       api(`/api/todos?scope=${encodeURIComponent(elements.todoScope.value)}&limit=1000`),
       api("/api/todo-groups"),
       api("/api/contacts?scope=all&limit=10000"),
-      api("/api/interaction-guides?status=active&limit=500"),
     ]);
     displayedTodos = body.todos;
     todoGroups = groupBody.groups;
     todoContacts = contactBody.contacts;
-    todoGuides = guideBody.guides;
     const selectedGroup = elements.todoGroupFilter.value;
     elements.todoGroupFilter.replaceChildren(node("option", "", "All groups"));
     elements.todoGroupFilter.firstElementChild.value = "";
@@ -3519,13 +3479,6 @@ function renderTodos() {
           metadata.append(node("span", "todo-pill todo-contact-pill", `${contactName}${contactStatus}`));
         }
       }
-      if (todo.interactionGuideId != null) {
-        metadata.append(node(
-          "span",
-          "todo-pill",
-          `briefing: ${todo.interactionGuideName ?? `#${todo.interactionGuideId}`}`,
-        ));
-      }
       body.append(metadata);
       const actions = node("div", "todo-actions");
       actions.append(agentReferenceButton(todoIdentity(todo), `task ${todo.text}`));
@@ -3550,13 +3503,6 @@ function renderTodos() {
       bottom.addEventListener("click", () => void moveTodo(todo, "bottom", visibleTodos));
       calendar.addEventListener("click", () => void openTodoCalendar(todo));
       edit.addEventListener("click", () => openTodoEditor(todo));
-      if (todo.interactionGuideId != null && todo.interactionGuideStatus === "active"
-          && ["todo", "ai_suggested"].includes(todo.status)) {
-        const startGuide = node("button", "secondary compact", "Start briefing");
-        startGuide.type = "button";
-        startGuide.addEventListener("click", () => void startTodoInteractionGuide(todo, startGuide));
-        actions.append(startGuide);
-      }
       if (group.usesSequence) {
         const assignSequence = node("button", "secondary compact", "Assign next #");
         assignSequence.type = "button";
@@ -3745,7 +3691,6 @@ function openTodoEditor(todo = null, groupId = null, { routine = false } = {}) {
   elements.todoVersion.value = todo?.version ?? "";
   populateTodoGroupEditor(todo?.groupId ?? groupId ?? (elements.todoGroupFilter.value || todoGroups[0]?.id || ""));
   populateTodoContactEditor(todo);
-  populateTodoGuideEditor(todo);
   elements.todoText.value = todo?.text ?? "";
   elements.todoPlanningPrompt.value = todo?.planningPromptText ?? "";
   elements.todoSequence.value = todo?.sequence ?? "";
@@ -3794,50 +3739,6 @@ function populateTodoContactEditor(todo = null) {
   elements.todoContact.value = todo?.relatedContactId == null ? "" : String(todo.relatedContactId);
 }
 
-function populateTodoGuideEditor(todo = null) {
-  elements.todoDirectInteractionGuide.replaceChildren(node("option", "", "No briefing"));
-  elements.todoDirectInteractionGuide.firstElementChild.value = "";
-  for (const guide of todoGuides) {
-    const option = node("option", "", guide.name);
-    option.value = String(guide.id);
-    elements.todoDirectInteractionGuide.append(option);
-  }
-  if (todo?.interactionGuideId != null
-      && !todoGuides.some(({ id }) => id === todo.interactionGuideId)) {
-    const option = node(
-      "option", "",
-      `${todo.interactionGuideName ?? `Briefing #${todo.interactionGuideId}`} (${todo.interactionGuideStatus ?? "unavailable"})`,
-    );
-    option.value = String(todo.interactionGuideId);
-    elements.todoDirectInteractionGuide.append(option);
-  }
-  elements.todoDirectInteractionGuide.value = todo?.interactionGuideId == null
-    ? ""
-    : String(todo.interactionGuideId);
-}
-
-async function startTodoInteractionGuide(todo, button) {
-  button.disabled = true;
-  const respondSilently = elements.respondSilently.checked;
-  prepareSpeechOutput(respondSilently);
-  try {
-    const created = await api("/api/requests", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: `Start briefing ${todo.interactionGuideId} ("${todo.interactionGuideName}") associated with to-do ${todo.id}. Follow its ordered exchanges and use each opening exactly.`,
-      }),
-    });
-    expectSpokenResponse(created.requestId, respondSilently);
-    elements.status.textContent = `${todo.interactionGuideName} queued.`;
-    switchView("agent");
-    await loadRequests({ force: true, followLatest: true });
-  } catch (error) {
-    window.alert(error.message || "Could not start the briefing.");
-    button.disabled = false;
-  }
-}
-
 async function saveTodo(event) {
   event.preventDefault();
   elements.todoFormError.textContent = "";
@@ -3851,9 +3752,6 @@ async function saveTodo(event) {
       sequence: elements.todoSequence.value ? Number(elements.todoSequence.value) : null,
       relatedContactId: elements.todoContact.value ? Number(elements.todoContact.value) : null,
       status: elements.todoStatus.value,
-      interactionGuideId: elements.todoDirectInteractionGuide.value
-        ? Number(elements.todoDirectInteractionGuide.value)
-        : null,
     };
     const id = elements.todoId.value;
     if (id) payload.version = elements.todoVersion.value;
@@ -5005,601 +4903,6 @@ async function saveContact(event) {
   }
 }
 
-const interactionCompletionLabels = {
-  response_valid: "Answers validate",
-  user_advances: "User says continue",
-  tool_receipt: "Successful tool result",
-};
-
-const interactionProgressLabels = {
-  pending: "Pending",
-  active: "In progress",
-  completed: "Completed",
-};
-
-function renderInteractionGuideEmpty(title = "Select a briefing", message = "Choose a briefing to review its exchanges, or create a new one.") {
-  const empty = node("div", "interaction-detail-empty");
-  empty.append(
-    node("p", "eyebrow", "Definition"),
-    node("h3", "", title),
-    node("p", "muted", message),
-  );
-  elements.interactionGuideDetail.replaceChildren(empty);
-}
-
-function renderInteractionGuideList() {
-  elements.interactionGuideList.replaceChildren();
-  elements.interactionGuideCount.textContent = `${interactionGuideSummaries.length} ${interactionGuideSummaries.length === 1 ? "briefing" : "briefings"}`;
-  if (interactionGuideSummaries.length === 0) {
-    elements.interactionGuideList.append(node("p", "empty interaction-list-empty", "No briefings in this view."));
-    return;
-  }
-  for (const guide of interactionGuideSummaries) {
-    const button = node("button", "interaction-guide-list-item");
-    button.type = "button";
-    button.classList.toggle("selected", selectedInteractionGuide?.id === guide.id);
-    if (selectedInteractionGuide?.id === guide.id) button.setAttribute("aria-current", "true");
-    const title = node("strong", "", guide.name);
-    const metadata = node("span", "interaction-guide-list-meta");
-    metadata.textContent = guide.activeRun?.requiresDailyChoice
-      ? `Exchange ${guide.activeRun.currentStepNumber ?? "—"} paused from ${formatLocalDate(guide.activeRun.startedLocalDate)} · choose resume or start over`
-      : guide.activeRun
-        ? `Exchange ${guide.activeRun.currentStepNumber ?? "—"} in progress · version ${guide.version}`
-      : `${guide.status} · version ${guide.version}`;
-    button.append(title, metadata);
-    button.addEventListener("click", () => void loadInteractionGuide(guide.id));
-    elements.interactionGuideList.append(button);
-  }
-}
-
-function interactionStepIdentity(guide, step) {
-  return [
-    `Briefing exchange ${step.stepNumber}: ${conciseReferenceText(step.openingText)}`,
-    `Briefing: ${conciseReferenceText(guide.name, 120)}`,
-    referenceCode({
-      interaction_guide_id: guide.id,
-      interaction_guide_step_id: step.id,
-    }),
-  ].join("\n");
-}
-
-async function reorderInteractionGuideSteps(guide, orderedStepIds) {
-  if (interactionGuideReorderInProgress) return;
-  const currentOrder = guide.steps.map(({ id }) => id);
-  if (currentOrder.every((stepId, index) => stepId === orderedStepIds[index])) return;
-  interactionGuideReorderInProgress = true;
-  elements.interactionGuideStatusMessage.textContent = "Saving exchange order…";
-  elements.interactionGuideDetail.classList.add("reorder-saving");
-  try {
-    await api(`/api/interaction-guides/${guide.id}/steps/order`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        expectedVersion: guide.version,
-        orderedStepIds,
-      }),
-    });
-    await refreshInteractionGuides({ selectId: guide.id });
-    elements.interactionGuideStatusMessage.textContent = "Exchange order saved.";
-  } catch (error) {
-    if (selectedInteractionGuide?.id === guide.id) await loadInteractionGuide(guide.id);
-    elements.interactionGuideStatusMessage.textContent = error.message || "Could not save the exchange order.";
-  } finally {
-    interactionGuideReorderInProgress = false;
-    elements.interactionGuideDetail.classList.remove("reorder-saving");
-  }
-}
-
-function enableInteractionStepDragging({ guide, step, card, handle, list }) {
-  let pointerId = null;
-  let orderBeforeDrag = [];
-  let placeholder = null;
-  let pointerOffsetY = 0;
-  let styleBeforeDrag = null;
-
-  const movePointerDrag = (event) => {
-    if (pointerId === null || event.pointerId !== pointerId || !placeholder) return;
-    event.preventDefault();
-    card.style.top = `${event.clientY - pointerOffsetY}px`;
-
-    const nextCard = [...list.querySelectorAll(".interaction-turn-card")]
-      .find((candidate) => {
-        const bounds = candidate.getBoundingClientRect();
-        return event.clientY < bounds.top + bounds.height / 2;
-      });
-    if (nextCard) list.insertBefore(placeholder, nextCard);
-    else list.append(placeholder);
-  };
-
-  const stopListeningForPointerDrag = () => {
-    window.removeEventListener("pointermove", movePointerDrag, true);
-    window.removeEventListener("pointerup", finishPointerDrag, true);
-    window.removeEventListener("pointercancel", cancelPointerDrag, true);
-  };
-
-  function finishPointerDrag(event, { cancelled = false } = {}) {
-    if (pointerId === null || event.pointerId !== pointerId) return;
-    stopListeningForPointerDrag();
-    if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
-    pointerId = null;
-    placeholder.replaceWith(card);
-    placeholder = null;
-    if (styleBeforeDrag === null) card.removeAttribute("style");
-    else card.setAttribute("style", styleBeforeDrag);
-    card.classList.remove("dragging");
-    list.classList.remove("reordering");
-    if (cancelled) {
-      const cardsById = new Map(
-        [...list.querySelectorAll(".interaction-turn-card")]
-          .map((candidate) => [Number(candidate.dataset.stepId), candidate]),
-      );
-      for (const stepId of orderBeforeDrag) list.append(cardsById.get(stepId));
-      return;
-    }
-    const orderedStepIds = [...list.querySelectorAll(".interaction-turn-card")]
-      .map((candidate) => Number(candidate.dataset.stepId));
-    void reorderInteractionGuideSteps(guide, orderedStepIds);
-  }
-
-  function cancelPointerDrag(event) {
-    finishPointerDrag(event, { cancelled: true });
-  }
-
-  handle.addEventListener("pointerdown", (event) => {
-    if (interactionGuideReorderInProgress || event.button !== 0) return;
-    event.preventDefault();
-    pointerId = event.pointerId;
-    orderBeforeDrag = [...list.querySelectorAll(".interaction-turn-card")]
-      .map((candidate) => Number(candidate.dataset.stepId));
-    const bounds = card.getBoundingClientRect();
-    pointerOffsetY = event.clientY - bounds.top;
-    styleBeforeDrag = card.getAttribute("style");
-    placeholder = node("div", "interaction-turn-placeholder");
-    placeholder.style.height = `${bounds.height}px`;
-    list.replaceChild(placeholder, card);
-    document.body.append(card);
-    Object.assign(card.style, {
-      boxSizing: "border-box",
-      height: `${bounds.height}px`,
-      left: `${bounds.left}px`,
-      margin: "0",
-      pointerEvents: "none",
-      position: "fixed",
-      top: `${bounds.top}px`,
-      width: `${bounds.width}px`,
-      zIndex: "1000",
-    });
-    handle.setPointerCapture(pointerId);
-    card.classList.add("dragging");
-    list.classList.add("reordering");
-    window.addEventListener("pointermove", movePointerDrag, true);
-    window.addEventListener("pointerup", finishPointerDrag, true);
-    window.addEventListener("pointercancel", cancelPointerDrag, true);
-  });
-  handle.addEventListener("keydown", (event) => {
-    if (interactionGuideReorderInProgress || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
-    event.preventDefault();
-    const orderedStepIds = guide.steps.map(({ id }) => id);
-    const currentIndex = orderedStepIds.indexOf(step.id);
-    const nextIndex = event.key === "ArrowUp" ? currentIndex - 1 : currentIndex + 1;
-    if (nextIndex < 0 || nextIndex >= orderedStepIds.length) return;
-    [orderedStepIds[currentIndex], orderedStepIds[nextIndex]] = [
-      orderedStepIds[nextIndex], orderedStepIds[currentIndex],
-    ];
-    void reorderInteractionGuideSteps(guide, orderedStepIds);
-  });
-}
-
-function renderInteractionGuideDetail() {
-  const guide = selectedInteractionGuide;
-  if (!guide) {
-    renderInteractionGuideEmpty();
-    return;
-  }
-  elements.interactionGuideDetail.replaceChildren();
-  const editable = guide.status === "active" && !guide.activeRun;
-  const needsDailyChoice = Boolean(guide.activeRun?.requiresDailyChoice);
-  const header = node("header", "interaction-detail-heading");
-  const identity = node("div", "interaction-detail-identity");
-  identity.append(
-    node("p", "eyebrow", guide.activeRun ? "Briefing in progress" : "Agent-led briefing"),
-    node("h3", "", guide.name),
-    node("p", "interaction-guide-meta", `${guide.status} · version ${guide.version} · ${guide.steps.length} ${guide.steps.length === 1 ? "exchange" : "exchanges"}`),
-  );
-  if (needsDailyChoice) {
-    identity.append(node(
-      "p",
-      "interaction-guide-meta",
-      `This unfinished run began on ${formatLocalDate(guide.activeRun.startedLocalDate)}. Resume it or start over.`,
-    ));
-  }
-  const actions = node("div", "interaction-detail-actions");
-  if (guide.status === "active") {
-    const start = node(
-      "button",
-      "",
-      needsDailyChoice ? "Resume previous run" : guide.activeRun ? "Resume this briefing" : "Start this briefing",
-    );
-    start.type = "button";
-    start.disabled = !guide.steps.some(({ enabled }) => enabled);
-    if (start.disabled) start.title = "Add and enable at least one exchange before starting.";
-    start.addEventListener("click", () => void startInteractionGuide(guide, start, {
-      resumePrevious: needsDailyChoice,
-    }));
-    actions.append(start);
-    if (needsDailyChoice) {
-      const restart = node("button", "secondary", "Start over");
-      restart.type = "button";
-      restart.addEventListener("click", () => void startInteractionGuide(guide, restart, {
-        restart: true,
-      }));
-      actions.append(restart);
-    }
-  }
-  const edit = node("button", "secondary", "Edit briefing");
-  edit.type = "button";
-  edit.disabled = !editable;
-  if (!editable) edit.title = guide.activeRun ? "Cancel or finish the active briefing before editing." : "Archived briefings cannot be edited.";
-  edit.addEventListener("click", () => openInteractionGuideEditor(guide));
-  actions.append(edit);
-  if (guide.activeRun) {
-    const cancel = node("button", "danger", "Cancel briefing");
-    cancel.type = "button";
-    cancel.addEventListener("click", () => void cancelInteractionGuideRun(guide, cancel));
-    actions.append(cancel);
-  }
-  header.append(identity, actions);
-
-  const turns = node("section", "interaction-turns");
-  const turnsHeading = node("header", "interaction-turns-heading");
-  const turnsTitle = node("div");
-  turnsTitle.append(node("p", "eyebrow", "Conversation structure"), node("h4", "", "Exchanges"));
-  const add = node("button", "secondary compact", "Add exchange");
-  add.type = "button";
-  add.disabled = !editable;
-  if (!editable) add.title = guide.activeRun ? "Cancel or finish the active briefing before editing." : "Archived briefings cannot be edited.";
-  add.addEventListener("click", () => openInteractionStepEditor());
-  turnsHeading.append(turnsTitle, add);
-  turns.append(turnsHeading);
-  if (guide.steps.length === 0) {
-    turns.append(node("p", "empty", "No exchanges yet. Add exchange 1 to make this briefing runnable."));
-  } else {
-    const list = node("div", "interaction-turn-list");
-    for (const step of guide.steps) {
-      const card = node("article", `interaction-turn-card${step.enabled ? "" : " disabled"}`);
-      card.dataset.stepId = String(step.id);
-      const stepHeading = node("header", "interaction-turn-heading");
-      const stepIdentity = node("div", "interaction-turn-identity");
-      const dragHandle = node("button", "interaction-turn-drag-handle", "⠿");
-      dragHandle.type = "button";
-      dragHandle.disabled = !editable;
-      dragHandle.title = editable
-        ? "Drag to reorder; use Up and Down arrow keys for keyboard reordering"
-        : guide.activeRun
-          ? "Cancel or finish the active briefing before reordering."
-          : "Archived briefings cannot be reordered.";
-      dragHandle.setAttribute("aria-label", `Reorder exchange ${step.stepNumber}`);
-      dragHandle.setAttribute("aria-keyshortcuts", "ArrowUp ArrowDown");
-      const openingCopy = node("button", "copy-text-button interaction-turn-opening-copy", step.openingText);
-      openingCopy.type = "button";
-      openingCopy.title = "Copy exchange opening";
-      openingCopy.setAttribute("aria-label", `Copy exchange ${step.stepNumber} opening: ${step.openingText}`);
-      openingCopy.addEventListener("click", (event) => void copyText(step.openingText, event.currentTarget));
-      stepIdentity.append(
-        node("span", "interaction-turn-number", String(step.stepNumber)),
-        openingCopy,
-        node(
-          "span",
-          `interaction-turn-state${step.enabled ? "" : " disabled"}`,
-          step.enabled
-            ? `${interactionProgressLabels[step.progressState] ?? step.progressState} · ${interactionCompletionLabels[step.contract?.completion?.mode] ?? "Contract"}`
-            : "Disabled",
-        ),
-      );
-      const editStep = node("button", "secondary compact", "Edit");
-      editStep.type = "button";
-      editStep.disabled = !editable;
-      editStep.addEventListener("click", () => openInteractionStepEditor(step));
-      const stepActions = node("div", "interaction-detail-actions");
-      stepActions.append(
-        agentReferenceButton(interactionStepIdentity(guide, step), `briefing exchange ${step.stepNumber}`),
-        editStep,
-        dragHandle,
-      );
-      stepHeading.append(stepIdentity, stepActions);
-
-      card.append(stepHeading);
-      const contractDetails = node("details", "interaction-turn-answers");
-      const contractJson = node("pre");
-      contractJson.textContent = JSON.stringify(step.contract, null, 2);
-      contractDetails.append(node("summary", "", "Contract"), contractJson);
-      card.append(contractDetails);
-      const answerKeys = Object.keys(step.answers ?? {});
-      if (answerKeys.length) {
-        const answers = node("details", "interaction-turn-answers");
-        const answerJson = node("pre");
-        answerJson.textContent = JSON.stringify(step.answers, null, 2);
-        answers.append(node("summary", "", `${answerKeys.length} recorded ${answerKeys.length === 1 ? "answer" : "answers"}`), answerJson);
-        card.append(answers);
-      }
-      list.append(card);
-      if (editable) enableInteractionStepDragging({ guide, step, card, handle: dragHandle, list });
-    }
-    turns.append(list);
-  }
-  elements.interactionGuideDetail.append(header, turns);
-}
-
-async function loadInteractionGuide(guideId) {
-  const sequence = ++interactionGuideLoadSequence;
-  elements.interactionGuideStatusMessage.textContent = "Loading briefing…";
-  try {
-    const body = await api(`/api/interaction-guides/${guideId}`);
-    if (sequence !== interactionGuideLoadSequence) return;
-    selectedInteractionGuide = body.guide;
-    renderInteractionGuideList();
-    renderInteractionGuideDetail();
-    elements.interactionGuideStatusMessage.textContent = "";
-  } catch (error) {
-    if (sequence !== interactionGuideLoadSequence) return;
-    selectedInteractionGuide = null;
-    renderInteractionGuideList();
-    renderInteractionGuideEmpty("Could not load this briefing", error.message || "Briefing unavailable.");
-    elements.interactionGuideStatusMessage.textContent = error.message || "Briefing unavailable.";
-  }
-}
-
-async function refreshInteractionGuides({ selectId = selectedInteractionGuide?.id ?? null } = {}) {
-  elements.refreshInteractionGuides.disabled = true;
-  elements.interactionGuideStatusMessage.textContent = "Loading briefings…";
-  try {
-    const status = elements.interactionGuideStatus.value;
-    const body = await api(`/api/interaction-guides?status=${encodeURIComponent(status)}&limit=500`);
-    interactionGuideSummaries = body.guides;
-    const nextId = interactionGuideSummaries.some(({ id }) => id === selectId)
-      ? selectId
-      : interactionGuideSummaries[0]?.id ?? null;
-    if (!nextId) {
-      selectedInteractionGuide = null;
-      renderInteractionGuideList();
-      renderInteractionGuideEmpty();
-      elements.interactionGuideStatusMessage.textContent = "";
-      return;
-    }
-    renderInteractionGuideList();
-    await loadInteractionGuide(nextId);
-  } catch (error) {
-    interactionGuideSummaries = [];
-    selectedInteractionGuide = null;
-    renderInteractionGuideList();
-    renderInteractionGuideEmpty("Briefings unavailable", error.message || "Could not load briefings.");
-    elements.interactionGuideStatusMessage.textContent = error.message || "Could not load briefings.";
-  } finally {
-    elements.refreshInteractionGuides.disabled = false;
-  }
-}
-
-function openInteractionGuideEditor(guide = null) {
-  elements.interactionGuideForm.reset();
-  elements.interactionGuideFormError.textContent = "";
-  elements.interactionGuideDialogTitle.textContent = guide ? "Edit briefing" : "New briefing";
-  elements.interactionGuideId.value = guide?.id ?? "";
-  elements.interactionGuideVersion.value = guide?.version ?? "";
-  elements.interactionGuideName.value = guide?.name ?? "";
-  elements.archiveInteractionGuide.hidden = !guide || guide.status !== "active";
-  elements.interactionGuideDialog.showModal();
-  elements.interactionGuideName.focus();
-}
-
-async function saveInteractionGuide(event) {
-  event.preventDefault();
-  elements.interactionGuideFormError.textContent = "";
-  const submit = elements.interactionGuideForm.querySelector('[type="submit"]');
-  submit.disabled = true;
-  try {
-    const id = elements.interactionGuideId.value;
-    const payload = {
-      name: elements.interactionGuideName.value,
-    };
-    if (id) payload.expectedVersion = Number(elements.interactionGuideVersion.value);
-    const result = await api(id ? `/api/interaction-guides/${id}` : "/api/interaction-guides", {
-      method: id ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    elements.interactionGuideDialog.close();
-    await refreshInteractionGuides({ selectId: result.guide.id });
-    elements.interactionGuideStatusMessage.textContent = id ? "Briefing updated." : "Briefing created. Add its first exchange.";
-  } catch (error) {
-    elements.interactionGuideFormError.textContent = error.message || "Could not save the briefing.";
-  } finally {
-    submit.disabled = false;
-  }
-}
-
-async function archiveEditedInteractionGuide() {
-  const id = Number(elements.interactionGuideId.value);
-  if (!id || !window.confirm("Archive this briefing?")) return;
-  elements.archiveInteractionGuide.disabled = true;
-  elements.interactionGuideFormError.textContent = "";
-  try {
-    await api(`/api/interaction-guides/${id}/archive`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expectedVersion: Number(elements.interactionGuideVersion.value) }),
-    });
-    elements.interactionGuideDialog.close();
-    await refreshInteractionGuides({ selectId: null });
-    elements.interactionGuideStatusMessage.textContent = "Briefing archived.";
-  } catch (error) {
-    elements.interactionGuideFormError.textContent = error.message || "Could not archive the briefing.";
-  } finally {
-    elements.archiveInteractionGuide.disabled = false;
-  }
-}
-
-function openInteractionStepEditor(step = null) {
-  const guide = selectedInteractionGuide;
-  if (!guide) return;
-  elements.interactionStepForm.reset();
-  elements.interactionStepFormError.textContent = "";
-  elements.interactionStepDialogTitle.textContent = step ? `Edit exchange ${step.stepNumber}` : "New exchange";
-  elements.interactionStepId.value = step?.id ?? "";
-  elements.deleteInteractionStep.hidden = !step;
-  const guideOptions = new Map([[guide.id, guide]]);
-  for (const candidate of interactionGuideSummaries) {
-    if (candidate.status === "active" && !candidate.activeRun) guideOptions.set(candidate.id, candidate);
-  }
-  elements.interactionStepGuide.replaceChildren();
-  for (const candidate of [...guideOptions.values()].sort((left, right) => left.name.localeCompare(right.name))) {
-    const option = node("option", "", candidate.name);
-    option.value = String(candidate.id);
-    option.dataset.version = String(candidate.version);
-    elements.interactionStepGuide.append(option);
-  }
-  elements.interactionStepGuide.value = String(step?.guideId ?? guide.id);
-  elements.interactionStepGuideHint.textContent = step
-    ? "Changing the briefing moves this exchange to the end. Saved run answers and progress reset; ledger history remains available."
-    : "Choose which briefing will contain this exchange.";
-  elements.interactionStepNumber.value = step?.stepNumber
-    ?? Math.max(0, ...guide.steps.map(({ stepNumber }) => stepNumber)) + 1;
-  elements.interactionStepOpening.value = step?.openingText ?? "";
-  elements.interactionStepContract.value = JSON.stringify(step?.contract ?? {
-    version: 1,
-    instructions: null,
-    inputs: [],
-    operations: [],
-    recoveryReads: [],
-    completion: { mode: "response_valid" },
-  }, null, 2);
-  elements.interactionStepEnabled.checked = step?.enabled ?? true;
-  elements.interactionStepDialog.showModal();
-  elements.interactionStepNumber.focus();
-}
-
-async function saveInteractionStep(event) {
-  event.preventDefault();
-  const guide = selectedInteractionGuide;
-  if (!guide) return;
-  elements.interactionStepFormError.textContent = "";
-  const submit = elements.interactionStepForm.querySelector('[type="submit"]');
-  submit.disabled = true;
-  try {
-    const stepId = elements.interactionStepId.value;
-    const targetOption = elements.interactionStepGuide.selectedOptions[0];
-    const targetGuideId = Number(elements.interactionStepGuide.value);
-    const targetVersion = Number(targetOption?.dataset.version);
-    let contract;
-    try {
-      contract = JSON.parse(elements.interactionStepContract.value);
-    } catch {
-      throw new Error("Contract JSON is not valid JSON.");
-    }
-    const payload = {
-      expectedVersion: stepId ? guide.version : targetVersion,
-      stepNumber: Number(elements.interactionStepNumber.value),
-      openingText: elements.interactionStepOpening.value,
-      contract,
-      enabled: elements.interactionStepEnabled.checked,
-    };
-    if (stepId && targetGuideId !== guide.id) {
-      payload.targetGuideId = targetGuideId;
-      payload.expectedTargetVersion = targetVersion;
-    }
-    const result = await api(stepId
-      ? `/api/interaction-guide-steps/${stepId}`
-      : `/api/interaction-guides/${targetGuideId}/steps`, {
-      method: stepId ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    elements.interactionStepDialog.close();
-    const destinationGuide = result.targetGuide ?? result.guide;
-    await refreshInteractionGuides({ selectId: destinationGuide.id });
-    elements.interactionGuideStatusMessage.textContent = result.moved
-      ? `Exchange updated and moved to ${destinationGuide.name}.`
-      : stepId ? "Exchange updated." : "Exchange added.";
-  } catch (error) {
-    elements.interactionStepFormError.textContent = error.message || "Could not save the exchange.";
-  } finally {
-    submit.disabled = false;
-  }
-}
-
-async function deleteEditedInteractionStep() {
-  const guide = selectedInteractionGuide;
-  const stepId = Number(elements.interactionStepId.value);
-  if (!guide || !stepId) return;
-  const stepNumber = guide.steps.find(({ id }) => id === stepId)?.stepNumber
-    ?? Number(elements.interactionStepNumber.value);
-  if (!window.confirm(`Delete exchange ${stepNumber} from “${guide.name}”? This cannot be undone.`)) return;
-  elements.deleteInteractionStep.disabled = true;
-  elements.interactionStepFormError.textContent = "";
-  try {
-    await api(`/api/interaction-guide-steps/${stepId}`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expectedVersion: guide.version }),
-    });
-    elements.interactionStepDialog.close();
-    await refreshInteractionGuides({ selectId: guide.id });
-    elements.interactionGuideStatusMessage.textContent = `Exchange ${stepNumber} deleted.`;
-  } catch (error) {
-    elements.interactionStepFormError.textContent = error.message || "Could not delete the exchange.";
-  } finally {
-    elements.deleteInteractionStep.disabled = false;
-  }
-}
-
-async function startInteractionGuide(guide, button, { restart = false, resumePrevious = false } = {}) {
-  button.disabled = true;
-  const respondSilently = elements.respondSilently.checked;
-  prepareSpeechOutput(respondSilently);
-  try {
-    const action = restart
-      ? `Start briefing ${guide.id} ("${guide.name}") over from the beginning. I explicitly authorize discarding its unfinished current-run answers. Do not resume the old run.`
-      : resumePrevious
-        ? `Resume the existing run of briefing ${guide.id} ("${guide.name}"). I explicitly choose to keep its unfinished answers from ${guide.activeRun.startedLocalDate} and continue where it stopped. Do not restart it.`
-        : `Start or resume briefing ${guide.id} ("${guide.name}"). Follow its ordered exchanges and persist each answer through the internal interaction-guide tools.`;
-    const created = await api("/api/requests", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: `${action} Use the user-facing terms briefing, exchange, and opening.`,
-      }),
-    });
-    expectSpokenResponse(created.requestId, respondSilently);
-    elements.status.textContent = `${guide.name} queued.`;
-    switchView("agent");
-    await loadRequests({ force: true, followLatest: true });
-  } catch (error) {
-    window.alert(error.message || "Could not start the briefing.");
-    button.disabled = false;
-  }
-}
-
-async function cancelInteractionGuideRun(guide, button) {
-  const reason = window.prompt("Why are you cancelling this briefing?", "Cancelled from the Check-in page");
-  if (reason === null) return;
-  if (!reason.trim()) {
-    window.alert("A cancellation reason is required.");
-    return;
-  }
-  button.disabled = true;
-  try {
-    await api(`/api/interaction-guide-runs/${encodeURIComponent(guide.activeRun.id)}/cancel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason }),
-    });
-    await refreshInteractionGuides({ selectId: guide.id });
-    elements.interactionGuideStatusMessage.textContent = "Briefing cancelled. It can be edited again.";
-  } catch (error) {
-    window.alert(error.message || "Could not cancel the briefing.");
-    button.disabled = false;
-  }
-}
-
 async function refreshJournal() {
   try {
     const trackerParameters = new URLSearchParams({
@@ -6405,16 +5708,6 @@ elements.journalGroupFilter.addEventListener("change", () => {
 elements.journalTrackerFilter.addEventListener("change", renderJournal);
 elements.journalTracker.addEventListener("change", updateJournalTrackerEditor);
 elements.journalForm.addEventListener("submit", saveJournalEntry);
-elements.newInteractionGuide.addEventListener("click", () => openInteractionGuideEditor());
-elements.refreshInteractionGuides.addEventListener("click", () => void refreshInteractionGuides());
-elements.interactionGuideStatus.addEventListener("change", () => {
-  selectedInteractionGuide = null;
-  void refreshInteractionGuides({ selectId: null });
-});
-elements.interactionGuideForm.addEventListener("submit", saveInteractionGuide);
-elements.archiveInteractionGuide.addEventListener("click", () => void archiveEditedInteractionGuide());
-elements.interactionStepForm.addEventListener("submit", saveInteractionStep);
-elements.deleteInteractionStep.addEventListener("click", () => void deleteEditedInteractionStep());
 for (const button of document.querySelectorAll(".dialog-close")) {
   button.addEventListener("click", () => button.closest("dialog")?.close());
 }

@@ -175,9 +175,6 @@ export function registerDatabaseTools(
       },
     },
     async execute(argumentsObject, context) {
-      if (["interaction_guides", "interaction_guide_steps"].includes(argumentsObject.objectName)) {
-        throw new Error("Use the focused briefing tools for one explicitly requested briefing; generic database reads do not load private briefing or answer rows");
-      }
       return store.read(argumentsObject);
     },
   });

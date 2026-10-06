@@ -261,6 +261,23 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .entity-card, .hat-card { padding: 20px; min-width: 0; }
 .entity-card p, .hat-card p { color: var(--muted); line-height: 1.45; }
 .entity-meta { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; }
+.library-groups { display: grid; gap: 26px; }
+.library-group { min-width: 0; }
+.library-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 9px; padding: 0 3px 8px; border-bottom: 1px solid #cbd0c5; }
+.library-group-heading h2 { margin: 0; font: 600 25px/1.05 "Newsreader", Georgia, serif; }
+.library-group-heading span { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.library-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.library-row { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 11px; background: var(--paper); }
+.library-row:hover { background: rgba(223, 229, 215, .34); }
+.library-sequence { color: var(--olive-dark); font-size: 13px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.library-item-copy { min-width: 0; }
+.library-item-copy h3 { margin: 0; font: 600 19px/1.15 "Newsreader", Georgia, serif; }
+.library-item-copy p { display: -webkit-box; overflow: hidden; margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.library-item-meta { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.library-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.library-row-actions .button { min-height: 34px; padding: 6px 10px; font-size: 12px; }
+.library-row-kind { color: var(--olive-dark); font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.library-group-empty { margin: 0; padding: 14px 16px; border: 1px dashed #bbc2b5; border-radius: 11px; color: var(--muted); font-style: italic; }
 .contact-monogram { width: 43px; height: 43px; display: grid; place-items: center; border-radius: 50%; background: var(--olive-dark); color: white; font: 600 17px "Newsreader", Georgia, serif; }
 .contact-list { padding: 0; overflow: hidden; }
 .contact-row { display: grid; grid-template-columns: minmax(190px, 1.05fr) minmax(220px, 1.35fr) minmax(120px, .8fr) auto; align-items: center; gap: 20px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
@@ -277,9 +294,16 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .contact-tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .contact-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .contact-actions .button { min-height: 34px; padding: 6px 10px; font-size: 12px; }
+.grouped-contact-list .contact-row { border: 1px solid var(--line); border-radius: 11px; background: var(--paper); }
+.grouped-contact-list .contact-row:last-child { border-bottom: 1px solid var(--line); }
 .hat-shape { width: 104px; height: 70px; display: block; margin-bottom: 18px; object-fit: cover; }
 .journal-layout { display: grid; gap: 20px; }
 .journal-entry { padding: 13px 0; border-bottom: 1px solid var(--line); }
+.journal-tracker-row { grid-template-columns: 72px minmax(0, 1fr) auto; align-items: start; }
+.journal-row-schedule { grid-column: 2 / -1; width: min(620px, 100%); }
+.journal-row-schedule .tracker-schedule { margin-top: 0; padding-top: 0; border-top: 0; }
+.journal-entry-row { grid-template-columns: minmax(110px, auto) minmax(0, 1fr) auto auto; }
+.journal-entry-date { color: var(--muted); font-size: 11px; font-weight: 650; }
 .tracker-schedule { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .tracker-schedule label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .tracker-schedule select, .tracker-schedule input { min-height: 38px; padding: 7px 9px; font-size: 12px; }
@@ -363,11 +387,21 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .writing-lines span { border-bottom: 1px solid #d5d8d0; }
 .paper-footer { display: flex; justify-content: space-between; border-top: 1px solid #272c24; margin-top: .11in; padding-top: .045in; color: #73796e; font-size: 5.5pt; }
 
-.paper-todo-cards { display: grid; gap: .055in; margin: .08in 0 0; padding: 0; list-style: none; }
+.paper-todo-groups { display: grid; gap: .09in; margin-top: .08in; }
+.paper-todo-group { display: grid; gap: .045in; }
+.paper-todo-group > h3 { margin: 0; padding-bottom: .018in; border-bottom: 1px solid #80877c; color: #252b22; font: 700 6.4pt/1.1 Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; break-after: avoid; }
+.paper-todo-clusters { display: grid; gap: .06in; }
+.paper-todo-cluster { display: grid; grid-template-columns: .055in minmax(0, 1fr); column-gap: .045in; break-inside: avoid; }
+.paper-todo-cluster::before { content: ""; grid-row: 1 / span 2; border-left: 2px solid #a4492e; }
+.paper-todo-cluster-heading { min-width: 0; display: flex; align-items: baseline; gap: .035in; margin-bottom: .025in; break-after: avoid; }
+.paper-todo-cluster-heading > span { flex: 0 0 auto; color: #72796d; font-size: 5pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.paper-todo-cluster-heading > strong { min-width: 0; font: 600 6.4pt/1.15 "Newsreader", Georgia, serif; }
+.paper-todo-cards { display: grid; gap: .055in; margin: 0; padding: 0; list-style: none; }
 .paper-todo-cards > li { min-height: .38in; display: flex; flex-direction: column; padding: .055in .07in .04in; border: 1px solid #484d45; border-radius: .04in; break-inside: avoid; }
 .paper-todo-cards header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .08in; }
 .paper-todo-cards strong { font: 600 7.5pt/1.15 "Newsreader", Georgia, serif; }
 .paper-todo-cards small { margin-top: .01in; color: #70776b; font-size: 5.3pt; line-height: 1.1; }
+.paper-todo-relationships { display: block; }
 .paper-todo-id { color: #252b22; font: 700 7pt/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
 .paper-handwriting-space { min-height: .13in; flex: 1 1 auto; position: relative; margin-top: .015in; border-bottom: 1px solid #d5d8d0; }
 .paper-handwriting-space > span { position: absolute; left: 0; bottom: -.01in; color: #a4492e; font: 400 15pt/.72 "Newsreader", Georgia, serif; transform: scaleX(.72); transform-origin: left bottom; }
@@ -421,6 +455,13 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .section-filter { align-items: stretch; flex-direction: column; margin-top: -8px; }
   .section-filter-field { width: 100%; max-width: none; }
   .section-filter-count { margin-left: 0; padding-bottom: 0; }
+  .library-row { grid-template-columns: 44px minmax(0, 1fr) auto; align-items: start; }
+  .library-row > .agent-reference-button { grid-column: 3; grid-row: 1; }
+  .library-item-meta { grid-column: 2 / -1; justify-content: flex-start; }
+  .library-row-actions { grid-column: 2 / -1; justify-content: flex-start; }
+  .journal-tracker-row, .journal-entry-row { grid-template-columns: 74px minmax(0, 1fr) auto; }
+  .journal-row-schedule { grid-column: 1 / -1; }
+  .journal-entry-row > .pill { grid-column: 2; width: fit-content; }
   .contact-list { overflow: visible; border: 0; background: transparent; box-shadow: none; }
   .contact-row { grid-template-columns: 1fr; gap: 12px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
   .contact-row:last-child { border-bottom: 1px solid var(--line); }

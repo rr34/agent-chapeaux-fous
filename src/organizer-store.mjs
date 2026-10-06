@@ -709,9 +709,6 @@ function publicTodo(row) {
     billableCurrency: row.billable_currency ?? null,
     sortPosition: row.sort_position,
     completedAtUtc: row.completed_at_utc,
-    interactionGuideId: row.interaction_guide_id ?? null,
-    interactionGuideName: row.interaction_guide_name ?? null,
-    interactionGuideStatus: row.interaction_guide_status ?? null,
     source: row.source,
     externalId: row.external_id,
     createdAtUtc: row.created_at_utc,
@@ -726,10 +723,14 @@ function calendarEventTodoLinks(database, eventIds) {
   const rows = database.prepare(`
     SELECT relation.calendar_event_id, relation.personal_task_id,
            relation.relationship_kind, task.text, task.status,
-           task.todo_group_id, todo_group.name AS group_name
+           task.todo_group_id, todo_group.name AS group_name,
+           todo_group.sort_position AS group_sort_position,
+           task.sequence, task.sort_position,
+           task.related_contact_id, related_contact.display_name AS related_contact_name
     FROM calendar_events_todo_join AS relation
     JOIN todo_personal AS task USING (personal_task_id)
     JOIN todo_groups AS todo_group USING (todo_group_id)
+    LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
     WHERE relation.calendar_event_id IN (${ids.map(() => "?").join(", ")})
       AND task.status <> 'archive'
     ORDER BY relation.calendar_event_id, todo_group.sort_position,
@@ -743,13 +744,20 @@ function calendarEventTodoLinks(database, eventIds) {
     status: row.status,
     groupId: Number(row.todo_group_id),
     groupName: row.group_name,
+    groupSortPosition: Number(row.group_sort_position),
+    sequence: row.sequence == null ? null : Number(row.sequence),
+    sortPosition: Number(row.sort_position),
+    relatedContact: row.related_contact_id == null ? null : {
+      contactId: Number(row.related_contact_id),
+      displayName: row.related_contact_name,
+    },
   });
   return byEvent;
 }
 
 function attachCalendarEventLinks(database, events) {
   const eventId = (event) => Number(event.seriesId ?? event.id);
-  const links = calendarEventTodoLinks(database, events.map(({ id }) => id));
+  const links = calendarEventTodoLinks(database, events.map(eventId));
   const ids = [...new Set(events.map(eventId).filter((id) => Number.isSafeInteger(id) && id > 0))];
   const contactsByEvent = new Map(ids.map((id) => [id, []]));
   if (ids.length) {
@@ -771,7 +779,7 @@ function attachCalendarEventLinks(database, events) {
   }
   return events.map((event) => ({
     ...event,
-    linkedTodos: links.get(Number(event.id)) ?? [],
+    linkedTodos: links.get(eventId(event)) ?? [],
     linkedContacts: contactsByEvent.get(eventId(event)) ?? [],
   }));
 }
@@ -1987,14 +1995,10 @@ export class OrganizerStore {
     return this.database.prepare(`
       SELECT task.*, todo_group.name AS group_name,
              todo_group.archived_at_utc AS group_archived_at_utc,
-             interaction_guide.name AS interaction_guide_name,
-             interaction_guide.status AS interaction_guide_status,
              related_contact.display_name AS related_contact_name,
              related_contact.status AS related_contact_status
       FROM todo_personal AS task
       JOIN todo_groups AS todo_group USING (todo_group_id)
-      LEFT JOIN interaction_guides AS interaction_guide
-        ON interaction_guide.interaction_guide_id = task.interaction_guide_id
       LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
       ${where}
       ORDER BY
@@ -3778,9 +3782,6 @@ export class OrganizerStore {
       text: requiredText(input?.text, "text", 10_000),
       status: enumValue(input?.status, todoStatuses, "status", "todo"),
       planningPromptText: optionalText(input?.planningPromptText, "planningPromptText", 10_000),
-      interactionGuideId: input?.interactionGuideId == null
-        ? null
-        : identifier(input.interactionGuideId, "briefing id"),
       billableAmountMinor: price.amount,
       billableCurrency: price.currency,
     };
@@ -3794,12 +3795,6 @@ export class OrganizerStore {
     if (todo.relatedContactId !== null && !this.database.prepare(
       "SELECT 1 FROM contacts WHERE contact_id = ?",
     ).get(todo.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
-    if (todo.interactionGuideId !== null && !this.database.prepare(`
-      SELECT 1 FROM interaction_guides
-      WHERE interaction_guide_id = ? AND status = 'active'
-    `).get(todo.interactionGuideId)) {
-      throw new OrganizerInputError("Active briefing not found.", 404);
-    }
     const completedAtUtc = todo.status === "complete" ? new Date().toISOString() : null;
 
     this.database.exec("START TRANSACTION");
@@ -3811,12 +3806,12 @@ export class OrganizerStore {
       `).get(groupId).next_position);
       const result = this.database.prepare(`
         INSERT INTO todo_personal (
-          todo_group_id, sequence, related_contact_id, interaction_guide_id, text,
+          todo_group_id, sequence, related_contact_id, text,
           status, sort_position, completed_at_utc, planning_prompt_text,
           billable_amount_minor, billable_currency, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
       `).run(
-        groupId, todo.sequence, todo.relatedContactId, todo.interactionGuideId, todo.text,
+        groupId, todo.sequence, todo.relatedContactId, todo.text,
         todo.status, sortPosition, completedAtUtc, todo.planningPromptText,
         todo.billableAmountMinor, todo.billableCurrency,
       );
@@ -3849,14 +3844,10 @@ export class OrganizerStore {
     return publicTodo(this.database.prepare(
       `SELECT task.*, todo_group.name AS group_name,
               todo_group.archived_at_utc AS group_archived_at_utc,
-              interaction_guide.name AS interaction_guide_name,
-              interaction_guide.status AS interaction_guide_status,
               related_contact.display_name AS related_contact_name,
               related_contact.status AS related_contact_status
        FROM todo_personal AS task
        JOIN todo_groups AS todo_group USING (todo_group_id)
-       LEFT JOIN interaction_guides AS interaction_guide
-         ON interaction_guide.interaction_guide_id = task.interaction_guide_id
        LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
        WHERE task.personal_task_id = ?`,
     ).get(identifier(id, "todo id")));
@@ -3974,11 +3965,6 @@ export class OrganizerStore {
     if (input?.version !== before.version) {
       throw new OrganizerInputError("This todo changed after you opened it. Refresh and try again.", 409);
     }
-    const requestedInteractionGuideId = input.interactionGuideId === undefined
-      ? before.interactionGuideId
-      : (input.interactionGuideId == null
-        ? null
-        : identifier(input.interactionGuideId, "briefing id"));
     const price = billablePrice(input.billableAmountMinor, input.billableCurrency, {
       amount: before.billableAmountMinor,
       currency: before.billableCurrency,
@@ -3997,7 +3983,6 @@ export class OrganizerStore {
       sortPosition: input.sortPosition === undefined
         ? before.sortPosition
         : integer(input.sortPosition, "sortPosition", { minimum: -1_000_000_000, maximum: 1_000_000_000 }),
-      interactionGuideId: requestedInteractionGuideId,
       planningPromptText: input.planningPromptText === undefined
         ? before.planningPromptText
         : optionalText(input.planningPromptText, "planningPromptText", 10_000),
@@ -4011,17 +3996,11 @@ export class OrganizerStore {
     if (after.relatedContactId !== null && !this.database.prepare(
       "SELECT 1 FROM contacts WHERE contact_id = ?",
     ).get(after.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
-    if (after.interactionGuideId !== null && !this.database.prepare(`
-      SELECT 1 FROM interaction_guides
-      WHERE interaction_guide_id = ? AND status = 'active'
-    `).get(after.interactionGuideId)) {
-      throw new OrganizerInputError("Active briefing not found.", 404);
-    }
     if (after.status === "complete" && before.status !== "complete") after.completedAtUtc = new Date().toISOString();
     if (after.status !== "complete" && before.status === "complete") after.completedAtUtc = null;
     const changes = changedFields(before, after, [
       "groupId", "sequence", "relatedContactId", "text", "status", "sortPosition",
-      "completedAtUtc", "interactionGuideId", "planningPromptText",
+      "completedAtUtc", "planningPromptText",
       "billableAmountMinor", "billableCurrency",
     ]);
     if (Object.keys(changes).length === 0) return before;
@@ -4031,14 +4010,14 @@ export class OrganizerStore {
     try {
       const result = this.database.prepare(`
         UPDATE todo_personal
-        SET todo_group_id = ?, sequence = ?, related_contact_id = ?, interaction_guide_id = ?,
+        SET todo_group_id = ?, sequence = ?, related_contact_id = ?,
             text = ?, status = ?, sort_position = ?, completed_at_utc = ?,
             planning_prompt_text = ?, billable_amount_minor = ?, billable_currency = ?,
             updated_at_utc = ?
         WHERE personal_task_id = ?
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
-        after.groupId, after.sequence, after.relatedContactId, after.interactionGuideId,
+        after.groupId, after.sequence, after.relatedContactId,
         after.text, after.status, after.sortPosition, after.completedAtUtc,
         after.planningPromptText, after.billableAmountMinor, after.billableCurrency,
         updatedAt, id, before.version,

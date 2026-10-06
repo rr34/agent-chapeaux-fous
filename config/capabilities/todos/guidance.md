@@ -26,9 +26,7 @@ user-facing lists and confirmations.
 
 Use one `todo_update` call for all independently identified tasks in the same
 request, preserving every selected `personal_task_id`. Null values are no-change placeholders; clear flags apply only when
-the user explicitly asks to remove a relationship or prompt. Use
-`todo_interaction_guide_set` to link a briefing directly to a to-do. That link
-does not repeat, schedule, or start the briefing.
+the user explicitly asks to remove a relationship or prompt.
 
 When a task needs scheduled work, a deadline, or calendar context, use the
 calendar tools to create or identify a concrete event and then use

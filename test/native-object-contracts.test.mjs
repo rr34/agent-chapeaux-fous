@@ -14,7 +14,6 @@ import { registerCatchUpTools } from "../src/tools/catch-up-tools.mjs";
 import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerFileTools } from "../src/tools/file-tools.mjs";
 import { registerJournalTools } from "../src/tools/journal-tools.mjs";
-import { registerInteractionGuideTools } from "../src/tools/interaction-guide-tools.mjs";
 import { registerJmapEmailTools } from "../src/tools/jmap-email-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
 import { registerPaymentTools } from "../src/tools/payment-tools.mjs";
@@ -29,7 +28,6 @@ function nativeRegistry() {
   registerTodoTools(registry, null, null);
   registerPaymentTools(registry, null, null);
   registerJournalTools(registry, null, null);
-  registerInteractionGuideTools(registry, null);
   registerProfileFactTools(registry, null);
   registerCatchUpTools(registry, null);
   registerFileTools(registry, {
@@ -79,10 +77,6 @@ test("native authoritative reads publish the same Object Description contract as
   assert.deepEqual(objectTypes(definitions.get("calendar_event_search")), ["calendar.event"]);
   assert.deepEqual(objectTypes(definitions.get("calendar_routine_list")), ["calendar.routine"]);
   assert.deepEqual(objectTypes(definitions.get("file_get")), ["files.file"]);
-  assert.deepEqual(objectTypes(definitions.get("interaction_guide_list")), ["interaction_guide.guide"]);
-  assert.deepEqual(objectTypes(definitions.get("interaction_guide_get")), [
-    "interaction_guide.step", "interaction_guide.run",
-  ]);
   assert.deepEqual(objectTypes(definitions.get("profile_fact_list")), ["profile.fact"]);
   assert.deepEqual(objectTypes(definitions.get("catch_up_list")), ["catch_up.question"]);
   assert.deepEqual(objectTypes(definitions.get("email_account_list")), ["email.account"]);
@@ -107,7 +101,6 @@ test("native authoritative reads publish the same Object Description contract as
   assert.ok(catalogTypes.includes("todos.personal_task:todo_list"));
   assert.ok(catalogTypes.includes("payments.invoice:payment_invoice_list"));
   assert.ok(catalogTypes.includes("files.file:file_get"));
-  assert.ok(catalogTypes.includes("interaction_guide.guide:interaction_guide_list"));
   assert.ok(catalogTypes.includes("catch_up.question:catch_up_list"));
   assert.ok(catalogTypes.includes("email.message:email_search"));
   assert.ok(catalogTypes.includes("email.blob:email_get"));
@@ -150,7 +143,6 @@ test("native object types explicitly distinguish integer primary keys from opaqu
     .filter(({ idKind }) => idKind === "string")
     .map(({ id }) => id);
   assert.deepEqual(stringTypes, [
-    "interaction_guide.run",
     "email.account", "email.mailbox", "email.identity",
     "email.message", "email.thread", "email.blob",
   ]);
@@ -180,7 +172,6 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
   assert.deepEqual(bindings("todo_add"), [
     { path: "/todo_group_id", objectType: "todos.todo_group", value: "id", role: "subject" },
     { path: "/related_contact_id", objectType: "contacts.contact", value: "id", role: "subject" },
-    { path: "/interaction_guide_id", objectType: "interaction_guide.guide", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("contact_merge"), [
     { path: "/merges/*/keep_contact_id", objectType: "contacts.contact", value: "id", role: "merge_destination" },
@@ -203,10 +194,6 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
   ]);
   assert.deepEqual(bindings("file_update"), [
     { path: "/file_id", objectType: "files.file", value: "id", role: "subject" },
-  ]);
-  assert.deepEqual(bindings("interaction_guide_step_move"), [
-    { path: "/interaction_guide_step_id", objectType: "interaction_guide.step", value: "id", role: "subject" },
-    { path: "/target_interaction_guide_id", objectType: "interaction_guide.guide", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("profile_fact_set"), [
     { path: "/replaces_profile_fact_id", objectType: "profile.fact", value: "id", role: "subject" },
