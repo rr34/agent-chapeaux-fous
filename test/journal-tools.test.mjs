@@ -129,6 +129,66 @@ test("journal_add creates and reuses a grouped numeric tracker while preserving 
   );
 });
 
+test("journal_group_rename preserves the exact group, trackers, and entries", async (context) => {
+  const { store, ledger, request, registry } = journalHarness(context, "Rename Health to Wellbeing");
+  const created = await registry.execute("journal_add", {
+    tracker_id: null,
+    tracker: "Weight",
+    journal_group_id: null,
+    group: "Health",
+    content_text: "72.1 kg after dinner",
+    number_value: 72.1,
+    tracker_unit: "kg",
+    occurred_at_utc: "2026-08-15T20:30:00-04:00",
+    create_if_missing: true,
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "journal-create" });
+
+  const groupId = created.tracker.journal_group_id;
+  const renamed = await registry.execute("journal_group_rename", {
+    journal_group_id: groupId,
+    name: "Wellbeing",
+  }, { requestId: request.requestId, callId: "journal-group-rename" });
+  assert.equal(renamed.renamed, true);
+  assert.equal(renamed.previous_name, "Health");
+  assert.equal(renamed.group.journal_group_id, groupId);
+  assert.equal(renamed.group.group_ref, `agent-slayer://journal-groups/${groupId}`);
+  assert.equal(renamed.group.group_name, "Wellbeing");
+
+  const trackers = await registry.execute("tracker_list", {
+    group: "Wellbeing",
+    include_archived: false,
+    limit: 20,
+  });
+  assert.equal(trackers.count, 1);
+  assert.equal(trackers.trackers[0].tracker_id, created.tracker.tracker_id);
+  assert.equal(trackers.trackers[0].group_name, "Wellbeing");
+  const entries = await registry.execute("journal_list", {
+    tracker: "Weight",
+    group: "Wellbeing",
+    source: null,
+    from_utc: null,
+    through_utc: null,
+    limit: 20,
+  });
+  assert.equal(entries.entries.length, 1);
+  assert.equal(entries.entries[0].journal_entry_id, created.entry.journal_entry_id);
+  assert.equal(entries.entries[0].group_name, "Wellbeing");
+  assert.deepEqual({ ...store.requireReady().prepare(`
+    SELECT actor_type, actor_name, turn_id, operation_id
+    FROM activity_events WHERE event_type = 'personal_journal_group.renamed'
+  `).get() }, {
+    actor_type: "tool",
+    actor_name: "journal_group_rename",
+    turn_id: request.requestId,
+    operation_id: "journal-group-rename",
+  });
+  assert.equal(
+    ledger.trace(request.requestId)
+      .filter((event) => event.type === "personal_journal_group.renamed").length,
+    1,
+  );
+});
+
 test("journal_add records text-only events without a boolean or value kind", async (context) => {
   const { request, registry } = journalHarness(context, "Journal a bowel movement");
 

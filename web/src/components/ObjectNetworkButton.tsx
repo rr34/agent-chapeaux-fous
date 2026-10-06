@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api";
+import { api, downloadAuthenticated } from "../api";
 import type {
   NetworkObject, ObjectNetworkGraph, ObjectSearchCandidate, SelectedObjectCandidate,
 } from "../types";
+import type { AddAgentReference } from "./AgentReferenceButton";
+import {
+  CalendarEventEditor, CalendarRoutineEditor, ContactEditor, TodoEditor, toggleTodoCompletion,
+} from "./EditableItems";
 
 const supportedTypes = new Set([
   "contacts.contact", "todos.personal_task", "calendar.event", "calendar.routine",
   "files.file", "journal.tracker", "journal.entry", "video.script", "video.content_item",
+]);
+const editableTypes = new Set([
+  "contacts.contact", "todos.personal_task", "calendar.event", "calendar.routine",
 ]);
 
 function identityOf(object: NetworkObject | SelectedObjectCandidate) {
@@ -23,6 +30,22 @@ function graphUrl(object: NetworkObject | SelectedObjectCandidate) {
   return `/api/object-network?${query}`;
 }
 
+function selectionOf(object: NetworkObject): SelectedObjectCandidate {
+  return {
+    mention: `@${object.display}`,
+    type: object.type,
+    source: object.source,
+    id: object.id,
+    ref: object.ref,
+    display: object.display,
+    label: object.label,
+  };
+}
+
+function attributeValue(object: NetworkObject, label: string) {
+  return object.attributes.find((attribute) => attribute.label === label)?.value;
+}
+
 function NetworkGlyph({ broken = false }: { broken?: boolean }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d={broken ? "M7.2 8.2 5 6m12 12-2.2-2.2M8.6 15.7 5 18m10.4-9.7L19 6" : "M7.3 8.1 4.8 6.4m11.9 1.7 2.5-1.7M7.3 15.9l-2.5 1.7m11.9-1.7 2.5 1.7"} />
@@ -35,9 +58,16 @@ function NetworkGlyph({ broken = false }: { broken?: boolean }) {
   </svg>;
 }
 
-function NetworkCard({ object, focus = false, onOpen, onDisconnect, busy }: {
+function NetworkCard({
+  object, focus = false, onToggleComplete, onEdit, onRespond, onDownload,
+  onOpen, onDisconnect, busy,
+}: {
   object: NetworkObject;
   focus?: boolean;
+  onToggleComplete?: () => void;
+  onEdit?: () => void;
+  onRespond?: () => void;
+  onDownload?: () => void;
   onOpen?: () => void;
   onDisconnect?: () => void;
   busy?: boolean;
@@ -50,27 +80,57 @@ function NetworkCard({ object, focus = false, onOpen, onDisconnect, busy }: {
       <dt>{label}</dt><dd>{value}</dd>
     </div>)}</dl>}
   </>;
-  const hasActions = Boolean(onOpen || onDisconnect);
+  const hasActions = Boolean(
+    onToggleComplete || onEdit || onRespond || onDownload || onOpen || onDisconnect || object.links?.length,
+  );
+  const complete = attributeValue(object, "Status") === "complete";
   return <article className={`network-object-card${focus ? " is-focus" : ""}${hasActions ? " has-actions" : ""}`}>
     <div className="network-object-open">{content}</div>
     {hasActions && <div className="network-card-actions">
+      {onToggleComplete && <button className="network-card-action" type="button" disabled={busy} onClick={onToggleComplete}>
+        {complete ? "Reopen" : "Complete"}
+      </button>}
+      {onEdit && <button className="network-card-action" type="button" onClick={onEdit}>Edit</button>}
+      {onRespond && <button className="network-card-action" type="button" onClick={onRespond}>Respond</button>}
+      {onDownload && <button className="network-card-action" type="button" onClick={onDownload}>Download</button>}
+      {object.links?.map((link) => <a className="network-card-action" href={link.href} key={`${link.label}-${link.href}`}>{link.label}</a>)}
       {onOpen && <button
-        className="network-open-button"
+        className="network-card-action"
         type="button"
         onClick={onOpen}
         title={`Open network for ${object.display}`}
         aria-label={`Open network for ${object.display}`}
-      ><NetworkGlyph /></button>}
+      >Network</button>}
       {onDisconnect && <button
-        className="network-disconnect-button"
+        className="network-card-action network-card-action--disconnect"
         type="button"
         disabled={busy}
         onClick={onDisconnect}
         title={`Disconnect ${object.display}`}
         aria-label={`Disconnect ${object.display}`}
-      ><NetworkGlyph broken /></button>}
+      >Disconnect</button>}
     </div>}
   </article>;
+}
+
+function NetworkObjectEditor({ object, onClose, onChanged }: {
+  object: NetworkObject;
+  onClose: () => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  if (object.type === "contacts.contact") {
+    return <ContactEditor contactId={object.id} onClose={onClose} onChanged={onChanged} />;
+  }
+  if (object.type === "todos.personal_task") {
+    return <TodoEditor todoId={object.id} onClose={onClose} onChanged={onChanged} />;
+  }
+  if (object.type === "calendar.event") {
+    return <CalendarEventEditor eventId={object.id} recurring={false} onClose={onClose} onChanged={onChanged} />;
+  }
+  if (object.type === "calendar.routine") {
+    return <CalendarRoutineEditor routineId={object.id} onClose={onClose} onChanged={onChanged} />;
+  }
+  return null;
 }
 
 function candidateIdentity(candidate: ObjectSearchCandidate): SelectedObjectCandidate {
@@ -85,9 +145,10 @@ function candidateIdentity(candidate: ObjectSearchCandidate): SelectedObjectCand
   };
 }
 
-function ObjectNetworkExplorer({ initial, onClose }: {
+function ObjectNetworkExplorer({ initial, onClose, onReference }: {
   initial: SelectedObjectCandidate;
   onClose: () => void;
+  onReference?: AddAgentReference;
 }) {
   const [graph, setGraph] = useState<ObjectNetworkGraph | null>(null);
   const [history, setHistory] = useState<NetworkObject[]>([]);
@@ -98,6 +159,7 @@ function ObjectNetworkExplorer({ initial, onClose }: {
   const [results, setResults] = useState<ObjectSearchCandidate[]>([]);
   const [searching, setSearching] = useState(false);
   const [changingRef, setChangingRef] = useState("");
+  const [editingObject, setEditingObject] = useState<NetworkObject | null>(null);
 
   const load = async (object: NetworkObject | SelectedObjectCandidate) => {
     setLoading(true);
@@ -120,10 +182,12 @@ function ObjectNetworkExplorer({ initial, onClose }: {
     void load(initial);
   }, [initial.ref]);
   useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !editingObject) onClose();
+    };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
+  }, [editingObject, onClose]);
   useEffect(() => {
     const text = query.trim();
     if (!linking || text.length < 2 || !graph) {
@@ -157,6 +221,33 @@ function ObjectNetworkExplorer({ initial, onClose }: {
   ]), [graph]);
   const choices = results.filter((candidate) => graph?.connectableTypes.includes(candidate.domainType)
     && !connectedRefs.has(candidate.ref));
+
+  const refreshGraph = async () => {
+    if (!graph) return;
+    setGraph(await api<ObjectNetworkGraph>(graphUrl(graph.focus)));
+  };
+
+  const toggleTodo = async (object: NetworkObject) => {
+    setChangingRef(object.ref);
+    setError("");
+    try {
+      await toggleTodoCompletion(object.id);
+      await refreshGraph();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setChangingRef("");
+    }
+  };
+
+  const respondTo = (object: NetworkObject) => {
+    onReference?.(selectionOf(object), `${object.label.toLowerCase()} ${object.display}`);
+  };
+
+  const downloadFile = (object: NetworkObject) => {
+    const filename = attributeValue(object, "Filename") || object.display || `file-${object.id}`;
+    void downloadAuthenticated(`/api/files/${object.id}/download`, filename);
+  };
 
   const changeConnection = async (target: NetworkObject | SelectedObjectCandidate, linked: boolean) => {
     if (!graph) return;
@@ -200,7 +291,15 @@ function ObjectNetworkExplorer({ initial, onClose }: {
       <header className="network-heading">
         <div className="network-heading-object">
           {history.length > 0 && <button className="network-back-button" type="button" onClick={goBack} aria-label="Back">←</button>}
-          {graph && <NetworkCard object={graph.focus} focus />}
+          {graph && <NetworkCard
+            object={graph.focus}
+            focus
+            onToggleComplete={graph.focus.type === "todos.personal_task" ? () => void toggleTodo(graph.focus) : undefined}
+            onEdit={editableTypes.has(graph.focus.type) ? () => setEditingObject(graph.focus) : undefined}
+            onRespond={onReference && graph.focus.respondable ? () => respondTo(graph.focus) : undefined}
+            onDownload={graph.focus.type === "files.file" ? () => downloadFile(graph.focus) : undefined}
+            busy={changingRef === graph.focus.ref}
+          />}
         </div>
         <button className="button button--quiet" type="button" onClick={onClose}>Close</button>
       </header>
@@ -211,6 +310,10 @@ function ObjectNetworkExplorer({ initial, onClose }: {
           {graph.connections.map(({ object, removable }) => <NetworkCard
             key={object.ref}
             object={object}
+            onToggleComplete={object.type === "todos.personal_task" ? () => void toggleTodo(object) : undefined}
+            onEdit={editableTypes.has(object.type) ? () => setEditingObject(object) : undefined}
+            onRespond={onReference && object.respondable ? () => respondTo(object) : undefined}
+            onDownload={object.type === "files.file" ? () => downloadFile(object) : undefined}
             onOpen={() => openObject(object)}
             onDisconnect={removable ? () => void changeConnection(object, false) : undefined}
             busy={changingRef === object.ref}
@@ -237,13 +340,19 @@ function ObjectNetworkExplorer({ initial, onClose }: {
             </>}
         </div>}
       </>}
+      {editingObject && <NetworkObjectEditor
+        object={editingObject}
+        onClose={() => setEditingObject(null)}
+        onChanged={refreshGraph}
+      />}
     </section>
   </div>;
 }
 
-export function ObjectNetworkButton({ identity, subject }: {
+export function ObjectNetworkButton({ identity, subject, onReference }: {
   identity: SelectedObjectCandidate;
   subject: string;
+  onReference?: AddAgentReference;
 }) {
   const [open, setOpen] = useState(false);
   if (!supportedTypes.has(identity.type)) return null;
@@ -256,6 +365,6 @@ export function ObjectNetworkButton({ identity, subject }: {
       aria-label={label}
       onClick={() => setOpen(true)}
     ><NetworkGlyph /></button>
-    {open && <ObjectNetworkExplorer initial={identity} onClose={() => setOpen(false)} />}
+    {open && <ObjectNetworkExplorer initial={identity} onClose={() => setOpen(false)} onReference={onReference} />}
   </>;
 }

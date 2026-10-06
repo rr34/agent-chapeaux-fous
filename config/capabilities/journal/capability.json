@@ -4,7 +4,7 @@
   "version": 1,
   "id": "journal",
   "title": "Personal journal",
-  "summary": "Read, record, and correct native journal entries and trackers.",
+  "summary": "Read, record, and correct native journal entries, trackers, and their named groups.",
   "aliases": [
     "journal",
     "tracker",
@@ -12,7 +12,9 @@
     "mood",
     "symptom",
     "workout",
-    "sleep"
+    "sleep",
+    "journal group",
+    "rename journal group"
   ],
   "attachmentHints": [
     {

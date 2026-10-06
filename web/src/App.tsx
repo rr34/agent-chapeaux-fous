@@ -96,6 +96,52 @@ function SectionSelectFilter({ label, value, onChange, disabled = false, childre
   </label>;
 }
 
+type EditableGroup = {
+  id: number;
+  name: string;
+  resource: "todo-groups" | "content-groups" | "journal-groups";
+};
+
+function GroupEditor({ group, onClose, onChanged }: {
+  group: EditableGroup;
+  onClose: () => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  const [name, setName] = useState(group.name);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const nextName = name.trim();
+    if (!nextName) return;
+    if (nextName === group.name) { onClose(); return; }
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/${group.resource}/${group.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: nextName }),
+      });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not rename the group.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="object-editor" role="dialog" aria-modal="true" aria-labelledby="group-editor-title">
+      <form onSubmit={(event) => void save(event)}>
+        <header className="object-editor-heading"><div><p className="eyebrow">Group</p><h2 id="group-editor-title">Edit {group.name}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+        <label>Group name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required autoFocus /></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" type="submit" disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save changes"}</button></footer>
+      </form>
+    </section>
+  </div>;
+}
+
 
 function shiftLocalDate(value: string, days: number) {
   const [year, month, day] = value.split("-").map(Number);
@@ -838,6 +884,7 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data, error, loading, reload } = useApi<{ todos: Entity[] }>(`/api/todos?scope=${scope}&limit=1000`);
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/todo-groups");
   const [draft, setDraft] = useState("");
+  const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const add = async (event: FormEvent) => { event.preventDefault(); await api("/api/todos", { method: "POST", body: JSON.stringify({ text: draft, status: "todo" }) }); setDraft(""); await reload(); };
   const statusTodos = (data?.todos || []).filter((todo) =>
     todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
@@ -889,7 +936,9 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
       <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
     </SectionSelectFilter>} />
-    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><h2 id={`todo-group-${group.id}`}>{group.name}</h2><div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div></>;
+    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><div className="group-heading-title"><h2 id={`todo-group-${group.id}`}>{group.name}</h2>{group.groupId != null && group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}</div><div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div>
+    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }} />}
+  </>;
 }
 
 function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
@@ -974,18 +1023,20 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/content-groups");
   const [filterQuery, setFilterQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const content = data?.content || [];
   const visibleContent = content.filter((entity) =>
     (selectedGroupId === "all" || String(readKey(entity, "groupId")) === selectedGroupId)
     && matchesSearch(entity, filterQuery),
   );
   const groups = useMemo(() => {
-    const grouped = new Map<string, { id: string; name: string; items: Entity[] }>();
+    const grouped = new Map<string, { id: string; name: string; editable: boolean; items: Entity[] }>();
     for (const group of groupData?.groups || []) {
       if (selectedGroupId !== "all" && String(group.id) !== selectedGroupId) continue;
       grouped.set(String(group.id), {
         id: String(group.id),
         name: textKey(group, "name") || "Untitled group",
+        editable: Number(group.id) !== 1,
         items: [],
       });
     }
@@ -994,6 +1045,7 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
       const group = grouped.get(groupId) || {
         id: groupId,
         name: textKey(item, "groupName") || "Library",
+        editable: false,
         items: [],
       };
       group.items.push(item);
@@ -1015,7 +1067,7 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
     {!loading && !groupsLoading && !error && !groupError && Boolean(groups.length) && <div className="library-groups">
       {groups.map((group) => <section className="library-group" key={group.id} aria-labelledby={`library-group-${group.id}`}>
         <header className="library-group-heading">
-          <h2 id={`library-group-${group.id}`}>{group.name}</h2>
+          <div className="group-heading-title"><h2 id={`library-group-${group.id}`}>{group.name}</h2>{group.editable && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups" })}>Edit</button>}</div>
           <span>{group.items.length} {group.items.length === 1 ? "item" : "items"}</span>
         </header>
         {group.items.length ? <ul className="library-list">
@@ -1038,6 +1090,7 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
         </ul> : <p className="library-group-empty">No items in this group.</p>}
       </section>)}
     </div>}
+    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }} />}
   </>;
 }
 
@@ -1199,6 +1252,7 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data: entries, error: entryError, loading: entriesLoading, reload: reloadEntries } = useApi<{ entries: Entity[] }>("/api/journal-entries?limit=100");
   const [filterQuery, setFilterQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const journalTrackers = trackers?.trackers || [];
   const journalEntries = entries?.entries || [];
   const journalGroupOptions = useMemo(() => {
@@ -1219,16 +1273,18 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
   );
   const visibleCount = visibleTrackers.length + visibleEntries.length;
   const groups = useMemo(() => {
-    const grouped = new Map<string, { id: string; name: string; trackers: Entity[]; entries: Entity[] }>();
+    const grouped = new Map<string, { id: string; name: string; groupId: number | null; trackers: Entity[]; entries: Entity[] }>();
     for (const tracker of visibleTrackers) {
       const id = String(readKey(tracker, "groupId") ?? `name:${textKey(tracker, "groupName") || "Journal"}`);
-      const group = grouped.get(id) || { id, name: textKey(tracker, "groupName") || "Journal", trackers: [], entries: [] };
+      const rawGroupId = readKey(tracker, "groupId");
+      const group = grouped.get(id) || { id, name: textKey(tracker, "groupName") || "Journal", groupId: rawGroupId == null ? null : Number(rawGroupId), trackers: [], entries: [] };
       group.trackers.push(tracker);
       grouped.set(id, group);
     }
     for (const entry of visibleEntries) {
       const id = String(readKey(entry, "groupId") ?? `name:${textKey(entry, "groupName") || "Journal"}`);
-      const group = grouped.get(id) || { id, name: textKey(entry, "groupName") || "Journal", trackers: [], entries: [] };
+      const rawGroupId = readKey(entry, "groupId");
+      const group = grouped.get(id) || { id, name: textKey(entry, "groupName") || "Journal", groupId: rawGroupId == null ? null : Number(rawGroupId), trackers: [], entries: [] };
       group.entries.push(entry);
       grouped.set(id, group);
     }
@@ -1249,7 +1305,7 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
         const count = group.trackers.length + group.entries.length;
         return <section className="library-group" key={group.id} aria-labelledby={`journal-group-${group.id}`}>
           <header className="library-group-heading">
-            <h2 id={`journal-group-${group.id}`}>{group.name}</h2>
+            <div className="group-heading-title"><h2 id={`journal-group-${group.id}`}>{group.name}</h2>{group.groupId != null && group.name.toLowerCase() !== "general" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "journal-groups" })}>Edit</button>}</div>
             <span>{count} {count === 1 ? "item" : "items"}</span>
           </header>
           <ul className="library-list">
@@ -1275,6 +1331,7 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
         </section>;
       })}
     </div>}
+    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadEntries()]); }} />}
   </>;
 }
 

@@ -11,16 +11,22 @@ test("first-class object controls expose one lazy visual network without editing
   const editor = fs.readFileSync(path.join(root, "web/src/components/EditableItems.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
 
-  assert.match(references, /<ObjectNetworkButton identity=\{identity\} subject=\{subject\}/u);
+  assert.match(references, /<ObjectNetworkButton identity=\{identity\} subject=\{subject\} onReference=\{onReference\}/u);
   assert.match(component, /className="object-network-button"/u);
   assert.match(component, /<circle cx="12" cy="12"/u);
   assert.match(component, /\/api\/object-network\?/u);
   assert.match(component, /\/api\/object-network\/connections/u);
   assert.match(component, /className="network-rail"/u);
-  assert.match(component, /<NetworkCard object=\{graph\.focus\} focus/u);
+  assert.match(component, /<NetworkCard\s+object=\{graph\.focus\}\s+focus/u);
   assert.doesNotMatch(component, /<h2>Object network<\/h2>/u);
-  assert.match(component, /className="network-open-button"/u);
+  assert.match(component, /className="network-card-action"/u);
   assert.match(component, /Open network for \$\{object\.display\}/u);
+  assert.match(component, /complete \? "Reopen" : "Complete"/u);
+  assert.match(component, />Edit<\/button>/u);
+  assert.match(component, />Respond<\/button>/u);
+  assert.match(component, /<ContactEditor contactId=\{object\.id\}/u);
+  assert.match(component, /<TodoEditor todoId=\{object\.id\}/u);
+  assert.match(component, /await toggleTodoCompletion\(object\.id\)/u);
   assert.match(component, /onOpen=\{\(\) => openObject\(object\)\}/u);
   assert.match(component, /parameters\.append\("domainType", domainType\)/u);
   assert.doesNotMatch(component, /relationshipKind|relationship label|Linked to/u);

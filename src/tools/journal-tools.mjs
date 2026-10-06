@@ -1,4 +1,5 @@
 import { selectedFields } from "./record-fields.mjs";
+import { renameJournalGroup } from "../journal-group-operations.mjs";
 
 const toolDescriptions = Object.freeze({
   "journal_add": {
@@ -38,6 +39,17 @@ const toolDescriptions = Object.freeze({
     "protocol": "agent-slayer.tool-description",
     "version": 1,
     "summary": "Correct one personal-journal entry by stable ID without changing the tracker's canonical unit.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "journal_group_rename": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Rename one exact active personal-journal group without changing its stable identity or contained trackers.",
     "actionClasses": [
       "UPDATE"
     ],
@@ -346,6 +358,17 @@ function findTracker(database, name) {
 
 function trackerById(database, trackerId) {
   return joinedTracker(database, trackerId);
+}
+
+function databaseJournalGroup(row) {
+  if (!row) return null;
+  return {
+    ...selectedFields(row, [
+      "journal_group_id", "name", "archived_at_utc", "created_at_utc", "updated_at_utc",
+    ]),
+    group_ref: `agent-slayer://journal-groups/${Number(row.journal_group_id)}`,
+    group_name: row.name,
+  };
 }
 
 function ensureGroup(database, name, now) {
@@ -1056,12 +1079,66 @@ export function registerJournalTools(registry, store, ledger) {
         SELECT * FROM journal1_groups
         ${includeArchived ? "" : "WHERE archived_at_utc IS NULL"}
         ORDER BY name, journal_group_id LIMIT ?
-      `).all(boundedLimit).map((row) => ({
-        ...selectedFields(row, ["journal_group_id", "name", "archived_at_utc", "created_at_utc", "updated_at_utc"]),
-        group_ref: `agent-slayer://journal-groups/${Number(row.journal_group_id)}`,
-        group_name: row.name,
-      }));
+      `).all(boundedLimit).map(databaseJournalGroup);
       return { count: rows.length, group_count: groups.length, groups, trackers: rows };
+    },
+  });
+
+  registry.register({
+    name: "journal_group_rename",
+    description: "Rename one exact active personal-journal group by stable ID. This preserves the group ID and every contained tracker and journal entry. General is the permanent catchall and cannot be renamed.",
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        renamed: { type: "boolean" },
+        previous_name: { type: "string" },
+        group: journalGroupRecordSchema,
+      },
+      required: ["renamed", "previous_name", "group"],
+    },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        journal_group_id: {
+          type: "integer", minimum: 1,
+          description: "Stable ID of the exact active personal-journal group to rename.",
+        },
+        name: {
+          type: "string", minLength: 1, maxLength: 200,
+          description: "Complete new human-facing name for the group.",
+        },
+      },
+      required: ["journal_group_id", "name"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async execute({ journal_group_id: groupId, name }, context) {
+      const database = store.requireReady();
+      database.exec("START TRANSACTION");
+      try {
+        const result = renameJournalGroup(database, { groupId, newName: name });
+        const group = databaseJournalGroup(database.prepare(
+          "SELECT * FROM journal1_groups WHERE journal_group_id = ?",
+        ).get(groupId));
+        const response = {
+          renamed: result.renamed,
+          previous_name: result.group.previousName,
+          group,
+        };
+        ledger.append({
+          type: "personal_journal_group.renamed", status: "complete", actorType: "tool",
+          actorName: "journal_group_rename", turnId: context.requestId, operationId: context.callId,
+          name: "Personal journal group renamed",
+          content: `${result.group.previousName} → ${group.name}`,
+          payload: response, subjectType: "journal_group", subjectId: String(groupId),
+        });
+        database.exec("COMMIT");
+        return response;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     },
   });
 

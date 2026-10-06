@@ -65,6 +65,23 @@ function money(minor, currency) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(Number(minor) / 100);
 }
 
+function contactLinks(methods) {
+  return methods.flatMap((method) => {
+    const value = String(method.value ?? "").trim();
+    if (!value) return [];
+    const suffix = method.label ? ` ${method.label}` : "";
+    if (method.method_kind === "phone") return [
+      { label: `Call${suffix}`, href: `tel:${value}` },
+      { label: `Text${suffix}`, href: `sms:${value}` },
+    ];
+    if (method.method_kind === "email") return [{ label: `Email${suffix}`, href: `mailto:${value}` }];
+    if (method.method_kind === "url" && /^https?:\/\//iu.test(value)) {
+      return [{ label: `Open${suffix}`, href: value }];
+    }
+    return [];
+  });
+}
+
 export class ObjectNetworkService {
   constructor({ database, organizer, registry }) {
     this.database = database;
@@ -72,7 +89,7 @@ export class ObjectNetworkService {
     this.registry = registry;
   }
 
-  #card(definition, id, display, { body = null, attributes = [] } = {}) {
+  #card(definition, id, display, { body = null, attributes = [], links = [] } = {}) {
     return {
       type: definition.id,
       source: definition.source,
@@ -80,8 +97,10 @@ export class ObjectNetworkService {
       ref: `${definition.refPrefix}${encodeURIComponent(String(id))}`,
       display: compact(display, 500),
       label: definition.title,
+      respondable: Boolean(definition.searchType),
       body: compact(body, 10_000),
       attributes: attributes.filter(Boolean),
+      links,
     };
   }
 
@@ -94,13 +113,14 @@ export class ObjectNetworkService {
         status, birth_date, notes FROM contacts WHERE contact_id = ?`).get(id);
       if (!row) return null;
       const methods = this.database.prepare(`SELECT method_kind, label, value FROM contact_methods
-        WHERE contact_id = ? ORDER BY is_primary DESC, contact_method_id`).all(id)
+        WHERE contact_id = ? ORDER BY is_primary DESC, contact_method_id`).all(id);
+      const methodSummary = methods
         .map((method) => [method.label, method.value].filter(Boolean).join(": ")).join(" · ");
       return this.#card(definition, id, row.display_name, { body: row.notes, attributes: [
         attribute("Kind", row.contact_kind), attribute("Organization", row.organization_name),
         attribute("Status", row.status), attribute("Birthday", row.birth_date),
-        attribute("Contact", methods),
-      ] });
+        attribute("Contact", methodSummary),
+      ], links: contactLinks(methods) });
     }
     if (type === "todos.todo_group") {
       row = this.database.prepare(`SELECT todo_group_id, name, uses_sequence, daily_paper_pinned,

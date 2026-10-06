@@ -832,6 +832,14 @@ test("personal journal entries and grouped trackers are available to the web org
     assert.equal(organizer.database.prepare(
       "SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_journal.created'",
     ).get().count, 2);
+    const renamed = organizer.renameJournalGroup(first.groupId, { name: "Wellbeing" });
+    assert.equal(renamed.group.previousName, "Health");
+    assert.equal(renamed.group.name, "Wellbeing");
+    assert.equal(organizer.listJournalTrackers()[0].groupName, "Wellbeing");
+    assert.equal(organizer.listJournalEntries({ trackerId: first.trackerId })[0].groupName, "Wellbeing");
+    assert.equal(organizer.database.prepare(
+      "SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_journal_group.renamed'",
+    ).get().count, 1);
     assert.equal(organizer.database.prepare(
       "SELECT COUNT(*) AS count FROM journal3_entries WHERE source_event_id IS NOT NULL",
     ).get().count, 2);

@@ -31,3 +31,9 @@ every field the user did not ask to change. Never reinterpret, convert, or
 override a tracker's canonical unit through an entry update. A tracker marked
 with the migration unit `set me` must receive its real unit before another entry
 is recorded.
+
+When the user asks to rename a journal group, resolve the exact group binding
+with `tracker_list`, then call `journal_group_rename` with its stable
+`journal_group_id` and the complete requested name. Renaming preserves the
+group identity, trackers, and entries. Do not rename the permanent General
+catchall or simulate a rename by creating a second group and moving trackers.

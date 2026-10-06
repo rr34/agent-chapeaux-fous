@@ -26,6 +26,12 @@ content-library group:
 - Base summaries on the returned item evidence, preserve the sequence order, and mention material source-text truncation when it limits the answer.
 - This is read-only. Do not add, move, edit, or remove content unless the user separately requests that action and the exact owning tool is callable.
 
+If the user asks to rename a content-library group, resolve its exact stable
+group binding from `video.content_groups` or `video_content_list`, then call
+`video_content_group_rename` with that ID and the complete requested name. A
+rename preserves the group identity, items, sequence values, and ordering; do
+not create a replacement group or move its items.
+
 If the user asks to create a content-library group or ordinary content items,
 including items based on externally hosted pages:
 

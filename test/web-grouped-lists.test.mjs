@@ -3,6 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 
 const appSource = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
+const serverSource = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
 
 function screenSource(name, nextName) {
@@ -85,6 +86,28 @@ test("contacts expose a tag filter and combine it with group and text filtering"
   assert.match(contacts, /<SectionSelectFilter label="Tag"/);
   assert.match(contacts, /\.includes\(selectedTag\)/);
   assert.match(contacts, /&& matchesSearch\(contact, query\)/);
+});
+
+test("persisted group headers expose the shared editor while synthetic groups do not", () => {
+  const todos = screenSource("TodoScreen", "ContactsScreen");
+  const library = screenSource("LibraryScreen", "VideoScriptsScreen");
+  const journal = screenSource("JournalScreen", "UsageScreen");
+  const scripts = screenSource("VideoScriptsScreen", "FilesScreen");
+  const files = screenSource("FilesScreen", "GenericScreen");
+
+  assert.match(todos, /resource: "todo-groups"/);
+  assert.match(library, /resource: "content-groups"/);
+  assert.match(journal, /resource: "journal-groups"/);
+  assert.match(todos, /group-heading-title/);
+  assert.match(library, /group-heading-title/);
+  assert.match(journal, /group-heading-title/);
+  assert.doesNotMatch(scripts, /group-edit-button/);
+  assert.doesNotMatch(files, /group-edit-button/);
+  assert.match(appSource, /method: "PATCH"/);
+  assert.match(appSource, /`\/api\/\$\{group\.resource\}\/\$\{group\.id\}`/);
+  assert.ok(serverSource.includes("const journalGroupMatch = /^\\/api\\/journal-groups\\/(\\d+)$/.exec(url.pathname);"));
+  assert.match(serverSource, /organizer\.renameJournalGroup/);
+  assert.match(styles, /\.group-edit-button/);
 });
 
 test("video scripts are the last workspace section before AI usage", () => {

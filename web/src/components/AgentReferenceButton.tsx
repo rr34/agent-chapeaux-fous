@@ -52,7 +52,7 @@ export function AgentReferenceButton({ identity, subject, onReference }: {
 }) {
   const label = `Reference ${subject} in Agent`;
   return <span className="object-reference-actions">
-    <ObjectNetworkButton identity={identity} subject={subject} />
+    <ObjectNetworkButton identity={identity} subject={subject} onReference={onReference} />
     <button
       className="agent-reference-button"
       type="button"

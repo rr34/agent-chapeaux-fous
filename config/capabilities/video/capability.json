@@ -4,7 +4,7 @@
   "version": 1,
   "id": "video",
   "title": "Video scripts and productions",
-  "summary": "Create and read content-library groups and items, create grounded scripts and Agent-interface MP4 productions, or add a completed generated video to a sequence.",
+  "summary": "Create, read, and rename content-library groups and items, create grounded scripts and Agent-interface MP4 productions, or add a completed generated video to a sequence.",
   "aliases": [
     "video",
     "video script",
@@ -15,7 +15,8 @@
     "video series",
     "external videos",
     "add content items",
-    "promo library"
+    "promo library",
+    "rename content group"
   ],
   "readOnlyTools": [
     "video_script_get",

@@ -11,6 +11,10 @@ a group; use Inbox only when no existing group reasonably fits. New user-authore
 `ai_suggested` is reserved for agent-proposed work that the user has not
 accepted or dismissed. Preserve an exact user-supplied planning question in
 `planning_prompt_text`; the prompt and lifecycle status remain independent.
+Rename a group with `todo_group_rename` and its exact bound `todo_group_id`.
+This changes the display name while preserving the group identity, tasks, and
+ordering. Inbox is permanent; do not create a replacement group or move tasks
+to simulate a rename.
 When the user assigns a price to work, store a positive
 `billable_amount_minor` together with its uppercase three-letter
 `billable_currency`; use `clear_billable_price` only when the user explicitly

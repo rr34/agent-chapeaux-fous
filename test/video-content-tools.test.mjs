@@ -23,6 +23,11 @@ test("video content service creates, reuses, and rejects archived named groups",
       created.push(name);
       return { ...group, name };
     },
+    renameContentGroup(groupId, { name }, context) {
+      assert.equal(groupId, group.id);
+      assert.equal(context.actorName, "video_content_group_rename");
+      return { group: { ...group, name, previousName: group.name } };
+    },
   };
   const content = new VideoContent({ videoScripts: {}, organizer });
   assert.deepEqual(content.createGroup({ name: " What to Watch " }), {
@@ -44,6 +49,14 @@ test("video content service creates, reuses, and rejects archived named groups",
     () => content.createGroup({ name: "What to Watch" }),
     /is archived/,
   );
+
+  assert.deepEqual(content.renameGroup({ groupId: 7, name: "Time v3" }, {
+    actorName: "video_content_group_rename",
+  }), {
+    renamed: true,
+    previousName: "What to Watch",
+    group: { ...group, name: "Time v3" },
+  });
 });
 
 test("content creation tools publish compact identified mutation results", async () => {
@@ -60,6 +73,10 @@ test("content creation tools publish compact identified mutation results", async
   };
   const videoContent = {
     createGroup() { return { created: true, unchanged: false, group }; },
+    renameGroup({ groupId, name }) {
+      assert.equal(groupId, group.id);
+      return { renamed: true, previousName: group.name, group: { ...group, name } };
+    },
     createItems() {
       return {
         group,
@@ -98,6 +115,21 @@ test("content creation tools publish compact identified mutation results", async
     content_group_ref: "agent-slayer://content-groups/7",
     content_group_name: "What to Watch",
   });
+
+  const renamed = await registry.execute("video_content_group_rename", {
+    groupId: 7,
+    name: "Time v3",
+  });
+  const renameDefinition = definitions.get("video_content_group_rename");
+  assert.equal(schemaProblem(renamed, renameDefinition.outputSchema, "result"), null);
+  assert.deepEqual(renameDefinition.inputSchema.required, ["groupId", "name"]);
+  assert.equal(
+    renameDefinition.metadata["agent-slayer/object-input-bindings"].bindings[0].objectType,
+    "video.content_group",
+  );
+  assert.equal(renamed.previousName, "What to Watch");
+  assert.equal(renamed.group.content_group_id, 7);
+  assert.equal(renamed.group.content_group_name, "Time v3");
 
   const createdItems = await registry.execute("video_content_create", {
     groupId: 7,

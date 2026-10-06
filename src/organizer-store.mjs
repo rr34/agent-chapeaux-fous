@@ -12,6 +12,7 @@ import {
   archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupDailyPaperPinned,
   setTodoGroupSequenceMode,
 } from "./todo-group-operations.mjs";
+import { renameJournalGroup } from "./journal-group-operations.mjs";
 
 const { rrulestr } = rrulePackage;
 const dayMilliseconds = 86_400_000;
@@ -2598,7 +2599,7 @@ export class OrganizerStore {
     }
   }
 
-  renameContentGroup(idValue, input) {
+  renameContentGroup(idValue, input, context = {}) {
     const id = identifier(idValue, "content group id");
     const name = requiredText(input?.name, "name", 200);
     const now = new Date().toISOString();
@@ -2619,6 +2620,12 @@ export class OrganizerStore {
       this.#activity({
         eventType: "content_group.renamed", status: "complete", name: "Content group renamed",
         subjectType: "content_group", subjectId: id, contentText: `${before.name} → ${group.name}`, payload: result,
+        actorType: context.actorType ?? "user",
+        actorName: context.actorName ?? "Nate",
+        source: context.source ?? "tailnet_web",
+        channel: context.channel ?? "tailnet_web",
+        turnId: context.requestId ?? null,
+        operationId: context.callId ?? null,
       });
       this.database.exec("COMMIT");
       return result;
@@ -3260,6 +3267,28 @@ export class OrganizerStore {
       ORDER BY entry.occurred_at_utc DESC, entry.journal_entry_id DESC
       LIMIT ?
     `).all(...values, boundedLimit).map(publicJournalEntry);
+  }
+
+  renameJournalGroup(idValue, input) {
+    const id = identifier(idValue, "journal group id");
+    this.database.exec("START TRANSACTION");
+    try {
+      const result = renameJournalGroup(this.database, { groupId: id, newName: input?.name });
+      this.#activity({
+        eventType: "personal_journal_group.renamed",
+        status: "complete",
+        name: "Personal journal group renamed",
+        subjectType: "journal_group",
+        subjectId: id,
+        contentText: `${result.group.previousName} → ${result.group.name}`,
+        payload: result,
+      });
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   createJournalEntry(input) {

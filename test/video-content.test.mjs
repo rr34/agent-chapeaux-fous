@@ -111,6 +111,41 @@ test("the Agent can create a library and atomically create ordinary content item
     SELECT COUNT(*) AS count FROM activity_events
     WHERE event_type = 'content.batch_created'
   `).get().count, 1);
+
+  const renameDefinition = registry.toolDefinitions()
+    .find(({ name }) => name === "video_content_group_rename");
+  assert.deepEqual(renameDefinition.inputSchema.required, ["groupId", "name"]);
+  const renamedGroup = await registry.execute("video_content_group_rename", {
+    groupId: Number(createdGroup.group.id),
+    name: "Time v3",
+  }, {
+    requestId: "rename-content-group-request",
+    callId: "rename-content-group-call",
+    channel: "web",
+  });
+  assert.equal(renamedGroup.renamed, true);
+  assert.equal(renamedGroup.previousName, "What to Watch");
+  assert.equal(renamedGroup.group.content_group_id, createdGroup.group.content_group_id);
+  assert.equal(renamedGroup.group.content_group_name, "Time v3");
+  assert.deepEqual(
+    organizer.listContent({ groupId: createdGroup.group.id })
+      .map(({ groupId, groupName, sequence, title }) => ({ groupId, groupName, sequence, title })),
+    items.map(({ sequence, title }) => ({
+      groupId: createdGroup.group.id,
+      groupName: "Time v3",
+      sequence,
+      title,
+    })),
+  );
+  assert.deepEqual({ ...organizer.database.prepare(`
+    SELECT actor_type, actor_name, turn_id, operation_id
+    FROM activity_events WHERE event_type = 'content_group.renamed'
+  `).get() }, {
+    actor_type: "tool",
+    actor_name: "video_content_group_rename",
+    turn_id: "rename-content-group-request",
+    operation_id: "rename-content-group-call",
+  });
 });
 
 test("a completed generated video appends once to an exact content sequence", async (context) => {

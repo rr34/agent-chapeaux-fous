@@ -22,6 +22,17 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
+  "video_content_group_rename": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Rename one exact active content-library group without changing its stable identity or contained items.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
   "video_content_create": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -211,6 +222,17 @@ const contentGroupCreateOutputSchema = {
     group: contentGroupSchema,
   },
   required: ["created", "unchanged", "group"],
+};
+
+const contentGroupRenameOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    renamed: { type: "boolean" },
+    previousName: { type: "string" },
+    group: contentGroupSchema,
+  },
+  required: ["renamed", "previousName", "group"],
 };
 
 const createdContentSchema = {
@@ -413,6 +435,36 @@ export function registerVideoScriptTools(
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       execute(args) {
         const result = videoContent.createGroup(args);
+        return { ...result, group: identifiedContentGroup(result.group) };
+      },
+    });
+
+    capabilityRegistry.register({
+      name: "video_content_group_rename",
+      title: "Rename a content-library group",
+      description: "Rename one exact active content-library group by stable ID. This preserves the group ID, item membership, sequence values, and group ordering. General is the permanent catchall and cannot be renamed. The returned group carries its stable native ID, reference, and updated display name.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          groupId: {
+            type: "integer", minimum: 1,
+            description: "Stable ID of the exact active content-library group to rename.",
+          },
+          name: {
+            type: "string", minLength: 1, maxLength: 200,
+            description: "Complete new human-facing name for the group.",
+          },
+        },
+        required: ["groupId", "name"],
+      },
+      outputSchema: contentGroupRenameOutputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      execute(args, context) {
+        const result = videoContent.renameGroup(args, {
+          ...context, actorType: "tool", actorName: "video_content_group_rename",
+          source: "agent-slayer", channel: context.channel ?? "agent",
+        });
         return { ...result, group: identifiedContentGroup(result.group) };
       },
     });

@@ -203,7 +203,7 @@ function calendarDraft(event: CalendarEvent): CalendarDraft {
   };
 }
 
-function CalendarEventEditor({ eventId, recurring, onClose, onChanged }: {
+export function CalendarEventEditor({ eventId, recurring, onClose, onChanged }: {
   eventId: number;
   recurring: boolean;
   onClose: () => void;
@@ -466,6 +466,17 @@ function todoStatus(todo: Entity | LinkedTodo) {
   return String(todo.status || "todo");
 }
 
+export async function toggleTodoCompletion(id: number) {
+  const { todo: current } = await api<{ todo: Entity }>(`/api/todos/${id}`);
+  await api(`/api/todos/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      version: current.version,
+      status: current.status === "complete" ? "todo" : "complete",
+    }),
+  });
+}
+
 interface TodoDraft {
   text: string;
   planningPromptText: string;
@@ -504,7 +515,7 @@ function billableMinorUnits(amount: string, currencyValue: string) {
   return { billableAmountMinor: minor, billableCurrency: currency };
 }
 
-function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
+export function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
   todoId: number;
   suppliedGroups?: Entity[];
   onClose: () => void;
@@ -624,14 +635,7 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
     setUpdating(true);
     setError("");
     try {
-      const { todo: current } = await api<{ todo: Entity }>(`/api/todos/${id}`);
-      await api(`/api/todos/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          version: current.version,
-          status: current.status === "complete" ? "todo" : "complete",
-        }),
-      });
+      await toggleTodoCompletion(id);
       await onChanged();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -655,7 +659,7 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
       : <div className="todo-item-content">{body}</div>}
     <div className="object-row-actions">
       {variant === "row" && <span className="pill">{status}</span>}
-      {onReference && status !== "complete" && <AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${text}`} onReference={onReference} />}
+      {onReference && <AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${text}`} onReference={onReference} />}
     </div>
     {error && <p className="inline-error todo-item-error" role="alert">{error}</p>}
     {editing && onChanged && <TodoEditor todoId={id} suppliedGroups={groups} onClose={() => setEditing(false)} onChanged={onChanged} />}

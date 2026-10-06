@@ -37,6 +37,7 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(items, /version: current\.version/);
   assert.match(items, /status: current\.status === "complete" \? "todo" : "complete"/);
   assert.match(items, /version: todo\.version/);
+  assert.match(items, /export function TodoEditor/);
   assert.match(server, /request\.method === "GET" && todoMatch/);
 });
 
@@ -45,6 +46,7 @@ test("contacts are click-to-edit and expose a complete versioned editor", () => 
   assert.match(app, /className="contact-row-identity contact-row-edit"[^>]+onClick=\{\(\) => setEditingContactId/);
   assert.match(app, />Edit<\/button>/);
   assert.match(items, /export function ContactEditor/);
+  assert.match(items, /export function CalendarEventEditor/);
   assert.match(items, /api<\{ contact: Entity \}>\(`\/api\/contacts\/\$\{contactId\}`\)/);
   assert.match(items, /version: contact\.version/);
   assert.match(items, /Save contact/);

@@ -186,8 +186,10 @@ export interface NetworkObject {
   ref: string;
   display: string;
   label: string;
+  respondable: boolean;
   body?: string | null;
   attributes: Array<{ label: string; value: string }>;
+  links?: Array<{ label: string; href: string }>;
 }
 
 export interface ObjectNetworkGraph {

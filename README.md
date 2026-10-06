@@ -365,7 +365,8 @@ capability selector, which controls which exact tool schemas are callable.
   it never sends the message, writes to a remote calendar, or changes the local
   calendar's authority. Every displayed agenda event also has a phone-friendly
   copy action for sharing its saved details through another app.
-- `journal_add`, `journal_import`, `journal_list`, `journal_update`, `tracker_list`, and `tracker_update`
+- `journal_add`, `journal_import`, `journal_list`, `journal_update`,
+  `journal_group_rename`, `tracker_list`, and `tracker_update`
   provide the native grouped personal-journal path. Each entry keeps complete
   natural-language content with an optional numeric projection for calculation
   and trends. Each tracker owns the one canonical unit shared by its numeric
@@ -649,12 +650,14 @@ removes one exact association, and `todo_list` returns each task's linked
 content bindings without changing either parent record.
 
 The Agent can also create a named content-library group with
-`video_content_group_create`, then use the returned stable group binding with
-`video_content_create` to create as many as 50 ordinary content items in one
-atomic batch. Each item carries an explicit positive sequence or null, and
-array order never generates numbering. URLs are optional metadata rather than
-import identities, and the operation does not download media. This is a
-non-idempotent create operation: successful batches must not be replayed.
+`video_content_group_create`, rename that same stable group with
+`video_content_group_rename`, then use its binding with `video_content_create`
+to create as many as 50 ordinary content items in one atomic batch. Renaming
+preserves the group identity, existing items, and sequence order. Each item
+carries an explicit positive sequence or null, and array order never generates
+numbering. URLs are optional metadata rather than import identities, and the
+operation does not download media. This is a non-idempotent create operation:
+successful batches must not be replayed.
 These focused video-domain tools own content mutations, so generic database
 writes cannot change content tables.
 

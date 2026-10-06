@@ -36,6 +36,13 @@ export class VideoContent {
     };
   }
 
+  renameGroup({ groupId, name }, context = {}) {
+    const selectedGroupId = positiveInteger(groupId, "Content group ID");
+    const result = this.organizer.renameContentGroup(selectedGroupId, { name }, context);
+    const { previousName, ...group } = result.group;
+    return { renamed: true, previousName, group };
+  }
+
   createItems(input, context = {}) {
     return this.organizer.createContentItems(input, context);
   }

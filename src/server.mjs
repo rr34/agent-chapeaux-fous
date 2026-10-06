@@ -1077,6 +1077,11 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    const journalGroupMatch = /^\/api\/journal-groups\/(\d+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && journalGroupMatch) {
+      sendJson(response, 200, organizer.renameJournalGroup(journalGroupMatch[1], await readJson(request)));
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/journal-entries") {
       sendJson(response, 201, { entry: organizer.createJournalEntry(await readJson(request)) });
       return;
