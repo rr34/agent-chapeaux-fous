@@ -288,6 +288,18 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .object-editor-check input { width: 17px; height: 17px; margin: 0; accent-color: var(--olive-dark); }
 .object-editor-note, .object-editor-state { margin: 0; padding: 10px 12px; border-radius: 9px; color: var(--muted); background: var(--olive-soft); font-size: 12px; }
 .object-editor-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.recurrence-editor { min-width: 0; display: grid; gap: 10px; margin: 0; padding: 13px; border: 1px solid var(--line); border-radius: 11px; }
+.recurrence-editor > legend, .recurrence-weekdays > legend { padding: 0 5px; color: var(--ink); font-size: 12px; font-weight: 700; }
+.recurrence-fields { display: grid; gap: 11px; }
+.recurrence-every { display: grid; grid-template-columns: auto 88px minmax(130px, 1fr); align-items: center; gap: 9px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.recurrence-editor input, .recurrence-editor select { min-height: 38px; padding: 7px 9px; }
+.recurrence-weekdays { display: flex; flex-wrap: wrap; gap: 8px 13px; margin: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; }
+.recurrence-weekdays label { display: flex; align-items: center; gap: 5px; color: var(--ink); font-size: 12px; font-weight: 600; }
+.recurrence-weekdays input { width: 16px; min-height: 16px; height: 16px; margin: 0; accent-color: var(--olive-dark); }
+.recurrence-pattern-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 9px; }
+.recurrence-pattern-fields label, .recurrence-ending label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.recurrence-ending { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 9px; }
+.recurrence-summary { margin: 0; padding: 8px 10px; border-radius: 8px; color: var(--olive-dark); background: var(--olive-soft); font-size: 12px; font-weight: 650; }
 .object-network { width: min(760px, 100%); display: grid; gap: 16px; }
 .network-heading { display: flex; align-items: flex-start; gap: 12px; }
 .network-heading-object { min-width: 0; flex: 1; display: flex; align-items: flex-start; gap: 10px; }
@@ -529,6 +541,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .object-editor-backdrop { padding: 0; }
   .object-editor { width: 100%; max-height: 100vh; min-height: 100vh; border-radius: 0; }
   .object-editor-grid { grid-template-columns: 1fr; }
+  .recurrence-every, .recurrence-ending { grid-template-columns: 1fr; }
   .trace-panel { width: 100%; max-height: 100vh; border-radius: 0; }
   .trace-heading { align-items: flex-start; padding: 14px; }
   .trace-actions .button { min-height: 36px; padding: 7px 10px; }

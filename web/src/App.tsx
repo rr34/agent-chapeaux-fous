@@ -5,7 +5,7 @@ import { CalendarGrid, DailyPaper, DayTimeline, ScheduledTodos } from "./compone
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput } from "./components/ObjectMentionInput";
-import { ContactEditor, TodoItem } from "./components/EditableItems";
+import { CalendarEventEditor, ContactEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
 import {
@@ -815,6 +815,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${requestParameters}`);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<unknown>(null);
+  const [addingEvent, setAddingEvent] = useState(false);
   const selectedDay = data?.calendarDays.find((day) => day.localDate === selectedDate);
   const selectedEvents = useMemo(
     () => [...(selectedDay?.events || data?.todayEvents || [])].sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc)),
@@ -850,7 +851,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
   };
   return <>
     <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={
-      <button className="button" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button>
+      <><button className="button" type="button" onClick={() => setAddingEvent(true)}>Add calendar event</button><button className="button button--quiet" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button></>
     } />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={matchingEventCount} noun="event" />
     {generationNotice && <div className="calendar-generation-notice surface" role="status"><span>{generationNotice}</span>{dismissGenerationNotice && <button className="button button--quiet" onClick={dismissGenerationNotice}>Dismiss</button>}</div>}
@@ -873,6 +874,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
         {previewModel ? <DailyPaper model={previewModel} preview /> : <Loading label="Refreshing preview" />}
       </details>
     </div>}
+    {addingEvent && <CalendarEventEditor initialDate={selectedDate} onClose={() => setAddingEvent(false)} onChanged={reload} />}
   </>;
 }
 

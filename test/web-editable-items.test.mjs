@@ -5,6 +5,7 @@ import test from "node:test";
 const app = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
 const dailyPaper = fs.readFileSync(new URL("../web/src/components/DailyPaper.tsx", import.meta.url), "utf8");
 const items = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
+const recurrence = fs.readFileSync(new URL("../web/src/components/RecurrenceEditor.tsx", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 const dailyPaperService = fs.readFileSync(new URL("../src/daily-paper.mjs", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
@@ -64,8 +65,24 @@ test("routine agenda items open a reusable versioned editor directly", () => {
   assert.ok(items.includes('className="routine-item-content" type="button" onClick={() => setEditing(true)}'));
   assert.ok(items.includes('api<{ routine: CalendarRoutine | null }>(`/api/calendar-routines/${routineId}`)'));
   assert.ok(items.includes("version: routine.version"));
-  assert.ok(items.includes("recurrenceRule: draft.recurrenceRule"));
+  assert.ok(items.includes("recurrenceRule: buildRecurrenceRule(draft.recurrence, true)"));
   assert.ok(server.includes('request.method === "GET" && routineMatch'));
+});
+
+test("calendar creation and routines share structured recurrence controls", () => {
+  assert.ok(app.includes(">Add calendar event</button>"));
+  assert.ok(app.includes("<CalendarEventEditor initialDate={selectedDate}"));
+  assert.ok(items.includes('creating ? "/api/calendar-events" : `/api/calendar-events/${eventId}`'));
+  assert.ok(items.includes('method: creating ? "POST" : "PATCH"'));
+  assert.match(items, /<RecurrenceEditor value=\{draft\.recurrence\}/);
+  assert.match(items, /<RecurrenceEditor required showEnding=\{false\}/);
+  assert.ok(!items.includes("Recurrence rule<textarea"));
+  assert.match(items, /<label>Starts at<input required type="time"/);
+  assert.match(items, /<label>Ends at<input type="time"/);
+  assert.match(recurrence, /Repeat frequency/);
+  assert.match(recurrence, /recurrence-weekdays/);
+  assert.match(recurrence, /Day of the month/);
+  assert.match(recurrence, /Weekday pattern/);
 });
 
 

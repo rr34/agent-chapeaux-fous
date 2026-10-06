@@ -5,6 +5,9 @@ import {
   AgentReferenceButton, calendarEventIdentity, calendarRoutineIdentity, todoIdentity,
   type AddAgentReference,
 } from "./AgentReferenceButton";
+import {
+  buildRecurrenceRule, RecurrenceEditor, recurrenceDraft, type RecurrenceDraft,
+} from "./RecurrenceEditor";
 
 type Changed = () => void | Promise<void>;
 
@@ -188,6 +191,8 @@ interface CalendarDraft {
   isAllDay: boolean;
   status: string;
   planningPromptText: string;
+  timeZone: string;
+  recurrence: RecurrenceDraft;
 }
 
 function calendarDraft(event: CalendarEvent): CalendarDraft {
@@ -200,21 +205,45 @@ function calendarDraft(event: CalendarEvent): CalendarDraft {
     isAllDay: event.isAllDay,
     status: event.status || "active",
     planningPromptText: event.planningPromptText || "",
+    timeZone: event.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    recurrence: recurrenceDraft(event.recurrenceRule, localDateTimeValue(event.startsAtUtc).slice(0, 10)),
   };
 }
 
-export function CalendarEventEditor({ eventId, recurring, onClose, onChanged }: {
-  eventId: number;
-  recurring: boolean;
+function newCalendarDraft(initialDate?: string): CalendarDraft {
+  const localToday = localDateTimeValue(new Date().toISOString()).slice(0, 10);
+  const date = initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)
+    ? initialDate
+    : localToday;
+  return {
+    title: "",
+    description: "",
+    location: "",
+    startsAt: `${date}T09:00`,
+    endsAt: `${date}T10:00`,
+    isAllDay: false,
+    status: "active",
+    planningPromptText: "",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    recurrence: recurrenceDraft(null, date),
+  };
+}
+
+export function CalendarEventEditor({ eventId, recurring = false, initialDate, onClose, onChanged }: {
+  eventId?: number;
+  recurring?: boolean;
+  initialDate?: string;
   onClose: () => void;
   onChanged: Changed;
 }) {
+  const creating = eventId == null;
   const [event, setEvent] = useState<CalendarEvent | null>(null);
-  const [draft, setDraft] = useState<CalendarDraft | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState<CalendarDraft | null>(() => creating ? newCalendarDraft(initialDate) : null);
+  const [loading, setLoading] = useState(!creating);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
+    if (eventId == null) return;
     let active = true;
     void api<{ event: CalendarEvent }>(`/api/calendar-events/${eventId}`).then(({ event: current }) => {
       if (!active) return;
@@ -230,14 +259,14 @@ export function CalendarEventEditor({ eventId, recurring, onClose, onChanged }: 
 
   const save = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
-    if (!event || !draft) return;
+    if (!draft || (!creating && !event)) return;
     setSaving(true);
     setError("");
     try {
-      await api(`/api/calendar-events/${eventId}`, {
-        method: "PATCH",
+      await api(creating ? "/api/calendar-events" : `/api/calendar-events/${eventId}`, {
+        method: creating ? "POST" : "PATCH",
         body: JSON.stringify({
-          version: event.version,
+          ...(!creating && event ? { version: event.version } : {}),
           title: draft.title,
           description: draft.description,
           location: draft.location,
@@ -246,6 +275,8 @@ export function CalendarEventEditor({ eventId, recurring, onClose, onChanged }: 
           isAllDay: draft.isAllDay,
           status: draft.status,
           planningPromptText: draft.planningPromptText,
+          timeZone: draft.timeZone,
+          recurrenceRule: buildRecurrenceRule(draft.recurrence),
         }),
       });
       await onChanged();
@@ -257,28 +288,37 @@ export function CalendarEventEditor({ eventId, recurring, onClose, onChanged }: 
     }
   };
 
-  return <EditorFrame title={recurring ? "Edit recurring event series" : "Edit calendar event"} onClose={onClose}>
+  const isRecurring = recurring || Boolean(event?.recurrenceRule);
+  return <EditorFrame title={creating ? "Add calendar event" : isRecurring ? "Edit recurring event series" : "Edit calendar event"} onClose={onClose}>
     <form onSubmit={(submitEvent) => void save(submitEvent)}>
       <header className="object-editor-heading">
-        <div><p className="eyebrow">Calendar</p><h2>{recurring ? "Edit recurring series" : "Edit event"}</h2></div>
+        <div><p className="eyebrow">Calendar</p><h2>{creating ? "Add event" : isRecurring ? "Edit recurring series" : "Edit event"}</h2></div>
         <button className="button button--quiet" type="button" onClick={onClose}>Close</button>
       </header>
       {loading && <p className="object-editor-state">Loading current event...</p>}
       {draft && <>
-        {recurring && <p className="object-editor-note">This occurrence belongs to a recurring series. Changes apply to the whole series.</p>}
+        {isRecurring && !creating && <p className="object-editor-note">This occurrence belongs to a recurring series. Changes apply to the whole series.</p>}
         <label>Title<input autoFocus required maxLength={500} value={draft.title} onChange={(change) => setDraft({ ...draft, title: change.target.value })} /></label>
         <label className="object-editor-check"><input type="checkbox" checked={draft.isAllDay} onChange={(change) => setDraft({ ...draft, isAllDay: change.target.checked })} /><span>All day</span></label>
         <div className="object-editor-grid">
-          <label>Starts<input required type={draft.isAllDay ? "date" : "datetime-local"} value={draft.isAllDay ? draft.startsAt.slice(0, 10) : draft.startsAt} onChange={(change) => setDraft({ ...draft, startsAt: draft.isAllDay ? change.target.value + "T00:00" : change.target.value })} /></label>
+          <label>Starts<input required type={draft.isAllDay ? "date" : "datetime-local"} value={draft.isAllDay ? draft.startsAt.slice(0, 10) : draft.startsAt} onChange={(change) => {
+            const startsAt = draft.isAllDay ? change.target.value + "T00:00" : change.target.value;
+            setDraft({
+              ...draft,
+              startsAt,
+              ...(!draft.recurrence.enabled ? { recurrence: recurrenceDraft(null, startsAt.slice(0, 10)) } : {}),
+            });
+          }} /></label>
           <label>Ends<input type={draft.isAllDay ? "date" : "datetime-local"} value={draft.isAllDay ? draft.endsAt.slice(0, 10) : draft.endsAt} onChange={(change) => setDraft({ ...draft, endsAt: draft.isAllDay && change.target.value ? change.target.value + "T00:00" : change.target.value })} /></label>
         </div>
         <label>Location<input maxLength={1000} value={draft.location} onChange={(change) => setDraft({ ...draft, location: change.target.value })} /></label>
         <label>Description<textarea rows={4} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
         <label>Planning prompt<textarea rows={3} maxLength={10_000} value={draft.planningPromptText} onChange={(change) => setDraft({ ...draft, planningPromptText: change.target.value })} /></label>
+        <RecurrenceEditor value={draft.recurrence} onChange={(recurrence) => setDraft({ ...draft, recurrence })} />
         <label>Status<select value={draft.status} onChange={(change) => setDraft({ ...draft, status: change.target.value })}><option value="active">Active</option><option value="archived">Archived</option></select></label>
       </>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : "Save event"}</button></footer>
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : creating ? "Add event" : "Save event"}</button></footer>
     </form>
   </EditorFrame>;
 }
@@ -287,40 +327,62 @@ interface CalendarRoutineDraft {
   title: string;
   description: string;
   location: string;
-  startsAt: string;
-  endsAt: string;
+  anchorDate: string;
+  startTime: string;
+  endTime: string;
   timeZone: string;
   isAllDay: boolean;
-  recurrenceRule: string;
+  recurrence: RecurrenceDraft;
   planningPromptText: string;
 }
 
 function calendarRoutineDraft(routine: CalendarRoutine): CalendarRoutineDraft {
+  const startsAt = localDateTimeValue(routine.startsAtUtc);
+  const endsAt = localDateTimeValue(routine.endsAtUtc);
   return {
     title: routine.title,
     description: routine.description || "",
     location: routine.location || "",
-    startsAt: localDateTimeValue(routine.startsAtUtc),
-    endsAt: localDateTimeValue(routine.endsAtUtc),
+    anchorDate: startsAt.slice(0, 10),
+    startTime: startsAt.slice(11, 16) || "09:00",
+    endTime: endsAt.slice(11, 16),
     timeZone: routine.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
     isAllDay: routine.isAllDay,
-    recurrenceRule: routine.recurrenceRule,
+    recurrence: recurrenceDraft(routine.recurrenceRule, startsAt.slice(0, 10), true),
     planningPromptText: routine.planningPromptText || "",
   };
 }
 
 function newCalendarRoutineDraft(): CalendarRoutineDraft {
+  const anchorDate = localDateTimeValue(new Date().toISOString()).slice(0, 10);
   return {
     title: "",
     description: "",
     location: "",
-    startsAt: localDateTimeValue(new Date().toISOString()),
-    endsAt: "",
+    anchorDate,
+    startTime: "09:00",
+    endTime: "10:00",
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     isAllDay: false,
-    recurrenceRule: "FREQ=WEEKLY",
+    recurrence: recurrenceDraft("FREQ=WEEKLY", anchorDate, true),
     planningPromptText: "",
   };
+}
+
+function routineStartIso(draft: CalendarRoutineDraft) {
+  return localDateTimeIso(`${draft.anchorDate}T${draft.isAllDay ? "00:00" : draft.startTime}`);
+}
+
+function routineEndIso(draft: CalendarRoutineDraft) {
+  if (draft.isAllDay) {
+    const end = new Date(`${draft.anchorDate}T00:00`);
+    end.setDate(end.getDate() + 1);
+    return end.toISOString();
+  }
+  if (!draft.endTime) return null;
+  const end = new Date(`${draft.anchorDate}T${draft.endTime}`);
+  if (draft.endTime <= draft.startTime) end.setDate(end.getDate() + 1);
+  return end.toISOString();
 }
 
 export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
@@ -363,11 +425,11 @@ export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
           title: draft.title,
           description: draft.description,
           location: draft.location,
-          startsAtUtc: localDateTimeIso(draft.startsAt),
-          endsAtUtc: localDateTimeIso(draft.endsAt),
+          startsAtUtc: routineStartIso(draft),
+          endsAtUtc: routineEndIso(draft),
           timeZone: draft.timeZone,
           isAllDay: draft.isAllDay,
-          recurrenceRule: draft.recurrenceRule,
+          recurrenceRule: buildRecurrenceRule(draft.recurrence, true),
           planningPromptText: draft.planningPromptText,
         }),
       });
@@ -385,18 +447,18 @@ export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
       <header className="object-editor-heading"><div><p className="eyebrow">Routine</p><h2>{creating ? "Add routine" : "Edit routine"}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
       {loading && <p className="object-editor-state">Loading current routine...</p>}
       {draft && <>
-        <p className="object-editor-note">{creating ? "Set the first occurrence and how it repeats. You can generate calendar events after saving." : "Changes affect future generated events. Events already placed on the calendar stay unchanged."}</p>
+        <p className="object-editor-note">{creating ? "Set the time and repeat pattern. You can generate calendar events after saving." : "Changes affect future generated events. Events already placed on the calendar stay unchanged."}</p>
         <label>Title<input autoFocus required maxLength={500} value={draft.title} onChange={(change) => setDraft({ ...draft, title: change.target.value })} /></label>
         <label className="object-editor-check"><input type="checkbox" checked={draft.isAllDay} onChange={(change) => setDraft({ ...draft, isAllDay: change.target.checked })} /><span>All day</span></label>
-        <div className="object-editor-grid">
-          <label>First start<input required type={draft.isAllDay ? "date" : "datetime-local"} value={draft.isAllDay ? draft.startsAt.slice(0, 10) : draft.startsAt} onChange={(change) => setDraft({ ...draft, startsAt: draft.isAllDay ? change.target.value + "T00:00" : change.target.value })} /></label>
-          <label>First end<input type={draft.isAllDay ? "date" : "datetime-local"} value={draft.isAllDay ? draft.endsAt.slice(0, 10) : draft.endsAt} onChange={(change) => setDraft({ ...draft, endsAt: draft.isAllDay && change.target.value ? change.target.value + "T00:00" : change.target.value })} /></label>
-        </div>
+        {!draft.isAllDay && <div className="object-editor-grid">
+          <label>Starts at<input required type="time" value={draft.startTime} onChange={(change) => setDraft({ ...draft, startTime: change.target.value })} /></label>
+          <label>Ends at<input type="time" value={draft.endTime} onChange={(change) => setDraft({ ...draft, endTime: change.target.value })} /></label>
+        </div>}
         <label>Time zone<input required maxLength={100} value={draft.timeZone} onChange={(change) => setDraft({ ...draft, timeZone: change.target.value })} /></label>
-        <label>Recurrence rule<textarea required rows={3} maxLength={2000} placeholder="FREQ=WEEKLY;BYDAY=MO" value={draft.recurrenceRule} onChange={(change) => setDraft({ ...draft, recurrenceRule: change.target.value })} /></label>
         <label>Location<input maxLength={1000} value={draft.location} onChange={(change) => setDraft({ ...draft, location: change.target.value })} /></label>
         <label>Description<textarea rows={4} maxLength={10_000} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
         <label>Planning prompt<textarea rows={3} maxLength={10_000} value={draft.planningPromptText} onChange={(change) => setDraft({ ...draft, planningPromptText: change.target.value })} /></label>
+        <RecurrenceEditor required showEnding={false} value={draft.recurrence} onChange={(recurrence) => setDraft({ ...draft, recurrence })} />
       </>}
       {error && <p className="inline-error" role="alert">{error}</p>}
       <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : creating ? "Add routine" : "Save routine"}</button></footer>
