@@ -1,5 +1,6 @@
 import type { CalendarEvent, Entity, LinkedTodo, RequestRecord, SelectedObjectCandidate } from "../types";
 import { formatDisplayDate, formatDisplayTime } from "../date-format";
+import { ObjectNetworkButton } from "./ObjectNetworkButton";
 
 export type AddAgentReference = (identity: SelectedObjectCandidate, subject: string) => void;
 
@@ -50,18 +51,21 @@ export function AgentReferenceButton({ identity, subject, onReference }: {
   onReference: AddAgentReference;
 }) {
   const label = `Reference ${subject} in Agent`;
-  return <button
-    className="agent-reference-button"
-    type="button"
-    title={label}
-    aria-label={label}
-    onClick={() => onReference(identity, subject)}
-  >
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M20 19c0-4.4-3.6-8-8-8H4" />
-      <path d="m9 6-5 5 5 5" />
-    </svg>
-  </button>;
+  return <span className="object-reference-actions">
+    <ObjectNetworkButton identity={identity} subject={subject} />
+    <button
+      className="agent-reference-button"
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={() => onReference(identity, subject)}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20 19c0-4.4-3.6-8-8-8H4" />
+        <path d="m9 6-5 5 5 5" />
+      </svg>
+    </button>
+  </span>;
 }
 
 export function exchangeIdentity(request: RequestRecord) {

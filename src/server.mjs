@@ -13,6 +13,7 @@ import { JmapClient } from "./jmap-client.mjs";
 import { DailyPaperService } from "./daily-paper.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
+import { ObjectNetworkService } from "./object-network.mjs";
 import { PaymentService } from "./payments.mjs";
 import { normalizeSelectedObjectCandidates, registerNativeObjectContextView, selectedObjectMentionsAreVisible } from "./native-object-search.mjs";
 import { createModelTransport } from "./model-transport.mjs";
@@ -137,6 +138,9 @@ if (store.status.ready) {
   });
   registerEmailReceiptTools(registry, ledger);
 }
+const objectNetwork = store.status.ready ? new ObjectNetworkService({
+  database: store.requireReady(), organizer, registry,
+}) : null;
 await mcp.initialize(registry);
 await jmap.initialize();
 if (jmap.health().ready) {
@@ -484,6 +488,21 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, organizer.searchNativeObjects({
         query: url.searchParams.get("q") || "",
         limit: url.searchParams.get("limit") || 24,
+      }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/object-network") {
+      sendJson(response, 200, objectNetwork.graph({
+        type: url.searchParams.get("type"),
+        source: url.searchParams.get("source"),
+        id: url.searchParams.get("id"),
+        ref: url.searchParams.get("ref"),
+      }));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/object-network/connections") {
+      sendJson(response, 200, await objectNetwork.setConnection(await readJson(request), {
+        actorType: "user", actorName: "object_network", source: "tailnet_web", channel: "web",
       }));
       return;
     }

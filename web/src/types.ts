@@ -179,6 +179,24 @@ export interface SelectedObjectCandidate {
   referencedRequestId?: string;
 }
 
+export interface NetworkObject {
+  type: string;
+  source: string;
+  id: number;
+  ref: string;
+  display: string;
+  label: string;
+  body?: string | null;
+  attributes: Array<{ label: string; value: string }>;
+}
+
+export interface ObjectNetworkGraph {
+  focus: NetworkObject;
+  connections: Array<{ object: NetworkObject; removable: boolean }>;
+  connectableTypes: string[];
+  truncated: boolean;
+}
+
 export interface RequestProgress {
   label: string;
   startedAtMs: number;
