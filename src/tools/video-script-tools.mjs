@@ -11,6 +11,28 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
+  "video_content_group_create": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Create or reuse one named active content-library group before adding an ordered sequence to it.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "video_content_import": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically catalog up to 50 externally hosted videos or posts with exact title-derived sequence numbers.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
   "video_content_list": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -160,6 +182,84 @@ const contentOutputSchema = {
   required: ["created", "unchanged", "content", "video"],
 };
 
+const contentGroupSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: { type: ["integer", "string"] },
+    name: { type: "string" },
+    sortPosition: { type: ["integer", "string"] },
+    archivedAtUtc: { type: ["string", "null"] },
+    createdAtUtc: { type: "string" },
+    updatedAtUtc: { type: ["string", "null"] },
+    content_group_id: { type: ["integer", "string"] },
+    content_group_ref: { type: "string" },
+    content_group_name: { type: "string" },
+  },
+  required: [
+    "id", "name", "sortPosition", "archivedAtUtc", "createdAtUtc", "updatedAtUtc",
+    "content_group_id", "content_group_ref", "content_group_name",
+  ],
+};
+
+const contentGroupCreateOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    created: { type: "boolean" },
+    unchanged: { type: "boolean" },
+    group: contentGroupSchema,
+  },
+  required: ["created", "unchanged", "group"],
+};
+
+const importedContentSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: { type: "integer" },
+    groupId: { type: "integer" },
+    sequence: { type: ["integer", "null"] },
+    contentType: { type: "string" },
+    title: { type: "string" },
+    publishedAtUtc: { type: "string" },
+    contentHost: { type: "string" },
+    contentStatus: { type: "string" },
+    contentUrl: { type: "string" },
+    content_id: { type: "integer" },
+    content_ref: { type: "string" },
+    content_title: { type: "string" },
+  },
+  required: [
+    "id", "groupId", "sequence", "contentType", "title", "publishedAtUtc",
+    "contentHost", "contentStatus", "contentUrl",
+    "content_id", "content_ref", "content_title",
+  ],
+};
+
+const contentImportOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    group: contentGroupSchema,
+    importedCount: { type: "integer" },
+    unchangedCount: { type: "integer" },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          status: { type: "string", enum: ["imported", "unchanged"] },
+          content: importedContentSchema,
+        },
+        required: ["status", "content"],
+      },
+    },
+  },
+  required: ["group", "importedCount", "unchangedCount", "items"],
+};
+
 const contentListItemSchema = {
   type: "object",
   additionalProperties: false,
@@ -197,23 +297,7 @@ const contentListOutputSchema = {
   additionalProperties: false,
   properties: {
     group: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: { type: ["integer", "string"] },
-        name: { type: "string" },
-        sortPosition: { type: ["integer", "string"] },
-        archivedAtUtc: { type: ["string", "null"] },
-        createdAtUtc: { type: "string" },
-        updatedAtUtc: { type: ["string", "null"] },
-        content_group_id: { type: ["integer", "string"] },
-        content_group_ref: { type: "string" },
-        content_group_name: { type: "string" },
-      },
-      required: [
-        "id", "name", "sortPosition", "archivedAtUtc", "createdAtUtc", "updatedAtUtc",
-        "content_group_id", "content_group_ref", "content_group_name",
-      ],
+      ...contentGroupSchema,
     },
     textFields: {
       type: "array", minItems: 1, maxItems: 2, uniqueItems: true,
@@ -320,6 +404,107 @@ export function registerVideoScriptTools(
 
   if (videoContent) {
     capabilityRegistry.register({
+      name: "video_content_group_create",
+      title: "Create a content-library group",
+      description: "Create one named active content-library group, or return the unchanged active group when its exact name already exists. An archived group with that name is a conflict and is never silently restored. The returned group carries its stable native ID, reference, and display name so a later content mutation can consume the exact new binding.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: {
+            type: "string", minLength: 1, maxLength: 200,
+            description: "Complete human-facing name for the content-library group.",
+          },
+        },
+        required: ["name"],
+      },
+      outputSchema: contentGroupCreateOutputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      execute(args) {
+        const result = videoContent.createGroup(args);
+        return { ...result, group: identifiedContentGroup(result.group) };
+      },
+    });
+
+    capabilityRegistry.register({
+      name: "video_content_import",
+      title: "Import an external content sequence",
+      description: "Atomically catalog a bounded batch of 1 through 50 externally hosted videos or their canonical post pages in one exact active content-library group. Supply the exact positive sequence number printed in each source title, or null when the title has no sequence number; the tool never invents sequence from batch or archive order. contentUrl is the idempotency key within the destination group: exact replays are unchanged, while a differing replay, duplicate URL, or duplicate non-null sequence rejects the complete call without partial writes. Use unknown when the existing content-type vocabulary does not precisely describe a video. This tool stores text metadata and the source URL only; it does not download, render, or publish the video.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          groupId: { type: "integer", minimum: 1, description: "The exact active destination content-group ID." },
+          items: {
+            type: "array", minItems: 1, maxItems: 50,
+            description: "The complete intended metadata batch; array order does not determine sequence.",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                sequence: {
+                  type: ["integer", "null"], minimum: 1,
+                  description: "Exact positive sequence number printed in the source title, or null when the title has no sequence number.",
+                },
+                title: { type: "string", minLength: 1, maxLength: 10_000 },
+                description: { type: ["string", "null"], maxLength: 10_000 },
+                transcript: { type: ["string", "null"], maxLength: 50_000 },
+                publishedAtUtc: {
+                  type: "string", minLength: 1, maxLength: 64,
+                  description: "Source-reported ISO-8601 publication date or instant. A date without a reported time is normalized to midnight UTC as a storage representation, without claiming the source reported that time.",
+                },
+                contentHost: {
+                  type: "string", enum: ["youtube", "vimeo", "spotify", "mytlomdotcom", "none"],
+                  description: "Known external media host; use none when the canonical URL is a post page or no named host applies.",
+                },
+                contentType: {
+                  type: "string",
+                  enum: [
+                    "mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad",
+                    "video_ad", "podcast", "image", "unknown",
+                  ],
+                },
+                contentUrl: {
+                  type: "string", minLength: 1, maxLength: 2048,
+                  description: "Canonical HTTP(S) URL for this source item; unique within the supplied batch.",
+                },
+              },
+              required: [
+                "sequence", "title", "description", "transcript", "publishedAtUtc",
+                "contentHost", "contentType", "contentUrl",
+              ],
+            },
+          },
+        },
+        required: ["groupId", "items"],
+      },
+      outputSchema: contentImportOutputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      execute(args, context) {
+        const result = videoContent.importSequence(args, { ...context, actorName: "video_content_import" });
+        return {
+          group: identifiedContentGroup(result.group),
+          importedCount: result.importedCount,
+          unchangedCount: result.unchangedCount,
+          items: result.items.map(({ status, content }) => ({
+            status,
+            content: identifiedContentItem({
+              id: Number(content.id),
+              groupId: Number(content.groupId),
+              sequence: content.sequence == null ? null : Number(content.sequence),
+              contentType: content.contentType,
+              title: content.title,
+              publishedAtUtc: content.publishedAtUtc,
+              contentHost: content.contentHost,
+              contentStatus: content.contentStatus,
+              contentUrl: content.contentUrl,
+            }),
+          })),
+        };
+      },
+    });
+
+    capabilityRegistry.register({
       name: "video_content_list",
       title: "Read a content-library sequence",
       description: "Read one active content-library group's numbered items in ascending sequence order. Pass afterSequence 0 for the first page and nextAfterSequence for each continuation. Select description, transcript, or both in textFields; omitted textFields defaults to both. Each selected field is returned as a bounded excerpt with its exact source length and truncation flag. Unselected text is not read. Unnumbered items are excluded.",
@@ -425,7 +610,7 @@ export function registerVideoScriptTools(
   if (videoContent) registry.registerContextView("video", {
     id: "video.content_groups",
     title: "Active content-library groups",
-    description: "The bounded active destination groups available when the user wants to add an already-completed generated video to a content sequence.",
+    description: "The bounded active destination groups available for reading or changing a content-library sequence. If no group matches a requested new library, use the owned group-creation tool rather than inventing an ID.",
     maximumItems: 200,
     execute() {
       const groups = videoContent.listGroups().slice(0, 200);

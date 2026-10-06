@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 47.
+-- Target: MariaDB 10.11, schema version 49.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -265,25 +265,6 @@ CREATE TABLE journal1_groups (
     CONSTRAINT journal_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)
 ) ENGINE=InnoDB COMMENT='Defines broad named groups that organize the user''s personal trackers. One row represents one organizational group such as Health, Home, or General. Groups organize trackers but do not identify individual observations. Group names are unique without regard to letter case. Sensitivity: Group names may reveal private areas of the user''s life and health.';
 
-CREATE TABLE interaction_guides (
-    -- sourceOfTruth: true
-    -- synonyms: ["conversation guides", "guided interactions", "interaction plans"]
-    -- keywords: ["guide", "structured interaction", "check-in", "briefing", "summary", "review"]
-
-    interaction_guide_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one interaction guide.',
-    name                  VARCHAR(200) NOT NULL COMMENT 'User-facing unique name used to select the guide without loading its text. Names are unique without regard to letter case.',
-    status                ENUM('active', 'archived') NOT NULL DEFAULT 'active' COMMENT 'Lifecycle state controlling whether the guide is available for new guided interactions. active: The guide is available to inspect, edit, start, and link from a repeating to-do. archived: The guide is retained as history but unavailable for new links or starts.',
-    version               BIGINT NOT NULL DEFAULT 1 COMMENT 'Monotonically increasing optimistic-concurrency version for agent and UI edits. Units: revision number. An update or archive must match the current version and increments it on success.',
-    created_at_utc        DATETIME(3) NOT NULL
-                          DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the interaction guide was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
-    updated_at_utc        DATETIME(3) COMMENT 'UTC timestamp of the most recent successful guide update or archival, when one has occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
-    PRIMARY KEY (interaction_guide_id),
-    UNIQUE KEY interaction_guides_name (name),
-    KEY interaction_guides_status_name (status, name, interaction_guide_id),
-    CONSTRAINT interaction_guides_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200),
-    CONSTRAINT interaction_guides_version CHECK (version > 0)
-) ENGINE=InnoDB COMMENT='Stores named, versioned containers for durable user-owned structured interactions. One row represents one named interaction guide whose complete interaction content is defined by its numbered steps. Numbered steps are loaded only when the user explicitly asks to use, inspect, or change that exact guide. A guide describes an interaction but does not own a schedule or recurrence. A personal to-do may reference a guide directly. Sensitivity: Contains private preferences, questions, and instructions for the user''s personal interactions with the agent.';
-
 CREATE TABLE todo_groups (
     -- sourceOfTruth: true
     -- synonyms: ["todo groups", "task groups", "projects"]
@@ -457,41 +438,6 @@ CREATE TABLE calendar_event_contacts_join (
     CONSTRAINT calendar_event_contacts_contact FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE CASCADE
 ) ENGINE=InnoDB COMMENT='Associates contacts with calendar events while preserving each contact''s participant role and response. One row states that one contact participates in one calendar event in one specific role. The same contact may appear more than once on an event only when the participant role differs. Sensitivity: May reveal a person''s schedule, attendance, and relationship to an event.';
 
-CREATE TABLE interaction_guide_steps (
-    -- sourceOfTruth: true
-    -- synonyms: ["structured conversation steps", "scripted questions", "interaction prompts"]
-    -- keywords: ["numbered step", "opening question", "answers", "structured interaction"]
-    -- contract_json synonyms: ["exchange contract", "destination contract"]
-    -- contract_json keywords: ["instructions", "inputs", "operations", "recovery reads", "completion"]
-    -- progress_state keywords: ["resume state", "step progress"]
-    -- fk:interaction_guide_steps_guide meaning: Each numbered step belongs to exactly one interaction guide; deleting a guide deletes its child step definitions.
-    -- fk:interaction_guide_steps_guide cardinality: many interaction_guide_steps to one interaction_guides
-    -- fk:interaction_guide_steps_guide importantRules: ["Definition tools update the parent guide version in the same transaction as a child step change."]
-
-    interaction_guide_step_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one numbered interaction-guide step.',
-    interaction_guide_id       BIGINT UNSIGNED NOT NULL COMMENT 'Identifier of the parent interaction guide that owns this step and its definition version.',
-    step_number                BIGINT NOT NULL COMMENT 'Positive user-facing number ordering this step within its guide. Units: ordinal number. Format: positive integer. Numbers may contain gaps; completion advances to the next higher enabled number rather than assuming current plus one.',
-    opening_text               TEXT NOT NULL COMMENT 'Fixed opening text that begins this step every time it becomes current. Present this text literally rather than asking the model to paraphrase it.',
-    contract_json              LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
-                               DEFAULT '{"version":1,"instructions":null,"inputs":[],"operations":[],"recoveryReads":[],"completion":{"mode":"response_valid"}}' COMMENT 'Versioned JSON contract containing optional explanatory instructions plus authoritative typed inputs, exact destination operations and argument bindings, bounded recovery reads, and the completion rule. Format: JSON object, contract version 1, at most 200000 characters. Free-text instructions may explain structured fields but cannot introduce undeclared inputs, tools, destinations, recovery actions, or completion requirements. Every destination mutation names its exact application tool and argument template in operations. The completion mode is contract data, not a separate exchange column. Sensitivity: May contain private workflow instructions and destination identifiers.',
-    answers_json               LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT '{}' COMMENT 'JSON object containing answers the user has actually supplied for this step in the current run, keyed by concise stable answer names. Format: JSON object, at most 100000 characters. Merge partial answers without discarding answers already collected in the active run. A completed run clears this object only after that run''s progress has been retained in activity_events. Answers do not replace business validation or successful receipts from the tools that own destination data. Sensitivity: Contains private user answers that may span any domain covered by the structured interaction.',
-    enabled                    TINYINT NOT NULL DEFAULT 1 COMMENT 'Whether new and active runs include this step when selecting the current and next higher numbered step. 0: The definition is retained but skipped by runs. 1: The step participates in runs.',
-    created_at_utc             DATETIME(3) NOT NULL
-                               DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this numbered interaction-guide step was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
-    updated_at_utc             DATETIME(3) COMMENT 'UTC timestamp of the most recent definition or current-answer update to this step, when one has occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
-    progress_state             ENUM('pending', 'active', 'completed') NOT NULL DEFAULT 'pending' COMMENT 'Current-run progress for this step, used to resume an interrupted structured interaction at exactly one active step. pending: The current run has not yet completed this step. active: This is the current step to present or continue. completed: The current run completed this step and advanced beyond it. The interaction-guide service owns transitions; definition tools do not write this field directly. Run completion or explicit cancellation resets current progress only after immutable history is retained in activity_events.',
-    PRIMARY KEY (interaction_guide_step_id),
-    UNIQUE KEY interaction_guide_steps_number (interaction_guide_id, step_number),
-    KEY interaction_guide_steps_guide_order (interaction_guide_id, enabled, step_number),
-    KEY interaction_guide_steps_guide_progress (interaction_guide_id, progress_state, enabled, step_number),
-    CONSTRAINT interaction_guide_steps_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE CASCADE,
-    CONSTRAINT interaction_guide_steps_step CHECK (step_number > 0),
-    CONSTRAINT interaction_guide_steps_opening CHECK (CHAR_LENGTH(TRIM(opening_text)) BETWEEN 1 AND 10000),
-    CONSTRAINT interaction_guide_steps_contract CHECK (JSON_VALID(contract_json)),
-    CONSTRAINT interaction_guide_steps_answers CHECK (JSON_VALID(answers_json)),
-    CONSTRAINT interaction_guide_steps_enabled CHECK (enabled IN (0, 1))
-) ENGINE=InnoDB COMMENT='Stores each reusable exchange''s literal opening, authoritative structured contract, current answers, and resumable progress. One row is one complete numbered interaction step and its mutable current-run state. The parent interaction_guides.version is the only definition concurrency version and increments when any exchange definition changes. The contract''s structured inputs, operations, recovery reads, and completion rule are authoritative; explanatory instructions cannot introduce undeclared behavior. A run remains on its current exchange until the contract completion rule is satisfied, then advances to the next higher enabled number. Completing a run preserves its progress in activity_events, then immediately resets answers_json and progress_state for the next run. Generic database reads and writes must not expose or mutate these private rows; use the owning interaction-guide tools. Sensitivity: Contains private scripted openings, reusable execution contracts, and the user''s current answers.';
-
 CREATE TABLE todo_personal (
     -- sourceOfTruth: true
     -- synonyms: ["personal to-dos", "to-do list", "tasks"]
@@ -505,9 +451,6 @@ CREATE TABLE todo_personal (
     -- fk:todo_personal_group meaning: Places each personal task in its required to-do group.
     -- fk:todo_personal_group cardinality: Each task belongs to exactly one group; one group may contain multiple tasks.
     -- fk:todo_personal_group importantRules: ["A group cannot be deleted while tasks still belong to it."]
-    -- fk:todo_personal_guide meaning: Associates this personal to-do with an optional interaction guide offered when work begins.
-    -- fk:todo_personal_guide cardinality: Each to-do references zero or one interaction guide; one guide may be used by many to-dos.
-    -- fk:todo_personal_guide importantRules: ["Deleting the guide preserves the to-do and clears this optional reference."]
     -- fk:todo_personal_source meaning: Links a personal task to the optional observable activity event that created or imported it.
     -- fk:todo_personal_source cardinality: Each task references zero or one source event; one event may create multiple tasks.
     -- fk:todo_personal_source importantRules: ["Deleting an activity event preserves the task and clears this optional reference."]
@@ -526,7 +469,6 @@ CREATE TABLE todo_personal (
     created_at_utc       DATETIME(3) NOT NULL
                          DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this task occurrence was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     updated_at_utc       DATETIME(3) COMMENT 'UTC instant of this task occurrence’s most recent material update; null until first updated. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
-    interaction_guide_id BIGINT UNSIGNED COMMENT 'Optional interaction guide offered when the user starts this task. The task owns this association independently of calendar placement.',
     planning_prompt_text TEXT COMMENT 'Optional question the agent should proactively ask to help turn this task into a concrete plan. Format: Plain text question. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status.',
     billable_amount_minor BIGINT UNSIGNED COMMENT 'Optional fixed amount currently assigned to this work item, expressed in the smallest unit of billable_currency. Null means the task is not currently priced. Issued invoices retain their own immutable line snapshot when this value later changes.',
     billable_currency     CHAR(3) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Uppercase ISO 4217 currency code for billable_amount_minor. It is null exactly when no billable amount is assigned.',
@@ -538,7 +480,6 @@ CREATE TABLE todo_personal (
     KEY todo_personal_contact (related_contact_id, status),
     CONSTRAINT todo_personal_group FOREIGN KEY (todo_group_id) REFERENCES todo_groups(todo_group_id) ON DELETE RESTRICT,
     CONSTRAINT todo_personal_contact_fk FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
-    CONSTRAINT todo_personal_guide FOREIGN KEY (interaction_guide_id) REFERENCES interaction_guides(interaction_guide_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_sequence CHECK (sequence IS NULL OR sequence > 0),
     CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000),
@@ -793,6 +734,27 @@ CREATE TABLE content_items (
     CONSTRAINT content_items_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT content_items_sequence CHECK (sequence IS NULL OR sequence > 0)
 ) ENGINE=InnoDB COMMENT='Catalogs the user''s own content and reference material from other creators in one searchable structure. One row represents one work or source item, such as a video, book, article, podcast, image, document, course, or website. Every content item belongs to exactly one content group. sequence is an optional stable positive number unique within a content group. relationship_to_user distinguishes the user''s authored or planned work from reference material. transcript preserves source speech or text; personal_notes preserves the user''s reaction or intended use. Sensitivity: May contain private drafts, transcripts, reading history, personal notes, and source metadata.';
+
+CREATE TABLE todo_content_join (
+    -- sourceOfTruth: true
+    -- synonyms: ["to-do content", "task library items", "task references"]
+    -- keywords: ["to-do", "task", "content item", "library item", "linked content"]
+    -- fk:todo_content_join_task meaning: Connects this association to the personal to-do identified by personal_task_id.
+    -- fk:todo_content_join_task cardinality: Each association references exactly one personal to-do; one to-do may be associated with many content items.
+    -- fk:todo_content_join_task importantRules: ["Deleting a to-do deletes only its dependent content associations, never the content items."]
+    -- fk:todo_content_join_content meaning: Connects this association to the content-library item identified by content_id.
+    -- fk:todo_content_join_content cardinality: Each association references exactly one content item; one content item may be associated with many personal to-dos.
+    -- fk:todo_content_join_content importantRules: ["Deleting a content item deletes only its dependent to-do associations, never the to-dos."]
+
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing personal to-do associated with the content-library item.',
+    content_id       BIGINT UNSIGNED NOT NULL COMMENT 'Existing content-library item associated with the personal to-do.',
+    created_at_utc   DATETIME(3) NOT NULL
+                     DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (personal_task_id, content_id),
+    KEY todo_content_join_content (content_id, personal_task_id),
+    CONSTRAINT todo_content_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT todo_content_join_content FOREIGN KEY (content_id) REFERENCES content_items(content_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Associates personal to-dos with content-library items. Each pair appears once; either record may have many associations. Deleting either parent removes only its dependent association rows. This table stores relationships, not task or library content.';
 
 CREATE TABLE video_scripts (
     -- sourceOfTruth: true
@@ -1218,7 +1180,6 @@ CREATE VIEW open_todo_personal AS
 -- source_event_id inheritsFrom: todo_personal.source_event_id
 -- created_at_utc inheritsFrom: todo_personal.created_at_utc
 -- updated_at_utc inheritsFrom: todo_personal.updated_at_utc
--- interaction_guide_id inheritsFrom: todo_personal.interaction_guide_id
 -- planning_prompt_text inheritsFrom: todo_personal.planning_prompt_text
 
 SELECT * FROM todo_personal
@@ -1357,4 +1318,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 47, 'Chapeaux Fous MariaDB database');
+VALUES (1, 49, 'Chapeaux Fous MariaDB database');

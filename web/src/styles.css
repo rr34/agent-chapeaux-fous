@@ -228,6 +228,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-preview[open] summary { margin-bottom: 24px; }
 
 .inline-create { display: flex; gap: 8px; min-width: min(420px, 100%); }
+.section-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
+.section-select-filter { display: grid; grid-template-columns: auto minmax(140px, 190px); align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.section-select-filter select { padding-block: 8px; }
 .todo-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
 .todo-group-filter { display: grid; grid-template-columns: auto minmax(140px, 190px); align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .todo-group-filter select { padding-block: 8px; }
@@ -360,9 +363,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-section-heading h2 { margin: 0; font: 600 12pt "Newsreader", Georgia, serif; }
 .paper-section-heading small { color: #72796d; font-size: 5.6pt; }
 .daily-paper .timeline-list { margin-top: .1in; }
-.daily-paper .timeline-list li { grid-template-columns: .92in 1fr; gap: .06in; padding-bottom: .09in; }
-.daily-paper .timeline-list li:not(:last-child)::after { left: .915in; top: .12in; }
-.daily-paper .timeline-list time { font-size: 6.2pt; white-space: nowrap; }
+.daily-paper .timeline-list li { grid-template-columns: .62in 1fr; gap: .06in; padding-bottom: .09in; }
+.daily-paper .timeline-list li:not(:last-child)::after { left: .615in; top: .12in; }
+.daily-paper .timeline-list time { font-size: 6.2pt; text-align: left; white-space: nowrap; }
 .daily-paper .timeline-list .timeline-event-item { padding-left: .09in; }
 .daily-paper .timeline-list .timeline-event-item::before { width: .045in; height: .045in; left: -.025in; top: .045in; box-shadow: 0 0 0 2px #fffefa; }
 .daily-paper .timeline-list strong { font-size: 7.4pt; }
@@ -449,6 +452,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .trace-actions .button { min-height: 36px; padding: 7px 10px; }
   .trace-events { padding: 10px; }
   .inline-create { min-width: 100%; }
+  .section-heading-actions { align-items: stretch; flex-direction: column; width: 100%; }
+  .section-select-filter { grid-template-columns: auto 1fr; }
   .todo-heading-actions { align-items: stretch; flex-direction: column; width: 100%; }
   .todo-group-filter { grid-template-columns: auto 1fr; }
   .todo-completed-filter { min-height: 40px; }

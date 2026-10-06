@@ -2840,6 +2840,159 @@ export class OrganizerStore {
     }
   }
 
+  importContentSequence(input, context = {}) {
+    const groupId = identifier(input?.groupId, "content group id");
+    if (!Array.isArray(input?.items) || input.items.length < 1 || input.items.length > 50) {
+      throw new OrganizerInputError("items must contain 1 through 50 content items.");
+    }
+    const items = input.items.map((entry, index) => {
+      const contentUrl = httpUrl(entry?.contentUrl, `items[${index}].contentUrl`);
+      if (!contentUrl) throw new OrganizerInputError(`items[${index}].contentUrl is required.`);
+      return {
+        sequence: optionalPositiveInteger(entry?.sequence, `items[${index}].sequence`),
+        contentType: enumValue(
+          entry?.contentType, contentTypes, `items[${index}].contentType`, "unknown",
+        ),
+        title: requiredText(entry?.title, `items[${index}].title`, 10_000),
+        transcript: optionalText(entry?.transcript, `items[${index}].transcript`, 50_000),
+        description: optionalText(entry?.description, `items[${index}].description`, 10_000),
+        publishedAtUtc: isoDateTime(
+          entry?.publishedAtUtc, `items[${index}].publishedAtUtc`, { required: true },
+        ),
+        contentHost: enumValue(
+          entry?.contentHost, contentHosts, `items[${index}].contentHost`, "none",
+        ),
+        contentUrl,
+      };
+    });
+    const urls = items.map(({ contentUrl }) => contentUrl);
+    if (new Set(urls).size !== urls.length) {
+      throw new OrganizerInputError("items cannot contain duplicate contentUrl values.");
+    }
+    const numberedSequences = items
+      .map(({ sequence }) => sequence)
+      .filter((sequence) => sequence !== null);
+    if (new Set(numberedSequences).size !== numberedSequences.length) {
+      throw new OrganizerInputError("items cannot contain duplicate non-null sequence values.");
+    }
+    const suppliedTextCharacters = items.reduce((total, item) => (
+      total + item.title.length + (item.description?.length ?? 0) + (item.transcript?.length ?? 0)
+    ), 0);
+    if (suppliedTextCharacters > 200_000) {
+      throw new OrganizerInputError("The import cannot contain more than 200000 text characters.");
+    }
+
+    this.database.exec("START TRANSACTION");
+    try {
+      const group = this.database.prepare(`
+        SELECT * FROM content_groups
+        WHERE content_group_id = ? AND archived_at_utc IS NULL
+        FOR UPDATE
+      `).get(groupId);
+      if (!group) throw new OrganizerInputError("Content group not found.", 404);
+
+      const existingRows = this.database.prepare(`
+        SELECT content.*, content_group.name AS group_name,
+               content_group.archived_at_utc AS group_archived_at_utc
+        FROM content_items AS content
+        JOIN content_groups AS content_group USING (content_group_id)
+        WHERE content.content_group_id = ? AND content.content_url IN (${items.map(() => "?").join(", ")})
+        ORDER BY content.content_id
+      `).all(groupId, ...urls).map(publicContent);
+      const existingByUrl = new Map();
+      for (const existing of existingRows) {
+        const matches = existingByUrl.get(existing.contentUrl) ?? [];
+        matches.push(existing);
+        existingByUrl.set(existing.contentUrl, matches);
+      }
+      for (const [url, matches] of existingByUrl) {
+        if (matches.length > 1) {
+          throw new OrganizerInputError(
+            `The destination already contains more than one item for ${url}; resolve the duplicates before importing.`,
+            409,
+          );
+        }
+      }
+
+      const insert = this.database.prepare(`
+        INSERT INTO content_items (
+          content_group_id, sequence, content_type, title, transcript, description,
+          published_at_utc, content_host, content_status, content_url, created_at_utc
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+      `);
+      const outcomes = [];
+      const createdIds = [];
+      const now = new Date().toISOString();
+      for (const item of items) {
+        const existing = existingByUrl.get(item.contentUrl)?.[0] ?? null;
+        if (existing) {
+          const existingPublishedAt = new Date(existing.publishedAtUtc).toISOString();
+          const unchanged = existing.sequence === item.sequence
+            && existing.contentType === item.contentType
+            && existing.title === item.title
+            && existing.transcript === item.transcript
+            && existing.description === item.description
+            && existingPublishedAt === item.publishedAtUtc
+            && existing.contentHost === item.contentHost
+            && existing.contentStatus === "active";
+          if (!unchanged) {
+            throw new OrganizerInputError(
+              `The destination already contains different content for ${item.contentUrl}.`,
+              409,
+            );
+          }
+          outcomes.push({ status: "unchanged", content: existing });
+          continue;
+        }
+        const inserted = insert.run(
+          groupId, item.sequence, item.contentType, item.title, item.transcript,
+          item.description, item.publishedAtUtc, item.contentHost, item.contentUrl, now,
+        );
+        const content = this.getContent(Number(inserted.lastInsertRowid));
+        createdIds.push(content.id);
+        outcomes.push({ status: "imported", content });
+      }
+
+      const importedCount = outcomes.filter(({ status }) => status === "imported").length;
+      const unchangedCount = outcomes.length - importedCount;
+      if (createdIds.length) {
+        const eventId = this.#activity({
+          eventType: "content.sequence_imported", status: "complete",
+          actorType: context.actorName ? "tool" : "user",
+          actorName: context.actorName ?? "Nate",
+          source: context.actorName ? "agent-slayer" : "tailnet_web",
+          channel: context.channel ?? "tailnet_web",
+          turnId: context.requestId ?? null,
+          operationId: context.callId ?? null,
+          name: "Content sequence imported",
+          subjectType: "content_group", subjectId: groupId,
+          contentText: `${group.name}: ${importedCount} imported, ${unchangedCount} unchanged`,
+          payload: { groupId, importedCount, unchangedCount, contentIds: createdIds },
+        });
+        this.database.prepare(`
+          UPDATE content_items SET source_event_id = ?
+          WHERE content_id IN (${createdIds.map(() => "?").join(", ")})
+        `).run(eventId, ...createdIds);
+      }
+      this.database.exec("COMMIT");
+      return {
+        group: publicContentGroup(group),
+        importedCount,
+        unchangedCount,
+        items: outcomes.map(({ status, content }) => ({
+          status,
+          content: status === "imported" ? this.getContent(content.id) : content,
+        })),
+      };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("content_items.content_group_id, content_items.sequence")) {
+        throw new OrganizerInputError("That sequence is already used in this content group.", 409);
+      }
+      throw error;
+    }
+  }
+
   addRenderedVideoToContentSequence(input) {
     const item = {
       groupId: identifier(input?.groupId, "content group id"),

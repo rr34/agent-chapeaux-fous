@@ -80,6 +80,8 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("video_production_create")), "video");
   assert.equal(capabilityForTool(tool("video_content_list")), "video");
   assert.equal(capabilityForTool(tool("video_content_add")), "video");
+  assert.equal(capabilityForTool(tool("video_content_group_create")), "video");
+  assert.equal(capabilityForTool(tool("video_content_import")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
   assert.equal(capabilityForTool(tool("file_read")), "files");
 });
@@ -121,6 +123,33 @@ test("a content-library summary request selects the sequence read tool", () => {
   });
   assert.equal(selection.capabilities.includes("video"), true);
   assert.equal(names(selection).includes("video_content_list"), true);
+  assert.equal(selection.fallbackAll, false);
+});
+
+test("linking a to-do to library content selects both owning capability families", () => {
+  const selection = selectRequestCapabilities({
+    tools: [...tools, tool("todo_content_link_set"), tool("video_content_list")],
+    text: "Link my launch checklist task to the tutorial in my content library.",
+  });
+  assert.equal(selection.capabilities.includes("todos"), true);
+  assert.equal(selection.capabilities.includes("video"), true);
+  assert.equal(names(selection).includes("todo_content_link_set"), true);
+  assert.equal(names(selection).includes("video_content_list"), true);
+});
+
+test("an external video-series library request selects the video and web families", () => {
+  const selection = selectRequestCapabilities({
+    tools: [
+      ...tools,
+      tool("video_content_group_create"),
+      tool("video_content_import"),
+    ],
+    text: "Read every post at https://example.com/video-series/ and make a sequenced content library.",
+  });
+  assert.equal(selection.capabilities.includes("web"), true);
+  assert.equal(selection.capabilities.includes("video"), true);
+  assert.equal(names(selection).includes("video_content_group_create"), true);
+  assert.equal(names(selection).includes("video_content_import"), true);
   assert.equal(selection.fallbackAll, false);
 });
 
@@ -433,14 +462,12 @@ test("native database reads are always callable while database writes require ex
 
   const registry = new ToolRegistry();
   registerDatabaseTools(registry, {}, {}, null);
-  const databaseWrite = requestCapabilityCatalog(registry.toolDefinitions())
-    .find(({ capability }) => capability === "database-write")
-    .tools.find(({ name }) => name === "database_write");
-  assert.equal(databaseWrite.operations.exhaustive, true);
-  assert.deepEqual(databaseWrite.operations.entries.map(({ name }) => name), [
-    "insert", "update", "delete",
-  ]);
-  assert.equal(databaseWrite.annotations, undefined);
+  assert.equal(registry.toolDefinitions().some(({ name }) => name === "database_write"), false);
+  assert.equal(
+    requestCapabilityCatalog(registry.toolDefinitions())
+      .some(({ capability }) => capability === "database-write"),
+    false,
+  );
 });
 
 test("an explicit plural email request does not inherit an unrelated prior topic from incidental pronouns", () => {

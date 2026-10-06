@@ -53,7 +53,7 @@ const capabilitySummaries = new Map([
   ["web", "Read specific web pages supplied by URL."],
   ["calendar", "Read and manage calendar events, deadlines, reusable routines, generated events, and event-to-do links."],
   ["contacts", "Search, import, update addresses, tag, and merge contacts."],
-  ["todos", "Read and manage non-temporal native personal to-dos."],
+  ["todos", "Read and manage non-temporal native personal to-dos and their content-library links."],
   ["journal", "Read, record, and correct journal entries and trackers."],
   ["profile", "Read and maintain durable profile facts."],
   ["files", "Find, retrieve, inspect, and safely transform durable text and tabular uploads."],
@@ -61,7 +61,7 @@ const capabilitySummaries = new Map([
   ["database-write", "Write supported native application data; read-only database access is already callable."],
   ["history", "Search prior Agent Slayer conversations."],
   ["email", "Read, draft, send, organize, and clean up email."],
-  ["video", "Read ordered content-library sequences, create source-grounded video scripts and Agent-interface MP4 productions, or add a completed generated video to a sequence."],
+  ["video", "Create and read ordered content libraries, import external video/post sequences, create source-grounded video scripts and Agent-interface MP4 productions, or add a completed generated video to a sequence."],
   ["search", "Search across calendar, contacts, durable uploads, and conversation history with compact normalized results."],
 ]);
 

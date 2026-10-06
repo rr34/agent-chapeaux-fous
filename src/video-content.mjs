@@ -18,6 +18,28 @@ export class VideoContent {
     return this.organizer.listSequencedContent(input);
   }
 
+  createGroup({ name }) {
+    const selectedName = String(name ?? "").trim();
+    const existing = this.organizer.listContentGroups({ includeArchived: true })
+      .find((group) => group.name === selectedName);
+    if (existing?.archivedAtUtc) {
+      throw Object.assign(
+        new Error(`A content-library group named ${selectedName} is archived; restore or rename it before creating another.`),
+        { statusCode: 409 },
+      );
+    }
+    if (existing) return { created: false, unchanged: true, group: existing };
+    return {
+      created: true,
+      unchanged: false,
+      group: this.organizer.createContentGroup({ name: selectedName }),
+    };
+  }
+
+  importSequence(input, context = {}) {
+    return this.organizer.importContentSequence(input, context);
+  }
+
   add({ videoScriptId, groupId }, context = {}) {
     const scriptId = positiveInteger(videoScriptId, "Video script ID");
     const selectedGroupId = positiveInteger(groupId, "Content group ID");

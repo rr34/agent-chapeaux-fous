@@ -24,6 +24,65 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("to-do content join integrity requires the table, columns, and both parent relationships", async () => {
+  const expectedColumns = [
+    { TABLE_NAME: "todo_content_join", COLUMN_NAME: "personal_task_id" },
+    { TABLE_NAME: "todo_content_join", COLUMN_NAME: "content_id" },
+    { TABLE_NAME: "todo_content_join", COLUMN_NAME: "created_at_utc" },
+  ];
+  const expectedKeys = [
+    { TABLE_NAME: "todo_content_join", COLUMN_NAME: "personal_task_id", REFERENCED_TABLE_NAME: "todo_personal", REFERENCED_COLUMN_NAME: "personal_task_id" },
+    { TABLE_NAME: "todo_content_join", COLUMN_NAME: "content_id", REFERENCED_TABLE_NAME: "content_items", REFERENCED_COLUMN_NAME: "content_id" },
+  ];
+  const connection = ({ tables = [{ TABLE_NAME: "todo_content_join", TABLE_TYPE: "BASE TABLE" }], columns = expectedColumns, keys = expectedKeys } = {}) => ({
+    async query(sql, parameters) {
+      assert.equal(parameters[0], "test_database");
+      if (sql.includes("information_schema.TABLES")) return [tables];
+      if (sql.includes("information_schema.COLUMNS")) return [columns];
+      if (sql.includes("information_schema.KEY_COLUMN_USAGE")) return [keys];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+  await assertMigrationSpecificIntegrity(connection(), { version: 49 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ tables: [] }), { version: 49 }, "test_database"),
+    /missing todo_content_join/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: expectedColumns.slice(1) }), { version: 49 }, "test_database"),
+    /missing todo_content_join\.personal_task_id/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ keys: expectedKeys.slice(1) }), { version: 49 }, "test_database"),
+    /missing todo_content_join\.personal_task_id to todo_personal relationship/u,
+  );
+});
+
+test("interaction-guide retirement integrity rejects every surviving schema artifact", async () => {
+  const connection = ({ tables = [], columns = [], constraints = [] } = {}) => ({
+    async query(sql, parameters) {
+      assert.equal(parameters[0], "test_database");
+      if (sql.includes("information_schema.TABLES")) return [tables];
+      if (sql.includes("information_schema.COLUMNS")) return [columns];
+      if (sql.includes("information_schema.TABLE_CONSTRAINTS")) return [constraints];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+  await assertMigrationSpecificIntegrity(connection(), { version: 48 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ tables: [{ TABLE_NAME: "interaction_guides" }] }), { version: 48 }, "test_database"),
+    /retained obsolete table interaction_guides/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: [{ COLUMN_NAME: "interaction_guide_id" }] }), { version: 48 }, "test_database"),
+    /retained todo_personal\.interaction_guide_id/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ constraints: [{ CONSTRAINT_NAME: "todo_personal_guide" }] }), { version: 48 }, "test_database"),
+    /retained todo_personal_guide/u,
+  );
+});
+
 test("join rename integrity rejects missing, legacy, and non-table destinations", async () => {
   const expected = Object.values(joinTableRenames).map(TABLE_NAME => ({ TABLE_NAME, TABLE_TYPE: "BASE TABLE" }));
   let rows = expected;
@@ -285,11 +344,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47]);
-  for (let current = 29; current <= 47; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
+  for (let current = 29; current <= 49; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 47 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 49 - current }, (_, index) => current + index + 1),
     );
   }
 });

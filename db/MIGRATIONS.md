@@ -11,6 +11,31 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 49: Join to-dos to library content
+
+Adds `todo_content_join` as the authoritative many-to-many relationship between
+personal to-do items and content-library items. Each pair is unique, both
+directions are indexed, and deleting either parent removes only the dependent
+association row.
+
+The matching application requires schema version 49. This additive migration
+does not require writer downtime and is safe to replay after a partial MariaDB
+DDL commit.
+
+## Version 48: Remove interaction guides
+
+Permanently removes the retired briefing subsystem's two owning tables,
+`interaction_guide_steps` and `interaction_guides`, including every stored
+step contract, current answer, and progress value. It also removes the
+`todo_personal.interaction_guide_id` link and its foreign key. The shared
+`activity_events` ledger is retained as literal historical trace.
+
+The matching application requires schema version 48. Apply with writers
+stopped and a confirmed recoverable backup. MariaDB DDL commits implicitly;
+after a partial failure, keep writers stopped and rerun the guarded migration
+to finish removing the obsolete objects. Restoring the pre-migration backup is
+the only way to recover the deleted briefing data.
+
 ## Version 47: Billable to-dos and Stripe invoices
 
 Adds an optional positive amount and ISO currency pair to native to-dos, plus

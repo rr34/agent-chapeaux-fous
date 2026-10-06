@@ -68,19 +68,19 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 47", () => {
+test("the authoritative MariaDB baseline is complete at schema version 49", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 37);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 36);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 35);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 63);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 80);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 33);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 56);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 77);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    35,
+    33,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -107,6 +107,16 @@ test("the authoritative MariaDB baseline is complete at schema version 47", () =
   assert.match(jmapSyncTable, /source_account_key\s+VARCHAR\(255\)[\s\S]*email_state\s+TEXT[\s\S]*synchronized_at_utc\s+DATETIME\(3\)/u);
   const todoTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_personal "));
   assert.ok(todoTable);
+  assert.doesNotMatch(source, /CREATE TABLE interaction_guides\b|CREATE TABLE interaction_guide_steps\b/u);
+  assert.doesNotMatch(todoTable, /\binteraction_guide_id\b|\btodo_personal_guide\b/u);
+  const todoContentJoin = statements.find((statement) => statement.startsWith("CREATE TABLE todo_content_join "));
+  assert.ok(todoContentJoin);
+  assert.match(todoContentJoin, /PRIMARY KEY \(personal_task_id, content_id\)/u);
+  assert.match(todoContentJoin, /REFERENCES todo_personal\(personal_task_id\) ON DELETE CASCADE/u);
+  assert.match(todoContentJoin, /REFERENCES content_items\(content_id\) ON DELETE CASCADE/u);
+  const videoJobsTable = statements.find((statement) => statement.startsWith("CREATE TABLE video_jobs "));
+  assert.match(videoJobsTable, /content_id\s+BIGINT UNSIGNED/u);
+  assert.match(videoJobsTable, /CONSTRAINT video_jobs_content FOREIGN KEY \(content_id\)/u);
   const invoiceLinesTable = statements.find((statement) => statement.startsWith("CREATE TABLE payment_invoice_lines "));
   assert.ok(invoiceLinesTable);
   assert.match(invoiceLinesTable, /line_source\s+ENUM\('todo', 'manual'\) NOT NULL/u);
@@ -118,7 +128,32 @@ test("the authoritative MariaDB baseline is complete at schema version 47", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 47, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 49, 'Chapeaux Fous MariaDB database'\)$/);
+});
+
+test("the to-do content migration adds only the many-to-many association", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 49);
+  assert.equal(migration.label, "0049:join-todos-to-library-content");
+  assert.match(migration.sql, /writer downtime: not required/u);
+  assert.match(migration.sql, /CREATE TABLE IF NOT EXISTS todo_content_join/u);
+  assert.match(migration.sql, /PRIMARY KEY \(personal_task_id, content_id\)/u);
+  assert.match(migration.sql, /REFERENCES todo_personal\(personal_task_id\) ON DELETE CASCADE/u);
+  assert.match(migration.sql, /REFERENCES content_items\(content_id\) ON DELETE CASCADE/u);
+  assert.doesNotMatch(migration.sql, /^\s*(?:ALTER|UPDATE|DELETE|DROP|TRUNCATE)\b/gimu);
+});
+
+test("the interaction-guide retirement deletes every briefing-owned schema object", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 48);
+  const statements = splitMariaDbStatements(migration.sql);
+  assert.equal(migration.label, "0048:remove-interaction-guides");
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.match(statements[0], /ALTER TABLE todo_personal[\s\S]*DROP FOREIGN KEY IF EXISTS todo_personal_guide/u);
+  assert.match(statements[1], /ALTER TABLE todo_personal[\s\S]*DROP COLUMN IF EXISTS interaction_guide_id/u);
+  assert.match(statements[2], /DROP TABLE IF EXISTS interaction_guide_steps/u);
+  assert.match(statements[3], /DROP TABLE IF EXISTS interaction_guides/u);
+  assert.doesNotMatch(migration.sql, /\b(?:DELETE FROM|TRUNCATE|UPDATE activity_events)\b/iu);
 });
 
 test("the unplanned to-do retirement preserves tasks before narrowing the enum", () => {

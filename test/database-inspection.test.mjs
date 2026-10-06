@@ -38,8 +38,11 @@ test("generic model writes use an explicit allowlist instead of inheriting new d
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());
 
-  assert.deepEqual([...modelWritableTables].sort(), ["content_groups", "content_items"]);
-  assert.equal(store.objectInfo("content_items", { writable: true }).writable, true);
+  assert.deepEqual([...modelWritableTables].sort(), []);
+  assert.throws(
+    () => store.objectInfo("content_items", { writable: true }),
+    /Model writes are not permitted on content_items/,
+  );
   assert.throws(
     () => store.objectInfo("contacts", { writable: true }),
     /Model writes are not permitted on contacts/,

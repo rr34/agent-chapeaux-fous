@@ -20,8 +20,8 @@ import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
   ["agent", "Agent"], ["hats", "Hats"], ["calendar", "Calendar"], ["routine", "Routine"],
-  ["todos", "To do"], ["content", "Library"], ["video-scripts", "Video Scripts"],
-  ["files", "Files"], ["contacts", "Contacts"], ["journal", "Journal"],
+  ["todos", "To do"], ["content", "Library"], ["files", "Files"],
+  ["contacts", "Contacts"], ["journal", "Journal"], ["video-scripts", "Video Scripts"],
   ["ai-usage", "AI Usage"],
 ] as const;
 
@@ -72,6 +72,19 @@ function PageHeading({ eyebrow, title, detail, actions }: {
   eyebrow: string; title: string; detail?: string; actions?: ReactNode;
 }) {
   return <header className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{detail && <p>{detail}</p>}</div>{actions && <div className="heading-actions">{actions}</div>}</header>;
+}
+
+function SectionSelectFilter({ label, value, onChange, disabled = false, children }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return <label className="section-select-filter">
+    <span>{label}</span>
+    <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>{children}</select>
+  </label>;
 }
 
 
@@ -731,9 +744,16 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=all&limit=10000");
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
+  const [selectedKind, setSelectedKind] = useState("all");
+  const [selectedTag, setSelectedTag] = useState("all");
   const create = async (event: FormEvent) => { event.preventDefault(); await api("/api/contacts", { method: "POST", body: JSON.stringify({ displayName: draft, kind: "person", methods: [], tags: [] }) }); setDraft(""); await reload(); };
   const contacts = data?.contacts || [];
-  const visibleContacts = contacts.filter((contact) => matchesSearch(contact, query));
+  const contactTags = useMemo(() => [...new Set(contacts.flatMap((contact) => (contact.tags as string[] | undefined) || []))].sort((left, right) => left.localeCompare(right)), [contacts]);
+  const visibleContacts = contacts.filter((contact) =>
+    (selectedKind === "all" || textKey(contact, "kind") === selectedKind)
+    && (selectedTag === "all" || ((contact.tags as string[] | undefined) || []).includes(selectedTag))
+    && matchesSearch(contact, query),
+  );
   const contactGroups = useMemo(() => {
     const labels: Record<string, string> = { person: "People", organization: "Organizations", service: "Services" };
     const grouped = new Map(Object.entries(labels).map(([id, name]) => [id, { id, name, contacts: [] as Entity[] }]));
@@ -745,11 +765,20 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
     }
     return [...grouped.values()].filter((group) => group.contacts.length);
   }, [visibleContacts]);
-  return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<form className="inline-create" onSubmit={(event) => void create(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Contact name" required /><button className="button">Add</button></form>} />
+  const contactsFiltered = query.trim() || selectedKind !== "all" || selectedTag !== "all";
+  return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<div className="section-heading-actions">
+    <SectionSelectFilter label="Group" value={selectedKind} onChange={setSelectedKind}>
+      <option value="all">All groups</option><option value="person">People</option><option value="organization">Organizations</option><option value="service">Services</option>
+    </SectionSelectFilter>
+    <SectionSelectFilter label="Tag" value={selectedTag} onChange={setSelectedTag} disabled={!contactTags.length}>
+      <option value="all">All tags</option>{contactTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
+    </SectionSelectFilter>
+    <form className="inline-create" onSubmit={(event) => void create(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Contact name" required /><button className="button">Add</button></form>
+  </div>} />
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && <>
       <SectionFilter query={query} onChange={setQuery} count={visibleContacts.length} noun="contact" />
-      {!visibleContacts.length ? <Empty>{query.trim() ? "No contacts match the filter." : "No contacts yet."}</Empty> : <div className="library-groups">
+      {!visibleContacts.length ? <Empty>{contactsFiltered ? "No contacts match the filters." : "No contacts yet."}</Empty> : <div className="library-groups">
         {contactGroups.map((group) => <section className="library-group" key={group.id} aria-labelledby={`contact-group-${group.id}`}>
           <header className="library-group-heading">
             <h2 id={`contact-group-${group.id}`}>{group.name}</h2>
@@ -789,11 +818,16 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data, error, loading, reload } = useApi<{ content: Entity[] }>("/api/content-items?limit=1000");
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/content-groups");
   const [filterQuery, setFilterQuery] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState("all");
   const content = data?.content || [];
-  const visibleContent = content.filter((entity) => matchesSearch(entity, filterQuery));
+  const visibleContent = content.filter((entity) =>
+    (selectedGroupId === "all" || String(readKey(entity, "groupId")) === selectedGroupId)
+    && matchesSearch(entity, filterQuery),
+  );
   const groups = useMemo(() => {
     const grouped = new Map<string, { id: string; name: string; items: Entity[] }>();
     for (const group of groupData?.groups || []) {
+      if (selectedGroupId !== "all" && String(group.id) !== selectedGroupId) continue;
       grouped.set(String(group.id), {
         id: String(group.id),
         name: textKey(group, "name") || "Untitled group",
@@ -812,10 +846,12 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
     }
     const allGroups = [...grouped.values()];
     return filterQuery.trim() ? allGroups.filter((group) => group.items.length) : allGroups;
-  }, [filterQuery, groupData?.groups, visibleContent]);
+  }, [filterQuery, groupData?.groups, selectedGroupId, visibleContent]);
   const reloadLibrary = () => { void reload(); void reloadGroups(); };
   return <>
-    <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." />
+    <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." actions={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
+      <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
+    </SectionSelectFilter>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleContent.length} noun="item" />
     {(loading || groupsLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadLibrary} />}
@@ -853,13 +889,20 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
 function VideoScriptsScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data, error, loading, reload } = useApi<{ scripts: Entity[] }>("/api/video-scripts?status=all&limit=500");
   const [filterQuery, setFilterQuery] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState("all");
   const scripts = data?.scripts || [];
-  const visibleScripts = scripts.filter((script) => matchesSearch(script, filterQuery));
+  const visibleScripts = scripts.filter((script) =>
+    (selectedStatus === "all" || textKey(script, "status") === selectedStatus)
+    && matchesSearch(script, filterQuery),
+  );
   const groups = useMemo(() => {
-    const grouped = new Map<string, { id: string; name: string; scripts: Entity[] }>([
-      ["draft", { id: "draft", name: "Drafts", scripts: [] }],
-      ["archived", { id: "archived", name: "Archived", scripts: [] }],
-    ]);
+    const availableGroups = [
+      ["draft", { id: "draft", name: "Drafts", scripts: [] as Entity[] }],
+      ["archived", { id: "archived", name: "Archived", scripts: [] as Entity[] }],
+    ] as const;
+    const grouped = new Map<string, { id: string; name: string; scripts: Entity[] }>(
+      availableGroups.filter(([id]) => selectedStatus === "all" || id === selectedStatus),
+    );
     for (const script of visibleScripts) {
       const id = textKey(script, "status") || "other";
       const group = grouped.get(id) || { id, name: id.replaceAll("_", " "), scripts: [] };
@@ -868,9 +911,11 @@ function VideoScriptsScreen({ onReference }: { onReference: AddAgentReference })
     }
     const allGroups = [...grouped.values()];
     return filterQuery.trim() ? allGroups.filter((group) => group.scripts.length) : allGroups;
-  }, [filterQuery, visibleScripts]);
+  }, [filterQuery, selectedStatus, visibleScripts]);
   return <>
-    <PageHeading eyebrow="Production" title="Video Scripts" detail="Scripts grounded in completed conversations." />
+    <PageHeading eyebrow="Production" title="Video Scripts" detail="Scripts grounded in completed conversations." actions={<SectionSelectFilter label="Group" value={selectedStatus} onChange={setSelectedStatus}>
+      <option value="all">All groups</option><option value="draft">Drafts</option><option value="archived">Archived</option>
+    </SectionSelectFilter>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleScripts.length} noun="script" />
     {loading && <Loading />}
     {error && <ErrorState error={error} retry={reload} />}
@@ -910,26 +955,38 @@ function VideoScriptsScreen({ onReference }: { onReference: AddAgentReference })
 function FilesScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data, error, loading, reload } = useApi<{ files: Entity[] }>("/api/files?limit=200");
   const [filterQuery, setFilterQuery] = useState("");
+  const [selectedMediaKind, setSelectedMediaKind] = useState("all");
   const files = data?.files || [];
-  const visibleFiles = files.filter((file) => matchesSearch(file, filterQuery));
+  const fileGroupLabels: Record<string, string> = { document: "Documents", image: "Images", video: "Videos", audio: "Audio" };
+  const fileGroupOrder = ["document", "image", "video", "audio"];
+  const fileGroupOptions = useMemo(() => [...new Set(files.map((file) => textKey(file, "mediaKind") || "other"))]
+    .sort((left, right) => {
+      const leftIndex = fileGroupOrder.indexOf(left);
+      const rightIndex = fileGroupOrder.indexOf(right);
+      return (leftIndex < 0 ? fileGroupOrder.length : leftIndex) - (rightIndex < 0 ? fileGroupOrder.length : rightIndex);
+    }), [files]);
+  const visibleFiles = files.filter((file) =>
+    (selectedMediaKind === "all" || textKey(file, "mediaKind") === selectedMediaKind)
+    && matchesSearch(file, filterQuery),
+  );
   const groups = useMemo(() => {
-    const labels: Record<string, string> = { document: "Documents", image: "Images", video: "Videos", audio: "Audio" };
-    const order = ["document", "image", "video", "audio"];
     const grouped = new Map<string, { id: string; name: string; files: Entity[] }>();
     for (const file of visibleFiles) {
       const id = textKey(file, "mediaKind") || "other";
-      const group = grouped.get(id) || { id, name: labels[id] || `${id.replaceAll("_", " ")} files`, files: [] };
+      const group = grouped.get(id) || { id, name: fileGroupLabels[id] || `${id.replaceAll("_", " ")} files`, files: [] };
       group.files.push(file);
       grouped.set(id, group);
     }
     return [...grouped.values()].sort((left, right) => {
-      const leftIndex = order.indexOf(left.id);
-      const rightIndex = order.indexOf(right.id);
-      return (leftIndex < 0 ? order.length : leftIndex) - (rightIndex < 0 ? order.length : rightIndex);
+      const leftIndex = fileGroupOrder.indexOf(left.id);
+      const rightIndex = fileGroupOrder.indexOf(right.id);
+      return (leftIndex < 0 ? fileGroupOrder.length : leftIndex) - (rightIndex < 0 ? fileGroupOrder.length : rightIndex);
     });
   }, [visibleFiles]);
   return <>
-    <PageHeading eyebrow="Durable artifacts" title="Files" detail="Uploads, generated documents, and their source evidence." />
+    <PageHeading eyebrow="Durable artifacts" title="Files" detail="Uploads, generated documents, and their source evidence." actions={<SectionSelectFilter label="Group" value={selectedMediaKind} onChange={setSelectedMediaKind} disabled={!fileGroupOptions.length}>
+      <option value="all">All groups</option>{fileGroupOptions.map((kind) => <option value={kind} key={kind}>{fileGroupLabels[kind] || `${kind.replaceAll("_", " ")} files`}</option>)}
+    </SectionSelectFilter>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleFiles.length} noun="file" />
     {loading && <Loading />}
     {error && <ErrorState error={error} retry={reload} />}
@@ -986,8 +1043,25 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data: trackers, error, loading, reload } = useApi<{ trackers: Entity[] }>("/api/journal-trackers?limit=200");
   const { data: entries, error: entryError, loading: entriesLoading, reload: reloadEntries } = useApi<{ entries: Entity[] }>("/api/journal-entries?limit=100");
   const [filterQuery, setFilterQuery] = useState("");
-  const visibleTrackers = (trackers?.trackers || []).filter((tracker) => matchesSearch(tracker, filterQuery));
-  const visibleEntries = (entries?.entries || []).filter((entry) => matchesSearch(entry, filterQuery));
+  const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const journalTrackers = trackers?.trackers || [];
+  const journalEntries = entries?.entries || [];
+  const journalGroupOptions = useMemo(() => {
+    const groups = new Map<string, string>();
+    for (const item of [...journalTrackers, ...journalEntries]) {
+      const id = String(readKey(item, "groupId") ?? `name:${textKey(item, "groupName") || "Journal"}`);
+      if (!groups.has(id)) groups.set(id, textKey(item, "groupName") || "Journal");
+    }
+    return [...groups].map(([id, name]) => ({ id, name }));
+  }, [journalEntries, journalTrackers]);
+  const visibleTrackers = journalTrackers.filter((tracker) =>
+    (selectedGroupId === "all" || String(readKey(tracker, "groupId") ?? `name:${textKey(tracker, "groupName") || "Journal"}`) === selectedGroupId)
+    && matchesSearch(tracker, filterQuery),
+  );
+  const visibleEntries = journalEntries.filter((entry) =>
+    (selectedGroupId === "all" || String(readKey(entry, "groupId") ?? `name:${textKey(entry, "groupName") || "Journal"}`) === selectedGroupId)
+    && matchesSearch(entry, filterQuery),
+  );
   const visibleCount = visibleTrackers.length + visibleEntries.length;
   const groups = useMemo(() => {
     const grouped = new Map<string, { id: string; name: string; trackers: Entity[]; entries: Entity[] }>();
@@ -1007,7 +1081,9 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
   }, [visibleEntries, visibleTrackers]);
   const reloadJournal = () => { void reload(); void reloadEntries(); };
   return <>
-    <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." />
+    <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." actions={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={!journalGroupOptions.length}>
+      <option value="all">All groups</option>{journalGroupOptions.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}
+    </SectionSelectFilter>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleCount} noun="result" />
     {(loading || entriesLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadJournal} />}

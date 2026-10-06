@@ -16,6 +16,49 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0049: join-todos-to-library-content
+-- writer downtime: not required; this adds an empty association table without
+-- changing either parent table or existing task and content rows.
+-- locking: CREATE TABLE briefly takes metadata locks while establishing the two
+-- foreign keys and the reverse lookup index.
+-- recovery: the additive CREATE TABLE IF NOT EXISTS statement is safe to replay
+-- after a partial MariaDB DDL commit.
+
+CREATE TABLE IF NOT EXISTS todo_content_join (
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing personal to-do associated with the content-library item.',
+    content_id       BIGINT UNSIGNED NOT NULL COMMENT 'Existing content-library item associated with the personal to-do.',
+    created_at_utc   DATETIME(3) NOT NULL
+                     DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (personal_task_id, content_id),
+    KEY todo_content_join_content (content_id, personal_task_id),
+    CONSTRAINT todo_content_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT todo_content_join_content FOREIGN KEY (content_id) REFERENCES content_items(content_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Associates personal to-dos with content-library items. Each pair appears once; either record may have many associations. Deleting either parent removes only its dependent association rows. This table stores relationships, not task or library content.';
+
+-- end migration 0049
+
+-- migration 0048: remove-interaction-guides
+-- writer downtime: required; application readers and writers must stop using
+-- briefing definitions, active answers, run progress, and to-do links before
+-- their owning schema is removed.
+-- locking: ALTER TABLE takes a metadata lock on todo_personal. Dropping the two
+-- interaction-guide tables takes metadata locks and permanently deletes every
+-- stored guide definition, step contract, current answer, and progress value.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped after failure
+-- and rerun this idempotent block to finish removing the obsolete objects.
+-- Restore the verified pre-migration backup to recover deleted briefing data.
+
+ALTER TABLE todo_personal
+  DROP FOREIGN KEY IF EXISTS todo_personal_guide;
+
+ALTER TABLE todo_personal
+  DROP COLUMN IF EXISTS interaction_guide_id;
+
+DROP TABLE IF EXISTS interaction_guide_steps;
+DROP TABLE IF EXISTS interaction_guides;
+
+-- end migration 0048
+
 -- migration 0047: billable-todos-and-payment-invoices
 -- writer downtime: required; application readers and writers must switch to the priced to-do and invoice schema together.
 -- locking: adding nullable columns takes a metadata lock on todo_personal; three new empty tables and indexes are created.

@@ -1,5 +1,7 @@
-Use `database_write` only for its explicit transitional allowlist: content
-groups and content items, which do not yet have focused model mutation tools.
-Every other native domain table, the activity ledger, files, and schema are
-application-rejected even if a future table appears in the database. Read and inspect
-the exact target rows first when a write could affect more than one row.
+`database_write` is registered only while at least one transitional native
+table has no focused model mutation tool and appears in the explicit
+application allowlist. No table is currently allowlisted, so this capability is
+not connected or advertised. Content groups and items are owned by the video
+domain's focused tools. If a future transitional table is deliberately added,
+read and inspect the exact target rows before any write that could affect more
+than one row.

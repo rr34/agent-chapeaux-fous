@@ -40,6 +40,7 @@ export const requiredDatabaseShape = {
     "content_id", "content_group_id", "sequence", "content_type", "title",
     "transcript", "description", "published_at_utc", "content_host", "content_status", "content_url",
   ],
+  todo_content_join: ["personal_task_id", "content_id", "created_at_utc"],
   video_scripts: [
     "video_script_id", "title", "status", "schema_version", "script_json", "script_text",
     "created_by_event_id", "created_at_utc", "updated_at_utc", "archived_at_utc", "version",
@@ -151,10 +152,9 @@ export const requiredEnumColumns = {
   correspondence_participants: { participant_role: ["from", "to", "cc", "bcc", "reply_to", "sender", "recipient"] },
 };
 
-// Transitional model-write surface. Every focused native domain table is
-// default-deny and must be mutated through its owning service/tool. Content has
-// no focused model mutation tools yet, so it remains explicitly available.
-export const modelWritableTables = new Set(["content_groups", "content_items"]);
+// Focused native domains own every current application table. Generic model
+// writes remain default-deny; content changes use the video-domain tools.
+export const modelWritableTables = new Set();
 
 function identifier(name, label = "identifier") {
   if (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
@@ -233,8 +233,8 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 47) {
-    problems.push(`Expected MariaDB schema version 47, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== 49) {
+    problems.push(`Expected MariaDB schema version 49, found ${meta?.schema_version ?? "none"}`);
   }
   return { ready: problems.length === 0, problems, objects };
 }

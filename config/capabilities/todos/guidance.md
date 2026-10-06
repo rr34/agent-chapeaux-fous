@@ -28,6 +28,13 @@ Use one `todo_update` call for all independently identified tasks in the same
 request, preserving every selected `personal_task_id`. Null values are no-change placeholders; clear flags apply only when
 the user explicitly asks to remove a relationship or prompt.
 
+When a to-do needs supporting or related material from the content library,
+resolve the exact to-do with `todo_list` and the exact library item with
+`video_content_list`, preserving both bindings. Use `todo_content_link_set` to
+add or remove only that association. One to-do may link to many content items,
+and one content item may link to many to-dos. Linking never moves, completes,
+edits, or deletes either parent record.
+
 When a task needs scheduled work, a deadline, or calendar context, use the
 calendar tools to create or identify a concrete event and then use
 `calendar_todo_links_place`. One event may link multiple to-dos and one to-do

@@ -67,6 +67,46 @@ test("to-dos can be created, listed, and completed without calendar fields", asy
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM calendar_events").get().count, 0);
 });
 
+test("to-dos can link and unlink exact content-library items idempotently", async (context) => {
+  const { store, registry, toolContext } = harness(context);
+  const created = await registry.execute("todo_add", {
+    text: "Review launch tutorial", todo_group_id: 1, status: "todo",
+    related_contact_id: null, planning_prompt_text: null, position: null,
+  }, toolContext);
+  const database = store.requireReady();
+  const content = database.prepare(`
+    INSERT INTO content_items (content_group_id, sequence, title)
+    VALUES (1, 1, 'Launch tutorial') RETURNING content_id
+  `).get();
+  const input = {
+    personal_task_id: created.task.personal_task_id,
+    content_id: Number(content.content_id),
+    linked: true,
+  };
+
+  const linked = await registry.execute("todo_content_link_set", input, toolContext);
+  assert.equal(linked.changed, true);
+  assert.equal(linked.linked, true);
+  assert.deepEqual(linked.task.linked_content.map((item) => ({
+    id: item.content_id, ref: item.content_ref, title: item.content_title,
+  })), [{
+    id: Number(content.content_id),
+    ref: `agent-slayer://content-items/${Number(content.content_id)}`,
+    title: "Launch tutorial",
+  }]);
+  assert.equal((await registry.execute("todo_content_link_set", input, toolContext)).changed, false);
+
+  const listed = await registry.execute("todo_list", { queries: [{
+    query_id: "linked", group: null, status: null,
+    personal_task_ids: [created.task.personal_task_id], limit: 20,
+  }] });
+  assert.equal(listed.results[0].tasks[0].linked_content[0].content_title, "Launch tutorial");
+
+  const unlinked = await registry.execute("todo_content_link_set", { ...input, linked: false }, toolContext);
+  assert.equal(unlinked.changed, true);
+  assert.deepEqual(unlinked.task.linked_content, []);
+});
+
 test("to-do update batches stay atomic", async (context) => {
   const { registry, toolContext } = harness(context);
   const first = await registry.execute("todo_add", {

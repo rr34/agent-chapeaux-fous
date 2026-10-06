@@ -67,7 +67,11 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     reference: field("ref", "Stable Agent Slayer personal to-do reference."),
     display: field("text", "Human-facing to-do text."),
     qualifiers: [field("status", "Current to-do status."), field("group_name", "Owning to-do group name.")],
-    relationships: [relationship("group", "todos.todo_group", "Group containing this personal to-do."), relationship("contact", "contacts.contact", "Optional contact related to this to-do.")],
+    relationships: [
+      relationship("group", "todos.todo_group", "Group containing this personal to-do."),
+      relationship("contact", "contacts.contact", "Optional contact related to this to-do."),
+      relationship("content", "video.content_item", "Content-library items associated with this to-do."),
+    ],
     idFields: ["personal_task_id", "personalTaskId"], displayFields: ["text", "title"],
     refFields: ["ref"], refPrefix: "agent-slayer://todos/",
     inputFields: ["personal_task_id", "personal_task_ids"],
@@ -337,10 +341,14 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     reference: field("content_ref", "Stable Agent Slayer content-item reference."),
     display: field("content_title", "Human-facing content-item title."),
     qualifiers: [field("sequence", "Number within the owning content group."), field("contentStatus", "Current content lifecycle state.")],
-    relationships: [relationship("group", "video.content_group", "Content group containing this item."), relationship("file", "files.file", "Primary rendered file when present.")],
+    relationships: [
+      relationship("group", "video.content_group", "Content group containing this item."),
+      relationship("file", "files.file", "Primary rendered file when present."),
+      relationship("todos", "todos.personal_task", "Personal to-dos associated with this content item."),
+    ],
     idFields: ["content_id"], displayFields: ["content_title"],
     refFields: ["content_ref"], refPrefix: "agent-slayer://content-items/",
-    inputFields: [], searchFields: ["title", "description", "personal_notes"],
+    inputFields: ["content_id"], searchFields: ["title", "description", "personal_notes"],
   },
 ]);
 

@@ -10,6 +10,119 @@ import { VideoContent } from "../src/video-content.mjs";
 import { VideoScripts } from "../src/video-scripts.mjs";
 import { temporaryDatabase } from "./helpers.mjs";
 
+test("the Agent can create a library and atomically import an external sequence", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.target);
+  context.after(() => store.close());
+  const organizer = new OrganizerStore(temporary.target);
+  context.after(() => organizer.close());
+  const ledger = new Ledger(store);
+  const videoScripts = new VideoScripts({ store, ledger });
+  const videoContent = new VideoContent({ videoScripts, organizer });
+  const registry = registerNativeCapabilities(new ToolRegistry());
+  registerVideoScriptTools(registry, videoScripts, { videoContent });
+
+  const createDefinition = registry.toolDefinitions()
+    .find(({ name }) => name === "video_content_group_create");
+  assert.deepEqual(createDefinition.inputSchema.required, ["name"]);
+  assert.equal(createDefinition.annotations.idempotentHint, true);
+  const createdGroup = await registry.execute("video_content_group_create", {
+    name: "What to Watch",
+  });
+  assert.equal(createdGroup.created, true);
+  assert.equal(createdGroup.group.content_group_name, "What to Watch");
+  assert.equal(
+    createdGroup.group.content_group_ref,
+    `agent-slayer://content-groups/${createdGroup.group.id}`,
+  );
+  const replayedGroup = await registry.execute("video_content_group_create", {
+    name: "What to Watch",
+  });
+  assert.equal(replayedGroup.created, false);
+  assert.equal(replayedGroup.unchanged, true);
+  assert.equal(replayedGroup.group.id, createdGroup.group.id);
+
+  const importDefinition = registry.toolDefinitions()
+    .find(({ name }) => name === "video_content_import");
+  assert.deepEqual(importDefinition.inputSchema.required, ["groupId", "items"]);
+  assert.equal(importDefinition.inputSchema.properties.items.maxItems, 50);
+  assert.equal(importDefinition.annotations.idempotentHint, true);
+  const items = [
+    {
+      sequence: null,
+      title: "What to Watch Today",
+      description: "The introduction to the series.",
+      transcript: null,
+      publishedAtUtc: "2020-01-01",
+      contentHost: "none",
+      contentType: "unknown",
+      contentUrl: "https://example.com/what-to-watch-today/",
+    },
+    {
+      sequence: 1,
+      title: "What to Watch 1",
+      description: "The first numbered installment.",
+      transcript: null,
+      publishedAtUtc: "2020-01-02T12:00:00.000Z",
+      contentHost: "youtube",
+      contentType: "unknown",
+      contentUrl: "https://youtu.be/example-one",
+    },
+  ];
+  const imported = await registry.execute("video_content_import", {
+    groupId: Number(createdGroup.group.id), items,
+  }, {
+    requestId: "external-content-request", callId: "external-content-call", channel: "web",
+  });
+  assert.equal(imported.importedCount, 2);
+  assert.equal(imported.unchangedCount, 0);
+  assert.deepEqual(imported.items.map(({ content }) => content.sequence), [null, 1]);
+  assert.deepEqual(imported.items.map(({ content }) => content.title), [
+    "What to Watch Today", "What to Watch 1",
+  ]);
+  assert.ok(imported.items.every(({ content }) => (
+    content.content_ref === `agent-slayer://content-items/${content.id}`
+  )));
+
+  const replayed = await registry.execute("video_content_import", {
+    groupId: Number(createdGroup.group.id), items,
+  });
+  assert.equal(replayed.importedCount, 0);
+  assert.equal(replayed.unchangedCount, 2);
+  assert.deepEqual(replayed.items.map(({ content }) => content.sequence), [null, 1]);
+
+  const reversedReplay = await registry.execute("video_content_import", {
+    groupId: Number(createdGroup.group.id), items: [...items].reverse(),
+  });
+  assert.equal(reversedReplay.unchangedCount, 2);
+
+  await assert.rejects(
+    () => registry.execute("video_content_import", {
+      groupId: Number(createdGroup.group.id),
+      items: [
+        {
+          ...items[0],
+          title: "A conflicting replacement",
+        },
+        {
+          ...items[1],
+          sequence: 2,
+          title: "A new third item",
+          contentUrl: "https://example.com/what-to-watch-2/",
+          publishedAtUtc: "2020-01-03T12:00:00.000Z",
+        },
+      ],
+    }),
+    /already contains different content/,
+  );
+  assert.equal(organizer.listContent({ groupId: createdGroup.group.id }).length, 2);
+  assert.equal(organizer.database.prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'content.sequence_imported'
+  `).get().count, 1);
+});
+
 test("a completed generated video appends once to an exact content sequence", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

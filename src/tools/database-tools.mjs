@@ -1,4 +1,6 @@
 
+import { modelWritableTables } from "../database.mjs";
+
 const toolDescriptions = Object.freeze({
   "database_read": {
     "protocol": "agent-slayer.tool-description",
@@ -179,7 +181,7 @@ export function registerDatabaseTools(
     },
   });
 
-  writeRegistry.register({
+  if (modelWritableTables.size > 0) writeRegistry.register({
     name: "database_write",
     description: "Insert, update, or delete rows in an explicitly allowlisted transitional native table that has no focused model mutation tool. Raw SQL, schema changes, and writes to tool-owned domain tables or the activity ledger are impossible. Update and delete require equality filters.",
     strict: false,

@@ -13,13 +13,19 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
+export function baselineBeforeTodoContentJoin(source) {
+  return source
+    .replace(/CREATE TABLE todo_content_join \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
+    .replace("VALUES (1, 49,", "VALUES (1, 48,");
+}
+
 // Older migration tests reconstruct schema versions before the level-numbered
 // journal tables were introduced in migration 0046.
 export function baselineBeforeJournalLevels(source) {
-  return source.replaceAll("journal1_groups", "journal_groups")
+  return baselineBeforeTodoContentJoin(source).replaceAll("journal1_groups", "journal_groups")
     .replaceAll("journal2_trackers", "trackers")
     .replaceAll("journal3_entries", "journal_entries")
-    .replace("VALUES (1, 47,", "VALUES (1, 45,");
+    .replace("VALUES (1, 48,", "VALUES (1, 45,");
 }
 
 const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (

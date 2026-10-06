@@ -92,6 +92,8 @@ test("daily paper groups identified to-dos once by group and joined object in th
   assert.match(calendarSource, /Blank writing area for \$\{todoPrintIdentifier\(todo\)\}/);
   assert.match(calendarSource, /className="paper-handwriting-space"/);
   assert.match(styles, /\.paper-day-columns \{[^}]*grid-template-columns: minmax\(0, \.9fr\) minmax\(0, 1\.4fr\)/s);
+  assert.match(styles, /\.daily-paper \.timeline-list li \{[^}]*grid-template-columns: \.62in 1fr/s);
+  assert.match(styles, /\.daily-paper \.timeline-list time \{[^}]*text-align: left/s);
   assert.match(styles, /\.paper-todo-group > h3 \{/);
   assert.match(styles, /\.paper-todo-cluster::before \{/);
   assert.match(styles, /\.paper-todo-cards > li \{[^}]*border: 1px solid/s);

@@ -42,7 +42,7 @@ test("numbered Journal tables preserve entries, relationships, and numeric guard
       "INSERT INTO journal3_entries (tracker_id, content_text) VALUES (999, 'Orphan')",
     ), /foreign key constraint/iu);
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [46, 47]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [46, 47, 48, 49]);
   await verifyDatabase(database);
   preserved();
   // Model a rename that committed before its trigger recreation and version mark.
@@ -52,7 +52,7 @@ test("numbered Journal tables preserve entries, relationships, and numeric guard
     "trackers_preserve_numeric_unit_before_update",
   ]) database.exec(`DROP TRIGGER ${name}`);
   database.exec("UPDATE database_meta SET schema_version = 45 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [46, 47]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [46, 47, 48, 49]);
   await verifyDatabase(database);
   preserved();
 });

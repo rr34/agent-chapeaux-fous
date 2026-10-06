@@ -640,6 +640,23 @@ truncation flags so the Agent can summarize a sequence without exposing an
 unbounded library record to model context. Its `textFields` argument selects
 description, transcript, or both; unselected long-text columns are not read.
 
+Personal to-dos and content-library items have a many-to-many association in
+`todo_content_join`. The owning `todo_content_link_set` operation adds or
+removes one exact association, and `todo_list` returns each task's linked
+content bindings without changing either parent record.
+
+The Agent can also create a named content-library group with
+`video_content_group_create`, then use the returned stable group binding with
+`video_content_import` to catalog as many as 50 externally hosted videos or
+canonical post pages in one atomic metadata batch. Each sequence value is the
+number printed in its source title, or null when the title is unnumbered; array
+or archive order never generates one. The canonical content URL is the
+per-group idempotency key: exact replays are unchanged, while duplicate or
+conflicting records reject the whole batch. The import stores metadata and the
+source URL only—it does not download the media. These focused video-domain
+tools own content mutations, so generic database writes cannot change content
+tables.
+
 Rendering is deliberately outside the FIFO Agent request queue so a long MP4
 does not block ordinary requests; interrupted `preparing` or `rendering` jobs
 return to `queued` when the server starts.
@@ -687,7 +704,6 @@ then restart the installed user service:
 cd /home/nate/code/agent-slayer
 npm ci
 npm run build:web
-test -f public/ui/index.html
 
 systemctl --user restart agent-slayer.service
 systemctl --user status agent-slayer.service --no-pager
@@ -715,7 +731,6 @@ cd /home/nate/code/agent-slayer
 systemctl --user stop agent-slayer.service
 npm ci
 npm run build:web
-test -f public/ui/index.html
 
 SLAYER_MIGRATION_BACKUP_CONFIRMED=1 \
 SLAYER_MIGRATION_WRITERS_STOPPED=1 \

@@ -319,6 +319,53 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 49) {
+    const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'todo_content_join'`, [databaseName]);
+    if (tables[0]?.TABLE_TYPE !== "BASE TABLE") {
+      throw new Error("Migration 0049 is missing todo_content_join");
+    }
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'todo_content_join'
+        AND COLUMN_NAME IN ('personal_task_id','content_id','created_at_utc')`, [databaseName]);
+    const names = new Set(columns.map((row) => row.COLUMN_NAME));
+    for (const name of ["personal_task_id", "content_id", "created_at_utc"]) {
+      if (!names.has(name)) throw new Error(`Migration 0049 is missing todo_content_join.${name}`);
+    }
+    const [keys] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ?
+        AND TABLE_NAME = 'todo_content_join'`, [databaseName]);
+    for (const [column, parent, target] of [
+      ["personal_task_id", "todo_personal", "personal_task_id"],
+      ["content_id", "content_items", "content_id"],
+    ]) {
+      if (!keys.some((row) => row.TABLE_NAME === "todo_content_join" && row.COLUMN_NAME === column
+        && row.REFERENCED_TABLE_NAME === parent && row.REFERENCED_COLUMN_NAME === target)) {
+        throw new Error(`Migration 0049 is missing todo_content_join.${column} to ${parent} relationship`);
+      }
+    }
+  }
+  if (migration.version === 48) {
+    const retiredTables = ["interaction_guide_steps", "interaction_guides"];
+    const [tables] = await connection.query(`SELECT TABLE_NAME FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${retiredTables.map(() => "?").join(", ")})`,
+    [databaseName, ...retiredTables]);
+    if (tables.length > 0) {
+      throw new Error(`Migration 0048 retained obsolete table ${tables.map((row) => row.TABLE_NAME).join(", ")}`);
+    }
+    const [columns] = await connection.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'todo_personal' AND COLUMN_NAME = 'interaction_guide_id'`,
+    [databaseName]);
+    if (columns.length > 0) {
+      throw new Error("Migration 0048 retained todo_personal.interaction_guide_id");
+    }
+    const [constraints] = await connection.query(`SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'todo_personal' AND CONSTRAINT_NAME = 'todo_personal_guide'`,
+    [databaseName]);
+    if (constraints.length > 0) {
+      throw new Error("Migration 0048 retained todo_personal_guide");
+    }
+  }
   if (migration.version === 47) {
     const requiredTables = ["payment_provider_accounts", "payment_invoices", "payment_invoice_lines"];
     const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES

@@ -18,6 +18,17 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
+  "todo_content_link_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Link or unlink one exact personal to-do and one exact content-library item.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
   "todo_group_archive": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -76,7 +87,7 @@ const toolDescriptions = Object.freeze({
   "todo_list": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Read paginated batches of non-temporal native personal to-dos by task IDs, group, status, or completion date.",
+    "summary": "Read paginated batches of non-temporal native personal to-dos and their linked content-library items by task IDs, group, status, or completion date.",
     "actionClasses": [
       "READ"
     ],
@@ -120,6 +131,20 @@ const groupFields = [
   "todo_group_id", "name", "sort_position", "uses_sequence", "archived_at_utc",
   "created_at_utc", "updated_at_utc",
 ];
+const linkedContentFields = [
+  "content_id", "content_group_id", "sequence", "content_type", "content_status",
+  "title", "group_name", "linked_at_utc",
+];
+
+const linkedContentRecordSchema = {
+  type: "object",
+  description: "One exact content-library item associated with a personal to-do.",
+  properties: {
+    ...Object.fromEntries(linkedContentFields.map((name) => [name, {}])),
+    content_ref: { description: "Stable Agent Slayer reference for this exact content item." },
+    content_title: { description: "Human-facing title for this exact content item." },
+  },
+};
 
 const todoTaskRecordSchema = {
   type: ["object", "null"],
@@ -128,6 +153,7 @@ const todoTaskRecordSchema = {
     ...Object.fromEntries(todoFields.map((name) => [name, {}])),
     ref: { description: "Stable Agent Slayer reference for this exact personal to-do." },
     group_name: {},
+    linked_content: { type: "array", items: linkedContentRecordSchema },
   },
 };
 const todoGroupRecordSchema = {
@@ -148,12 +174,62 @@ function taskWithContext(database, taskId) {
   `).get(taskId);
 }
 
-function databaseTask(row) {
+function linkedContentByTaskIds(database, taskIds) {
+  const ids = [...new Set(taskIds.map(Number))];
+  if (!ids.length) return new Map();
+  const rows = database.prepare(`
+    SELECT relation.personal_task_id, content.content_id, content.content_group_id,
+           content.sequence, content.content_type, content.content_status,
+           content.title, relation.created_at_utc AS linked_at_utc,
+           content_group.name AS group_name
+    FROM todo_content_join AS relation
+    JOIN content_items AS content USING (content_id)
+    JOIN content_groups AS content_group USING (content_group_id)
+    WHERE relation.personal_task_id IN (${ids.map(() => "?").join(", ")})
+    ORDER BY relation.personal_task_id, content_group.sort_position,
+             content.sequence IS NULL, content.sequence, content.content_id
+  `).all(...ids);
+  const byTask = new Map(ids.map((id) => [id, []]));
+  for (const row of rows) byTask.get(Number(row.personal_task_id)).push({
+    ...selectedFields(row, linkedContentFields),
+    content_id: Number(row.content_id),
+    content_ref: `agent-slayer://content-items/${Number(row.content_id)}`,
+    content_title: row.title,
+  });
+  return byTask;
+}
+
+function databaseTask(row, linkedContent = []) {
   if (!row) return null;
   return {
     ...selectedFields(row, todoFields),
     ref: `agent-slayer://todos/${Number(row.personal_task_id)}`,
     group_name: row.group_name,
+    linked_content: linkedContent,
+  };
+}
+
+function databaseTaskWithContent(database, row) {
+  if (!row) return null;
+  return databaseTask(row, linkedContentByTaskIds(database, [row.personal_task_id])
+    .get(Number(row.personal_task_id)) ?? []);
+}
+
+function contentWithContext(database, contentId) {
+  const row = database.prepare(`
+    SELECT content.content_id, content.content_group_id, content.sequence,
+           content.content_type, content.content_status, content.title,
+           content_group.name AS group_name
+    FROM content_items AS content
+    JOIN content_groups AS content_group USING (content_group_id)
+    WHERE content.content_id = ?
+  `).get(contentId);
+  if (!row) return null;
+  return {
+    ...selectedFields(row, linkedContentFields),
+    content_id: Number(row.content_id),
+    content_ref: `agent-slayer://content-items/${Number(row.content_id)}`,
+    content_title: row.title,
   };
 }
 
@@ -256,7 +332,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_list",
-    description: "Read non-temporal native personal to-dos in one or more paginated queries. Schedules and deadlines are calendar events and are read with calendar tools.",
+    description: "Read non-temporal native personal to-dos and their linked content-library items in one or more paginated queries. Schedules and deadlines are calendar events and are read with calendar tools.",
     outputSchema: { type: "object", properties: {
       has_more: { type: "boolean" }, results: { type: "array", items: { type: "object", properties: {
         query_id: { type: "string" }, filters: { type: "object", properties: todoQueryFilterProperties },
@@ -266,9 +342,14 @@ export function registerTodoTools(registry, store, ledger) {
     } },
     parameters: todoListInputSchema,
     async execute({ queries }) {
-      const result = listTodoQueryPages(store.requireReady(), queries);
+      const database = store.requireReady();
+      const result = listTodoQueryPages(database, queries);
+      const linkedByTask = linkedContentByTaskIds(database, result.results
+        .flatMap((page) => page.tasks.map((task) => task.personal_task_id)));
       return { ...result, results: result.results.map((page) => ({
-        ...page, tasks: page.tasks.map(databaseTask),
+        ...page, tasks: page.tasks.map((task) => databaseTask(
+          task, linkedByTask.get(Number(task.personal_task_id)) ?? [],
+        )),
       })) };
     },
   });
@@ -312,12 +393,64 @@ export function registerTodoTools(registry, store, ledger) {
           completed, input.planning_prompt_text?.trim() || null, context.requestEventId || null,
           input.billable_amount_minor ?? null, input.billable_currency ?? null);
         if (input.position != null) setTodoPosition(database, Number(inserted.personal_task_id), input.position);
-        const task = databaseTask(taskWithContext(database, inserted.personal_task_id));
+        const task = databaseTaskWithContent(database, taskWithContext(database, inserted.personal_task_id));
         appendLedger(ledger, context, { type: "personal_todo.created", actorName: "todo_add",
           name: "Personal to-do created", content: task.text, payload: { task },
           subjectType: "personal_task", subjectId: String(task.personal_task_id) });
         database.exec("COMMIT");
         return { created: true, task };
+      } catch (error) { database.exec("ROLLBACK"); throw error; }
+    },
+  });
+
+  registry.register({
+    name: "todo_content_link_set",
+    description: "Link or unlink one exact existing personal to-do and one exact existing content-library item. This changes only their association; it does not modify, move, complete, or delete either parent record.",
+    outputSchema: { type: "object", properties: {
+      changed: { type: "boolean", description: "False when this exact association was already in the requested state." },
+      linked: { type: "boolean" },
+      task: todoTaskRecordSchema,
+      content: linkedContentRecordSchema,
+    }, required: ["changed", "linked", "task", "content"] },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      personal_task_id: { type: "integer", minimum: 1, description: "Existing personal to-do ID from an authoritative to-do read." },
+      content_id: { type: "integer", minimum: 1, description: "Existing content-library item ID from an authoritative content read." },
+      linked: { type: "boolean", description: "True creates the association; false removes only this exact association." },
+    }, required: ["personal_task_id", "content_id", "linked"] },
+    async execute({ personal_task_id: taskId, content_id: contentId, linked }, context) {
+      const database = store.requireReady();
+      database.exec("START TRANSACTION");
+      try {
+        const taskRow = taskWithContext(database, taskId);
+        if (!taskRow) throw new Error(`To-do ${taskId} does not exist`);
+        const content = contentWithContext(database, contentId);
+        if (!content) throw new Error(`Content item ${contentId} does not exist`);
+        let changed = false;
+        if (linked) {
+          changed = database.prepare(`
+            INSERT IGNORE INTO todo_content_join (personal_task_id, content_id)
+            VALUES (?, ?)
+          `).run(taskId, contentId).changes > 0;
+        } else {
+          changed = database.prepare(`
+            DELETE FROM todo_content_join
+            WHERE personal_task_id = ? AND content_id = ?
+          `).run(taskId, contentId).changes > 0;
+        }
+        if (changed) database.prepare(`
+          UPDATE todo_personal SET updated_at_utc = ? WHERE personal_task_id = ?
+        `).run(new Date().toISOString(), taskId);
+        const task = databaseTaskWithContent(database, taskWithContext(database, taskId));
+        appendLedger(ledger, context, {
+          type: linked ? "personal_todo.content_linked" : "personal_todo.content_unlinked",
+          actorName: "todo_content_link_set",
+          name: linked ? "Content linked to personal to-do" : "Content unlinked from personal to-do",
+          content: `${task.text}: ${content.content_title}`,
+          payload: { changed, linked, task, content },
+          subjectType: "personal_task", subjectId: String(taskId),
+        });
+        database.exec("COMMIT");
+        return { changed, linked, task, content };
       } catch (error) { database.exec("ROLLBACK"); throw error; }
     },
   });
@@ -334,7 +467,7 @@ export function registerTodoTools(registry, store, ledger) {
       database.exec("START TRANSACTION");
       try {
         const movement = setTodoPosition(database, id, position);
-        const task = databaseTask(taskWithContext(database, id));
+        const task = databaseTaskWithContent(database, taskWithContext(database, id));
         appendLedger(ledger, context, { type: "personal_todo.repositioned", actorName: "todo_position_set",
           name: "Personal to-do repositioned", content: task.text, payload: { movement, task },
           subjectType: "personal_task", subjectId: String(id) });
@@ -423,7 +556,7 @@ export function registerTodoTools(registry, store, ledger) {
       database.exec("START TRANSACTION");
       try {
         const items = updates.map((input) => {
-          const before = databaseTask(taskWithContext(database, input.personal_task_id));
+          const before = databaseTaskWithContent(database, taskWithContext(database, input.personal_task_id));
           if (!before) throw new Error(`To-do ${input.personal_task_id} does not exist`);
           const values = {};
           if (input.text != null) values.text = input.text.trim();
@@ -450,7 +583,9 @@ export function registerTodoTools(registry, store, ledger) {
           values.updated_at_utc = now;
           database.prepare(`UPDATE todo_personal SET ${Object.keys(values).map((key) => `\`${key}\` = ?`).join(", ")}
             WHERE personal_task_id = ?`).run(...Object.values(values), input.personal_task_id);
-          return { before, task: databaseTask(taskWithContext(database, input.personal_task_id)) };
+          return { before, task: databaseTaskWithContent(
+            database, taskWithContext(database, input.personal_task_id),
+          ) };
         });
         appendLedger(ledger, context, { type: items.length === 1 ? "personal_todo.updated" : "personal_todos.updated",
           actorName: "todo_update", name: items.length === 1 ? "Personal to-do updated" : "Personal to-dos updated",

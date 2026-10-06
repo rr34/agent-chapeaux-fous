@@ -173,6 +173,10 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     { path: "/todo_group_id", objectType: "todos.todo_group", value: "id", role: "subject" },
     { path: "/related_contact_id", objectType: "contacts.contact", value: "id", role: "subject" },
   ]);
+  assert.deepEqual(bindings("todo_content_link_set"), [
+    { path: "/personal_task_id", objectType: "todos.personal_task", value: "id", role: "subject" },
+    { path: "/content_id", objectType: "video.content_item", value: "id", role: "subject" },
+  ]);
   assert.deepEqual(bindings("contact_merge"), [
     { path: "/merges/*/keep_contact_id", objectType: "contacts.contact", value: "id", role: "merge_destination" },
     { path: "/merges/*/merge_contacts/*/contact_id", objectType: "contacts.contact", value: "id", role: "merge_source" },
@@ -229,6 +233,9 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     { path: "/videoScriptId", objectType: "video.script", value: "id", role: "subject" },
     { path: "/groupId", objectType: "video.content_group", value: "id", role: "subject" },
   ]);
+  assert.deepEqual(bindings("video_content_import"), [
+    { path: "/groupId", objectType: "video.content_group", value: "id", role: "subject" },
+  ]);
 });
 
 test("native results bind only complete identity and preserve the correct parent display", () => {
@@ -280,6 +287,50 @@ test("native results bind only complete identity and preserve the correct parent
   });
   assert.deepEqual(groups.map(({ type, objects }) => [type, objects.map(({ id }) => id)]), [
     ["contacts.contact", [578]], ["todos.personal_task", [8]], ["calendar.event", [3113]],
+  ]);
+
+  const contentGroupCreate = definitions.find(({ name }) => name === "video_content_group_create");
+  assert.deepEqual(objectReferenceGroupsFromToolResult({
+    toolDefinition: contentGroupCreate,
+    toolDefinitions: definitions,
+    sourceEventSeq: 95,
+    result: {
+      created: true,
+      unchanged: false,
+      group: {
+        content_group_id: 9,
+        content_group_ref: "agent-slayer://content-groups/9",
+        content_group_name: "What to Watch",
+      },
+    },
+  }).map(({ type, objects }) => [type, objects]), [
+    ["video.content_group", [{
+      id: 9, ref: "agent-slayer://content-groups/9", display: "What to Watch",
+    }]],
+  ]);
+
+  const todoContentLink = definitions.find(({ name }) => name === "todo_content_link_set");
+  assert.deepEqual(objectReferenceGroupsFromToolResult({
+    toolDefinition: todoContentLink,
+    toolDefinitions: definitions,
+    sourceEventSeq: 96,
+    result: {
+      task: {
+        personal_task_id: 17, ref: "agent-slayer://todos/17", text: "Review tutorial",
+        linked_content: [{
+          content_id: 23,
+          content_ref: "agent-slayer://content-items/23",
+          content_title: "Launch tutorial",
+        }],
+      },
+    },
+  }).map(({ type, objects }) => [type, objects]), [
+    ["todos.personal_task", [{
+      id: 17, ref: "agent-slayer://todos/17", display: "Review tutorial",
+    }]],
+    ["video.content_item", [{
+      id: 23, ref: "agent-slayer://content-items/23", display: "Launch tutorial",
+    }]],
   ]);
 
   const protectedFields = objectReferenceProtectedFields(calendarSearch, definitions);

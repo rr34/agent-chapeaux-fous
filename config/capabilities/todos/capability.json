@@ -4,17 +4,21 @@
   "version": 1,
   "id": "todos",
   "title": "To-dos",
-  "summary": "Read and manage non-temporal personal to-dos. Calendar events own schedules and deadlines and may link to multiple to-dos.",
+  "summary": "Read and manage non-temporal personal to-dos, including their links to content-library items. Calendar events own schedules and deadlines and may link to multiple to-dos.",
   "aliases": [
     "todo",
     "to-do",
     "task",
     "reminder",
-    "chore"
+    "chore",
+    "task content"
   ],
   "readOnlyTools": [
     "todo_group_list",
     "todo_list"
+  ],
+  "dependentTools": [
+    "video_content_list"
   ],
   "guidance": "guidance.md"
 }

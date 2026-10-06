@@ -55,3 +55,37 @@ test("grouped list rows have shared and responsive styling", () => {
   assert.match(styles, /\.journal-tracker-row/);
   assert.match(styles, /\.journal-entry-row/);
 });
+
+test("every grouped section exposes its group filter at the top", () => {
+  const contacts = screenSource("ContactsScreen", "LibraryScreen");
+  const library = screenSource("LibraryScreen", "VideoScriptsScreen");
+  const scripts = screenSource("VideoScriptsScreen", "FilesScreen");
+  const files = screenSource("FilesScreen", "GenericScreen");
+  const journal = screenSource("JournalScreen", "UsageScreen");
+
+  assert.match(library, /selectedGroupId === "all"/);
+  assert.match(library, /<SectionSelectFilter label="Group"/);
+  assert.match(scripts, /selectedStatus === "all"/);
+  assert.match(scripts, /<SectionSelectFilter label="Group"/);
+  assert.match(files, /selectedMediaKind === "all"/);
+  assert.match(files, /<SectionSelectFilter label="Group"/);
+  assert.match(contacts, /selectedKind === "all"/);
+  assert.match(contacts, /<SectionSelectFilter label="Group"/);
+  assert.match(journal, /selectedGroupId === "all"/);
+  assert.match(journal, /<SectionSelectFilter label="Group"/);
+  assert.match(styles, /\.section-select-filter/);
+});
+
+test("contacts expose a tag filter and combine it with group and text filtering", () => {
+  const contacts = screenSource("ContactsScreen", "LibraryScreen");
+  assert.match(contacts, /<SectionSelectFilter label="Tag"/);
+  assert.match(contacts, /\.includes\(selectedTag\)/);
+  assert.match(contacts, /&& matchesSearch\(contact, query\)/);
+});
+
+test("video scripts are the last workspace section before AI usage", () => {
+  assert.match(
+    appSource,
+    /\["journal", "Journal"\], \["video-scripts", "Video Scripts"\],\s*\["ai-usage", "AI Usage"\]/,
+  );
+});
