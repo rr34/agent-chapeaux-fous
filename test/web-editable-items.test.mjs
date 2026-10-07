@@ -101,6 +101,14 @@ test("calendar creation and routines share structured recurrence controls", () =
   assert.match(recurrence, /Weekday pattern/);
 });
 
+test("calendar event timing keeps start, duration, and end synchronized", () => {
+  assert.ok(items.includes('updateEventTiming(draft, "start", startsAt)'));
+  assert.ok(items.includes('updateEventTiming(draft, "duration", change.target.value)'));
+  assert.ok(items.includes('updateEventTiming(draft, "end", endsAt)'));
+  assert.match(items, /Duration <span className="field-hint">HH:MM<\/span>/);
+  assert.match(styles, /\.object-editor-timing \{ grid-template-columns:/);
+});
+
 
 test("events, to-dos, and routines preserve authored newlines everywhere they display", () => {
   assert.ok(dailyPaper.includes('className="multiline-item-text">{event.title}</span>'));

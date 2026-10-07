@@ -300,6 +300,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .object-editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .object-editor-heading h2 { margin: 3px 0 0; font: 600 28px/1.05 "Newsreader", Georgia, serif; }
 .object-editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.object-editor-timing { grid-template-columns: minmax(0, 1fr) minmax(105px, .48fr) minmax(0, 1fr); }
+.object-editor-timing .field-hint { font-size: 10px; font-weight: 600; }
+.duration-input { font-variant-numeric: tabular-nums; }
 .object-editor-check { display: flex !important; align-items: center; gap: 8px !important; }
 .object-editor-check input { width: 17px; height: 17px; margin: 0; accent-color: var(--olive-dark); }
 .object-editor-note, .object-editor-state { margin: 0; padding: 10px 12px; border-radius: 9px; color: var(--muted); background: var(--olive-soft); font-size: 12px; }
@@ -557,6 +560,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .object-editor-backdrop { padding: 0; }
   .object-editor { width: 100%; max-height: 100vh; min-height: 100vh; border-radius: 0; }
   .object-editor-grid { grid-template-columns: 1fr; }
+  .object-editor-timing { grid-template-columns: 1fr; }
   .recurrence-every, .recurrence-ending { grid-template-columns: 1fr; }
   .trace-panel { width: 100%; max-height: 100vh; border-radius: 0; }
   .trace-heading { align-items: flex-start; padding: 14px; }

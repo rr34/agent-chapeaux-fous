@@ -9,6 +9,7 @@ import {
   parseDurationClock,
   shiftLocalDateTime,
   splitLocalDateTime,
+  updateEventTiming,
 } from "../public/event-date-time.js";
 
 test("event date and 24-hour time fields combine and split", () => {
@@ -42,4 +43,40 @@ test("event durations are expressed in hours and minutes", () => {
   assert.equal(parseDurationClock("00:00"), null);
   assert.equal(parseDurationClock("1:75"), null);
   assert.equal(formatDurationClock(90), "01:30");
+});
+
+test("event timing keeps duration stable when the start changes", () => {
+  assert.deepEqual(updateEventTiming({
+    startsAt: "2026-08-19T09:00",
+    endsAt: "2026-08-19T10:30",
+    duration: "01:30",
+  }, "start", "2026-08-19T11:15"), {
+    startsAt: "2026-08-19T11:15",
+    endsAt: "2026-08-19T12:45",
+    duration: "01:30",
+  });
+});
+
+test("event timing recalculates duration from the end", () => {
+  assert.deepEqual(updateEventTiming({
+    startsAt: "2026-08-19T09:00",
+    endsAt: "2026-08-19T10:00",
+    duration: "01:00",
+  }, "end", "2026-08-19T11:45"), {
+    startsAt: "2026-08-19T09:00",
+    endsAt: "2026-08-19T11:45",
+    duration: "02:45",
+  });
+});
+
+test("event timing recalculates the end from duration, including date rollover", () => {
+  assert.deepEqual(updateEventTiming({
+    startsAt: "2026-08-19T23:30",
+    endsAt: "2026-08-20T00:30",
+    duration: "01:00",
+  }, "duration", "02:15"), {
+    startsAt: "2026-08-19T23:30",
+    endsAt: "2026-08-20T01:45",
+    duration: "02:15",
+  });
 });

@@ -53,3 +53,33 @@ export function formatDurationClock(totalMinutes) {
   if (!Number.isSafeInteger(totalMinutes) || totalMinutes <= 0) return "";
   return `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`;
 }
+
+export function updateEventTiming(timing, source, value) {
+  const next = { ...timing };
+
+  if (source === "start") {
+    next.startsAt = value;
+    const minutes = parseDurationClock(next.duration);
+    const match = /^(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d)$/.exec(value);
+    const shifted = minutes && match ? shiftLocalDateTime(match[1], match[2], minutes) : null;
+    if (shifted) next.endsAt = combineLocalDateTime(shifted.date, shifted.time);
+  } else if (source === "end") {
+    next.endsAt = value;
+    const minutes = value ? durationMinutes(next.startsAt, value) : null;
+    next.duration = Number.isSafeInteger(minutes) && minutes > 0
+      ? formatDurationClock(minutes)
+      : "";
+  } else if (source === "duration") {
+    next.duration = value;
+    if (!value) {
+      next.endsAt = "";
+    } else {
+      const minutes = parseDurationClock(value);
+      const match = /^(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d)$/.exec(next.startsAt);
+      const shifted = minutes && match ? shiftLocalDateTime(match[1], match[2], minutes) : null;
+      if (shifted) next.endsAt = combineLocalDateTime(shifted.date, shifted.time);
+    }
+  }
+
+  return next;
+}

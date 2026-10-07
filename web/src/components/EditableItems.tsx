@@ -1,4 +1,7 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import {
+  durationMinutes, formatDurationClock, parseDurationClock, updateEventTiming,
+} from "../../../public/event-date-time.js";
 import { api } from "../api";
 import { formatDisplayDate } from "../date-format";
 import type { CalendarEvent, CalendarRoutine, Entity, LinkedTodo } from "../types";
@@ -189,6 +192,7 @@ interface CalendarDraft {
   location: string;
   startsAt: string;
   endsAt: string;
+  duration: string;
   isAllDay: boolean;
   status: string;
   planningPromptText: string;
@@ -197,12 +201,15 @@ interface CalendarDraft {
 }
 
 function calendarDraft(event: CalendarEvent): CalendarDraft {
+  const startsAt = localDateTimeValue(event.startsAtUtc);
+  const endsAt = localDateTimeValue(event.endsAtUtc);
   return {
     title: event.title,
     description: event.description || "",
     location: event.location || "",
-    startsAt: localDateTimeValue(event.startsAtUtc),
-    endsAt: localDateTimeValue(event.endsAtUtc),
+    startsAt,
+    endsAt,
+    duration: formatDurationClock(durationMinutes(startsAt, endsAt)),
     isAllDay: event.isAllDay,
     status: event.status || "active",
     planningPromptText: event.planningPromptText || "",
@@ -222,6 +229,7 @@ function newCalendarDraft(initialDate?: string): CalendarDraft {
     location: "",
     startsAt: `${date}T09:00`,
     endsAt: `${date}T10:00`,
+    duration: "01:00",
     isAllDay: false,
     status: "active",
     planningPromptText: "",
@@ -261,6 +269,17 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
   const save = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
     if (!draft || (!creating && !event)) return;
+    if (!draft.isAllDay && draft.duration && parseDurationClock(draft.duration) === null) {
+      setError("Use duration HH:MM, for example 01:30.");
+      return;
+    }
+    const timedMinutes = !draft.isAllDay && draft.endsAt
+      ? durationMinutes(draft.startsAt, draft.endsAt)
+      : null;
+    if (timedMinutes !== null && timedMinutes <= 0) {
+      setError("End must be after start.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -300,17 +319,32 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
       {draft && <>
         {isRecurring && !creating && <p className="object-editor-note">This occurrence belongs to a recurring series. Changes apply to the whole series.</p>}
         <label>Title<input autoFocus required maxLength={500} value={draft.title} onChange={(change) => setDraft({ ...draft, title: change.target.value })} /></label>
-        <label className="object-editor-check"><input type="checkbox" checked={draft.isAllDay} onChange={(change) => setDraft({ ...draft, isAllDay: change.target.checked })} /><span>All day</span></label>
-        <div className="object-editor-grid">
+        <label className="object-editor-check"><input type="checkbox" checked={draft.isAllDay} onChange={(change) => {
+          const isAllDay = change.target.checked;
+          const timing = !isAllDay
+            ? updateEventTiming(draft, "start", draft.startsAt)
+            : draft;
+          setDraft({ ...draft, ...timing, isAllDay });
+        }} /><span>All day</span></label>
+        <div className="object-editor-grid object-editor-timing">
           <label>Starts<input required type={draft.isAllDay ? "date" : "datetime-local"} value={draft.isAllDay ? draft.startsAt.slice(0, 10) : draft.startsAt} onChange={(change) => {
             const startsAt = draft.isAllDay ? change.target.value + "T00:00" : change.target.value;
+            const timing = draft.isAllDay
+              ? { startsAt }
+              : updateEventTiming(draft, "start", startsAt);
             setDraft({
               ...draft,
-              startsAt,
+              ...timing,
               ...(!draft.recurrence.enabled ? { recurrence: recurrenceDraft(null, startsAt.slice(0, 10)) } : {}),
             });
           }} /></label>
-          <label>Ends<input type={draft.isAllDay ? "date" : "datetime-local"} value={draft.isAllDay ? draft.endsAt.slice(0, 10) : draft.endsAt} onChange={(change) => setDraft({ ...draft, endsAt: draft.isAllDay && change.target.value ? change.target.value + "T00:00" : change.target.value })} /></label>
+          {!draft.isAllDay && <label><span>Duration <span className="field-hint">HH:MM</span></span><input className="duration-input" type="text" inputMode="numeric" autoComplete="off" placeholder="01:00" pattern="\d{1,4}:[0-5]\d" maxLength={7} aria-label="Event duration in hours and minutes" value={draft.duration} onChange={(change) => setDraft({ ...draft, ...updateEventTiming(draft, "duration", change.target.value) })} /></label>}
+          <label>Ends<input type={draft.isAllDay ? "date" : "datetime-local"} min={draft.isAllDay ? undefined : draft.startsAt} value={draft.isAllDay ? draft.endsAt.slice(0, 10) : draft.endsAt} onChange={(change) => {
+            const endsAt = draft.isAllDay && change.target.value ? change.target.value + "T00:00" : change.target.value;
+            setDraft(draft.isAllDay
+              ? { ...draft, endsAt }
+              : { ...draft, ...updateEventTiming(draft, "end", endsAt) });
+          }} /></label>
         </div>
         <label>Location<input maxLength={1000} value={draft.location} onChange={(change) => setDraft({ ...draft, location: change.target.value })} /></label>
         <label>Description<textarea rows={4} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
