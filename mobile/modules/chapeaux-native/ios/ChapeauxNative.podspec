@@ -1,9 +1,9 @@
 Pod::Spec.new do |s|
   s.name           = 'ChapeauxNative'
   s.version        = '0.1.0'
-  s.summary        = 'Phone-native Chapeaux Fous actions'
-  s.description    = 'Explicit user-invoked phone actions for Chapeaux Fous.'
-  s.author         = 'Chapeaux Fous'
+  s.summary        = 'Phone-native Time V3 Agent actions'
+  s.description    = 'Explicit user-invoked phone actions for Time V3 Agent.'
+  s.author         = 'Time V3'
   s.homepage       = 'https://docs.expo.dev/modules/'
   s.platforms      = { :ios => '16.4' }
   s.source         = { git: '' }
@@ -12,4 +12,3 @@ Pod::Spec.new do |s|
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
   s.source_files = "**/*.{h,m,mm,swift,hpp,cpp}"
 end
-

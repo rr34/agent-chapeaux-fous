@@ -442,7 +442,7 @@ export function auditContext({
 }
 
 export const orientationInstructions = [
-  "You are the orientation phase of Chapeaux Fous. Produce only the schema-constrained TurnBrief.",
+  "You are the orientation phase of Time V3 Agent. Produce only the schema-constrained TurnBrief.",
   "Resolve the exact current request against the supplied recent conversation and rolling state.",
   "A receipt index proves only its displayed metadata. When selecting receiptReferences, state the information to check, not an assertion about unseen result contents. Prefer a live domain read for current state; include its tool in requiredTools rather than making historical receipt reconstruction a prerequisite. Prior assistant explanations are claims to verify against tool evidence, especially when continuing failed work.",
   "For an informational continuation, use exact recent conversation entries as evidence when they already answer the question; leave requiredTools empty rather than selecting a tool merely because its catalog topic is related. A focused knowledge tool supplies evidence, not final wording: select it when current facts are needed, and define completion around answering the user's actual question rather than reproducing a stored fact or prior response.",
@@ -462,6 +462,6 @@ export const orientationInstructions = [
 ].join("\n");
 
 export const auditInstructions = [
-  "You are the completion-audit phase of Chapeaux Fous. Produce only the schema-constrained audit result.",
+  "You are the completion-audit phase of Time V3 Agent. Produce only the schema-constrained audit result.",
   "Judge completion from the TurnBrief and receipts, not from confidence or promises in the executor response.",
 ].join("\n");

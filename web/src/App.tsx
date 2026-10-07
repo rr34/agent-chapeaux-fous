@@ -23,7 +23,7 @@ import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
   ["agent", "Agent"], ["hats", "Hats"], ["calendar", "Calendar"], ["routine", "Routine"],
-  ["todos", "To do"], ["content", "Library"], ["files", "Files"],
+  ["todos", "To do"], ["payments", "Payments"], ["content", "Library"], ["files", "Files"],
   ["contacts", "Contacts"], ["journal", "Journal"], ["video-scripts", "Video Scripts"],
   ["ai-usage", "AI Usage"],
 ] as const;
@@ -65,6 +65,37 @@ function PaperPinIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M12 17v5M5 17h14M15 17v-5l-1-1V5h2V2H8v3h2v6l-1 1v5" />
   </svg>;
+}
+
+type TodoGroupPriorityMovement = "top" | "up" | "down" | "bottom";
+
+function TodoGroupPriorityControls({ groupId, groupName, groupIndex, groupCount, busy, onMove }: {
+  groupId: number;
+  groupName: string;
+  groupIndex: number;
+  groupCount: number;
+  busy: boolean;
+  onMove: (groupId: number, movement: TodoGroupPriorityMovement) => void;
+}) {
+  const atTop = groupIndex <= 0;
+  const atBottom = groupIndex < 0 || groupIndex === groupCount - 1;
+  const controls: { movement: TodoGroupPriorityMovement; symbol: string; label: string; disabled: boolean }[] = [
+    { movement: "top", symbol: "⇈", label: "to top priority", disabled: atTop },
+    { movement: "up", symbol: "↑", label: "up one priority", disabled: atTop },
+    { movement: "down", symbol: "↓", label: "down one priority", disabled: atBottom },
+    { movement: "bottom", symbol: "⇊", label: "to bottom priority", disabled: atBottom },
+  ];
+  return <div className="todo-group-priority-controls" role="group" aria-label={`Change ${groupName} group priority`}>
+    {controls.map(({ movement, symbol, label, disabled }) => <button
+      className="todo-group-priority-button"
+      type="button"
+      title={`Move ${label}`}
+      aria-label={`Move ${groupName} group ${label}`}
+      disabled={busy || disabled}
+      onClick={() => onMove(groupId, movement)}
+      key={movement}
+    >{symbol}</button>)}
+  </div>;
 }
 
 function readKey(entity: Entity, ...keys: string[]) {
@@ -214,7 +245,7 @@ function TokenGate({ children }: { children: ReactNode }) {
   return <main className="token-gate"><section className="token-card">
     <img src="/icon.svg" alt="" />
     <p className="eyebrow">Private workspace</p><h1>Welcome back.</h1>
-    <p>Enter the access token for this Chapeaux Fous installation.</p>
+    <p>Enter the access token for this Time V3 Agent installation.</p>
     <form onSubmit={(event) => { event.preventDefault(); setAccessToken(draft); update(draft.trim()); }}>
       <label>Access token<input autoFocus type="password" value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
       <button className="button" disabled={!draft.trim()}>Open workspace</button>
@@ -782,7 +813,7 @@ function AgentScreen({ onReference, onShowTrace, refreshKey }: {
   };
   const visibleRequests = (data?.requests || []).filter((request) => matchesSearch(request, filterQuery));
   return <>
-    <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Chapeaux Fous orients, shows its brief, then acts with visible tools." />
+    <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Time V3 Agent orients, shows its brief, then acts with visible tools." />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleRequests.length} noun="exchange" />
     <section className="conversation">
       {loading && <Loading label="Loading requests" />}{error ? <ErrorState error={error} retry={reload} /> : null}
@@ -792,7 +823,7 @@ function AgentScreen({ onReference, onShowTrace, refreshKey }: {
           <p className="eyebrow">Turn brief</p><strong>{request.turnBriefApproval.objective || request.turnBriefApproval.summary}</strong><p>{request.turnBriefApproval.summary}</p>
           <div><button className="button" onClick={() => void decide(request, "continue")}>Continue</button><button className="button button--quiet" onClick={() => void decide(request, "cancel")}>Cancel</button></div>
         </div>}
-        {request.response && <div className="request-response"><span>Chapeaux Fous</span><p>{request.response}</p></div>}
+        {request.response && <div className="request-response"><span>Time V3 Agent</span><p>{request.response}</p></div>}
         {request.error && <p className="inline-error">{request.error}</p>}
         <RequestInteractionMetrics request={request} />
         <footer><span className={`status-dot status-${request.status}`} />{request.status.replaceAll("_", " ")}<code>{request.requestId.slice(0, 8)}</code><button className="trace-button" type="button" onClick={() => onShowTrace(request.requestId)}>Show trace</button>{["complete", "error"].includes(request.status) && <AgentReferenceButton identity={exchangeIdentity(request)} subject={`exchange ${request.requestId.slice(0, 8)}`} onReference={onReference} />}</footer>
@@ -887,6 +918,8 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/todo-groups");
   const [draft, setDraft] = useState("");
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
+  const [reorderingGroupId, setReorderingGroupId] = useState<number | null>(null);
+  const [reorderError, setReorderError] = useState("");
   const add = async (event: FormEvent) => { event.preventDefault(); await api("/api/todos", { method: "POST", body: JSON.stringify({ text: draft, status: "todo" }) }); setDraft(""); await reload(); };
   const statusTodos = (data?.todos || []).filter((todo) =>
     todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
@@ -901,6 +934,32 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
       body: JSON.stringify({ dailyPaperPinned }),
     });
     await reloadGroups();
+  };
+  const orderedGroupIds = (groupData?.groups || []).map((group) => Number(group.id));
+  const moveGroup = async (groupId: number, movement: TodoGroupPriorityMovement) => {
+    const currentIndex = orderedGroupIds.indexOf(groupId);
+    const targetIndex = movement === "top"
+      ? 0
+      : movement === "bottom"
+        ? orderedGroupIds.length - 1
+        : currentIndex + (movement === "up" ? -1 : 1);
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= orderedGroupIds.length || targetIndex === currentIndex) return;
+    const nextGroupIds = [...orderedGroupIds];
+    nextGroupIds.splice(currentIndex, 1);
+    nextGroupIds.splice(targetIndex, 0, groupId);
+    setReorderError("");
+    setReorderingGroupId(groupId);
+    try {
+      await api("/api/todo-groups/reorder", {
+        method: "POST",
+        body: JSON.stringify({ orderedGroupIds: nextGroupIds }),
+      });
+      await reloadGroups();
+    } catch (caught) {
+      setReorderError(caught instanceof Error ? caught.message : "Could not change the group priority.");
+    } finally {
+      setReorderingGroupId(null);
+    }
   };
   const groups = useMemo(() => {
     const grouped = new Map<string, {
@@ -938,7 +997,27 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
       <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
     </SectionSelectFilter>} />
-    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}><header className="todo-group-heading"><div className="group-heading-title"><h2 id={`todo-group-${group.id}`}>{group.name}</h2>{group.groupId != null && group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}</div><div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div></header><div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div></section>)}</div>
+    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{reorderError && <p className="inline-error" role="alert">{reorderError}</p>}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => {
+      const priorityIndex = group.groupId == null ? -1 : orderedGroupIds.indexOf(group.groupId);
+      return <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}>
+        <header className="todo-group-heading">
+          <div className="group-heading-title">
+            <h2 id={`todo-group-${group.id}`}>{group.name}</h2>
+            {group.groupId != null && <TodoGroupPriorityControls
+              groupId={group.groupId}
+              groupName={group.name}
+              groupIndex={priorityIndex}
+              groupCount={orderedGroupIds.length}
+              busy={reorderingGroupId != null}
+              onMove={(id, movement) => void moveGroup(id, movement)}
+            />}
+            {group.groupId != null && group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}
+          </div>
+          <div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div>
+        </header>
+        <div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div>
+      </section>;
+    })}</div>
     {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }} />}
   </>;
 }
@@ -1347,6 +1426,65 @@ function UsageScreen() {
   return <><PageHeading eyebrow="Metered model work" title="AI Usage" detail={`${textKey(data?.current || {}, "transport")} · ${textKey(data?.current || {}, "model")}`} /><SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleEntries.length} noun="call" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="metric-grid"><article><span>Calls</span><strong>{totals.calls.toLocaleString()}</strong></article><article><span>Input tokens</span><strong>{totals.input.toLocaleString()}</strong></article><article><span>Output tokens</span><strong>{totals.output.toLocaleString()}</strong></article></div></>;
 }
 
+interface StripeConnectionStatus {
+  configured: boolean;
+  connected: boolean;
+  accountId: string | null;
+  status: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted?: boolean;
+  currentlyDue?: string[];
+  disabledReason?: string | null;
+  reason?: string | null;
+}
+
+function PaymentsScreen() {
+  const { data: statusData, error: statusError, loading: statusLoading, reload: reloadStatus } = useApi<{ stripe: StripeConnectionStatus }>("/api/payments/stripe/status");
+  const { data: invoiceData, error: invoiceError, loading: invoicesLoading, reload: reloadInvoices } = useApi<{ count: number; invoices: Entity[] }>("/api/payment-invoices?limit=100");
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState("");
+  const stripe = statusData?.stripe;
+  const connect = async () => {
+    setConnecting(true);
+    setConnectError("");
+    try {
+      const result = await api<{ url: string }>("/api/payments/stripe/oauth/start", { method: "POST" });
+      window.location.assign(result.url);
+    } catch (caught) {
+      setConnectError(caught instanceof Error ? caught.message : "Could not start Stripe Connect.");
+      setConnecting(false);
+    }
+  };
+  const refresh = () => { void reloadStatus(); void reloadInvoices(); };
+  return <>
+    <PageHeading eyebrow="Money received through your work" title="Payments" detail="Connect the Stripe account that receives invoice payments and review invoices created by the Agent." actions={<button className="button button--quiet" type="button" onClick={refresh}>Refresh</button>} />
+    {statusLoading && <Loading label="Checking Stripe" />}
+    {statusError && <ErrorState error={statusError} retry={reloadStatus} />}
+    {stripe && <section className="entity-card">
+      <div className="entity-meta"><span className="pill">Stripe Connect</span><span>{stripe.status || (stripe.configured ? "Not connected" : "Needs platform settings")}</span></div>
+      <h2>{stripe.connected ? "Receiving account connected" : "Connect a receiving account"}</h2>
+      <p>{stripe.connected
+        ? `${stripe.accountId || "Stripe account"} · Charges ${stripe.chargesEnabled ? "enabled" : "not enabled"} · Payouts ${stripe.payoutsEnabled ? "enabled" : "not enabled"}`
+        : stripe.reason || "Finish the Time V3 Stripe platform configuration, then connect the account that should receive payments."}</p>
+      {stripe.disabledReason && <p className="form-error">Stripe restriction: {stripe.disabledReason}</p>}
+      {Boolean(stripe.currentlyDue?.length) && <p>Still required by Stripe: {stripe.currentlyDue!.join(", ")}</p>}
+      {!stripe.connected && <button className="button" type="button" disabled={!stripe.configured || connecting} onClick={() => void connect()}>{connecting ? "Opening Stripe…" : "Connect Stripe account"}</button>}
+      {connectError && <p className="form-error" role="alert">{connectError}</p>}
+    </section>}
+    <section className="page-heading"><div><p className="eyebrow">Invoice history</p><h2>Invoices</h2></div></section>
+    {invoicesLoading && <Loading label="Loading invoices" />}
+    {invoiceError && <ErrorState error={invoiceError} retry={reloadInvoices} />}
+    {!invoicesLoading && !invoiceError && !invoiceData?.invoices?.length && <Empty>No invoices yet. Ask the Agent to prepare one from priced to-dos, manual lines, or both.</Empty>}
+    <div className="card-grid">{invoiceData?.invoices?.map((invoice) => <article className="entity-card" key={String(invoice.invoiceId)}>
+      <div className="entity-meta"><span className="pill">{textKey(invoice, "status")}</span><span>Due {formatLocalDate(textKey(invoice, "dueOn"))}</span></div>
+      <h2>{textKey(invoice, "display")}</h2>
+      <p>{textKey(invoice, "description") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`}</p>
+      {Boolean(invoice.hostedInvoiceUrl) && <a className="button button--quiet" href={String(invoice.hostedInvoiceUrl)} target="_blank" rel="noreferrer">Open Stripe invoice</a>}
+    </article>)}</div>
+  </>;
+}
+
 function DailyPaperRoute() {
   const parameters = new URLSearchParams(location.search);
   const timeZone = parameters.get("timeZone") || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -1403,12 +1541,13 @@ function Workspace() {
   else if (view === "hats") screen = <HatsScreen />;
   else if (view === "routine") screen = <RoutineScreen onGenerated={(message) => { setCalendarGenerationNotice(message); go("calendar"); }} onReference={referenceInAgent} />;
   else if (view === "journal") screen = <JournalScreen onReference={referenceInAgent} />;
+  else if (view === "payments") screen = <PaymentsScreen />;
   else if (view === "ai-usage") screen = <UsageScreen />;
   else if (view === "content") screen = <LibraryScreen onReference={referenceInAgent} />;
   else if (view === "video-scripts") screen = <VideoScriptsScreen onReference={referenceInAgent} />;
   else if (view === "files") screen = <FilesScreen onReference={referenceInAgent} />;
   else screen = <GenericScreen kind={view as keyof typeof genericScreens} onReference={referenceInAgent} />;
-  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Chapeaux<br />Fous</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav><div className="token-settings">
+  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time V3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav><div className="token-settings">
     <button className="token-button" onClick={() => { setTokenDraft(getAccessToken()); setEditingToken((open) => !open); }}>Access token</button>
     {editingToken && <form className="token-editor" onSubmit={saveToken}>
       <label>Replace token<input autoFocus type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} /></label>

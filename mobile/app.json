@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Chapeaux Fous",
+    "name": "Time V3 Agent",
     "slug": "chapeaux-fous",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -10,7 +10,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.chapeauxfous.mobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Chapeaux Fous records voice requests that you explicitly submit to your agent."
+        "NSMicrophoneUsageDescription": "Time V3 Agent records voice requests that you explicitly submit to your agent."
       }
     },
     "android": {
@@ -26,7 +26,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow Chapeaux Fous to record voice requests you explicitly submit."
+          "microphonePermission": "Allow Time V3 Agent to record voice requests you explicitly submit."
         }
       ],
       "expo-asset"

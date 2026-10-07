@@ -44,7 +44,7 @@ test("the Hats card outline is served from the public asset directory", async ()
   assert.equal(response.handled, true);
   assert.equal(response.status, 200);
   assert.equal(response.headers["Content-Type"], "image/svg+xml");
-  assert.match(response.body, /Chapeaux Fous hat outline/);
+  assert.match(response.body, /Time V3 Agent hat outline/);
 });
 
 test("app navigation and OAuth return URLs still load the application", async () => {

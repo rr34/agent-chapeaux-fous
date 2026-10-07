@@ -1,6 +1,6 @@
 # Video scripts and productions
 
-If the user asks how Chapeaux Fous creates or generated its chat videos, that is
+If the user asks how Time V3 Agent creates or generated its chat videos, that is
 an explanation request, not a production request. Use the self capability's
 `agent_self_knowledge` with `video_generation`; use its facts to answer the
 actual question. Do not request selected-interaction context and do not call
@@ -59,7 +59,7 @@ The user explicitly selected completed interactions for either a portable script
 - Call the correct creation tool with exactly the supplied `sourceRequestIds`, a concise title, and a one- or two-sentence `description` of what the conversation is about.
 - Do not supply a production brief, audience analysis, scene plan, visual treatment, voiceover, on-screen copy, motion, audio notes, transitions, continuity notes, constraints, or rewritten dialogue. The application owns the final script structure.
 - The application deterministically inserts every video-projected request-response pair into both the portable script and the built-in production, preserving chronology and omitting only intermediate material and the defined machine-reference projection. Source requests, responses, and Agent context remain unchanged.
-- The portable script must be clear to a general AI video generator: it describes a video of a user interacting with Chapeaux Fous, an AI agent, followed by the projected conversation. The conversation is the polished final product.
+- The portable script must be clear to a general AI video generator: it describes a video of a user interacting with Time V3 Agent, an AI agent, followed by the projected conversation. The conversation is the polished final product.
 
 For a request whose kind is `video_production`:
 

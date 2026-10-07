@@ -82,7 +82,7 @@ function ConnectionModal({
     setError('');
     try {
       const settings = { baseUrl: normalizeBaseUrl(baseUrl), accessToken: accessToken.trim() };
-      if (!settings.accessToken) throw new ApiError('Enter the Chapeaux Fous access token.');
+      if (!settings.accessToken) throw new ApiError('Enter the Time V3 Agent access token.');
       const health = await verifyConnection(settings);
       await saveConnectionSettings(settings);
       onConnected(settings, health);
@@ -100,7 +100,7 @@ function ConnectionModal({
         <Text style={styles.setupEyebrow}>PRIVATE CONNECTION</Text>
         <Text style={styles.setupTitle}>Connect your agent</Text>
         <Text style={styles.setupCopy}>
-          Enter the public HTTPS address of your Chapeaux Fous server. The access token is stored in the phone’s secure credential store.
+          Enter the public HTTPS address of your Time V3 Agent server. The access token is stored in the phone’s secure credential store.
         </Text>
         <Text style={styles.fieldLabel}>SERVER URL</Text>
         <TextInput
@@ -227,7 +227,7 @@ function RequestCard({ request, onDraft }: { request: AgentRequest; onDraft: (te
       )}
       {!!request.response && (
         <View style={styles.agentBlock}>
-          <Text style={styles.agentLabel}>CHAPEAUX FOUS</Text>
+          <Text style={styles.agentLabel}>TIME V3 AGENT</Text>
           <Text selectable style={styles.agentText}>{request.response}</Text>
           <Pressable onPress={() => onDraft(request.response ?? '')} style={styles.draftAction}>
             <Text style={styles.draftActionText}>USE AS MESSAGE DRAFT</Text>
@@ -380,7 +380,7 @@ function AgentScreen() {
       <MessageDraftModal visible={showDraft} initialBody={draftBody} onClose={() => setShowDraft(false)} />
       <View style={styles.header}>
         <View>
-          <Text style={styles.brand}>CHAPEAUX FOUS</Text>
+          <Text style={styles.brand}>TIME V3 AGENT</Text>
           <View style={styles.connectionRow}>
             <View style={[styles.connectionDot, settings && styles.connectionDotOn]} />
             <Text style={styles.connectionText}>{connectionLabel}</Text>
@@ -434,7 +434,7 @@ function AgentScreen() {
               editable={!!settings && !submitting}
               multiline
               onChangeText={setComposer}
-              placeholder={settings ? 'Ask Chapeaux Fous…' : 'Connect the server first'}
+              placeholder={settings ? 'Ask Time V3 Agent…' : 'Connect the server first'}
               placeholderTextColor={colors.dim}
               style={styles.composerInput}
               textAlignVertical="top"

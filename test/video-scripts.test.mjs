@@ -89,10 +89,10 @@ test("video scripts persist one ordered source join for every selected interacti
   assert.match(stored.scriptText, /## Video description/);
   assert.match(stored.scriptText, /## Conversation/);
   assert.match(stored.scriptText, /\*\*User request\*\*[\s\S]+Plan the release\./);
-  assert.match(stored.scriptText, /\*\*Chapeaux Fous · AI response\*\*[\s\S]+The checklist is ready\./);
+  assert.match(stored.scriptText, /\*\*Time V3 Agent · AI response\*\*[\s\S]+The checklist is ready\./);
   assert.doesNotMatch(stored.scriptText, /Production brief|Generator prompt|Scene plan|Camera and motion|Continuity requirements/);
   assert.doesNotMatch(stored.scriptText, new RegExp(first.requestId));
-  assert.match(stored.plan.generatorPrompt, /supplied conversation below between a user and Chapeaux Fous, an AI agent/);
+  assert.match(stored.plan.generatorPrompt, /supplied conversation below between a user and Time V3 Agent, an AI agent/);
   assert.match(stored.plan.generatorPrompt, /Do not restore, read, or invent omitted codes/);
   assert.match(stored.plan.generatorPrompt, /USER REQUEST:[\s\S]+Plan the release\./);
   assert.doesNotMatch(stored.plan.generatorPrompt, /reasoning|processing|tool activity|trace activity|tutorial|scene plan/iu);

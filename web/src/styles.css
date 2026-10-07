@@ -262,6 +262,11 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .todo-group-heading span { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 .group-heading-title { min-width: 0; display: flex; align-items: center; gap: 9px; }
 .group-edit-button { min-height: 30px; padding: 4px 9px; font-size: 11px; }
+.todo-group-priority-controls { display: inline-flex; align-items: center; gap: 3px; }
+.todo-group-priority-button { width: 30px; height: 30px; min-height: 30px; display: inline-grid; place-items: center; padding: 0; border: 1px solid #b9c0b2; border-radius: 7px; color: var(--olive-dark); background: transparent; font-size: 16px; line-height: 1; }
+.todo-group-priority-button:hover { background: var(--olive-soft); }
+.todo-group-priority-button:focus-visible { outline: 3px solid rgba(104, 116, 90, .22); outline-offset: 1px; }
+.todo-group-priority-button:disabled { opacity: .35; cursor: not-allowed; }
 .todo-group-meta { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .todo-group-pin { padding: 6px 9px; font-size: 11px; }
 .todo-group-pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -551,6 +556,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .section-select-filter { grid-template-columns: auto 1fr; }
   .todo-heading-actions { align-items: stretch; flex-direction: column; width: 100%; }
   .todo-completed-filter { min-height: 40px; }
+  .todo-group-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .group-heading-title { flex-wrap: wrap; }
+  .todo-group-meta { width: 100%; justify-content: space-between; }
   .todo-row.has-sequence { grid-template-columns: auto 44px minmax(0, 1fr) auto; }
   .section-filter { align-items: stretch; flex-direction: column; margin-top: -8px; }
   .section-filter-field { width: 100%; max-width: none; }

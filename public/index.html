@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111315">
-  <title>Chapeaux Fous</title>
+  <title>Time V3 Agent</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/favicon.png" type="image/png" sizes="16x16">
   <link rel="stylesheet" href="/styles.css">
@@ -19,7 +19,7 @@
 </head>
 <body>
   <header class="topbar">
-    <nav class="topbar-nav" aria-label="Chapeaux Fous sections">
+    <nav class="topbar-nav" aria-label="Time V3 Agent sections">
       <div class="topbar-links">
         <button id="agent-view-button" class="top-nav-button active" data-view="agent" type="button" aria-current="page">
           <span id="agent-mascot" class="agent-mascot agent-mascot-nav" aria-hidden="true"></span>
@@ -85,7 +85,7 @@
       </div>
       <section id="object-stream-view" class="object-stream-view" role="tabpanel" aria-labelledby="object-stream-tab">
         <div id="object-stream" class="object-stream" aria-live="polite"></div>
-        <p id="object-stream-empty" class="empty">Objects used and changed by Chapeaux Fous will appear here.</p>
+        <p id="object-stream-empty" class="empty">Objects used and changed by Time V3 Agent will appear here.</p>
         <section id="object-draft" class="object-draft" aria-labelledby="object-draft-title" hidden>
           <div class="object-draft-heading">
             <div>
@@ -99,7 +99,7 @@
       </section>
       <section id="conversation-stream-view" class="requests" role="tabpanel" aria-labelledby="conversation-tab" aria-label="Chronological requests" hidden>
         <div id="request-list" class="request-list"></div>
-        <p id="empty" class="empty">No Chapeaux Fous requests yet.</p>
+        <p id="empty" class="empty">No Time V3 Agent requests yet.</p>
       </section>
 
     </div>
@@ -108,7 +108,7 @@
       <header class="organizer-heading hats-heading">
         <div>
           <p class="eyebrow">User manual</p>
-          <h1 id="hats-title">How to talk to Chapeaux Fous</h1>
+          <h1 id="hats-title">How to talk to Time V3 Agent</h1>
         </div>
       </header>
       <section class="hat-introduction organizer-panel" aria-labelledby="hat-template-heading">
@@ -534,7 +534,7 @@
           </svg>
         </button>
         <input id="request-file" class="sr-only" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.csv,.tsv,.json,.jsonl,.vcf,.txt,image/jpeg,image/png,image/webp,image/gif,text/csv,text/tab-separated-values,application/json,application/x-ndjson,text/vcard,text/x-vcard,text/plain">
-        <textarea id="request-text" rows="2" placeholder="Tell Chapeaux Fous what to do…" required></textarea>
+        <textarea id="request-text" rows="2" placeholder="Tell Time V3 Agent what to do…" required></textarea>
         <div class="voice-recorder">
           <button id="record" class="record-button" type="button" aria-label="Start recording" title="Record a voice request">
             <svg class="record-microphone" aria-hidden="true" viewBox="0 0 24 24">
@@ -578,7 +578,7 @@
       <div><p class="eyebrow">External tools</p><h2>Integrations</h2></div>
       <button class="secondary compact dialog-close" type="button">Close</button>
     </div>
-    <p class="muted">Connect an MCP server and make its tools available to Chapeaux Fous.</p>
+    <p class="muted">Connect an MCP server and make its tools available to Time V3 Agent.</p>
     <div id="integration-list" class="integration-list"></div>
     <form id="mcp-integration-form" class="integration-form">
       <h3>Add MCP</h3>
@@ -588,7 +588,7 @@
       <div class="button-row"><button id="mcp-integration-connect" type="submit">Connect</button></div>
       <p id="mcp-integration-error" class="form-error" role="alert"></p>
     </form>
-    <p class="muted integration-footnote">Tokens added here are stored in Chapeaux Fous's private application state, never in the repository or browser.</p>
+    <p class="muted integration-footnote">Tokens added here are stored in Time V3 Agent's private application state, never in the repository or browser.</p>
   </dialog>
 
   <dialog id="event-dialog" class="editor-dialog">
@@ -723,7 +723,7 @@
         <div><p class="eyebrow">Fastmail email draft</p><h2 id="event-invite-title">Invite contacts</h2></div>
         <button class="secondary compact dialog-close" type="button">Close</button>
       </header>
-      <p class="event-invite-intro">Uses the saved Chapeaux Fous event. This creates a draft only; it does not send email or add anything to Fastmail Calendar.</p>
+      <p class="event-invite-intro">Uses the saved Time V3 Agent event. This creates a draft only; it does not send email or add anything to Fastmail Calendar.</p>
       <label>Find contacts<input id="event-invite-search" type="search" placeholder="Name or email…" autocomplete="off"></label>
       <fieldset class="event-invite-recipients">
         <legend>Recipients</legend>
@@ -973,7 +973,7 @@
   <dialog id="token-dialog">
     <form id="token-form" method="dialog">
       <p class="eyebrow">Private service</p>
-      <h2>Connect to Chapeaux Fous</h2>
+      <h2>Connect to Time V3 Agent</h2>
       <input type="text" name="username" autocomplete="username" value="chapeaux-fous" hidden aria-hidden="true" tabindex="-1">
       <label for="token">Access token</label>
       <input id="token" name="password" type="password" autocomplete="current-password" required>
@@ -1042,7 +1042,7 @@
             <time></time>
           </div>
         </div>
-        <div class="request-agent-turn" aria-label="Chapeaux Fous response">
+        <div class="request-agent-turn" aria-label="Time V3 Agent response">
           <section class="turn-brief-approval" aria-label="Review the orientation plan" hidden>
             <p class="turn-brief-heading">Before I continue</p>
             <dl class="turn-brief-summary">

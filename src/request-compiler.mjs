@@ -527,7 +527,7 @@ function ambiguousHatInstructions(selection, hatCatalog) {
   return [
     "# Ambiguous destination",
     "If the available request and context do not resolve the intended destination, ask with this consistent teaching pattern:",
-    "I wasn't sure which one you meant—say ‘as my [hat]’ to point me at it. For example: ‘Chapeaux Fous, as my email, send John the invoice.’",
+    "I wasn't sure which one you meant—say ‘as my [hat]’ to point me at it. For example: ‘Time V3 Agent, as my email, send John the invoice.’",
   ].join("\n");
 }
 

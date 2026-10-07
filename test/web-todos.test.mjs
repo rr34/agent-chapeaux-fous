@@ -15,7 +15,8 @@ test("the React to-do page starts with open tasks and opts into completed tasks"
 test("the React to-do page renders tasks in their stored groups", () => {
   assert.match(appSource, /const grouped = new Map/);
   assert.match(appSource, /readKey\(todo, "groupId"\)/);
-  assert.match(appSource, /groups\.map\(\(group\) => <section className="todo-group"/);
+  assert.match(appSource, /groups\.map\(\(group\) => \{/);
+  assert.match(appSource, /return <section className="todo-group"/);
   assert.match(appSource, /\{group\.name\}<\/h2>/);
   assert.match(styles, /\.todo-group-heading/);
   assert.match(styles, /\.todo-group-items/);
@@ -36,4 +37,19 @@ test("the React to-do page pins group containers rather than individual tasks", 
   assert.match(appSource, /group\.dailyPaperPinned \? "Pinned to paper" : "Pin to paper"/);
   assert.match(appSource, /for \(const group of groupData\?\.groups \|\| \[\]\)/);
   assert.match(styles, /\.todo-group-pin\.is-pinned/);
+});
+
+test("the React to-do page moves group priority by one step or to either end", () => {
+  assert.match(appSource, /type TodoGroupPriorityMovement = "top" \| "up" \| "down" \| "bottom"/);
+  assert.match(appSource, /label: "to top priority"/);
+  assert.match(appSource, /label: "up one priority"/);
+  assert.match(appSource, /label: "down one priority"/);
+  assert.match(appSource, /label: "to bottom priority"/);
+  assert.match(appSource, /currentIndex \+ \(movement === "up" \? -1 : 1\)/);
+  assert.match(appSource, /nextGroupIds\.splice\(currentIndex, 1\)/);
+  assert.match(appSource, /nextGroupIds\.splice\(targetIndex, 0, groupId\)/);
+  assert.match(appSource, /api\("\/api\/todo-groups\/reorder"/);
+  assert.match(appSource, /JSON\.stringify\(\{ orderedGroupIds: nextGroupIds \}\)/);
+  assert.match(styles, /\.todo-group-priority-controls/);
+  assert.match(styles, /\.todo-group-priority-button/);
 });

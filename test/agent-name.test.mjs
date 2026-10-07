@@ -3,10 +3,11 @@ import test from "node:test";
 import { AGENT_NAME, canonicalizeAgentName } from "../src/agent-name.mjs";
 
 test("input-only aliases are canonicalized at the final response boundary", () => {
-  assert.equal(AGENT_NAME, "Chapeaux Fous");
+  assert.equal(AGENT_NAME, "Time V3 Agent");
   assert.equal(
     canonicalizeAgentName("Chapofu, SHAPOFU, Chapo fu, and Chapeau Faux are me."),
-    "Chapeaux Fous, Chapeaux Fous, Chapeaux Fous, and Chapeaux Fous are me.",
+    "Time V3 Agent, Time V3 Agent, Time V3 Agent, and Time V3 Agent are me.",
   );
-  assert.equal(canonicalizeAgentName("Chapeaux Fous is my name."), "Chapeaux Fous is my name.");
+  assert.equal(canonicalizeAgentName("Chapeaux Fous was the old name."), "Time V3 Agent was the old name.");
+  assert.equal(canonicalizeAgentName("Time V3 Agent is my name."), "Time V3 Agent is my name.");
 });

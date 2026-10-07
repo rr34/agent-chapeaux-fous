@@ -76,7 +76,7 @@ function conversationText(interactions, { markdown = false } = {}) {
         "",
         interaction.request,
         "",
-        "**Chapeaux Fous · AI response**",
+        "**Time V3 Agent · AI response**",
         "",
         interaction.response,
       );
@@ -86,7 +86,7 @@ function conversationText(interactions, { markdown = false } = {}) {
         "USER REQUEST:",
         interaction.request,
         "",
-        "CHAPEAUX FOUS — AI RESPONSE:",
+        "TIME V3 AGENT — AI RESPONSE:",
         interaction.response,
       );
     }
@@ -96,7 +96,7 @@ function conversationText(interactions, { markdown = false } = {}) {
 
 function canonicalGeneratorPrompt(plan, interactions) {
   return [
-    "Create a polished 1080x1620 video of the supplied conversation below between a user and Chapeaux Fous, an AI agent.",
+    "Create a polished 1080x1620 video of the supplied conversation below between a user and Time V3 Agent, an AI agent.",
     `Conversation context: ${plan.concept}`,
     "The conversation is the finished product. Present every supplied user request and AI response in chronological order as one continuous chat interaction.",
     "The application has removed machine-only reference lines and unmistakably opaque identifiers from this video copy. Do not restore, read, or invent omitted codes; otherwise preserve the supplied dialogue verbatim.",
@@ -112,7 +112,7 @@ function scriptMarkdown(plan, interactions) {
     "",
     "## Video description",
     "",
-    "Create a polished 1080x1620 video of a user interacting with Chapeaux Fous, an AI agent.",
+    "Create a polished 1080x1620 video of a user interacting with Time V3 Agent, an AI agent.",
     "",
     plan.concept,
     "",
@@ -272,7 +272,7 @@ export class VideoScripts {
     const sources = this.#dialogue(rows.map(({ turn_id: id }) => id));
     return {
       text: [
-        "The user selected the following conversations for a video of interactions between a user and Chapeaux Fous, an AI agent.",
+        "The user selected the following conversations for a video of interactions between a user and Time V3 Agent, an AI agent.",
         "The application has projected them for video by removing machine-only reference lines, legacy identity JSON, UUIDs, and unmistakably opaque long tokens. The stored Agent requests and responses are unchanged.",
         "Return only a concise title and a one- or two-sentence description of what the conversation is about. The application will preserve and format the remaining request-response dialogue; do not summarize it, restore omitted codes, or add anything else.",
         JSON.stringify(sources, null, 2),
@@ -391,7 +391,7 @@ export class VideoScripts {
         durationSeconds: estimatedDialogueSeconds(interaction.response),
         sourceRequestIds: [interaction.requestId],
         renderSceneType: "response",
-        visualPrompt: "Show the exact Chapeaux Fous response immediately after the user request.",
+        visualPrompt: "Show the exact Time V3 Agent response immediately after the user request.",
         voiceover: interaction.response,
         onScreenText: [interaction.response],
         cameraMotion: null,
@@ -407,7 +407,7 @@ export class VideoScripts {
       audience: "Viewers watching a real interaction between a user and an AI agent.",
       durationSeconds,
       aspectRatio: "2:3",
-      visualStyle: "One polished, continuous 1080x1620 Chapeaux Fous chat containing only the supplied video-projected dialogue.",
+      visualStyle: "One polished, continuous 1080x1620 Time V3 Agent chat containing only the supplied video-projected dialogue.",
       sourceRequestIds: canonicalIds,
       generatorPrompt: "",
       scenes,
