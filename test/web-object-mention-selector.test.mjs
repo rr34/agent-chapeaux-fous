@@ -4,6 +4,7 @@ import test from "node:test";
 
 const app = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
 const picker = fs.readFileSync(new URL("../web/src/components/ObjectMentionInput.tsx", import.meta.url), "utf8");
+const references = fs.readFileSync(new URL("../web/src/object-references.ts", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 
 test("the Agent composer searches and groups native objects after @", () => {
@@ -25,7 +26,9 @@ test("the Agent composer searches and groups native objects after @", () => {
 });
 
 test("a chosen object remains visible and submits its exact identity tuple", () => {
-  assert.match(picker, /mention: `@\$\{candidate\.title\}`/);
+  assert.match(picker, /mention: descriptiveObjectMention/);
+  assert.match(references, /`@\$\{boundedDisplay\}\$\{suffix\}`/);
+  assert.match(references, /— \$\{label\} #\$\{String\(id\)\}/);
   assert.match(picker, /type: candidate\.domainType/);
   assert.match(picker, /source: candidate\.source/);
   assert.match(picker, /ref: candidate\.ref/);
@@ -43,5 +46,6 @@ test("selected identities render as inline objects with hover details", () => {
   assert.match(picker, /popover\.selection\.detail/);
   assert.match(picker, /setSelectionRange\(start, end\)/);
   assert.match(app, /setSelections\(\[\]\)/);
-  assert.match(picker, /A request can reference up to \$\{maximumSelections\} objects/);
+  assert.match(picker, /A request can reference up to \$\{maximumObjectReferences\} objects/);
+  assert.match(references, /maximumObjectReferences = 500/);
 });

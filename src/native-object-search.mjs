@@ -13,7 +13,8 @@ const ignoredWords = new Set([
   "tracker", "trackers", "we", "what", "with", "would", "you",
 ]);
 
-const maximumSelectedObjects = 12;
+export const maximumSelectedObjects = 500;
+const maximumLexicalCandidates = 6;
 
 export const nativeObjectTypes = Object.freeze(nativeFirstClassObjectTypes
   .filter(({ searchType }) => searchType)
@@ -25,21 +26,24 @@ export const nativeObjectTypes = Object.freeze(nativeFirstClassObjectTypes
 const byType = new Map(nativeObjectTypes.map((definition) => [definition.type, definition]));
 const byDomainType = new Map(nativeObjectTypes.map((definition) => [definition.domainType, definition]));
 
+// Exact stable-reference rereads are deliberately broader than lexical search.
+// If the application showed an object and let the user reference it, retaining
+// or completing that record must not make its stable identity unreadable.
 const exactCandidateReads = Object.freeze({
-  contact: { display: "display_name", where: "status = 'active'" },
-  todo_group: { display: "name", where: "archived_at_utc IS NULL" },
-  todo: { display: "text", where: "status IN ('todo', 'ai_suggested') AND EXISTS (SELECT 1 FROM todo_groups WHERE todo_group_id = todo_personal.todo_group_id AND archived_at_utc IS NULL)" },
-  journal_group: { display: "name", where: "archived_at_utc IS NULL" },
-  tracker: { display: "name", where: "archived_at_utc IS NULL AND EXISTS (SELECT 1 FROM journal1_groups WHERE journal_group_id = journal2_trackers.journal_group_id AND archived_at_utc IS NULL)" },
-  journal_entry: { display: "content_text", where: "EXISTS (SELECT 1 FROM journal2_trackers JOIN journal1_groups USING (journal_group_id) WHERE tracker_id = journal3_entries.tracker_id AND journal2_trackers.archived_at_utc IS NULL AND journal1_groups.archived_at_utc IS NULL)" },
-  calendar_event: { display: "title", where: "status <> 'cancelled' AND COALESCE(ends_at_utc, starts_at_utc) >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 1 MONTH)" },
-  calendar_routine: { display: "title", where: "disabled_at_utc IS NULL" },
+  contact: { display: "display_name", where: "1 = 1" },
+  todo_group: { display: "name", where: "1 = 1" },
+  todo: { display: "text", where: "1 = 1" },
+  journal_group: { display: "name", where: "1 = 1" },
+  tracker: { display: "name", where: "1 = 1" },
+  journal_entry: { display: "content_text", where: "1 = 1" },
+  calendar_event: { display: "title", where: "1 = 1" },
+  calendar_routine: { display: "title", where: "1 = 1" },
   file: { display: "COALESCE(title, original_filename)", where: "1 = 1" },
-  profile_fact: { display: "fact_text", where: "fact_status = 'active'" },
-  catch_up_question: { display: "question_text", where: "resolved_at IS NULL" },
-  video_script: { display: "title", where: "status = 'draft'" },
-  content_group: { display: "name", where: "archived_at_utc IS NULL" },
-  content_item: { display: "title", where: "content_status IN ('active', 'queued') AND EXISTS (SELECT 1 FROM content_groups WHERE content_group_id = content_items.content_group_id AND archived_at_utc IS NULL)" },
+  profile_fact: { display: "fact_text", where: "1 = 1" },
+  catch_up_question: { display: "question_text", where: "1 = 1" },
+  video_script: { display: "title", where: "1 = 1" },
+  content_group: { display: "name", where: "1 = 1" },
+  content_item: { display: "title", where: "1 = 1" },
 });
 const missingExactCandidateRead = nativeObjectTypes.find(({ type }) => !exactCandidateReads[type]);
 if (missingExactCandidateRead) {
@@ -60,6 +64,15 @@ function compact(value, maximum) {
   return text ? text.slice(0, maximum) : null;
 }
 
+function descriptiveObjectMention(display, label, id) {
+  const suffix = ` — ${label} #${String(id)}`;
+  const maximumDisplayCharacters = Math.max(1, 499 - suffix.length);
+  const boundedDisplay = display.length <= maximumDisplayCharacters
+    ? display
+    : `${display.slice(0, Math.max(1, maximumDisplayCharacters - 1)).trimEnd()}…`;
+  return `@${boundedDisplay}${suffix}`;
+}
+
 export function normalizeSelectedObjectCandidates(value, { maximum = maximumSelectedObjects } = {}) {
   if (value == null) return [];
   if (!Array.isArray(value)) throw new TypeError("selectedObjectCandidates must be an array.");
@@ -73,7 +86,10 @@ export function normalizeSelectedObjectCandidates(value, { maximum = maximumSele
     const display = compact(candidate?.display, 500);
     const mention = compact(candidate?.mention, 500);
     const expectedRef = id == null ? null : `${definition.refPrefix}${encodeURIComponent(String(id))}`;
-    if (id == null || !display || mention !== `@${display}` || candidate?.source !== definition.source
+    const acceptedMentions = display && id != null
+      ? new Set([`@${display}`, descriptiveObjectMention(display, definition.label, id)])
+      : new Set();
+    if (id == null || !display || !acceptedMentions.has(mention) || candidate?.source !== definition.source
         || candidate?.ref !== expectedRef) {
       throw new TypeError(`selectedObjectCandidates[${index}] is not a valid ${definition.label} identity.`);
     }
@@ -359,7 +375,7 @@ export function resolveNativeObjectCandidates(database, selectedCandidates = [])
     const row = database.prepare(`SELECT ${read.display} AS title FROM ${definition.table}
       WHERE ${definition.key} = ? AND ${read.where} LIMIT 1`).get(selection.id);
     const title = compact(row?.title, 160);
-    if (title !== selection.display) continue;
+    if (!title) continue;
     resolved.push({
       type: definition.type, domainType: definition.domainType, source: definition.source,
       table: definition.table, id: selection.id, ref: selection.ref,
@@ -374,20 +390,26 @@ export function registerNativeObjectContextView(registry, organizer) {
   registry.registerContextView("search", {
     id: "search.native_object_candidates",
     title: "Native objects named in this request",
-    maximumItems: 12,
-    description: "Read up to twelve exact selected or lexical candidates from bounded fields of searchable native object tables, with stable IDs and bounded relationships. Select when the request names a particular native object. Candidates do not prove intent or authorize an action.",
+    maximumItems: maximumSelectedObjects + maximumLexicalCandidates,
+    description: "Read every explicitly selected object (up to five hundred) plus up to six lexical candidates from bounded fields of searchable native object tables, with stable IDs and bounded relationships. Select when the request names a particular native object. Candidates do not prove intent or authorize an action.",
     execute({ requestText = "", selectedObjectCandidates = [] } = {}) {
-      const result = organizer.searchNativeObjects({ query: requestText.slice(-400), limit: 6 });
+      const result = organizer.searchNativeObjects({
+        query: requestText.slice(-400), limit: maximumLexicalCandidates,
+      });
       const selected = typeof organizer.resolveNativeObjectCandidates === "function"
         ? organizer.resolveNativeObjectCandidates(selectedObjectCandidates)
         : [];
       const objects = [...selected, ...result.objects]
-        .filter((object, index, values) => values.findIndex(({ ref }) => ref === object.ref) === index)
-        .slice(0, 12);
+        .filter((object, index, values) => values.findIndex(({ ref }) => ref === object.ref) === index);
       return {
         source: result.source,
         capturedAtUtc: result.capturedAtUtc,
-        data: { objects },
+        data: {
+          objects,
+          selectedCount: selectedObjectCandidates.length,
+          resolvedSelectedCount: selected.length,
+          lexicalCandidateCount: result.objects.length,
+        },
         count: objects.length,
         text: JSON.stringify({ objects }),
       };

@@ -76,7 +76,7 @@ test("object search bounds text and result count before database work", () => {
   }), /domain type unknown\.object is not searchable/u);
 });
 
-test("the selector keeps only recent-or-future events and open to-dos", () => {
+test("lexical search stays current while exact stable references reread retained objects", () => {
   const searchSql = [];
   const exactSql = [];
   const database = { prepare(sql) {
@@ -111,8 +111,8 @@ test("the selector keeps only recent-or-future events and open to-dos", () => {
   assert.equal(resolveNativeObjectCandidates(database, selected).length, 2);
   const todoExact = exactSql.find((sql) => sql.includes("FROM todo_personal"));
   const eventExact = exactSql.find((sql) => sql.includes("FROM calendar_events"));
-  assert.match(todoExact, /status IN \('todo', 'ai_suggested'\)/u);
-  assert.match(eventExact, /COALESCE\(ends_at_utc, starts_at_utc\) >= DATE_SUB\(UTC_TIMESTAMP\(3\), INTERVAL 1 MONTH\)/u);
+  assert.match(todoExact, /WHERE personal_task_id = \? AND 1 = 1 LIMIT 1/u);
+  assert.match(eventExact, /WHERE calendar_event_id = \? AND 1 = 1 LIMIT 1/u);
 });
 
 test("native object context is advertised and read only after strict view selection", async () => {
@@ -128,7 +128,7 @@ test("native object context is advertised and read only after strict view select
   });
   const advertised = registry.capabilityManifest("search").contextViews[0];
   assert.equal(advertised.id, "search.native_object_candidates");
-  assert.equal(advertised.maximumItems, 12);
+  assert.equal(advertised.maximumItems, 506);
   assert.deepEqual(calls, []);
   const prepared = await registry.prepareContext(["search.native_object_candidates"], {
     requestText: "Do you see Lucas Ruffing?",
@@ -158,6 +158,25 @@ test("composer object selections retain exact searchable identity fields", () =>
   assert.throws(() => normalizeSelectedObjectCandidates([{
     ...selected[0], mention: "@Someone else",
   }]), /not a valid Contact identity/u);
+  assert.deepEqual(normalizeSelectedObjectCandidates([{
+    ...selected[0], mention: "@Lucas Ruffing — Contact #7",
+  }])[0].mention, "@Lucas Ruffing — Contact #7");
+});
+
+test("bulk composer selection accepts 500 exact objects and rejects 501 without truncation", () => {
+  const selections = Array.from({ length: 500 }, (_, index) => ({
+    mention: `@Task ${index + 1}`,
+    type: "todos.personal_task",
+    source: "native:todos",
+    id: index + 1,
+    ref: `agent-slayer://todos/${index + 1}`,
+    display: `Task ${index + 1}`,
+  }));
+  assert.equal(normalizeSelectedObjectCandidates(selections).length, 500);
+  assert.throws(() => normalizeSelectedObjectCandidates([
+    ...selections,
+    { ...selections[0], id: 501, ref: "agent-slayer://todos/501", display: "Task 501", mention: "@Task 501" },
+  ]), /At most 500 selected objects are allowed/u);
 });
 
 test("every structured selection must have its own exact visible mention", () => {
@@ -198,10 +217,10 @@ test("composer selections are verified by stable ID without ranked-search trunca
     title: "Lucas Ruffing", detail: "", matchedOn: ["selected stable reference"], related: [],
   }]);
   assert.equal(statements.length, 1);
-  assert.match(statements[0].sql, /WHERE contact_id = \? AND status = 'active' LIMIT 1/u);
+  assert.match(statements[0].sql, /WHERE contact_id = \? AND 1 = 1 LIMIT 1/u);
   assert.equal(statements[0].id, 7);
 
   assert.deepEqual(resolveNativeObjectCandidates(database, [{
     ...input[0], display: "Lucas R.", mention: "@Lucas R.",
-  }]), []);
+  }])[0].title, "Lucas Ruffing");
 });

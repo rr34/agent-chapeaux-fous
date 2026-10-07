@@ -10,6 +10,14 @@ test("the React to-do page starts with open tasks and opts into completed tasks"
   assert.match(appSource, /const scope = showCompleted \? "all" : "active"/);
   assert.match(appSource, /todo\.status === "todo" \|\| todo\.status === "ai_suggested" \|\| \(showCompleted && todo\.status === "complete"\)/);
   assert.match(appSource, />Show completed<\/label>/);
+  assert.match(appSource, /<SectionFilter[^>]*controls=\{<>[\s\S]*className="todo-completed-filter"/);
+  assert.match(styles, /\.todo-completed-filter input \{[^}]*width: 24px;[^}]*height: 24px;/);
+});
+
+test("completed to-dos sort ahead of open work with the newest completion first", () => {
+  assert.match(appSource, /const todos = showCompleted \? \[\.\.\.filteredTodos\]\.sort\(compareTodoDisplayOrder\) : filteredTodos/);
+  assert.match(appSource, /if \(leftComplete !== rightComplete\) return leftComplete \? -1 : 1/);
+  assert.match(appSource, /rightCompletedAt > leftCompletedAt \? 1 : -1/);
 });
 
 test("the React to-do page renders tasks in their stored groups", () => {
@@ -27,8 +35,19 @@ test("the React to-do page can filter its visible tasks by group", () => {
   assert.match(appSource, /useApi<\{ groups: Entity\[\] \}>\("\/api\/todo-groups"\)/);
   assert.match(appSource, /selectedGroupId === "all"/);
   assert.match(appSource, /<option value="all">All groups<\/option>/);
-  assert.match(appSource, /<SectionFilter[^>]*controls=\{<SectionSelectFilter label="Group"/);
+  assert.match(appSource, /<SectionFilter[^>]*controls=\{<>\s*<SectionSelectFilter label="Group"/);
   assert.match(styles, /\.section-filter-controls/);
+});
+
+test("to-do cards support bounded bulk selection and one bulk Agent reference", () => {
+  assert.match(appSource, /selectedTodos, setSelectedTodos/);
+  assert.match(appSource, /Select all visible/);
+  assert.match(appSource, /Reference selected in Agent/);
+  assert.match(appSource, /Nothing was selected or truncated/);
+  assert.match(appSource, /selected=\{selectedTodos\.has\(identity\.ref\)\}/);
+  assert.match(appSource, /onSelectionChange=\{\(selected\) => setTodoSelected\(todo, selected\)\}/);
+  assert.match(styles, /\.todo-selection-bar/);
+  assert.match(styles, /\.todo-select \{[^}]*width: 24px;[^}]*height: 24px;/);
 });
 
 test("the React to-do page pins group containers rather than individual tasks", () => {

@@ -40,12 +40,15 @@ test("the React UI can reference every displayed first-class object in Agent", (
 test("React reference arrows add native inline objects while retaining exact source metadata", () => {
   const app = fs.readFileSync(path.join(root, "web", "src", "App.tsx"), "utf8");
   const references = fs.readFileSync(path.join(root, "web", "src", "components", "AgentReferenceButton.tsx"), "utf8");
+  const objectReferences = fs.readFileSync(path.join(root, "web", "src", "object-references.ts"), "utf8");
   assert.doesNotMatch(app, /"In reference to:\\n" \+ identity/);
-  assert.match(app, /setAgentObjectSelections\(\(current\) => \[\.\.\.current, identity\]\)/);
-  assert.match(app, /identity\.mention \+ \(current/);
+  assert.match(app, /setAgentObjectSelections\(\[\.\.\.agentObjectSelections, \.\.\.additions\.map/);
+  assert.match(app, /additions\.map\(\(\{ identity \}\) => identity\.mention\)\.join\(" "\)/);
+  assert.match(app, /Nothing was added or truncated/);
   assert.match(app, /const referencedRequestIds = \[\.\.\.new Set\(selections\.flatMap/);
   assert.match(app, /referencedRequestId \? \[\] : \[selection\]/);
-  assert.match(references, /mention: `@\$\{title\}`/);
+  assert.match(references, /mention: descriptiveObjectMention/);
+  assert.match(objectReferences, /— \$\{label\} #\$\{String\(id\)\}/);
   assert.match(references, /type: "calendar\.event", source: "native:calendar"/);
   assert.match(references, /collection: "calendar-events", label: "Calendar event"/);
   assert.match(references, /const detail = \[\s*`Calendar event:/);

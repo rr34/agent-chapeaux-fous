@@ -9,6 +9,7 @@ export interface LinkedTodo {
   sortPosition?: number;
   description?: string | null;
   status: string;
+  completedAtUtc?: string | null;
   relationshipKind?: string;
   eventTitles?: string[];
   eventLinks?: TodoEventLink[];

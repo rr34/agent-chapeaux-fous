@@ -1,5 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { api } from "../api";
+import { formatDisplayDate } from "../date-format";
 import type { CalendarEvent, CalendarRoutine, Entity, LinkedTodo } from "../types";
 import {
   AgentReferenceButton, calendarEventIdentity, calendarRoutineIdentity, todoIdentity,
@@ -395,6 +396,7 @@ export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
   const [draft, setDraft] = useState<CalendarRoutineDraft | null>(() => creating ? newCalendarRoutineDraft() : null);
   const [loading, setLoading] = useState(!creating);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     if (routineId == null) return;
@@ -442,6 +444,25 @@ export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
     }
   };
 
+  const deleteRoutine = async () => {
+    if (creating || routineId == null || !routine) return;
+    if (!window.confirm(`Delete “${routine.title}” routine? Existing calendar events will stay, but no new events can be generated from this routine.`)) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await api(`/api/calendar-routines/${routineId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ version: routine.version, disabled: true }),
+      });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return <EditorFrame title={creating ? "Add calendar routine" : "Edit calendar routine"} onClose={onClose}>
     <form onSubmit={(submitEvent) => void save(submitEvent)}>
       <header className="object-editor-heading"><div><p className="eyebrow">Routine</p><h2>{creating ? "Add routine" : "Edit routine"}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
@@ -461,7 +482,11 @@ export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
         <RecurrenceEditor required showEnding={false} value={draft.recurrence} onChange={(recurrence) => setDraft({ ...draft, recurrence })} />
       </>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : creating ? "Add routine" : "Save routine"}</button></footer>
+      <footer className="object-editor-actions">
+        {!creating && <button className="button button--danger" type="button" disabled={!routine || saving || deleting} onClick={() => void deleteRoutine()}>{deleting ? "Deleting..." : "Delete routine"}</button>}
+        <button className="button button--quiet" type="button" disabled={saving || deleting} onClick={onClose}>Cancel</button>
+        <button className="button" disabled={!draft || saving || deleting}>{saving ? "Saving..." : creating ? "Add routine" : "Save routine"}</button>
+      </footer>
     </form>
   </EditorFrame>;
 }
@@ -670,13 +695,18 @@ export function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
   </EditorFrame>;
 }
 
-export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged, onReference }: {
+export function TodoItem({
+  todo, groups, eventTitles, variant = "row", onChanged, onReference,
+  selected = false, onSelectionChange,
+}: {
   todo: Entity | LinkedTodo;
   groups?: Entity[];
   eventTitles?: string[];
   variant?: "row" | "scheduled";
   onChanged?: Changed;
   onReference?: AddAgentReference;
+  selected?: boolean;
+  onSelectionChange?: (selected: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -689,6 +719,7 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
     "billableCurrency" in todo ? todo.billableCurrency : null,
   );
   const complete = status === "complete";
+  const completedAtUtc = complete && typeof todo.completedAtUtc === "string" ? todo.completedAtUtc : null;
   const editable = Boolean(onChanged && Number.isSafeInteger(id) && id > 0);
   const sequence = variant === "row" && todo.sequence != null ? String(todo.sequence) : null;
 
@@ -708,12 +739,20 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
 
   const body = <>
     <strong className="multiline-item-text">{text}</strong>
+    {completedAtUtc && <small className="todo-completed-date">Completed {formatDisplayDate(completedAtUtc, { includeTime: false })}</small>}
     {billable && <small>{billable} billable</small>}
     {eventTitles?.length ? <small className="multiline-item-text">For {eventTitles.join(", ")}</small> : null}
   </>;
   const itemContent = <>
+    {onSelectionChange && <input
+      className="todo-select"
+      type="checkbox"
+      checked={selected}
+      onChange={(event) => onSelectionChange(event.target.checked)}
+      aria-label={`Select ${text} for Agent reference`}
+    />}
     {editable
-      ? <button className="todo-check" type="button" disabled={updating} onClick={() => void toggle()} aria-label={`Mark ${text} ${complete ? "open" : "complete"}`}>{complete ? "✓" : ""}</button>
+      ? <button className={`todo-check${complete ? "" : " todo-check--mark-complete"}`} type="button" disabled={updating} onClick={() => void toggle()} aria-label={`Mark ${text} ${complete ? "open" : "complete"}`}>{complete ? "✓" : <><span>Mark</span><span>complete</span></>}</button>
       : <span className={`paper-checkbox ${complete ? "is-complete" : ""}`} aria-hidden="true">{complete ? "✓" : ""}</span>}
     {sequence && <span className="todo-sequence" aria-label={`Sequence ${sequence}`}>#{sequence}</span>}
     {editable
@@ -728,5 +767,5 @@ export function TodoItem({ todo, groups, eventTitles, variant = "row", onChanged
   </>;
   return variant === "scheduled"
     ? <li className={`scheduled-todo-card${complete ? " is-complete" : ""}`}>{itemContent}</li>
-    : <article className={`todo-row${sequence ? " has-sequence" : ""}${complete ? " is-complete" : ""}`}>{itemContent}</article>;
+    : <article className={`todo-row${sequence ? " has-sequence" : ""}${complete ? " is-complete" : ""}${onSelectionChange ? " is-selectable" : ""}`}>{itemContent}</article>;
 }

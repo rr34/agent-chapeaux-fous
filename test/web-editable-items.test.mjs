@@ -29,7 +29,13 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(app, /<TodoItem todo=\{todo\}/);
   assert.match(dailyPaper, /<TodoItem/);
   assert.match(app, /<ScheduledTodos[^>]+onChanged=\{reload\}/);
-  assert.match(items, /className="todo-check"[^>]+onClick=\{\(\) => void toggle\(\)\}/);
+  assert.ok(items.includes('className={`todo-check${complete ? "" : " todo-check--mark-complete"}`}'));
+  assert.match(items, /onClick=\{\(\) => void toggle\(\)\}/);
+  assert.ok(items.includes('{complete ? "✓" : <><span>Mark</span><span>complete</span></>}'));
+  assert.match(items, /className="todo-select"/);
+  assert.match(items, /aria-label=\{`Select \$\{text\} for Agent reference`\}/);
+  assert.match(styles, /\.todo-check\.todo-check--mark-complete[^\{]*\{[^}]*width: 52px;[^}]*min-height: 46px;/);
+  assert.match(styles, /\.paper-todos li \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/);
   assert.match(items, /className="todo-item-content"[^>]+onClick=\{\(\) => setEditing\(true\)\}/);
   assert.match(items, /className="todo-sequence"[^>]*>#\{sequence\}<\/span>/);
   assert.match(items, /className=\{`todo-row\$\{sequence \? " has-sequence" : ""\}/);
@@ -37,6 +43,7 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(styles, /\.todo-sequence \{[^}]*font-weight: 750;/);
   assert.match(items, /version: current\.version/);
   assert.match(items, /status: current\.status === "complete" \? "todo" : "complete"/);
+  assert.match(items, /Completed \{formatDisplayDate\(completedAtUtc, \{ includeTime: false \}\)\}/);
   assert.match(items, /version: todo\.version/);
   assert.match(items, /export function TodoEditor/);
   assert.match(server, /request\.method === "GET" && todoMatch/);
@@ -67,6 +74,15 @@ test("routine agenda items open a reusable versioned editor directly", () => {
   assert.ok(items.includes("version: routine.version"));
   assert.ok(items.includes("recurrenceRule: buildRecurrenceRule(draft.recurrence, true)"));
   assert.ok(server.includes('request.method === "GET" && routineMatch'));
+});
+
+test("existing routine editors expose a confirmed versioned delete action", () => {
+  assert.ok(items.includes('Delete “${routine.title}” routine? Existing calendar events will stay'));
+  assert.ok(items.includes('body: JSON.stringify({ version: routine.version, disabled: true })'));
+  assert.ok(items.includes('!creating && <button className="button button--danger"'));
+  assert.ok(items.includes('onClick={() => void deleteRoutine()}>{deleting ? "Deleting..." : "Delete routine"}</button>'));
+  assert.match(styles, /\.button--danger \{[^}]*margin-right: auto;[^}]*background: #8c3025;/);
+  assert.ok(server.includes('request.method === "PATCH" && routineMatch'));
 });
 
 test("calendar creation and routines share structured recurrence controls", () => {

@@ -341,6 +341,16 @@ export function compactObjectReferenceContext(groups) {
   }));
 }
 
+export function unresolvedSelectedObjectCandidates(selectedCandidates, availableGroups) {
+  const available = new Map(flatObjectReferences(availableGroups)
+    .map((object) => [object.ref, object]));
+  return (selectedCandidates ?? []).filter((selection) => {
+    const object = available.get(selection.ref);
+    return !object || object.id !== selection.id || object.type !== selection.type
+      || object.source !== selection.source;
+  });
+}
+
 export function objectReferenceSelectionFindings(selectedGroups, availableGroups, allowedRoles = null) {
   const available = new Map(flatObjectReferences(availableGroups).map((object) => [object.ref, object]));
   const roles = allowedRoles === null ? null : new Set(allowedRoles);

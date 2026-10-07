@@ -8,6 +8,7 @@ import {
   normalizeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
   objectReferenceSelectionFindings,
+  unresolvedSelectedObjectCandidates,
 } from "../src/object-references.mjs";
 
 const accountRead = {
@@ -274,6 +275,24 @@ test("object selection rejects an altered ID or display for a known stable refer
     objectReferenceSelectionFindings(alteredEvidence, available)[0].code,
     "object_reference_evidence_mismatch",
   );
+});
+
+test("every explicit selected candidate must have an exact prepared binding", () => {
+  const candidates = [{
+    type: "todos.personal_task", source: "native:todos", id: 8,
+    ref: "agent-slayer://todos/8", display: "Send invoice",
+  }, {
+    type: "todos.personal_task", source: "native:todos", id: 9,
+    ref: "agent-slayer://todos/9", display: "Archive receipt",
+  }];
+  const prepared = [{
+    mention: "selected tasks", type: "todos.personal_task", source: "native:todos",
+    objects: [{ id: 8, ref: "agent-slayer://todos/8", display: "Send invoice" }],
+    sourceEventSeqs: [55],
+  }];
+  assert.deepEqual(unresolvedSelectedObjectCandidates(candidates, prepared), [candidates[1]]);
+  prepared[0].objects.push({ id: 9, ref: "agent-slayer://todos/9", display: "Renamed receipt task" });
+  assert.deepEqual(unresolvedSelectedObjectCandidates(candidates, prepared), []);
 });
 
 test("native prepared context produces compact human and machine identity bindings", () => {

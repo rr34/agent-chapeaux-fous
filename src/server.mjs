@@ -1134,7 +1134,10 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/requests") {
-      const body = await readJson(request);
+      // A request may carry a bounded bulk object selection. The ordinary
+      // endpoint default is intentionally smaller, but 500 complete identity
+      // tuples plus their visible mentions need a larger explicit envelope.
+      const body = await readJson(request, 2 * 1024 * 1024);
       const text = typeof body.text === "string" ? body.text.trim() : "";
       if (!text) throw Object.assign(new Error("Request text is required"), { statusCode: 400 });
       const primaryFileId = body.primaryFileId == null ? null : Number(body.primaryFileId);

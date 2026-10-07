@@ -102,14 +102,33 @@ export function objectInputBindingProblem({
   if (!contract) return null;
   for (const binding of contract.bindings) {
     const role = bindingRole(binding);
+    const segments = pointerSegments(binding.path);
     const supplied = valuesAt(argumentsObject, pointerSegments(binding.path))
       .filter((value) => value !== undefined && value !== null);
     if (!supplied.length) continue;
+    const selectedReferences = referencesFor(
+      toolDefinition, binding.objectType, role, selectedGroups, [],
+    );
     const references = referencesFor(
       toolDefinition, binding.objectType, role, selectedGroups, observedGroups,
     );
     const allowed = new Set(references.map((object) => object[binding.value]));
     const invalid = supplied.find((value) => !allowed.has(value));
+    if (invalid === undefined && selectedReferences.length) {
+      if (!segments.includes("*") && selectedReferences.length !== 1) {
+        const exact = selectedReferences.map(({ id, ref, display }) => ({ id, ref, display }));
+        return `${toolDefinition.name}${binding.path} is a singleton input but the accepted ${binding.objectType} binding in role ${role} contains ${selectedReferences.length} objects: ${JSON.stringify(exact)}. Use a batch-shaped tool; never select only one object silently.`;
+      }
+      if (segments.includes("*")) {
+        const suppliedSet = new Set(supplied);
+        const missing = selectedReferences
+          .filter((object) => !suppliedSet.has(object[binding.value]));
+        if (missing.length) {
+          const exact = missing.map(({ id, ref, display }) => ({ id, ref, display }));
+          return `${toolDefinition.name}${binding.path} must include the complete accepted ${binding.objectType} binding in role ${role}; missing ${binding.value} values for ${JSON.stringify(exact)}`;
+        }
+      }
+    }
     if (invalid === undefined) continue;
     if (!references.length && binding.allowUnbound === true) continue;
     if (!references.length) {

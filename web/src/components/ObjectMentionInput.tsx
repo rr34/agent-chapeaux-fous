@@ -4,6 +4,7 @@ import {
 } from "react";
 import { api } from "../api";
 import type { ObjectSearchCandidate, SelectedObjectCandidate } from "../types";
+import { descriptiveObjectMention, maximumObjectReferences } from "../object-references";
 
 const groupOrder = [
   ["Contacts", ["contacts."]],
@@ -16,8 +17,6 @@ const groupOrder = [
   ["Library and video", ["video."]],
   ["Profile", ["profile."]],
 ] as const;
-
-const maximumSelections = 12;
 
 interface ActiveMention {
   start: number;
@@ -58,7 +57,9 @@ function mentionAtCursor(value: string, cursor: number, selections: SelectedObje
 
 function submissionCandidate(candidate: ObjectSearchCandidate): SelectedObjectCandidate {
   return {
-    mention: `@${candidate.title}`,
+    mention: descriptiveObjectMention({
+      display: candidate.title, label: candidate.label, id: candidate.id,
+    }),
     type: candidate.domainType,
     source: candidate.source,
     id: candidate.id,
@@ -181,8 +182,8 @@ export function ObjectMentionInput({
   const choose = (candidate: ObjectSearchCandidate) => {
     if (!activeMention) return;
     const selected = submissionCandidate(candidate);
-    if (!selections.some(({ ref }) => ref === selected.ref) && selections.length >= maximumSelections) {
-      setError(`A request can reference up to ${maximumSelections} objects.`);
+    if (!selections.some(({ ref }) => ref === selected.ref) && selections.length >= maximumObjectReferences) {
+      setError(`A request can reference up to ${maximumObjectReferences} objects.`);
       return;
     }
     setError(null);

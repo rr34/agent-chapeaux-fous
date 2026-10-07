@@ -871,7 +871,7 @@ test("an identical successful mutation cannot be replayed in the same request", 
   assert.equal(ledger.events.some(({ payload }) => payload?.duplicateSuccessfulMutation === true), true);
 });
 
-test("an @ selection uses its fresh exact-ID evidence when an older binding exists", async () => {
+test("multiple descriptive @ selections use their complete fresh exact-ID set when an older binding exists", async () => {
   const requests = [];
   const priorBinding = {
     mention: "Lucas from an older exchange", type: "contacts.contact", source: "native:contacts",
@@ -898,8 +898,11 @@ test("an @ selection uses its fresh exact-ID evidence when an older binding exis
     async execute() { throw new Error("global_search should remain deferred"); },
   });
   const selectedObjectCandidates = [{
-    mention: "@Lucas Ruffing", type: "contacts.contact", source: "native:contacts",
+    mention: "@Lucas Ruffing — Contact #7", type: "contacts.contact", source: "native:contacts",
     id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing",
+  }, {
+    mention: "@Lucas Ruffing — Contact #8", type: "contacts.contact", source: "native:contacts",
+    id: 8, ref: "agent-slayer://contacts/8", display: "Lucas Ruffing",
   }];
   let lookups = 0;
   registry.withCapability("contacts", {
@@ -920,13 +923,16 @@ test("an @ selection uses its fresh exact-ID evidence when an older binding exis
     },
     async execute({ contact_ids }) {
       lookups += 1;
-      assert.deepEqual(contact_ids, [7]);
-      return { contacts: [{ contact_id: 7, display_name: "Lucas Ruffing" }] };
+      assert.deepEqual(contact_ids, [7, 8]);
+      return { contacts: [
+        { contact_id: 7, display_name: "Lucas Ruffing" },
+        { contact_id: 8, display_name: "Lucas Ruffing" },
+      ] };
     },
   });
   registerNativeObjectContextView(registry, {
     searchNativeObjects({ query, limit }) {
-      assert.equal(query, "Summarize @Lucas Ruffing.");
+      assert.equal(query, "Compare @Lucas Ruffing — Contact #7 and @Lucas Ruffing — Contact #8.");
       assert.equal(limit, 6);
       return { source: "native_mariadb_object_tables", capturedAtUtc: "2026-10-04T12:00:00.000Z", objects: [] };
     },
@@ -936,24 +942,29 @@ test("an @ selection uses its fresh exact-ID evidence when an older binding exis
         type: "contact", domainType: "contacts.contact", source: "native:contacts",
         table: "contacts", id: 7, ref: "agent-slayer://contacts/7", label: "Contact",
         title: "Lucas Ruffing", detail: "person", matchedOn: ["selected stable reference"], related: [],
+      }, {
+        type: "contact", domainType: "contacts.contact", source: "native:contacts",
+        table: "contacts", id: 8, ref: "agent-slayer://contacts/8", label: "Contact",
+        title: "Lucas Ruffing", detail: "person", matchedOn: ["selected stable reference"], related: [],
       }];
     },
   });
   const initial = {
     ...brief({ auditRequired: false }),
     requestType: "informational", responseMode: "answer",
-    objective: "Read and summarize the explicitly selected contact.",
-    summary: "Use the selected Lucas Ruffing contact.",
+    objective: "Read and compare both explicitly selected contacts.",
+    summary: "Use both selected Lucas Ruffing contacts.",
     requiredCapabilities: ["contacts"],
     requiredTools: ["contact_lookup_batch"],
     contextRequests: [], objectReferences: [priorBinding], requestedActions: [],
-    completionCriteria: ["Summarize the verified contact."],
+    completionCriteria: ["Compare both verified contacts."],
   };
   const withContext = { ...initial, contextRequests: ["search.native_object_candidates"] };
   const modelTransport = transport(async (payload, index) => {
     if (index === 0) {
       assert.match(payload.developerInstructions, /Explicit composer object selections/);
-      assert.match(payload.developerInstructions, /@Lucas Ruffing/);
+      assert.match(payload.developerInstructions, /@Lucas Ruffing — Contact #7/);
+      assert.match(payload.developerInstructions, /@Lucas Ruffing — Contact #8/);
       return completed(JSON.stringify(initial), 20);
     }
     if (index === 1) {
@@ -967,21 +978,22 @@ test("an @ selection uses its fresh exact-ID evidence when an older binding exis
       const binding = ledger.events.find(({ type }) => type === "object.references.observed")
         .payload.objectReferences[0];
       assert.equal(binding.type, "contacts.contact");
-      assert.deepEqual(binding.objects, [{
-        id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing",
-      }]);
+      assert.deepEqual(binding.objects, [
+        { id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing" },
+        { id: 8, ref: "agent-slayer://contacts/8", display: "Lucas Ruffing" },
+      ]);
       assert.notDeepEqual(binding.sourceEventSeqs, priorBinding.sourceEventSeqs);
       return completed(JSON.stringify({ ...withContext, objectReferences: [binding] }), 20);
     }
     assert.equal(index, 3);
     assert.deepEqual(payload.tools.map(({ name }) => name), ["contact_lookup_batch", "request_tools"]);
-    assert.deepEqual(payload.tools[0].inputSchema.properties.contact_ids.items.enum, [7]);
+    assert.deepEqual(payload.tools[0].inputSchema.properties.contact_ids.items.enum, [7, 8]);
     const result = await payload.onToolCall({
       callId: "read-selected-contact", tool: "contact_lookup_batch",
-      arguments: { contact_ids: [7], result_filter: identityResultFilter() },
+      arguments: { contact_ids: [7, 8], result_filter: identityResultFilter() },
     });
     assert.equal(result.ok, true);
-    return completed("Lucas Ruffing is the selected contact.", 30);
+    return completed("Both selected Lucas Ruffing contacts were compared.", 30);
   }, requests);
   const runtime = new SlayerRuntime({
     modelTransport, registry, contextBuilder: contextBuilder(),
@@ -991,12 +1003,69 @@ test("an @ selection uses its fresh exact-ID evidence when an older binding exis
 
   assert.equal(await runtime.run({
     requestId: "request-selected-contact", requestEventId: "event-current",
-    text: "Summarize @Lucas Ruffing.", selectedObjectCandidates,
-  }), "Lucas Ruffing is the selected contact.");
+    text: "Compare @Lucas Ruffing — Contact #7 and @Lucas Ruffing — Contact #8.", selectedObjectCandidates,
+  }), "Both selected Lucas Ruffing contacts were compared.");
   assert.equal(lookups, 1);
   assert.equal(requests.length, 4);
-  assert.equal(ledger.events.find(({ type }) => type === "turn.brief")
-    .payload.brief.objectReferences[0].objects[0].id, 7);
+  assert.deepEqual(ledger.events.find(({ type }) => type === "turn.brief")
+    .payload.brief.objectReferences[0].objects.map(({ id }) => id), [7, 8]);
+});
+
+test("execution stops before tool exposure when any explicit object selection cannot be reread", async () => {
+  const requests = [];
+  const selectedObjectCandidates = [{
+    mention: "@First task — To-do #7", type: "todos.personal_task", source: "native:todos",
+    id: 7, ref: "agent-slayer://todos/7", display: "First task",
+  }, {
+    mention: "@Missing task — To-do #8", type: "todos.personal_task", source: "native:todos",
+    id: 8, ref: "agent-slayer://todos/8", display: "Missing task",
+  }];
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("search", {
+    global_search: fixtureToolDescription("Search across native records."),
+  }).register({
+    name: "global_search", description: "Search across native records.",
+    annotations: { readOnlyHint: true },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { throw new Error("global_search must not become callable"); },
+  });
+  registerNativeObjectContextView(registry, {
+    searchNativeObjects() {
+      return { source: "native_mariadb_object_tables", capturedAtUtc: "2026-10-04T12:00:00.000Z", objects: [] };
+    },
+    resolveNativeObjectCandidates(candidates) {
+      assert.deepEqual(candidates, selectedObjectCandidates);
+      return [{
+        type: "todo", domainType: "todos.personal_task", source: "native:todos",
+        table: "todo_personal", id: 7, ref: "agent-slayer://todos/7", label: "To-do",
+        title: "First task", detail: "", matchedOn: ["selected stable reference"], related: [],
+      }];
+    },
+  });
+  const candidate = {
+    ...brief({ auditRequired: false }),
+    requestType: "informational", responseMode: "answer",
+    objective: "Compare both selected tasks.", summary: "Compare both exact tasks.",
+    requiredCapabilities: ["search"], requiredTools: [],
+    contextRequests: ["search.native_object_candidates"], objectReferences: [],
+    requestedActions: [], completionCriteria: ["Describe both tasks."],
+  };
+  const runtime = new SlayerRuntime({
+    modelTransport: transport(async (_payload, index) => {
+      assert.equal(index, 0, "execution must stop before a context-refinement or tool call");
+      return completed(JSON.stringify(candidate), 20);
+    }, requests),
+    registry, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(),
+    ledger: fakeLedger(), config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  await assert.rejects(runtime.run({
+    requestId: "request-incomplete-selection", requestEventId: "event-current",
+    text: "Compare @First task — To-do #7 and @Missing task — To-do #8.",
+    selectedObjectCandidates,
+  }), /Every selected object must be reread.*agent-slayer:\/\/todos\/8/u);
 });
 
 test("a same-execution provider confirmation reference cannot be consumed by tool selection or repair", async () => {

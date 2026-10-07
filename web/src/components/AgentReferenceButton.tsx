@@ -1,8 +1,14 @@
 import type { CalendarEvent, Entity, LinkedTodo, RequestRecord, SelectedObjectCandidate } from "../types";
 import { formatDisplayDate, formatDisplayTime } from "../date-format";
 import { ObjectNetworkButton } from "./ObjectNetworkButton";
+import { descriptiveObjectMention } from "../object-references";
 
 export type AddAgentReference = (identity: SelectedObjectCandidate, subject: string) => void;
+export interface AgentReferenceEntry {
+  identity: SelectedObjectCandidate;
+  subject: string;
+}
+export type AddAgentReferences = (entries: AgentReferenceEntry[]) => void;
 
 function concise(value: unknown, maximum = 200) {
   const text = String(value ?? "").replace(/\s+/gu, " ").trim();
@@ -34,7 +40,7 @@ function nativeReference({
   const normalizedId = typeof id === "number" ? id : String(id);
   const title = concise(display, 160);
   return {
-    mention: `@${title}`,
+    mention: descriptiveObjectMention({ display: title, label, id: normalizedId }),
     type,
     source,
     id: normalizedId,

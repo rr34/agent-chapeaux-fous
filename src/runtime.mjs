@@ -44,6 +44,7 @@ import {
   objectReferenceGroupsFromToolResult,
   objectReferenceProtectedFields,
   objectReferenceSelectionFindings,
+  unresolvedSelectedObjectCandidates,
 } from "./object-references.mjs";
 import {
   constrainToolObjectInputs,
@@ -999,6 +1000,15 @@ export class SlayerRuntime {
           sourceEventSeq: contextEventSeq,
         }),
       ));
+      const unresolvedSelections = unresolvedSelectedObjectCandidates(
+        args.selectedObjectCandidates, preparedObjectReferences,
+      );
+      if (unresolvedSelections.length) {
+        const missing = unresolvedSelections.map(({ display, type, id, ref }) => ({
+          display, type, id, ref,
+        }));
+        throw new Error(`Every selected object must be reread before execution. Missing or unavailable selections: ${JSON.stringify(missing)}`);
+      }
       if (preparedObjectReferences.length) {
         this.ledger.append({
           type: "object.references.observed", status: "complete", actorType: "service",

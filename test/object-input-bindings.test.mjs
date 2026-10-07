@@ -54,6 +54,44 @@ test("the call boundary rejects a substituted ID and accepts the exact bound ID"
   }), null);
 });
 
+test("singleton inputs reject multi-object bindings and batch inputs require the complete set", () => {
+  const selectedBatch = [{
+    ...selected[0],
+    objects: [
+      ...selected[0].objects,
+      { id: 179, ref: "accounting://accounts/179", display: "Tax Checking" },
+    ],
+  }];
+  assert.match(objectInputBindingProblem({
+    toolDefinition: tool, argumentsObject: { account_id: 178 }, selectedGroups: selectedBatch,
+  }), /singleton input.*contains 2 objects.*batch-shaped tool/u);
+
+  const batchTool = {
+    ...tool,
+    name: "remote_accounting_update_accounts",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { updates: { type: "array", items: {
+        type: "object", properties: { account_id: { type: "integer" } },
+      } } },
+    },
+    metadata: { [objectInputBindingsMetadataKey]: {
+      protocol: "agent-slayer.object-input-bindings", version: 1,
+      bindings: [{ path: "/updates/*/account_id", objectType: "accounting.account", value: "id" }],
+    } },
+  };
+  assert.match(objectInputBindingProblem({
+    toolDefinition: batchTool,
+    argumentsObject: { updates: [{ account_id: 178 }] },
+    selectedGroups: selectedBatch,
+  }), /must include the complete accepted.*Tax Checking/u);
+  assert.equal(objectInputBindingProblem({
+    toolDefinition: batchTool,
+    argumentsObject: { updates: [{ account_id: 178 }, { account_id: 179 }] },
+    selectedGroups: selectedBatch,
+  }), null);
+});
+
 test("same-type objects remain distinct across role-qualified input paths", () => {
   const roleTool = {
     name: "remote_accounting_preview_statement",

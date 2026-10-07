@@ -11,8 +11,9 @@ import { SectionFilter } from "./components/SectionFilter";
 import {
   AgentReferenceButton, contactIdentity, exchangeIdentity,
   genericEntityIdentity, journalEntryIdentity, journalTrackerIdentity,
-  type AddAgentReference, type GenericObjectKind,
+  todoIdentity, type AddAgentReference, type AddAgentReferences, type GenericObjectKind,
 } from "./components/AgentReferenceButton";
+import { maximumObjectReferences } from "./object-references";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
 import { matchesSearch } from "./search-filter";
 import type {
@@ -23,9 +24,9 @@ import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
   ["agent", "Agent"], ["hats", "Hats"], ["calendar", "Calendar"], ["routine", "Routine"],
-  ["todos", "To do"], ["payments", "Payments"], ["content", "Library"], ["files", "Files"],
+  ["todos", "To do"], ["content", "Library"], ["files", "Files"],
   ["contacts", "Contacts"], ["journal", "Journal"], ["video-scripts", "Video Scripts"],
-  ["ai-usage", "AI Usage"],
+  ["payments", "Payments"], ["ai-usage", "AI Usage"],
 ] as const;
 
 type NavigationItem = typeof navigation[number];
@@ -106,6 +107,22 @@ function readKey(entity: Entity, ...keys: string[]) {
 function textKey(entity: Entity, ...keys: string[]) {
   const value = readKey(entity, ...keys);
   return value == null ? "" : String(value);
+}
+
+function todoCompletionTime(todo: Entity) {
+  const value = readKey(todo, "completedAtUtc");
+  const timestamp = value == null ? Number.NaN : new Date(String(value)).getTime();
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+function compareTodoDisplayOrder(left: Entity, right: Entity) {
+  const leftComplete = left.status === "complete";
+  const rightComplete = right.status === "complete";
+  if (leftComplete !== rightComplete) return leftComplete ? -1 : 1;
+  if (!leftComplete) return 0;
+  const leftCompletedAt = todoCompletionTime(left);
+  const rightCompletedAt = todoCompletionTime(right);
+  return leftCompletedAt === rightCompletedAt ? 0 : rightCompletedAt > leftCompletedAt ? 1 : -1;
 }
 
 function PageHeading({ eyebrow, title, detail, actions }: {
@@ -909,7 +926,10 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
   </>;
 }
 
-function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
+function TodoScreen({ onReference, onReferences }: {
+  onReference: AddAgentReference;
+  onReferences: AddAgentReferences;
+}) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [filterQuery, setFilterQuery] = useState("");
@@ -920,6 +940,8 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const [reorderingGroupId, setReorderingGroupId] = useState<number | null>(null);
   const [reorderError, setReorderError] = useState("");
+  const [selectedTodos, setSelectedTodos] = useState<Map<string, SelectedObjectCandidate>>(new Map());
+  const [selectionError, setSelectionError] = useState("");
   const add = async (event: FormEvent) => { event.preventDefault(); await api("/api/todos", { method: "POST", body: JSON.stringify({ text: draft, status: "todo" }) }); setDraft(""); await reload(); };
   const statusTodos = (data?.todos || []).filter((todo) =>
     todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
@@ -927,7 +949,43 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
   const groupTodos = selectedGroupId === "all"
     ? statusTodos
     : statusTodos.filter((todo) => String(readKey(todo, "groupId")) === selectedGroupId);
-  const todos = groupTodos.filter((todo) => matchesSearch(todo, filterQuery));
+  const filteredTodos = groupTodos.filter((todo) => matchesSearch(todo, filterQuery));
+  const todos = showCompleted ? [...filteredTodos].sort(compareTodoDisplayOrder) : filteredTodos;
+  const setTodoSelected = (todo: Entity, selected: boolean) => {
+    const identity = todoIdentity(todo);
+    setSelectionError("");
+    setSelectedTodos((current) => {
+      const next = new Map(current);
+      if (!selected) next.delete(identity.ref);
+      else if (!next.has(identity.ref)) {
+        if (next.size >= maximumObjectReferences) {
+          setSelectionError(`A request can reference at most ${maximumObjectReferences} objects. Nothing was truncated.`);
+          return current;
+        }
+        next.set(identity.ref, identity);
+      }
+      return next;
+    });
+  };
+  const selectVisibleTodos = () => {
+    const visible = todos.map((todo) => todoIdentity(todo));
+    const additions = visible.filter(({ ref }) => !selectedTodos.has(ref));
+    if (selectedTodos.size + additions.length > maximumObjectReferences) {
+      setSelectionError(`Selecting all ${visible.length} visible items would exceed the ${maximumObjectReferences}-object request limit. Nothing was selected or truncated.`);
+      return;
+    }
+    setSelectionError("");
+    setSelectedTodos((current) => new Map([
+      ...current,
+      ...additions.map((identity) => [identity.ref, identity] as const),
+    ]));
+  };
+  const referenceSelectedTodos = () => {
+    if (!selectedTodos.size) return;
+    onReferences([...selectedTodos.values()].map((identity) => ({
+      identity, subject: `task ${identity.display}`,
+    })));
+  };
   const setDailyPaperPinned = async (groupId: number, dailyPaperPinned: boolean) => {
     await api(`/api/todo-groups/${groupId}/daily-paper-pin`, {
       method: "POST",
@@ -993,10 +1051,22 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
     }
     return [...grouped.values()];
   }, [filterQuery, groupData?.groups, selectedGroupId, todos]);
-  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<div className="todo-heading-actions"><label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label><form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form></div>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
-      <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
-    </SectionSelectFilter>} />
+  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form>} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" controls={<>
+      <SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
+        <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
+      </SectionSelectFilter>
+      <label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label>
+    </>} />
+    <section className="todo-selection-bar" aria-label="To-do selection controls">
+      <span><strong>{selectedTodos.size}</strong> selected</span>
+      <div>
+        <button className="button button--quiet" type="button" disabled={!todos.length} onClick={selectVisibleTodos}>Select all visible</button>
+        <button className="button" type="button" disabled={!selectedTodos.size} onClick={referenceSelectedTodos}>Reference selected in Agent</button>
+        <button className="button button--quiet" type="button" disabled={!selectedTodos.size} onClick={() => { setSelectedTodos(new Map()); setSelectionError(""); }}>Clear selection</button>
+      </div>
+    </section>
+    {selectionError && <p className="inline-error" role="alert">{selectionError}</p>}
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{reorderError && <p className="inline-error" role="alert">{reorderError}</p>}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => {
       const priorityIndex = group.groupId == null ? -1 : orderedGroupIds.indexOf(group.groupId);
       return <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}>
@@ -1015,7 +1085,10 @@ function TodoScreen({ onReference }: { onReference: AddAgentReference }) {
           </div>
           <div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div>
         </header>
-        <div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} key={String(todo.id)} />)}</div>
+        <div className="todo-group-items">{group.todos.map((todo) => {
+          const identity = todoIdentity(todo);
+          return <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} selected={selectedTodos.has(identity.ref)} onSelectionChange={(selected) => setTodoSelected(todo, selected)} key={String(todo.id)} />;
+        })}</div>
       </section>;
     })}</div>
     {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }} />}
@@ -1510,15 +1583,30 @@ function Workspace() {
   const [requestTrace, setRequestTrace] = useState<RequestTrace | null>(null);
   const [traceError, setTraceError] = useState<unknown>(null);
   const go = (next: string) => { setView(next); history.replaceState(null, "", `#${next}`); };
-  const referenceInAgent: AddAgentReference = (identity, subject) => {
-    const alreadySelected = agentObjectSelections.some(({ ref }) => ref === identity.ref);
-    if (!alreadySelected) {
-      setAgentObjectSelections((current) => [...current, identity]);
-      setAgentDraft((current) => identity.mention + (current ? ` ${current}` : " "));
+  const referenceManyInAgent: AddAgentReferences = (entries) => {
+    const existing = new Set(agentObjectSelections.map(({ ref }) => ref));
+    const additions = entries.filter(({ identity }, index, values) => (
+      !existing.has(identity.ref)
+      && values.findIndex((entry) => entry.identity.ref === identity.ref) === index
+    ));
+    if (agentObjectSelections.length + additions.length > maximumObjectReferences) {
+      setAgentReferenceNotice(`Adding ${additions.length} objects would exceed the ${maximumObjectReferences}-object request limit. Nothing was added or truncated.`);
+      go("agent");
+      return;
     }
-    setAgentReferenceNotice((alreadySelected ? "Already referencing " : "Added ")
-      + subject + " in the Agent composer.");
+    if (additions.length) {
+      setAgentObjectSelections([...agentObjectSelections, ...additions.map(({ identity }) => identity)]);
+      const mentions = additions.map(({ identity }) => identity.mention).join(" ");
+      setAgentDraft((current) => mentions + (current ? ` ${current}` : " "));
+    }
+    const subjects = entries.map(({ subject }) => subject);
+    setAgentReferenceNotice(additions.length
+      ? `Added ${additions.length} ${additions.length === 1 ? "object" : "objects"} to the Agent composer.`
+      : subjects.length === 1 ? `Already referencing ${subjects[0]} in the Agent composer.` : "Those objects are already referenced in the Agent composer.");
     go("agent");
+  };
+  const referenceInAgent: AddAgentReference = (identity, subject) => {
+    referenceManyInAgent([{ identity, subject }]);
   };
   const showTrace = async (requestId: string) => {
     setTraceRequestId(requestId);
@@ -1536,7 +1624,7 @@ function Workspace() {
   let screen: ReactNode;
   if (view === "agent") screen = <AgentScreen onReference={referenceInAgent} onShowTrace={(requestId) => void showTrace(requestId)} refreshKey={requestRefreshKey} />;
   else if (view === "calendar") screen = <CalendarScreen generationNotice={calendarGenerationNotice} dismissGenerationNotice={() => setCalendarGenerationNotice(null)} onReference={referenceInAgent} />;
-  else if (view === "todos") screen = <TodoScreen onReference={referenceInAgent} />;
+  else if (view === "todos") screen = <TodoScreen onReference={referenceInAgent} onReferences={referenceManyInAgent} />;
   else if (view === "contacts") screen = <ContactsScreen onReference={referenceInAgent} />;
   else if (view === "hats") screen = <HatsScreen />;
   else if (view === "routine") screen = <RoutineScreen onGenerated={(message) => { setCalendarGenerationNotice(message); go("calendar"); }} onReference={referenceInAgent} />;
