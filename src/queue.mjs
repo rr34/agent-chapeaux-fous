@@ -21,13 +21,19 @@ export class RequestQueue {
     this.maxTextAttachmentBytes = maxTextAttachmentBytes;
     this.maxRequestAttachmentBytes = maxRequestAttachmentBytes;
     this.running = false;
+    this.drainScheduled = false;
     this.wakeRequested = false;
     this.pendingTurnBriefApprovals = new Map();
   }
 
   notify() {
     this.wakeRequested = true;
-    void this.drain();
+    if (this.running || this.drainScheduled) return;
+    this.drainScheduled = true;
+    setImmediate(() => {
+      this.drainScheduled = false;
+      void this.drain();
+    });
   }
 
   async drain() {

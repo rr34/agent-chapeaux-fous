@@ -35,6 +35,7 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(items, /className="todo-select"/);
   assert.match(items, /aria-label=\{`Select \$\{text\} for Agent reference`\}/);
   assert.match(styles, /\.todo-check\.todo-check--mark-complete[^\{]*\{[^}]*width: 52px;[^}]*min-height: 46px;/);
+  assert.match(styles, /\.todo-check\.todo-check--mark-complete[^\{]*\{[^}]*place-content: center;[^}]*text-align: center;/);
   assert.match(styles, /\.paper-todos li \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/);
   assert.match(items, /className="todo-item-content"[^>]+onClick=\{\(\) => setEditing\(true\)\}/);
   assert.match(items, /className="todo-sequence"[^>]*>#\{sequence\}<\/span>/);

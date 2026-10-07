@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, downloadAuthenticated, getAccessToken, setAccessToken } from "./api";
-import { useApi, localToday } from "./hooks";
+import { useApi, localToday, useRequestFeed } from "./hooks";
 import { CalendarGrid, DailyPaper, DayTimeline, ScheduledTodos } from "./components/DailyPaper";
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
@@ -382,7 +382,7 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
   setSelections: (selections: SelectedObjectCandidate[]) => void;
   referenceNotice: string | null;
   clearReferenceNotice: () => void;
-  onSubmitted: () => void;
+  onSubmitted: (request: RequestRecord) => void;
 }) {
   const textArea = useRef<HTMLTextAreaElement>(null);
   const recordMeter = useRef<HTMLSpanElement>(null);
@@ -520,14 +520,26 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
       const runLimitsQuery = pendingRunLimits === null
         ? ""
         : `?runLimits=${encodeURIComponent(JSON.stringify(pendingRunLimits))}`;
-      await api<{ requestId: string; fileId: number }>(`/api/voice${runLimitsQuery}`, {
+      const created = await api<{ requestId: string; fileId: number }>(`/api/voice${runLimitsQuery}`, {
         method: "POST",
         headers: { "Content-Type": blob.type },
         body: blob,
       });
       setPendingRunLimits(null);
       setRecordingStatus("Voice request queued.");
-      onSubmitted();
+      onSubmitted({
+        requestId: created.requestId,
+        request: "Voice request",
+        status: "queued",
+        submittedAtMs: Date.now(),
+        progress: {
+          label: "Queued",
+          startedAtMs: Date.now(),
+          lastActivityAtMs: Date.now(),
+          modelCalls: 0,
+          toolCalls: 0,
+        },
+      });
     } catch (caught) {
       setSubmitError(caught instanceof Error ? caught : new Error(String(caught)));
       setRecordingStatus("");
@@ -656,7 +668,7 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
         ({ label: _label, detail: _detail, referencedRequestId, ...selection }) =>
           referencedRequestId ? [] : [selection],
       );
-      await api("/api/requests", { method: "POST", body: JSON.stringify({
+      const created = await api<{ requestId: string }>("/api/requests", { method: "POST", body: JSON.stringify({
         text,
         referencedRequestIds,
         selectedObjectCandidates,
@@ -665,7 +677,20 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
       setPendingRunLimits(null);
       setText("");
       setSelections([]);
-      onSubmitted();
+      const submittedAtMs = Date.now();
+      onSubmitted({
+        requestId: created.requestId,
+        request: text.trim(),
+        status: "queued",
+        submittedAtMs,
+        progress: {
+          label: "Queued",
+          startedAtMs: submittedAtMs,
+          lastActivityAtMs: submittedAtMs,
+          modelCalls: 0,
+          toolCalls: 0,
+        },
+      });
     } catch (caught) { setSubmitError(caught instanceof Error ? caught : new Error(String(caught))); }
     finally { setSending(false); }
   };
@@ -803,15 +828,25 @@ function RequestInteractionMetrics({ request }: { request: RequestRecord }) {
   </div>;
 }
 
-function AgentScreen({ onReference, onShowTrace, refreshKey }: {
+function AgentScreen({ onReference, onShowTrace, refreshKey, optimisticRequests, onRequestsObserved }: {
   onReference: AddAgentReference;
   onShowTrace: (requestId: string) => void;
   refreshKey: number;
+  optimisticRequests: RequestRecord[];
+  onRequestsObserved: (requestIds: string[]) => void;
 }) {
-  const { data, error, loading, reload } = useApi<{ requests: RequestRecord[] }>("/api/requests?limit=50", 3000);
+  const { data, error, loading, reload } = useRequestFeed(25, 3000);
   const [filterQuery, setFilterQuery] = useState("");
   const initialScrollPending = useRef(true);
   useEffect(() => { if (refreshKey > 0) void reload(); }, [refreshKey, reload]);
+  useEffect(() => {
+    if (!data || optimisticRequests.length === 0) return;
+    const serverRequestIds = new Set(data.requests.map(({ requestId }) => requestId));
+    const observed = optimisticRequests
+      .filter(({ requestId }) => serverRequestIds.has(requestId))
+      .map(({ requestId }) => requestId);
+    if (observed.length) onRequestsObserved(observed);
+  }, [data, onRequestsObserved, optimisticRequests]);
   useEffect(() => {
     if (loading || error || !data || !initialScrollPending.current) return;
     const frame = window.requestAnimationFrame(() => {
@@ -828,7 +863,13 @@ function AgentScreen({ onReference, onShowTrace, refreshKey }: {
     await api(`/api/requests/${request.requestId}/turn-brief/${decision}`, { method: "POST", body: JSON.stringify({ approvalId: request.turnBriefApproval.approvalId }) });
     await reload();
   };
-  const visibleRequests = (data?.requests || []).filter((request) => matchesSearch(request, filterQuery));
+  const serverRequests = data?.requests || [];
+  const serverRequestIds = new Set(serverRequests.map(({ requestId }) => requestId));
+  const requests = [
+    ...optimisticRequests.filter(({ requestId }) => !serverRequestIds.has(requestId)),
+    ...serverRequests,
+  ];
+  const visibleRequests = requests.filter((request) => matchesSearch(request, filterQuery));
   return <>
     <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Time V3 Agent orients, shows its brief, then acts with visible tools." />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleRequests.length} noun="exchange" />
@@ -1579,6 +1620,7 @@ function Workspace() {
   const [agentObjectSelections, setAgentObjectSelections] = useState<SelectedObjectCandidate[]>([]);
   const [agentReferenceNotice, setAgentReferenceNotice] = useState<string | null>(null);
   const [requestRefreshKey, setRequestRefreshKey] = useState(0);
+  const [optimisticRequests, setOptimisticRequests] = useState<RequestRecord[]>([]);
   const [traceRequestId, setTraceRequestId] = useState<string | null>(null);
   const [requestTrace, setRequestTrace] = useState<RequestTrace | null>(null);
   const [traceError, setTraceError] = useState<unknown>(null);
@@ -1622,7 +1664,16 @@ function Workspace() {
     setEditingToken(false);
   };
   let screen: ReactNode;
-  if (view === "agent") screen = <AgentScreen onReference={referenceInAgent} onShowTrace={(requestId) => void showTrace(requestId)} refreshKey={requestRefreshKey} />;
+  if (view === "agent") screen = <AgentScreen
+    onReference={referenceInAgent}
+    onShowTrace={(requestId) => void showTrace(requestId)}
+    refreshKey={requestRefreshKey}
+    optimisticRequests={optimisticRequests}
+    onRequestsObserved={(requestIds) => {
+      const observed = new Set(requestIds);
+      setOptimisticRequests((current) => current.filter(({ requestId }) => !observed.has(requestId)));
+    }}
+  />;
   else if (view === "calendar") screen = <CalendarScreen generationNotice={calendarGenerationNotice} dismissGenerationNotice={() => setCalendarGenerationNotice(null)} onReference={referenceInAgent} />;
   else if (view === "todos") screen = <TodoScreen onReference={referenceInAgent} onReferences={referenceManyInAgent} />;
   else if (view === "contacts") screen = <ContactsScreen onReference={referenceInAgent} />;
@@ -1648,7 +1699,11 @@ function Workspace() {
     setSelections={setAgentObjectSelections}
     referenceNotice={agentReferenceNotice}
     clearReferenceNotice={() => setAgentReferenceNotice(null)}
-    onSubmitted={() => { setRequestRefreshKey((current) => current + 1); go("agent"); }}
+    onSubmitted={(request) => {
+      setOptimisticRequests((current) => [request, ...current.filter(({ requestId }) => requestId !== request.requestId)]);
+      setRequestRefreshKey((current) => current + 1);
+      go("agent");
+    }}
   />{traceRequestId && <TracePanel requestId={traceRequestId} trace={requestTrace} error={traceError} onClose={() => setTraceRequestId(null)} />}</div>;
 }
 

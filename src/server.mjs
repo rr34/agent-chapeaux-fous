@@ -509,13 +509,29 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/requests") {
-      const requests = ledger.recentRequests(url.searchParams.get("limit")).map((entry) => ({
+      const presentation = (entries) => entries.map((entry) => ({
         ...entry,
         presentationHats: entry.explicitHats?.length
           ? entry.explicitHats
           : hatCatalog.hatsForCapabilities(entry.capabilities, { limit: 1 }),
       }));
-      sendJson(response, 200, { requests });
+      const afterEventSeq = url.searchParams.get("afterEventSeq");
+      if (afterEventSeq !== null) {
+        let changes;
+        try {
+          changes = ledger.recentRequestChanges(
+            url.searchParams.get("limit"),
+            afterEventSeq,
+          );
+        } catch (error) {
+          throw Object.assign(error, { statusCode: 400 });
+        }
+        sendJson(response, 200, changes);
+        return;
+      }
+      sendJson(response, 200, {
+        requests: presentation(ledger.recentRequests(url.searchParams.get("limit"))),
+      });
       return;
     }
     const turnBriefDecisionMatch = /^\/api\/requests\/([0-9a-f][0-9a-f-]{35})\/turn-brief\/(continue|cancel)$/.exec(url.pathname);
@@ -1172,8 +1188,8 @@ const server = http.createServer(async (request, response) => {
           ...(selectedObjectCandidates.length ? { selectedObjectCandidates } : {}),
         },
       });
-      queue.notify();
       sendJson(response, 202, created);
+      queue.notify();
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/voice") {
@@ -1192,8 +1208,8 @@ const server = http.createServer(async (request, response) => {
       const created = ledger.createRequest({
         channel: "voice", primaryFileId: file.fileId, runLimits: voiceRunLimits,
       });
-      queue.notify();
       sendJson(response, 202, { ...created, fileId: file.fileId });
+      queue.notify();
       return;
     }
     sendJson(response, 404, { error: "Not found" });

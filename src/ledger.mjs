@@ -76,6 +76,31 @@ const terminalEventTypes = [
   "voice.request.interrupted",
   "voice.transcription.error",
 ];
+const requestFeedEventTypes = [...new Set([
+  ...responseEventTypes,
+  ...terminalEventTypes,
+  "request.processing",
+  "agent.turn.start",
+  "conversation.started",
+  "transcription.start",
+  "transcription.complete",
+  "voice.transcription.start",
+  "voice.transcription.end",
+  "video.source.transcription.start",
+  "video.source.transcription.complete",
+  "agent.step",
+  "context.sent",
+  "tools.sent",
+  "model.request",
+  "model.call",
+  "model.response",
+  "model.usage",
+  "tool.call",
+  "tool.result",
+  "turn.brief.approval_required",
+  "turn.brief.approved",
+  "turn.brief.cancelled",
+])];
 
 const objectIdentityFields = [
   ["personal_task_id", "personal_task"],
@@ -639,6 +664,38 @@ export class Ledger {
     `).all(requestId).map(publicEvent);
   }
 
+  requestFeedEvents(requestId) {
+    return this.store.requireReady().prepare(`
+      SELECT
+        event_seq, event_id, occurred_at_ms, occurred_at_utc,
+        event_type, event_phase, status, actor_type, actor_name,
+        source, channel, session_id, turn_id, trace_id, operation_id, name,
+        CASE
+          WHEN event_type IN (
+            'assistant.response', 'agent.turn.end',
+            'transcription.complete', 'voice.transcription.end',
+            'request.error', 'request.cancelled', 'agent.turn.error',
+            'voice.request.interrupted', 'voice.transcription.error'
+          ) THEN content_text
+          ELSE NULL
+        END AS content_text,
+        CASE
+          WHEN event_type IN ('model.usage', 'turn.brief.approval_required') THEN payload_json
+          WHEN event_type IN ('model.request', 'agent.step') THEN JSON_OBJECT(
+            'workflowStep', JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.workflowStep')),
+            'workflowStepLabel', JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.workflowStepLabel')),
+            'reasoningEffort', JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.reasoningEffort'))
+          )
+          ELSE '{}'
+        END AS payload_json,
+        NULL AS primary_file_id, subject_type, subject_id, error_text
+      FROM activity_events FORCE INDEX (activity_events_turn)
+      WHERE turn_id = ?
+        AND event_type IN (${placeholders(requestFeedEventTypes)})
+      ORDER BY event_seq
+    `).all(requestId, ...requestFeedEventTypes).map(publicEvent);
+  }
+
   resolveRequestId(requestIdOrPrefix) {
     const candidate = String(requestIdOrPrefix || "").toLowerCase();
     if (!/^[0-9a-f][0-9a-f-]{7,35}$/.test(candidate)) return { status: "invalid", requestId: null };
@@ -654,16 +711,26 @@ export class Ledger {
     return { status: "resolved", requestId: rows[0].turn_id };
   }
 
-  #requestDetails(request, { includeVideo = true, recentVideoRequests = null } = {}) {
-    const events = this.trace(request.turnId);
+  #requestDetails(request, {
+    includeVideo = true,
+    recentVideoRequests = null,
+    events: projectedEvents = null,
+    includeAttachment = true,
+    includePresentation = true,
+    includeSteps = true,
+    includeObjectActivity = true,
+  } = {}) {
+    const events = projectedEvents ?? this.trace(request.turnId);
     const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
     const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
     const usage = requestUsage(events);
-    const compiled = [...events].reverse().find((event) => (
-      event.type === "context.sent"
-      && Array.isArray(event.payload?.capabilitySelection?.explicitHats)
-    ));
+    const compiled = includePresentation
+      ? [...events].reverse().find((event) => (
+          event.type === "context.sent"
+          && Array.isArray(event.payload?.capabilitySelection?.explicitHats)
+        ))
+      : null;
     const explicitHats = compiled?.payload.capabilitySelection.explicitHats ?? [];
     const capabilities = Array.isArray(compiled?.payload?.capabilitySelection?.capabilities)
       ? compiled.payload.capabilitySelection.capabilities
@@ -685,7 +752,9 @@ export class Ledger {
       : null;
     const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
     const requestKind = request.payload?.requestKind ?? null;
-    const sourceFile = request.primaryFileId == null ? null : this.file(request.primaryFileId);
+    const sourceFile = !includeAttachment || request.primaryFileId == null
+      ? null
+      : this.file(request.primaryFileId);
     const sourceInteractionSelectable = terminal?.status === "complete"
       && Boolean(response?.content)
       && requestKind == null;
@@ -714,8 +783,8 @@ export class Ledger {
       response: response?.content || null,
       error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
       usage,
-      steps: workflowSteps(events),
-      objectActivity: interactionObjectActivity(events),
+      ...(includeSteps ? { steps: workflowSteps(events) } : {}),
+      ...(includeObjectActivity ? { objectActivity: interactionObjectActivity(events) } : {}),
       eventCount: events.length,
       ...(sourceFile ? { attachment: publicFile(sourceFile) } : {}),
       ...(explicitHats.length ? { explicitHats } : {}),
@@ -1091,6 +1160,52 @@ export class Ledger {
     `).all(...receivedEventTypes, bounded).map(publicEvent);
     const recentVideoRequests = this.#recentVideoRequests();
     return received.map((request) => this.#requestDetails(request, { recentVideoRequests }));
+  }
+
+  recentRequestChanges(limit = 25, afterEventSeq = 0) {
+    const bounded = Math.min(200, Math.max(1, Number(limit) || 25));
+    const after = Number(afterEventSeq);
+    if (!Number.isSafeInteger(after) || after < 0) {
+      throw new Error("Request-feed cursor must be a non-negative integer");
+    }
+    const database = this.store.requireReady();
+    const cursor = Number(database.prepare(`
+      SELECT COALESCE(MAX(event_seq), 0) AS event_seq
+      FROM activity_events
+    `).get()?.event_seq ?? 0);
+    const received = database.prepare(`
+      SELECT * FROM activity_events FORCE INDEX (PRIMARY)
+      WHERE event_type IN (${placeholders(receivedEventTypes)})
+        AND event_seq <= ?
+      ORDER BY event_seq DESC LIMIT ?
+    `).all(...receivedEventTypes, cursor, bounded).map(publicEvent);
+    const requestIds = received.map(({ turnId }) => turnId);
+    if (requestIds.length === 0 || after >= cursor) {
+      return { cursor, requestIds, requests: [] };
+    }
+    const changedRows = after === 0
+      ? requestIds.map((turn_id) => ({ turn_id }))
+      : database.prepare(`
+      SELECT DISTINCT turn_id
+      FROM activity_events FORCE INDEX (PRIMARY)
+      WHERE event_seq > ?
+        AND event_seq <= ?
+        AND turn_id IN (${placeholders(requestIds)})
+    `).all(after, cursor, ...requestIds);
+    const changedRequestIds = new Set(changedRows.map(({ turn_id: requestId }) => requestId));
+    const changedRequests = received.filter(({ turnId }) => changedRequestIds.has(turnId));
+    return {
+      cursor,
+      requestIds,
+      requests: changedRequests.map((request) => this.#requestDetails(request, {
+        includeVideo: false,
+        events: this.requestFeedEvents(request.turnId),
+        includeAttachment: false,
+        includePresentation: false,
+        includeSteps: false,
+        includeObjectActivity: false,
+      })),
+    };
   }
 
   interactionReplaySource(requestId) {
