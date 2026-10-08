@@ -54,3 +54,26 @@ export async function downloadAuthenticated(url: string, fallbackName: string) {
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
 }
+
+export async function previewAuthenticated(url: string) {
+  const preview = window.open("about:blank", "_blank");
+  if (!preview) throw new Error("Allow pop-ups for this site to preview the PDF.");
+  preview.opener = null;
+  try {
+    const response = await fetch(url, { headers: headers(), cache: "no-store" });
+    if (!response.ok) {
+      let message = `PDF preview failed (HTTP ${response.status})`;
+      try {
+        const body = await response.json() as { error?: unknown };
+        if (body.error) message = String(body.error);
+      } catch { /* Keep the HTTP fallback. */ }
+      throw new ApiError(message, response.status);
+    }
+    const objectUrl = URL.createObjectURL(await response.blob());
+    preview.location.replace(objectUrl);
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    preview.close();
+    throw error;
+  }
+}

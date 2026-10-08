@@ -484,6 +484,19 @@ const server = http.createServer(async (request, response) => {
       ));
       return;
     }
+    const paymentInvoicePreviewPdfMatch = /^\/api\/payment-invoices\/(\d+)\/preview-pdf$/.exec(url.pathname);
+    if (request.method === "GET" && paymentInvoicePreviewPdfMatch) {
+      const pdf = await payments.localInvoicePdf(Number(paymentInvoicePreviewPdfMatch[1]));
+      const disposition = url.searchParams.get("download") === "true" ? "attachment" : "inline";
+      response.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "Content-Length": pdf.bytes.length,
+        "Content-Disposition": `${disposition}; filename="${pdf.filename}"`,
+        "Cache-Control": "private, no-store",
+      });
+      response.end(pdf.bytes);
+      return;
+    }
     const paymentInvoicePdfMatch = /^\/api\/payment-invoices\/(\d+)\/pdf$/.exec(url.pathname);
     if (request.method === "GET" && paymentInvoicePdfMatch) {
       sendJson(response, 200, await payments.invoicePdf(Number(paymentInvoicePdfMatch[1])));

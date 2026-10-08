@@ -85,6 +85,10 @@ test("invoice preparation accepts task-backed, manual, and mixed line sources", 
   assert.equal(schemaProblem({ ...base, personal_task_ids: [11] }, schema), null);
   assert.equal(schemaProblem({
     ...base,
+    todo_lines: [{ personal_task_id: 12, amount_minor: 3000, currency: "USD" }],
+  }, schema), null);
+  assert.equal(schemaProblem({
+    ...base,
     manual_lines: [{ description: "Help moving", amount_minor: 2500, currency: "USD" }],
   }, schema), null);
   assert.equal(schemaProblem({
@@ -92,6 +96,50 @@ test("invoice preparation accepts task-backed, manual, and mixed line sources", 
     personal_task_ids: [11],
     manual_lines: [{ description: "Materials", amount_minor: 1250, currency: "USD" }],
   }, schema), null);
+});
+
+test("invoice preparation accepts an invoice-only price for an otherwise unpriced to-do", async () => {
+  const writes = { transactions: [], lines: [] };
+  const database = {
+    exec(sql) { writes.transactions.push(sql); },
+    prepare(sql) {
+      if (/FROM todo_personal/u.test(sql)) return { all: () => [{
+        personal_task_id: 12, text: "Unpriced task", status: "todo",
+        billable_amount_minor: null, billable_currency: null,
+      }] };
+      if (/SELECT line\.personal_task_id/u.test(sql)) return { get: () => null };
+      if (/INSERT INTO payment_invoices/u.test(sql)) return {
+        run(...values) { writes.invoice = values; return { lastInsertRowid: 92 }; },
+      };
+      if (/INSERT INTO payment_invoice_lines/u.test(sql)) return {
+        run(...values) { writes.lines.push(values); },
+      };
+      throw new Error(`Unexpected SQL in explicit to-do price preparation: ${sql}`);
+    },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: {},
+  });
+  payments.contact = () => ({ contact_id: 7, display_name: "Ruby", email: "ruby@example.test" });
+  payments.stripeStatus = async () => ({ connected: true, chargesEnabled: true, accountId: "acct_123" });
+  payments.getInvoice = (invoiceId) => ({
+    invoiceId, status: "prepared", display: "Ruby — $30.00", payerName: "Ruby",
+    payerEmail: "ruby@example.test", currency: "USD", amountMinor: 3000,
+    dueOn: "2099-01-02", previewDigest: writes.invoice[8],
+    preparationExpiresAtUtc: writes.invoice[9],
+  });
+
+  await payments.prepareInvoice({
+    contact_id: 7,
+    due_on: "2099-01-02",
+    todo_lines: [{ personal_task_id: 12, amount_minor: 3000, currency: "USD" }],
+  });
+
+  assert.deepEqual(writes.transactions, ["START TRANSACTION", "COMMIT"]);
+  assert.deepEqual(writes.lines, [[92, "todo", 12, 1, "Unpriced task", 3000]]);
+  assert.equal(writes.invoice[1], "USD");
+  assert.equal(writes.invoice[2], 3000);
 });
 
 test("invoice preparation requires a line source and fully validates manual lines", () => {
@@ -218,16 +266,18 @@ test("a prepared local invoice can atomically revise existing lines, append a ma
     payerEmail: "ruby@example.test",
     status: "prepared",
     currency: "USD",
-    amountMinor: writes.invoice[1],
+    amountMinor: writes.invoice[2],
     dueOn: "2099-01-02",
     paymentMethodPolicy: writes.invoice[0],
-    previewDigest: writes.invoice[2],
-    preparationExpiresAtUtc: writes.invoice[3],
+    description: writes.invoice[1],
+    previewDigest: writes.invoice[3],
+    preparationExpiresAtUtc: writes.invoice[4],
   });
 
   const result = payments.updatePreparedInvoice(91, {
     previewDigest: oldDigest,
     paymentMethodPolicy: "ach_only",
+    description: "Updated project scope",
     lines: [{ position: 1, description: "First task revised", amountMinor: 4000 },
       { position: 2, description: "Materials revised", amountMinor: 3000 },
       { position: 3, description: "Delivery", amountMinor: 1000 }],
@@ -240,13 +290,14 @@ test("a prepared local invoice can atomically revise existing lines, append a ma
   ]);
   assert.deepEqual(writes.insertedLines, [[91, "manual", null, 3, "Delivery", 1000]]);
   assert.equal(writes.invoice[0], "ach_only");
-  assert.equal(writes.invoice[1], 8000);
-  assert.match(writes.invoice[2], /^sha256:[0-9a-f]{64}$/u);
-  assert.notEqual(writes.invoice[2], oldDigest);
-  assert.equal(writes.invoice[5], 91);
+  assert.equal(writes.invoice[1], "Updated project scope");
+  assert.equal(writes.invoice[2], 8000);
+  assert.match(writes.invoice[3], /^sha256:[0-9a-f]{64}$/u);
+  assert.notEqual(writes.invoice[3], oldDigest);
+  assert.equal(writes.invoice[6], 91);
   assert.deepEqual(result.nextAction.onApproval.arguments, {
     invoice_id: 91,
-    preview_digest: writes.invoice[2],
+    preview_digest: writes.invoice[3],
   });
   assert.equal(activities[0].type, "payment.invoice.preview_updated");
 });
@@ -464,4 +515,26 @@ test("an invoice PDF is read from its exact connected Stripe invoice", async () 
     url: "https://stripe.example/invoice.pdf",
   });
   assert.deepEqual(calls, [["in_123", { stripeAccount: "acct_123" }]]);
+});
+
+test("a local invoice PDF renders the exact current snapshot without Stripe", async () => {
+  const invoice = {
+    invoiceId: 96, payerName: "Ruby", payerEmail: "ruby@example.test", dueOn: "2099-01-02",
+    currency: "USD", amountMinor: 3000, description: null,
+    lines: [{ description: "Unpriced task", amountMinor: 3000 }],
+  };
+  const calls = [];
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => ({}) },
+    config: { pdfBrowserExecutable: "/configured/chromium" },
+    renderInvoicePdf: async (input) => { calls.push(input); return Buffer.from("pdf bytes"); },
+  });
+  payments.getInvoice = (invoiceId) => invoiceId === 96 ? invoice : null;
+
+  const result = await payments.localInvoicePdf(96);
+
+  assert.equal(result.invoiceId, 96);
+  assert.equal(result.filename, "invoice-96.pdf");
+  assert.deepEqual(result.bytes, Buffer.from("pdf bytes"));
+  assert.deepEqual(calls, [{ invoice, browserExecutable: "/configured/chromium" }]);
 });

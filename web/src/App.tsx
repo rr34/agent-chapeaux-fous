@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, downloadAuthenticated, getAccessToken, setAccessToken } from "./api";
+import { api, ApiError, downloadAuthenticated, getAccessToken, previewAuthenticated, setAccessToken } from "./api";
 import { useApi, localToday, useRequestFeed } from "./hooks";
 import { CalendarGrid, DailyPaper, DayTimeline, ScheduledTodos } from "./components/DailyPaper";
 import { Empty, ErrorState, Loading } from "./components/State";
@@ -1578,6 +1578,12 @@ type InvoiceCreateManualLine = {
   amount: string;
 };
 
+type InvoiceCreateTodoLine = {
+  personalTaskId: number;
+  description: string;
+  amount: string;
+};
+
 function invoiceCurrencyDigits(currency: string) {
   try {
     return new Intl.NumberFormat("en-US", { style: "currency", currency })
@@ -1637,36 +1643,52 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
 }) {
   const today = localToday();
   const [contactId, setContactId] = useState("");
+  const [contactQuery, setContactQuery] = useState("");
   const [dueOn, setDueOn] = useState(shiftLocalDate(today, 14));
   const [currency, setCurrency] = useState("USD");
   const [paymentMethodPolicy, setPaymentMethodPolicy] = useState("ach_only");
   const [description, setDescription] = useState("");
   const [todoQuery, setTodoQuery] = useState("");
-  const [selectedTodoIds, setSelectedTodoIds] = useState<Set<number>>(new Set());
+  const [todoLines, setTodoLines] = useState<InvoiceCreateTodoLine[]>([]);
   const [manualLines, setManualLines] = useState<InvoiceCreateManualLine[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const receivableContacts = contacts.filter((contact) => invoiceContactEmail(contact));
+  const selectedContact = receivableContacts.find((contact) => String(contact.id) === contactId) ?? null;
+  const contactMatches = contactQuery.trim() && !selectedContact
+    ? receivableContacts.filter((contact) => matchesSearch(contact, contactQuery)).slice(0, 20)
+    : [];
   const normalizedCurrency = currency.trim().toUpperCase();
-  const pricedTodos = todos.filter((todo) => (
-    Number(readKey(todo, "billableAmountMinor")) > 0
-    && textKey(todo, "billableCurrency").toUpperCase() === normalizedCurrency
-    && matchesSearch(todo, todoQuery)
-  ));
+  const selectedTodoIds = new Set(todoLines.map((line) => line.personalTaskId));
+  const todoMatches = todoQuery.trim()
+    ? todos.filter((todo) => matchesSearch(todo, todoQuery)).slice(0, 30)
+    : [];
   const startedManualLines = manualLines.filter((line) => line.description.trim() || line.amount.trim());
-  const hasLineSource = selectedTodoIds.size > 0 || startedManualLines.length > 0;
+  const hasLineSource = todoLines.length > 0 || startedManualLines.length > 0;
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !saving) onClose(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose, saving]);
-  const toggleTodo = (todoId: number, selected: boolean) => {
+  const selectContact = (contact: Entity) => {
     setError("");
-    setSelectedTodoIds((current) => {
-      const next = new Set(current);
-      if (selected) next.add(todoId); else next.delete(todoId);
-      return next;
-    });
+    setContactId(String(contact.id));
+    setContactQuery(`${textKey(contact, "displayName")} — ${invoiceContactEmail(contact)}`);
+  };
+  const addTodoLine = (todo: Entity) => {
+    const todoId = Number(todo.id);
+    if (!Number.isSafeInteger(todoId) || todoId <= 0 || selectedTodoIds.has(todoId) || unavailableTodoIds.has(todoId)) return;
+    const savedAmount = Number(readKey(todo, "billableAmountMinor"));
+    const savedCurrency = textKey(todo, "billableCurrency").toUpperCase();
+    setError("");
+    setTodoLines((current) => [...current, {
+      personalTaskId: todoId,
+      description: textKey(todo, "text"),
+      amount: savedAmount > 0 && savedCurrency === normalizedCurrency
+        ? invoiceAmountDraft(savedAmount, normalizedCurrency)
+        : "",
+    }]);
+    setTodoQuery("");
   };
   const addManualLine = () => setManualLines((current) => [...current, {
     key: current.reduce((maximum, line) => Math.max(maximum, line.key), 0) + 1,
@@ -1684,15 +1706,21 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
       return;
     }
     if (!hasLineSource) {
-      setError("Select a priced to-do or add a manual line.");
+      setError("Add a to-do or a manual line.");
       return;
     }
-    if (selectedTodoIds.size + startedManualLines.length > 100) {
+    if (todoLines.length + startedManualLines.length > 100) {
       setError("An invoice can contain at most 100 lines.");
       return;
     }
+    let preparedTodoLines;
     let preparedManualLines;
     try {
+      preparedTodoLines = todoLines.map((line) => ({
+        personal_task_id: line.personalTaskId,
+        amount_minor: invoiceAmountMinor(line.amount, normalizedCurrency),
+        currency: normalizedCurrency,
+      }));
       preparedManualLines = startedManualLines.map((line, index) => {
         if (!line.description.trim() || !line.amount.trim()) {
           throw new Error(`Manual line ${index + 1} needs both a description and amount.`);
@@ -1716,7 +1744,7 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
           due_on: dueOn,
           payment_method_policy: paymentMethodPolicy,
           description: description.trim() || null,
-          ...(selectedTodoIds.size ? { personal_task_ids: [...selectedTodoIds] } : {}),
+          ...(preparedTodoLines.length ? { todo_lines: preparedTodoLines } : {}),
           ...(preparedManualLines.length ? { manual_lines: preparedManualLines } : {}),
         }),
       });
@@ -1732,30 +1760,38 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
       <form onSubmit={(event) => void create(event)}>
         <header className="object-editor-heading"><div><p className="eyebrow">Payments</p><h2 id="invoice-create-title">Create invoice</h2></div><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>Close</button></header>
         <div className="invoice-create-grid">
-          <label>Payer<select value={contactId} required disabled={saving || loading} onChange={(event) => setContactId(event.target.value)}><option value="">Choose a contact</option>{receivableContacts.map((contact) => <option value={String(contact.id)} key={String(contact.id)}>{textKey(contact, "displayName")} — {invoiceContactEmail(contact)}</option>)}</select></label>
+          <div className="invoice-create-picker"><label htmlFor="invoice-payer-search">Payer email</label><input id="invoice-payer-search" type="search" role="combobox" aria-expanded={Boolean(contactMatches.length)} aria-controls="invoice-payer-results" autoComplete="off" value={contactQuery} disabled={saving || loading} onChange={(event) => { setContactQuery(event.target.value); setContactId(""); setError(""); }} placeholder="Type a name or email" />
+            {selectedContact && <div className="invoice-create-selection"><span><strong>{textKey(selectedContact, "displayName")}</strong><small>{invoiceContactEmail(selectedContact)}</small></span><button type="button" disabled={saving} onClick={() => { setContactId(""); setContactQuery(""); }}>Change</button></div>}
+            {!selectedContact && contactQuery.trim() && <div className="invoice-create-results" id="invoice-payer-results" role="listbox">{contactMatches.map((contact) => <button type="button" role="option" aria-selected="false" key={String(contact.id)} onClick={() => selectContact(contact)}><strong>{textKey(contact, "displayName")}</strong><small>{invoiceContactEmail(contact)}</small></button>)}{!contactMatches.length && <p>No contacts with a receivable email match.</p>}</div>}
+          </div>
           <label>Due date<input type="date" min={today} value={dueOn} required disabled={saving} onChange={(event) => setDueOn(event.target.value)} /></label>
-          <label>Currency<input value={currency} maxLength={3} required disabled={saving} onChange={(event) => { setCurrency(event.target.value.toUpperCase()); setSelectedTodoIds(new Set()); }} /></label>
+          <label>Currency<input value={currency} maxLength={3} required disabled={saving} onChange={(event) => { setCurrency(event.target.value.toUpperCase()); setTodoLines((current) => current.map((line) => ({ ...line, amount: "" }))); }} /></label>
           <label>Payment methods<select value={paymentMethodPolicy} disabled={saving} onChange={(event) => setPaymentMethodPolicy(event.target.value)}><option value="ach_only">Bank account only (no credit cards)</option><option value="card_and_ach">Credit card and bank account</option><option value="card_only">Credit card only</option></select></label>
         </div>
         <label>Invoice description <span className="field-hint">Optional</span><input value={description} maxLength={1000} disabled={saving} onChange={(event) => setDescription(event.target.value)} placeholder="What this invoice covers" /></label>
         <section className="invoice-create-source">
-          <header><div><p className="eyebrow">Priced work</p><h3>Select to-dos</h3></div><span>{selectedTodoIds.size} selected</span></header>
-          <input type="search" value={todoQuery} disabled={saving} onChange={(event) => setTodoQuery(event.target.value)} placeholder={`Search ${normalizedCurrency || "currency"} priced to-dos`} />
+          <header><div><p className="eyebrow">Work</p><h3>Add to-dos</h3></div><span>{todoLines.length} added</span></header>
+          <input type="search" role="combobox" aria-expanded={Boolean(todoMatches.length)} aria-controls="invoice-todo-results" autoComplete="off" value={todoQuery} disabled={saving} onChange={(event) => setTodoQuery(event.target.value)} placeholder="Type to search all to-dos" />
           <div className="invoice-create-todos">
-            {pricedTodos.map((todo) => {
+            {todoQuery.trim() && todoMatches.map((todo) => {
               const todoId = Number(todo.id);
               const unavailable = unavailableTodoIds.has(todoId);
-              return <label className={unavailable ? "is-unavailable" : ""} key={todoId}><input type="checkbox" checked={selectedTodoIds.has(todoId)} disabled={saving || unavailable} onChange={(event) => toggleTodo(todoId, event.target.checked)} /><span><strong>{textKey(todo, "text")}</strong><small>{textKey(todo, "groupName")} · {textKey(todo, "status")}{unavailable ? " · Already invoiced" : ""}</small></span><b>{formatInvoiceMoney(Number(readKey(todo, "billableAmountMinor")), normalizedCurrency)}</b></label>;
+              const selected = selectedTodoIds.has(todoId);
+              const savedAmount = Number(readKey(todo, "billableAmountMinor"));
+              const savedCurrency = textKey(todo, "billableCurrency").toUpperCase();
+              return <button className={unavailable ? "is-unavailable" : ""} type="button" role="option" aria-selected={selected} key={todoId} disabled={saving || unavailable || selected} onClick={() => addTodoLine(todo)}><span><strong>{textKey(todo, "text")}</strong><small>{textKey(todo, "groupName")} · {textKey(todo, "status")}{unavailable ? " · Already invoiced" : selected ? " · Added" : ""}</small></span><b>{savedAmount > 0 && savedCurrency ? `Saved price ${formatInvoiceMoney(savedAmount, savedCurrency)}` : "No saved price"}</b></button>;
             })}
-            {!pricedTodos.length && <p>No priced to-dos match {normalizedCurrency || "this currency"}.</p>}
+            {!todoQuery.trim() && <p>Start typing to find a to-do by its text, group, status, or other details.</p>}
+            {todoQuery.trim() && !todoMatches.length && <p>No to-dos match that search.</p>}
           </div>
+          {todoLines.length > 0 && <div className="invoice-create-selected-todos">{todoLines.map((line) => <div key={line.personalTaskId}><span><strong>{line.description}</strong><small>To-do #{line.personalTaskId}</small></span><label>Invoice price ({normalizedCurrency})<input value={line.amount} inputMode="decimal" required disabled={saving} onChange={(event) => setTodoLines((current) => current.map((candidate) => candidate.personalTaskId === line.personalTaskId ? { ...candidate, amount: event.target.value } : candidate))} placeholder="0.00" /></label><button type="button" disabled={saving} onClick={() => setTodoLines((current) => current.filter((candidate) => candidate.personalTaskId !== line.personalTaskId))}>Remove</button></div>)}</div>}
         </section>
         <section className="invoice-create-source">
-          <header><div><p className="eyebrow">Additional charges</p><h3>Manual lines</h3></div><button className="button button--quiet" type="button" disabled={saving || selectedTodoIds.size + manualLines.length >= 100} onClick={addManualLine}>Add manual line</button></header>
+          <header><div><p className="eyebrow">Additional charges</p><h3>Manual lines</h3></div><button className="button button--quiet" type="button" disabled={saving || todoLines.length + manualLines.length >= 100} onClick={addManualLine}>Add manual line</button></header>
           <div className="invoice-create-manual-lines">{manualLines.map((line, index) => <div key={line.key}><label>Description<input value={line.description} maxLength={1000} disabled={saving} onChange={(event) => updateManualLine(line.key, { description: event.target.value })} placeholder={`Manual line ${index + 1}`} /></label><label>Amount ({normalizedCurrency})<input value={line.amount} inputMode="decimal" disabled={saving} onChange={(event) => updateManualLine(line.key, { amount: event.target.value })} placeholder="0.00" /></label><button type="button" disabled={saving} onClick={() => setManualLines((current) => current.filter((candidate) => candidate.key !== line.key))}>Remove</button></div>)}</div>
           {!manualLines.length && <p className="invoice-create-empty">No manual lines added.</p>}
         </section>
-        {loading && <p className="object-editor-state">Loading contacts and priced to-dos…</p>}
+        {loading && <p className="object-editor-state">Loading contacts and to-dos…</p>}
         {!loading && !receivableContacts.length && <p className="object-editor-state">Add an active contact with a receivable email address before creating an invoice.</p>}
       {Boolean(loadError) && <p className="form-error" role="alert">{loadError instanceof Error ? loadError.message : "Could not load invoice sources."}</p>}
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -1784,9 +1820,11 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
     isNew: false,
   })));
   const [paymentMethodPolicy, setPaymentMethodPolicy] = useState(textKey(invoice, "paymentMethodPolicy") || "ach_only");
+  const [description, setDescription] = useState(textKey(invoice, "description"));
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [openingPdf, setOpeningPdf] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [confirmingSend, setConfirmingSend] = useState(false);
   const [error, setError] = useState("");
   const status = textKey(invoice, "status");
@@ -1794,13 +1832,15 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
   const editable = status === "prepared" && !invoice.stripeInvoiceId && !expired;
   const sendable = ["prepared", "failed", "sending"].includes(status)
     && (!expired || Boolean(invoice.stripeInvoiceId));
-  const busy = saving || sending || openingPdf;
+  const busy = saving || sending || openingPdf || downloadingPdf;
   const editingLocked = busy || confirmingSend;
   const draftTotal = useMemo(() => {
     try { return lines.reduce((sum, line) => sum + invoiceAmountMinor(line.amount, currency), 0); }
     catch { return null; }
   }, [currency, lines]);
-  const hasChanges = paymentMethodPolicy !== textKey(invoice, "paymentMethodPolicy") || lines.some((line) => {
+  const hasChanges = paymentMethodPolicy !== textKey(invoice, "paymentMethodPolicy")
+    || description.trim() !== textKey(invoice, "description").trim()
+    || lines.some((line) => {
     const source = sourceLines.find((candidate) => Number(readKey(candidate, "position")) === line.position);
     if (!source || textKey(source, "description") !== line.description.trim()) return true;
     try { return Number(readKey(source, "amountMinor")) !== invoiceAmountMinor(line.amount, currency); }
@@ -1857,6 +1897,7 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
         body: JSON.stringify({
           previewDigest: textKey(invoice, "previewDigest"),
           paymentMethodPolicy,
+          description: description.trim() || null,
           lines: lines.map((line) => ({
             position: line.position,
             description: line.description.trim(),
@@ -1888,7 +1929,7 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
       setSending(false);
     }
   };
-  const openPdf = async () => {
+  const openStripePdf = async () => {
     if (!invoice.stripeInvoiceId || busy) return;
     const pdfWindow = window.open("about:blank", "_blank");
     if (!pdfWindow) {
@@ -1908,6 +1949,30 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
       setOpeningPdf(false);
     }
   };
+  const previewPdf = async () => {
+    if (busy || hasChanges) return;
+    setOpeningPdf(true);
+    setError("");
+    try {
+      await previewAuthenticated(`/api/payment-invoices/${invoiceId}/preview-pdf`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not preview the invoice PDF.");
+    } finally {
+      setOpeningPdf(false);
+    }
+  };
+  const downloadPdf = async () => {
+    if (busy || hasChanges) return;
+    setDownloadingPdf(true);
+    setError("");
+    try {
+      await downloadAuthenticated(`/api/payment-invoices/${invoiceId}/preview-pdf?download=true`, `invoice-${invoiceId}.pdf`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not download the invoice PDF.");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
   const sendLabel = status === "failed" ? "Retry sending" : status === "sending" ? "Resume sending" : "Send invoice";
   return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
     <section className="object-editor invoice-editor" role="dialog" aria-modal="true" aria-labelledby="invoice-editor-title">
@@ -1919,6 +1984,7 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
           <div><span>Status</span><strong>{textKey(invoice, "status")}</strong></div>
           <div><span>Total</span><strong>{draftTotal == null ? "—" : formatInvoiceMoney(draftTotal, currency)}</strong></div>
         </div>
+        <label className="invoice-editor-description"><span>Invoice description <small>Optional</small></span><textarea value={description} maxLength={1000} readOnly={!editable || editingLocked} onChange={(event) => setDescription(event.target.value)} placeholder="What this invoice covers" /></label>
         <label className="invoice-payment-methods"><span>Payment methods</span><select value={paymentMethodPolicy} disabled={!editable || editingLocked} onChange={(event) => setPaymentMethodPolicy(event.target.value)}>
           <option value="ach_only">Bank account only (no credit cards)</option>
           <option value="card_and_ach">Credit card and bank account</option>
@@ -1937,13 +2003,13 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
           : <p className="object-editor-state">{expired && textKey(invoice, "status") === "prepared"
             ? "This local preview expired, so it is read-only. Prepare a new invoice to continue."
             : "This invoice has left local preview status, so its line snapshots are read-only."}</p>}
-        {sendable && hasChanges && <p className="object-editor-state">Save your line changes before sending this invoice.</p>}
+        {sendable && hasChanges && <p className="object-editor-state">Save your line changes before previewing, downloading, or sending this invoice.</p>}
         {confirmingSend && <section className="invoice-send-confirmation" aria-label="Confirm invoice send">
           <p>Send <strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), currency)}</strong> to <strong>{textKey(invoice, "payerName")}</strong> at <strong>{textKey(invoice, "payerEmail")}</strong>, due {formatLocalDate(textKey(invoice, "dueOn"))}, accepting <strong>{invoicePaymentMethodLabel(paymentMethodPolicy).toLowerCase()}</strong>?</p>
           <div><button className="button button--quiet" type="button" disabled={sending} onClick={() => setConfirmingSend(false)}>Not yet</button><button className="button" type="button" disabled={sending} onClick={() => void send()}>{sending ? "Sending…" : "Yes, send invoice"}</button></div>
         </section>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <footer className="object-editor-actions">{Boolean(invoice.stripeInvoiceId) && <button className="button button--quiet invoice-pdf-button" type="button" disabled={busy || confirmingSend} onClick={() => void openPdf()}>{openingPdf ? "Opening PDF…" : "Open PDF"}</button>}<button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>{editable ? "Cancel" : "Close"}</button>{editable && <button className="button button--quiet" type="submit" disabled={editingLocked || !lines.length || !hasChanges}>{saving ? "Saving…" : "Save changes"}</button>}{sendable && !confirmingSend && <button className="button" type="button" disabled={busy || hasChanges} onClick={() => { setError(""); setConfirmingSend(true); }}>{sendLabel}</button>}</footer>
+        <footer className="object-editor-actions"><div className="invoice-pdf-actions"><button className="button button--quiet" type="button" disabled={busy || confirmingSend || hasChanges} onClick={() => void previewPdf()}>{openingPdf ? "Opening preview…" : "Preview PDF"}</button><button className="button button--quiet" type="button" disabled={busy || confirmingSend || hasChanges} onClick={() => void downloadPdf()}>{downloadingPdf ? "Downloading…" : "Download PDF"}</button>{Boolean(invoice.stripeInvoiceId) && <button className="button button--quiet" type="button" disabled={busy || confirmingSend} onClick={() => void openStripePdf()}>{openingPdf ? "Opening PDF…" : "Open Stripe PDF"}</button>}</div><button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>{editable ? "Cancel" : "Close"}</button>{editable && <button className="button button--quiet" type="submit" disabled={editingLocked || !lines.length || !hasChanges}>{saving ? "Saving…" : "Save changes"}</button>}{sendable && !confirmingSend && <button className="button" type="button" disabled={busy || hasChanges} onClick={() => { setError(""); setConfirmingSend(true); }}>{sendLabel}</button>}</footer>
       </form>
     </section>
   </div>;
@@ -1952,8 +2018,8 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
 function PaymentsScreen() {
   const { data: statusData, error: statusError, loading: statusLoading, reload: reloadStatus } = useApi<{ stripe: StripeConnectionStatus }>("/api/payments/stripe/status");
   const { data: invoiceData, error: invoiceError, loading: invoicesLoading, reload: reloadInvoices } = useApi<{ count: number; invoices: Entity[] }>("/api/payment-invoices?limit=100");
-  const { data: contactData, error: contactError, loading: contactsLoading } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=active&limit=1000");
-  const { data: todoData, error: todoError, loading: todosLoading } = useApi<{ todos: Entity[] }>("/api/todos?scope=all&limit=1000");
+  const { data: contactData, error: contactError, loading: contactsLoading } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=active&limit=10000");
+  const { data: todoData, error: todoError, loading: todosLoading } = useApi<{ todos: Entity[] }>("/api/todos?scope=all&limit=10000");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState("");
   const [creatingInvoice, setCreatingInvoice] = useState(false);

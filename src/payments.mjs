@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import Stripe from "stripe";
+import { chromium } from "playwright-core";
 
 const policies = new Set(["ach_only", "card_only", "card_and_ach"]);
 const activeInvoiceStatuses = ["prepared", "sending", "open", "processing", "paid", "failed"];
@@ -79,6 +80,76 @@ function formattedMoney(amountMinor, currency) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amountMinor / divisor);
 }
 
+function escapedHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function invoicePdfHtml(invoice) {
+  const lineRows = invoice.lines.map((line) => `<tr>
+    <td>${escapedHtml(line.description)}</td>
+    <td>${escapedHtml(formattedMoney(line.amountMinor, invoice.currency))}</td>
+  </tr>`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${invoice.invoiceId}</title>
+  <style>
+    @page { size: Letter; margin: .65in; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #20241f; font: 14px/1.45 Arial, sans-serif; }
+    header { display: flex; justify-content: space-between; gap: 32px; padding-bottom: 26px; border-bottom: 2px solid #58634f; }
+    h1 { margin: 0 0 4px; font: 700 34px/1.1 Georgia, serif; }
+    .muted { color: #62695e; }
+    .meta { min-width: 220px; display: grid; grid-template-columns: auto auto; gap: 5px 16px; }
+    .meta strong { text-align: right; }
+    .recipient { margin: 28px 0; }
+    .recipient p { margin: 3px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 9px 10px; color: #62695e; border-bottom: 1px solid #abb2a5; font-size: 11px; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+    td { padding: 13px 10px; border-bottom: 1px solid #dde1d8; vertical-align: top; }
+    th:last-child, td:last-child { width: 150px; text-align: right; }
+    .total { display: flex; justify-content: flex-end; gap: 30px; margin-top: 18px; font-size: 18px; }
+    .description { margin-top: 28px; padding: 14px 16px; background: #f4f5f1; white-space: pre-wrap; }
+    footer { margin-top: 36px; padding-top: 12px; color: #62695e; border-top: 1px solid #dde1d8; font-size: 11px; }
+  </style></head><body>
+    <header><div><h1>Invoice</h1><div class="muted">Preview prepared in TLOM</div></div>
+      <div class="meta"><span>Invoice</span><strong>#${invoice.invoiceId}</strong><span>Due</span><strong>${escapedHtml(invoice.dueOn)}</strong><span>Currency</span><strong>${escapedHtml(invoice.currency)}</strong></div>
+    </header>
+    <section class="recipient"><strong>Bill to</strong><p>${escapedHtml(invoice.payerName)}</p><p class="muted">${escapedHtml(invoice.payerEmail)}</p></section>
+    <table><thead><tr><th>Description</th><th>Amount</th></tr></thead><tbody>${lineRows}</tbody></table>
+    <div class="total"><strong>Total</strong><strong>${escapedHtml(formattedMoney(invoice.amountMinor, invoice.currency))}</strong></div>
+    ${invoice.description ? `<div class="description">${escapedHtml(invoice.description)}</div>` : ""}
+    <footer>This is a preview. It has not been sent to the customer.</footer>
+  </body></html>`;
+}
+
+async function defaultRenderInvoicePdf({ invoice, browserExecutable }) {
+  let browser;
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      ...(browserExecutable ? { executablePath: browserExecutable } : {}),
+    });
+    const page = await browser.newPage();
+    await page.setContent(invoicePdfHtml(invoice), { waitUntil: "load" });
+    return await page.pdf({ format: "Letter", printBackground: true, tagged: true, outline: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/executable doesn't exist|browserType\.launch|failed to launch (?:the )?(?:browser|chromium)/iu.test(message)) {
+      throw new PaymentInputError(
+        "The PDF browser is unavailable on the server. Run `npm run install:pdf-browser` in the deployed checkout, then restart the service.",
+        503,
+        "INVOICE_PDF_BROWSER_UNAVAILABLE",
+      );
+    }
+    throw error;
+  } finally {
+    await browser?.close();
+  }
+}
+
 function unixDateTime(value) {
   const seconds = Number(value);
   return Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString() : null;
@@ -105,11 +176,18 @@ function preparedInvoiceResult(invoice) {
 }
 
 export class PaymentService {
-  constructor({ store, config, ledger = null, stripeFactory = (key) => new Stripe(key) }) {
+  constructor({
+    store,
+    config,
+    ledger = null,
+    stripeFactory = (key) => new Stripe(key),
+    renderInvoicePdf = defaultRenderInvoicePdf,
+  }) {
     this.store = store;
     this.config = config;
     this.ledger = ledger;
     this.stripeFactory = stripeFactory;
+    this.renderInvoicePdf = renderInvoicePdf;
   }
 
   recordActivity({ type, status = "complete", actorType = "service", actorName = "payments",
@@ -274,7 +352,18 @@ export class PaymentService {
   }
 
   async prepareInvoice(input, activity = {}) {
-    const taskIds = Array.isArray(input?.personal_task_ids) ? input.personal_task_ids.map((id) => positiveInteger(id, "personal_task_ids item")) : [];
+    const pricedTaskIds = Array.isArray(input?.personal_task_ids) ? input.personal_task_ids.map((id) => positiveInteger(id, "personal_task_ids item")) : [];
+    const explicitTodoLines = Array.isArray(input?.todo_lines) ? input.todo_lines.map((line, index) => {
+      if (!line || typeof line !== "object" || Array.isArray(line)) throw new PaymentInputError(`todo_lines item ${index + 1} must be an object.`);
+      const currency = String(line.currency ?? "").trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(currency)) throw new PaymentInputError(`todo_lines item ${index + 1} needs a three-letter currency.`);
+      return {
+        personalTaskId: positiveInteger(line.personal_task_id, `todo_lines item ${index + 1} personal_task_id`),
+        amountMinor: positiveInteger(line.amount_minor, `todo_lines item ${index + 1} amount_minor`),
+        currency,
+      };
+    }) : [];
+    const taskIds = [...pricedTaskIds, ...explicitTodoLines.map((line) => line.personalTaskId)];
     if (taskIds.length > 100 || new Set(taskIds).size !== taskIds.length) throw new PaymentInputError("Select no more than 100 distinct to-dos.");
     const manualLines = Array.isArray(input?.manual_lines) ? input.manual_lines.map((line, index) => {
       if (!line || typeof line !== "object" || Array.isArray(line)) throw new PaymentInputError(`manual_lines item ${index + 1} must be an object.`);
@@ -310,11 +399,15 @@ export class PaymentService {
         FROM todo_personal WHERE personal_task_id IN (${placeholders}) FOR UPDATE`).all(...taskIds) : [];
       if (tasks.length !== taskIds.length) throw new PaymentInputError("One or more selected to-dos no longer exist.", 404, "TODO_NOT_FOUND");
       const byId = new Map(tasks.map((task) => [Number(task.personal_task_id), task]));
-      const lines = taskIds.map((id) => byId.get(id));
-      if (lines.some((line) => !Number.isSafeInteger(Number(line.billable_amount_minor)) || Number(line.billable_amount_minor) <= 0 || !/^[A-Z]{3}$/.test(String(line.billable_currency ?? "")))) {
+      const pricedLines = pricedTaskIds.map((id) => byId.get(id));
+      if (pricedLines.some((line) => !Number.isSafeInteger(Number(line.billable_amount_minor)) || Number(line.billable_amount_minor) <= 0 || !/^[A-Z]{3}$/.test(String(line.billable_currency ?? "")))) {
         throw new PaymentInputError("Every selected to-do must have a positive billable amount and currency.", 409, "TODO_PRICE_REQUIRED");
       }
-      const currencies = new Set([...lines.map((line) => line.billable_currency), ...manualLines.map((line) => line.currency)]);
+      const currencies = new Set([
+        ...pricedLines.map((line) => line.billable_currency),
+        ...explicitTodoLines.map((line) => line.currency),
+        ...manualLines.map((line) => line.currency),
+      ]);
       if (currencies.size !== 1) throw new PaymentInputError("All invoice lines must use the same currency.", 409, "MIXED_CURRENCIES");
       const duplicate = taskIds.length ? this.database.prepare(`SELECT line.personal_task_id, invoice.payment_invoice_id, invoice.status
         FROM payment_invoice_lines line JOIN payment_invoices invoice USING (payment_invoice_id)
@@ -326,9 +419,14 @@ export class PaymentService {
         LIMIT 1 FOR UPDATE`).get(...taskIds, ...activeInvoiceStatuses) : null;
       if (duplicate) throw new PaymentInputError(`To-do ${duplicate.personal_task_id} is already on invoice ${duplicate.payment_invoice_id} (${duplicate.status}).`, 409, "TODO_ALREADY_INVOICED");
       const snapshots = [
-        ...lines.map((line) => ({
+        ...pricedLines.map((line) => ({
           lineSource: "todo", personalTaskId: Number(line.personal_task_id),
           description: String(line.text).slice(0, 1000), amountMinor: Number(line.billable_amount_minor),
+        })),
+        ...explicitTodoLines.map((line) => ({
+          lineSource: "todo", personalTaskId: line.personalTaskId,
+          description: String(byId.get(line.personalTaskId).text).slice(0, 1000),
+          amountMinor: line.amountMinor,
         })),
         ...manualLines.map(({ currency: _currency, ...line }) => line),
       ].map((line, index) => ({ ...line, position: index + 1 }));
@@ -365,11 +463,16 @@ export class PaymentService {
     const invoiceId = positiveInteger(invoiceIdValue, "invoice_id");
     const expectedDigest = String(input?.previewDigest ?? "").trim();
     const paymentMethodPolicy = String(input?.paymentMethodPolicy ?? "").trim();
+    const descriptionSupplied = Object.prototype.hasOwnProperty.call(input ?? {}, "description");
+    const suppliedDescription = descriptionSupplied ? String(input.description ?? "").trim() || null : null;
     if (!/^sha256:[0-9a-f]{64}$/.test(expectedDigest)) {
       throw new PaymentInputError("The current preview digest is required.", 400, "PREVIEW_DIGEST_REQUIRED");
     }
     if (!policies.has(paymentMethodPolicy)) {
       throw new PaymentInputError("Choose valid invoice payment methods.", 400, "INVALID_PAYMENT_METHOD_POLICY");
+    }
+    if (suppliedDescription && suppliedDescription.length > 1000) {
+      throw new PaymentInputError("Invoice description must be at most 1000 characters.");
     }
     if (!Array.isArray(input?.lines) || input.lines.length < 1 || input.lines.length > 100) {
       throw new PaymentInputError("Provide between 1 and 100 invoice lines.");
@@ -458,11 +561,13 @@ export class PaymentService {
             amountMinor: supplied.amountMinor,
           };
         });
+      const description = descriptionSupplied ? suppliedDescription : row.description ?? null;
       const changed = addedLines.length > 0 || existingLines.some((line) => {
         const supplied = suppliedByPosition.get(Number(line.line_position));
         return String(line.description_snapshot) !== supplied.description
           || Number(line.amount_minor_snapshot) !== supplied.amountMinor;
-      }) || row.payment_method_policy !== paymentMethodPolicy;
+      }) || row.payment_method_policy !== paymentMethodPolicy
+        || (row.description ?? null) !== description;
       if (!changed) {
         this.database.exec("COMMIT");
         return preparedInvoiceResult(this.getInvoice(invoiceId));
@@ -477,7 +582,7 @@ export class PaymentService {
         payerEmail: row.payer_email_snapshot,
         dueOn: String(row.due_on),
         policy: paymentMethodPolicy,
-        description: row.description ?? null,
+        description,
         currency: row.currency,
         amountMinor,
         lines: snapshots,
@@ -506,10 +611,11 @@ export class PaymentService {
         }
       }
       this.database.prepare(`UPDATE payment_invoices
-        SET payment_method_policy = ?, amount_minor = ?, preview_digest = ?, preparation_expires_at_utc = ?,
+        SET payment_method_policy = ?, description = ?, amount_minor = ?, preview_digest = ?, preparation_expires_at_utc = ?,
             local_idempotency_key = ?, updated_at_utc = UTC_TIMESTAMP(3)
         WHERE payment_invoice_id = ?`).run(
         paymentMethodPolicy,
+        description,
         amountMinor,
         previewDigest,
         expiresAt,
@@ -547,6 +653,19 @@ export class PaymentService {
       const customer = await this.stripe().customers.retrieve(row.stripe_customer_id, undefined, { stripeAccount: accountId });
       return customer?.deleted ? null : customer.id;
     } catch (error) { if (error?.code === "resource_missing") return null; throw error; }
+  }
+
+  async localInvoicePdf(invoiceIdValue) {
+    const invoiceId = positiveInteger(invoiceIdValue, "invoice_id");
+    const invoice = this.getInvoice(invoiceId);
+    if (!invoice) throw new PaymentInputError("Invoice not found.", 404, "INVOICE_NOT_FOUND");
+    const rendered = await this.renderInvoicePdf({
+      invoice,
+      browserExecutable: this.config.pdfBrowserExecutable,
+    });
+    const bytes = Buffer.from(rendered);
+    if (!bytes.length) throw new PaymentInputError("The invoice PDF renderer returned an empty document.", 502, "INVOICE_PDF_EMPTY");
+    return { invoiceId, filename: `invoice-${invoiceId}.pdf`, bytes };
   }
 
   async invoicePdf(invoiceIdValue) {

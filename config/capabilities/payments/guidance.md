@@ -1,9 +1,10 @@
 Use Payments for customer billing and processor state. A to-do may own its
 current fixed billable price, while a local prepared invoice owns its current
-line-description and amount snapshots. The Payments UI may explicitly revise
-those snapshots or append manual lines before sending; every changed preview
-produces a new digest and invalidates prior confirmation. Existing lines cannot
-be removed through this editor. Once sending begins, invoice lines are immutable.
+invoice description plus line-description and amount snapshots. The Payments UI
+may explicitly revise the invoice description and those line snapshots or append
+manual lines before sending; every changed preview produces a new digest and
+invalidates prior confirmation. Existing lines cannot be removed through this
+editor. Once sending begins, the invoice description and lines are immutable.
 Accounting remains a downstream ledger domain and must not be inferred from
 payment-provider fields.
 
@@ -15,14 +16,18 @@ invoice. Finalization alone is not delivery: sending must still call Stripe's
 invoice-send operation and observe the resulting provider events.
 
 The Payments UI may also create that prepared preview directly from a payer,
-priced to-dos, manual lines, or both. This is the same local preparation boundary
-as `payment_invoice_prepare`: creating the preview does not contact the customer.
+to-dos with invoice-only prices, manual lines, or both. An invoice-only price
+does not rewrite the to-do's stored billable price. This is the same local
+preparation boundary as `payment_invoice_prepare`: creating the preview does not
+contact the customer. A locally rendered PDF may be previewed or downloaded from
+the current snapshot without finalizing or sending it through Stripe.
 
-Use exact bound `personal_task_ids`, explicit `manual_lines`, or both, together
-with a bound payer `contact_id`. Every selected to-do must have a positive
-amount. Every manual line requires a concrete description, positive amount,
-and ISO currency. All lines must use the same currency, and the contact must
-have a receivable email address. Use `payment_invoice_prepare`
+Use exact bound `personal_task_ids` for stored to-do prices, bound `todo_lines`
+for explicit invoice-only to-do prices, explicit `manual_lines`, or any
+combination, together with a bound payer `contact_id`. Every selected to-do must
+have a positive amount. Every manual line requires a concrete description,
+positive amount, and ISO currency. All lines must use the same currency, and the
+contact must have a receivable email address. Use `payment_invoice_prepare`
 first. It creates a local prepared snapshot only; it does not contact the
 customer. Present the returned preview and ask the literal yes-or-no question
 from `nextAction.instruction`. If the user revises that preview in the Payments

@@ -1986,7 +1986,7 @@ export class OrganizerStore {
   }
 
   listTodos({ scope = "active", limit = 500 } = {}) {
-    const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 1000 });
+    const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 10_000 });
     if (!new Set(["active", "all", "completed"]).has(scope)) {
       throw new OrganizerInputError("scope must be active, completed, or all.");
     }

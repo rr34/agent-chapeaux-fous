@@ -16,7 +16,7 @@ const toolDescriptions = Object.freeze({
   },
   payment_invoice_prepare: {
     protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Create a local invoice preview from priced to-dos, manual lines, or both and a payer contact, returning the exact final-confirmation handoff.",
+    summary: "Create a local invoice preview from to-dos with stored or explicit invoice prices, manual lines, or both and a payer contact, returning the exact final-confirmation handoff.",
     actionClasses: ["CREATE"], effectClassifications: ["MUTATING"],
   },
   payment_invoice_send: {
@@ -54,6 +54,7 @@ const nativeContracts = Object.freeze({
   payment_invoice_list: { objectTypes: ["payments.invoice"] },
   payment_invoice_prepare: { inputRoles: {
     "/personal_task_ids/*": "invoice_line_source",
+    "/todo_lines/*/personal_task_id": "invoice_line_source",
     "/contact_id": "payer",
   } },
   payment_invoice_send: { inputRoles: { "/invoice_id": "subject" } },
@@ -96,7 +97,7 @@ export function registerPaymentTools(registry, payments) {
   registry.register({
     name: "payment_invoice_prepare",
     confirmationHandoff: true,
-    description: "Prepare a local invoice preview from exact priced to-dos, explicit manual lines, or both and one payer contact. This does not contact the payer. The returned exact handoff requires a separate user confirmation before sending; a Payments UI revision invalidates that handoff.",
+    description: "Prepare a local invoice preview from exact to-dos using their stored prices or explicit invoice-only prices, explicit manual lines, or both and one payer contact. This does not contact the payer or change a to-do's stored price. The returned exact handoff requires a separate user confirmation before sending; a Payments UI revision invalidates that handoff.",
     outputSchema: { type: "object", properties: {
       contractVersion: { type: "integer" }, status: { type: "string" }, expiresAt: { type: "string" },
       invoice: invoiceSchema, nextAction: { type: "object" },
@@ -104,6 +105,13 @@ export function registerPaymentTools(registry, payments) {
     parameters: { type: "object", additionalProperties: false, properties: {
       personal_task_ids: { type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
         items: { type: "integer", minimum: 1 } },
+      todo_lines: { type: "array", minItems: 1, maxItems: 100, items: {
+        type: "object", additionalProperties: false, properties: {
+          personal_task_id: { type: "integer", minimum: 1 },
+          amount_minor: { type: "integer", minimum: 1 },
+          currency: { type: "string", pattern: "^[A-Z]{3}$" },
+        }, required: ["personal_task_id", "amount_minor", "currency"],
+      } },
       manual_lines: { type: "array", minItems: 1, maxItems: 100, items: {
         type: "object", additionalProperties: false, properties: {
           description: { type: "string", minLength: 1, maxLength: 1000 },
@@ -117,6 +125,7 @@ export function registerPaymentTools(registry, payments) {
       description: { type: ["string", "null"], maxLength: 1000 },
     }, required: ["contact_id", "due_on"], anyOf: [
       { required: ["personal_task_ids"] },
+      { required: ["todo_lines"] },
       { required: ["manual_lines"] },
     ] },
     async execute(input, context) {
