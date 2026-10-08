@@ -4,6 +4,7 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 import {
   localCalendarSnapshot,
+  localDateForInstant,
   localDateUtcBounds,
 } from "./temporal-consistency.mjs";
 import {
@@ -69,9 +70,15 @@ function normalizeInput(input = {}, defaultTimeZone = "UTC") {
   };
 }
 
-function eventOverlaps(event, bounds) {
+function eventOverlaps(event, bounds, localDate) {
   const start = new Date(event.startsAtUtc).getTime();
   const end = event.endsAtUtc ? new Date(event.endsAtUtc).getTime() : start + 1;
+  if (event.isAllDay && Number.isFinite(start)) {
+    const timeZone = event.timeZone || "UTC";
+    const firstDate = localDateForInstant(start, timeZone);
+    const finalDate = localDateForInstant(end > start ? end - 1 : start, timeZone);
+    return localDate >= firstDate && localDate <= finalDate;
+  }
   return start < new Date(bounds.endsAtUtc).getTime()
     && end > new Date(bounds.startsAtUtc).getTime();
 }
@@ -240,7 +247,7 @@ export class DailyPaperService {
         dayNumber: Number(localDate.slice(-2)),
         month: formatLocalDate(localDate, { month: "short" }),
         isToday: localDate === selected.date,
-        events: rangeEvents.filter((event) => eventOverlaps(event, bounds)),
+        events: rangeEvents.filter((event) => eventOverlaps(event, bounds, localDate)),
       };
     });
     const todayBounds = localDateUtcBounds({
@@ -254,7 +261,7 @@ export class DailyPaperService {
         from: todayBounds.startsAtUtc,
         to: todayBounds.endsAtUtc,
       }).map(compactEvent);
-    const todayEvents = selectedEvents.filter((event) => eventOverlaps(event, todayBounds))
+    const todayEvents = selectedEvents.filter((event) => eventOverlaps(event, todayBounds, selected.date))
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc));
     const scheduledTrackers = this.trackerSchedule?.scheduledTrackersForDay({
       localDate: selected.date,

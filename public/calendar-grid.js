@@ -66,13 +66,40 @@ export function dateSequence(from, to) {
   return dates;
 }
 
-export function occursDuringCalendarDay(startsAt, endsAt, day) {
+function localDateKey(date) {
+  return [date.getFullYear(), date.getMonth() + 1, date.getDate()]
+    .map((part, index) => String(part).padStart(index === 0 ? 4 : 2, "0"))
+    .join("-");
+}
+
+function dateKeyInTimeZone(value, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const selected = Object.fromEntries(parts.map(({ type, value: part }) => [type, part]));
+  return `${selected.year}-${selected.month}-${selected.day}`;
+}
+
+export function occursDuringCalendarDay(startsAt, endsAt, day, {
+  isAllDay = false,
+  timeZone = "UTC",
+} = {}) {
   const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
   const dayEnd = addCalendarDays(dayStart, 1).getTime();
   const dayStartMs = dayStart.getTime();
   const start = new Date(startsAt).getTime();
   const parsedEnd = endsAt ? new Date(endsAt).getTime() : start;
   const end = Number.isFinite(parsedEnd) ? parsedEnd : start;
+  if (isAllDay && Number.isFinite(start)) {
+    const selectedDate = localDateKey(dayStart);
+    const firstDate = dateKeyInTimeZone(new Date(start), timeZone || "UTC");
+    const finalInstant = end > start ? end - 1 : start;
+    const finalDate = dateKeyInTimeZone(new Date(finalInstant), timeZone || "UTC");
+    return selectedDate >= firstDate && selectedDate <= finalDate;
+  }
   return Number.isFinite(start)
     && start < dayEnd
     && (end > dayStartMs || (start >= dayStartMs && start < dayEnd));

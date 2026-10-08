@@ -176,6 +176,32 @@ test("daily paper validates physical-page inputs", () => {
   assert.equal(normalizeInput({ date: "2026-10-04", paperSize: "A4" }).paperSize, "a4");
 });
 
+test("daily paper keeps date-only birthdays on one calendar day across time zones", () => {
+  const service = new DailyPaperService({
+    organizer: { listCalendar: () => [{
+      id: "birthday:1:2026",
+      title: "Alex's birthday",
+      startsAtUtc: "2026-10-15T00:00:00.000Z",
+      endsAtUtc: "2026-10-16T00:00:00.000Z",
+      timeZone: "UTC",
+      isAllDay: true,
+      status: "active",
+      linkedTodos: [],
+    }] },
+    ledger: {},
+    mediaRoot: "/tmp/unused-daily-paper",
+    publicUrl: "http://127.0.0.1:8787",
+    timeZone: () => "America/New_York",
+  });
+
+  const model = service.build({ date: "2026-10-15" });
+  const eventDates = model.calendarDays
+    .filter(({ events: dayEvents }) => dayEvents.length > 0)
+    .map(({ localDate }) => localDate);
+  assert.deepEqual(eventDates, ["2026-10-15"]);
+  assert.deepEqual(model.todayEvents.map(({ id }) => id), ["birthday:1:2026"]);
+});
+
 test("daily paper can move its visible range without changing the selected day", () => {
   const ranges = [];
   const service = new DailyPaperService({

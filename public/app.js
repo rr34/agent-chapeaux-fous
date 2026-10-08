@@ -2359,7 +2359,10 @@ function twoWeekCalendarRange(value) {
 }
 
 function occursOnDay(calendarEvent, day) {
-  return occursDuringCalendarDay(calendarEvent.startsAtUtc, calendarEvent.endsAtUtc, day);
+  return occursDuringCalendarDay(calendarEvent.startsAtUtc, calendarEvent.endsAtUtc, day, {
+    isAllDay: calendarEvent.isAllDay,
+    timeZone: calendarEvent.timeZone || "UTC",
+  });
 }
 
 function formatEventTime(calendarEvent) {

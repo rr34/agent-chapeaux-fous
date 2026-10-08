@@ -69,6 +69,15 @@ test("calendar-day overlap and labels handle cross-midnight events", () => {
   ), false);
 });
 
+test("all-day events stay on their date instead of leaking across viewer time zones", () => {
+  const startsAt = "2026-10-15T00:00:00.000Z";
+  const endsAt = "2026-10-16T00:00:00.000Z";
+  const event = { isAllDay: true, timeZone: "UTC" };
+  assert.equal(occursDuringCalendarDay(startsAt, endsAt, new Date(2026, 9, 14), event), false);
+  assert.equal(occursDuringCalendarDay(startsAt, endsAt, new Date(2026, 9, 15), event), true);
+  assert.equal(occursDuringCalendarDay(startsAt, endsAt, new Date(2026, 9, 16), event), false);
+});
+
 test("routine calendar always provides six Monday-first weeks", () => {
   const dates = sixWeekMonthDates(new Date(2026, 7, 15));
   assert.equal(dates.length, 42);
