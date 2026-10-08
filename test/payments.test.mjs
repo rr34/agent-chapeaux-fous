@@ -218,14 +218,16 @@ test("a prepared local invoice can atomically revise existing lines, append a ma
     payerEmail: "ruby@example.test",
     status: "prepared",
     currency: "USD",
-    amountMinor: writes.invoice[0],
+    amountMinor: writes.invoice[1],
     dueOn: "2099-01-02",
-    previewDigest: writes.invoice[1],
-    preparationExpiresAtUtc: writes.invoice[2],
+    paymentMethodPolicy: writes.invoice[0],
+    previewDigest: writes.invoice[2],
+    preparationExpiresAtUtc: writes.invoice[3],
   });
 
   const result = payments.updatePreparedInvoice(91, {
     previewDigest: oldDigest,
+    paymentMethodPolicy: "ach_only",
     lines: [{ position: 1, description: "First task revised", amountMinor: 4000 },
       { position: 2, description: "Materials revised", amountMinor: 3000 },
       { position: 3, description: "Delivery", amountMinor: 1000 }],
@@ -237,13 +239,14 @@ test("a prepared local invoice can atomically revise existing lines, append a ma
     ["Materials revised", 3000, 91, 2],
   ]);
   assert.deepEqual(writes.insertedLines, [[91, "manual", null, 3, "Delivery", 1000]]);
-  assert.equal(writes.invoice[0], 8000);
-  assert.match(writes.invoice[1], /^sha256:[0-9a-f]{64}$/u);
-  assert.notEqual(writes.invoice[1], oldDigest);
-  assert.equal(writes.invoice[4], 91);
+  assert.equal(writes.invoice[0], "ach_only");
+  assert.equal(writes.invoice[1], 8000);
+  assert.match(writes.invoice[2], /^sha256:[0-9a-f]{64}$/u);
+  assert.notEqual(writes.invoice[2], oldDigest);
+  assert.equal(writes.invoice[5], 91);
   assert.deepEqual(result.nextAction.onApproval.arguments, {
     invoice_id: 91,
-    preview_digest: writes.invoice[1],
+    preview_digest: writes.invoice[2],
   });
   assert.equal(activities[0].type, "payment.invoice.preview_updated");
 });
@@ -254,6 +257,7 @@ test("saving an unchanged prepared invoice preserves its digest and confirmation
   const invoice = {
     invoiceId: 92, status: "prepared", display: "Ruby — $25.00", payerName: "Ruby",
     payerEmail: "ruby@example.test", currency: "USD", amountMinor: 2500,
+    paymentMethodPolicy: "ach_only",
     dueOn: "2099-01-02", previewDigest, preparationExpiresAtUtc: "2099-01-01T00:00:00.000Z",
   };
   const database = {
@@ -261,6 +265,7 @@ test("saving an unchanged prepared invoice preserves its digest and confirmation
     prepare(sql) {
       if (/SELECT \* FROM payment_invoices/u.test(sql)) return { get: () => ({
         status: "prepared", stripe_invoice_id: null, preview_digest: previewDigest,
+        payment_method_policy: "ach_only",
       }) };
       if (/SELECT line_source, personal_task_id/u.test(sql)) return { all: () => [{
         line_source: "manual", personal_task_id: null, line_position: 1,
@@ -279,6 +284,7 @@ test("saving an unchanged prepared invoice preserves its digest and confirmation
 
   const result = payments.updatePreparedInvoice(92, {
     previewDigest,
+    paymentMethodPolicy: "ach_only",
     lines: [{ position: 1, description: "Help moving", amountMinor: 2500 }],
   });
 
@@ -314,6 +320,7 @@ test("invoice revision rejects stale, expired, and non-editable previews before 
 
     assert.throws(() => payments.updatePreparedInvoice(93, {
       previewDigest: requestedDigest,
+      paymentMethodPolicy: "ach_only",
       lines: [{ position: 1, description: "Help moving", amountMinor: 2500 }],
     }), (error) => error instanceof PaymentInputError && error.code === code);
     assert.deepEqual(transactions, ["START TRANSACTION", "ROLLBACK"]);
@@ -352,8 +359,109 @@ test("new invoice lines must be appended without removing existing lines", () =>
       config: {},
     });
 
-    assert.throws(() => payments.updatePreparedInvoice(94, { previewDigest, lines }),
+    assert.throws(() => payments.updatePreparedInvoice(94, {
+      previewDigest, paymentMethodPolicy: "ach_only", lines,
+    }),
       (error) => error instanceof PaymentInputError && error.code === code);
     assert.deepEqual(transactions, ["START TRANSACTION", "ROLLBACK"]);
   }
+});
+
+test("sending always calls Stripe send after finalization changes the invoice to open", async () => {
+  const previewDigest = `sha256:${"f".repeat(64)}`;
+  const stripeCalls = [];
+  let localStatus = "prepared";
+  let stripeInvoiceId = null;
+  const database = {
+    prepare(sql) {
+      if (/SELECT local_idempotency_key,stripe_customer_id,stripe_invoice_id/u.test(sql)) return {
+        get: () => ({ local_idempotency_key: "local-key", stripe_customer_id: "cus_123", stripe_invoice_id: null }),
+      };
+      if (/SET status='sending'/u.test(sql)) return { run() { localStatus = "sending"; } };
+      if (/SET stripe_connected_account_id=/u.test(sql)) return {
+        run(_accountId, _customerId, invoiceId) { stripeInvoiceId = invoiceId; },
+      };
+      if (/SET status='open'/u.test(sql)) return { run() { localStatus = "open"; } };
+      if (/SET status='failed'/u.test(sql)) return { run() { localStatus = "failed"; } };
+      throw new Error(`Unexpected SQL while sending invoice: ${sql}`);
+    },
+  };
+  const stripe = {
+    invoices: {
+      async create(input) {
+        stripeCalls.push(["create", input.payment_settings.payment_method_types]);
+        return { id: "in_123", status: "draft" };
+      },
+      async finalizeInvoice(invoiceId) {
+        stripeCalls.push(["finalize", invoiceId]);
+        return { id: invoiceId, status: "open", invoice_pdf: "https://stripe.example/invoice.pdf" };
+      },
+      async sendInvoice(invoiceId) {
+        stripeCalls.push(["send", invoiceId]);
+        return { id: invoiceId, status: "open", hosted_invoice_url: "https://stripe.example/invoice" };
+      },
+    },
+    invoiceItems: { async create(input) { stripeCalls.push(["line", input.amount]); } },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: { stripeSecretKey: "sk_test_example" },
+    stripeFactory: () => stripe,
+  });
+  payments.stripeStatus = async () => ({ chargesEnabled: true, accountId: "acct_123" });
+  payments.getInvoice = (invoiceId) => ({
+    invoiceId,
+    display: "Ruby — $25.00",
+    payerContactId: 7,
+    payerName: "Ruby",
+    payerEmail: "ruby@example.test",
+    status: localStatus,
+    currency: "USD",
+    amountMinor: 2500,
+    dueOn: "2099-01-02",
+    paymentMethodPolicy: "card_and_ach",
+    previewDigest,
+    preparationExpiresAtUtc: "2099-01-01T00:00:00.000Z",
+    stripeInvoiceId,
+    lines: [{ position: 1, lineSource: "manual", personalTaskId: null,
+      description: "Help moving", amountMinor: 2500 }],
+  });
+
+  const result = await payments.sendInvoice({ invoice_id: 95, preview_digest: previewDigest });
+
+  assert.deepEqual(stripeCalls, [
+    ["create", ["us_bank_account", "card"]],
+    ["line", 2500],
+    ["finalize", "in_123"],
+    ["send", "in_123"],
+  ]);
+  assert.equal(result.invoice.status, "open");
+  assert.equal(result.idempotentReplay, false);
+});
+
+test("an invoice PDF is read from its exact connected Stripe invoice", async () => {
+  const database = {
+    prepare(sql) {
+      assert.match(sql, /SELECT stripe_connected_account_id, stripe_invoice_id/u);
+      return { get: () => ({ stripe_connected_account_id: "acct_123", stripe_invoice_id: "in_123" }) };
+    },
+  };
+  const calls = [];
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: { stripeSecretKey: "sk_test_example" },
+    stripeFactory: () => ({ invoices: {
+      async retrieve(invoiceId, _parameters, options) {
+        calls.push([invoiceId, options]);
+        return { invoice_pdf: "https://stripe.example/invoice.pdf" };
+      },
+    } }),
+  });
+
+  assert.deepEqual(await payments.invoicePdf(95), {
+    invoiceId: 95,
+    stripeInvoiceId: "in_123",
+    url: "https://stripe.example/invoice.pdf",
+  });
+  assert.deepEqual(calls, [["in_123", { stripeAccount: "acct_123" }]]);
 });

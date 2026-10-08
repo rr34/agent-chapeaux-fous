@@ -377,6 +377,11 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .invoice-editor-summary div { min-width: 0; display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 .invoice-editor-summary span { color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
 .invoice-editor-summary strong { overflow-wrap: anywhere; font-size: 13px; }
+.invoice-payment-methods { display: grid; grid-template-columns: minmax(220px, 340px) minmax(0, 1fr); align-items: center; gap: 6px 14px; }
+.invoice-payment-methods > span:first-child { grid-column: 1 / -1; }
+.invoice-payment-methods select { grid-column: 1; }
+.invoice-payment-methods > span:last-child { color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.4; }
+.invoice-pdf-button { margin-right: auto; }
 .invoice-line-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .invoice-line-toolbar span { color: var(--muted); font-size: 11px; }
 .invoice-line-toolbar .button { min-height: 34px; padding: 6px 11px; font-size: 12px; }

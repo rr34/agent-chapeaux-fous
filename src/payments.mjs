@@ -36,6 +36,13 @@ function paymentMethodTypes(policy) {
   return ["us_bank_account"];
 }
 
+function paymentMethodLabel(policy) {
+  if (policy === "card_only") return "credit cards only";
+  if (policy === "card_and_ach") return "credit cards and bank accounts";
+  if (policy === "ach_only") return "bank accounts only (no credit cards)";
+  return "the selected payment methods";
+}
+
 function accountSummary(account) {
   const chargesEnabled = Boolean(account?.charges_enabled);
   const payoutsEnabled = Boolean(account?.payouts_enabled);
@@ -85,7 +92,7 @@ function preparedInvoiceResult(invoice) {
     invoice,
     nextAction: {
       type: "request_user_confirmation",
-      instruction: `Send ${formattedMoney(invoice.amountMinor, invoice.currency)} invoice to ${invoice.payerName} at ${invoice.payerEmail}, due ${invoice.dueOn}?`,
+      instruction: `Send ${formattedMoney(invoice.amountMinor, invoice.currency)} invoice to ${invoice.payerName} at ${invoice.payerEmail}, due ${invoice.dueOn}, accepting ${paymentMethodLabel(invoice.paymentMethodPolicy)}?`,
       onApproval: {
         tool: "payment_invoice_send",
         arguments: {
@@ -357,8 +364,12 @@ export class PaymentService {
   updatePreparedInvoice(invoiceIdValue, input, activity = {}) {
     const invoiceId = positiveInteger(invoiceIdValue, "invoice_id");
     const expectedDigest = String(input?.previewDigest ?? "").trim();
+    const paymentMethodPolicy = String(input?.paymentMethodPolicy ?? "").trim();
     if (!/^sha256:[0-9a-f]{64}$/.test(expectedDigest)) {
       throw new PaymentInputError("The current preview digest is required.", 400, "PREVIEW_DIGEST_REQUIRED");
+    }
+    if (!policies.has(paymentMethodPolicy)) {
+      throw new PaymentInputError("Choose valid invoice payment methods.", 400, "INVALID_PAYMENT_METHOD_POLICY");
     }
     if (!Array.isArray(input?.lines) || input.lines.length < 1 || input.lines.length > 100) {
       throw new PaymentInputError("Provide between 1 and 100 invoice lines.");
@@ -451,7 +462,7 @@ export class PaymentService {
         const supplied = suppliedByPosition.get(Number(line.line_position));
         return String(line.description_snapshot) !== supplied.description
           || Number(line.amount_minor_snapshot) !== supplied.amountMinor;
-      });
+      }) || row.payment_method_policy !== paymentMethodPolicy;
       if (!changed) {
         this.database.exec("COMMIT");
         return preparedInvoiceResult(this.getInvoice(invoiceId));
@@ -465,7 +476,7 @@ export class PaymentService {
         payerName: row.payer_name_snapshot,
         payerEmail: row.payer_email_snapshot,
         dueOn: String(row.due_on),
-        policy: row.payment_method_policy,
+        policy: paymentMethodPolicy,
         description: row.description ?? null,
         currency: row.currency,
         amountMinor,
@@ -495,9 +506,10 @@ export class PaymentService {
         }
       }
       this.database.prepare(`UPDATE payment_invoices
-        SET amount_minor = ?, preview_digest = ?, preparation_expires_at_utc = ?,
+        SET payment_method_policy = ?, amount_minor = ?, preview_digest = ?, preparation_expires_at_utc = ?,
             local_idempotency_key = ?, updated_at_utc = UTC_TIMESTAMP(3)
         WHERE payment_invoice_id = ?`).run(
+        paymentMethodPolicy,
         amountMinor,
         previewDigest,
         expiresAt,
@@ -535,6 +547,24 @@ export class PaymentService {
       const customer = await this.stripe().customers.retrieve(row.stripe_customer_id, undefined, { stripeAccount: accountId });
       return customer?.deleted ? null : customer.id;
     } catch (error) { if (error?.code === "resource_missing") return null; throw error; }
+  }
+
+  async invoicePdf(invoiceIdValue) {
+    const invoiceId = positiveInteger(invoiceIdValue, "invoice_id");
+    const row = this.database.prepare(`SELECT stripe_connected_account_id, stripe_invoice_id
+      FROM payment_invoices WHERE payment_invoice_id = ?`).get(invoiceId);
+    if (!row) throw new PaymentInputError("Invoice not found.", 404, "INVOICE_NOT_FOUND");
+    if (!row.stripe_connected_account_id || !row.stripe_invoice_id) {
+      throw new PaymentInputError("Send the invoice before opening its PDF.", 409, "INVOICE_PDF_NOT_READY");
+    }
+    const stripeInvoice = await this.stripe().invoices.retrieve(
+      row.stripe_invoice_id,
+      undefined,
+      { stripeAccount: row.stripe_connected_account_id },
+    );
+    const url = String(stripeInvoice?.invoice_pdf ?? "").trim();
+    if (!url) throw new PaymentInputError("Stripe has not generated the invoice PDF yet.", 409, "INVOICE_PDF_NOT_READY");
+    return { invoiceId, stripeInvoiceId: row.stripe_invoice_id, url };
   }
 
   async sendInvoice({ invoice_id: invoiceIdValue, preview_digest: previewDigest }, activity = {}) {
@@ -586,8 +616,11 @@ export class PaymentService {
         { stripeAccount: accountId, idempotencyKey: `slayer-invoice-${dbRow.local_idempotency_key}-line-${line.position}` });
         stripeInvoice = await stripe.invoices.finalizeInvoice(stripeInvoice.id, {}, { stripeAccount: accountId, idempotencyKey: `slayer-invoice-${dbRow.local_idempotency_key}-finalize` });
       }
-      const sent = String(stripeInvoice.status) === "open" ? stripeInvoice
-        : await stripe.invoices.sendInvoice(stripeInvoice.id, {}, { stripeAccount: accountId, idempotencyKey: `slayer-invoice-${dbRow.local_idempotency_key}-send` });
+      const sent = await stripe.invoices.sendInvoice(
+        stripeInvoice.id,
+        {},
+        { stripeAccount: accountId, idempotencyKey: `slayer-invoice-${dbRow.local_idempotency_key}-send` },
+      );
       this.database.prepare(`UPDATE payment_invoices SET status='open',stripe_customer_id=?,stripe_invoice_id=?,processor_status=?,hosted_invoice_url=?,
         opened_at_utc=COALESCE(opened_at_utc,UTC_TIMESTAMP(3)),failure_code=NULL,failure_message=NULL,updated_at_utc=UTC_TIMESTAMP(3) WHERE payment_invoice_id=?`)
         .run(customerId, sent.id, sent.status ?? "open", sent.hosted_invoice_url ?? null, invoiceId);

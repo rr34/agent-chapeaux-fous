@@ -484,6 +484,11 @@ const server = http.createServer(async (request, response) => {
       ));
       return;
     }
+    const paymentInvoicePdfMatch = /^\/api\/payment-invoices\/(\d+)\/pdf$/.exec(url.pathname);
+    if (request.method === "GET" && paymentInvoicePdfMatch) {
+      sendJson(response, 200, await payments.invoicePdf(Number(paymentInvoicePdfMatch[1])));
+      return;
+    }
     const paymentInvoiceSendMatch = /^\/api\/payment-invoices\/(\d+)\/send$/.exec(url.pathname);
     if (request.method === "POST" && paymentInvoiceSendMatch) {
       const body = await readJson(request);

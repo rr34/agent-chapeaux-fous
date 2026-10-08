@@ -1597,6 +1597,12 @@ function formatInvoiceMoney(amountMinor: number, currency: string) {
     .format(amountMinor / divisor);
 }
 
+function invoicePaymentMethodLabel(policy: string) {
+  if (policy === "card_only") return "Credit card only";
+  if (policy === "card_and_ach") return "Credit card and bank account";
+  return "Bank account only (no credit cards)";
+}
+
 function InvoiceEditor({ invoice, onClose, onChanged }: {
   invoice: Entity;
   onClose: () => void;
@@ -1615,8 +1621,10 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
     amount: invoiceAmountDraft(readKey(line, "amountMinor"), currency),
     isNew: false,
   })));
+  const [paymentMethodPolicy, setPaymentMethodPolicy] = useState(textKey(invoice, "paymentMethodPolicy") || "ach_only");
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [openingPdf, setOpeningPdf] = useState(false);
   const [confirmingSend, setConfirmingSend] = useState(false);
   const [error, setError] = useState("");
   const status = textKey(invoice, "status");
@@ -1624,13 +1632,13 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
   const editable = status === "prepared" && !invoice.stripeInvoiceId && !expired;
   const sendable = ["prepared", "failed", "sending"].includes(status)
     && (!expired || Boolean(invoice.stripeInvoiceId));
-  const busy = saving || sending;
+  const busy = saving || sending || openingPdf;
   const editingLocked = busy || confirmingSend;
   const draftTotal = useMemo(() => {
     try { return lines.reduce((sum, line) => sum + invoiceAmountMinor(line.amount, currency), 0); }
     catch { return null; }
   }, [currency, lines]);
-  const hasChanges = lines.some((line) => {
+  const hasChanges = paymentMethodPolicy !== textKey(invoice, "paymentMethodPolicy") || lines.some((line) => {
     const source = sourceLines.find((candidate) => Number(readKey(candidate, "position")) === line.position);
     if (!source || textKey(source, "description") !== line.description.trim()) return true;
     try { return Number(readKey(source, "amountMinor")) !== invoiceAmountMinor(line.amount, currency); }
@@ -1686,6 +1694,7 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
         method: "PATCH",
         body: JSON.stringify({
           previewDigest: textKey(invoice, "previewDigest"),
+          paymentMethodPolicy,
           lines: lines.map((line) => ({
             position: line.position,
             description: line.description.trim(),
@@ -1717,6 +1726,26 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
       setSending(false);
     }
   };
+  const openPdf = async () => {
+    if (!invoice.stripeInvoiceId || busy) return;
+    const pdfWindow = window.open("about:blank", "_blank");
+    if (!pdfWindow) {
+      setError("Allow pop-ups for this site to open the invoice PDF.");
+      return;
+    }
+    pdfWindow.opener = null;
+    setOpeningPdf(true);
+    setError("");
+    try {
+      const result = await api<{ url: string }>(`/api/payment-invoices/${invoiceId}/pdf`);
+      pdfWindow.location.replace(result.url);
+    } catch (caught) {
+      pdfWindow.close();
+      setError(caught instanceof Error ? caught.message : "Could not open the invoice PDF.");
+    } finally {
+      setOpeningPdf(false);
+    }
+  };
   const sendLabel = status === "failed" ? "Retry sending" : status === "sending" ? "Resume sending" : "Send invoice";
   return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
     <section className="object-editor invoice-editor" role="dialog" aria-modal="true" aria-labelledby="invoice-editor-title">
@@ -1728,6 +1757,11 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
           <div><span>Status</span><strong>{textKey(invoice, "status")}</strong></div>
           <div><span>Total</span><strong>{draftTotal == null ? "—" : formatInvoiceMoney(draftTotal, currency)}</strong></div>
         </div>
+        <label className="invoice-payment-methods"><span>Payment methods</span><select value={paymentMethodPolicy} disabled={!editable || editingLocked} onChange={(event) => setPaymentMethodPolicy(event.target.value)}>
+          <option value="ach_only">Bank account only (no credit cards)</option>
+          <option value="card_and_ach">Credit card and bank account</option>
+          <option value="card_only">Credit card only</option>
+        </select><span>{editable ? "Choose which payment methods Stripe will offer on this invoice." : invoicePaymentMethodLabel(paymentMethodPolicy)}</span></label>
         {editable && <div className="invoice-line-toolbar"><span>{lines.length} of 100 lines</span><button className="button button--quiet" type="button" disabled={editingLocked || lines.length >= 100} onClick={addLine}>Add line</button></div>}
         <div className="invoice-line-list">
           {lines.map((line, index) => <article className="invoice-line-editor" key={line.position}>
@@ -1743,11 +1777,11 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
             : "This invoice has left local preview status, so its line snapshots are read-only."}</p>}
         {sendable && hasChanges && <p className="object-editor-state">Save your line changes before sending this invoice.</p>}
         {confirmingSend && <section className="invoice-send-confirmation" aria-label="Confirm invoice send">
-          <p>Send <strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), currency)}</strong> to <strong>{textKey(invoice, "payerName")}</strong> at <strong>{textKey(invoice, "payerEmail")}</strong>, due {formatLocalDate(textKey(invoice, "dueOn"))}?</p>
+          <p>Send <strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), currency)}</strong> to <strong>{textKey(invoice, "payerName")}</strong> at <strong>{textKey(invoice, "payerEmail")}</strong>, due {formatLocalDate(textKey(invoice, "dueOn"))}, accepting <strong>{invoicePaymentMethodLabel(paymentMethodPolicy).toLowerCase()}</strong>?</p>
           <div><button className="button button--quiet" type="button" disabled={sending} onClick={() => setConfirmingSend(false)}>Not yet</button><button className="button" type="button" disabled={sending} onClick={() => void send()}>{sending ? "Sending…" : "Yes, send invoice"}</button></div>
         </section>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <footer className="object-editor-actions"><button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>{editable ? "Cancel" : "Close"}</button>{editable && <button className="button button--quiet" type="submit" disabled={editingLocked || !lines.length || !hasChanges}>{saving ? "Saving…" : "Save line changes"}</button>}{sendable && !confirmingSend && <button className="button" type="button" disabled={busy || hasChanges} onClick={() => { setError(""); setConfirmingSend(true); }}>{sendLabel}</button>}</footer>
+        <footer className="object-editor-actions">{Boolean(invoice.stripeInvoiceId) && <button className="button button--quiet invoice-pdf-button" type="button" disabled={busy || confirmingSend} onClick={() => void openPdf()}>{openingPdf ? "Opening PDF…" : "Open PDF"}</button>}<button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>{editable ? "Cancel" : "Close"}</button>{editable && <button className="button button--quiet" type="submit" disabled={editingLocked || !lines.length || !hasChanges}>{saving ? "Saving…" : "Save changes"}</button>}{sendable && !confirmingSend && <button className="button" type="button" disabled={busy || hasChanges} onClick={() => { setError(""); setConfirmingSend(true); }}>{sendLabel}</button>}</footer>
       </form>
     </section>
   </div>;

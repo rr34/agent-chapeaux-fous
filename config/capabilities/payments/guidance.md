@@ -7,6 +7,13 @@ be removed through this editor. Once sending begins, invoice lines are immutable
 Accounting remains a downstream ledger domain and must not be inferred from
 payment-provider fields.
 
+The prepared preview also owns its payment-method policy. The Payments UI may
+choose bank account only, credit card only, or both before sending; changing the
+policy rotates the preview digest just like changing a line. Finalization creates
+Stripe's invoice PDF, which the Payments UI may open from that exact Stripe
+invoice. Finalization alone is not delivery: sending must still call Stripe's
+invoice-send operation and observe the resulting provider events.
+
 Use exact bound `personal_task_ids`, explicit `manual_lines`, or both, together
 with a bound payer `contact_id`. Every selected to-do must have a positive
 amount. Every manual line requires a concrete description, positive amount,
