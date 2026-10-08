@@ -1192,12 +1192,14 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [selectedKind, setSelectedKind] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState("active");
   const [selectedTag, setSelectedTag] = useState("all");
   const create = async (event: FormEvent) => { event.preventDefault(); await api("/api/contacts", { method: "POST", body: JSON.stringify({ displayName: draft, kind: "person", methods: [], tags: [] }) }); setDraft(""); await reload(); };
   const contacts = data?.contacts || [];
   const contactTags = useMemo(() => [...new Set(contacts.flatMap((contact) => (contact.tags as string[] | undefined) || []))].sort((left, right) => left.localeCompare(right)), [contacts]);
   const visibleContacts = contacts.filter((contact) =>
     (selectedKind === "all" || textKey(contact, "kind") === selectedKind)
+    && (selectedStatus === "all" || textKey(contact, "status") === selectedStatus)
     && (selectedTag === "all" || ((contact.tags as string[] | undefined) || []).includes(selectedTag))
     && matchesSearch(contact, query),
   );
@@ -1212,7 +1214,7 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
     }
     return [...grouped.values()].filter((group) => group.contacts.length);
   }, [visibleContacts]);
-  const contactsFiltered = query.trim() || selectedKind !== "all" || selectedTag !== "all";
+  const contactsFiltered = query.trim() || selectedKind !== "all" || selectedStatus !== "active" || selectedTag !== "all";
   return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<div className="section-heading-actions">
     <form className="inline-create" onSubmit={(event) => void create(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Contact name" required /><button className="button">Add</button></form>
   </div>} />
@@ -1221,6 +1223,9 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
       <SectionFilter query={query} onChange={setQuery} count={visibleContacts.length} noun="contact" controls={<>
         <SectionSelectFilter label="Group" value={selectedKind} onChange={setSelectedKind}>
           <option value="all">All groups</option><option value="person">People</option><option value="organization">Organizations</option><option value="service">Services</option>
+        </SectionSelectFilter>
+        <SectionSelectFilter label="Status" value={selectedStatus} onChange={setSelectedStatus}>
+          <option value="active">Active</option><option value="all">All records</option><option value="inactive">Inactive</option><option value="blocked">Blocked</option><option value="deceased">Deceased</option>
         </SectionSelectFilter>
         <SectionSelectFilter label="Tag" value={selectedTag} onChange={setSelectedTag} disabled={!contactTags.length}>
           <option value="all">All tags</option>{contactTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
@@ -1235,12 +1240,13 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
           <ul className="library-list grouped-contact-list">
           {group.contacts.map((contact) => {
           const name = textKey(contact, "displayName", "name");
+          const status = textKey(contact, "status") || "active";
           const methods = (contact.methods as Entity[] | undefined) || [];
           const tags = (contact.tags as string[] | undefined) || [];
-          return <li className="contact-row" key={contact.id}>
+          return <li className="contact-row" data-status={status} key={contact.id}>
             <button className="contact-row-identity contact-row-edit" type="button" title={`Edit ${name}`} onClick={() => setEditingContactId(Number(contact.id))}>
               <div className="contact-monogram" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</div>
-              <div><h2>{name}</h2>{textKey(contact, "organizationName") && <p>{textKey(contact, "organizationName")}</p>}</div>
+              <div><h2>{name}</h2>{textKey(contact, "organizationName") && <p>{textKey(contact, "organizationName")}</p>}{status !== "active" && <span className="pill contact-record-status">{status}</span>}</div>
             </button>
             <div className="contact-method-list">
               {methods.length ? methods.map((method, index) => <div className="contact-method" key={`${String(method.kind)}-${index}`}><span>{textKey(method, "label") || String(method.kind).replaceAll("_", " ")}</span><strong>{textKey(method, "value")}</strong></div>) : <span className="contact-empty">No contact details</span>}

@@ -478,12 +478,15 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .contact-row { display: grid; grid-template-columns: minmax(190px, 1.05fr) minmax(220px, 1.35fr) minmax(120px, .8fr) auto; align-items: center; gap: 20px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .contact-row:last-child { border-bottom: 0; }
 .contact-row:hover { background: rgba(223, 229, 215, .34); }
+.contact-row:not([data-status="active"]) { background: rgba(121, 116, 105, .07); }
+.contact-row:not([data-status="active"]):hover { background: rgba(121, 116, 105, .13); }
 .contact-row-identity { display: grid; grid-template-columns: 43px minmax(0, 1fr); align-items: center; gap: 12px; min-width: 0; }
 .contact-row-edit { width: 100%; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }
 .contact-row-edit:hover h2 { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .contact-row-edit:focus-visible { border-radius: 8px; outline: 3px solid rgba(104, 116, 90, .22); outline-offset: 4px; }
 .contact-row-identity h2 { overflow: hidden; margin: 0; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
 .contact-row-identity p { overflow: hidden; margin: 3px 0 0; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.contact-record-status { margin-top: 5px; background: rgba(121, 116, 105, .15); color: var(--muted); }
 .contact-method-list { display: grid; gap: 5px; min-width: 0; }
 .contact-method { display: grid; grid-template-columns: minmax(55px, auto) minmax(0, 1fr); gap: 8px; align-items: baseline; }
 .contact-method span { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: capitalize; }

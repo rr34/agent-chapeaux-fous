@@ -88,6 +88,17 @@ test("contacts expose a tag filter and combine it with group and text filtering"
   assert.match(contacts, /&& matchesSearch\(contact, query\)/);
 });
 
+test("contacts hide inactive records by default and identify them when requested", () => {
+  const contacts = screenSource("ContactsScreen", "LibraryScreen");
+  assert.match(contacts, /const \[selectedStatus, setSelectedStatus\] = useState\("active"\)/);
+  assert.match(contacts, /selectedStatus === "all" \|\| textKey\(contact, "status"\) === selectedStatus/);
+  assert.match(contacts, /<SectionSelectFilter label="Status"/);
+  assert.match(contacts, /<option value="active">Active<\/option><option value="all">All records<\/option>/);
+  assert.match(contacts, /status !== "active" && <span className="pill contact-record-status">\{status\}<\/span>/);
+  assert.match(styles, /\.contact-row:not\(\[data-status="active"\]\)/);
+  assert.match(styles, /\.contact-record-status/);
+});
+
 test("persisted group headers expose the shared editor while synthetic groups do not", () => {
   const todos = screenSource("TodoScreen", "ContactsScreen");
   const library = screenSource("LibraryScreen", "VideoScriptsScreen");
