@@ -18,7 +18,14 @@ invoice-send operation and observe the resulting provider events.
 The Payments UI and `payment_invoice_prepare` may create an editable local draft
 from one or more to-dos, manual lines, or both. Prices, payer, and due date may
 be left blank and completed later in Payments. Creating a draft does not require
-Stripe readiness. An invoice-only price
+Stripe readiness. When the user asks to create an invoice or invoice draft,
+always call `payment_invoice_prepare` as soon as at least one line source is
+known. Do not ask for payer, due date, or prices before creating it, even if an
+earlier attempt failed while omitting one of those fields. The current tool
+contract controls the fresh attempt. After creation, report the returned
+`missingFields` so the user knows what remains before sending. If the fresh call
+fails, report that failure rather than converting an optional draft field into a
+question. An invoice-only price
 does not rewrite the to-do's stored billable price. This is the same local
 preparation boundary as `payment_invoice_prepare`: creating the preview does not
 contact the customer. A locally rendered PDF may be previewed or downloaded from

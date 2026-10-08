@@ -98,6 +98,15 @@ test("invoice preparation accepts task-backed, manual, and mixed line sources", 
   }, schema), null);
 });
 
+test("invoice preparation tells the model to create before reporting optional missing fields", () => {
+  const registry = new ToolRegistry();
+  registerPaymentTools(registry, {});
+  const definition = registry.get("payment_invoice_prepare");
+  assert.match(definition.description, /Immediately create an editable local invoice draft/);
+  assert.match(definition.description, /Do not ask for line prices, payer, or due date before calling this tool/);
+  assert.match(definition.description, /report missingFields afterward/);
+});
+
 test("invoice preparation accepts an invoice-only price for an otherwise unpriced to-do", async () => {
   const writes = { transactions: [], lines: [] };
   const database = {

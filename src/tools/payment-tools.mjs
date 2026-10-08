@@ -16,7 +16,7 @@ const toolDescriptions = Object.freeze({
   },
   payment_invoice_prepare: {
     protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Create an editable local invoice draft from one or more to-do or manual lines. Prices, payer, and due date may be left blank; a send-ready draft returns the exact final-confirmation handoff.",
+    summary: "Immediately create an editable local invoice draft from one or more to-do or manual lines, then report what remains. Never ask first for prices, payer, or due date; they may be left blank. A send-ready draft returns the exact final-confirmation handoff.",
     actionClasses: ["CREATE"], effectClassifications: ["MUTATING"],
   },
   payment_invoice_send: {
@@ -97,7 +97,7 @@ export function registerPaymentTools(registry, payments) {
   registry.register({
     name: "payment_invoice_prepare",
     confirmationHandoff: true,
-    description: "Create an editable local invoice draft with at least one exact to-do or manual line. Line prices, payer, and due date may be omitted and completed later in Payments. This does not require Stripe, contact the payer, or change a to-do's stored price. Only a send-ready result includes an exact confirmation handoff.",
+    description: "Immediately create an editable local invoice draft with at least one exact to-do or manual line. Do not ask for line prices, payer, or due date before calling this tool: those fields may be omitted and completed later in Payments. Return the created draft and report missingFields afterward. This does not require Stripe, contact the payer, or change a to-do's stored price. Only a send-ready result includes an exact confirmation handoff.",
     outputSchema: { type: "object", properties: {
       contractVersion: { type: "integer" }, status: { type: "string" }, expiresAt: { type: "string" },
       invoice: invoiceSchema, missingFields: { type: "array", items: { type: "string" } },

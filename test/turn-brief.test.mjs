@@ -211,6 +211,14 @@ test("orientation treats conversation and focused knowledge as evidence for an a
   assert.match(orientationInstructions, /not rediscovered by name/);
 });
 
+test("orientation prioritizes creating an editable draft before asking for optional fields", () => {
+  assert.match(orientationInstructions, /editable draft, creation is the first priority/);
+  assert.match(orientationInstructions, /select the current create tool with responseMode act/);
+  assert.match(orientationInstructions, /do not put those optional fields in unresolvedQuestions/);
+  assert.match(orientationInstructions, /creating the smallest valid draft and then reporting its missing fields/);
+  assert.match(orientationInstructions, /prior failure under older or conflicting behavior does not make a currently optional field required/);
+});
+
 test("a repeated import request after a deleted attempt starts from current provider state", () => {
   const context = orientationContext({
     requestId: "request-restart",
