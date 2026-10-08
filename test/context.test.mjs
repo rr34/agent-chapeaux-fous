@@ -144,3 +144,48 @@ test("an explicitly referenced exchange remains literal context outside rolling 
     withheldObjectReferenceCount: 1,
   }]);
 });
+
+test("an incomplete referenced exchange retains independently successful object evidence", async () => {
+  const binding = {
+    mention: "tasks returned by todo_list",
+    role: "subject",
+    type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{ id: 364, ref: "agent-slayer://todos/364", display: "Remove the sign" }],
+    sourceEventSeqs: [35322],
+  };
+  const referenced = {
+    requestId: "invoice-request",
+    requestEventId: "invoice-request-event",
+    requestEventSeq: 35287,
+    requestSourceEventSeq: 35287,
+    responseEventSeq: 35338,
+    submittedAtUtc: "2026-10-07T16:34:20.572Z",
+    request: "Add these tasks to an invoice.",
+    response: "I need the payer and prices.",
+    objectReferences: [binding],
+    taskOutcome: "incomplete",
+    objectReferencePolicy: "reusable",
+    withheldObjectReferenceCount: 0,
+    status: "complete",
+    error: null,
+  };
+  const builder = new ContextBuilder({
+    ledger: {
+      recentConversation() { return []; },
+      referencedExchangesForRequest() { return [referenced]; },
+    },
+    profileFacts: { list() { return { facts: [] }; } },
+  });
+
+  const result = await builder.build("current-request", "Continue the invoice.", {
+    nativeConversation: true,
+  });
+
+  assert.match(result.developerInstructions, /agent-slayer:\/\/todos\/364/);
+  assert.match(result.developerInstructions, /"taskOutcome":"incomplete"/);
+  assert.match(result.developerInstructions, /"objectReferencePolicy":"reusable"/);
+  assert.doesNotMatch(result.developerInstructions, /object bindings are withheld from reuse/);
+  assert.equal(result.referencedExchanges[0].objectReferenceCount, 1);
+  assert.equal(result.referencedExchanges[0].withheldObjectReferenceCount, 0);
+});

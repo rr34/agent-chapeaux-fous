@@ -293,6 +293,15 @@ export function interactionObjectReferences(events) {
   })));
 }
 
+function observedInteractionObjectReferences(events) {
+  const observedGroups = [];
+  for (const event of events ?? []) {
+    if (event?.status !== "complete" || event.type !== "object.references.observed") continue;
+    observedGroups.push(...(event.payload?.objectReferences ?? []));
+  }
+  return mergeObjectReferenceGroups(observedGroups);
+}
+
 export function interactionTaskOutcome(events) {
   const ordered = [...(events ?? [])].sort(
     (left, right) => Number(left?.eventSeq ?? 0) - Number(right?.eventSeq ?? 0),
@@ -337,9 +346,15 @@ export function interactionTaskOutcome(events) {
 }
 
 export function reusableInteractionObjectReferences(events) {
-  return interactionTaskOutcome(events) === "incomplete"
-    ? []
-    : interactionObjectReferences(events);
+  if (interactionTaskOutcome(events) !== "incomplete") {
+    return interactionObjectReferences(events);
+  }
+  // Request completion and identity evidence are independent. An incomplete
+  // objective may still contain successful reads or mutations whose exact
+  // returned bindings remain valid. Retain only canonical observations from
+  // completed application operations; a TurnBrief selection is not itself a
+  // fresh observation and therefore cannot survive on its own.
+  return observedInteractionObjectReferences(events);
 }
 
 function placeholders(values) {
@@ -1243,7 +1258,14 @@ export class Ledger {
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
     const taskOutcome = interactionTaskOutcome(events);
     const allObjectReferences = interactionObjectReferences(events);
-    const objectReferencesReusable = taskOutcome !== "incomplete";
+    const objectReferences = reusableInteractionObjectReferences(events);
+    const allObjectReferenceCount = allObjectReferences.reduce(
+      (count, group) => count + group.objects.length, 0,
+    );
+    const objectReferenceCount = objectReferences.reduce(
+      (count, group) => count + group.objects.length, 0,
+    );
+    const objectReferencesReusable = taskOutcome !== "incomplete" || objectReferenceCount > 0;
     return {
       requestId,
       requestEventId: request.eventId,
@@ -1256,10 +1278,8 @@ export class Ledger {
       response: response?.content || terminal.content || terminal.error || "",
       taskOutcome,
       objectReferencePolicy: objectReferencesReusable ? "reusable" : "fresh_read_required",
-      objectReferences: objectReferencesReusable ? allObjectReferences : [],
-      withheldObjectReferenceCount: objectReferencesReusable
-        ? 0
-        : allObjectReferences.reduce((count, group) => count + group.objects.length, 0),
+      objectReferences,
+      withheldObjectReferenceCount: Math.max(0, allObjectReferenceCount - objectReferenceCount),
       status: terminal.status,
       error: terminal.status === "error" ? (terminal.error || terminal.content || null) : null,
     };

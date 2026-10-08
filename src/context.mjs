@@ -56,9 +56,9 @@ function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectRefe
   const blocks = exchanges.map((exchange, index) => {
     const request = bounded(exchange.request, Math.floor(contentCharactersPerExchange * 0.45));
     const response = bounded(exchange.response, Math.ceil(contentCharactersPerExchange * 0.55));
-    const requiresFreshRead = exchange.objectReferencePolicy === "fresh_read_required"
-      || exchange.taskOutcome === "incomplete"
-      || exchange.status === "error";
+    const requiresFreshRead = exchange.objectReferencePolicy == null
+      ? exchange.taskOutcome === "incomplete" || exchange.status === "error"
+      : exchange.objectReferencePolicy === "fresh_read_required";
     const source = {
       position: index + 1,
       requestId: exchange.requestId,
@@ -104,9 +104,9 @@ function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectRefe
 
 function referencedExchangeSources(exchanges) {
   return exchanges.map(({ request, response, objectReferences, ...source }) => {
-    const requiresFreshRead = source.objectReferencePolicy === "fresh_read_required"
-      || source.taskOutcome === "incomplete"
-      || source.status === "error";
+    const requiresFreshRead = source.objectReferencePolicy == null
+      ? source.taskOutcome === "incomplete" || source.status === "error"
+      : source.objectReferencePolicy === "fresh_read_required";
     const suppliedObjectCount = (objectReferences ?? []).reduce(
       (count, group) => count + (group.objects?.length ?? 0), 0,
     );
@@ -119,7 +119,7 @@ function referencedExchangeSources(exchanges) {
       objectReferenceCount: requiresFreshRead ? 0 : suppliedObjectCount,
       withheldObjectReferenceCount: requiresFreshRead
         ? source.withheldObjectReferenceCount ?? suppliedObjectCount
-        : 0,
+        : source.withheldObjectReferenceCount ?? 0,
     };
   });
 }

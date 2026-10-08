@@ -145,7 +145,7 @@ test("exchange projection keeps exact canonical bindings but ignores trace copie
   assert.equal(references.some(({ type }) => type === "contacts.contact"), false);
 });
 
-test("an incomplete exchange withholds every prior object binding from reuse", () => {
+test("an incomplete exchange retains successful observations but withholds unexecuted selections", () => {
   const events = [
     {
       eventSeq: 50,
@@ -183,6 +183,41 @@ test("an incomplete exchange withholds every prior object binding from reuse", (
   ];
 
   assert.equal(interactionTaskOutcome(events), "incomplete");
-  assert.deepEqual(reusableInteractionObjectReferences(events), []);
+  assert.deepEqual(reusableInteractionObjectReferences(events), [{
+    mention: "fresh event read",
+    role: "subject",
+    type: "calendar.event",
+    source: "native:calendar",
+    objects: [{ id: 3128, ref: "agent-slayer://calendar-events/3128", display: "Morning Exercise" }],
+    sourceEventSeqs: [51],
+  }]);
   assert.equal(interactionObjectReferences(events).length, 2);
+});
+
+test("an incomplete exchange cannot reuse a TurnBrief selection without a successful observation", () => {
+  const events = [
+    {
+      eventSeq: 60,
+      type: "turn.brief",
+      status: "complete",
+      payload: { brief: { objectReferences: [{
+        mention: "selected event",
+        role: "subject",
+        type: "calendar.event",
+        source: "native:calendar",
+        objects: [{ id: 3129, ref: "agent-slayer://calendar-events/3129", display: "Morning Exercise" }],
+        sourceEventSeqs: [59],
+      }] } },
+    },
+    {
+      eventSeq: 61,
+      type: "tool.retry.blocked",
+      status: "error",
+      error: "The requested update remains incomplete.",
+    },
+    { eventSeq: 62, type: "request.complete", status: "complete" },
+  ];
+
+  assert.equal(interactionTaskOutcome(events), "incomplete");
+  assert.deepEqual(reusableInteractionObjectReferences(events), []);
 });

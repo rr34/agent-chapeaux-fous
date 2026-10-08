@@ -62,6 +62,13 @@ require exactly one bound object. Batch tools receive the complete intended
 set. If no verified binding resolves the user's mention, the object remains
 unresolved until an authorized read identifies it.
 
+Request completion and object evidence are independent. A request that pauses
+for missing information or otherwise remains incomplete does not invalidate an
+exact binding produced by a successful read or mutation. Later context retains
+those canonical observations while withholding selections that were merely
+copied into the TurnBrief and never independently observed during the request.
+A failed or uncertain operation never becomes successful identity evidence.
+
 These bindings are priority context, not context bloat. Context pruning removes
 bulky records and repeated prose before it removes the compact ID/reference/
 display binding. Referenced exchanges and accepted TurnBriefs carry bindings

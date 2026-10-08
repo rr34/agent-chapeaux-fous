@@ -749,13 +749,13 @@ export class SlayerRuntime {
       ? this.ledger.referencedExchangesForRequest(args.requestId, { limit: 8 })
       : [];
     const reusableReferencedExchanges = referencedExchanges.filter((exchange) => (
-      exchange.objectReferencePolicy !== "fresh_read_required"
-      && exchange.taskOutcome !== "incomplete"
-      && exchange.status !== "error"
+      exchange.objectReferencePolicy == null
+        ? exchange.taskOutcome !== "incomplete" && exchange.status !== "error"
+        : exchange.objectReferencePolicy !== "fresh_read_required"
     ));
-    const incompleteExchangeReferenced = reusableReferencedExchanges.length < referencedExchanges.length;
+    const nonReusableExchangeReferenced = reusableReferencedExchanges.length < referencedExchanges.length;
     const availableObjectReferences = explicitReferenceObjectCatalog(
-      incompleteExchangeReferenced
+      nonReusableExchangeReferenced
         ? []
         : recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
       reusableReferencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),

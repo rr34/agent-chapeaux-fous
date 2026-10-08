@@ -179,6 +179,61 @@ test("a request carries exact references to completed or failed exchanges", () =
   }
 });
 
+test("an incomplete exchange reuses successful observations without reusing its TurnBrief selection", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.target);
+  const ledger = new Ledger(store);
+  try {
+    const request = ledger.createRequest({ text: "Add these tasks to an invoice." });
+    ledger.append({
+      type: "turn.brief", status: "complete", actorType: "service",
+      actorName: "TurnBrief", turnId: request.requestId,
+      payload: { brief: { objectReferences: [{
+        mention: "selected task",
+        role: "invoice_line_source",
+        type: "todos.personal_task",
+        source: "native:todos",
+        objects: [{ id: 359, ref: "agent-slayer://todos/359", display: "Bathroom door" }],
+        sourceEventSeqs: [10],
+      }] } },
+    });
+    ledger.append({
+      type: "object.references.observed", status: "complete", actorType: "service",
+      actorName: "Object reference binder", turnId: request.requestId,
+      payload: { objectReferences: [{
+        mention: "tasks returned by todo_list",
+        role: "subject",
+        type: "todos.personal_task",
+        source: "native:todos",
+        objects: [{ id: 364, ref: "agent-slayer://todos/364", display: "Remove the sign" }],
+        sourceEventSeqs: [11],
+      }] },
+    });
+    ledger.append({
+      type: "agent.step", phase: "end", status: "complete", actorType: "service",
+      actorName: "Completion auditor", turnId: request.requestId,
+      payload: { workflowStep: "audit", result: { outcome: "needs_information" } },
+    });
+    ledger.finish(ledger.trace(request.requestId)[0], "I still need the payer.");
+
+    const reference = ledger.exchangeReference(request.requestId);
+    assert.equal(reference.taskOutcome, "incomplete");
+    assert.equal(reference.objectReferencePolicy, "reusable");
+    assert.equal(reference.withheldObjectReferenceCount, 1);
+    assert.deepEqual(reference.objectReferences, [{
+      mention: "tasks returned by todo_list",
+      role: "subject",
+      type: "todos.personal_task",
+      source: "native:todos",
+      objects: [{ id: 364, ref: "agent-slayer://todos/364", display: "Remove the sign" }],
+      sourceEventSeqs: [11],
+    }]);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("an unfinished exchange cannot be attached as completed source context", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.target);
