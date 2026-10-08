@@ -511,15 +511,15 @@ CREATE TABLE payment_provider_accounts (
 
 CREATE TABLE payment_invoices (
     payment_invoice_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable native invoice identifier.',
-    payer_contact_id BIGINT UNSIGNED NOT NULL COMMENT 'Native contact selected as customer.',
+    payer_contact_id BIGINT UNSIGNED COMMENT 'Optional native contact selected as customer; required before sending.',
     status ENUM('prepared', 'sending', 'open', 'processing', 'paid', 'failed', 'voided', 'uncollectible') NOT NULL DEFAULT 'prepared' COMMENT 'Invoice lifecycle synchronized from Stripe after sending.',
     currency CHAR(3) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Uppercase ISO 4217 currency.',
-    amount_minor BIGINT UNSIGNED NOT NULL COMMENT 'Immutable line total in the smallest currency unit.',
-    due_on DATE NOT NULL COMMENT 'Customer-facing due date.',
+    amount_minor BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Current line total in the smallest currency unit; may be zero while the local draft is incomplete.',
+    due_on DATE COMMENT 'Optional customer-facing due date; required before sending.',
     payment_method_policy ENUM('ach_only', 'card_only', 'card_and_ach') NOT NULL DEFAULT 'ach_only' COMMENT 'Hosted invoice payment methods.',
     description VARCHAR(1000) COMMENT 'Optional invoice description.',
-    payer_name_snapshot VARCHAR(500) NOT NULL COMMENT 'Customer name captured at preparation.',
-    payer_email_snapshot VARCHAR(320) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Customer email captured at preparation.',
+    payer_name_snapshot VARCHAR(500) COMMENT 'Customer name captured when a payer is selected.',
+    payer_email_snapshot VARCHAR(320) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Customer email captured when a payer is selected.',
     preview_digest CHAR(71) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Digest binding exact prepared content.',
     preparation_expires_at_utc DATETIME(3) NOT NULL COMMENT 'Preview expiration instant in UTC.',
     local_idempotency_key VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable logical operation key.',
@@ -543,7 +543,7 @@ CREATE TABLE payment_invoices (
     KEY payment_invoices_contact_status (payer_contact_id,status,payment_invoice_id),
     KEY payment_invoices_status_created (status,created_at_utc,payment_invoice_id),
     CONSTRAINT payment_invoices_contact FOREIGN KEY (payer_contact_id) REFERENCES contacts(contact_id) ON DELETE RESTRICT,
-    CONSTRAINT payment_invoices_amount CHECK (amount_minor > 0),
+    CONSTRAINT payment_invoices_amount CHECK (amount_minor >= 0),
     CONSTRAINT payment_invoices_paid CHECK (amount_paid_minor <= amount_minor),
     CONSTRAINT payment_invoices_currency CHECK (currency REGEXP '^[A-Z]{3}$'),
     CONSTRAINT payment_invoices_digest CHECK (preview_digest REGEXP '^sha256:[0-9a-f]{64}$')
@@ -556,7 +556,7 @@ CREATE TABLE payment_invoice_lines (
     personal_task_id BIGINT UNSIGNED COMMENT 'Originating native to-do for todo lines; null for manual lines.',
     line_position INT UNSIGNED NOT NULL,
     description_snapshot VARCHAR(1000) NOT NULL,
-    amount_minor_snapshot BIGINT UNSIGNED NOT NULL,
+    amount_minor_snapshot BIGINT UNSIGNED NOT NULL DEFAULT 0,
     created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
     PRIMARY KEY (payment_invoice_line_id),
     UNIQUE KEY payment_invoice_lines_position (payment_invoice_id,line_position),
@@ -569,7 +569,7 @@ CREATE TABLE payment_invoice_lines (
       OR (line_source = 'manual' AND personal_task_id IS NULL)
     ),
     CONSTRAINT payment_invoice_lines_position_check CHECK (line_position > 0),
-    CONSTRAINT payment_invoice_lines_amount CHECK (amount_minor_snapshot > 0)
+    CONSTRAINT payment_invoice_lines_amount CHECK (amount_minor_snapshot >= 0)
 ) ENGINE=InnoDB COMMENT='Immutable task-backed or manual line snapshots composing an invoice.';
 
 CREATE TABLE calendar_events_todo_join (
@@ -1322,4 +1322,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 50, 'Chapeaux Fous MariaDB database');
+VALUES (1, 51, 'Chapeaux Fous MariaDB database');

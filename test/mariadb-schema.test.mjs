@@ -68,7 +68,7 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 50", () => {
+test("the authoritative MariaDB baseline is complete at schema version 51", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 36);
@@ -121,17 +121,37 @@ test("the authoritative MariaDB baseline is complete at schema version 50", () =
   assert.match(videoJobsTable, /content_id\s+BIGINT UNSIGNED/u);
   assert.match(videoJobsTable, /CONSTRAINT video_jobs_content FOREIGN KEY \(content_id\)/u);
   const invoiceLinesTable = statements.find((statement) => statement.startsWith("CREATE TABLE payment_invoice_lines "));
+  const invoicesTable = statements.find((statement) => statement.startsWith("CREATE TABLE payment_invoices "));
+  assert.ok(invoicesTable);
+  assert.match(invoicesTable, /payer_contact_id\s+BIGINT UNSIGNED(?!\s+NOT NULL)/u);
+  assert.match(invoicesTable, /due_on\s+DATE(?!\s+NOT NULL)/u);
+  assert.match(invoicesTable, /amount_minor\s+BIGINT UNSIGNED NOT NULL DEFAULT 0/u);
+  assert.match(invoicesTable, /payment_invoices_amount CHECK \(amount_minor >= 0\)/u);
   assert.ok(invoiceLinesTable);
   assert.match(invoiceLinesTable, /line_source\s+ENUM\('todo', 'manual'\) NOT NULL/u);
   assert.match(invoiceLinesTable, /personal_task_id\s+BIGINT UNSIGNED(?!\s+NOT NULL)/u);
   assert.match(invoiceLinesTable, /line_source = 'todo' AND personal_task_id IS NOT NULL[\s\S]*line_source = 'manual' AND personal_task_id IS NULL/u);
+  assert.match(invoiceLinesTable, /amount_minor_snapshot\s+BIGINT UNSIGNED NOT NULL DEFAULT 0/u);
+  assert.match(invoiceLinesTable, /payment_invoice_lines_amount CHECK \(amount_minor_snapshot >= 0\)/u);
   for (const retired of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
     assert.doesNotMatch(todoTable, new RegExp(`\\b${retired}\\b`, "u"));
   }
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 50, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 51, 'Chapeaux Fous MariaDB database'\)$/);
+});
+
+test("the invoice-draft migration preserves lines while relaxing only draft fields", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 51);
+  assert.equal(migration.label, "0051:allow-incomplete-invoice-drafts");
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.match(migration.sql, /payer_contact_id BIGINT UNSIGNED NULL/u);
+  assert.match(migration.sql, /due_on DATE NULL/u);
+  assert.match(migration.sql, /CHECK \(amount_minor >= 0\)/u);
+  assert.match(migration.sql, /CHECK \(amount_minor_snapshot >= 0\)/u);
+  assert.doesNotMatch(migration.sql, /^\s*(?:UPDATE|DELETE|TRUNCATE)\b/gimu);
 });
 
 test("the daily-paper pin migration adds only the group-owned preference", () => {

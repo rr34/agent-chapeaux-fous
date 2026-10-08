@@ -113,12 +113,23 @@ textarea { resize: vertical; }
 .turn-brief { margin: 16px 0 0 128px; padding: 16px; border: 1px solid #cbd3c3; background: #fbfcf7; border-radius: 12px; }
 .turn-brief > div { display: flex; gap: 8px; margin-top: 12px; }
 .composer { position: fixed; z-index: 4; bottom: 22px; left: calc(216px + clamp(24px, 4vw, 68px)); right: clamp(24px, 4vw, 68px); max-width: 1300px; margin: auto; padding: 12px; border: 1px solid #c7ccc1; border-radius: 15px; background: rgba(251, 250, 245, .94); box-shadow: var(--shadow); backdrop-filter: blur(14px); }
-.composer-run-limits { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+.composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.composer-run-limits { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .run-limits-button { min-height: 32px; padding: 5px 10px; font-size: 12px; }
 .run-limits-button.ready { border-color: var(--olive-dark); background: var(--olive-soft); }
 .run-limits-summary { color: var(--olive-dark); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.composer-size-button { min-height: 32px; flex: 0 0 auto; padding: 5px 9px; font-size: 12px; }
+.composer-size-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .composer-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 48px auto; align-items: stretch; gap: 10px; }
 .composer textarea { border: 0; box-shadow: none; background: transparent; min-height: 68px; }
+.composer.expanded { z-index: 20; inset: 0; display: flex; width: 100%; height: 100vh; height: 100dvh; max-width: none; margin: 0; padding: clamp(14px, 2vw, 28px); border: 0; border-radius: 0; background: var(--paper); backdrop-filter: none; }
+.composer.expanded .composer-toolbar { flex: 0 0 auto; }
+.composer.expanded .composer-input-row { flex: 1 1 auto; min-height: 0; align-items: end; }
+.composer.expanded .mention-composer { align-self: stretch; height: 100%; min-height: 0; }
+.composer.expanded .mention-input-shell { height: 100%; min-height: 0; }
+.composer.expanded textarea { height: 100%; min-height: 0; padding: clamp(14px, 2vw, 24px); border: 1px solid var(--line); background: white; resize: none; }
+.composer.expanded .mention-highlight-layer { padding: clamp(14px, 2vw, 24px); }
+.composer.expanded .mention-picker { right: 12px; bottom: 12px; left: 12px; }
 .composer-feedback, .composer > .state-card { margin-bottom: 10px; }
 .composer-feedback { padding: 2px 4px; color: var(--olive-dark); font-size: 12px; }
 .composer-feedback.recording-status { color: var(--rust); font-weight: 700; }
@@ -642,7 +653,10 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .request-response { margin-left: 0; }
   .turn-brief { margin-left: 0; }
   .composer { bottom: 10px; }
+  .composer-toolbar { align-items: flex-start; }
   .composer-run-limits { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .composer-size-button span { display: none; }
+  .composer-size-button { width: 36px; padding-inline: 8px; }
   .composer-input-row { grid-template-columns: minmax(0, 1fr) 42px auto; gap: 7px; }
   .record-button { width: 42px; height: 42px; min-height: 42px; }
   .cancel-recording { min-height: 42px; padding-inline: 9px; }

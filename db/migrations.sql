@@ -16,6 +16,39 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0051: allow-incomplete-invoice-drafts
+-- writer downtime: required; invoice readers and writers must switch together
+-- because draft payer, due-date, and price fields become nullable or zeroable.
+-- locking: ALTER TABLE briefly takes metadata locks on the two invoice tables;
+-- existing invoice values and relationships are preserved without a data rewrite.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped and replay this
+-- guarded block after a partial commit; every constraint is dropped before it is
+-- recreated and every column modification is idempotent.
+
+ALTER TABLE payment_invoices
+  MODIFY COLUMN payer_contact_id BIGINT UNSIGNED NULL
+    COMMENT 'Optional native contact selected as customer; required before sending.',
+  MODIFY COLUMN amount_minor BIGINT UNSIGNED NOT NULL DEFAULT 0
+    COMMENT 'Current line total in the smallest currency unit; may be zero while the local draft is incomplete.',
+  MODIFY COLUMN due_on DATE NULL
+    COMMENT 'Optional customer-facing due date; required before sending.',
+  MODIFY COLUMN payer_name_snapshot VARCHAR(500) NULL
+    COMMENT 'Customer name captured when a payer is selected.',
+  MODIFY COLUMN payer_email_snapshot VARCHAR(320) CHARACTER SET ascii COLLATE ascii_bin NULL
+    COMMENT 'Customer email captured when a payer is selected.';
+
+ALTER TABLE payment_invoices DROP CONSTRAINT IF EXISTS payment_invoices_amount;
+ALTER TABLE payment_invoices
+  ADD CONSTRAINT payment_invoices_amount CHECK (amount_minor >= 0);
+
+ALTER TABLE payment_invoice_lines
+  MODIFY COLUMN amount_minor_snapshot BIGINT UNSIGNED NOT NULL DEFAULT 0;
+ALTER TABLE payment_invoice_lines DROP CONSTRAINT IF EXISTS payment_invoice_lines_amount;
+ALTER TABLE payment_invoice_lines
+  ADD CONSTRAINT payment_invoice_lines_amount CHECK (amount_minor_snapshot >= 0);
+
+-- end migration 0051
+
 -- migration 0050: pin-todo-groups-to-daily-paper
 -- writer downtime: not required; this adds one default-false group preference
 -- and does not rewrite existing group choices or to-do rows.

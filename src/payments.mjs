@@ -20,6 +20,12 @@ function positiveInteger(value, label) {
   return number;
 }
 
+function nonNegativeInteger(value, label) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < 0) throw new PaymentInputError(`${label} must be a non-negative integer.`);
+  return number;
+}
+
 function dateOnly(value) {
   const text = String(value ?? "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new PaymentInputError("dueOn must be a YYYY-MM-DD date.");
@@ -29,6 +35,10 @@ function dateOnly(value) {
     throw new PaymentInputError("The invoice due date must be today or later.");
   }
   return text;
+}
+
+function optionalDateOnly(value) {
+  return String(value ?? "").trim() ? dateOnly(value) : null;
 }
 
 function paymentMethodTypes(policy) {
@@ -92,7 +102,7 @@ function escapedHtml(value) {
 function invoicePdfHtml(invoice) {
   const lineRows = invoice.lines.map((line) => `<tr>
     <td>${escapedHtml(line.description)}</td>
-    <td>${escapedHtml(formattedMoney(line.amountMinor, invoice.currency))}</td>
+    <td>${line.amountMinor > 0 ? escapedHtml(formattedMoney(line.amountMinor, invoice.currency)) : ""}</td>
   </tr>`).join("");
   return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${invoice.invoiceId}</title>
   <style>
@@ -115,11 +125,11 @@ function invoicePdfHtml(invoice) {
     footer { margin-top: 36px; padding-top: 12px; color: #62695e; border-top: 1px solid #dde1d8; font-size: 11px; }
   </style></head><body>
     <header><div><h1>Invoice</h1><div class="muted">Preview prepared in TLOM</div></div>
-      <div class="meta"><span>Invoice</span><strong>#${invoice.invoiceId}</strong><span>Due</span><strong>${escapedHtml(invoice.dueOn)}</strong><span>Currency</span><strong>${escapedHtml(invoice.currency)}</strong></div>
+      <div class="meta"><span>Invoice</span><strong>#${invoice.invoiceId}</strong><span>Due</span><strong>${escapedHtml(invoice.dueOn || "Not set")}</strong><span>Currency</span><strong>${escapedHtml(invoice.currency)}</strong></div>
     </header>
-    <section class="recipient"><strong>Bill to</strong><p>${escapedHtml(invoice.payerName)}</p><p class="muted">${escapedHtml(invoice.payerEmail)}</p></section>
+    <section class="recipient"><strong>Bill to</strong><p>${escapedHtml(invoice.payerName || "Not set")}</p><p class="muted">${escapedHtml(invoice.payerEmail)}</p></section>
     <table><thead><tr><th>Description</th><th>Amount</th></tr></thead><tbody>${lineRows}</tbody></table>
-    <div class="total"><strong>Total</strong><strong>${escapedHtml(formattedMoney(invoice.amountMinor, invoice.currency))}</strong></div>
+    <div class="total"><strong>Total</strong><strong>${invoice.amountMinor > 0 ? escapedHtml(formattedMoney(invoice.amountMinor, invoice.currency)) : "Not priced"}</strong></div>
     ${invoice.description ? `<div class="description">${escapedHtml(invoice.description)}</div>` : ""}
     <footer>This is a preview. It has not been sent to the customer.</footer>
   </body></html>`;
@@ -155,24 +165,38 @@ function unixDateTime(value) {
   return Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString() : null;
 }
 
+function invoiceMissingFields(invoice) {
+  const missing = [];
+  if (!invoice.payerContactId) missing.push("payer");
+  else if (!String(invoice.payerEmail ?? "").trim()) missing.push("payer_email");
+  if (!invoice.dueOn) missing.push("due_date");
+  if ((invoice.lines ?? []).some((line) => line.amountMinor <= 0)) missing.push("line_prices");
+  return missing;
+}
+
 function preparedInvoiceResult(invoice) {
-  return {
+  const missingFields = invoiceMissingFields(invoice);
+  const result = {
     contractVersion: 1,
-    status: "ready",
+    status: missingFields.length ? "draft" : "ready",
     expiresAt: invoice.preparationExpiresAtUtc,
     invoice,
-    nextAction: {
-      type: "request_user_confirmation",
-      instruction: `Send ${formattedMoney(invoice.amountMinor, invoice.currency)} invoice to ${invoice.payerName} at ${invoice.payerEmail}, due ${invoice.dueOn}, accepting ${paymentMethodLabel(invoice.paymentMethodPolicy)}?`,
-      onApproval: {
-        tool: "payment_invoice_send",
-        arguments: {
-          invoice_id: invoice.invoiceId,
-          preview_digest: invoice.previewDigest,
-        },
+    missingFields,
+    nextAction: null,
+  };
+  if (missingFields.length) return result;
+  result.nextAction = {
+    type: "request_user_confirmation",
+    instruction: `Send ${formattedMoney(invoice.amountMinor, invoice.currency)} invoice to ${invoice.payerName} at ${invoice.payerEmail}, due ${invoice.dueOn}, accepting ${paymentMethodLabel(invoice.paymentMethodPolicy)}?`,
+    onApproval: {
+      tool: "payment_invoice_send",
+      arguments: {
+        invoice_id: invoice.invoiceId,
+        preview_digest: invoice.previewDigest,
       },
     },
   };
+  return result;
 }
 
 export class PaymentService {
@@ -327,9 +351,9 @@ export class PaymentService {
       FROM payment_invoice_lines WHERE payment_invoice_id = ? ORDER BY line_position`).all(id);
     return {
       invoiceId: Number(row.payment_invoice_id), ref: `agent-slayer://payment-invoices/${Number(row.payment_invoice_id)}`,
-      display: `${row.payer_name_snapshot} — ${formattedMoney(Number(row.amount_minor), row.currency)}`,
-      payerContactId: Number(row.payer_contact_id), payerName: row.payer_name_snapshot, payerEmail: row.payer_email_snapshot,
-      status: row.status, currency: row.currency, amountMinor: Number(row.amount_minor), dueOn: row.due_on,
+      display: `${row.payer_name_snapshot || "Payer not set"} — ${Number(row.amount_minor) > 0 ? formattedMoney(Number(row.amount_minor), row.currency) : "not priced"}`,
+      payerContactId: row.payer_contact_id == null ? null : Number(row.payer_contact_id), payerName: row.payer_name_snapshot ?? null, payerEmail: row.payer_email_snapshot ?? null,
+      status: row.status, currency: row.currency, amountMinor: Number(row.amount_minor), dueOn: row.due_on ?? null,
       paymentMethodPolicy: row.payment_method_policy, description: row.description ?? null,
       previewDigest: row.preview_digest, preparationExpiresAtUtc: row.preparation_expires_at_utc,
       stripeInvoiceId: row.stripe_invoice_id ?? null, processorStatus: row.processor_status ?? null,
@@ -355,11 +379,11 @@ export class PaymentService {
     const pricedTaskIds = Array.isArray(input?.personal_task_ids) ? input.personal_task_ids.map((id) => positiveInteger(id, "personal_task_ids item")) : [];
     const explicitTodoLines = Array.isArray(input?.todo_lines) ? input.todo_lines.map((line, index) => {
       if (!line || typeof line !== "object" || Array.isArray(line)) throw new PaymentInputError(`todo_lines item ${index + 1} must be an object.`);
-      const currency = String(line.currency ?? "").trim().toUpperCase();
-      if (!/^[A-Z]{3}$/.test(currency)) throw new PaymentInputError(`todo_lines item ${index + 1} needs a three-letter currency.`);
+      const currency = String(line.currency ?? "").trim().toUpperCase() || null;
+      if (currency && !/^[A-Z]{3}$/.test(currency)) throw new PaymentInputError(`todo_lines item ${index + 1} needs a three-letter currency.`);
       return {
         personalTaskId: positiveInteger(line.personal_task_id, `todo_lines item ${index + 1} personal_task_id`),
-        amountMinor: positiveInteger(line.amount_minor, `todo_lines item ${index + 1} amount_minor`),
+        amountMinor: nonNegativeInteger(line.amount_minor ?? 0, `todo_lines item ${index + 1} amount_minor`),
         currency,
       };
     }) : [];
@@ -369,29 +393,26 @@ export class PaymentService {
       if (!line || typeof line !== "object" || Array.isArray(line)) throw new PaymentInputError(`manual_lines item ${index + 1} must be an object.`);
       const manualDescription = String(line.description ?? "").trim();
       if (!manualDescription || manualDescription.length > 1000) throw new PaymentInputError(`manual_lines item ${index + 1} needs a description of 1 to 1000 characters.`);
-      const currency = String(line.currency ?? "").trim().toUpperCase();
-      if (!/^[A-Z]{3}$/.test(currency)) throw new PaymentInputError(`manual_lines item ${index + 1} needs a three-letter currency.`);
+      const currency = String(line.currency ?? "").trim().toUpperCase() || null;
+      if (currency && !/^[A-Z]{3}$/.test(currency)) throw new PaymentInputError(`manual_lines item ${index + 1} needs a three-letter currency.`);
       return {
         lineSource: "manual",
         personalTaskId: null,
         description: manualDescription,
-        amountMinor: positiveInteger(line.amount_minor, `manual_lines item ${index + 1} amount_minor`),
+        amountMinor: nonNegativeInteger(line.amount_minor ?? 0, `manual_lines item ${index + 1} amount_minor`),
         currency,
       };
     }) : [];
     if (taskIds.length + manualLines.length < 1 || taskIds.length + manualLines.length > 100) {
       throw new PaymentInputError("Provide between 1 and 100 total to-do or manual invoice lines.");
     }
-    const contactId = positiveInteger(input?.contact_id, "contact_id");
-    const dueOn = dateOnly(input?.due_on);
+    const contactId = input?.contact_id == null ? null : positiveInteger(input.contact_id, "contact_id");
+    const dueOn = optionalDateOnly(input?.due_on);
     const policy = String(input?.payment_method_policy ?? "ach_only");
     if (!policies.has(policy)) throw new PaymentInputError("payment_method_policy is invalid.");
     const description = String(input?.description ?? "").trim().slice(0, 1000) || null;
-    const contact = this.contact(contactId);
-    if (!contact) throw new PaymentInputError("The selected active customer contact was not found.", 404, "CONTACT_NOT_FOUND");
-    if (!String(contact.email ?? "").trim()) throw new PaymentInputError("The selected customer needs a receivable email address.", 409, "CUSTOMER_EMAIL_REQUIRED");
-    const stripeStatus = await this.stripeStatus({ refresh: true });
-    if (!stripeStatus.connected || !stripeStatus.chargesEnabled) throw new PaymentInputError("Connect and finish setting up Stripe before preparing an invoice.", 409, "STRIPE_CHARGES_NOT_ENABLED");
+    const contact = contactId == null ? null : this.contact(contactId);
+    if (contactId != null && !contact) throw new PaymentInputError("The selected active customer contact was not found.", 404, "CONTACT_NOT_FOUND");
     const placeholders = taskIds.map(() => "?").join(",");
     this.database.exec("START TRANSACTION");
     try {
@@ -400,15 +421,15 @@ export class PaymentService {
       if (tasks.length !== taskIds.length) throw new PaymentInputError("One or more selected to-dos no longer exist.", 404, "TODO_NOT_FOUND");
       const byId = new Map(tasks.map((task) => [Number(task.personal_task_id), task]));
       const pricedLines = pricedTaskIds.map((id) => byId.get(id));
-      if (pricedLines.some((line) => !Number.isSafeInteger(Number(line.billable_amount_minor)) || Number(line.billable_amount_minor) <= 0 || !/^[A-Z]{3}$/.test(String(line.billable_currency ?? "")))) {
-        throw new PaymentInputError("Every selected to-do must have a positive billable amount and currency.", 409, "TODO_PRICE_REQUIRED");
-      }
+      const requestedCurrency = String(input?.currency ?? "").trim().toUpperCase() || null;
+      if (requestedCurrency && !/^[A-Z]{3}$/.test(requestedCurrency)) throw new PaymentInputError("currency must be a three-letter code.");
       const currencies = new Set([
-        ...pricedLines.map((line) => line.billable_currency),
+        ...(requestedCurrency ? [requestedCurrency] : []),
+        ...pricedLines.filter((line) => Number(line.billable_amount_minor) > 0 && /^[A-Z]{3}$/.test(String(line.billable_currency ?? ""))).map((line) => line.billable_currency),
         ...explicitTodoLines.map((line) => line.currency),
         ...manualLines.map((line) => line.currency),
-      ]);
-      if (currencies.size !== 1) throw new PaymentInputError("All invoice lines must use the same currency.", 409, "MIXED_CURRENCIES");
+      ].filter(Boolean));
+      if (currencies.size > 1) throw new PaymentInputError("All invoice lines must use the same currency.", 409, "MIXED_CURRENCIES");
       const duplicate = taskIds.length ? this.database.prepare(`SELECT line.personal_task_id, invoice.payment_invoice_id, invoice.status
         FROM payment_invoice_lines line JOIN payment_invoices invoice USING (payment_invoice_id)
         WHERE line.personal_task_id IN (${placeholders})
@@ -421,7 +442,9 @@ export class PaymentService {
       const snapshots = [
         ...pricedLines.map((line) => ({
           lineSource: "todo", personalTaskId: Number(line.personal_task_id),
-          description: String(line.text).slice(0, 1000), amountMinor: Number(line.billable_amount_minor),
+          description: String(line.text).slice(0, 1000),
+          amountMinor: Number.isSafeInteger(Number(line.billable_amount_minor)) && Number(line.billable_amount_minor) > 0
+            ? Number(line.billable_amount_minor) : 0,
         })),
         ...explicitTodoLines.map((line) => ({
           lineSource: "todo", personalTaskId: line.personalTaskId,
@@ -431,9 +454,9 @@ export class PaymentService {
         ...manualLines.map(({ currency: _currency, ...line }) => line),
       ].map((line, index) => ({ ...line, position: index + 1 }));
       const amountMinor = snapshots.reduce((sum, line) => sum + line.amountMinor, 0);
-      if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw new PaymentInputError("The invoice total is outside the supported range.");
-      const [currency] = currencies;
-      const preview = { contactId, payerName: contact.display_name, payerEmail: contact.email, dueOn, policy, description, currency, amountMinor, lines: snapshots };
+      if (!Number.isSafeInteger(amountMinor) || amountMinor < 0) throw new PaymentInputError("The invoice total is outside the supported range.");
+      const [currency = "USD"] = currencies;
+      const preview = { contactId, payerName: contact?.display_name ?? null, payerEmail: contact?.email ?? null, dueOn, policy, description, currency, amountMinor, lines: snapshots };
       const previewDigest = digest(preview);
       const expiresAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
       const idempotencyKey = randomUUID();
@@ -441,7 +464,7 @@ export class PaymentService {
         (payer_contact_id,status,currency,amount_minor,due_on,payment_method_policy,description,payer_name_snapshot,payer_email_snapshot,
          preview_digest,preparation_expires_at_utc,local_idempotency_key,stripe_connected_account_id)
         VALUES (?, 'prepared', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(contactId, currency, amountMinor, dueOn, policy, description,
-          contact.display_name, contact.email, previewDigest, expiresAt, idempotencyKey, stripeStatus.accountId);
+          contact?.display_name ?? null, contact?.email ?? null, previewDigest, expiresAt, idempotencyKey, null);
       const invoiceId = Number(result.lastInsertRowid);
       const insert = this.database.prepare(`INSERT INTO payment_invoice_lines
         (payment_invoice_id,line_source,personal_task_id,line_position,description_snapshot,amount_minor_snapshot) VALUES (?,?,?,?,?,?)`);
@@ -465,6 +488,15 @@ export class PaymentService {
     const paymentMethodPolicy = String(input?.paymentMethodPolicy ?? "").trim();
     const descriptionSupplied = Object.prototype.hasOwnProperty.call(input ?? {}, "description");
     const suppliedDescription = descriptionSupplied ? String(input.description ?? "").trim() || null : null;
+    const contactSupplied = Object.prototype.hasOwnProperty.call(input ?? {}, "contactId");
+    const suppliedContactId = contactSupplied && input.contactId != null
+      ? positiveInteger(input.contactId, "contactId") : null;
+    const suppliedContact = suppliedContactId == null ? null : this.contact(suppliedContactId);
+    if (suppliedContactId != null && !suppliedContact) {
+      throw new PaymentInputError("The selected active customer contact was not found.", 404, "CONTACT_NOT_FOUND");
+    }
+    const dueOnSupplied = Object.prototype.hasOwnProperty.call(input ?? {}, "dueOn");
+    const suppliedDueOn = dueOnSupplied ? optionalDateOnly(input.dueOn) : null;
     if (!/^sha256:[0-9a-f]{64}$/.test(expectedDigest)) {
       throw new PaymentInputError("The current preview digest is required.", 400, "PREVIEW_DIGEST_REQUIRED");
     }
@@ -488,7 +520,7 @@ export class PaymentService {
       return {
         position: positiveInteger(line.position, `Invoice line ${index + 1} position`),
         description,
-        amountMinor: positiveInteger(line.amountMinor, `Invoice line ${index + 1} amountMinor`),
+        amountMinor: nonNegativeInteger(line.amountMinor ?? 0, `Invoice line ${index + 1} amountMinor`),
       };
     });
     if (new Set(suppliedLines.map(({ position }) => position)).size !== suppliedLines.length) {
@@ -505,13 +537,6 @@ export class PaymentService {
           "Only a local prepared invoice that has not reached Stripe can be edited.",
           409,
           "INVOICE_NOT_EDITABLE",
-        );
-      }
-      if (Date.parse(row.preparation_expires_at_utc) <= Date.now()) {
-        throw new PaymentInputError(
-          "This invoice preview expired; prepare it again.",
-          409,
-          "PREVIEW_EXPIRED",
         );
       }
       if (row.preview_digest !== expectedDigest) {
@@ -562,25 +587,32 @@ export class PaymentService {
           };
         });
       const description = descriptionSupplied ? suppliedDescription : row.description ?? null;
+      const contactId = contactSupplied ? suppliedContactId
+        : row.payer_contact_id == null ? null : Number(row.payer_contact_id);
+      const payerName = contactSupplied ? suppliedContact?.display_name ?? null : row.payer_name_snapshot ?? null;
+      const payerEmail = contactSupplied ? suppliedContact?.email ?? null : row.payer_email_snapshot ?? null;
+      const dueOn = dueOnSupplied ? suppliedDueOn : row.due_on ?? null;
       const changed = addedLines.length > 0 || existingLines.some((line) => {
         const supplied = suppliedByPosition.get(Number(line.line_position));
         return String(line.description_snapshot) !== supplied.description
           || Number(line.amount_minor_snapshot) !== supplied.amountMinor;
       }) || row.payment_method_policy !== paymentMethodPolicy
-        || (row.description ?? null) !== description;
+        || (row.description ?? null) !== description
+        || (row.payer_contact_id == null ? null : Number(row.payer_contact_id)) !== contactId
+        || (row.due_on ?? null) !== dueOn;
       if (!changed) {
         this.database.exec("COMMIT");
         return preparedInvoiceResult(this.getInvoice(invoiceId));
       }
       const amountMinor = snapshots.reduce((sum, line) => sum + line.amountMinor, 0);
-      if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      if (!Number.isSafeInteger(amountMinor) || amountMinor < 0) {
         throw new PaymentInputError("The invoice total is outside the supported range.");
       }
       const preview = {
-        contactId: Number(row.payer_contact_id),
-        payerName: row.payer_name_snapshot,
-        payerEmail: row.payer_email_snapshot,
-        dueOn: String(row.due_on),
+        contactId,
+        payerName,
+        payerEmail,
+        dueOn,
         policy: paymentMethodPolicy,
         description,
         currency: row.currency,
@@ -611,9 +643,14 @@ export class PaymentService {
         }
       }
       this.database.prepare(`UPDATE payment_invoices
-        SET payment_method_policy = ?, description = ?, amount_minor = ?, preview_digest = ?, preparation_expires_at_utc = ?,
+        SET payer_contact_id = ?, payer_name_snapshot = ?, payer_email_snapshot = ?, due_on = ?,
+            payment_method_policy = ?, description = ?, amount_minor = ?, preview_digest = ?, preparation_expires_at_utc = ?,
             local_idempotency_key = ?, updated_at_utc = UTC_TIMESTAMP(3)
         WHERE payment_invoice_id = ?`).run(
+        contactId,
+        payerName,
+        payerEmail,
+        dueOn,
         paymentMethodPolicy,
         description,
         amountMinor,
@@ -693,6 +730,11 @@ export class PaymentService {
     if (invoice.previewDigest !== previewDigest) throw new PaymentInputError("The confirmed preview does not match this invoice.", 409, "PREVIEW_MISMATCH");
     if (["open", "processing", "paid"].includes(invoice.status)) return { status: "complete", idempotentReplay: true, invoice };
     if (!["prepared", "failed", "sending"].includes(invoice.status)) throw new PaymentInputError(`Invoice ${invoiceId} cannot be sent from ${invoice.status}.`, 409, "INVOICE_STATE_CONFLICT");
+    const missingFields = invoiceMissingFields(invoice);
+    if (missingFields.length) {
+      throw new PaymentInputError(`Complete the invoice before sending it: ${missingFields.join(", ")}.`, 409, "INVOICE_DRAFT_INCOMPLETE");
+    }
+    dateOnly(invoice.dueOn);
     if (Date.parse(invoice.preparationExpiresAtUtc) <= Date.now() && !invoice.stripeInvoiceId) throw new PaymentInputError("This invoice preview expired; prepare it again.", 409, "PREVIEW_EXPIRED");
     const account = await this.stripeStatus({ refresh: true });
     if (!account.chargesEnabled) throw new PaymentInputError("The connected Stripe account cannot accept charges.", 409, "STRIPE_CHARGES_NOT_ENABLED");

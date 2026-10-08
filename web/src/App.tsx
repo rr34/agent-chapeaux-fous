@@ -411,6 +411,7 @@ function AgentComposer({
   const [recordingPhase, setRecordingPhase] = useState<RecordingPhase>("idle");
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const [recordingStatus, setRecordingStatus] = useState("");
+  const [composerExpanded, setComposerExpanded] = useState(false);
   const [pendingRunLimits, setPendingRunLimits] = useState<RunLimits | null>(null);
   const [runLimitsOpen, setRunLimitsOpen] = useState(false);
   const [toolCallLimit, setToolCallLimit] = useState(256);
@@ -632,6 +633,27 @@ function AgentComposer({
     };
   }, []);
 
+  useEffect(() => {
+    if (!composerExpanded) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const collapseOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || runLimitsOpen) return;
+      setComposerExpanded(false);
+      window.requestAnimationFrame(() => textArea.current?.focus());
+    };
+    window.addEventListener("keydown", collapseOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", collapseOnEscape);
+    };
+  }, [composerExpanded, runLimitsOpen]);
+
+  const toggleComposerExpanded = () => {
+    setComposerExpanded((expanded) => !expanded);
+    window.requestAnimationFrame(() => textArea.current?.focus());
+  };
+
   const openRunLimits = () => {
     setToolCallsUnlimited(pendingRunLimits?.maxToolCalls === null && pendingRunLimits !== null);
     setTimeUnlimited(pendingRunLimits?.timeoutMs === null && pendingRunLimits !== null);
@@ -686,6 +708,7 @@ function AgentComposer({
       setPendingRunLimits(null);
       setText("");
       setSelections([]);
+      setComposerExpanded(false);
       const submittedAtMs = Date.now();
       onSubmitted({
         requestId: created.requestId,
@@ -716,13 +739,30 @@ function AgentComposer({
             ? "Cancelling recording"
             : "Record a voice request";
 
-  return <><form className={`composer ${isRecording ? "recording" : ""}`} onSubmit={submit}>
+  return <><form className={`composer${isRecording ? " recording" : ""}${composerExpanded ? " expanded" : ""}`} onSubmit={submit}>
     {referenceNotice && <div className="composer-feedback" role="status">{referenceNotice}</div>}
     {recordingStatus && <div className="composer-feedback recording-status" role="status">{recordingStatus}</div>}
     {submitError && <ErrorState error={submitError} dismiss={() => setSubmitError(null)} />}
-    {!isRecording && <div className="composer-run-limits">
-      <button className={`button button--quiet run-limits-button${pendingRunLimits ? " ready" : ""}`} type="button" onClick={openRunLimits}>Increase limits</button>
-      {pendingRunLimits && <span className="run-limits-summary" role="status">Next interaction: {runLimitsText(pendingRunLimits)}</span>}
+    {!isRecording && <div className="composer-toolbar">
+      <div className="composer-run-limits">
+        <button className={`button button--quiet run-limits-button${pendingRunLimits ? " ready" : ""}`} type="button" onClick={openRunLimits}>Increase limits</button>
+        {pendingRunLimits && <span className="run-limits-summary" role="status">Next interaction: {runLimitsText(pendingRunLimits)}</span>}
+      </div>
+      <button
+        className="button button--quiet composer-size-button"
+        type="button"
+        onClick={toggleComposerExpanded}
+        aria-expanded={composerExpanded}
+        aria-label={composerExpanded ? "Collapse request editor" : "Expand request editor to fill the screen"}
+        title={composerExpanded ? "Collapse request editor (Escape)" : "Expand request editor"}
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          {composerExpanded
+            ? <path d="M9 3v6H3M15 21v-6h6M3 9l6-6M21 15l-6 6" />
+            : <path d="M9 3H3v6M15 21h6v-6M3 3l6 6M21 21l-6-6" />}
+        </svg>
+        <span>{composerExpanded ? "Collapse" : "Expand"}</span>
+      </button>
     </div>}
     <div className="composer-input-row">
       {isRecording && <button className="button button--quiet cancel-recording" type="button" onClick={cancelRecording} aria-label="Cancel recording" title="Cancel recording"><span aria-hidden="true">×</span><span>Cancel</span></button>}
@@ -1596,7 +1636,8 @@ function invoiceCurrencyDigits(currency: string) {
 function invoiceAmountDraft(amountMinor: unknown, currency: string) {
   const digits = invoiceCurrencyDigits(currency);
   const divisor = 10 ** digits;
-  return (Number(amountMinor) / divisor).toFixed(digits);
+  const amount = Number(amountMinor);
+  return amount > 0 ? (amount / divisor).toFixed(digits) : "";
 }
 
 function invoiceAmountMinor(amount: string, currency: string) {
@@ -1611,6 +1652,10 @@ function invoiceAmountMinor(amount: string, currency: string) {
   const minor = whole * (10 ** digits) + Number(fraction || 0);
   if (!Number.isSafeInteger(minor) || minor <= 0) throw new Error("Every line amount must be greater than zero.");
   return minor;
+}
+
+function invoiceDraftAmountMinor(amount: string, currency: string) {
+  return amount.trim() ? invoiceAmountMinor(amount, currency) : 0;
 }
 
 function formatInvoiceMoney(amountMinor: number, currency: string) {
@@ -1644,7 +1689,7 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
   const today = localToday();
   const [contactId, setContactId] = useState("");
   const [contactQuery, setContactQuery] = useState("");
-  const [dueOn, setDueOn] = useState(shiftLocalDate(today, 14));
+  const [dueOn, setDueOn] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [paymentMethodPolicy, setPaymentMethodPolicy] = useState("ach_only");
   const [description, setDescription] = useState("");
@@ -1653,10 +1698,9 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
   const [manualLines, setManualLines] = useState<InvoiceCreateManualLine[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const receivableContacts = contacts.filter((contact) => invoiceContactEmail(contact));
-  const selectedContact = receivableContacts.find((contact) => String(contact.id) === contactId) ?? null;
+  const selectedContact = contacts.find((contact) => String(contact.id) === contactId) ?? null;
   const contactMatches = contactQuery.trim() && !selectedContact
-    ? receivableContacts.filter((contact) => matchesSearch(contact, contactQuery)).slice(0, 20)
+    ? contacts.filter((contact) => matchesSearch(contact, contactQuery)).slice(0, 20)
     : [];
   const normalizedCurrency = currency.trim().toUpperCase();
   const selectedTodoIds = new Set(todoLines.map((line) => line.personalTaskId));
@@ -1718,16 +1762,16 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
     try {
       preparedTodoLines = todoLines.map((line) => ({
         personal_task_id: line.personalTaskId,
-        amount_minor: invoiceAmountMinor(line.amount, normalizedCurrency),
+        amount_minor: invoiceDraftAmountMinor(line.amount, normalizedCurrency),
         currency: normalizedCurrency,
       }));
       preparedManualLines = startedManualLines.map((line, index) => {
-        if (!line.description.trim() || !line.amount.trim()) {
-          throw new Error(`Manual line ${index + 1} needs both a description and amount.`);
+        if (!line.description.trim()) {
+          throw new Error(`Manual line ${index + 1} needs a description.`);
         }
         return {
           description: line.description.trim(),
-          amount_minor: invoiceAmountMinor(line.amount, normalizedCurrency),
+          amount_minor: invoiceDraftAmountMinor(line.amount, normalizedCurrency),
           currency: normalizedCurrency,
         };
       });
@@ -1740,8 +1784,9 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
       const result = await api<{ invoice: Entity }>("/api/payment-invoices/prepare", {
         method: "POST",
         body: JSON.stringify({
-          contact_id: Number(contactId),
-          due_on: dueOn,
+          ...(contactId ? { contact_id: Number(contactId) } : {}),
+          ...(dueOn ? { due_on: dueOn } : {}),
+          currency: normalizedCurrency,
           payment_method_policy: paymentMethodPolicy,
           description: description.trim() || null,
           ...(preparedTodoLines.length ? { todo_lines: preparedTodoLines } : {}),
@@ -1760,11 +1805,11 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
       <form onSubmit={(event) => void create(event)}>
         <header className="object-editor-heading"><div><p className="eyebrow">Payments</p><h2 id="invoice-create-title">Create invoice</h2></div><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>Close</button></header>
         <div className="invoice-create-grid">
-          <div className="invoice-create-picker"><label htmlFor="invoice-payer-search">Payer email</label><input id="invoice-payer-search" type="search" role="combobox" aria-expanded={Boolean(contactMatches.length)} aria-controls="invoice-payer-results" autoComplete="off" value={contactQuery} disabled={saving || loading} onChange={(event) => { setContactQuery(event.target.value); setContactId(""); setError(""); }} placeholder="Type a name or email" />
-            {selectedContact && <div className="invoice-create-selection"><span><strong>{textKey(selectedContact, "displayName")}</strong><small>{invoiceContactEmail(selectedContact)}</small></span><button type="button" disabled={saving} onClick={() => { setContactId(""); setContactQuery(""); }}>Change</button></div>}
-            {!selectedContact && contactQuery.trim() && <div className="invoice-create-results" id="invoice-payer-results" role="listbox">{contactMatches.map((contact) => <button type="button" role="option" aria-selected="false" key={String(contact.id)} onClick={() => selectContact(contact)}><strong>{textKey(contact, "displayName")}</strong><small>{invoiceContactEmail(contact)}</small></button>)}{!contactMatches.length && <p>No contacts with a receivable email match.</p>}</div>}
+          <div className="invoice-create-picker"><label htmlFor="invoice-payer-search">Payer <span className="field-hint">Optional</span></label><input id="invoice-payer-search" type="search" role="combobox" aria-expanded={Boolean(contactMatches.length)} aria-controls="invoice-payer-results" autoComplete="off" value={contactQuery} disabled={saving || loading} onChange={(event) => { setContactQuery(event.target.value); setContactId(""); setError(""); }} placeholder="Type a name or email" />
+            {selectedContact && <div className="invoice-create-selection"><span><strong>{textKey(selectedContact, "displayName")}</strong><small>{invoiceContactEmail(selectedContact) || "No receivable email yet"}</small></span><button type="button" disabled={saving} onClick={() => { setContactId(""); setContactQuery(""); }}>Change</button></div>}
+            {!selectedContact && contactQuery.trim() && <div className="invoice-create-results" id="invoice-payer-results" role="listbox">{contactMatches.map((contact) => <button type="button" role="option" aria-selected="false" key={String(contact.id)} onClick={() => selectContact(contact)}><strong>{textKey(contact, "displayName")}</strong><small>{invoiceContactEmail(contact) || "No receivable email yet"}</small></button>)}{!contactMatches.length && <p>No contacts match.</p>}</div>}
           </div>
-          <label>Due date<input type="date" min={today} value={dueOn} required disabled={saving} onChange={(event) => setDueOn(event.target.value)} /></label>
+          <label>Due date <span className="field-hint">Optional</span><input type="date" min={today} value={dueOn} disabled={saving} onChange={(event) => setDueOn(event.target.value)} /></label>
           <label>Currency<input value={currency} maxLength={3} required disabled={saving} onChange={(event) => { setCurrency(event.target.value.toUpperCase()); setTodoLines((current) => current.map((line) => ({ ...line, amount: "" }))); }} /></label>
           <label>Payment methods<select value={paymentMethodPolicy} disabled={saving} onChange={(event) => setPaymentMethodPolicy(event.target.value)}><option value="ach_only">Bank account only (no credit cards)</option><option value="card_and_ach">Credit card and bank account</option><option value="card_only">Credit card only</option></select></label>
         </div>
@@ -1784,7 +1829,7 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
             {!todoQuery.trim() && <p>Start typing to find a to-do by its text, group, status, or other details.</p>}
             {todoQuery.trim() && !todoMatches.length && <p>No to-dos match that search.</p>}
           </div>
-          {todoLines.length > 0 && <div className="invoice-create-selected-todos">{todoLines.map((line) => <div key={line.personalTaskId}><span><strong>{line.description}</strong><small>To-do #{line.personalTaskId}</small></span><label>Invoice price ({normalizedCurrency})<input value={line.amount} inputMode="decimal" required disabled={saving} onChange={(event) => setTodoLines((current) => current.map((candidate) => candidate.personalTaskId === line.personalTaskId ? { ...candidate, amount: event.target.value } : candidate))} placeholder="0.00" /></label><button type="button" disabled={saving} onClick={() => setTodoLines((current) => current.filter((candidate) => candidate.personalTaskId !== line.personalTaskId))}>Remove</button></div>)}</div>}
+          {todoLines.length > 0 && <div className="invoice-create-selected-todos">{todoLines.map((line) => <div key={line.personalTaskId}><span><strong>{line.description}</strong><small>To-do #{line.personalTaskId}</small></span><label>Invoice price ({normalizedCurrency}) <span className="field-hint">Optional</span><input value={line.amount} inputMode="decimal" disabled={saving} onChange={(event) => setTodoLines((current) => current.map((candidate) => candidate.personalTaskId === line.personalTaskId ? { ...candidate, amount: event.target.value } : candidate))} placeholder="Leave blank" /></label><button type="button" disabled={saving} onClick={() => setTodoLines((current) => current.filter((candidate) => candidate.personalTaskId !== line.personalTaskId))}>Remove</button></div>)}</div>}
         </section>
         <section className="invoice-create-source">
           <header><div><p className="eyebrow">Additional charges</p><h3>Manual lines</h3></div><button className="button button--quiet" type="button" disabled={saving || todoLines.length + manualLines.length >= 100} onClick={addManualLine}>Add manual line</button></header>
@@ -1792,17 +1837,18 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
           {!manualLines.length && <p className="invoice-create-empty">No manual lines added.</p>}
         </section>
         {loading && <p className="object-editor-state">Loading contacts and to-dos…</p>}
-        {!loading && !receivableContacts.length && <p className="object-editor-state">Add an active contact with a receivable email address before creating an invoice.</p>}
+        <p className="object-editor-note">You only need one line to start. Payer, due date, and prices can be filled in later.</p>
       {Boolean(loadError) && <p className="form-error" role="alert">{loadError instanceof Error ? loadError.message : "Could not load invoice sources."}</p>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <footer className="object-editor-actions"><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="button" type="submit" disabled={saving || loading || !contactId || !hasLineSource}>{saving ? "Preparing…" : "Create preview"}</button></footer>
+        <footer className="object-editor-actions"><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="button" type="submit" disabled={saving || loading || !hasLineSource}>{saving ? "Creating…" : "Create draft"}</button></footer>
       </form>
     </section>
   </div>;
 }
 
-function InvoiceEditor({ invoice, onClose, onChanged }: {
+function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
   invoice: Entity;
+  contacts: Entity[];
   onClose: () => void;
   onChanged: (invoice: Entity) => void | Promise<void>;
 }) {
@@ -1820,6 +1866,8 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
     isNew: false,
   })));
   const [paymentMethodPolicy, setPaymentMethodPolicy] = useState(textKey(invoice, "paymentMethodPolicy") || "ach_only");
+  const [contactId, setContactId] = useState(readKey(invoice, "payerContactId") == null ? "" : String(readKey(invoice, "payerContactId")));
+  const [dueOn, setDueOn] = useState(textKey(invoice, "dueOn"));
   const [description, setDescription] = useState(textKey(invoice, "description"));
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
@@ -1829,21 +1877,30 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
   const [error, setError] = useState("");
   const status = textKey(invoice, "status");
   const expired = Date.parse(textKey(invoice, "preparationExpiresAtUtc")) <= Date.now();
-  const editable = status === "prepared" && !invoice.stripeInvoiceId && !expired;
+  const editable = status === "prepared" && !invoice.stripeInvoiceId;
+  const originalContactId = readKey(invoice, "payerContactId") == null ? "" : String(readKey(invoice, "payerContactId"));
+  const selectedContact = contacts.find((contact) => String(contact.id) === contactId) ?? null;
+  const payerEmail = contactId === originalContactId
+    ? textKey(invoice, "payerEmail")
+    : selectedContact ? invoiceContactEmail(selectedContact) : "";
+  const hasBlankPrices = lines.some((line) => !line.amount.trim());
+  const sendReady = Boolean(contactId && payerEmail && dueOn && !hasBlankPrices);
   const sendable = ["prepared", "failed", "sending"].includes(status)
-    && (!expired || Boolean(invoice.stripeInvoiceId));
+    && sendReady && (!expired || Boolean(invoice.stripeInvoiceId));
   const busy = saving || sending || openingPdf || downloadingPdf;
   const editingLocked = busy || confirmingSend;
   const draftTotal = useMemo(() => {
-    try { return lines.reduce((sum, line) => sum + invoiceAmountMinor(line.amount, currency), 0); }
+    try { return lines.reduce((sum, line) => sum + invoiceDraftAmountMinor(line.amount, currency), 0); }
     catch { return null; }
   }, [currency, lines]);
-  const hasChanges = paymentMethodPolicy !== textKey(invoice, "paymentMethodPolicy")
+  const hasChanges = contactId !== originalContactId
+    || dueOn !== textKey(invoice, "dueOn")
+    || paymentMethodPolicy !== textKey(invoice, "paymentMethodPolicy")
     || description.trim() !== textKey(invoice, "description").trim()
     || lines.some((line) => {
     const source = sourceLines.find((candidate) => Number(readKey(candidate, "position")) === line.position);
     if (!source || textKey(source, "description") !== line.description.trim()) return true;
-    try { return Number(readKey(source, "amountMinor")) !== invoiceAmountMinor(line.amount, currency); }
+    try { return Number(readKey(source, "amountMinor")) !== invoiceDraftAmountMinor(line.amount, currency); }
     catch { return true; }
   });
   useEffect(() => {
@@ -1896,12 +1953,14 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
         method: "PATCH",
         body: JSON.stringify({
           previewDigest: textKey(invoice, "previewDigest"),
+          contactId: contactId ? Number(contactId) : null,
+          dueOn: dueOn || null,
           paymentMethodPolicy,
           description: description.trim() || null,
           lines: lines.map((line) => ({
             position: line.position,
             description: line.description.trim(),
-            amountMinor: invoiceAmountMinor(line.amount, currency),
+            amountMinor: invoiceDraftAmountMinor(line.amount, currency),
           })),
         }),
       });
@@ -1977,12 +2036,16 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
   return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
     <section className="object-editor invoice-editor" role="dialog" aria-modal="true" aria-labelledby="invoice-editor-title">
       <form onSubmit={(event) => void save(event)}>
-        <header className="object-editor-heading"><div><p className="eyebrow">Invoice #{invoiceId}</p><h2 id="invoice-editor-title">{textKey(invoice, "payerName")}</h2></div><button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>Close</button></header>
+        <header className="object-editor-heading"><div><p className="eyebrow">Invoice #{invoiceId}</p><h2 id="invoice-editor-title">{textKey(invoice, "payerName") || "Invoice draft"}</h2></div><button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>Close</button></header>
+        <div className="invoice-create-grid">
+          <label>Payer <span className="field-hint">Optional until sending</span><select value={contactId} disabled={!editable || editingLocked} onChange={(event) => setContactId(event.target.value)}><option value="">No payer selected</option>{contacts.map((contact) => <option value={String(contact.id)} key={String(contact.id)}>{textKey(contact, "displayName")}{invoiceContactEmail(contact) ? ` — ${invoiceContactEmail(contact)}` : " — no receivable email"}</option>)}</select></label>
+          <label>Due date <span className="field-hint">Optional until sending</span><input type="date" min={localToday()} value={dueOn} disabled={!editable || editingLocked} onChange={(event) => setDueOn(event.target.value)} /></label>
+        </div>
         <div className="invoice-editor-summary">
-          <div><span>Email</span><strong>{textKey(invoice, "payerEmail")}</strong></div>
-          <div><span>Due</span><strong>{formatLocalDate(textKey(invoice, "dueOn"))}</strong></div>
+          <div><span>Email</span><strong>{payerEmail || "Not set"}</strong></div>
+          <div><span>Due</span><strong>{dueOn ? formatLocalDate(dueOn) : "Not set"}</strong></div>
           <div><span>Status</span><strong>{textKey(invoice, "status")}</strong></div>
-          <div><span>Total</span><strong>{draftTotal == null ? "—" : formatInvoiceMoney(draftTotal, currency)}</strong></div>
+          <div><span>Total</span><strong>{draftTotal == null || hasBlankPrices ? "Not fully priced" : formatInvoiceMoney(draftTotal, currency)}</strong></div>
         </div>
         <label className="invoice-editor-description"><span>Invoice description <small>Optional</small></span><textarea value={description} maxLength={1000} readOnly={!editable || editingLocked} onChange={(event) => setDescription(event.target.value)} placeholder="What this invoice covers" /></label>
         <label className="invoice-payment-methods"><span>Payment methods</span><select value={paymentMethodPolicy} disabled={!editable || editingLocked} onChange={(event) => setPaymentMethodPolicy(event.target.value)}>
@@ -1995,17 +2058,16 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
           {lines.map((line, index) => <article className="invoice-line-editor" key={line.position}>
             <div className="invoice-line-heading"><span>Line {line.position}</span><div className="invoice-line-heading-actions"><strong>{line.isNew ? "New manual line" : line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong>{line.isNew && <button type="button" disabled={editingLocked} onClick={() => removeNewLine(line.position)}>Remove</button>}</div></div>
             <label className="invoice-line-description">Description<textarea value={line.description} maxLength={1000} required readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { description: event.target.value })} /></label>
-            <label className="invoice-line-amount">Amount ({currency})<input type="text" inputMode="decimal" value={line.amount} required readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { amount: event.target.value })} /></label>
+            <label className="invoice-line-amount">Amount ({currency}) <span className="field-hint">Optional until sending</span><input type="text" inputMode="decimal" value={line.amount} readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { amount: event.target.value })} placeholder="Leave blank" /></label>
           </article>)}
         </div>
         {editable
-          ? <p className="object-editor-note">Saving creates a new preview digest and expiry. Any earlier send confirmation will no longer work.</p>
-          : <p className="object-editor-state">{expired && textKey(invoice, "status") === "prepared"
-            ? "This local preview expired, so it is read-only. Prepare a new invoice to continue."
-            : "This invoice has left local preview status, so its line snapshots are read-only."}</p>}
+          ? <p className="object-editor-note">Payer, due date, and every price are required only when you send. Saving creates a new preview digest and expiry, invalidating any earlier send confirmation.</p>
+          : <p className="object-editor-state">This invoice has left local preview status, so its details and line snapshots are read-only.</p>}
+        {editable && !sendReady && <p className="object-editor-state">This draft is saved. Add a payer with a receivable email, a due date, and every line price before sending.</p>}
         {sendable && hasChanges && <p className="object-editor-state">Save your line changes before previewing, downloading, or sending this invoice.</p>}
         {confirmingSend && <section className="invoice-send-confirmation" aria-label="Confirm invoice send">
-          <p>Send <strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), currency)}</strong> to <strong>{textKey(invoice, "payerName")}</strong> at <strong>{textKey(invoice, "payerEmail")}</strong>, due {formatLocalDate(textKey(invoice, "dueOn"))}, accepting <strong>{invoicePaymentMethodLabel(paymentMethodPolicy).toLowerCase()}</strong>?</p>
+          <p>Send <strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), currency)}</strong> to <strong>{selectedContact ? textKey(selectedContact, "displayName") : textKey(invoice, "payerName")}</strong> at <strong>{payerEmail}</strong>, due {formatLocalDate(dueOn)}, accepting <strong>{invoicePaymentMethodLabel(paymentMethodPolicy).toLowerCase()}</strong>?</p>
           <div><button className="button button--quiet" type="button" disabled={sending} onClick={() => setConfirmingSend(false)}>Not yet</button><button className="button" type="button" disabled={sending} onClick={() => void send()}>{sending ? "Sending…" : "Yes, send invoice"}</button></div>
         </section>}
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -2086,8 +2148,8 @@ function PaymentsScreen() {
     <div className="invoice-history-list">{invoices.map((invoice) => <article className="invoice-list-row" key={String(invoice.invoiceId)}>
       <button className="invoice-list-open" type="button" onClick={() => setSelectedInvoice(invoice)}>
         <div className="invoice-list-status"><span className="pill">{textKey(invoice, "status")}</span><span>#{String(invoice.invoiceId)}</span></div>
-        <div className="invoice-list-copy"><h2>{textKey(invoice, "payerName")}</h2><p>{textKey(invoice, "payerEmail")}</p><small>{textKey(invoice, "description") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`}</small></div>
-        <div className="invoice-list-money"><strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), textKey(invoice, "currency"))}</strong><span>Due {formatLocalDate(textKey(invoice, "dueOn"))}</span></div>
+        <div className="invoice-list-copy"><h2>{textKey(invoice, "payerName") || "Payer not set"}</h2><p>{textKey(invoice, "payerEmail") || "Email not set"}</p><small>{textKey(invoice, "description") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`}</small></div>
+        <div className="invoice-list-money"><strong>{Number(readKey(invoice, "amountMinor")) > 0 ? formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), textKey(invoice, "currency")) : "Not priced"}</strong><span>{textKey(invoice, "dueOn") ? `Due ${formatLocalDate(textKey(invoice, "dueOn"))}` : "Due date not set"}</span></div>
         <div className="invoice-list-created"><span>Created</span><strong>{formatDisplayDate(textKey(invoice, "createdAtUtc"))}</strong></div>
         <span className="invoice-list-action">View invoice</span>
       </button>
@@ -2096,6 +2158,7 @@ function PaymentsScreen() {
     {selectedInvoice && <InvoiceEditor
       key={`${String(selectedInvoice.invoiceId)}:${textKey(selectedInvoice, "previewDigest")}`}
       invoice={selectedInvoice}
+      contacts={contactData?.contacts ?? []}
       onClose={() => setSelectedInvoice(null)}
       onChanged={async (updated) => { setSelectedInvoice(updated); await reloadInvoices(); }}
     />}

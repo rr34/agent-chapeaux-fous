@@ -16,7 +16,7 @@ const toolDescriptions = Object.freeze({
   },
   payment_invoice_prepare: {
     protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Create a local invoice preview from to-dos with stored or explicit invoice prices, manual lines, or both and a payer contact, returning the exact final-confirmation handoff.",
+    summary: "Create an editable local invoice draft from one or more to-do or manual lines. Prices, payer, and due date may be left blank; a send-ready draft returns the exact final-confirmation handoff.",
     actionClasses: ["CREATE"], effectClassifications: ["MUTATING"],
   },
   payment_invoice_send: {
@@ -30,7 +30,7 @@ const lineSchema = {
   type: "object", properties: {
     lineSource: { type: "string", enum: ["todo", "manual"] },
     personalTaskId: { type: ["integer", "null"] }, position: { type: "integer" },
-    description: { type: "string" }, amountMinor: { type: "integer" },
+    description: { type: "string" }, amountMinor: { type: "integer", minimum: 0 },
   },
 };
 
@@ -39,9 +39,9 @@ const invoiceSchema = {
   description: "One native invoice whose current line descriptions and prices snapshot selected to-dos, manual lines, or both. Prepared previews may be revised in the Payments UI; sending makes them immutable.",
   properties: {
     invoiceId: { type: "integer" }, ref: { type: "string" }, display: { type: "string" },
-    payerContactId: { type: "integer" }, payerName: { type: "string" }, payerEmail: { type: "string" },
+    payerContactId: { type: ["integer", "null"] }, payerName: { type: ["string", "null"] }, payerEmail: { type: ["string", "null"] },
     status: { type: "string" }, currency: { type: "string" }, amountMinor: { type: "integer" },
-    dueOn: { type: "string" }, paymentMethodPolicy: { type: "string" },
+    dueOn: { type: ["string", "null"] }, paymentMethodPolicy: { type: "string" },
     description: { type: ["string", "null"] }, previewDigest: { type: "string" },
     preparationExpiresAtUtc: { type: "string" }, stripeInvoiceId: { type: ["string", "null"] },
     processorStatus: { type: ["string", "null"] }, hostedInvoiceUrl: { type: ["string", "null"] },
@@ -97,10 +97,11 @@ export function registerPaymentTools(registry, payments) {
   registry.register({
     name: "payment_invoice_prepare",
     confirmationHandoff: true,
-    description: "Prepare a local invoice preview from exact to-dos using their stored prices or explicit invoice-only prices, explicit manual lines, or both and one payer contact. This does not contact the payer or change a to-do's stored price. The returned exact handoff requires a separate user confirmation before sending; a Payments UI revision invalidates that handoff.",
+    description: "Create an editable local invoice draft with at least one exact to-do or manual line. Line prices, payer, and due date may be omitted and completed later in Payments. This does not require Stripe, contact the payer, or change a to-do's stored price. Only a send-ready result includes an exact confirmation handoff.",
     outputSchema: { type: "object", properties: {
       contractVersion: { type: "integer" }, status: { type: "string" }, expiresAt: { type: "string" },
-      invoice: invoiceSchema, nextAction: { type: "object" },
+      invoice: invoiceSchema, missingFields: { type: "array", items: { type: "string" } },
+      nextAction: { type: ["object", "null"] },
     } },
     parameters: { type: "object", additionalProperties: false, properties: {
       personal_task_ids: { type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
@@ -108,22 +109,23 @@ export function registerPaymentTools(registry, payments) {
       todo_lines: { type: "array", minItems: 1, maxItems: 100, items: {
         type: "object", additionalProperties: false, properties: {
           personal_task_id: { type: "integer", minimum: 1 },
-          amount_minor: { type: "integer", minimum: 1 },
+          amount_minor: { type: "integer", minimum: 0 },
           currency: { type: "string", pattern: "^[A-Z]{3}$" },
-        }, required: ["personal_task_id", "amount_minor", "currency"],
+        }, required: ["personal_task_id"],
       } },
       manual_lines: { type: "array", minItems: 1, maxItems: 100, items: {
         type: "object", additionalProperties: false, properties: {
           description: { type: "string", minLength: 1, maxLength: 1000 },
-          amount_minor: { type: "integer", minimum: 1 },
+          amount_minor: { type: "integer", minimum: 0 },
           currency: { type: "string", pattern: "^[A-Z]{3}$" },
-        }, required: ["description", "amount_minor", "currency"],
+        }, required: ["description"],
       } },
       contact_id: { type: "integer", minimum: 1 },
       due_on: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+      currency: { type: "string", pattern: "^[A-Z]{3}$" },
       payment_method_policy: { type: "string", enum: ["ach_only", "card_only", "card_and_ach"] },
       description: { type: ["string", "null"], maxLength: 1000 },
-    }, required: ["contact_id", "due_on"], anyOf: [
+    }, required: [], anyOf: [
       { required: ["personal_task_ids"] },
       { required: ["todo_lines"] },
       { required: ["manual_lines"] },

@@ -27,6 +27,17 @@ test("plain Enter sends an Agent request while Shift+Enter keeps a newline", () 
   assert.match(objectMentionInput, /event\.preventDefault\(\);\s*event\.currentTarget\.form\?\.requestSubmit\(\);/s);
 });
 
+test("the Agent request editor can expand to the viewport without replacing its textarea", () => {
+  const composer = app.slice(app.indexOf("function AgentComposer("), app.indexOf("function AgentScreen("));
+  assert.match(composer, /const \[composerExpanded, setComposerExpanded\] = useState\(false\)/);
+  assert.match(composer, /aria-label=\{composerExpanded \? "Collapse request editor" : "Expand request editor to fill the screen"\}/);
+  assert.match(composer, /event\.key !== "Escape" \|\| event\.defaultPrevented \|\| runLimitsOpen/);
+  assert.match(composer, /setComposerExpanded\(false\)/);
+  assert.equal((composer.match(/<ObjectMentionInput/g) || []).length, 1);
+  assert.match(styles, /\.composer\.expanded \{[^}]*inset: 0[^}]*height: 100dvh[^}]*max-width: none/s);
+  assert.match(styles, /\.composer\.expanded textarea \{[^}]*height: 100%[^}]*resize: none/s);
+});
+
 test("the recorder uses the tuned microphone, live input meter, and elapsed-time presentation", () => {
   assert.match(app, /record-button/);
   assert.match(app, /className="record-microphone"/);

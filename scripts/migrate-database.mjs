@@ -319,6 +319,35 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 51) {
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND (
+        (TABLE_NAME = 'payment_invoices' AND COLUMN_NAME IN ('payer_contact_id','due_on','payer_name_snapshot','payer_email_snapshot','amount_minor'))
+        OR (TABLE_NAME = 'payment_invoice_lines' AND COLUMN_NAME = 'amount_minor_snapshot'))`, [databaseName]);
+    const byName = new Map(columns.map((row) => [`${row.TABLE_NAME}.${row.COLUMN_NAME}`, row]));
+    for (const name of ["payer_contact_id", "due_on", "payer_name_snapshot", "payer_email_snapshot"]) {
+      if (byName.get(`payment_invoices.${name}`)?.IS_NULLABLE !== "YES") {
+        throw new Error(`Migration 0051 must allow payment_invoices.${name} to be null`);
+      }
+    }
+    for (const name of ["payment_invoices.amount_minor", "payment_invoice_lines.amount_minor_snapshot"]) {
+      const column = byName.get(name);
+      if (column?.IS_NULLABLE !== "NO" || Number(column.COLUMN_DEFAULT) !== 0) {
+        throw new Error(`Migration 0051 must default ${name} to zero`);
+      }
+    }
+    const [constraints] = await connection.query(`SELECT CONSTRAINT_NAME, CHECK_CLAUSE
+      FROM information_schema.CHECK_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ? AND CONSTRAINT_NAME IN ('payment_invoices_amount','payment_invoice_lines_amount')`, [databaseName]);
+    const checks = new Map(constraints.map((row) => [row.CONSTRAINT_NAME, String(row.CHECK_CLAUSE).replaceAll("`", "")]));
+    if (!/>=\s*0/u.test(checks.get("payment_invoices_amount") ?? "")) {
+      throw new Error("Migration 0051 must allow zero payment_invoices.amount_minor");
+    }
+    if (!/>=\s*0/u.test(checks.get("payment_invoice_lines_amount") ?? "")) {
+      throw new Error("Migration 0051 must allow zero payment_invoice_lines.amount_minor_snapshot");
+    }
+  }
   if (migration.version === 50) {
     const [columns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
       FROM information_schema.COLUMNS

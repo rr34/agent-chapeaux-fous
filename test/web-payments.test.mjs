@@ -17,12 +17,15 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.match(appSource, /Type to search all to-dos/);
   assert.match(appSource, /Invoice price \(\{normalizedCurrency\}\)/);
   assert.match(appSource, /No saved price/);
-  assert.match(appSource, /Create preview/);
+  assert.match(appSource, /Create draft/);
+  assert.match(appSource, /You only need one line to start\. Payer, due date, and prices can be filled in later\./);
+  assert.match(appSource, /contactId: contactId \? Number\(contactId\) : null/);
+  assert.match(appSource, /dueOn: dueOn \|\| null/);
   assert.match(appSource, /useApi<\{ stripe: StripeConnectionStatus \}>\("\/api\/payments\/stripe\/status"\)/);
   assert.match(appSource, /api<\{ url: string \}>\("\/api\/payments\/stripe\/oauth\/start", \{ method: "POST" \}\)/);
   assert.match(appSource, /window\.location\.assign\(result\.url\)/);
   assert.match(appSource, /useApi<\{ count: number; invoices: Entity\[\] \}>\("\/api\/payment-invoices\?limit=100"\)/);
-  assert.match(appSource, /Due \{formatLocalDate\(textKey\(invoice, "dueOn"\)\)\}/);
+  assert.match(appSource, /"Due date not set"/);
   assert.match(appSource, /Open Stripe/);
   assert.match(appSource, /function InvoiceEditor\(/);
   assert.match(appSource, /View invoice/);
