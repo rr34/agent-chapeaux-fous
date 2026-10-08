@@ -4,7 +4,7 @@
   "version": 1,
   "id": "payments",
   "title": "Payments",
-  "summary": "Prepare, explicitly confirm, send, and track Stripe-hosted invoices containing immutable priced to-do snapshots, manual lines, or both.",
+  "summary": "Prepare and revise local invoice previews, then explicitly confirm, send, and track Stripe-hosted invoices containing priced to-do snapshots, manual lines, or both.",
   "aliases": [
     "payment",
     "invoice",

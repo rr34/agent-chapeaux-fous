@@ -1,9 +1,9 @@
 Pod::Spec.new do |s|
   s.name           = 'ChapeauxNative'
   s.version        = '0.1.0'
-  s.summary        = 'Phone-native Time V3 Agent actions'
-  s.description    = 'Explicit user-invoked phone actions for Time V3 Agent.'
-  s.author         = 'Time V3'
+  s.summary        = 'Phone-native Time v3 Agent actions'
+  s.description    = 'Explicit user-invoked phone actions for Time v3 Agent.'
+  s.author         = 'Time v3'
   s.homepage       = 'https://docs.expo.dev/modules/'
   s.platforms      = { :ios => '16.4' }
   s.source         = { git: '' }

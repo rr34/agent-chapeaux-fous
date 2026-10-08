@@ -84,7 +84,7 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     ...integerIdentity,
     capabilityId: "payments", source: "native:payments", readTool: "payment_invoice_list",
     id: "payments.invoice", searchType: null, table: "payment_invoices", key: "payment_invoice_id",
-    title: "Payment invoice", summary: "One prepared or sent native invoice backed by immutable task or manual line snapshots.",
+    title: "Payment invoice", summary: "One editable local preview or sent native invoice backed by task or manual line snapshots.",
     aliases: ["payment invoice", "invoice", "bill"],
     identity: field("invoiceId", "Stable native payment-invoice primary ID."),
     reference: field("ref", "Stable Agent Slayer payment-invoice reference."),

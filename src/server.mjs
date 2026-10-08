@@ -223,7 +223,7 @@ function sendOAuthPage(response, statusCode, { title, message, redirect = false 
   const escapedMessage = String(message).replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
   })[character]);
-  const body = Buffer.from(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapedTitle}</title><body><main><h1>${escapedTitle}</h1><p>${escapedMessage}</p><p><a href="/app">Return to Time V3 Agent</a></p></main>${redirect ? '<script>setTimeout(() => location.replace("/app?oauth=connected"), 800)</script>' : ""}</body></html>`);
+  const body = Buffer.from(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapedTitle}</title><body><main><h1>${escapedTitle}</h1><p>${escapedMessage}</p><p><a href="/app">Return to Time v3 Agent</a></p></main>${redirect ? '<script>setTimeout(() => location.replace("/app?oauth=connected"), 800)</script>' : ""}</body></html>`);
   response.writeHead(statusCode, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": body.length,
@@ -282,7 +282,7 @@ function authorized(request) {
 
 function requireAuthorization(request, response) {
   if (authorized(request)) return true;
-  sendJson(response, 401, { error: "A valid Time V3 Agent access token is required" });
+  sendJson(response, 401, { error: "A valid Time v3 Agent access token is required" });
   return false;
 }
 
@@ -472,6 +472,15 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/api/payment-invoices/prepare") {
       sendJson(response, 201, await payments.prepareInvoice(
         await readJson(request), { actorType: "user", actorName: "payments_page" },
+      ));
+      return;
+    }
+    const paymentInvoiceMatch = /^\/api\/payment-invoices\/(\d+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && paymentInvoiceMatch) {
+      sendJson(response, 200, payments.updatePreparedInvoice(
+        Number(paymentInvoiceMatch[1]),
+        await readJson(request),
+        { actorType: "user", actorName: "payments_page" },
       ));
       return;
     }

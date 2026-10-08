@@ -138,11 +138,11 @@ test("focused self-knowledge returns facts and sources without prepared answer t
   const takeover = await registry.execute("agent_self_knowledge", { topic: "world_takeover" });
   const video = await registry.execute("agent_self_knowledge", { topic: "video_generation" });
   const videoForUser = await registry.execute("agent_self_knowledge", { topic: "video_user_creation" });
-  assert.match(identity.facts.join("\n"), /public name is Time V3 Agent/);
+  assert.match(identity.facts.join("\n"), /public name is Time v3 Agent/);
   assert.match(identity.facts.join("\n"), /illuminates reality/);
   assert.match(identity.facts.join("\n"), /MariaDB/);
   assert.match(interaction.facts.join("\n"), /does not need a hat/);
-  assert.match(interaction.facts.join("\n"), /Time V3 Agent, as my \{hat\}, \{request\}/);
+  assert.match(interaction.facts.join("\n"), /Time v3 Agent, as my \{hat\}, \{request\}/);
   assert.match(interaction.facts.join("\n"), /email hat[^\n]+currently backed by a callable tool family/);
   assert.match(interaction.facts.join("\n"), /weatherman hat/);
   assert.match(interaction.facts.join("\n"), /not currently backed by a callable tool family/);
@@ -171,7 +171,7 @@ test("self-description returns source-referenced architecture and a live callabl
   assert.match(result.currentRequest.explanation, /faster-whisper/);
   assert.equal(result.runtime.model, "test-model");
   assert.equal(result.runtime.publicOriginKind, "configured_tailscale_https_origin");
-  assert.equal(result.selfKnowledge.identity.publicName, "Time V3 Agent");
+  assert.equal(result.selfKnowledge.identity.publicName, "Time v3 Agent");
   assert.doesNotMatch(JSON.stringify(result.selfKnowledge), /\b(?:playful|persona)\b/iu);
   assert.doesNotMatch(JSON.stringify(result.selfKnowledge), /(?:shapofu|chapofu|chapo fu|chapeau faux)/iu);
   assert.match(result.selfKnowledge.physicalInfrastructure.host, /hwsrv-1263600/);

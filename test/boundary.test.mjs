@@ -65,7 +65,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.doesNotMatch(baseInstructions, /TLOM/i);
   assert.doesNotMatch(baseInstructions, /personal to-dos|native JMAP|contact_dedupe_clear/);
   assert.ok(baseInstructions.length < 4000, `universal prompt grew to ${baseInstructions.length} characters`);
-  assert.match(baseInstructions, /You are Time V3 Agent/);
+  assert.match(baseInstructions, /You are Time v3 Agent/);
   assert.match(baseInstructions, /your only self-name/);
   assert.match(baseInstructions, /Never infer or\s+announce a hat the user did not speak/);
   assert.match(baseInstructions, /inspect its metadata, visible structure,\s+headers, and relevant records/);

@@ -491,6 +491,173 @@ test("an accepted account binding constrains and guards the later tool ID", asyn
   assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), true);
 });
 
+test("whitespace-only binding drift is canonicalized before validation without shrinking the batch", async () => {
+  const requests = [];
+  const recentEvidence = [35300, 35322, 35374, 35410, 35464];
+  const subjectBindings = [{
+    mention: "To-do returned by todo_list", role: "subject", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{
+      id: 360, ref: "agent-slayer://todos/360",
+      display: "Mount bathroom holders\nAddress: 73 E Patterson Ave",
+    }],
+    sourceEventSeqs: [35197, ...recentEvidence],
+  }, {
+    mention: "To-do returned by todo_list", role: "subject", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{
+      id: 386, ref: "agent-slayer://todos/386",
+      display: "Install drywall Address: 73 E Patterson Ave",
+    }],
+    sourceEventSeqs: [35220, 35263, ...recentEvidence],
+  }, {
+    mention: "To-do returned by todo_list", role: "subject", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{
+      id: 359, ref: "agent-slayer://todos/359",
+      display: "Fix bathroom door\nAddress: 73 E Patterson Ave",
+    }, {
+      id: 361, ref: "agent-slayer://todos/361",
+      display: "Wire exhaust fan\nAddress: 73 E Patterson Ave",
+    }, {
+      id: 364, ref: "agent-slayer://todos/364",
+      display: "Take down the sign\nAddress: 217 E Oakland",
+    }],
+    sourceEventSeqs: recentEvidence,
+  }];
+  const olderRoleBinding = {
+    mention: "Five selected invoice task to-dos", role: "invoice_line_source",
+    type: "todos.personal_task", source: "native:todos",
+    objects: [{
+      id: 386, ref: "agent-slayer://todos/386",
+      display: "Install drywall Address: 73 E Patterson Ave",
+    }, {
+      id: 359, ref: "agent-slayer://todos/359",
+      display: "Fix bathroom door Address: 73 E Patterson Ave",
+    }, {
+      id: 361, ref: "agent-slayer://todos/361",
+      display: "Wire exhaust fan Address: 73 E Patterson Ave",
+    }, {
+      id: 360, ref: "agent-slayer://todos/360",
+      display: "Mount bathroom holders Address: 73 E Patterson Ave",
+    }],
+    sourceEventSeqs: [35069, 35197, 35220, 35263],
+  };
+  const candidateBinding = {
+    ...olderRoleBinding,
+    role: "invoice_line_source",
+    objects: [
+      ...olderRoleBinding.objects,
+      {
+        id: 364, ref: "agent-slayer://todos/364",
+        display: "Take down the sign Address: 217 E Oakland",
+      },
+    ],
+    sourceEventSeqs: recentEvidence,
+  };
+  const ledger = fakeLedger({ conversation: [{
+    eventSeq: 4,
+    requestId: "request-prior",
+    occurredAtUtc: "2026-10-07T16:34:54Z",
+    role: "assistant",
+    content: "I verified the five selected tasks.",
+    objectReferences: [...subjectBindings, olderRoleBinding],
+  }] });
+  const registry = new ToolRegistry();
+  registry.registerCapability({
+    id: "payments", title: "Payments", summary: "Prepare invoice previews.",
+  });
+  let calls = 0;
+  registry.register({
+    name: "test_invoice_preview",
+    description: "Preview an invoice from exact selected tasks.",
+    source: "local",
+    capabilityId: "payments",
+    annotations: { readOnlyHint: true },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        personal_task_ids: {
+          type: "array", minItems: 1, items: { type: "integer", minimum: 1 },
+        },
+      },
+      required: ["personal_task_ids"],
+    },
+    metadata: {
+      [objectInputBindingsMetadataKey]: {
+        protocol: "agent-slayer.object-input-bindings",
+        version: 1,
+        bindings: [{
+          path: "/personal_task_ids/*",
+          objectType: "todos.personal_task",
+          value: "id",
+          role: "invoice_line_source",
+        }],
+      },
+    },
+    async execute({ personal_task_ids }) {
+      calls += 1;
+      return { personal_task_ids };
+    },
+  });
+  const candidate = {
+    ...brief({ auditRequired: false }),
+    requestType: "continuation",
+    objective: "Preview the invoice from the five selected tasks.",
+    summary: "Use all five selected invoice tasks.",
+    requiredCapabilities: ["payments"],
+    requiredTools: ["test_invoice_preview"],
+    objectReferences: [candidateBinding],
+    requestedActions: [],
+    completionCriteria: ["Preview tasks 386, 359, 361, 360, and 364."],
+  };
+  const runtime = new SlayerRuntime({
+    modelTransport: transport(async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(candidate), 20);
+      assert.equal(index, 1, "a formatting-only mismatch must not trigger model repair");
+      assert.deepEqual(
+        payload.tools[0].inputSchema.properties.personal_task_ids.items.enum,
+        [386, 359, 361, 360, 364],
+      );
+      const result = await payload.onToolCall({
+        callId: "preview-invoice",
+        tool: "test_invoice_preview",
+        arguments: {
+          personal_task_ids: [386, 359, 361, 360, 364],
+          result_filter: identityResultFilter(),
+        },
+      });
+      assert.equal(result.ok, true, JSON.stringify(result));
+      return completed("Previewed all five tasks.", 30);
+    }, requests),
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+
+  assert.equal(await runtime.run({
+    requestId: "request-canonical-binding",
+    requestEventId: "event-current",
+    text: "Preview the invoice with those five selected tasks.",
+  }), "Previewed all five tasks.");
+  assert.equal(calls, 1);
+  assert.equal(requests.length, 2);
+  const canonicalized = ledger.events.find(
+    ({ type }) => type === "turn.brief.object_references.canonicalized",
+  );
+  assert.equal(canonicalized.payload.corrections.length, 2);
+  const accepted = ledger.events.find(({ type }) => type === "turn.brief").payload.brief;
+  assert.deepEqual(accepted.objectReferences[0].objects.map(({ id }) => id), [386, 359, 361, 360, 364]);
+  assert.equal(accepted.objectReferences[0].objects[4].display, subjectBindings[2].objects[2].display);
+  assert.deepEqual(accepted.objectReferences[0].sourceEventSeqs, [
+    35069, 35197, 35220, 35263, ...recentEvidence,
+  ]);
+});
+
 test("an explicitly referenced exchange deterministically excludes stale same-named IDs", async () => {
   const requests = [];
   const staleBinding = {

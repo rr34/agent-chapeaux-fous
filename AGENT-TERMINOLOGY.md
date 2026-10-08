@@ -91,7 +91,7 @@ responses in the same chronological ledger.
 from runtime state and **19. Agent activity ledger**, including the compact live
 elapsed-time and current-stage display.
 
-**24. TimeV3 MCP server** — A possible controlled TimeV3 tool boundary. It is
+**24. Time v3 MCP server** — A possible controlled Time v3 tool boundary. It is
 retained in the vocabulary but is not currently configured.
 
 **25. Video-production service** — The native domain that packages explicitly

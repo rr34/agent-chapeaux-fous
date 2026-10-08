@@ -1,6 +1,6 @@
-# Time V3 Agent
+# Time v3 Agent
 
-Time V3 Agent is a small, inspectable model-and-tools application. The internal
+Time v3 Agent is a small, inspectable model-and-tools application. The internal
 repository and compatibility identifiers still use `agent-slayer`. It is not an
 agent framework and has no plugin host. The request compiler, tool registry,
 MariaDB ledger, and web client are provider-neutral. The installed transport is the
@@ -43,7 +43,7 @@ against those accepted local-date targets before beginning their transactions.
 Users may make one or more roles explicit with the convention:
 
 ```text
-Time V3 Agent, as my [hat], [request].
+Time v3 Agent, as my [hat], [request].
 ```
 
 Hats are optional and are never inferred. Requests without a spoken hat use the
@@ -58,7 +58,7 @@ only for hats the user explicitly spoke; it does not place the hats on a
 character. With several spoken hats, it shows the first at full size and the
 others as companion badges.
 
-The same catalog also grounds chat answers about how to interact with Time V3
+The same catalog also grounds chat answers about how to interact with Time v3
 Agent and how the hats system works. The focused read-only self-knowledge tool
 returns the manual rules, invocation form, examples, and registry-derived live
 availability as facts; the model answers the user's particular question in
@@ -585,7 +585,7 @@ The creation tools ask the model only for the selected
 request IDs, a concise title, and a one- or two-sentence description of the
 conversation. The application then builds the portable script and external
 generator prompt deterministically: a clear description that the video depicts
-a user interacting with Time V3 Agent, an AI agent, followed by the projected
+a user interacting with Time v3 Agent, an AI agent, followed by the projected
 chronological conversation. Neither artifact includes trace events, processing,
 tool activity, a production brief, or an intermediate scene plan.
 

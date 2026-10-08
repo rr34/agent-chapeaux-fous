@@ -3,6 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 
 const appSource = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
+const serverSource = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 
 test("the React workspace exposes Stripe connection status and invoice history", () => {
   assert.match(appSource, /\["payments", "Payments"\], \["ai-usage", "AI Usage"\]/);
@@ -13,4 +14,11 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.match(appSource, /useApi<\{ count: number; invoices: Entity\[\] \}>\("\/api\/payment-invoices\?limit=100"\)/);
   assert.match(appSource, /Due \{formatLocalDate\(textKey\(invoice, "dueOn"\)\)\}/);
   assert.match(appSource, /Open Stripe invoice/);
+  assert.match(appSource, /function InvoiceEditor\(/);
+  assert.match(appSource, /View invoice/);
+  assert.match(appSource, /Save line changes/);
+  assert.match(appSource, /method: "PATCH"/);
+  assert.match(appSource, /previewDigest: textKey\(invoice, "previewDigest"\)/);
+  assert.match(serverSource, /request\.method === "PATCH" && paymentInvoiceMatch/);
+  assert.match(serverSource, /payments\.updatePreparedInvoice/);
 });

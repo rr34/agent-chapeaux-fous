@@ -39,6 +39,7 @@ import {
   temporalRepairContext,
 } from "./temporal-consistency.mjs";
 import {
+  canonicalizeObjectReferenceSelection,
   explicitReferenceObjectCatalog,
   mergeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
@@ -876,7 +877,35 @@ export class SlayerRuntime {
         ],
       };
     };
-    let brief = orientation.value;
+    const canonicalizeBriefObjectReferences = (candidate, objectReferenceCatalog, repaired = false) => {
+      const canonical = canonicalizeObjectReferenceSelection(
+        candidate.objectReferences,
+        objectReferenceCatalog,
+      );
+      if (!canonical.corrections.length) return candidate;
+      const normalized = { ...candidate, objectReferences: canonical.objectReferences };
+      this.ledger.append({
+        type: "turn.brief.object_references.canonicalized",
+        phase: "point",
+        status: "complete",
+        actorType: "service",
+        actorName: "Object reference binder",
+        channel,
+        turnId: args.requestId,
+        name: "TurnBrief object references canonicalized",
+        content: `Restored ${canonical.corrections.length} exact object-binding field${canonical.corrections.length === 1 ? "" : "s"} from the verified catalog`,
+        payload: {
+          repaired,
+          corrections: canonical.corrections,
+          objectReferences: normalized.objectReferences,
+        },
+      });
+      return normalized;
+    };
+    let brief = canonicalizeBriefObjectReferences(
+      orientation.value,
+      availableObjectReferences,
+    );
     let validation = validateBrief(brief);
     const recordBriefValidation = (findings, candidate, repaired = false) => {
       const valid = findings.length === 0;
@@ -949,7 +978,11 @@ export class SlayerRuntime {
         outputSchema: schema,
         runTimeoutMs: remainingTimeoutMs(),
       });
-      brief = orientation.value;
+      brief = canonicalizeBriefObjectReferences(
+        orientation.value,
+        availableObjectReferences,
+        true,
+      );
       validation = validateBrief(brief);
       recordBriefValidation(validation.findings, brief, true);
       if (validation.findings.length) {
@@ -1092,7 +1125,10 @@ export class SlayerRuntime {
         outputSchema: refinementSchema,
         runTimeoutMs: remainingTimeoutMs(),
       });
-      brief = orientation.value;
+      brief = canonicalizeBriefObjectReferences(
+        orientation.value,
+        refinementObjectReferences,
+      );
       validation = validateBrief(brief, requiredContractTools, refinementObjectReferences);
       recordBriefValidation(validation.findings, brief);
       if (validation.findings.length) {
@@ -1138,7 +1174,11 @@ export class SlayerRuntime {
           outputSchema: refinementSchema,
           runTimeoutMs: remainingTimeoutMs(),
         });
-        brief = orientation.value;
+        brief = canonicalizeBriefObjectReferences(
+          orientation.value,
+          refinementObjectReferences,
+          true,
+        );
         validation = validateBrief(brief, requiredContractTools, refinementObjectReferences);
         recordBriefValidation(validation.findings, brief, true);
         if (validation.findings.length) {

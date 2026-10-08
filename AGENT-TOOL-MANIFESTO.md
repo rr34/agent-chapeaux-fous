@@ -54,6 +54,14 @@ decimal representation as text. Genuinely opaque provider IDs remain strings.
 The application never treats the string and integer forms as interchangeable at
 an action boundary and never performs a lossy numeric conversion.
 
+A native stable reference must belong to the same declared object type as its
+ID and display. When one returned record describes a primary object and a
+related object, the primary object's generic reference must not be reused for
+the related object; the related type uses its own declared reference or its
+type-specific stable reference prefix. A persisted binding whose native
+reference belongs to another declared type is rejected, never rewritten into a
+new identity.
+
 Object bindings are bulk-shaped even when they contain one object. A later
 interaction copies the exact binding; it does not regenerate an ID from prose,
 rediscover an already identified object by name, silently choose the first
@@ -68,6 +76,14 @@ exact binding produced by a successful read or mutation. Later context retains
 those canonical observations while withholding selections that were merely
 copied into the TurnBrief and never independently observed during the request.
 A failed or uncertain operation never becomes successful identity evidence.
+
+Before validating a model-produced TurnBrief, the application may restore a
+selected binding's exact catalog display and evidence only when its stable
+reference, provider ID, type, and source already match and the display differs
+solely in whitespace. This deterministic canonicalization is recorded in the
+trace, never adds or removes an object, and never repairs a meaningful display
+change or machine-identity mismatch. A formatting-only copy error therefore
+cannot be "repaired" by silently shrinking an intended batch.
 
 These bindings are priority context, not context bloat. Context pruning removes
 bulky records and repeated prose before it removes the compact ID/reference/

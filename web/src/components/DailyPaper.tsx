@@ -336,7 +336,7 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
     <article className={`daily-paper paper-${model.paperSize} ${preview ? "daily-paper--preview" : ""}`}>
       <header className="paper-masthead">
         <div>
-          <p className="paper-kicker">Time V3 Agent · Daily paper</p>
+          <p className="paper-kicker">Time v3 Agent · Daily paper</p>
           <h1>{model.heading}</h1>
         </div>
         <div className="paper-range">

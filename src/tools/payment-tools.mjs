@@ -11,7 +11,7 @@ const toolDescriptions = Object.freeze({
   },
   payment_invoice_list: {
     protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Read native prepared and sent invoices with immutable task-backed or manual line snapshots and observed Stripe status.",
+    summary: "Read native prepared and sent invoices with task-backed or manual line snapshots and observed Stripe status.",
     actionClasses: ["READ"], effectClassifications: ["READ-ONLY"],
   },
   payment_invoice_prepare: {
@@ -36,7 +36,7 @@ const lineSchema = {
 
 const invoiceSchema = {
   type: ["object", "null"],
-  description: "One native invoice whose line descriptions and prices are immutable snapshots of selected to-dos, manual lines, or both.",
+  description: "One native invoice whose current line descriptions and prices snapshot selected to-dos, manual lines, or both. Prepared previews may be revised in the Payments UI; sending makes them immutable.",
   properties: {
     invoiceId: { type: "integer" }, ref: { type: "string" }, display: { type: "string" },
     payerContactId: { type: "integer" }, payerName: { type: "string" }, payerEmail: { type: "string" },
@@ -96,7 +96,7 @@ export function registerPaymentTools(registry, payments) {
   registry.register({
     name: "payment_invoice_prepare",
     confirmationHandoff: true,
-    description: "Prepare an immutable local invoice preview from exact priced to-dos, explicit manual lines, or both and one payer contact. This does not contact the payer. The returned exact handoff requires a separate user confirmation before sending.",
+    description: "Prepare a local invoice preview from exact priced to-dos, explicit manual lines, or both and one payer contact. This does not contact the payer. The returned exact handoff requires a separate user confirmation before sending; a Payments UI revision invalidates that handoff.",
     outputSchema: { type: "object", properties: {
       contractVersion: { type: "integer" }, status: { type: "string" }, expiresAt: { type: "string" },
       invoice: invoiceSchema, nextAction: { type: "object" },

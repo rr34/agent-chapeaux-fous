@@ -3,6 +3,7 @@ import test from "node:test";
 import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
 import { validateFirstClassObjectBinding } from "../src/first-class-object-binding.mjs";
 import {
+  canonicalizeObjectReferenceSelection,
   explicitReferenceObjectCatalog,
   mergeObjectReferenceGroups,
   normalizeObjectReferenceGroups,
@@ -230,6 +231,43 @@ test("provider-declared object roles keep same-type returned objects in separate
   }), []);
 });
 
+test("a related native object never inherits the primary object's stable reference", () => {
+  const groups = objectReferenceGroupsFromToolResult({
+    toolDefinition: { name: "todo_list", source: "local", capabilityId: "todos" },
+    result: {
+      tasks: [{
+        personal_task_id: 364,
+        todo_group_id: 6,
+        text: "Take down the sign\nAddress: 217 E Oakland",
+        group_name: "Construction",
+        ref: "agent-slayer://todos/364",
+      }],
+    },
+    sourceEventSeq: 35531,
+  });
+
+  const task = groups.find(({ type }) => type === "todos.personal_task");
+  const group = groups.find(({ type }) => type === "todos.todo_group");
+  assert.deepEqual(task.objects, [{
+    id: 364,
+    ref: "agent-slayer://todos/364",
+    display: "Take down the sign\nAddress: 217 E Oakland",
+  }]);
+  assert.deepEqual(group.objects, [{
+    id: 6,
+    ref: "agent-slayer://todo-groups/6",
+    display: "Construction",
+  }]);
+  assert.deepEqual(normalizeObjectReferenceGroups([{
+    mention: "Historically misbound group",
+    role: "subject",
+    type: "todos.todo_group",
+    source: "native:todos",
+    objects: [{ id: 6, ref: "agent-slayer://todos/364", display: "Construction" }],
+    sourceEventSeqs: [35464],
+  }]), []);
+});
+
 test("the canonical runtime schema requires complete machine, human, and evidence identity", () => {
   const binding = {
     mention: "that account",
@@ -275,6 +313,64 @@ test("object selection rejects an altered ID or display for a known stable refer
     objectReferenceSelectionFindings(alteredEvidence, available)[0].code,
     "object_reference_evidence_mismatch",
   );
+});
+
+test("object selection restores whitespace-equivalent displays and exact evidence without changing the selected set", () => {
+  const available = [{
+    mention: "Fresh task read", role: "subject", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{
+      id: 364,
+      ref: "agent-slayer://todos/364",
+      display: "Take down the sign\nAddress: 217 E Oakland",
+    }],
+    sourceEventSeqs: [35300, 35531],
+  }];
+  const selected = [{
+    mention: "Invoice task", role: "invoice_line_source", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{
+      id: 364,
+      ref: "agent-slayer://todos/364",
+      display: "Take down the sign Address: 217 E Oakland",
+    }],
+    sourceEventSeqs: [35300],
+  }];
+
+  const canonical = canonicalizeObjectReferenceSelection(selected, available);
+
+  assert.deepEqual(canonical.objectReferences, [{
+    ...selected[0],
+    objects: [{ ...selected[0].objects[0], display: available[0].objects[0].display }],
+    sourceEventSeqs: [35300, 35531],
+  }]);
+  assert.equal(canonical.corrections.length, 2);
+  assert.equal(objectReferenceSelectionFindings(canonical.objectReferences, available).length, 0);
+  assert.equal(selected[0].objects[0].display.includes("\n"), false, "the model candidate stays literal");
+});
+
+test("object selection does not canonicalize a meaningfully different display or machine identity", () => {
+  const available = [{
+    mention: "Task read", role: "subject", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{ id: 364, ref: "agent-slayer://todos/364", display: "Take down the sign" }],
+    sourceEventSeqs: [35531],
+  }];
+  const renamed = structuredClone(available);
+  renamed[0].objects[0].display = "Install the sign";
+  renamed[0].sourceEventSeqs = [1];
+  const wrongId = structuredClone(available);
+  wrongId[0].objects[0].id = 1;
+  wrongId[0].sourceEventSeqs = [1];
+
+  assert.deepEqual(canonicalizeObjectReferenceSelection(renamed, available), {
+    objectReferences: renamed,
+    corrections: [],
+  });
+  assert.deepEqual(canonicalizeObjectReferenceSelection(wrongId, available), {
+    objectReferences: wrongId,
+    corrections: [],
+  });
 });
 
 test("every explicit selected candidate must have an exact prepared binding", () => {

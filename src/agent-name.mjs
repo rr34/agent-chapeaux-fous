@@ -1,4 +1,4 @@
-export const AGENT_NAME = "Time V3 Agent";
+export const AGENT_NAME = "Time v3 Agent";
 
 // These variants are input-only aliases. This boundary prevents a model from
 // echoing one in the user-facing response while preserving the exact original

@@ -5,7 +5,7 @@ const toolDescriptions = Object.freeze({
   "agent_self_describe": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Return a broad current description of Time V3 Agent infrastructure, request path, integrations, sources, and callable inventory.",
+    "summary": "Return a broad current description of Time v3 Agent infrastructure, request path, integrations, sources, and callable inventory.",
     "actionClasses": [
       "READ"
     ],
@@ -16,7 +16,7 @@ const toolDescriptions = Object.freeze({
   "agent_self_knowledge": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Read focused current facts about Time V3 Agent identity, interaction, hats, self-conception, or video workflows.",
+    "summary": "Read focused current facts about Time v3 Agent identity, interaction, hats, self-conception, or video workflows.",
     "actionClasses": [
       "READ"
     ],
@@ -40,7 +40,7 @@ function currentChannel(channel) {
   if (channel === "web") {
     return {
       channel: "web",
-      explanation: "This request arrived as text from the authenticated Time V3 Agent browser client and entered the Agent request workflow directly.",
+      explanation: "This request arrived as text from the authenticated Time v3 Agent browser client and entered the Agent request workflow directly.",
     };
   }
   return {
@@ -85,7 +85,7 @@ function interactionKnowledge(hatCatalog, registry) {
   const manual = hatCatalog.publicManual(registry.toolDefinitions(), capabilityForTool);
   return {
     facts: [
-      "Users interact with Time V3 Agent in one chat by typing naturally or recording a voice request. A request does not need a hat when its destination is already clear.",
+      "Users interact with Time v3 Agent in one chat by typing naturally or recording a voice request. A request does not need a hat when its destination is already clear.",
       manual.manual.introduction,
       `When a user wants to make a role or destination explicit, the supported form is: ${manual.invocationTemplate}`,
       manual.manual.destinationRule,
@@ -218,8 +218,8 @@ export function registerAgentSelfTools(registry, {
   }
   registry.withCapability("self", toolDescriptions).register({
     name: "agent_self_knowledge",
-    title: "Read focused Time V3 Agent self-knowledge",
-    description: "Read focused current facts about Time V3 Agent's identity and name, interaction and hats system, self-conception, or video workflows. Use when the request needs those facts; the result is evidence from which to answer the actual question, never a canned response to return verbatim. Actions: READ.",
+    title: "Read focused Time v3 Agent self-knowledge",
+    description: "Read focused current facts about Time v3 Agent's identity and name, interaction and hats system, self-conception, or video workflows. Use when the request needs those facts; the result is evidence from which to answer the actual question, never a canned response to return verbatim. Actions: READ.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -249,8 +249,8 @@ export function registerAgentSelfTools(registry, {
 
   registry.withCapability("self", toolDescriptions).register({
     name: "agent_self_describe",
-    title: "Describe Time V3 Agent",
-    description: "Return Time V3 Agent's detailed infrastructure, request path, runtime, integrations, sources, and live tool inventory. Use for broad infrastructure and transport explanations; use agent_self_knowledge when a focused identity, interaction, hats, self-conception, or video topic is enough. Actions: READ.",
+    title: "Describe Time v3 Agent",
+    description: "Return Time v3 Agent's detailed infrastructure, request path, runtime, integrations, sources, and live tool inventory. Use for broad infrastructure and transport explanations; use agent_self_knowledge when a focused identity, interaction, hats, self-conception, or video topic is enough. Actions: READ.",
     parameters: { type: "object", additionalProperties: false, properties: {} },
     outputSchema,
     annotations: {

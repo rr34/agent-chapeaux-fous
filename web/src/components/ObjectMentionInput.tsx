@@ -283,7 +283,7 @@ export function ObjectMentionInput({
         onKeyUp={(event) => { if (!["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) refreshAtCursor(); }}
         onBlur={(event) => { if (!event.currentTarget.parentElement?.parentElement?.contains(event.relatedTarget as Node | null)) setActiveMention(null); }}
         onKeyDown={onKeyDown}
-        placeholder="What would you like Time V3 Agent to do? Type @ to reference an object."
+        placeholder="What would you like Time v3 Agent to do? Type @ to reference an object."
         rows={3}
         aria-label="Agent request"
         aria-autocomplete="list"

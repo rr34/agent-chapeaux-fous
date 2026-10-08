@@ -1,6 +1,6 @@
 {
-  "name": "Time V3 Agent",
-  "short_name": "Time V3 Agent",
+  "name": "Time v3 Agent",
+  "short_name": "Time v3 Agent",
   "id": "/",
   "start_url": "/app",
   "scope": "/",

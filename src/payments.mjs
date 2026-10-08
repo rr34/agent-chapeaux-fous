@@ -77,6 +77,26 @@ function unixDateTime(value) {
   return Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString() : null;
 }
 
+function preparedInvoiceResult(invoice) {
+  return {
+    contractVersion: 1,
+    status: "ready",
+    expiresAt: invoice.preparationExpiresAtUtc,
+    invoice,
+    nextAction: {
+      type: "request_user_confirmation",
+      instruction: `Send ${formattedMoney(invoice.amountMinor, invoice.currency)} invoice to ${invoice.payerName} at ${invoice.payerEmail}, due ${invoice.dueOn}?`,
+      onApproval: {
+        tool: "payment_invoice_send",
+        arguments: {
+          invoice_id: invoice.invoiceId,
+          preview_digest: invoice.previewDigest,
+        },
+      },
+    },
+  };
+}
+
 export class PaymentService {
   constructor({ store, config, ledger = null, stripeFactory = (key) => new Stripe(key) }) {
     this.store = store;
@@ -330,15 +350,148 @@ export class PaymentService {
         name: "Invoice prepared", contentText: invoice.display, payload: { invoice },
         subjectType: "payment_invoice", subjectId: String(invoice.invoiceId),
       });
-      return {
-        contractVersion: 1, status: "ready", expiresAt, invoice,
-        nextAction: {
-          type: "request_user_confirmation",
-          instruction: `Send ${formattedMoney(amountMinor, currency)} invoice to ${contact.display_name} at ${contact.email}, due ${dueOn}?`,
-          onApproval: { tool: "payment_invoice_send", arguments: { invoice_id: invoiceId, preview_digest: previewDigest } },
-        },
-      };
+      return preparedInvoiceResult(invoice);
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
+  }
+
+  updatePreparedInvoice(invoiceIdValue, input, activity = {}) {
+    const invoiceId = positiveInteger(invoiceIdValue, "invoice_id");
+    const expectedDigest = String(input?.previewDigest ?? "").trim();
+    if (!/^sha256:[0-9a-f]{64}$/.test(expectedDigest)) {
+      throw new PaymentInputError("The current preview digest is required.", 400, "PREVIEW_DIGEST_REQUIRED");
+    }
+    if (!Array.isArray(input?.lines) || input.lines.length < 1 || input.lines.length > 100) {
+      throw new PaymentInputError("Provide between 1 and 100 invoice lines.");
+    }
+    const suppliedLines = input.lines.map((line, index) => {
+      if (!line || typeof line !== "object" || Array.isArray(line)) {
+        throw new PaymentInputError(`Invoice line ${index + 1} must be an object.`);
+      }
+      const description = String(line.description ?? "").trim();
+      if (!description || description.length > 1000) {
+        throw new PaymentInputError(`Invoice line ${index + 1} needs a description of 1 to 1000 characters.`);
+      }
+      return {
+        position: positiveInteger(line.position, `Invoice line ${index + 1} position`),
+        description,
+        amountMinor: positiveInteger(line.amountMinor, `Invoice line ${index + 1} amountMinor`),
+      };
+    });
+    if (new Set(suppliedLines.map(({ position }) => position)).size !== suppliedLines.length) {
+      throw new PaymentInputError("Invoice line positions must be distinct.");
+    }
+
+    this.database.exec("START TRANSACTION");
+    try {
+      const row = this.database.prepare(`SELECT * FROM payment_invoices
+        WHERE payment_invoice_id = ? FOR UPDATE`).get(invoiceId);
+      if (!row) throw new PaymentInputError("Prepared invoice not found.", 404, "INVOICE_NOT_FOUND");
+      if (row.status !== "prepared" || row.stripe_invoice_id != null) {
+        throw new PaymentInputError(
+          "Only a local prepared invoice that has not reached Stripe can be edited.",
+          409,
+          "INVOICE_NOT_EDITABLE",
+        );
+      }
+      if (Date.parse(row.preparation_expires_at_utc) <= Date.now()) {
+        throw new PaymentInputError(
+          "This invoice preview expired; prepare it again.",
+          409,
+          "PREVIEW_EXPIRED",
+        );
+      }
+      if (row.preview_digest !== expectedDigest) {
+        throw new PaymentInputError(
+          "This invoice preview changed after it was opened. Reload it before saving.",
+          409,
+          "PREVIEW_MISMATCH",
+        );
+      }
+      const existingLines = this.database.prepare(`SELECT line_source, personal_task_id,
+          line_position, description_snapshot, amount_minor_snapshot
+        FROM payment_invoice_lines WHERE payment_invoice_id = ?
+        ORDER BY line_position FOR UPDATE`).all(invoiceId);
+      const suppliedByPosition = new Map(suppliedLines.map((line) => [line.position, line]));
+      if (existingLines.length !== suppliedLines.length
+        || existingLines.some((line) => !suppliedByPosition.has(Number(line.line_position)))) {
+        throw new PaymentInputError(
+          "The invoice line set changed after it was opened. Reload it before saving.",
+          409,
+          "INVOICE_LINE_SET_CHANGED",
+        );
+      }
+      const snapshots = existingLines.map((line) => {
+        const supplied = suppliedByPosition.get(Number(line.line_position));
+        return {
+          lineSource: line.line_source,
+          personalTaskId: line.personal_task_id == null ? null : Number(line.personal_task_id),
+          position: Number(line.line_position),
+          description: supplied.description,
+          amountMinor: supplied.amountMinor,
+        };
+      });
+      const changed = existingLines.some((line, index) => (
+        String(line.description_snapshot) !== snapshots[index].description
+        || Number(line.amount_minor_snapshot) !== snapshots[index].amountMinor
+      ));
+      if (!changed) {
+        this.database.exec("COMMIT");
+        return preparedInvoiceResult(this.getInvoice(invoiceId));
+      }
+      const amountMinor = snapshots.reduce((sum, line) => sum + line.amountMinor, 0);
+      if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+        throw new PaymentInputError("The invoice total is outside the supported range.");
+      }
+      const preview = {
+        contactId: Number(row.payer_contact_id),
+        payerName: row.payer_name_snapshot,
+        payerEmail: row.payer_email_snapshot,
+        dueOn: String(row.due_on),
+        policy: row.payment_method_policy,
+        description: row.description ?? null,
+        currency: row.currency,
+        amountMinor,
+        lines: snapshots,
+      };
+      const previewDigest = digest(preview);
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+      const idempotencyKey = randomUUID();
+      const updateLine = this.database.prepare(`UPDATE payment_invoice_lines
+        SET description_snapshot = ?, amount_minor_snapshot = ?
+        WHERE payment_invoice_id = ? AND line_position = ?`);
+      for (const line of snapshots) {
+        updateLine.run(line.description, line.amountMinor, invoiceId, line.position);
+      }
+      this.database.prepare(`UPDATE payment_invoices
+        SET amount_minor = ?, preview_digest = ?, preparation_expires_at_utc = ?,
+            local_idempotency_key = ?, updated_at_utc = UTC_TIMESTAMP(3)
+        WHERE payment_invoice_id = ?`).run(
+        amountMinor,
+        previewDigest,
+        expiresAt,
+        idempotencyKey,
+        invoiceId,
+      );
+      this.database.exec("COMMIT");
+      const invoice = this.getInvoice(invoiceId);
+      this.recordActivity({
+        type: "payment.invoice.preview_updated",
+        status: invoice.status,
+        actorType: activity.actorType ?? "user",
+        actorName: activity.actorName ?? "payments",
+        turnId: activity.requestId ?? null,
+        operationId: activity.callId ?? null,
+        name: "Invoice preview updated",
+        contentText: invoice.display,
+        payload: { invoice },
+        subjectType: "payment_invoice",
+        subjectId: String(invoice.invoiceId),
+      });
+      return preparedInvoiceResult(invoice);
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   async reusableCustomer(invoice, accountId) {

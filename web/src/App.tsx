@@ -262,7 +262,7 @@ function TokenGate({ children }: { children: ReactNode }) {
   return <main className="token-gate"><section className="token-card">
     <img src="/icon.svg" alt="" />
     <p className="eyebrow">Private workspace</p><h1>Welcome back.</h1>
-    <p>Enter the access token for this Time V3 Agent installation.</p>
+    <p>Enter the access token for this Time v3 Agent installation.</p>
     <form onSubmit={(event) => { event.preventDefault(); setAccessToken(draft); update(draft.trim()); }}>
       <label>Access token<input autoFocus type="password" value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
       <button className="button" disabled={!draft.trim()}>Open workspace</button>
@@ -871,7 +871,7 @@ function AgentScreen({ onReference, onShowTrace, refreshKey, optimisticRequests,
   ];
   const visibleRequests = requests.filter((request) => matchesSearch(request, filterQuery));
   return <>
-    <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Time V3 Agent orients, shows its brief, then acts with visible tools." />
+    <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Time v3 Agent orients, shows its brief, then acts with visible tools." />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleRequests.length} noun="exchange" />
     <section className="conversation">
       {loading && <Loading label="Loading requests" />}{error ? <ErrorState error={error} retry={reload} /> : null}
@@ -881,7 +881,7 @@ function AgentScreen({ onReference, onShowTrace, refreshKey, optimisticRequests,
           <p className="eyebrow">Turn brief</p><strong>{request.turnBriefApproval.objective || request.turnBriefApproval.summary}</strong><p>{request.turnBriefApproval.summary}</p>
           <div><button className="button" onClick={() => void decide(request, "continue")}>Continue</button><button className="button button--quiet" onClick={() => void decide(request, "cancel")}>Cancel</button></div>
         </div>}
-        {request.response && <div className="request-response"><span>Time V3 Agent</span><p>{request.response}</p></div>}
+        {request.response && <div className="request-response"><span>Time v3 Agent</span><p>{request.response}</p></div>}
         {request.error && <p className="inline-error">{request.error}</p>}
         <RequestInteractionMetrics request={request} />
         <footer><span className={`status-dot status-${request.status}`} />{request.status.replaceAll("_", " ")}<code>{request.requestId.slice(0, 8)}</code><button className="trace-button" type="button" onClick={() => onShowTrace(request.requestId)}>Show trace</button>{["complete", "error"].includes(request.status) && <AgentReferenceButton identity={exchangeIdentity(request)} subject={`exchange ${request.requestId.slice(0, 8)}`} onReference={onReference} />}</footer>
@@ -1553,11 +1553,149 @@ interface StripeConnectionStatus {
   reason?: string | null;
 }
 
+type InvoiceLineDraft = {
+  position: number;
+  lineSource: string;
+  personalTaskId: number | null;
+  description: string;
+  amount: string;
+};
+
+function invoiceCurrencyDigits(currency: string) {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency })
+      .resolvedOptions().maximumFractionDigits ?? 2;
+  } catch {
+    throw new Error("Invoice currency is not a valid three-letter currency code.");
+  }
+}
+
+function invoiceAmountDraft(amountMinor: unknown, currency: string) {
+  const digits = invoiceCurrencyDigits(currency);
+  const divisor = 10 ** digits;
+  return (Number(amountMinor) / divisor).toFixed(digits);
+}
+
+function invoiceAmountMinor(amount: string, currency: string) {
+  const digits = invoiceCurrencyDigits(currency);
+  const pattern = digits > 0
+    ? new RegExp(`^(?:0|[1-9]\\d*)(?:\\.(\\d{1,${digits}}))?$`)
+    : /^(?:0|[1-9]\d*)$/;
+  const match = pattern.exec(amount.trim());
+  if (!match) throw new Error(`Every line amount must be positive with at most ${digits} decimal places.`);
+  const whole = Number(amount.trim().split(".")[0] ?? "0");
+  const fraction = digits > 0 ? (match[1] || "").padEnd(digits, "0") : "";
+  const minor = whole * (10 ** digits) + Number(fraction || 0);
+  if (!Number.isSafeInteger(minor) || minor <= 0) throw new Error("Every line amount must be greater than zero.");
+  return minor;
+}
+
+function formatInvoiceMoney(amountMinor: number, currency: string) {
+  const divisor = 10 ** invoiceCurrencyDigits(currency);
+  return new Intl.NumberFormat(undefined, { style: "currency", currency })
+    .format(amountMinor / divisor);
+}
+
+function InvoiceEditor({ invoice, onClose, onChanged }: {
+  invoice: Entity;
+  onClose: () => void;
+  onChanged: (invoice: Entity) => void | Promise<void>;
+}) {
+  const currency = textKey(invoice, "currency").toUpperCase();
+  const invoiceId = Number(readKey(invoice, "invoiceId"));
+  const sourceLines = Array.isArray(invoice.lines)
+    ? invoice.lines.filter((line): line is Entity => Boolean(line && typeof line === "object" && !Array.isArray(line)))
+    : [];
+  const [lines, setLines] = useState<InvoiceLineDraft[]>(() => sourceLines.map((line, index) => ({
+    position: Number(readKey(line, "position")) || index + 1,
+    lineSource: textKey(line, "lineSource"),
+    personalTaskId: readKey(line, "personalTaskId") == null ? null : Number(readKey(line, "personalTaskId")),
+    description: textKey(line, "description"),
+    amount: invoiceAmountDraft(readKey(line, "amountMinor"), currency),
+  })));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const expired = Date.parse(textKey(invoice, "preparationExpiresAtUtc")) <= Date.now();
+  const editable = textKey(invoice, "status") === "prepared" && !invoice.stripeInvoiceId && !expired;
+  const draftTotal = useMemo(() => {
+    try { return lines.reduce((sum, line) => sum + invoiceAmountMinor(line.amount, currency), 0); }
+    catch { return null; }
+  }, [currency, lines]);
+  const hasChanges = lines.some((line) => {
+    const source = sourceLines.find((candidate) => Number(readKey(candidate, "position")) === line.position);
+    if (!source || textKey(source, "description") !== line.description.trim()) return true;
+    try { return Number(readKey(source, "amountMinor")) !== invoiceAmountMinor(line.amount, currency); }
+    catch { return true; }
+  });
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !saving) onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, saving]);
+  const updateLine = (index: number, changes: Partial<InvoiceLineDraft>) => {
+    setLines((current) => current.map((line, lineIndex) => (
+      lineIndex === index ? { ...line, ...changes } : line
+    )));
+  };
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!editable) return;
+    setSaving(true);
+    setError("");
+    try {
+      const result = await api<{ invoice: Entity }>(`/api/payment-invoices/${invoiceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          previewDigest: textKey(invoice, "previewDigest"),
+          lines: lines.map((line) => ({
+            position: line.position,
+            description: line.description.trim(),
+            amountMinor: invoiceAmountMinor(line.amount, currency),
+          })),
+        }),
+      });
+      await onChanged(result.invoice);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update the invoice preview.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
+    <section className="object-editor invoice-editor" role="dialog" aria-modal="true" aria-labelledby="invoice-editor-title">
+      <form onSubmit={(event) => void save(event)}>
+        <header className="object-editor-heading"><div><p className="eyebrow">Invoice #{invoiceId}</p><h2 id="invoice-editor-title">{textKey(invoice, "payerName")}</h2></div><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>Close</button></header>
+        <div className="invoice-editor-summary">
+          <div><span>Email</span><strong>{textKey(invoice, "payerEmail")}</strong></div>
+          <div><span>Due</span><strong>{formatLocalDate(textKey(invoice, "dueOn"))}</strong></div>
+          <div><span>Status</span><strong>{textKey(invoice, "status")}</strong></div>
+          <div><span>Total</span><strong>{draftTotal == null ? "—" : formatInvoiceMoney(draftTotal, currency)}</strong></div>
+        </div>
+        <div className="invoice-line-list">
+          {lines.map((line, index) => <article className="invoice-line-editor" key={line.position}>
+            <div className="invoice-line-heading"><span>Line {line.position}</span><strong>{line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong></div>
+            <label className="invoice-line-description">Description<textarea value={line.description} maxLength={1000} required readOnly={!editable} onChange={(event) => updateLine(index, { description: event.target.value })} /></label>
+            <label className="invoice-line-amount">Amount ({currency})<input type="text" inputMode="decimal" value={line.amount} required readOnly={!editable} onChange={(event) => updateLine(index, { amount: event.target.value })} /></label>
+          </article>)}
+        </div>
+        {editable
+          ? <p className="object-editor-note">Saving creates a new preview digest and expiry. Any earlier send confirmation will no longer work.</p>
+          : <p className="object-editor-state">{expired && textKey(invoice, "status") === "prepared"
+            ? "This local preview expired, so it is read-only. Prepare a new invoice to continue."
+            : "This invoice has left local preview status, so its line snapshots are read-only."}</p>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <footer className="object-editor-actions"><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>{editable ? "Cancel" : "Close"}</button>{editable && <button className="button" type="submit" disabled={saving || !lines.length || !hasChanges}>{saving ? "Saving…" : "Save line changes"}</button>}</footer>
+      </form>
+    </section>
+  </div>;
+}
+
 function PaymentsScreen() {
   const { data: statusData, error: statusError, loading: statusLoading, reload: reloadStatus } = useApi<{ stripe: StripeConnectionStatus }>("/api/payments/stripe/status");
   const { data: invoiceData, error: invoiceError, loading: invoicesLoading, reload: reloadInvoices } = useApi<{ count: number; invoices: Entity[] }>("/api/payment-invoices?limit=100");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState<Entity | null>(null);
   const stripe = statusData?.stripe;
   const connect = async () => {
     setConnecting(true);
@@ -1580,7 +1718,7 @@ function PaymentsScreen() {
       <h2>{stripe.connected ? "Receiving account connected" : "Connect a receiving account"}</h2>
       <p>{stripe.connected
         ? `${stripe.accountId || "Stripe account"} · Charges ${stripe.chargesEnabled ? "enabled" : "not enabled"} · Payouts ${stripe.payoutsEnabled ? "enabled" : "not enabled"}`
-        : stripe.reason || "Finish the Time V3 Stripe platform configuration, then connect the account that should receive payments."}</p>
+        : stripe.reason || "Finish the Time v3 Stripe platform configuration, then connect the account that should receive payments."}</p>
       {stripe.disabledReason && <p className="form-error">Stripe restriction: {stripe.disabledReason}</p>}
       {Boolean(stripe.currentlyDue?.length) && <p>Still required by Stripe: {stripe.currentlyDue!.join(", ")}</p>}
       {!stripe.connected && <button className="button" type="button" disabled={!stripe.configured || connecting} onClick={() => void connect()}>{connecting ? "Opening Stripe…" : "Connect Stripe account"}</button>}
@@ -1590,12 +1728,21 @@ function PaymentsScreen() {
     {invoicesLoading && <Loading label="Loading invoices" />}
     {invoiceError && <ErrorState error={invoiceError} retry={reloadInvoices} />}
     {!invoicesLoading && !invoiceError && !invoiceData?.invoices?.length && <Empty>No invoices yet. Ask the Agent to prepare one from priced to-dos, manual lines, or both.</Empty>}
-    <div className="card-grid">{invoiceData?.invoices?.map((invoice) => <article className="entity-card" key={String(invoice.invoiceId)}>
-      <div className="entity-meta"><span className="pill">{textKey(invoice, "status")}</span><span>Due {formatLocalDate(textKey(invoice, "dueOn"))}</span></div>
-      <h2>{textKey(invoice, "display")}</h2>
-      <p>{textKey(invoice, "description") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`}</p>
+    <div className="card-grid">{invoiceData?.invoices?.map((invoice) => <article className="entity-card invoice-card" key={String(invoice.invoiceId)}>
+      <button className="invoice-card-open" type="button" onClick={() => setSelectedInvoice(invoice)}>
+        <div className="entity-meta"><span className="pill">{textKey(invoice, "status")}</span><span>Due {formatLocalDate(textKey(invoice, "dueOn"))}</span></div>
+        <h2>{textKey(invoice, "display")}</h2>
+        <p>{textKey(invoice, "description") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`}</p>
+        <span className="invoice-card-action">View invoice</span>
+      </button>
       {Boolean(invoice.hostedInvoiceUrl) && <a className="button button--quiet" href={String(invoice.hostedInvoiceUrl)} target="_blank" rel="noreferrer">Open Stripe invoice</a>}
     </article>)}</div>
+    {selectedInvoice && <InvoiceEditor
+      key={`${String(selectedInvoice.invoiceId)}:${textKey(selectedInvoice, "previewDigest")}`}
+      invoice={selectedInvoice}
+      onClose={() => setSelectedInvoice(null)}
+      onChanged={async (updated) => { setSelectedInvoice(updated); await reloadInvoices(); }}
+    />}
   </>;
 }
 
@@ -1686,7 +1833,7 @@ function Workspace() {
   else if (view === "video-scripts") screen = <VideoScriptsScreen onReference={referenceInAgent} />;
   else if (view === "files") screen = <FilesScreen onReference={referenceInAgent} />;
   else screen = <GenericScreen kind={view as keyof typeof genericScreens} onReference={referenceInAgent} />;
-  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time V3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav><div className="token-settings">
+  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav><div className="token-settings">
     <button className="token-button" onClick={() => { setTokenDraft(getAccessToken()); setEditingToken((open) => !open); }}>Access token</button>
     {editingToken && <form className="token-editor" onSubmit={saveToken}>
       <label>Replace token<input autoFocus type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} /></label>

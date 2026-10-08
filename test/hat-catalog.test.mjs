@@ -23,11 +23,11 @@ test("the versioned hat catalog recognizes only explicitly spoken hats in their 
   );
   assert.deepEqual(catalog.explicitHats("Find Tim in my contacts and email him the notice."), []);
   assert.deepEqual(
-    catalog.explicitHats("Time V3 Agent, as my weatherman, will it freeze tonight?").map(({ id }) => id),
+    catalog.explicitHats("Time v3 Agent, as my weatherman, will it freeze tonight?").map(({ id }) => id),
     ["weatherman"],
   );
   assert.deepEqual(
-    catalog.explicitHats("Time V3 Agent, as my property manager, add a roof inspection task.").map(({ id }) => id),
+    catalog.explicitHats("Time v3 Agent, as my property manager, add a roof inspection task.").map(({ id }) => id),
     ["property-manager"],
   );
   assert.deepEqual(catalog.explicitHats("As my landlord, add a roof inspection task."), []);

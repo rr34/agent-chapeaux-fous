@@ -1,4 +1,4 @@
-# Time V3 Agent mobile
+# Time v3 Agent mobile
 
 Android-first Expo development client for the Agent Slayer HTTP service. The mobile app is a client only: typed and recorded requests enter the server's existing FIFO queue and preserve its orientation, execution, audit, repair, and usage trace.
 
@@ -10,7 +10,7 @@ Android-first Expo development client for the Agent Slayer HTTP service. The mob
 - native audio recording and raw upload to `POST /api/voice`
 - explicit Android `ACTION_SENDTO` handoff to the default messaging app
 
-The messaging handoff creates a draft. Time V3 Agent does not send it and is not the default SMS application.
+The messaging handoff creates a draft. Time v3 Agent does not send it and is not the default SMS application.
 
 ## Development
 

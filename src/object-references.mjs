@@ -160,8 +160,15 @@ function nativeReferences(toolDefinition, result, sourceEventSeq) {
       const id = firstId(record, type.idFields, type);
       const display = firstDisplay(record, type.displayFields);
       if (id == null || !display) continue;
-      const ref = firstReference(record, type.refFields)
-        ?? `${type.refPrefix}${encodeURIComponent(String(id))}`;
+      const returnedRef = firstReference(record, type.refFields);
+      // One native record can describe both a primary object and a related
+      // object (for example, a to-do plus its owning group). A generic `ref`
+      // field belongs to the primary object and must never be reused for the
+      // related type merely because that type also found its ID and display in
+      // the same record.
+      const ref = returnedRef?.startsWith(type.refPrefix)
+        ? returnedRef
+        : `${type.refPrefix}${encodeURIComponent(String(id))}`;
       add(type, record, { id, ref, display });
     }
   });
@@ -212,7 +219,9 @@ function normalizedObject(value, type = null) {
   const id = canonicalId(value?.id, type);
   const ref = compactScalar(value?.ref, 1_000);
   const display = compactScalar(value?.display, 500);
-  return id == null || !ref || !display ? null : { id, ref, display };
+  if (id == null || !ref || !display) return null;
+  if (type && !ref.startsWith(type.refPrefix)) return null;
+  return { id, ref, display };
 }
 
 export function normalizeObjectReferenceGroups(groups, { maximumObjects = 2_000 } = {}) {
@@ -349,6 +358,60 @@ export function unresolvedSelectedObjectCandidates(selectedCandidates, available
     return !object || object.id !== selection.id || object.type !== selection.type
       || object.source !== selection.source;
   });
+}
+
+function whitespaceComparableDisplay(value) {
+  return typeof value === "string" ? value.trim().replace(/\s+/gu, " ") : null;
+}
+
+export function canonicalizeObjectReferenceSelection(selectedGroups, availableGroups) {
+  const available = new Map(flatObjectReferences(availableGroups)
+    .map((object) => [object.ref, object]));
+  const objectReferences = structuredClone(selectedGroups ?? []);
+  const corrections = [];
+
+  for (const [groupIndex, group] of objectReferences.entries()) {
+    const expectedEventSeqs = new Set();
+    let completeExactSelection = Array.isArray(group.objects) && group.objects.length > 0;
+    for (const [objectIndex, object] of (group.objects ?? []).entries()) {
+      const expected = available.get(object.ref);
+      const sameMachineIdentity = expected
+        && group.type === expected.type
+        && group.source === expected.source
+        && object.id === expected.id;
+      const whitespaceEquivalentDisplay = sameMachineIdentity
+        && whitespaceComparableDisplay(object.display)
+          === whitespaceComparableDisplay(expected.display);
+      if (!whitespaceEquivalentDisplay) {
+        completeExactSelection = false;
+        continue;
+      }
+      for (const seq of expected.sourceEventSeqs ?? []) expectedEventSeqs.add(seq);
+      if (object.display !== expected.display) {
+        corrections.push({
+          path: `brief.objectReferences[${groupIndex}].objects[${objectIndex}].display`,
+          ref: object.ref,
+          from: object.display,
+          to: expected.display,
+        });
+        object.display = expected.display;
+      }
+    }
+    if (!completeExactSelection) continue;
+    const exactEventSeqs = [...expectedEventSeqs].sort((left, right) => left - right);
+    const suppliedEventSeqs = [...new Set(group.sourceEventSeqs ?? [])]
+      .sort((left, right) => left - right);
+    if (JSON.stringify(suppliedEventSeqs) !== JSON.stringify(exactEventSeqs)) {
+      corrections.push({
+        path: `brief.objectReferences[${groupIndex}].sourceEventSeqs`,
+        from: suppliedEventSeqs,
+        to: exactEventSeqs,
+      });
+      group.sourceEventSeqs = exactEventSeqs;
+    }
+  }
+
+  return { objectReferences, corrections };
 }
 
 export function objectReferenceSelectionFindings(selectedGroups, availableGroups, allowedRoles = null) {

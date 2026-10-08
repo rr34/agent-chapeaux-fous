@@ -813,7 +813,7 @@ function objectInteractionNode(request, index) {
     const mascot = node("span", "agent-mascot object-interaction-mascot");
     mascot.setAttribute("role", "img");
     const identity = node("div", "object-interaction-identity");
-    identity.append(node("strong", "", "Time V3 Agent"), node("span", "object-hat-name"));
+    identity.append(node("strong", "", "Time v3 Agent"), node("span", "object-hat-name"));
     const meta = node("div", "object-interaction-meta");
     const replyButton = node("button", "object-interaction-reply reference-in-agent secondary compact");
     replyButton.type = "button";
@@ -5436,7 +5436,7 @@ elements.refresh.addEventListener("click", async () => {
 });
 elements.requestLimit.addEventListener("change", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
 elements.newConversation.addEventListener("click", async () => {
-  if (!window.confirm("Start a new conversation? Time V3 Agent will stop carrying the current conversation context into the next request.")) return;
+  if (!window.confirm("Start a new conversation? Time v3 Agent will stop carrying the current conversation context into the next request.")) return;
   elements.newConversation.disabled = true;
   try {
     await api("/api/conversation/reset", { method: "POST" });
@@ -5479,12 +5479,12 @@ elements.integrationList.addEventListener("click", async (event) => {
   button.disabled = true;
   try {
     if (button.classList.contains("remove-integration")) {
-      if (!window.confirm(`Remove ${name}? Its locally stored API token and tools will be deleted from Time V3 Agent.`)) return;
+      if (!window.confirm(`Remove ${name}? Its locally stored API token and tools will be deleted from Time v3 Agent.`)) return;
       await api(`/api/integrations/${encodeURIComponent(name)}`, { method: "DELETE" });
       elements.status.textContent = `${name} removed.`;
       await loadHealth();
     } else if (button.classList.contains("disconnect-integration")) {
-      if (!window.confirm(`Disconnect ${name}? Time V3 Agent will delete its local OAuth credentials and remove the provider's tools.`)) return;
+      if (!window.confirm(`Disconnect ${name}? Time v3 Agent will delete its local OAuth credentials and remove the provider's tools.`)) return;
       await api(`/api/integrations/${encodeURIComponent(name)}/oauth/disconnect`, { method: "POST" });
       elements.status.textContent = `${name} disconnected locally.`;
       await loadHealth();

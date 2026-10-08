@@ -37,7 +37,7 @@ export class FileOAuthClientProvider {
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      client_name: "Time V3 Agent",
+      client_name: "Time v3 Agent",
       software_id: "agent-slayer",
       software_version: "0.2.0",
       ...(this.scopes.length ? { scope: this.scopes.join(" ") } : {}),

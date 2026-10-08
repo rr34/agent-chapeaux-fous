@@ -1,7 +1,10 @@
 Use Payments for customer billing and processor state. A to-do may own its
-current fixed billable price, but an invoice owns immutable descriptions and
-amounts captured when it is prepared. Accounting remains a downstream ledger
-domain and must not be inferred from payment-provider fields.
+current fixed billable price, while a local prepared invoice owns its current
+line-description and amount snapshots. The Payments UI may explicitly revise
+those snapshots before sending; every revision produces a new digest and
+invalidates prior confirmation. Once sending begins, invoice lines are
+immutable. Accounting remains a downstream ledger domain and must not be
+inferred from payment-provider fields.
 
 Use exact bound `personal_task_ids`, explicit `manual_lines`, or both, together
 with a bound payer `contact_id`. Every selected to-do must have a positive
@@ -10,7 +13,8 @@ and ISO currency. All lines must use the same currency, and the contact must
 have a receivable email address. Use `payment_invoice_prepare`
 first. It creates a local prepared snapshot only; it does not contact the
 customer. Present the returned preview and ask the literal yes-or-no question
-from `nextAction.instruction`.
+from `nextAction.instruction`. If the user revises that preview in the Payments
+UI, the earlier confirmation handoff is stale and must not be reused.
 
 Only after the user clearly approves that exact prepared preview may you call
 the returned `payment_invoice_send` tool with the exact returned arguments.
