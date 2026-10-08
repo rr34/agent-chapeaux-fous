@@ -373,6 +373,29 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .invoice-list-stripe { align-self: stretch; display: inline-flex; align-items: center; padding: 0 16px; border-left: 1px solid var(--line); color: var(--olive-dark); font-size: 11px; font-weight: 750; text-decoration: none; white-space: nowrap; }
 .invoice-list-stripe:hover { background: var(--olive-soft); }
 .invoice-editor { width: min(900px, 100%); }
+.invoice-create-editor { width: min(980px, 100%); }
+.invoice-create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.invoice-create-grid label, .invoice-create-manual-lines label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.invoice-create-source { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.invoice-create-source > header { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.invoice-create-source > header h3 { margin: 2px 0 0; font: 600 20px/1.1 "Newsreader", Georgia, serif; }
+.invoice-create-source > header > span { color: var(--muted); font-size: 11px; font-weight: 700; }
+.invoice-create-source > header .button { min-height: 34px; padding: 6px 11px; font-size: 12px; }
+.invoice-create-todos { max-height: 260px; display: grid; gap: 6px; overflow: auto; }
+.invoice-create-todos > label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper); cursor: pointer; }
+.invoice-create-todos > label:hover { border-color: #aeb8a3; background: var(--olive-soft); }
+.invoice-create-todos > label.is-unavailable { opacity: .55; cursor: not-allowed; }
+.invoice-create-todos input { width: 18px; height: 18px; margin: 0; accent-color: var(--olive-dark); }
+.invoice-create-todos label > span { min-width: 0; display: grid; gap: 2px; }
+.invoice-create-todos strong, .invoice-create-todos small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invoice-create-todos strong { font-size: 13px; }
+.invoice-create-todos small, .invoice-create-todos > p { color: var(--muted); font-size: 11px; }
+.invoice-create-todos b { font-size: 12px; font-variant-numeric: tabular-nums; }
+.invoice-create-manual-lines { display: grid; gap: 8px; }
+.invoice-create-manual-lines > div { display: grid; grid-template-columns: minmax(0, 1fr) 150px auto; align-items: end; gap: 9px; }
+.invoice-create-manual-lines > div > button { min-height: 40px; padding: 8px 10px; border: 0; color: #8c3025; background: transparent; font-size: 11px; font-weight: 750; }
+.invoice-create-manual-lines > div > button:hover { text-decoration: underline; }
+.invoice-create-empty { margin: 0; color: var(--muted); font-size: 12px; }
 .invoice-editor-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .invoice-editor-summary div { min-width: 0; display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 .invoice-editor-summary span { color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
@@ -655,6 +678,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .invoice-list-created { display: grid; grid-column: 2; }
   .invoice-list-action { grid-column: 2; }
   .invoice-list-stripe { min-height: 42px; justify-content: center; border-top: 1px solid var(--line); border-left: 0; }
+  .invoice-create-grid, .invoice-create-manual-lines > div { grid-template-columns: 1fr; }
+  .invoice-create-manual-lines > div > button { justify-self: start; min-height: 30px; padding-left: 0; }
   .invoice-editor-summary, .invoice-line-editor { grid-template-columns: 1fr; }
   .invoice-line-heading { grid-column: 1; }
   .paper-preview .daily-paper { transform: scale(.72); margin-bottom: -3in; }

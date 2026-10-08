@@ -13,7 +13,9 @@ import {
   genericEntityIdentity, journalEntryIdentity, journalTrackerIdentity,
   todoIdentity, type AddAgentReference, type AddAgentReferences, type GenericObjectKind,
 } from "./components/AgentReferenceButton";
-import { maximumObjectReferences } from "./object-references";
+import {
+  insertObjectMentions, maximumObjectReferences, type ComposerTextSelection,
+} from "./object-references";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
 import { matchesSearch } from "./search-filter";
 import type {
@@ -375,13 +377,18 @@ function runLimitsText(runLimits: RunLimits) {
   return `${calls} · ${time}${runLimits.promptForTurnBrief ? " · TurnBrief review" : ""}`;
 }
 
-function AgentComposer({ text, setText, selections, setSelections, referenceNotice, clearReferenceNotice, onSubmitted }: {
+function AgentComposer({
+  text, setText, selections, setSelections, referenceNotice, clearReferenceNotice,
+  cursorRequest, onSelectionChange, onSubmitted,
+}: {
   text: string;
   setText: (value: string) => void;
   selections: SelectedObjectCandidate[];
   setSelections: (selections: SelectedObjectCandidate[]) => void;
   referenceNotice: string | null;
   clearReferenceNotice: () => void;
+  cursorRequest: { position: number; revision: number } | null;
+  onSelectionChange: (selection: ComposerTextSelection) => void;
   onSubmitted: (request: RequestRecord) => void;
 }) {
   const textArea = useRef<HTMLTextAreaElement>(null);
@@ -417,10 +424,12 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
   const isRecording = recordingPhase === "recording";
 
   useEffect(() => {
-    if (!referenceNotice) return;
+    if (!cursorRequest) return;
+    const position = Math.max(0, Math.min(text.length, cursorRequest.position));
     textArea.current?.focus();
-    textArea.current?.setSelectionRange(text.length, text.length);
-  }, [referenceNotice, text.length]);
+    textArea.current?.setSelectionRange(position, position);
+    onSelectionChange({ start: position, end: position });
+  }, [cursorRequest, onSelectionChange]);
 
   const clearRecordingTimer = () => {
     if (recordingTimer.current !== null) window.clearInterval(recordingTimer.current);
@@ -722,6 +731,7 @@ function AgentComposer({ text, setText, selections, setSelections, referenceNoti
         onChange={(value) => { setText(value); clearReferenceNotice(); setRecordingStatus(""); setSubmitError(null); }}
         selections={selections}
         onSelectionsChange={setSelections}
+        onSelectionChange={onSelectionChange}
         textareaRef={textArea}
       />}
       <div className="voice-recorder">
@@ -1562,6 +1572,12 @@ type InvoiceLineDraft = {
   isNew: boolean;
 };
 
+type InvoiceCreateManualLine = {
+  key: number;
+  description: string;
+  amount: string;
+};
+
 function invoiceCurrencyDigits(currency: string) {
   try {
     return new Intl.NumberFormat("en-US", { style: "currency", currency })
@@ -1601,6 +1617,152 @@ function invoicePaymentMethodLabel(policy: string) {
   if (policy === "card_only") return "Credit card only";
   if (policy === "card_and_ach") return "Credit card and bank account";
   return "Bank account only (no credit cards)";
+}
+
+function invoiceContactEmail(contact: Entity) {
+  const methods = Array.isArray(contact.methods)
+    ? contact.methods.filter((method): method is Entity => Boolean(method && typeof method === "object" && !Array.isArray(method)))
+    : [];
+  return textKey(methods.find((method) => textKey(method, "kind") === "email" && Boolean(method.canReceive)) || {}, "value");
+}
+
+function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loadError, onClose, onCreated }: {
+  contacts: Entity[];
+  todos: Entity[];
+  unavailableTodoIds: Set<number>;
+  loading: boolean;
+  loadError: unknown;
+  onClose: () => void;
+  onCreated: (invoice: Entity) => void | Promise<void>;
+}) {
+  const today = localToday();
+  const [contactId, setContactId] = useState("");
+  const [dueOn, setDueOn] = useState(shiftLocalDate(today, 14));
+  const [currency, setCurrency] = useState("USD");
+  const [paymentMethodPolicy, setPaymentMethodPolicy] = useState("ach_only");
+  const [description, setDescription] = useState("");
+  const [todoQuery, setTodoQuery] = useState("");
+  const [selectedTodoIds, setSelectedTodoIds] = useState<Set<number>>(new Set());
+  const [manualLines, setManualLines] = useState<InvoiceCreateManualLine[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const receivableContacts = contacts.filter((contact) => invoiceContactEmail(contact));
+  const normalizedCurrency = currency.trim().toUpperCase();
+  const pricedTodos = todos.filter((todo) => (
+    Number(readKey(todo, "billableAmountMinor")) > 0
+    && textKey(todo, "billableCurrency").toUpperCase() === normalizedCurrency
+    && matchesSearch(todo, todoQuery)
+  ));
+  const startedManualLines = manualLines.filter((line) => line.description.trim() || line.amount.trim());
+  const hasLineSource = selectedTodoIds.size > 0 || startedManualLines.length > 0;
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !saving) onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, saving]);
+  const toggleTodo = (todoId: number, selected: boolean) => {
+    setError("");
+    setSelectedTodoIds((current) => {
+      const next = new Set(current);
+      if (selected) next.add(todoId); else next.delete(todoId);
+      return next;
+    });
+  };
+  const addManualLine = () => setManualLines((current) => [...current, {
+    key: current.reduce((maximum, line) => Math.max(maximum, line.key), 0) + 1,
+    description: "",
+    amount: "",
+  }]);
+  const updateManualLine = (key: number, changes: Partial<InvoiceCreateManualLine>) => {
+    setManualLines((current) => current.map((line) => line.key === key ? { ...line, ...changes } : line));
+  };
+  const create = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    if (!/^[A-Z]{3}$/.test(normalizedCurrency)) {
+      setError("Currency must be a three-letter code such as USD.");
+      return;
+    }
+    if (!hasLineSource) {
+      setError("Select a priced to-do or add a manual line.");
+      return;
+    }
+    if (selectedTodoIds.size + startedManualLines.length > 100) {
+      setError("An invoice can contain at most 100 lines.");
+      return;
+    }
+    let preparedManualLines;
+    try {
+      preparedManualLines = startedManualLines.map((line, index) => {
+        if (!line.description.trim() || !line.amount.trim()) {
+          throw new Error(`Manual line ${index + 1} needs both a description and amount.`);
+        }
+        return {
+          description: line.description.trim(),
+          amount_minor: invoiceAmountMinor(line.amount, normalizedCurrency),
+          currency: normalizedCurrency,
+        };
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Check the manual invoice lines.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await api<{ invoice: Entity }>("/api/payment-invoices/prepare", {
+        method: "POST",
+        body: JSON.stringify({
+          contact_id: Number(contactId),
+          due_on: dueOn,
+          payment_method_policy: paymentMethodPolicy,
+          description: description.trim() || null,
+          ...(selectedTodoIds.size ? { personal_task_ids: [...selectedTodoIds] } : {}),
+          ...(preparedManualLines.length ? { manual_lines: preparedManualLines } : {}),
+        }),
+      });
+      await onCreated(result.invoice);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not prepare the invoice.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
+    <section className="object-editor invoice-editor invoice-create-editor" role="dialog" aria-modal="true" aria-labelledby="invoice-create-title">
+      <form onSubmit={(event) => void create(event)}>
+        <header className="object-editor-heading"><div><p className="eyebrow">Payments</p><h2 id="invoice-create-title">Create invoice</h2></div><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>Close</button></header>
+        <div className="invoice-create-grid">
+          <label>Payer<select value={contactId} required disabled={saving || loading} onChange={(event) => setContactId(event.target.value)}><option value="">Choose a contact</option>{receivableContacts.map((contact) => <option value={String(contact.id)} key={String(contact.id)}>{textKey(contact, "displayName")} — {invoiceContactEmail(contact)}</option>)}</select></label>
+          <label>Due date<input type="date" min={today} value={dueOn} required disabled={saving} onChange={(event) => setDueOn(event.target.value)} /></label>
+          <label>Currency<input value={currency} maxLength={3} required disabled={saving} onChange={(event) => { setCurrency(event.target.value.toUpperCase()); setSelectedTodoIds(new Set()); }} /></label>
+          <label>Payment methods<select value={paymentMethodPolicy} disabled={saving} onChange={(event) => setPaymentMethodPolicy(event.target.value)}><option value="ach_only">Bank account only (no credit cards)</option><option value="card_and_ach">Credit card and bank account</option><option value="card_only">Credit card only</option></select></label>
+        </div>
+        <label>Invoice description <span className="field-hint">Optional</span><input value={description} maxLength={1000} disabled={saving} onChange={(event) => setDescription(event.target.value)} placeholder="What this invoice covers" /></label>
+        <section className="invoice-create-source">
+          <header><div><p className="eyebrow">Priced work</p><h3>Select to-dos</h3></div><span>{selectedTodoIds.size} selected</span></header>
+          <input type="search" value={todoQuery} disabled={saving} onChange={(event) => setTodoQuery(event.target.value)} placeholder={`Search ${normalizedCurrency || "currency"} priced to-dos`} />
+          <div className="invoice-create-todos">
+            {pricedTodos.map((todo) => {
+              const todoId = Number(todo.id);
+              const unavailable = unavailableTodoIds.has(todoId);
+              return <label className={unavailable ? "is-unavailable" : ""} key={todoId}><input type="checkbox" checked={selectedTodoIds.has(todoId)} disabled={saving || unavailable} onChange={(event) => toggleTodo(todoId, event.target.checked)} /><span><strong>{textKey(todo, "text")}</strong><small>{textKey(todo, "groupName")} · {textKey(todo, "status")}{unavailable ? " · Already invoiced" : ""}</small></span><b>{formatInvoiceMoney(Number(readKey(todo, "billableAmountMinor")), normalizedCurrency)}</b></label>;
+            })}
+            {!pricedTodos.length && <p>No priced to-dos match {normalizedCurrency || "this currency"}.</p>}
+          </div>
+        </section>
+        <section className="invoice-create-source">
+          <header><div><p className="eyebrow">Additional charges</p><h3>Manual lines</h3></div><button className="button button--quiet" type="button" disabled={saving || selectedTodoIds.size + manualLines.length >= 100} onClick={addManualLine}>Add manual line</button></header>
+          <div className="invoice-create-manual-lines">{manualLines.map((line, index) => <div key={line.key}><label>Description<input value={line.description} maxLength={1000} disabled={saving} onChange={(event) => updateManualLine(line.key, { description: event.target.value })} placeholder={`Manual line ${index + 1}`} /></label><label>Amount ({normalizedCurrency})<input value={line.amount} inputMode="decimal" disabled={saving} onChange={(event) => updateManualLine(line.key, { amount: event.target.value })} placeholder="0.00" /></label><button type="button" disabled={saving} onClick={() => setManualLines((current) => current.filter((candidate) => candidate.key !== line.key))}>Remove</button></div>)}</div>
+          {!manualLines.length && <p className="invoice-create-empty">No manual lines added.</p>}
+        </section>
+        {loading && <p className="object-editor-state">Loading contacts and priced to-dos…</p>}
+        {!loading && !receivableContacts.length && <p className="object-editor-state">Add an active contact with a receivable email address before creating an invoice.</p>}
+      {Boolean(loadError) && <p className="form-error" role="alert">{loadError instanceof Error ? loadError.message : "Could not load invoice sources."}</p>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <footer className="object-editor-actions"><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="button" type="submit" disabled={saving || loading || !contactId || !hasLineSource}>{saving ? "Preparing…" : "Create preview"}</button></footer>
+      </form>
+    </section>
+  </div>;
 }
 
 function InvoiceEditor({ invoice, onClose, onChanged }: {
@@ -1790,8 +1952,11 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
 function PaymentsScreen() {
   const { data: statusData, error: statusError, loading: statusLoading, reload: reloadStatus } = useApi<{ stripe: StripeConnectionStatus }>("/api/payments/stripe/status");
   const { data: invoiceData, error: invoiceError, loading: invoicesLoading, reload: reloadInvoices } = useApi<{ count: number; invoices: Entity[] }>("/api/payment-invoices?limit=100");
+  const { data: contactData, error: contactError, loading: contactsLoading } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=active&limit=1000");
+  const { data: todoData, error: todoError, loading: todosLoading } = useApi<{ todos: Entity[] }>("/api/todos?scope=all&limit=1000");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState("");
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Entity | null>(null);
   const stripe = statusData?.stripe;
   const invoices = useMemo(() => [...(invoiceData?.invoices ?? [])].sort((left, right) => {
@@ -1802,6 +1967,25 @@ function PaymentsScreen() {
     }
     return Number(readKey(right, "invoiceId")) - Number(readKey(left, "invoiceId"));
   }), [invoiceData?.invoices]);
+  const unavailableTodoIds = useMemo(() => {
+    const result = new Set<number>();
+    const activeStatuses = new Set(["prepared", "sending", "open", "processing", "paid", "failed"]);
+    for (const invoice of invoices) {
+      const status = textKey(invoice, "status");
+      if (!activeStatuses.has(status)) continue;
+      const localPreviewExpired = ["prepared", "sending", "failed"].includes(status)
+        && !invoice.stripeInvoiceId
+        && Date.parse(textKey(invoice, "preparationExpiresAtUtc")) <= Date.now();
+      if (localPreviewExpired) continue;
+      if (!Array.isArray(invoice.lines)) continue;
+      for (const line of invoice.lines) {
+        if (!line || typeof line !== "object" || Array.isArray(line)) continue;
+        const todoId = Number(readKey(line as Entity, "personalTaskId"));
+        if (Number.isSafeInteger(todoId) && todoId > 0) result.add(todoId);
+      }
+    }
+    return result;
+  }, [invoices]);
   const connect = async () => {
     setConnecting(true);
     setConnectError("");
@@ -1815,7 +1999,7 @@ function PaymentsScreen() {
   };
   const refresh = () => { void reloadStatus(); void reloadInvoices(); };
   return <>
-    <PageHeading eyebrow="Money received through your work" title="Payments" detail="Connect the Stripe account that receives invoice payments, then review and send invoices created by the Agent." actions={<button className="button button--quiet" type="button" onClick={refresh}>Refresh</button>} />
+    <PageHeading eyebrow="Money received through your work" title="Payments" detail="Create, review, and send invoices through your connected Stripe account." actions={<><button className="button" type="button" onClick={() => setCreatingInvoice(true)}>Create invoice</button><button className="button button--quiet" type="button" onClick={refresh}>Refresh</button></>} />
     {statusLoading && <Loading label="Checking Stripe" />}
     {statusError && <ErrorState error={statusError} retry={reloadStatus} />}
     {stripe && <section className="entity-card">
@@ -1832,7 +2016,7 @@ function PaymentsScreen() {
     <section className="page-heading"><div><p className="eyebrow">Invoice history</p><h2>Invoices</h2></div><span className="invoice-sort-label">Newest first</span></section>
     {invoicesLoading && <Loading label="Loading invoices" />}
     {invoiceError && <ErrorState error={invoiceError} retry={reloadInvoices} />}
-    {!invoicesLoading && !invoiceError && !invoiceData?.invoices?.length && <Empty>No invoices yet. Ask the Agent to prepare one from priced to-dos, manual lines, or both.</Empty>}
+    {!invoicesLoading && !invoiceError && !invoiceData?.invoices?.length && <Empty>No invoices yet. Create one here or ask the Agent to prepare one.</Empty>}
     <div className="invoice-history-list">{invoices.map((invoice) => <article className="invoice-list-row" key={String(invoice.invoiceId)}>
       <button className="invoice-list-open" type="button" onClick={() => setSelectedInvoice(invoice)}>
         <div className="invoice-list-status"><span className="pill">{textKey(invoice, "status")}</span><span>#{String(invoice.invoiceId)}</span></div>
@@ -1848,6 +2032,15 @@ function PaymentsScreen() {
       invoice={selectedInvoice}
       onClose={() => setSelectedInvoice(null)}
       onChanged={async (updated) => { setSelectedInvoice(updated); await reloadInvoices(); }}
+    />}
+    {creatingInvoice && <CreateInvoiceEditor
+      contacts={contactData?.contacts ?? []}
+      todos={todoData?.todos ?? []}
+      unavailableTodoIds={unavailableTodoIds}
+      loading={contactsLoading || todosLoading}
+      loadError={contactError || todoError}
+      onClose={() => setCreatingInvoice(false)}
+      onCreated={(invoice) => { setCreatingInvoice(false); setSelectedInvoice(invoice); void reloadInvoices(); }}
     />}
   </>;
 }
@@ -1872,6 +2065,8 @@ function Workspace() {
   const [agentDraft, setAgentDraft] = useState("");
   const [agentObjectSelections, setAgentObjectSelections] = useState<SelectedObjectCandidate[]>([]);
   const [agentReferenceNotice, setAgentReferenceNotice] = useState<string | null>(null);
+  const [agentComposerSelection, setAgentComposerSelection] = useState<ComposerTextSelection | null>(null);
+  const [agentComposerCursorRequest, setAgentComposerCursorRequest] = useState<{ position: number; revision: number } | null>(null);
   const [requestRefreshKey, setRequestRefreshKey] = useState(0);
   const [optimisticRequests, setOptimisticRequests] = useState<RequestRecord[]>([]);
   const [traceRequestId, setTraceRequestId] = useState<string | null>(null);
@@ -1886,19 +2081,29 @@ function Workspace() {
     ));
     if (agentObjectSelections.length + additions.length > maximumObjectReferences) {
       setAgentReferenceNotice(`Adding ${additions.length} objects would exceed the ${maximumObjectReferences}-object request limit. Nothing was added or truncated.`);
-      go("agent");
       return;
     }
     if (additions.length) {
-      setAgentObjectSelections([...agentObjectSelections, ...additions.map(({ identity }) => identity)]);
-      const mentions = additions.map(({ identity }) => identity.mention).join(" ");
-      setAgentDraft((current) => mentions + (current ? ` ${current}` : " "));
+      const insertion = insertObjectMentions(
+        agentDraft,
+        additions.map(({ identity }) => identity.mention),
+        agentComposerSelection,
+      );
+      setAgentObjectSelections([
+        ...agentObjectSelections.filter(({ mention }) => insertion.value.includes(mention)),
+        ...additions.map(({ identity }) => identity),
+      ]);
+      setAgentDraft(insertion.value);
+      setAgentComposerSelection({ start: insertion.cursor, end: insertion.cursor });
+      setAgentComposerCursorRequest((current) => ({
+        position: insertion.cursor,
+        revision: (current?.revision ?? 0) + 1,
+      }));
     }
     const subjects = entries.map(({ subject }) => subject);
     setAgentReferenceNotice(additions.length
       ? `Added ${additions.length} ${additions.length === 1 ? "object" : "objects"} to the Agent composer.`
       : subjects.length === 1 ? `Already referencing ${subjects[0]} in the Agent composer.` : "Those objects are already referenced in the Agent composer.");
-    go("agent");
   };
   const referenceInAgent: AddAgentReference = (identity, subject) => {
     referenceManyInAgent([{ identity, subject }]);
@@ -1952,7 +2157,11 @@ function Workspace() {
     setSelections={setAgentObjectSelections}
     referenceNotice={agentReferenceNotice}
     clearReferenceNotice={() => setAgentReferenceNotice(null)}
+    cursorRequest={agentComposerCursorRequest}
+    onSelectionChange={setAgentComposerSelection}
     onSubmitted={(request) => {
+      setAgentComposerSelection(null);
+      setAgentComposerCursorRequest(null);
       setOptimisticRequests((current) => [request, ...current.filter(({ requestId }) => requestId !== request.requestId)]);
       setRequestRefreshKey((current) => current + 1);
       go("agent");

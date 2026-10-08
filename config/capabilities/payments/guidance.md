@@ -14,6 +14,10 @@ Stripe's invoice PDF, which the Payments UI may open from that exact Stripe
 invoice. Finalization alone is not delivery: sending must still call Stripe's
 invoice-send operation and observe the resulting provider events.
 
+The Payments UI may also create that prepared preview directly from a payer,
+priced to-dos, manual lines, or both. This is the same local preparation boundary
+as `payment_invoice_prepare`: creating the preview does not contact the customer.
+
 Use exact bound `personal_task_ids`, explicit `manual_lines`, or both, together
 with a bound payer `contact_id`. Every selected to-do must have a positive
 amount. Every manual line requires a concrete description, positive amount,

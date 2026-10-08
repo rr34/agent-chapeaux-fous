@@ -42,8 +42,9 @@ test("React reference arrows add native inline objects while retaining exact sou
   const references = fs.readFileSync(path.join(root, "web", "src", "components", "AgentReferenceButton.tsx"), "utf8");
   const objectReferences = fs.readFileSync(path.join(root, "web", "src", "object-references.ts"), "utf8");
   assert.doesNotMatch(app, /"In reference to:\\n" \+ identity/);
-  assert.match(app, /setAgentObjectSelections\(\[\.\.\.agentObjectSelections, \.\.\.additions\.map/);
-  assert.match(app, /additions\.map\(\(\{ identity \}\) => identity\.mention\)\.join\(" "\)/);
+  assert.match(app, /agentObjectSelections\.filter\(\(\{ mention \}\) => insertion\.value\.includes\(mention\)\)/);
+  assert.match(app, /insertObjectMentions\(\s*agentDraft,\s*additions\.map\(\(\{ identity \}\) => identity\.mention\),\s*agentComposerSelection/);
+  assert.match(objectReferences, /mentions\.join\(" "\)/);
   assert.match(app, /Nothing was added or truncated/);
   assert.match(app, /const referencedRequestIds = \[\.\.\.new Set\(selections\.flatMap/);
   assert.match(app, /referencedRequestId \? \[\] : \[selection\]/);
@@ -54,4 +55,13 @@ test("React reference arrows add native inline objects while retaining exact sou
   assert.match(references, /const detail = \[\s*`Calendar event:/);
   assert.match(references, /Reference code:/);
   assert.match(references, /referencedRequestId: request\.requestId/);
+});
+
+test("reference arrows insert at the remembered composer selection without changing sections", () => {
+  const app = fs.readFileSync(path.join(root, "web", "src", "App.tsx"), "utf8");
+  const handler = app.slice(app.indexOf("const referenceManyInAgent"), app.indexOf("const referenceInAgent"));
+  assert.doesNotMatch(handler, /go\("agent"\)/);
+  assert.match(app, /cursorRequest=\{agentComposerCursorRequest\}/);
+  assert.match(app, /onSelectionChange=\{setAgentComposerSelection\}/);
+  assert.match(app, /setSelectionRange\(position, position\)/);
 });

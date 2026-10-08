@@ -103,12 +103,13 @@ function mentionSegments(value: string, selections: SelectedObjectCandidate[]) {
 }
 
 export function ObjectMentionInput({
-  value, onChange, selections, onSelectionsChange, textareaRef,
+  value, onChange, selections, onSelectionsChange, onSelectionChange, textareaRef,
 }: {
   value: string;
   onChange: (value: string) => void;
   selections: SelectedObjectCandidate[];
   onSelectionsChange: (selections: SelectedObjectCandidate[]) => void;
+  onSelectionChange: (selection: { start: number; end: number }) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 }) {
   const [activeMention, setActiveMention] = useState<ActiveMention | null>(null);
@@ -168,7 +169,9 @@ export function ObjectMentionInput({
   const update = (event: ChangeEvent<HTMLTextAreaElement>) => {
     const next = event.target.value;
     const cursor = event.target.selectionStart ?? next.length;
+    const selectionEnd = event.target.selectionEnd ?? cursor;
     onChange(next);
+    onSelectionChange({ start: cursor, end: selectionEnd });
     onSelectionsChange(selections.filter(({ mention }) => next.includes(mention)));
     setActiveMention(mentionAtCursor(next, cursor, selections));
   };
@@ -176,7 +179,10 @@ export function ObjectMentionInput({
   const refreshAtCursor = () => {
     const field = textareaRef.current;
     if (!field) return;
-    setActiveMention(mentionAtCursor(value, field.selectionStart ?? value.length, selections));
+    const start = field.selectionStart ?? value.length;
+    const end = field.selectionEnd ?? start;
+    onSelectionChange({ start, end });
+    setActiveMention(mentionAtCursor(value, start, selections));
   };
 
   const choose = (candidate: ObjectSearchCandidate) => {
@@ -201,6 +207,7 @@ export function ObjectMentionInput({
     window.requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(cursor, cursor);
+      onSelectionChange({ start: cursor, end: cursor });
     });
   };
 
@@ -235,6 +242,7 @@ export function ObjectMentionInput({
     if (!field) return;
     field.focus();
     field.setSelectionRange(start, end);
+    onSelectionChange({ start, end });
   };
 
   const showMentionDetails = (target: HTMLElement, selection: SelectedObjectCandidate) => {
@@ -279,9 +287,19 @@ export function ObjectMentionInput({
         value={value}
         onChange={update}
         onClick={refreshAtCursor}
+        onSelect={(event) => onSelectionChange({
+          start: event.currentTarget.selectionStart ?? value.length,
+          end: event.currentTarget.selectionEnd ?? event.currentTarget.selectionStart ?? value.length,
+        })}
         onScroll={(event) => setScroll({ left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop })}
         onKeyUp={(event) => { if (!["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) refreshAtCursor(); }}
-        onBlur={(event) => { if (!event.currentTarget.parentElement?.parentElement?.contains(event.relatedTarget as Node | null)) setActiveMention(null); }}
+        onBlur={(event) => {
+          onSelectionChange({
+            start: event.currentTarget.selectionStart ?? value.length,
+            end: event.currentTarget.selectionEnd ?? event.currentTarget.selectionStart ?? value.length,
+          });
+          if (!event.currentTarget.parentElement?.parentElement?.contains(event.relatedTarget as Node | null)) setActiveMention(null);
+        }}
         onKeyDown={onKeyDown}
         placeholder="What would you like Time v3 Agent to do? Type @ to reference an object."
         rows={3}

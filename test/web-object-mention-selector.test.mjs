@@ -49,3 +49,10 @@ test("selected identities render as inline objects with hover details", () => {
   assert.match(picker, /A request can reference up to \$\{maximumObjectReferences\} objects/);
   assert.match(references, /maximumObjectReferences = 500/);
 });
+
+test("the composer retains its cursor when an external reference control takes focus", () => {
+  assert.match(picker, /onSelectionChange: \(selection: \{ start: number; end: number \}\) => void/);
+  assert.match(picker, /onSelect=\{\(event\) => onSelectionChange/);
+  assert.match(picker, /onBlur=\{\(event\) => \{\s*onSelectionChange/);
+  assert.match(picker, /onSelectionChange\(\{ start: cursor, end: selectionEnd \}\)/);
+});
