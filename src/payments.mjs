@@ -412,28 +412,46 @@ export class PaymentService {
         FROM payment_invoice_lines WHERE payment_invoice_id = ?
         ORDER BY line_position FOR UPDATE`).all(invoiceId);
       const suppliedByPosition = new Map(suppliedLines.map((line) => [line.position, line]));
-      if (existingLines.length !== suppliedLines.length
+      if (existingLines.length > suppliedLines.length
         || existingLines.some((line) => !suppliedByPosition.has(Number(line.line_position)))) {
         throw new PaymentInputError(
-          "The invoice line set changed after it was opened. Reload it before saving.",
+          "Existing invoice lines cannot be removed. Reload the invoice before saving.",
           409,
           "INVOICE_LINE_SET_CHANGED",
         );
       }
-      const snapshots = existingLines.map((line) => {
+      const existingByPosition = new Map(existingLines.map((line) => [Number(line.line_position), line]));
+      const addedLines = suppliedLines
+        .filter((line) => !existingByPosition.has(line.position))
+        .sort((left, right) => left.position - right.position);
+      const maximumExistingPosition = existingLines.reduce(
+        (maximum, line) => Math.max(maximum, Number(line.line_position)),
+        0,
+      );
+      if (addedLines.some((line, index) => line.position !== maximumExistingPosition + index + 1)) {
+        throw new PaymentInputError(
+          "New manual invoice lines must be appended after the existing lines.",
+          400,
+          "INVALID_INVOICE_LINE_POSITION",
+        );
+      }
+      const snapshots = [...suppliedLines]
+        .sort((left, right) => left.position - right.position)
+        .map((supplied) => {
+          const existing = existingByPosition.get(supplied.position);
+          return {
+            lineSource: existing?.line_source ?? "manual",
+            personalTaskId: existing?.personal_task_id == null ? null : Number(existing.personal_task_id),
+            position: supplied.position,
+            description: supplied.description,
+            amountMinor: supplied.amountMinor,
+          };
+        });
+      const changed = addedLines.length > 0 || existingLines.some((line) => {
         const supplied = suppliedByPosition.get(Number(line.line_position));
-        return {
-          lineSource: line.line_source,
-          personalTaskId: line.personal_task_id == null ? null : Number(line.personal_task_id),
-          position: Number(line.line_position),
-          description: supplied.description,
-          amountMinor: supplied.amountMinor,
-        };
+        return String(line.description_snapshot) !== supplied.description
+          || Number(line.amount_minor_snapshot) !== supplied.amountMinor;
       });
-      const changed = existingLines.some((line, index) => (
-        String(line.description_snapshot) !== snapshots[index].description
-        || Number(line.amount_minor_snapshot) !== snapshots[index].amountMinor
-      ));
       if (!changed) {
         this.database.exec("COMMIT");
         return preparedInvoiceResult(this.getInvoice(invoiceId));
@@ -459,8 +477,22 @@ export class PaymentService {
       const updateLine = this.database.prepare(`UPDATE payment_invoice_lines
         SET description_snapshot = ?, amount_minor_snapshot = ?
         WHERE payment_invoice_id = ? AND line_position = ?`);
+      const insertLine = this.database.prepare(`INSERT INTO payment_invoice_lines
+        (payment_invoice_id,line_source,personal_task_id,line_position,description_snapshot,amount_minor_snapshot)
+        VALUES (?,?,?,?,?,?)`);
       for (const line of snapshots) {
-        updateLine.run(line.description, line.amountMinor, invoiceId, line.position);
+        if (existingByPosition.has(line.position)) {
+          updateLine.run(line.description, line.amountMinor, invoiceId, line.position);
+        } else {
+          insertLine.run(
+            invoiceId,
+            "manual",
+            null,
+            line.position,
+            line.description,
+            line.amountMinor,
+          );
+        }
       }
       this.database.prepare(`UPDATE payment_invoices
         SET amount_minor = ?, preview_digest = ?, preparation_expires_at_utc = ?,

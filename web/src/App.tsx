@@ -1559,6 +1559,7 @@ type InvoiceLineDraft = {
   personalTaskId: number | null;
   description: string;
   amount: string;
+  isNew: boolean;
 };
 
 function invoiceCurrencyDigits(currency: string) {
@@ -1612,11 +1613,19 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
     personalTaskId: readKey(line, "personalTaskId") == null ? null : Number(readKey(line, "personalTaskId")),
     description: textKey(line, "description"),
     amount: invoiceAmountDraft(readKey(line, "amountMinor"), currency),
+    isNew: false,
   })));
   const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [confirmingSend, setConfirmingSend] = useState(false);
   const [error, setError] = useState("");
+  const status = textKey(invoice, "status");
   const expired = Date.parse(textKey(invoice, "preparationExpiresAtUtc")) <= Date.now();
-  const editable = textKey(invoice, "status") === "prepared" && !invoice.stripeInvoiceId && !expired;
+  const editable = status === "prepared" && !invoice.stripeInvoiceId && !expired;
+  const sendable = ["prepared", "failed", "sending"].includes(status)
+    && (!expired || Boolean(invoice.stripeInvoiceId));
+  const busy = saving || sending;
+  const editingLocked = busy || confirmingSend;
   const draftTotal = useMemo(() => {
     try { return lines.reduce((sum, line) => sum + invoiceAmountMinor(line.amount, currency), 0); }
     catch { return null; }
@@ -1628,18 +1637,48 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
     catch { return true; }
   });
   useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !saving) onClose(); };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onClose(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose, saving]);
+  }, [busy, onClose]);
   const updateLine = (index: number, changes: Partial<InvoiceLineDraft>) => {
     setLines((current) => current.map((line, lineIndex) => (
       lineIndex === index ? { ...line, ...changes } : line
     )));
   };
+  const addLine = () => {
+    setError("");
+    setLines((current) => {
+      if (current.length >= 100) return current;
+      const nextPosition = current.reduce((maximum, line) => Math.max(maximum, line.position), 0) + 1;
+      return [...current, {
+        position: nextPosition,
+        lineSource: "manual",
+        personalTaskId: null,
+        description: "",
+        amount: "",
+        isNew: true,
+      }];
+    });
+  };
+  const removeNewLine = (position: number) => {
+    setError("");
+    setLines((current) => {
+      const persisted = current.filter((line) => !line.isNew);
+      const maximumPersistedPosition = persisted.reduce(
+        (maximum, line) => Math.max(maximum, line.position),
+        0,
+      );
+      return [
+        ...persisted,
+        ...current.filter((line) => line.isNew && line.position !== position)
+          .map((line, index) => ({ ...line, position: maximumPersistedPosition + index + 1 })),
+      ];
+    });
+  };
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    if (!editable) return;
+    if (!editable || editingLocked) return;
     setSaving(true);
     setError("");
     try {
@@ -1661,21 +1700,40 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
       setSaving(false);
     }
   };
-  return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
+  const send = async () => {
+    if (!sendable || hasChanges || busy) return;
+    setSending(true);
+    setError("");
+    try {
+      const result = await api<{ invoice: Entity }>(`/api/payment-invoices/${invoiceId}/send`, {
+        method: "POST",
+        body: JSON.stringify({ previewDigest: textKey(invoice, "previewDigest") }),
+      });
+      setConfirmingSend(false);
+      await onChanged(result.invoice);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not send the invoice.");
+    } finally {
+      setSending(false);
+    }
+  };
+  const sendLabel = status === "failed" ? "Retry sending" : status === "sending" ? "Resume sending" : "Send invoice";
+  return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
     <section className="object-editor invoice-editor" role="dialog" aria-modal="true" aria-labelledby="invoice-editor-title">
       <form onSubmit={(event) => void save(event)}>
-        <header className="object-editor-heading"><div><p className="eyebrow">Invoice #{invoiceId}</p><h2 id="invoice-editor-title">{textKey(invoice, "payerName")}</h2></div><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>Close</button></header>
+        <header className="object-editor-heading"><div><p className="eyebrow">Invoice #{invoiceId}</p><h2 id="invoice-editor-title">{textKey(invoice, "payerName")}</h2></div><button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>Close</button></header>
         <div className="invoice-editor-summary">
           <div><span>Email</span><strong>{textKey(invoice, "payerEmail")}</strong></div>
           <div><span>Due</span><strong>{formatLocalDate(textKey(invoice, "dueOn"))}</strong></div>
           <div><span>Status</span><strong>{textKey(invoice, "status")}</strong></div>
           <div><span>Total</span><strong>{draftTotal == null ? "—" : formatInvoiceMoney(draftTotal, currency)}</strong></div>
         </div>
+        {editable && <div className="invoice-line-toolbar"><span>{lines.length} of 100 lines</span><button className="button button--quiet" type="button" disabled={editingLocked || lines.length >= 100} onClick={addLine}>Add line</button></div>}
         <div className="invoice-line-list">
           {lines.map((line, index) => <article className="invoice-line-editor" key={line.position}>
-            <div className="invoice-line-heading"><span>Line {line.position}</span><strong>{line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong></div>
-            <label className="invoice-line-description">Description<textarea value={line.description} maxLength={1000} required readOnly={!editable} onChange={(event) => updateLine(index, { description: event.target.value })} /></label>
-            <label className="invoice-line-amount">Amount ({currency})<input type="text" inputMode="decimal" value={line.amount} required readOnly={!editable} onChange={(event) => updateLine(index, { amount: event.target.value })} /></label>
+            <div className="invoice-line-heading"><span>Line {line.position}</span><div className="invoice-line-heading-actions"><strong>{line.isNew ? "New manual line" : line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong>{line.isNew && <button type="button" disabled={editingLocked} onClick={() => removeNewLine(line.position)}>Remove</button>}</div></div>
+            <label className="invoice-line-description">Description<textarea value={line.description} maxLength={1000} required readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { description: event.target.value })} /></label>
+            <label className="invoice-line-amount">Amount ({currency})<input type="text" inputMode="decimal" value={line.amount} required readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { amount: event.target.value })} /></label>
           </article>)}
         </div>
         {editable
@@ -1683,8 +1741,13 @@ function InvoiceEditor({ invoice, onClose, onChanged }: {
           : <p className="object-editor-state">{expired && textKey(invoice, "status") === "prepared"
             ? "This local preview expired, so it is read-only. Prepare a new invoice to continue."
             : "This invoice has left local preview status, so its line snapshots are read-only."}</p>}
+        {sendable && hasChanges && <p className="object-editor-state">Save your line changes before sending this invoice.</p>}
+        {confirmingSend && <section className="invoice-send-confirmation" aria-label="Confirm invoice send">
+          <p>Send <strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), currency)}</strong> to <strong>{textKey(invoice, "payerName")}</strong> at <strong>{textKey(invoice, "payerEmail")}</strong>, due {formatLocalDate(textKey(invoice, "dueOn"))}?</p>
+          <div><button className="button button--quiet" type="button" disabled={sending} onClick={() => setConfirmingSend(false)}>Not yet</button><button className="button" type="button" disabled={sending} onClick={() => void send()}>{sending ? "Sending…" : "Yes, send invoice"}</button></div>
+        </section>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <footer className="object-editor-actions"><button className="button button--quiet" type="button" disabled={saving} onClick={onClose}>{editable ? "Cancel" : "Close"}</button>{editable && <button className="button" type="submit" disabled={saving || !lines.length || !hasChanges}>{saving ? "Saving…" : "Save line changes"}</button>}</footer>
+        <footer className="object-editor-actions"><button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>{editable ? "Cancel" : "Close"}</button>{editable && <button className="button button--quiet" type="submit" disabled={editingLocked || !lines.length || !hasChanges}>{saving ? "Saving…" : "Save line changes"}</button>}{sendable && !confirmingSend && <button className="button" type="button" disabled={busy || hasChanges} onClick={() => { setError(""); setConfirmingSend(true); }}>{sendLabel}</button>}</footer>
       </form>
     </section>
   </div>;
@@ -1697,6 +1760,14 @@ function PaymentsScreen() {
   const [connectError, setConnectError] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<Entity | null>(null);
   const stripe = statusData?.stripe;
+  const invoices = useMemo(() => [...(invoiceData?.invoices ?? [])].sort((left, right) => {
+    const leftCreated = Date.parse(textKey(left, "createdAtUtc"));
+    const rightCreated = Date.parse(textKey(right, "createdAtUtc"));
+    if (Number.isFinite(leftCreated) && Number.isFinite(rightCreated) && leftCreated !== rightCreated) {
+      return rightCreated - leftCreated;
+    }
+    return Number(readKey(right, "invoiceId")) - Number(readKey(left, "invoiceId"));
+  }), [invoiceData?.invoices]);
   const connect = async () => {
     setConnecting(true);
     setConnectError("");
@@ -1710,7 +1781,7 @@ function PaymentsScreen() {
   };
   const refresh = () => { void reloadStatus(); void reloadInvoices(); };
   return <>
-    <PageHeading eyebrow="Money received through your work" title="Payments" detail="Connect the Stripe account that receives invoice payments and review invoices created by the Agent." actions={<button className="button button--quiet" type="button" onClick={refresh}>Refresh</button>} />
+    <PageHeading eyebrow="Money received through your work" title="Payments" detail="Connect the Stripe account that receives invoice payments, then review and send invoices created by the Agent." actions={<button className="button button--quiet" type="button" onClick={refresh}>Refresh</button>} />
     {statusLoading && <Loading label="Checking Stripe" />}
     {statusError && <ErrorState error={statusError} retry={reloadStatus} />}
     {stripe && <section className="entity-card">
@@ -1724,18 +1795,19 @@ function PaymentsScreen() {
       {!stripe.connected && <button className="button" type="button" disabled={!stripe.configured || connecting} onClick={() => void connect()}>{connecting ? "Opening Stripe…" : "Connect Stripe account"}</button>}
       {connectError && <p className="form-error" role="alert">{connectError}</p>}
     </section>}
-    <section className="page-heading"><div><p className="eyebrow">Invoice history</p><h2>Invoices</h2></div></section>
+    <section className="page-heading"><div><p className="eyebrow">Invoice history</p><h2>Invoices</h2></div><span className="invoice-sort-label">Newest first</span></section>
     {invoicesLoading && <Loading label="Loading invoices" />}
     {invoiceError && <ErrorState error={invoiceError} retry={reloadInvoices} />}
     {!invoicesLoading && !invoiceError && !invoiceData?.invoices?.length && <Empty>No invoices yet. Ask the Agent to prepare one from priced to-dos, manual lines, or both.</Empty>}
-    <div className="card-grid">{invoiceData?.invoices?.map((invoice) => <article className="entity-card invoice-card" key={String(invoice.invoiceId)}>
-      <button className="invoice-card-open" type="button" onClick={() => setSelectedInvoice(invoice)}>
-        <div className="entity-meta"><span className="pill">{textKey(invoice, "status")}</span><span>Due {formatLocalDate(textKey(invoice, "dueOn"))}</span></div>
-        <h2>{textKey(invoice, "display")}</h2>
-        <p>{textKey(invoice, "description") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`}</p>
-        <span className="invoice-card-action">View invoice</span>
+    <div className="invoice-history-list">{invoices.map((invoice) => <article className="invoice-list-row" key={String(invoice.invoiceId)}>
+      <button className="invoice-list-open" type="button" onClick={() => setSelectedInvoice(invoice)}>
+        <div className="invoice-list-status"><span className="pill">{textKey(invoice, "status")}</span><span>#{String(invoice.invoiceId)}</span></div>
+        <div className="invoice-list-copy"><h2>{textKey(invoice, "payerName")}</h2><p>{textKey(invoice, "payerEmail")}</p><small>{textKey(invoice, "description") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`}</small></div>
+        <div className="invoice-list-money"><strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), textKey(invoice, "currency"))}</strong><span>Due {formatLocalDate(textKey(invoice, "dueOn"))}</span></div>
+        <div className="invoice-list-created"><span>Created</span><strong>{formatDisplayDate(textKey(invoice, "createdAtUtc"))}</strong></div>
+        <span className="invoice-list-action">View invoice</span>
       </button>
-      {Boolean(invoice.hostedInvoiceUrl) && <a className="button button--quiet" href={String(invoice.hostedInvoiceUrl)} target="_blank" rel="noreferrer">Open Stripe invoice</a>}
+      {Boolean(invoice.hostedInvoiceUrl) && <a className="invoice-list-stripe" href={String(invoice.hostedInvoiceUrl)} target="_blank" rel="noreferrer">Open Stripe</a>}
     </article>)}</div>
     {selectedInvoice && <InvoiceEditor
       key={`${String(selectedInvoice.invoiceId)}:${textKey(selectedInvoice, "previewDigest")}`}

@@ -356,27 +356,46 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .entity-card, .hat-card { padding: 20px; min-width: 0; }
 .entity-card p, .hat-card p { color: var(--muted); line-height: 1.45; }
 .entity-meta { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; }
-.invoice-card { display: grid; gap: 12px; }
-.invoice-card-open { width: 100%; display: grid; gap: 8px; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }
-.invoice-card-open h2, .invoice-card-open p { margin: 0; }
-.invoice-card-open:hover h2 { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
-.invoice-card-open:focus-visible { border-radius: 8px; outline: 3px solid rgba(104, 116, 90, .22); outline-offset: 4px; }
-.invoice-card-action { color: var(--olive-dark); font-size: 12px; font-weight: 750; }
+.invoice-sort-label { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.invoice-history-list { display: grid; gap: 8px; }
+.invoice-list-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.invoice-list-open { min-width: 0; display: grid; grid-template-columns: 94px minmax(180px, 1.2fr) minmax(150px, .7fr) minmax(170px, .8fr) auto; align-items: center; gap: 16px; padding: 14px 16px; border: 0; color: inherit; background: transparent; text-align: left; }
+.invoice-list-open:hover { background: rgba(223, 229, 215, .34); }
+.invoice-list-open:focus-visible { position: relative; z-index: 1; outline: 3px solid rgba(104, 116, 90, .25); outline-offset: -3px; }
+.invoice-list-status, .invoice-list-copy, .invoice-list-money, .invoice-list-created { min-width: 0; display: grid; gap: 3px; }
+.invoice-list-status > span:last-child, .invoice-list-copy p, .invoice-list-copy small, .invoice-list-money span, .invoice-list-created span { color: var(--muted); font-size: 11px; }
+.invoice-list-copy h2 { overflow: hidden; margin: 0; font: 600 20px/1.1 "Newsreader", Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
+.invoice-list-copy p, .invoice-list-copy small { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
+.invoice-list-money strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.invoice-list-created > span { font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.invoice-list-created strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.invoice-list-action { color: var(--olive-dark); font-size: 11px; font-weight: 750; white-space: nowrap; }
+.invoice-list-stripe { align-self: stretch; display: inline-flex; align-items: center; padding: 0 16px; border-left: 1px solid var(--line); color: var(--olive-dark); font-size: 11px; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.invoice-list-stripe:hover { background: var(--olive-soft); }
 .invoice-editor { width: min(900px, 100%); }
 .invoice-editor-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .invoice-editor-summary div { min-width: 0; display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 .invoice-editor-summary span { color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
 .invoice-editor-summary strong { overflow-wrap: anywhere; font-size: 13px; }
+.invoice-line-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.invoice-line-toolbar span { color: var(--muted); font-size: 11px; }
+.invoice-line-toolbar .button { min-height: 34px; padding: 6px 11px; font-size: 12px; }
 .invoice-line-list { display: grid; gap: 10px; }
 .invoice-line-editor { display: grid; grid-template-columns: minmax(0, 1fr) 150px; align-items: end; gap: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
 .invoice-line-heading { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 7px; border-bottom: 1px solid var(--line); }
 .invoice-line-heading span { color: var(--olive); font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .invoice-line-heading strong { color: var(--muted); font-size: 11px; }
+.invoice-line-heading-actions { display: flex; align-items: center; gap: 10px; }
+.invoice-line-heading-actions button { padding: 0; border: 0; color: #8c3025; background: transparent; font-size: 11px; font-weight: 750; }
+.invoice-line-heading-actions button:hover { text-decoration: underline; }
 .invoice-line-editor label { min-width: 0; }
 .invoice-line-editor textarea { min-height: 74px; resize: vertical; }
 .invoice-line-editor input, .invoice-line-editor textarea { color: var(--ink); background: var(--paper); }
 .invoice-line-editor input[readonly], .invoice-line-editor textarea[readonly] { border-color: transparent; background: transparent; }
 .invoice-line-amount input { font-variant-numeric: tabular-nums; }
+.invoice-send-confirmation { display: grid; gap: 11px; padding: 14px; border: 1px solid #aeb8a3; border-radius: 11px; background: #eef2e8; }
+.invoice-send-confirmation p { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.5; }
+.invoice-send-confirmation > div { display: flex; justify-content: flex-end; gap: 8px; }
 .library-groups { display: grid; gap: 26px; }
 .library-group { min-width: 0; }
 .library-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 9px; padding: 0 3px 8px; border-bottom: 1px solid #cbd0c5; }
@@ -541,6 +560,11 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 @page letter { size: Letter; margin: 0; }
 @page a4 { size: A4; margin: 0; }
 
+@media (max-width: 1200px) {
+  .invoice-list-open { grid-template-columns: 82px minmax(170px, 1fr) minmax(140px, .65fr) auto; }
+  .invoice-list-created { display: none; }
+}
+
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { position: sticky; height: auto; padding: 10px 14px; flex-direction: row; align-items: center; overflow: hidden; }
@@ -618,6 +642,14 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .contact-editor-method-value { grid-column: 1 / -1; }
   .contact-editor-remove { justify-self: start; }
   .metric-grid { grid-template-columns: 1fr; }
+  .invoice-list-row { grid-template-columns: 1fr; }
+  .invoice-list-open { grid-template-columns: auto minmax(0, 1fr); gap: 10px 14px; }
+  .invoice-list-status { align-self: start; grid-row: 1 / span 2; }
+  .invoice-list-copy { grid-column: 2; }
+  .invoice-list-money { grid-column: 2; }
+  .invoice-list-created { display: grid; grid-column: 2; }
+  .invoice-list-action { grid-column: 2; }
+  .invoice-list-stripe { min-height: 42px; justify-content: center; border-top: 1px solid var(--line); border-left: 0; }
   .invoice-editor-summary, .invoice-line-editor { grid-template-columns: 1fr; }
   .invoice-line-heading { grid-column: 1; }
   .paper-preview .daily-paper { transform: scale(.72); margin-bottom: -3in; }

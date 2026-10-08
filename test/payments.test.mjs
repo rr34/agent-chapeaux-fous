@@ -53,6 +53,29 @@ test("Stripe readiness stays unavailable until a connected account is stored", (
   });
 });
 
+test("invoice history is loaded newest first", () => {
+  const database = {
+    prepare(sql) {
+      assert.match(sql, /ORDER BY payment_invoice_id DESC LIMIT \?/u);
+      return { all: (limit) => {
+        assert.equal(limit, 3);
+        return [{ payment_invoice_id: 9 }, { payment_invoice_id: 7 }, { payment_invoice_id: 2 }];
+      } };
+    },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: {},
+  });
+  payments.getInvoice = (invoiceId) => ({ invoiceId });
+
+  assert.deepEqual(payments.listInvoices({ limit: 3 }), [
+    { invoiceId: 9 },
+    { invoiceId: 7 },
+    { invoiceId: 2 },
+  ]);
+});
+
 test("invoice preparation accepts task-backed, manual, and mixed line sources", () => {
   const registry = new ToolRegistry();
   registerPaymentTools(registry, {});
@@ -141,9 +164,9 @@ test("manual-only preparation stores an explicit source with no task foreign key
   });
 });
 
-test("a prepared local invoice can atomically revise every existing line and invalidate its old digest", () => {
+test("a prepared local invoice can atomically revise existing lines, append a manual line, and invalidate its old digest", () => {
   const oldDigest = `sha256:${"a".repeat(64)}`;
-  const writes = { transactions: [], lines: [], invoice: null };
+  const writes = { transactions: [], lines: [], insertedLines: [], invoice: null };
   const row = {
     payment_invoice_id: 91,
     payer_contact_id: 7,
@@ -173,6 +196,9 @@ test("a prepared local invoice can atomically revise every existing line and inv
       if (/UPDATE payment_invoice_lines/u.test(sql)) return {
         run(...values) { writes.lines.push(values); return { changes: 1 }; },
       };
+      if (/INSERT INTO payment_invoice_lines/u.test(sql)) return {
+        run(...values) { writes.insertedLines.push(values); return { changes: 1 }; },
+      };
       if (/UPDATE payment_invoices/u.test(sql)) return {
         run(...values) { writes.invoice = values; return { changes: 1 }; },
       };
@@ -187,7 +213,7 @@ test("a prepared local invoice can atomically revise every existing line and inv
   });
   payments.getInvoice = (invoiceId) => ({
     invoiceId,
-    display: "Ruby — $70.00",
+    display: "Ruby — $80.00",
     payerName: "Ruby",
     payerEmail: "ruby@example.test",
     status: "prepared",
@@ -201,7 +227,8 @@ test("a prepared local invoice can atomically revise every existing line and inv
   const result = payments.updatePreparedInvoice(91, {
     previewDigest: oldDigest,
     lines: [{ position: 1, description: "First task revised", amountMinor: 4000 },
-      { position: 2, description: "Materials revised", amountMinor: 3000 }],
+      { position: 2, description: "Materials revised", amountMinor: 3000 },
+      { position: 3, description: "Delivery", amountMinor: 1000 }],
   }, { actorType: "user", actorName: "payments_page" });
 
   assert.deepEqual(writes.transactions, ["START TRANSACTION", "COMMIT"]);
@@ -209,7 +236,8 @@ test("a prepared local invoice can atomically revise every existing line and inv
     ["First task revised", 4000, 91, 1],
     ["Materials revised", 3000, 91, 2],
   ]);
-  assert.equal(writes.invoice[0], 7000);
+  assert.deepEqual(writes.insertedLines, [[91, "manual", null, 3, "Delivery", 1000]]);
+  assert.equal(writes.invoice[0], 8000);
   assert.match(writes.invoice[1], /^sha256:[0-9a-f]{64}$/u);
   assert.notEqual(writes.invoice[1], oldDigest);
   assert.equal(writes.invoice[4], 91);
@@ -288,6 +316,44 @@ test("invoice revision rejects stale, expired, and non-editable previews before 
       previewDigest: requestedDigest,
       lines: [{ position: 1, description: "Help moving", amountMinor: 2500 }],
     }), (error) => error instanceof PaymentInputError && error.code === code);
+    assert.deepEqual(transactions, ["START TRANSACTION", "ROLLBACK"]);
+  }
+});
+
+test("new invoice lines must be appended without removing existing lines", () => {
+  const previewDigest = `sha256:${"e".repeat(64)}`;
+  const row = {
+    status: "prepared", stripe_invoice_id: null, preview_digest: previewDigest,
+    preparation_expires_at_utc: "2099-01-01T00:00:00.000Z",
+  };
+  const existingLines = [
+    { line_source: "manual", personal_task_id: null, line_position: 1,
+      description_snapshot: "First", amount_minor_snapshot: 1000 },
+    { line_source: "manual", personal_task_id: null, line_position: 2,
+      description_snapshot: "Second", amount_minor_snapshot: 2000 },
+  ];
+  for (const [lines, code] of [
+    [[{ position: 1, description: "First", amountMinor: 1000 }], "INVOICE_LINE_SET_CHANGED"],
+    [[{ position: 1, description: "First", amountMinor: 1000 },
+      { position: 2, description: "Second", amountMinor: 2000 },
+      { position: 4, description: "Skipped", amountMinor: 3000 }], "INVALID_INVOICE_LINE_POSITION"],
+  ]) {
+    const transactions = [];
+    const database = {
+      exec(sql) { transactions.push(sql); },
+      prepare(sql) {
+        if (/SELECT \* FROM payment_invoices/u.test(sql)) return { get: () => row };
+        if (/SELECT line_source, personal_task_id/u.test(sql)) return { all: () => existingLines };
+        throw new Error(`Invalid line set must not be written: ${sql}`);
+      },
+    };
+    const payments = new PaymentService({
+      store: { status: { ready: true }, requireReady: () => database },
+      config: {},
+    });
+
+    assert.throws(() => payments.updatePreparedInvoice(94, { previewDigest, lines }),
+      (error) => error instanceof PaymentInputError && error.code === code);
     assert.deepEqual(transactions, ["START TRANSACTION", "ROLLBACK"]);
   }
 });
