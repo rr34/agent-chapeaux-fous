@@ -8,6 +8,14 @@ editor. Once sending begins, the invoice description and lines are immutable.
 Accounting remains a downstream ledger domain and must not be inferred from
 payment-provider fields.
 
+Every invoice exposes a deliberately minimal payment status: `unpaid` or
+`paid`. For a local-only invoice, use `payment_invoice_payment_status_set` when
+the user asks to mark that exact invoice paid or unpaid. Read the invoice first
+and use its exact stable binding. This native status change does not collect,
+refund, send, or email anything. Once an invoice has a Stripe invoice ID,
+Stripe owns its payment truth and the native status tool must not override it;
+provider events update the same two-state payment status instead.
+
 The prepared preview also owns its payment-method policy. The Payments UI may
 choose bank account only, credit card only, or both before sending; changing the
 policy rotates the preview digest just like changing a line. Finalization creates
@@ -66,5 +74,6 @@ server is configured but no account is connected, use
 `payment_stripe_connect_link` and give the user its exact short-lived Stripe
 authorization URL. Use
 `payment_invoice_list` to verify status and hosted invoice URLs. Do not claim
-payment merely because an invoice was sent; Stripe webhook state is
+payment merely because an invoice was sent; report the invoice's `paymentStatus`
+as `paid` or `unpaid`. Stripe webhook state is
 authoritative for paid, failed, voided, and uncollectible outcomes.

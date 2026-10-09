@@ -1676,6 +1676,11 @@ function invoicePaymentMethodLabel(policy: string) {
   return "Bank account only (no credit cards)";
 }
 
+function invoicePaymentStatusLabel(invoice: Entity) {
+  return textKey(invoice, "paymentStatus") === "paid" || textKey(invoice, "status") === "paid"
+    ? "Paid" : "Unpaid";
+}
+
 function invoiceContactEmail(contact: Entity) {
   const methods = Array.isArray(contact.methods)
     ? contact.methods.filter((method): method is Entity => Boolean(method && typeof method === "object" && !Array.isArray(method)))
@@ -2049,7 +2054,7 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
         <div className="invoice-editor-summary">
           <div><span>Email</span><strong>{payerEmail || "Not set"}</strong></div>
           <div><span>Due</span><strong>{dueOn ? formatLocalDate(dueOn) : "Not set"}</strong></div>
-          <div><span>Status</span><strong>{textKey(invoice, "status")}</strong></div>
+          <div><span>Payment status</span><strong>{invoicePaymentStatusLabel(invoice)}</strong></div>
           <div><span>Total</span><strong>{draftTotal == null ? "Invalid total" : formatInvoiceMoney(draftTotal, currency)}</strong></div>
         </div>
         <label className="invoice-editor-description"><span>Invoice description <small>Optional</small></span><textarea value={description} maxLength={1000} readOnly={!editable || editingLocked} onChange={(event) => setDescription(event.target.value)} placeholder="What this invoice covers" /></label>
@@ -2152,7 +2157,7 @@ function PaymentsScreen({ onReference }: { onReference: AddAgentReference }) {
     {!invoicesLoading && !invoiceError && !invoiceData?.invoices?.length && <Empty>No invoices yet. Create one here or ask the Agent to prepare one.</Empty>}
     <div className="invoice-history-list">{invoices.map((invoice) => <article className="invoice-list-row" key={String(invoice.invoiceId)}>
       <button className="invoice-list-open" type="button" onClick={() => setSelectedInvoice(invoice)}>
-        <div className="invoice-list-status"><span className="pill">{textKey(invoice, "status")}</span><span>#{String(invoice.invoiceId)}</span></div>
+        <div className="invoice-list-status"><span className="pill">{invoicePaymentStatusLabel(invoice)}</span><span>#{String(invoice.invoiceId)}</span></div>
         <div className="invoice-list-copy"><h2>{textKey(invoice, "payerName") || "Payer not set"}</h2><p>{textKey(invoice, "payerEmail") || "Email not set"}</p><small>{textKey(invoice, "description") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`}</small></div>
         <div className="invoice-list-money"><strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), textKey(invoice, "currency"))}</strong><span>{textKey(invoice, "dueOn") ? `Due ${formatLocalDate(textKey(invoice, "dueOn"))}` : "Due date not set"}</span></div>
         <div className="invoice-list-created"><span>Created</span><strong>{formatDisplayDate(textKey(invoice, "createdAtUtc"))}</strong></div>
@@ -2301,7 +2306,6 @@ function Workspace() {
       setAgentComposerCursorRequest(null);
       setOptimisticRequests((current) => [request, ...current.filter(({ requestId }) => requestId !== request.requestId)]);
       setRequestRefreshKey((current) => current + 1);
-      go("agent");
     }}
   />{traceRequestId && <TracePanel requestId={traceRequestId} trace={requestTrace} error={traceError} onClose={() => setTraceRequestId(null)} />}</div>;
 }

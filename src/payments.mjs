@@ -354,7 +354,10 @@ export class PaymentService {
       invoiceId: Number(row.payment_invoice_id), ref: `agent-slayer://payment-invoices/${Number(row.payment_invoice_id)}`,
       display: `${row.payer_name_snapshot || "Payer not set"} — ${formattedMoney(Number(row.amount_minor), row.currency)}`,
       payerContactId: row.payer_contact_id == null ? null : Number(row.payer_contact_id), payerName: row.payer_name_snapshot ?? null, payerEmail: row.payer_email_snapshot ?? null,
-      status: row.status, currency: row.currency, amountMinor: Number(row.amount_minor), dueOn: row.due_on ?? null,
+      status: row.status,
+      paymentStatus: row.status === "paid" ? "paid" : "unpaid",
+      paymentStatusManagedBy: row.stripe_invoice_id ? "stripe" : "native",
+      currency: row.currency, amountMinor: Number(row.amount_minor), dueOn: row.due_on ?? null,
       paymentMethodPolicy: row.payment_method_policy, description: row.description ?? null,
       previewDigest: row.preview_digest, preparationExpiresAtUtc: row.preparation_expires_at_utc,
       stripeInvoiceId: row.stripe_invoice_id ?? null, processorStatus: row.processor_status ?? null,
@@ -374,6 +377,54 @@ export class PaymentService {
     const bounded = Math.min(500, Math.max(1, Number(limit) || 100));
     return this.database.prepare("SELECT payment_invoice_id FROM payment_invoices ORDER BY payment_invoice_id DESC LIMIT ?").all(bounded)
       .map((row) => this.getInvoice(row.payment_invoice_id));
+  }
+
+  setNativePaymentStatus(invoiceIdValue, paymentStatusValue, activity = {}) {
+    const invoiceId = positiveInteger(invoiceIdValue, "invoice_id");
+    const paymentStatus = String(paymentStatusValue ?? "").trim().toLowerCase();
+    if (!new Set(["unpaid", "paid"]).has(paymentStatus)) {
+      throw new PaymentInputError("payment_status must be unpaid or paid.");
+    }
+    this.database.exec("START TRANSACTION");
+    let changed = false;
+    try {
+      const row = this.database.prepare(`SELECT status, stripe_invoice_id FROM payment_invoices
+        WHERE payment_invoice_id = ? FOR UPDATE`).get(invoiceId);
+      if (!row) throw new PaymentInputError("Invoice not found.", 404, "INVOICE_NOT_FOUND");
+      const currentPaymentStatus = row.status === "paid" ? "paid" : "unpaid";
+      if (currentPaymentStatus !== paymentStatus && row.stripe_invoice_id) {
+        throw new PaymentInputError(
+          "This invoice is backed by Stripe, so its paid or unpaid status must come from Stripe.",
+          409,
+          "STRIPE_OWNS_PAYMENT_STATUS",
+        );
+      }
+      if (currentPaymentStatus !== paymentStatus) {
+        if (paymentStatus === "paid") {
+          this.database.prepare(`UPDATE payment_invoices SET status='paid',amount_paid_minor=amount_minor,
+            paid_at_utc=COALESCE(paid_at_utc,UTC_TIMESTAMP(3)),failure_code=NULL,failure_message=NULL,
+            updated_at_utc=UTC_TIMESTAMP(3) WHERE payment_invoice_id=?`).run(invoiceId);
+        } else {
+          this.database.prepare(`UPDATE payment_invoices SET status='prepared',amount_paid_minor=0,
+            paid_at_utc=NULL,failure_code=NULL,failure_message=NULL,failed_at_utc=NULL,
+            updated_at_utc=UTC_TIMESTAMP(3) WHERE payment_invoice_id=?`).run(invoiceId);
+        }
+        changed = true;
+      }
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    const invoice = this.getInvoice(invoiceId);
+    if (changed) this.recordActivity({
+      type: "payment.invoice.payment_status_set", status: "complete",
+      actorType: activity.actorType ?? "user", actorName: activity.actorName ?? "payments",
+      turnId: activity.requestId ?? null, operationId: activity.callId ?? null,
+      name: `Invoice marked ${paymentStatus}`, contentText: invoice.display,
+      payload: { paymentStatus, invoice }, subjectType: "payment_invoice", subjectId: String(invoice.invoiceId),
+    });
+    return { status: "complete", idempotentReplay: !changed, invoice };
   }
 
   async prepareInvoice(input, activity = {}) {

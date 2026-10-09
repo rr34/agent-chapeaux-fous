@@ -11,7 +11,7 @@ const toolDescriptions = Object.freeze({
   },
   payment_invoice_list: {
     protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Read native prepared and sent invoices with task-backed or manual line snapshots and observed Stripe status.",
+    summary: "Read native invoices with task-backed or manual line snapshots, their paid or unpaid payment status, and any observed Stripe lifecycle state.",
     actionClasses: ["READ"], effectClassifications: ["READ-ONLY"],
   },
   payment_invoice_prepare: {
@@ -22,6 +22,11 @@ const toolDescriptions = Object.freeze({
   payment_invoice_update: {
     protocol: "agent-slayer.tool-description", version: 1,
     summary: "Revise one exact editable local invoice draft without changing its referenced to-dos; update its description, payer, due date, payment methods, line snapshots, or appended manual lines.",
+    actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
+  },
+  payment_invoice_payment_status_set: {
+    protocol: "agent-slayer.tool-description", version: 1,
+    summary: "Mark one exact native invoice paid or unpaid; Stripe-backed invoices keep Stripe-owned payment truth.",
     actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
   },
   payment_invoice_send: {
@@ -45,7 +50,10 @@ const invoiceSchema = {
   properties: {
     invoiceId: { type: "integer" }, ref: { type: "string" }, display: { type: "string" },
     payerContactId: { type: ["integer", "null"] }, payerName: { type: ["string", "null"] }, payerEmail: { type: ["string", "null"] },
-    status: { type: "string" }, currency: { type: "string" }, amountMinor: { type: "integer" },
+    status: { type: "string", description: "Internal invoice delivery lifecycle, not the two-state payment status." },
+    paymentStatus: { type: "string", enum: ["unpaid", "paid"] },
+    paymentStatusManagedBy: { type: "string", enum: ["native", "stripe"] },
+    currency: { type: "string" }, amountMinor: { type: "integer" },
     dueOn: { type: ["string", "null"] }, paymentMethodPolicy: { type: "string" },
     description: { type: ["string", "null"] }, previewDigest: { type: "string" },
     preparationExpiresAtUtc: { type: "string" }, stripeInvoiceId: { type: ["string", "null"] },
@@ -71,6 +79,7 @@ const nativeContracts = Object.freeze({
   payment_invoice_update: {
     inputRoles: { "/invoice_id": "subject", "/contact_id": "payer" },
   },
+  payment_invoice_payment_status_set: { inputRoles: { "/invoice_id": "subject" } },
   payment_invoice_send: { inputRoles: { "/invoice_id": "subject" } },
 });
 
@@ -180,6 +189,23 @@ export function registerPaymentTools(registry, payments) {
     async execute(input, context) {
       return payments.patchPreparedInvoice(input.invoice_id, input, {
         ...context, actorType: "tool", actorName: "payment_invoice_update",
+      });
+    },
+  });
+
+  registry.register({
+    name: "payment_invoice_payment_status_set",
+    description: "Mark one exact native invoice paid or unpaid. Use payment_invoice_list first to identify the invoice. This changes only the native two-state payment status and records an activity entry; it does not send, email, charge, refund, or modify invoice contents. If the invoice has reached Stripe, an already-matching status is an idempotent no-op and a conflicting change is rejected because Stripe remains authoritative.",
+    outputSchema: { type: "object", properties: {
+      status: { type: "string" }, idempotentReplay: { type: "boolean" }, invoice: invoiceSchema,
+    } },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      invoice_id: { type: "integer", minimum: 1 },
+      payment_status: { type: "string", enum: ["unpaid", "paid"] },
+    }, required: ["invoice_id", "payment_status"] },
+    async execute(input, context) {
+      return payments.setNativePaymentStatus(input.invoice_id, input.payment_status, {
+        ...context, actorType: "tool", actorName: "payment_invoice_payment_status_set",
       });
     },
   });

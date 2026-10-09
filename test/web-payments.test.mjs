@@ -28,6 +28,8 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.match(appSource, /"Due date not set"/);
   assert.match(appSource, /Open Stripe/);
   assert.match(appSource, /function InvoiceEditor\(/);
+  assert.match(appSource, /function invoicePaymentStatusLabel\(invoice: Entity\)/);
+  assert.match(appSource, /Payment status/);
   assert.match(appSource, /View invoice/);
   assert.match(appSource, /identity=\{invoiceIdentity\(invoice\)\}/);
   assert.match(appSource, /<PaymentsScreen onReference=\{referenceInAgent\} \/>/);

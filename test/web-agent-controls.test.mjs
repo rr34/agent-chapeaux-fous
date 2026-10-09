@@ -14,6 +14,15 @@ test("the Agent composer stays fixed and is rendered by the workspace", () => {
   assert.match(styles, /\.workspace \{[^}]*padding:[^;}]*170px/s);
 });
 
+test("submitting from another screen leaves that screen open while the Agent works", () => {
+  const workspace = app.slice(app.indexOf("function Workspace()"), app.indexOf("export default function App()"));
+  const submittedStart = workspace.indexOf("onSubmitted={(request) =>");
+  const submitted = workspace.slice(submittedStart, workspace.indexOf("  />{traceRequestId", submittedStart));
+  assert.match(submitted, /setOptimisticRequests/);
+  assert.match(submitted, /setRequestRefreshKey/);
+  assert.doesNotMatch(submitted, /go\("agent"\)/);
+});
+
 test("the Agent conversation initially scrolls to its newest interaction", () => {
   const agentScreen = app.slice(app.indexOf("function AgentScreen("), app.indexOf("function CalendarScreen("));
   assert.match(agentScreen, /const initialScrollPending = useRef\(true\)/);

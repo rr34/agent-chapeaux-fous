@@ -141,6 +141,109 @@ test("invoice update is a bound snapshot edit that cannot send or rewrite to-dos
   }]);
 });
 
+test("the agent can set only paid or unpaid on an exact native invoice", async () => {
+  const calls = [];
+  const registry = new ToolRegistry();
+  registerPaymentTools(registry, {
+    setNativePaymentStatus(invoiceId, paymentStatus, activity) {
+      calls.push({ invoiceId, paymentStatus, activity });
+      return { status: "complete", idempotentReplay: false, invoice: {
+        invoiceId, paymentStatus, paymentStatusManagedBy: "native",
+      } };
+    },
+  });
+  const definition = registry.get("payment_invoice_payment_status_set");
+  const input = { invoice_id: 3, payment_status: "paid" };
+
+  assert.equal(schemaProblem(input, definition.parameters), null);
+  assert.match(schemaProblem({ invoice_id: 3, payment_status: "processing" }, definition.parameters), /must be one of/u);
+  assert.match(definition.description, /does not send, email, charge, refund, or modify invoice contents/u);
+  assert.deepEqual(await definition.execute(input, { requestId: "request-2" }), {
+    status: "complete", idempotentReplay: false,
+    invoice: { invoiceId: 3, paymentStatus: "paid", paymentStatusManagedBy: "native" },
+  });
+  assert.deepEqual(calls, [{
+    invoiceId: 3,
+    paymentStatus: "paid",
+    activity: { requestId: "request-2", actorType: "tool", actorName: "payment_invoice_payment_status_set" },
+  }]);
+});
+
+test("native invoice payment status toggles between paid and unpaid with an audit entry", () => {
+  const transactions = [];
+  const activities = [];
+  const row = { status: "prepared", stripe_invoice_id: null };
+  const database = {
+    exec(sql) { transactions.push(sql); },
+    prepare(sql) {
+      if (/SELECT status, stripe_invoice_id FROM payment_invoices/u.test(sql)) return { get: () => ({ ...row }) };
+      if (/SET status='paid'/u.test(sql)) return { run() { row.status = "paid"; } };
+      if (/SET status='prepared'/u.test(sql)) return { run() { row.status = "prepared"; } };
+      throw new Error(`Unexpected SQL while setting native payment status: ${sql}`);
+    },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: {},
+  });
+  payments.getInvoice = (invoiceId) => ({
+    invoiceId, display: "Ruby — $25.00", status: row.status,
+    paymentStatus: row.status === "paid" ? "paid" : "unpaid",
+    paymentStatusManagedBy: "native",
+  });
+  payments.recordActivity = (activity) => activities.push(activity);
+
+  const paid = payments.setNativePaymentStatus(3, "paid", { requestId: "request-3" });
+  const replay = payments.setNativePaymentStatus(3, "paid", { requestId: "request-3" });
+  const unpaid = payments.setNativePaymentStatus(3, "unpaid", { requestId: "request-4" });
+
+  assert.equal(paid.invoice.paymentStatus, "paid");
+  assert.equal(paid.idempotentReplay, false);
+  assert.equal(replay.idempotentReplay, true);
+  assert.equal(unpaid.invoice.paymentStatus, "unpaid");
+  assert.equal(unpaid.idempotentReplay, false);
+  assert.deepEqual(transactions, [
+    "START TRANSACTION", "COMMIT",
+    "START TRANSACTION", "COMMIT",
+    "START TRANSACTION", "COMMIT",
+  ]);
+  assert.deepEqual(activities.map(({ type, name }) => ({ type, name })), [
+    { type: "payment.invoice.payment_status_set", name: "Invoice marked paid" },
+    { type: "payment.invoice.payment_status_set", name: "Invoice marked unpaid" },
+  ]);
+});
+
+test("native payment status cannot override a Stripe-backed invoice", () => {
+  const transactions = [];
+  const database = {
+    exec(sql) { transactions.push(sql); },
+    prepare(sql) {
+      assert.match(sql, /SELECT status, stripe_invoice_id FROM payment_invoices/u);
+      return { get: () => ({ status: "open", stripe_invoice_id: "in_123" }) };
+    },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: {},
+  });
+  payments.getInvoice = (invoiceId) => ({
+    invoiceId, status: "open", paymentStatus: "unpaid", paymentStatusManagedBy: "stripe",
+  });
+
+  assert.throws(
+    () => payments.setNativePaymentStatus(3, "paid"),
+    (error) => error instanceof PaymentInputError && error.code === "STRIPE_OWNS_PAYMENT_STATUS",
+  );
+  assert.deepEqual(payments.setNativePaymentStatus(3, "unpaid"), {
+    status: "complete", idempotentReplay: true,
+    invoice: { invoiceId: 3, status: "open", paymentStatus: "unpaid", paymentStatusManagedBy: "stripe" },
+  });
+  assert.deepEqual(transactions, [
+    "START TRANSACTION", "ROLLBACK",
+    "START TRANSACTION", "COMMIT",
+  ]);
+});
+
 test("partial invoice patches preserve unspecified snapshot text and prices", () => {
   const payments = new PaymentService({
     store: { status: { ready: true }, requireReady() { throw new Error("database should not be read directly"); } },
