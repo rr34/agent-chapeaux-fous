@@ -83,7 +83,7 @@ test("an explicit same-provider next action produces an exact invocation referen
   assert.equal(Object.hasOwn(reference, "status"), false);
 });
 
-test("an explicitly opted-in native invoice preview produces an exact send reference", () => {
+test("explicit native invoice send preparation produces an exact send reference", () => {
   const digest = `sha256:${"a".repeat(64)}`;
   const target = {
     name: "payment_invoice_send",
@@ -98,7 +98,7 @@ test("an explicitly opted-in native invoice preview produces an exact send refer
     },
   };
   const input = {
-    toolDefinition: { source: "local", name: "payment_invoice_prepare", confirmationHandoff: true },
+    toolDefinition: { source: "local", name: "payment_invoice_send_prepare", confirmationHandoff: true },
     result: {
       status: "ready",
       expiresAt: "2099-01-01T00:00:00.000Z",
@@ -111,7 +111,7 @@ test("an explicitly opted-in native invoice preview produces an exact send refer
     resolveProviderTool(name) { return name === target.name ? target : null; },
   };
   const reference = extractDeferredActionReference({
-    ...input, tool: "payment_invoice_prepare", requestId: "request-native", receiptEventSeq: 51,
+    ...input, tool: "payment_invoice_send_prepare", requestId: "request-native", receiptEventSeq: 51,
   });
   assert.equal(deferredActionContractProblem(input), null);
   assert.equal(reference.sourceConnection, "local");

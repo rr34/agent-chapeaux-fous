@@ -40,6 +40,7 @@ import {
 } from "./temporal-consistency.mjs";
 import {
   canonicalizeObjectReferenceSelection,
+  currentRequestAttachmentObjectReferences,
   explicitReferenceObjectCatalog,
   mergeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
@@ -755,11 +756,21 @@ export class SlayerRuntime {
         : exchange.objectReferencePolicy !== "fresh_read_required"
     ));
     const nonReusableExchangeReferenced = reusableReferencedExchanges.length < referencedExchanges.length;
+    const requestEventSeq = typeof this.ledger.eventSequence === "function"
+      ? this.ledger.eventSequence(args.requestEventId)
+      : null;
+    const currentAttachmentReferences = currentRequestAttachmentObjectReferences(
+      args.attachment,
+      requestEventSeq,
+    );
     const availableObjectReferences = explicitReferenceObjectCatalog(
       nonReusableExchangeReferenced
         ? []
         : recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
-      reusableReferencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
+      [
+        ...reusableReferencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
+        ...currentAttachmentReferences,
+      ],
     );
     const recentToolReceipts = recentToolReceiptIndex(this.ledger, [
       ...recentConversation,
@@ -784,9 +795,6 @@ export class SlayerRuntime {
       includeRecentExchanges: false,
       includeReferencedObjectReferences: false,
     });
-    const requestEventSeq = typeof this.ledger.eventSequence === "function"
-      ? this.ledger.eventSequence(args.requestEventId)
-      : null;
     const schema = turnBriefSchema(
       catalog.map(({ capability }) => capability),
       activeActionReferences.map(({ referenceId }) => referenceId),

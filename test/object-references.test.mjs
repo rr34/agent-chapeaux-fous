@@ -4,6 +4,7 @@ import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
 import { validateFirstClassObjectBinding } from "../src/first-class-object-binding.mjs";
 import {
   canonicalizeObjectReferenceSelection,
+  currentRequestAttachmentObjectReferences,
   explicitReferenceObjectCatalog,
   mergeObjectReferenceGroups,
   normalizeObjectReferenceGroups,
@@ -11,6 +12,26 @@ import {
   objectReferenceSelectionFindings,
   unresolvedSelectedObjectCandidates,
 } from "../src/object-references.mjs";
+
+test("a verified current request attachment becomes a canonical file binding", () => {
+  assert.deepEqual(currentRequestAttachmentObjectReferences({
+    fileId: 304,
+    title: "Lowes receipt 88.05.pdf",
+    originalFilename: "receipt.pdf",
+  }, 41_002), [{
+    mention: "File attached to the current request",
+    role: "subject",
+    type: "files.file",
+    source: "native:files",
+    objects: [{
+      id: 304,
+      ref: "agent-slayer://files/304",
+      display: "Lowes receipt 88.05.pdf",
+    }],
+    sourceEventSeqs: [41_002],
+  }]);
+  assert.deepEqual(currentRequestAttachmentObjectReferences({ fileId: 304 }, null), []);
+});
 
 const accountRead = {
   name: "remote_accounting_list_accounts",

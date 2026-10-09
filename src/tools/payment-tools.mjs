@@ -16,7 +16,7 @@ const toolDescriptions = Object.freeze({
   },
   payment_invoice_prepare: {
     protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Immediately create an editable local invoice draft from one or more to-do or manual lines, then report what remains. Never ask first for prices, payer, or due date; they may be left blank. A send-ready draft returns the exact final-confirmation handoff.",
+    summary: "Immediately create an editable local invoice draft from one or more to-do or manual lines, then report what remains. Never ask first for prices, payer, or due date; they may be left blank. This never requests send confirmation.",
     actionClasses: ["CREATE"], effectClassifications: ["MUTATING"],
   },
   payment_invoice_update: {
@@ -28,6 +28,11 @@ const toolDescriptions = Object.freeze({
     protocol: "agent-slayer.tool-description", version: 1,
     summary: "Mark one exact native invoice paid or unpaid; Stripe-backed invoices keep Stripe-owned payment truth.",
     actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
+  },
+  payment_invoice_send_prepare: {
+    protocol: "agent-slayer.tool-description", version: 1,
+    summary: "For an explicit request to send, validate one exact current invoice preview and prepare its final yes-or-no send confirmation without contacting the payer.",
+    actionClasses: ["READ"], effectClassifications: ["READ-ONLY"],
   },
   payment_invoice_send: {
     protocol: "agent-slayer.tool-description", version: 1,
@@ -87,6 +92,7 @@ const nativeContracts = Object.freeze({
     },
   },
   payment_invoice_payment_status_set: { inputRoles: { "/invoice_id": "subject" } },
+  payment_invoice_send_prepare: { inputRoles: { "/invoice_id": "subject" } },
   payment_invoice_send: { inputRoles: { "/invoice_id": "subject" } },
 });
 
@@ -126,8 +132,7 @@ export function registerPaymentTools(registry, payments) {
 
   registry.register({
     name: "payment_invoice_prepare",
-    confirmationHandoff: true,
-    description: "Immediately create an editable local invoice draft with at least one exact to-do or manual line. Do not ask for line prices, payer, or due date before calling this tool: those fields may be omitted and completed later in Payments. Zero-dollar lines are valid for explicitly documenting work that was not charged, but the invoice total must be positive before sending. Return the created draft and report missingFields afterward. This does not require Stripe, contact the payer, or change a to-do's stored price. Only a send-ready result includes an exact confirmation handoff.",
+    description: "Immediately create an editable local invoice draft with at least one exact to-do or manual line. Do not ask for line prices, payer, or due date before calling this tool: those fields may be omitted and completed later in Payments. Zero-dollar lines are valid for explicitly documenting work that was not charged, but the invoice total must be positive before sending. Return the created draft and report missingFields afterward. This does not require Stripe, contact the payer, change a to-do's stored price, or request send confirmation.",
     outputSchema: preparedInvoiceResultSchema,
     parameters: { type: "object", additionalProperties: false, properties: {
       personal_task_ids: { type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
@@ -163,8 +168,7 @@ export function registerPaymentTools(registry, payments) {
 
   registry.register({
     name: "payment_invoice_update",
-    confirmationHandoff: true,
-    description: "Update one exact local prepared invoice while leaving its referenced to-dos unchanged. Use payment_invoice_list first and pass its current preview_digest. Supply only intended header changes, line updates, and receipt updates; unchanged line text, prices, and receipts are preserved. line_updates addresses existing invoice snapshots by position, manual_lines appends new independent lines, and receipt_updates attaches or removes at most one receipt file per line while allowing one file to support several lines. An amount_minor of zero is a valid no-charge line. Any receipt change rotates the preview digest. This never finalizes, sends, emails, or changes a to-do.",
+    description: "Update one exact local prepared invoice while leaving its referenced to-dos unchanged. Use payment_invoice_list first and pass its current preview_digest. Supply only intended header changes, line updates, and receipt updates; unchanged line text, prices, and receipts are preserved. line_updates addresses existing invoice snapshots by position, manual_lines appends new independent lines, and receipt_updates attaches or removes at most one receipt file per line while allowing one file to support several lines. When adding a manual line with a receipt, include manual_lines and receipt_updates in this same atomic call; appended lines are positioned consecutively after the current highest position. An amount_minor of zero is a valid no-charge line. Any receipt change rotates the preview digest. This never finalizes, sends, emails, or changes a to-do, and it never requests send confirmation.",
     outputSchema: preparedInvoiceResultSchema,
     parameters: { type: "object", additionalProperties: false, properties: {
       invoice_id: { type: "integer", minimum: 1 },
@@ -221,6 +225,20 @@ export function registerPaymentTools(registry, payments) {
       return payments.setNativePaymentStatus(input.invoice_id, input.payment_status, {
         ...context, actorType: "tool", actorName: "payment_invoice_payment_status_set",
       });
+    },
+  });
+
+  registry.register({
+    name: "payment_invoice_send_prepare",
+    confirmationHandoff: true,
+    description: "Use only when the accepted user request explicitly asks to send an invoice. Validate one exact current preview and return its literal final yes-or-no confirmation handoff. This read-only step does not finalize, send, email, or otherwise change the invoice.",
+    outputSchema: preparedInvoiceResultSchema,
+    parameters: { type: "object", additionalProperties: false, properties: {
+      invoice_id: { type: "integer", minimum: 1 },
+      preview_digest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
+    }, required: ["invoice_id", "preview_digest"] },
+    async execute(input) {
+      return payments.prepareInvoiceSend(input.invoice_id, input.preview_digest);
     },
   });
 

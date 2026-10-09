@@ -57,15 +57,15 @@ revise invoice-owned wording, prices, description, payer, due date, payment
 methods, or to append manual lines. Invoice line updates address the current
 snapshot by line position and never rewrite the referenced to-do. Read the
 current invoice first, preserve every unspecified field, and never substitute a
-to-do update for an invoice-line edit.
+to-do update for an invoice-line edit. When adding a manual line with a receipt,
+send `manual_lines` and `receipt_updates` together in one atomic update. New
+manual lines occupy consecutive positions after the current highest line, so
+the receipt update can target that new position in the same call.
 Every manual line requires a concrete description. All nonblank prices must use
 the same ISO currency. Use `payment_invoice_prepare` first. It creates a local
 snapshot only; it does not contact the customer. An incomplete result has
-`status: draft`, lists `missingFields`, and has no confirmation handoff. A
-send-ready result has `status: ready`; only then present the literal yes-or-no
-question from `nextAction.instruction`. If the user revises that preview in the
-Payments UI or through `payment_invoice_update`, the earlier confirmation
-handoff is stale and must not be reused.
+`status: draft` and lists `missingFields`. Creating or revising an invoice never
+creates a send-confirmation handoff, even when the preview is send-ready.
 The Payments UI may also present that exact recipient, total, and due date for
 an explicit confirmation and submit the same digest-bound send directly.
 
@@ -77,6 +77,12 @@ the returned `payment_invoice_send` tool with the exact returned arguments.
 Never construct, alter, or guess those arguments. Sending creates/finalizes and
 emails a Stripe-hosted invoice and is an external side effect. If the preview
 expires or any priced work changes, prepare a new invoice and confirm again.
+
+When—and only when—the accepted request explicitly asks to send, read the exact
+current invoice and call `payment_invoice_send_prepare` with its current digest.
+That read-only tool is the sole agent path that creates the literal send
+confirmation handoff. Present its exact yes-or-no question. Any later invoice
+revision makes that handoff stale, so prepare a fresh send confirmation.
 
 Use `payment_stripe_status` before promising that billing is available. If the
 server is configured but no account is connected, use

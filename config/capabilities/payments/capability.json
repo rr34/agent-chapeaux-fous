@@ -15,7 +15,8 @@
   "readOnlyTools": [
     "payment_stripe_status",
     "payment_stripe_connect_link",
-    "payment_invoice_list"
+    "payment_invoice_list",
+    "payment_invoice_send_prepare"
   ],
   "attachmentHints": [
     {

@@ -131,7 +131,8 @@ test("invoice update is a bound snapshot edit that cannot send or rewrite to-dos
   }, definition.parameters), /does not match any allowed schema/u);
   assert.match(definition.description, /leaving its referenced to-dos unchanged/u);
   assert.match(definition.description, /never finalizes, sends, emails, or changes a to-do/u);
-  assert.equal(definition.confirmationHandoff, true);
+  assert.match(definition.description, /never requests send confirmation/u);
+  assert.equal(definition.confirmationHandoff, undefined);
   assert.deepEqual(await definition.execute(input, { requestId: "request-1" }), {
     status: "draft", invoice: { invoiceId: 3 }, missingFields: ["invoice_total"],
   });
@@ -156,6 +157,51 @@ test("invoice update accepts one exact receipt per line and allows one file acro
   };
   assert.equal(schemaProblem(input, definition.parameters), null);
   assert.match(definition.description, /at most one receipt file per line while allowing one file to support several lines/u);
+  assert.equal(schemaProblem({
+    invoice_id: 3,
+    preview_digest: input.preview_digest,
+    manual_lines: [{ description: "Stuff at Lowe's", amount_minor: 0 }],
+    receipt_updates: [{ position: 3, file_id: 42 }],
+  }, definition.parameters), null);
+  assert.match(definition.description, /include manual_lines and receipt_updates in this same atomic call/u);
+});
+
+test("only explicit send preparation emits the exact native confirmation handoff", async () => {
+  const invoice = {
+    invoiceId: 17,
+    status: "prepared",
+    display: "Ada — $125.00",
+    payerContactId: 8,
+    payerName: "Ada",
+    payerEmail: "ada@example.test",
+    amountMinor: 12_500,
+    currency: "USD",
+    dueOn: "2099-01-02",
+    paymentMethodPolicy: "ach_only",
+    previewDigest: `sha256:${"c".repeat(64)}`,
+    preparationExpiresAtUtc: "2099-01-01T00:00:00.000Z",
+    stripeInvoiceId: null,
+    lines: [{ position: 1, amountMinor: 12_500 }],
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady() { throw new Error("database is not needed"); } },
+    config: {},
+  });
+  payments.getInvoice = () => invoice;
+  const registry = new ToolRegistry();
+  registerPaymentTools(registry, payments);
+  const definition = registry.get("payment_invoice_send_prepare");
+
+  assert.equal(definition.confirmationHandoff, true);
+  assert.equal(definition.annotations.readOnlyHint, true);
+  const result = await definition.execute({
+    invoice_id: 17,
+    preview_digest: invoice.previewDigest,
+  });
+  assert.deepEqual(result.nextAction.onApproval, {
+    tool: "payment_invoice_send",
+    arguments: { invoice_id: 17, preview_digest: invoice.previewDigest },
+  });
 });
 
 test("the agent can set only paid or unpaid on an exact native invoice", async () => {
@@ -463,10 +509,7 @@ test("manual-only preparation stores an explicit source with no task foreign key
   assert.equal(writes.invoice[2], 2500);
   assert.deepEqual(writes.lines, [[91, "manual", null, 1, "Help moving", 2500]]);
   assert.equal(result.invoice.invoiceId, 91);
-  assert.deepEqual(result.nextAction.onApproval.arguments, {
-    invoice_id: 91,
-    preview_digest: writes.invoice[8],
-  });
+  assert.equal(result.nextAction, null);
 });
 
 test("a prepared local invoice can atomically revise existing lines, append a manual line, and invalidate its old digest", () => {
@@ -555,10 +598,7 @@ test("a prepared local invoice can atomically revise existing lines, append a ma
   assert.match(writes.invoice[7], /^sha256:[0-9a-f]{64}$/u);
   assert.notEqual(writes.invoice[7], oldDigest);
   assert.equal(writes.invoice[10], 91);
-  assert.deepEqual(result.nextAction.onApproval.arguments, {
-    invoice_id: 91,
-    preview_digest: writes.invoice[7],
-  });
+  assert.equal(result.nextAction, null);
   assert.equal(activities[0].type, "payment.invoice.preview_updated");
 });
 
@@ -627,7 +667,7 @@ test("a prepared invoice can bind one verified receipt file to several lines ato
   assert.notEqual(result.invoice.previewDigest, oldDigest);
 });
 
-test("saving an unchanged prepared invoice preserves its digest and confirmation", () => {
+test("saving an unchanged prepared invoice preserves its digest without requesting confirmation", () => {
   const previewDigest = `sha256:${"b".repeat(64)}`;
   const transactions = [];
   const invoice = {
@@ -668,10 +708,7 @@ test("saving an unchanged prepared invoice preserves its digest and confirmation
 
   assert.deepEqual(transactions, ["START TRANSACTION", "COMMIT"]);
   assert.equal(result.invoice.previewDigest, previewDigest);
-  assert.deepEqual(result.nextAction.onApproval.arguments, {
-    invoice_id: 92,
-    preview_digest: previewDigest,
-  });
+  assert.equal(result.nextAction, null);
   assert.deepEqual(activities, []);
 });
 

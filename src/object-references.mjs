@@ -332,6 +332,26 @@ export function explicitReferenceObjectCatalog(recentGroups, referencedGroups) {
   return authoritativeObjectReferenceCatalog(recentGroups, referencedGroups);
 }
 
+export function currentRequestAttachmentObjectReferences(attachment, sourceEventSeq) {
+  const fileId = canonicalId(attachment?.fileId, { idKind: "integer" });
+  const display = firstDisplay(attachment, ["title", "originalFilename", "filename"]);
+  if (fileId == null || !display || !Number.isSafeInteger(sourceEventSeq) || sourceEventSeq <= 0) {
+    return [];
+  }
+  return normalizeObjectReferenceGroups([{
+    mention: "File attached to the current request",
+    role: defaultObjectBindingRole,
+    type: "files.file",
+    source: "native:files",
+    objects: [{
+      id: fileId,
+      ref: `agent-slayer://files/${encodeURIComponent(String(fileId))}`,
+      display,
+    }],
+    sourceEventSeqs: [sourceEventSeq],
+  }]);
+}
+
 export function flatObjectReferences(groups) {
   return normalizeObjectReferenceGroups(groups).flatMap((group) => group.objects.map((object) => ({
     role: group.role, type: group.type, source: group.source,

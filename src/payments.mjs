@@ -290,7 +290,7 @@ function invoiceMissingFields(invoice) {
   return missing;
 }
 
-function preparedInvoiceResult(invoice) {
+function preparedInvoiceResult(invoice, { includeSendHandoff = false } = {}) {
   const missingFields = invoiceMissingFields(invoice);
   const result = {
     contractVersion: 1,
@@ -300,7 +300,7 @@ function preparedInvoiceResult(invoice) {
     missingFields,
     nextAction: null,
   };
-  if (missingFields.length) return result;
+  if (missingFields.length || !includeSendHandoff) return result;
   result.nextAction = {
     type: "request_user_confirmation",
     instruction: `Send ${formattedMoney(invoice.amountMinor, invoice.currency)} invoice to ${invoice.payerName} at ${invoice.payerEmail}, due ${invoice.dueOn}, accepting ${paymentMethodLabel(invoice.paymentMethodPolicy)}?`,
@@ -1037,6 +1037,34 @@ export class PaymentService {
     if (Object.hasOwn(input ?? {}, "contact_id")) update.contactId = input.contact_id;
     if (Object.hasOwn(input ?? {}, "due_on")) update.dueOn = input.due_on;
     return this.updatePreparedInvoice(invoiceId, update, activity);
+  }
+
+  prepareInvoiceSend(invoiceIdValue, previewDigestValue) {
+    const invoiceId = positiveInteger(invoiceIdValue, "invoice_id");
+    const previewDigest = String(previewDigestValue ?? "").trim();
+    const invoice = this.getInvoice(invoiceId);
+    if (!invoice) throw new PaymentInputError("Prepared invoice not found.", 404, "INVOICE_NOT_FOUND");
+    if (invoice.previewDigest !== previewDigest) {
+      throw new PaymentInputError("The requested preview does not match this invoice.", 409, "PREVIEW_MISMATCH");
+    }
+    if (!["prepared", "failed"].includes(invoice.status)) {
+      throw new PaymentInputError(
+        `Invoice ${invoiceId} cannot be prepared for sending from ${invoice.status}.`,
+        409,
+        "INVOICE_STATE_CONFLICT",
+      );
+    }
+    const missingFields = invoiceMissingFields(invoice);
+    if (missingFields.length) return preparedInvoiceResult(invoice);
+    dateOnly(invoice.dueOn);
+    if (Date.parse(invoice.preparationExpiresAtUtc) <= Date.now() && !invoice.stripeInvoiceId) {
+      throw new PaymentInputError(
+        "This invoice preview expired; revise it before sending.",
+        409,
+        "PREVIEW_EXPIRED",
+      );
+    }
+    return preparedInvoiceResult(invoice, { includeSendHandoff: true });
   }
 
   async reusableCustomer(invoice, accountId) {
