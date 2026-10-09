@@ -229,16 +229,16 @@ export function invoicePdfHtml(invoice) {
     .line-receipt { margin-top: 7px; color: #58634f; font-size: 11px; white-space: normal; }
     th:last-child, td:last-child { width: 150px; text-align: right; }
     .total { display: flex; justify-content: flex-end; gap: 30px; margin-top: 18px; font-size: 18px; }
-    .description { margin-top: 28px; padding: 14px 16px; background: #f4f5f1; white-space: pre-wrap; }
+    .description { margin: 0 0 28px; padding: 14px 16px; background: #f4f5f1; white-space: pre-wrap; }
     footer { margin-top: 36px; padding-top: 12px; color: #62695e; border-top: 1px solid #dde1d8; font-size: 11px; }
   </style></head><body>
     <header><div><h1>Invoice</h1><div class="muted">Preview prepared in TLOM</div></div>
       <div class="meta"><span>Invoice</span><strong>#${invoice.invoiceId}</strong><span>Due</span><strong>${escapedHtml(invoice.dueOn || "Not set")}</strong><span>Currency</span><strong>${escapedHtml(invoice.currency)}</strong></div>
     </header>
     <section class="recipient"><strong>Bill to</strong><p>${escapedHtml(invoice.payerName || "Not set")}</p><p class="muted">${escapedHtml(invoice.payerEmail)}</p></section>
+    ${invoice.description ? `<div class="description">${escapedHtml(invoice.description)}</div>` : ""}
     <table><thead><tr><th class="line-number">Line</th><th>Description</th><th>Amount</th></tr></thead><tbody>${lineRows}</tbody></table>
     <div class="total"><strong>Total</strong><strong>${escapedHtml(formattedMoney(invoice.amountMinor, invoice.currency))}</strong></div>
-    ${invoice.description ? `<div class="description">${escapedHtml(invoice.description)}</div>` : ""}
     <footer>This is a preview. It has not been sent to the customer.</footer>
   </body></html>`;
 }
