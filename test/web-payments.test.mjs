@@ -43,7 +43,10 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.match(appSource, /previewDigest: textKey\(invoice, "previewDigest"\)/);
   assert.match(appSource, /receiptUpdates/);
   assert.match(appSource, /receiptFileId/);
-  assert.match(appSource, /Optional · PDF, JPEG, or PNG/);
+  assert.match(appSource, />\+ Receipt<\/button>/);
+  assert.match(appSource, /receiptPickerPosition/);
+  assert.match(appSource, /Choose a receipt…/);
+  assert.doesNotMatch(appSource, />No receipt<\/option>/);
   assert.match(appSource, /useApi<\{ files: Entity\[\] \}>\("\/api\/files\?limit=500"\)/);
   assert.match(appSource, /paymentMethodPolicy/);
   assert.match(appSource, /Invoice description <small>Optional<\/small>/);

@@ -43,12 +43,14 @@ test("the React UI can select every displayed first-class object for Agent", () 
 
 test("card checkboxes stage exact native object bindings without modifying the instruction text", () => {
   const app = fs.readFileSync(path.join(root, "web", "src", "App.tsx"), "utf8");
+  const summaryFormatter = fs.readFileSync(path.join(root, "web", "src", "object-selection-summary.ts"), "utf8");
   const references = fs.readFileSync(path.join(root, "web", "src", "components", "ObjectSelectionControls.tsx"), "utf8");
   assert.doesNotMatch(app, /"In reference to:\\n" \+ identity/);
   assert.doesNotMatch(app, /insertObjectMentions/);
   assert.match(app, /selectionOrigin: "card"/);
   assert.match(app, /composer-selection-summary/);
-  assert.match(app, /selected for this request/);
+  assert.match(app, /selectedObjectSummary\(selections\)/);
+  assert.match(summaryFormatter, /selected for this request/);
   assert.match(app, /const referencedRequestIds = \[\.\.\.new Set\(selections\.flatMap/);
   assert.match(app, /referencedRequestId \? \[\] : \[selection\]/);
   assert.match(references, /mention: descriptiveObjectMention/);

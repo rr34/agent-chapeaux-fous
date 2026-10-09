@@ -215,10 +215,16 @@ function escapedHtml(value) {
 }
 
 export function invoicePdfHtml(invoice) {
-  const lineRows = invoice.lines.map((line) => `<tr>
+  const lineRows = invoice.lines.map((line, index) => {
+    const position = Number.isSafeInteger(Number(line.position)) && Number(line.position) > 0
+      ? Number(line.position)
+      : index + 1;
+    return `<tr>
+    <td class="line-number">${escapedHtml(position)}</td>
     <td class="line-description">${escapedHtml(line.description)}</td>
     <td>${escapedHtml(formattedMoney(line.amountMinor, invoice.currency))}</td>
-  </tr>`).join("");
+  </tr>`;
+  }).join("");
   return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${invoice.invoiceId}</title>
   <style>
     @page { size: Letter; margin: .65in; }
@@ -234,6 +240,7 @@ export function invoicePdfHtml(invoice) {
     table { width: 100%; border-collapse: collapse; }
     th { padding: 9px 10px; color: #62695e; border-bottom: 1px solid #abb2a5; font-size: 11px; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
     td { padding: 13px 10px; border-bottom: 1px solid #dde1d8; vertical-align: top; }
+    .line-number { width: 54px; color: #62695e; text-align: center; font-variant-numeric: tabular-nums; }
     .line-description { white-space: pre-wrap; overflow-wrap: anywhere; }
     th:last-child, td:last-child { width: 150px; text-align: right; }
     .total { display: flex; justify-content: flex-end; gap: 30px; margin-top: 18px; font-size: 18px; }
@@ -244,7 +251,7 @@ export function invoicePdfHtml(invoice) {
       <div class="meta"><span>Invoice</span><strong>#${invoice.invoiceId}</strong><span>Due</span><strong>${escapedHtml(invoice.dueOn || "Not set")}</strong><span>Currency</span><strong>${escapedHtml(invoice.currency)}</strong></div>
     </header>
     <section class="recipient"><strong>Bill to</strong><p>${escapedHtml(invoice.payerName || "Not set")}</p><p class="muted">${escapedHtml(invoice.payerEmail)}</p></section>
-    <table><thead><tr><th>Description</th><th>Amount</th></tr></thead><tbody>${lineRows}</tbody></table>
+    <table><thead><tr><th class="line-number">Line</th><th>Description</th><th>Amount</th></tr></thead><tbody>${lineRows}</tbody></table>
     <div class="total"><strong>Total</strong><strong>${escapedHtml(formattedMoney(invoice.amountMinor, invoice.currency))}</strong></div>
     ${invoice.description ? `<div class="description">${escapedHtml(invoice.description)}</div>` : ""}
     <footer>This is a preview. It has not been sent to the customer.</footer>

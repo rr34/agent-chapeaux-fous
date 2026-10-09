@@ -992,11 +992,14 @@ test("invoice PDF line descriptions preserve newlines and wrap long text", () =>
     amountMinor: 0,
     description: null,
     lines: [{
+      position: 7,
       description: "Warranty follow-up\nNo charge: corrected installation & explained the result",
       amountMinor: 0,
     }],
   });
 
+  assert.match(html, /<th class="line-number">Line<\/th>/u);
+  assert.match(html, /<td class="line-number">7<\/td>/u);
   assert.match(html, /\.line-description \{ white-space: pre-wrap; overflow-wrap: anywhere; \}/u);
   assert.match(html, /<td class="line-description">Warranty follow-up\nNo charge: corrected installation &amp; explained the result<\/td>/u);
 });

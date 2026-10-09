@@ -28,6 +28,7 @@ import {
   type GenericObjectKind,
 } from "./components/ObjectSelectionControls";
 import { maximumObjectReferences, type ComposerTextSelection } from "./object-references";
+import { selectedObjectSummary } from "./object-selection-summary";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
 import { matchesSearch } from "./search-filter";
 import type {
@@ -846,7 +847,7 @@ function AgentComposer({
     {attachmentStatus && <div className="composer-feedback" role="status">{attachmentStatus}</div>}
     {submitError && <ErrorState error={submitError} dismiss={() => setSubmitError(null)} />}
     {selections.length > 0 && <div className="composer-selection-summary">
-      <span role="status"><strong>{selections.length}</strong> {selections.length === 1 ? "object" : "objects"} selected for this request</span>
+      <span role="status">{selectedObjectSummary(selections)}</span>
       <button className="button button--quiet" type="button" onClick={clearObjectSelections}>Clear</button>
     </div>}
     {!isRecording && <div className="composer-toolbar">
@@ -2013,6 +2014,7 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
   const [openingPdf, setOpeningPdf] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [confirmingSend, setConfirmingSend] = useState(false);
+  const [receiptPickerPosition, setReceiptPickerPosition] = useState<number | null>(null);
   const [error, setError] = useState("");
   const status = textKey(invoice, "status");
   const expired = Date.parse(textKey(invoice, "preparationExpiresAtUtc")) <= Date.now();
@@ -2072,6 +2074,7 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
   };
   const removeNewLine = (position: number) => {
     setError("");
+    setReceiptPickerPosition((current) => current === position ? null : current);
     setLines((current) => {
       const persisted = current.filter((line) => !line.isNew);
       const maximumPersistedPosition = persisted.reduce(
@@ -2200,12 +2203,40 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
           <option value="card_only">Credit card only</option>
         </select><span>{editable ? "Choose which payment methods Stripe will offer on this invoice." : invoicePaymentMethodLabel(paymentMethodPolicy)}</span></label>
         <div className="invoice-line-list">
-          {lines.map((line, index) => <article className="invoice-line-editor" key={line.position}>
-            <div className="invoice-line-heading"><span>Line {line.position}</span><div className="invoice-line-heading-actions"><strong>{line.isNew ? "New manual line" : line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong>{line.isNew && <button type="button" disabled={editingLocked} onClick={() => removeNewLine(line.position)}>Remove</button>}</div></div>
-            <label className="invoice-line-description">Description<textarea value={line.description} maxLength={1000} required readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { description: event.target.value })} /></label>
-            <label className="invoice-line-amount">Amount ({currency}) <span className="field-hint">Use 0.00 for no charge</span><input type="text" inputMode="decimal" value={line.amount} readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { amount: event.target.value })} placeholder="0.00" /></label>
-            <label className="invoice-line-receipt">Receipt <span className="field-hint">Optional · PDF, JPEG, or PNG</span><select value={line.receiptFileId} disabled={!editable || editingLocked} onChange={(event) => updateLine(index, { receiptFileId: event.target.value })}><option value="">No receipt</option>{receiptFiles.map((file) => <option key={String(readKey(file, "fileId"))} value={String(readKey(file, "fileId"))}>{textKey(file, "title") || textKey(file, "originalFilename") || `File #${String(readKey(file, "fileId"))}`}</option>)}</select></label>
-          </article>)}
+          {lines.map((line, index) => {
+            const receiptFile = receiptFiles.find((file) => String(readKey(file, "fileId")) === line.receiptFileId);
+            const sourceLine = sourceLines.find((candidate) => Number(readKey(candidate, "position")) === line.position);
+            const sourceReceipt = sourceLine?.receipt && typeof sourceLine.receipt === "object" && !Array.isArray(sourceLine.receipt)
+              ? sourceLine.receipt as Entity : null;
+            const receiptName = receiptFile
+              ? textKey(receiptFile, "title") || textKey(receiptFile, "originalFilename")
+              : sourceReceipt ? textKey(sourceReceipt, "displayName") : "";
+            const choosingReceipt = editable && receiptPickerPosition === line.position;
+            return <article className="invoice-line-editor" key={line.position}>
+              <div className="invoice-line-heading"><span>Line {line.position}</span><div className="invoice-line-heading-actions"><strong>{line.isNew ? "New manual line" : line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong>{line.isNew && <button type="button" disabled={editingLocked} onClick={() => removeNewLine(line.position)}>Remove</button>}</div></div>
+              <label className="invoice-line-description">Description<textarea value={line.description} maxLength={1000} required readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { description: event.target.value })} /></label>
+              <label className="invoice-line-amount">Amount ({currency}) <span className="field-hint">Use 0.00 for no charge</span><input type="text" inputMode="decimal" value={line.amount} readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { amount: event.target.value })} placeholder="0.00" /></label>
+              {(editable || line.receiptFileId) && <div className="invoice-line-receipt">
+                {choosingReceipt
+                  ? <div className="invoice-line-receipt-picker">
+                    <select autoFocus defaultValue="" aria-label={`Choose receipt for line ${line.position}`} disabled={editingLocked} onChange={(event) => {
+                      updateLine(index, { receiptFileId: event.target.value });
+                      setReceiptPickerPosition(null);
+                    }}>
+                      <option value="" disabled>Choose a receipt…</option>
+                      {receiptFiles.map((file) => <option key={String(readKey(file, "fileId"))} value={String(readKey(file, "fileId"))}>{textKey(file, "title") || textKey(file, "originalFilename") || `File #${String(readKey(file, "fileId"))}`}</option>)}
+                    </select>
+                    <button className="button button--quiet" type="button" disabled={editingLocked} onClick={() => setReceiptPickerPosition(null)}>Cancel</button>
+                  </div>
+                  : line.receiptFileId
+                    ? <div className="invoice-line-receipt-summary">
+                      <span><strong>Receipt</strong>{receiptName || `File #${line.receiptFileId}`}</span>
+                      {editable && <div><button className="button button--quiet" type="button" disabled={editingLocked || !receiptFiles.length} onClick={() => setReceiptPickerPosition(line.position)}>Change</button><button className="button button--quiet" type="button" disabled={editingLocked} onClick={() => updateLine(index, { receiptFileId: "" })}>Remove</button></div>}
+                    </div>
+                    : <button className="button button--quiet invoice-line-receipt-add" type="button" disabled={editingLocked || !receiptFiles.length} onClick={() => setReceiptPickerPosition(line.position)}>+ Receipt</button>}
+              </div>}
+            </article>;
+          })}
         </div>
         {editable && <div className="invoice-line-toolbar"><span>{lines.length} of 100 lines</span><button className="button button--quiet" type="button" disabled={editingLocked || lines.length >= 100} onClick={addLine}>Add line</button></div>}
         {editable
