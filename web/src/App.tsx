@@ -8,6 +8,7 @@ import { ObjectMentionInput } from "./components/ObjectMentionInput";
 import { CalendarEventEditor, ContactEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
+import { Markdown } from "./components/Markdown";
 import { ObjectSelectionProvider } from "./components/ObjectSelectionContext";
 import { ContactCard } from "./components/object-cards/ContactCard";
 import { FileCard } from "./components/object-cards/FileCard";
@@ -972,7 +973,7 @@ function AgentScreen({ onShowTrace, refreshKey, optimisticRequests, onRequestsOb
           <p className="eyebrow">Turn brief</p><strong>{request.turnBriefApproval.objective || request.turnBriefApproval.summary}</strong><p>{request.turnBriefApproval.summary}</p>
           <div><button className="button" onClick={() => void decide(request, "continue")}>Continue</button><button className="button button--quiet" onClick={() => void decide(request, "cancel")}>Cancel</button></div>
         </div>}
-        {request.response && <div className="request-response"><span>Time v3 Agent</span><p>{request.response}</p></div>}
+        {request.response && <div className="request-response"><span>Time v3 Agent</span><Markdown className="request-response-markdown" source={request.response} /></div>}
         {request.error && <p className="inline-error">{request.error}</p>}
         <RequestInteractionMetrics request={request} />
         <footer><span className={`status-dot status-${request.status}`} />{request.status.replaceAll("_", " ")}<code>{request.requestId.slice(0, 8)}</code><button className="trace-button" type="button" onClick={() => onShowTrace(request.requestId)}>Show trace</button>{["complete", "error"].includes(request.status) && <ObjectSelectionControls identity={exchangeIdentity(request)} subject={`exchange ${request.requestId.slice(0, 8)}`} />}</footer>
