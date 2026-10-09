@@ -8,9 +8,17 @@ import { ObjectMentionInput } from "./components/ObjectMentionInput";
 import { CalendarEventEditor, ContactEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
-import {
-  FirstClassObjectCard, type FirstClassObjectCardAction, type FirstClassObjectCardData,
-} from "./components/FirstClassObjectCard";
+import { ContactCard } from "./components/object-cards/ContactCard";
+import { FileCard } from "./components/object-cards/FileCard";
+import { InvoiceCard } from "./components/object-cards/InvoiceCard";
+import { JournalEntryCard } from "./components/object-cards/JournalEntryCard";
+import { JournalGroupCard } from "./components/object-cards/JournalGroupCard";
+import { JournalTrackerCard } from "./components/object-cards/JournalTrackerCard";
+import { LibraryGroupCard } from "./components/object-cards/LibraryGroupCard";
+import { LibraryItemCard } from "./components/object-cards/LibraryItemCard";
+import { ObjectCard, type ObjectCardModel } from "./components/object-cards/ObjectCard";
+import { VideoScriptCard } from "./components/object-cards/VideoScriptCard";
+import { TodoGroupCard } from "./components/object-cards/TodoGroupCard";
 import {
   AgentReferenceButton, contactIdentity, exchangeIdentity,
   contentGroupIdentity, genericEntityIdentity, invoiceIdentity, journalEntryIdentity,
@@ -121,12 +129,13 @@ function cardAttribute(label: string, value: unknown) {
 }
 
 function objectCardData({
-  type, label, display, body = null, attributes = [], badges = [],
-}: FirstClassObjectCardData): FirstClassObjectCardData {
+  id, type, label, display, body = null, attributes = [], badges = [], links = [],
+}: ObjectCardModel): ObjectCardModel {
   return {
-    type, label, display, body,
+    id, type, label, display, body,
     attributes: attributes.filter((attribute): attribute is { label: string; value: string } => Boolean(attribute)),
     badges: badges.filter(Boolean),
+    links,
   };
 }
 
@@ -1179,23 +1188,19 @@ function TodoScreen({ onReference, onReferences }: {
     {selectionError && <p className="inline-error" role="alert">{selectionError}</p>}
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{reorderError && <p className="inline-error" role="alert">{reorderError}</p>}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => {
       const priorityIndex = group.groupId == null ? -1 : orderedGroupIds.indexOf(group.groupId);
-      return <section className="todo-group" key={group.id} aria-labelledby={`todo-group-${group.id}`}>
-        <header className="todo-group-heading">
-          <div className="group-heading-title">
-            <h2 id={`todo-group-${group.id}`}>{group.name}</h2>
-            {group.groupId != null && <AgentReferenceButton identity={todoGroupIdentity({ id: group.groupId, name: group.name })} subject={`to-do group ${group.name}`} onReference={onReference} />}
-            {group.groupId != null && <TodoGroupPriorityControls
+      return <section className="todo-group" key={group.id} aria-label={`${group.name} to-do group`}>
+        {group.groupId != null ? <TodoGroupCard
+          object={{ id: group.groupId, type: "todos.todo_group", label: "To-do group", display: group.name, attributes: [{ label: "Items", value: String(group.todos.length) }], badges: [group.dailyPaperPinned ? "Pinned to paper" : "Active"] }}
+          controls={<AgentReferenceButton identity={todoGroupIdentity({ id: group.groupId, name: group.name })} subject={`to-do group ${group.name}`} onReference={onReference} />}
+          details={<div className="todo-group-management"><TodoGroupPriorityControls
               groupId={group.groupId}
               groupName={group.name}
               groupIndex={priorityIndex}
               groupCount={orderedGroupIds.length}
               busy={reorderingGroupId != null}
               onMove={(id, movement) => void moveGroup(id, movement)}
-            />}
-            {group.groupId != null && group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}
-          </div>
-          <div className="todo-group-meta"><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" disabled={group.groupId == null} aria-pressed={group.dailyPaperPinned} onClick={() => group.groupId != null && void setDailyPaperPinned(group.groupId, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button><span>{group.todos.length} {group.todos.length === 1 ? "item" : "items"}</span></div>
-        </header>
+            />{group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}<button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" aria-pressed={group.dailyPaperPinned} onClick={() => void setDailyPaperPinned(group.groupId!, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button></div>}
+        /> : <header className="todo-group-heading"><h2>{group.name}</h2></header>}
         <div className="todo-group-items">{group.todos.map((todo) => {
           const identity = todoIdentity(todo);
           return <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} selected={selectedTodos.has(identity.ref)} onSelectionChange={(selected) => setTodoSelected(todo, selected)} key={String(todo.id)} />;
@@ -1267,31 +1272,27 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
             textKey(method, "label") || String(method.kind).replaceAll("_", " "),
             method.value,
           )).filter((attribute): attribute is { label: string; value: string } => Boolean(attribute));
-          const actions: FirstClassObjectCardAction[] = [
-            { key: "edit", label: "Edit", onClick: () => setEditingContactId(Number(contact.id)) },
-            ...methods.flatMap((method, index) => {
+          const links = [
+            ...methods.flatMap((method) => {
               const kind = String(method.kind);
               const value = String(method.value || "");
               const href = kind === "phone" ? `tel:${value}` : kind === "email" ? `mailto:${value}` : kind === "url" ? value : null;
-              return href ? [{ key: `${kind}-${index}`, label: kind === "phone" ? "Call" : kind === "email" ? "Email" : "Open", href }] : [];
+              return href ? [{ label: kind === "phone" ? "Call" : kind === "email" ? "Email" : "Open", href }] : [];
             }),
-            ...methods.filter((method) => method.kind === "phone").map((method, index) => ({ key: `sms-${index}`, label: "Text", href: `sms:${String(method.value || "")}` })),
+            ...methods.filter((method) => method.kind === "phone").map((method) => ({ label: "Text", href: `sms:${String(method.value || "")}` })),
           ];
-          return <FirstClassObjectCard
+          return <ContactCard
             as="li"
-            className={`contact-card${status !== "active" ? " is-inactive" : ""}`}
             key={String(contact.id)}
             object={objectCardData({
-              type: "contacts.contact", label: "Contact", display: name,
+              id: Number(contact.id), type: "contacts.contact", label: "Contact", display: name,
               body: textKey(contact, "organizationName") || null,
-              attributes: contactDetails,
+              attributes: [...contactDetails, { label: "Status", value: status }],
               badges: [...tags, ...(status !== "active" ? [status] : [])],
+              links,
             })}
-            leading={<div className="contact-monogram" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</div>}
-            onOpen={() => setEditingContactId(Number(contact.id))}
-            openLabel={`Edit ${name}`}
+            onEdit={() => setEditingContactId(Number(contact.id))}
             controls={<AgentReferenceButton identity={contactIdentity(contact)} subject={`contact ${name}`} onReference={onReference} />}
-            actions={actions}
           />;
           })}
           </ul>
@@ -1355,20 +1356,21 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
     {groupError && <ErrorState error={groupError} retry={reloadLibrary} />}
     {!loading && !groupsLoading && !error && !groupError && !groups.length && <Empty>{filterQuery.trim() ? "No library items match the filter." : "Nothing here yet."}</Empty>}
     {!loading && !groupsLoading && !error && !groupError && Boolean(groups.length) && <div className="library-groups">
-      {groups.map((group) => <section className="library-group" key={group.id} aria-labelledby={`library-group-${group.id}`}>
-        <header className="library-group-heading">
-          <div className="group-heading-title"><h2 id={`library-group-${group.id}`}>{group.name}</h2>{Number.isSafeInteger(Number(group.id)) && Number(group.id) > 0 && <AgentReferenceButton identity={contentGroupIdentity({ id: Number(group.id), name: group.name })} subject={`library group ${group.name}`} onReference={onReference} />}{group.editable && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups" })}>Edit</button>}</div>
-          <span>{group.items.length} {group.items.length === 1 ? "item" : "items"}</span>
-        </header>
+      {groups.map((group) => <section className="library-group" key={group.id} aria-label={`${group.name} library group`}>
+        {Number.isSafeInteger(Number(group.id)) && Number(group.id) > 0 ? <LibraryGroupCard
+          object={{ id: Number(group.id), type: "video.content_group", label: "Library group", display: group.name, attributes: [{ label: "Items", value: String(group.items.length) }] }}
+          controls={<AgentReferenceButton identity={contentGroupIdentity({ id: Number(group.id), name: group.name })} subject={`library group ${group.name}`} onReference={onReference} />}
+          actions={group.editable ? [{ key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups" }) }] : []}
+        /> : <header className="library-group-heading"><h2 id={`library-group-${group.id}`}>{group.name}</h2><span>{group.items.length} {group.items.length === 1 ? "item" : "items"}</span></header>}
         {group.items.length ? <ul className="library-list">
           {group.items.map((entity, index) => {
             const entityId = entity.id || index;
             const title = textKey(entity, "title", "name") || `Item ${entityId}`;
-            return <FirstClassObjectCard
+            return <LibraryItemCard
               as="li"
               key={entityId}
               object={objectCardData({
-                type: "video.content_item", label: "Library item", display: title,
+                id: Number(entity.id), type: "video.content_item", label: "Library item", display: title,
                 body: textKey(entity, "description", "summary", "contentText") || null,
                 attributes: [
                   ...(readKey(entity, "sequence") != null ? [{ label: "Sequence", value: `#${String(entity.sequence)}` }] : []),
@@ -1433,11 +1435,11 @@ function VideoScriptsScreen({ onReference }: { onReference: AddAgentReference })
             const plan = script.plan && typeof script.plan === "object" ? script.plan as Entity : {};
             const render = script.render && typeof script.render === "object" ? script.render as Entity : {};
             const sourceCount = Array.isArray(script.sources) ? script.sources.length : 0;
-            return <FirstClassObjectCard
+            return <VideoScriptCard
               as="li"
               key={scriptId}
               object={objectCardData({
-                type: "video.script", label: "Video script", display: title,
+                id: Number(script.id), type: "video.script", label: "Video script", display: title,
                 body: textKey(plan, "concept") || null,
                 attributes: [{ label: "ID", value: `#${String(scriptId)}` }],
                 badges: [`${sourceCount} ${sourceCount === 1 ? "source" : "sources"}`, textKey(render, "status").replaceAll("_", " ")],
@@ -1500,17 +1502,17 @@ function FilesScreen({ onReference }: { onReference: AddAgentReference }) {
           {group.files.map((file, index) => {
             const fileId = file.fileId || file.id || index;
             const title = textKey(file, "title", "originalFilename") || `File ${fileId}`;
-            return <FirstClassObjectCard
+            return <FileCard
               as="li"
               key={fileId}
               object={objectCardData({
-                type: "files.file", label: "File", display: title,
+                id: Number(fileId), type: "files.file", label: "File", display: title,
                 body: textKey(file, "description") || textKey(file, "originalFilename") || null,
                 attributes: [{ label: "ID", value: `#${String(fileId)}` }],
                 badges: [textKey(file, "mimeType")],
               })}
               controls={<AgentReferenceButton identity={genericEntityIdentity("files", file)} subject={`file ${title}`} onReference={onReference} />}
-              actions={[{ key: "download", label: "Download", onClick: () => void downloadAuthenticated(`/api/files/${fileId}/download`, textKey(file, "originalFilename") || `file-${fileId}`) }]}
+              onDownload={() => void downloadAuthenticated(`/api/files/${fileId}/download`, textKey(file, "originalFilename") || `file-${fileId}`)}
             />;
           })}
         </ul>
@@ -1529,10 +1531,10 @@ function GenericScreen({ kind, onReference }: { kind: keyof typeof genericScreen
     const entityId = entity.id || entity.fileId;
     const title = textKey(entity, "title", "name", "originalFilename") || `Item ${entityId || index + 1}`;
     const type = kind === "content" ? "video.content_item" : kind === "video-scripts" ? "video.script" : "files.file";
-    return <FirstClassObjectCard
+    return <ObjectCard
       key={entityId || index}
       object={objectCardData({
-        type, label: kind === "content" ? "Library item" : kind === "video-scripts" ? "Video script" : "File",
+        id: Number(entityId), type, label: kind === "content" ? "Library item" : kind === "video-scripts" ? "Video script" : "File",
         display: title, body: textKey(entity, "description", "summary", "contentText") || null,
         attributes: readKey(entity, "sequence") != null ? [{ label: "Sequence", value: `#${String(entity.sequence)}` }] : [],
         badges: [textKey(entity, "status", "contentStatus", "mediaKind") || config.title],
@@ -1607,19 +1609,20 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
     {!loading && !entriesLoading && !error && !entryError && Boolean(groups.length) && <div className="library-groups">
       {groups.map((group) => {
         const count = group.trackers.length + group.entries.length;
-        return <section className="library-group" key={group.id} aria-labelledby={`journal-group-${group.id}`}>
-          <header className="library-group-heading">
-            <div className="group-heading-title"><h2 id={`journal-group-${group.id}`}>{group.name}</h2>{group.groupId != null && <AgentReferenceButton identity={journalGroupIdentity({ id: group.groupId, name: group.name })} subject={`journal group ${group.name}`} onReference={onReference} />}{group.groupId != null && group.name.toLowerCase() !== "general" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "journal-groups" })}>Edit</button>}</div>
-            <span>{count} {count === 1 ? "item" : "items"}</span>
-          </header>
+        return <section className="library-group" key={group.id} aria-label={`${group.name} journal group`}>
+          {group.groupId != null ? <JournalGroupCard
+            object={{ id: group.groupId, type: "journal.group", label: "Journal group", display: group.name, attributes: [{ label: "Items", value: String(count) }] }}
+            controls={<AgentReferenceButton identity={journalGroupIdentity({ id: group.groupId, name: group.name })} subject={`journal group ${group.name}`} onReference={onReference} />}
+            actions={group.name.toLowerCase() !== "general" ? [{ key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: group.groupId!, name: group.name, resource: "journal-groups" }) }] : []}
+          /> : <header className="library-group-heading"><h2>{group.name}</h2><span>{count} {count === 1 ? "item" : "items"}</span></header>}
           <ul className="library-list">
             {group.trackers.map((tracker) => {
               const name = textKey(tracker, "name", "title");
-              return <FirstClassObjectCard
+              return <JournalTrackerCard
                 as="li"
                 key={`tracker-${tracker.id}`}
                 object={objectCardData({
-                  type: "journal.tracker", label: "Journal tracker", display: name,
+                  id: Number(tracker.id), type: "journal.tracker", label: "Journal tracker", display: name,
                   attributes: [
                     ...(textKey(tracker, "unit") ? [{ label: "Unit", value: textKey(tracker, "unit") }] : []),
                     { label: "Entries", value: String(Number(readKey(tracker, "entryCount") || 0)) },
@@ -1630,12 +1633,12 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
                 details={<TrackerSchedule tracker={tracker} onChanged={reloadJournal} />}
               />;
             })}
-            {group.entries.map((entry, index) => <FirstClassObjectCard
+            {group.entries.map((entry, index) => <JournalEntryCard
               as="li"
               mode="compact"
               key={`entry-${entry.id || index}`}
               object={objectCardData({
-                type: "journal.entry", label: "Journal entry",
+                id: Number(entry.id), type: "journal.entry", label: "Journal entry",
                 display: textKey(entry, "trackerName", "title") || "Journal entry",
                 body: textKey(entry, "contentText", "text", "numberValue") || null,
                 attributes: [{ label: "Occurred", value: formatDisplayDate(textKey(entry, "occurredAtUtc", "createdAtUtc")) }],
@@ -2219,10 +2222,10 @@ function PaymentsScreen({ onReference }: { onReference: AddAgentReference }) {
     {invoicesLoading && <Loading label="Loading invoices" />}
     {invoiceError && <ErrorState error={invoiceError} retry={reloadInvoices} />}
     {!invoicesLoading && !invoiceError && !invoiceData?.invoices?.length && <Empty>No invoices yet. Create one here or ask the Agent to prepare one.</Empty>}
-    <div className="invoice-history-list">{invoices.map((invoice) => <FirstClassObjectCard
+    <div className="invoice-history-list">{invoices.map((invoice) => <InvoiceCard
       key={String(invoice.invoiceId)}
       object={objectCardData({
-        type: "payments.invoice", label: "Payment invoice",
+        id: Number(invoice.invoiceId), type: "payments.invoice", label: "Payment invoice",
         display: textKey(invoice, "payerName") || `Invoice #${String(invoice.invoiceId)}`,
         body: textKey(invoice, "description") || textKey(invoice, "payerEmail") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`,
         attributes: [
@@ -2233,8 +2236,7 @@ function PaymentsScreen({ onReference }: { onReference: AddAgentReference }) {
         ],
         badges: [invoicePaymentStatusLabel(invoice)],
       })}
-      onOpen={() => setSelectedInvoice(invoice)}
-      openLabel={`View invoice ${String(invoice.invoiceId)}`}
+      onEdit={() => setSelectedInvoice(invoice)}
       controls={<AgentReferenceButton identity={invoiceIdentity(invoice)} subject={`invoice ${String(invoice.invoiceId)}`} onReference={onReference} />}
       actions={Boolean(invoice.hostedInvoiceUrl) ? [{ key: "stripe", label: "Open Stripe", href: String(invoice.hostedInvoiceUrl), external: true }] : []}
     />)}</div>

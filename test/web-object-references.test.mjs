@@ -12,9 +12,11 @@ test("the React UI can reference every displayed first-class object in Agent", (
   const routines = fs.readFileSync(path.join(root, "web", "src", "components", "RoutineCalendar.tsx"), "utf8");
   const editableItems = fs.readFileSync(path.join(root, "web", "src", "components", "EditableItems.tsx"), "utf8");
   const references = fs.readFileSync(path.join(root, "web", "src", "components", "AgentReferenceButton.tsx"), "utf8");
+  const icons = fs.readFileSync(path.join(root, "web", "src", "components", "object-cards", "ObjectCardIcons.tsx"), "utf8");
+  const buttons = fs.readFileSync(path.join(root, "web", "src", "components", "object-cards", "ObjectCardButtons.tsx"), "utf8");
 
-  assert.match(references, /M20 19c0-4\.4-3\.6-8-8-8H4/);
-  assert.match(references, /aria-label=\{label\}/);
+  assert.match(icons, /M20 19c0-4\.4-3\.6-8-8-8H4/);
+  assert.match(buttons, /aria-label=\{label\}/);
   assert.match(references, /ref: stableReference\("calendar-events", numericEventId\)/);
   assert.match(references, /ref: stableReference\("todos", id\)/);
   assert.match(references, /ref: stableReference\("contacts", contact\.id\)/);

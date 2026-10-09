@@ -12,7 +12,9 @@ import {
 import {
   buildRecurrenceRule, RecurrenceEditor, recurrenceDraft, type RecurrenceDraft,
 } from "./RecurrenceEditor";
-import { FirstClassObjectCard } from "./FirstClassObjectCard";
+import { CalendarEventCard } from "./object-cards/CalendarEventCard";
+import { CalendarRoutineCard } from "./object-cards/CalendarRoutineCard";
+import { TodoCard } from "./object-cards/TodoCard";
 
 type Changed = () => void | Promise<void>;
 
@@ -536,11 +538,10 @@ export function CalendarRoutineItem({ routine, timeLabel, onChanged, onReference
   const id = Number(routine.id);
   const editable = Boolean(onChanged && Number.isSafeInteger(id) && id > 0);
   return <>
-    <FirstClassObjectCard
+    <CalendarRoutineCard
       mode="compact"
-      className="routine-agenda-item"
       object={{
-        type: "calendar.routine", label: "Calendar routine", display: routine.title,
+        id, type: "calendar.routine", label: "Calendar routine", display: routine.title,
         body: routine.description,
         attributes: [
           { label: "When", value: timeLabel },
@@ -549,8 +550,7 @@ export function CalendarRoutineItem({ routine, timeLabel, onChanged, onReference
         ],
         badges: [routine.disabledAtUtc ? "Disabled" : "Active"],
       }}
-      onOpen={editable ? () => setEditing(true) : undefined}
-      openLabel="Edit routine"
+      onEdit={editable ? () => setEditing(true) : undefined}
       controls={onReference ? <AgentReferenceButton identity={calendarRoutineIdentity(routine)} subject={`calendar routine ${routine.title}`} onReference={onReference} /> : undefined}
     />
     {editing && onChanged && <CalendarRoutineEditor routineId={id} onClose={() => setEditing(false)} onChanged={onChanged} />}
@@ -570,11 +570,10 @@ export function CalendarEventItem({ event, timeZone, timeLabel, onChanged, onRef
   const editable = Boolean(onChanged && Number.isSafeInteger(eventId) && eventId > 0 && !generatedReadOnly);
   return <li>
     <time>{timeLabel}</time>
-    <FirstClassObjectCard
+    <CalendarEventCard
       mode="compact"
-      className="timeline-event-item"
       object={{
-        type: "calendar.event", label: "Calendar event", display: event.title,
+        id: eventId, type: "calendar.event", label: "Calendar event", display: event.title,
         body: event.description,
         attributes: [
           ...(event.location ? [{ label: "Where", value: event.location }] : []),
@@ -582,8 +581,7 @@ export function CalendarEventItem({ event, timeZone, timeLabel, onChanged, onRef
         ],
         badges: event.seriesId ? ["Recurring"] : [],
       }}
-      onOpen={editable ? () => setEditing(true) : undefined}
-      openLabel={event.seriesId ? "Edit this recurring event series" : generatedReadOnly ? "This event is managed by its source record" : "Edit event"}
+      onEdit={editable ? () => setEditing(true) : undefined}
       controls={onReference && Number.isSafeInteger(eventId) && eventId > 0 ? <AgentReferenceButton identity={calendarEventIdentity(event, timeZone)} subject={`calendar event ${event.title}`} onReference={onReference} /> : undefined}
     />
     {editing && onChanged && <CalendarEventEditor eventId={eventId} recurring={Boolean(event.seriesId)} onClose={() => setEditing(false)} onChanged={onChanged} />}
@@ -786,40 +784,37 @@ export function TodoItem({
     }
   };
 
-  const leading = <>
-    {onSelectionChange && <input
-      className="todo-select"
-      type="checkbox"
-      checked={selected}
-      onChange={(event) => onSelectionChange(event.target.checked)}
-      aria-label={`Select ${text} for Agent reference`}
-    />}
-    {editable
-      ? <button className={`todo-check${complete ? "" : " todo-check--mark-complete"}`} type="button" disabled={updating} onClick={() => void toggle()} aria-label={`Mark ${text} ${complete ? "open" : "complete"}`}>{complete ? "✓" : <><span>Mark</span><span>complete</span></>}</button>
-      : <span className={`paper-checkbox ${complete ? "is-complete" : ""}`} aria-hidden="true">{complete ? "✓" : ""}</span>}
-    {sequence && <span className="todo-sequence" aria-label={`Sequence ${sequence}`}>#{sequence}</span>}
-  </>;
-  const card = <FirstClassObjectCard
+  const card = <TodoCard
     as={variant === "scheduled" ? "li" : "article"}
     mode={variant === "scheduled" ? "compact" : "full"}
-    className={`${variant === "scheduled" ? "scheduled-todo-card" : "todo-object-card"}${complete ? " is-complete" : ""}${onSelectionChange ? " is-selectable" : ""}`}
     object={{
-      type: "todos.personal_task", label: "To-do", display: text,
+      id, type: "todos.personal_task", label: "To-do", display: text,
       attributes: [
+        { label: "Status", value: status },
+        ...(sequence ? [{ label: "Sequence", value: `#${sequence}` }] : []),
         ...(completedAtUtc ? [{ label: "Completed", value: formatDisplayDate(completedAtUtc, { includeTime: false }) }] : []),
         ...(billable ? [{ label: "Billable", value: billable }] : []),
         ...(eventTitles?.length ? [{ label: "For", value: eventTitles.join(", ") }] : []),
       ],
-      badges: variant === "row" ? [status.replaceAll("_", " ")] : [],
     }}
-    leading={<div className="todo-card-leading">{leading}</div>}
-    onOpen={editable ? () => setEditing(true) : undefined}
-    openLabel="Edit to-do"
+    leading={!editable ? <span className={`paper-checkbox ${complete ? "is-complete" : ""}`} aria-hidden="true">{complete ? "✓" : ""}</span> : undefined}
+    onToggleComplete={editable ? () => void toggle() : undefined}
+    onEdit={editable ? () => setEditing(true) : undefined}
+    busy={updating}
     controls={onReference ? <AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${text}`} onReference={onReference} /> : undefined}
     details={error ? <p className="inline-error todo-item-error" role="alert">{error}</p> : undefined}
   />;
   return <>
-    {card}
+    {onSelectionChange ? <div className="todo-card-selection">
+      <input
+        className="todo-select"
+        type="checkbox"
+        checked={selected}
+        onChange={(event) => onSelectionChange(event.target.checked)}
+        aria-label={`Select ${text} for Agent reference`}
+      />
+      {card}
+    </div> : card}
     {editing && onChanged && <TodoEditor todoId={id} suppliedGroups={groups} onClose={() => setEditing(false)} onChanged={onChanged} />}
   </>;
 }

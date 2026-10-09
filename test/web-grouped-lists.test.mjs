@@ -19,7 +19,7 @@ test("video scripts mirror the grouped Library list by lifecycle status", () => 
   assert.match(source, /\["draft", \{ id: "draft", name: "Drafts"/);
   assert.match(source, /\["archived", \{ id: "archived", name: "Archived"/);
   assert.match(source, /<ul className="library-list">/);
-  assert.match(source, /<FirstClassObjectCard\s+as="li"/);
+  assert.match(source, /<VideoScriptCard\s+as="li"/);
   assert.match(source, /type: "video\.script"/);
   assert.match(appSource, /view === "video-scripts"\) screen = <VideoScriptsScreen/);
 });
@@ -29,7 +29,7 @@ test("files mirror the grouped Library list by stored media kind", () => {
   assert.match(source, /textKey\(file, "mediaKind"\)/);
   assert.match(source, /document: "Documents", image: "Images", video: "Videos", audio: "Audio"/);
   assert.match(source, /<ul className="library-list">/);
-  assert.match(source, /<FirstClassObjectCard\s+as="li"/);
+  assert.match(source, /<FileCard\s+as="li"/);
   assert.match(source, /type: "files\.file"/);
   assert.match(appSource, /view === "files"\) screen = <FilesScreen/);
 });
@@ -39,7 +39,7 @@ test("contacts render list groups for people, organizations, and services", () =
   assert.match(source, /person: "People", organization: "Organizations", service: "Services"/);
   assert.match(source, /textKey\(contact, "kind"\)/);
   assert.match(source, /<ul className="library-list grouped-contact-list">/);
-  assert.match(source, /className=\{`contact-card/);
+  assert.match(source, /<ContactCard/);
   assert.match(source, /type: "contacts\.contact"/);
 });
 
@@ -97,7 +97,7 @@ test("contacts hide inactive records by default and identify them when requested
   assert.match(contacts, /<SectionSelectFilter label="Status"/);
   assert.match(contacts, /<option value="active">Active<\/option><option value="all">All records<\/option>/);
   assert.match(contacts, /\.\.\.\(status !== "active" \? \[status\] : \[\]\)/);
-  assert.match(contacts, /contact-card\$\{status !== "active" \? " is-inactive" : ""\}/);
+  assert.match(contacts, /attributes: \[\.\.\.contactDetails, \{ label: "Status", value: status \}\]/);
   assert.match(styles, /\.contact-card\.is-inactive/);
 });
 
@@ -111,9 +111,9 @@ test("persisted group headers expose the shared editor while synthetic groups do
   assert.match(todos, /resource: "todo-groups"/);
   assert.match(library, /resource: "content-groups"/);
   assert.match(journal, /resource: "journal-groups"/);
-  assert.match(todos, /group-heading-title/);
-  assert.match(library, /group-heading-title/);
-  assert.match(journal, /group-heading-title/);
+  assert.match(todos, /<TodoGroupCard/);
+  assert.match(library, /<LibraryGroupCard/);
+  assert.match(journal, /<JournalGroupCard/);
   assert.doesNotMatch(scripts, /group-edit-button/);
   assert.doesNotMatch(files, /group-edit-button/);
   assert.match(appSource, /method: "PATCH"/);

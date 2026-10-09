@@ -9,12 +9,13 @@ const recurrence = fs.readFileSync(new URL("../web/src/components/RecurrenceEdit
 const server = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 const dailyPaperService = fs.readFileSync(new URL("../src/daily-paper.mjs", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
+const todoCard = fs.readFileSync(new URL("../web/src/components/object-cards/TodoCard.tsx", import.meta.url), "utf8");
 
 test("timeline events use a reusable clickable editor with fresh versioned saves", () => {
   assert.match(items, /export function CalendarEventItem/);
   assert.match(dailyPaper, /<CalendarEventItem/);
   assert.match(app, /<DayTimeline[^>]+onChanged=\{reload\}/);
-  assert.match(items, /onOpen=\{editable \? \(\) => setEditing\(true\) : undefined\}/);
+  assert.match(items, /onEdit=\{editable \? \(\) => setEditing\(true\) : undefined\}/);
   assert.match(items, /api<\{ event: CalendarEvent \}>\(`\/api\/calendar-events\/\$\{eventId\}`\)/);
   assert.match(items, /version: event\.version/);
   assert.match(items, /method: "PATCH"/);
@@ -29,18 +30,18 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(app, /<TodoItem todo=\{todo\}/);
   assert.match(dailyPaper, /<TodoItem/);
   assert.match(app, /<ScheduledTodos[^>]+onChanged=\{reload\}/);
-  assert.ok(items.includes('className={`todo-check${complete ? "" : " todo-check--mark-complete"}`}'));
-  assert.match(items, /onClick=\{\(\) => void toggle\(\)\}/);
-  assert.ok(items.includes('{complete ? "✓" : <><span>Mark</span><span>complete</span></>}'));
+  assert.ok(todoCard.includes('className={`todo-check${complete ? "" : " todo-check--mark-complete"}`}'));
+  assert.match(items, /onToggleComplete=\{editable \? \(\) => void toggle\(\) : undefined\}/);
+  assert.ok(todoCard.includes('{complete ? "✓" : <><span>Mark</span><span>complete</span></>}'));
   assert.match(items, /className="todo-select"/);
   assert.match(items, /aria-label=\{`Select \$\{text\} for Agent reference`\}/);
   assert.match(styles, /\.todo-check\.todo-check--mark-complete[^\{]*\{[^}]*width: 52px;[^}]*min-height: 46px;/);
   assert.match(styles, /\.todo-check\.todo-check--mark-complete[^\{]*\{[^}]*place-content: center;[^}]*text-align: center;/);
   assert.match(styles, /\.paper-todos li \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/);
-  assert.match(items, /<FirstClassObjectCard[\s\S]+type: "todos\.personal_task"/);
-  assert.match(items, /onOpen=\{editable \? \(\) => setEditing\(true\) : undefined\}/);
-  assert.match(items, /className="todo-sequence"[^>]*>#\{sequence\}<\/span>/);
-  assert.match(items, /variant === "scheduled" \? "scheduled-todo-card" : "todo-object-card"/);
+  assert.match(items, /<TodoCard[\s\S]+type: "todos\.personal_task"/);
+  assert.match(items, /onEdit=\{editable \? \(\) => setEditing\(true\) : undefined\}/);
+  assert.match(items, /label: "Sequence", value: `#\$\{sequence\}`/);
+  assert.doesNotMatch(items, /className=.*scheduled-todo-card|className=.*todo-object-card/);
   assert.match(styles, /\.todo-row\.has-sequence \{ grid-template-columns: auto 54px minmax\(0, 1fr\) auto; \}/);
   assert.match(styles, /\.todo-sequence \{[^}]*font-weight: 750;/);
   assert.match(items, /version: current\.version/);
@@ -53,9 +54,8 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
 
 test("contacts are click-to-edit and expose a complete versioned editor", () => {
   assert.match(app, /<ContactEditor contactId=\{editingContactId\}/);
-  assert.match(app, /className=\{`contact-card/);
-  assert.match(app, /onOpen=\{\(\) => setEditingContactId/);
-  assert.match(app, /key: "edit", label: "Edit"/);
+  assert.match(app, /<ContactCard/);
+  assert.match(app, /onEdit=\{\(\) => setEditingContactId/);
   assert.match(items, /export function ContactEditor/);
   assert.match(items, /export function CalendarEventEditor/);
   assert.match(items, /api<\{ contact: Entity \}>\(`\/api\/contacts\/\$\{contactId\}`\)/);
@@ -73,7 +73,7 @@ test("routine agenda items open a reusable versioned editor directly", () => {
   assert.match(routines, /<CalendarRoutineItem/);
   assert.ok(routines.includes("onChanged={reload}"));
   assert.ok(items.includes('type: "calendar.routine", label: "Calendar routine"'));
-  assert.ok(items.includes('onOpen={editable ? () => setEditing(true) : undefined}'));
+  assert.ok(items.includes('onEdit={editable ? () => setEditing(true) : undefined}'));
   assert.ok(items.includes('api<{ routine: CalendarRoutine | null }>(`/api/calendar-routines/${routineId}`)'));
   assert.ok(items.includes("version: routine.version"));
   assert.ok(items.includes("recurrenceRule: buildRecurrenceRule(draft.recurrence, true)"));
