@@ -1008,6 +1008,7 @@ test("invoice PDF line descriptions preserve newlines and wrap long text", () =>
     }],
   });
 
+  assert.match(html, /<div class="muted">From Nathan Ruffing<\/div>/u);
   assert.match(html, /<th class="line-number">Line<\/th>/u);
   assert.match(html, /<span>Due<\/span><strong>15 Oct 2026<\/strong>/u);
   assert.match(html, /<td class="line-number">7<\/td>/u);

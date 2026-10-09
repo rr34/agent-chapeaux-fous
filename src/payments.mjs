@@ -248,7 +248,7 @@ export function invoicePdfHtml(invoice) {
     .description { margin: 0 0 28px; padding: 14px 16px; background: #f4f5f1; white-space: pre-wrap; }
     footer { margin-top: 36px; padding-top: 12px; color: #62695e; border-top: 1px solid #dde1d8; font-size: 11px; }
   </style></head><body>
-    <header><div><h1>Invoice</h1><div class="muted">Preview prepared in TLOM</div></div>
+    <header><div><h1>Invoice</h1><div class="muted">From Nathan Ruffing</div></div>
       <div class="meta"><span>Invoice</span><strong>#${invoice.invoiceId}</strong><span>Due</span><strong>${escapedHtml(formattedDateOnly(invoice.dueOn))}</strong><span>Currency</span><strong>${escapedHtml(invoice.currency)}</strong></div>
     </header>
     <section class="recipient"><strong>Bill to</strong><p>${escapedHtml(invoice.payerName || "Not set")}</p><p class="muted">${escapedHtml(invoice.payerEmail)}</p></section>
