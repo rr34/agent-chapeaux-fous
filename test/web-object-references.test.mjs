@@ -37,7 +37,7 @@ test("the React UI can select every displayed first-class object for Agent", () 
   assert.match(editableItems, /identity=\{calendarEventIdentity\(event, timeZone\)\}/);
   assert.match(editableItems, /identity=\{todoIdentity\(todo\)\}/);
   assert.match(editableItems, /Number\.isSafeInteger\(eventId\) && eventId > 0 \? <ObjectSelectionControls/);
-  assert.match(editableItems, /controls=\{<ObjectSelectionControls identity=\{todoIdentity\(todo\)\}/);
+  assert.match(editableItems, /controls=\{<>\s*<ObjectSelectionControls identity=\{todoIdentity\(todo\)\}/);
   assert.match(editableItems, /identity=\{calendarRoutineIdentity\(routine\)\}/);
 });
 

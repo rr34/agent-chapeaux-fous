@@ -41,7 +41,7 @@ test("the React to-do page can filter its visible tasks by group", () => {
 
 test("to-do cards use the workspace-wide Agent selection instead of a section-only batch bar", () => {
   assert.doesNotMatch(appSource, /Select all visible|Reference selected in Agent/);
-  assert.match(appSource, /<TodoItem todo=\{todo\}[^>]+onChanged=\{reload\}/);
+  assert.match(appSource, /<TodoItem[\s\S]*?todo=\{todo\}[\s\S]*?onChanged=\{reload\}/);
   assert.match(appSource, /<ObjectSelectionProvider selections=\{agentObjectSelections\}/);
   assert.match(styles, /\.object-selection-checkbox \{[^}]*width: 17px;[^}]*height: 17px;/);
   assert.doesNotMatch(styles, /\.todo-selection-bar/);
@@ -55,17 +55,19 @@ test("the React to-do page pins group containers rather than individual tasks", 
   assert.match(styles, /\.todo-group-pin\.is-pinned/);
 });
 
-test("the React to-do page moves group priority by one step or to either end", () => {
-  assert.match(appSource, /type TodoGroupPriorityMovement = "top" \| "up" \| "down" \| "bottom"/);
+test("each React to-do card moves that item within its group by one step or to either end", () => {
+  assert.match(appSource, /type TodoPriorityMovement = "top" \| "up" \| "down" \| "bottom"/);
   assert.match(appSource, /label: "to top priority"/);
   assert.match(appSource, /label: "up one priority"/);
   assert.match(appSource, /label: "down one priority"/);
   assert.match(appSource, /label: "to bottom priority"/);
   assert.match(appSource, /currentIndex \+ \(movement === "up" \? -1 : 1\)/);
-  assert.match(appSource, /nextGroupIds\.splice\(currentIndex, 1\)/);
-  assert.match(appSource, /nextGroupIds\.splice\(targetIndex, 0, groupId\)/);
-  assert.match(appSource, /api\("\/api\/todo-groups\/reorder"/);
-  assert.match(appSource, /JSON\.stringify\(\{ orderedGroupIds: nextGroupIds \}\)/);
-  assert.match(styles, /\.todo-group-priority-controls/);
-  assert.match(styles, /\.todo-group-priority-button/);
+  assert.match(appSource, /nextTodoIds\.splice\(currentIndex, 1\)/);
+  assert.match(appSource, /nextTodoIds\.splice\(targetIndex, 0, todoId\)/);
+  assert.match(appSource, /api\(`\/api\/todo-groups\/\$\{groupId\}\/reorder`/);
+  assert.match(appSource, /JSON\.stringify\(\{ orderedTodoIds: nextTodoIds \}\)/);
+  assert.match(appSource, /<TodoItem[\s\S]*cardControls=\{group\.groupId != null \? <TodoPriorityControls/);
+  assert.doesNotMatch(appSource, /<TodoGroupCard[\s\S]*details=\{<div className="todo-group-management"><TodoPriorityControls/);
+  assert.match(styles, /\.todo-priority-controls/);
+  assert.match(styles, /\.todo-priority-button/);
 });

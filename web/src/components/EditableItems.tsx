@@ -740,12 +740,13 @@ export function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
 }
 
 export function TodoItem({
-  todo, groups, eventTitles, variant = "row", onChanged,
+  todo, groups, eventTitles, variant = "row", cardControls, onChanged,
 }: {
   todo: Entity | LinkedTodo;
   groups?: Entity[];
   eventTitles?: string[];
   variant?: "row" | "scheduled";
+  cardControls?: ReactNode;
   onChanged?: Changed;
 }) {
   const [editing, setEditing] = useState(false);
@@ -794,7 +795,7 @@ export function TodoItem({
     onToggleComplete={editable ? () => void toggle() : undefined}
     onEdit={editable ? () => setEditing(true) : undefined}
     busy={updating}
-    controls={<ObjectSelectionControls identity={todoIdentity(todo)} subject={`task ${text}`} />}
+    controls={<><ObjectSelectionControls identity={todoIdentity(todo)} subject={`task ${text}`} />{cardControls}</>}
     details={error ? <p className="inline-error todo-item-error" role="alert">{error}</p> : undefined}
   />;
   return <>

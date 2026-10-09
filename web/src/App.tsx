@@ -81,32 +81,32 @@ function PaperPinIcon() {
   </svg>;
 }
 
-type TodoGroupPriorityMovement = "top" | "up" | "down" | "bottom";
+type TodoPriorityMovement = "top" | "up" | "down" | "bottom";
 
-function TodoGroupPriorityControls({ groupId, groupName, groupIndex, groupCount, busy, onMove }: {
-  groupId: number;
-  groupName: string;
-  groupIndex: number;
-  groupCount: number;
+function TodoPriorityControls({ todoId, todoText, todoIndex, todoCount, busy, onMove }: {
+  todoId: number;
+  todoText: string;
+  todoIndex: number;
+  todoCount: number;
   busy: boolean;
-  onMove: (groupId: number, movement: TodoGroupPriorityMovement) => void;
+  onMove: (todoId: number, movement: TodoPriorityMovement) => void;
 }) {
-  const atTop = groupIndex <= 0;
-  const atBottom = groupIndex < 0 || groupIndex === groupCount - 1;
-  const controls: { movement: TodoGroupPriorityMovement; symbol: string; label: string; disabled: boolean }[] = [
+  const atTop = todoIndex <= 0;
+  const atBottom = todoIndex < 0 || todoIndex === todoCount - 1;
+  const controls: { movement: TodoPriorityMovement; symbol: string; label: string; disabled: boolean }[] = [
     { movement: "top", symbol: "⇈", label: "to top priority", disabled: atTop },
     { movement: "up", symbol: "↑", label: "up one priority", disabled: atTop },
     { movement: "down", symbol: "↓", label: "down one priority", disabled: atBottom },
     { movement: "bottom", symbol: "⇊", label: "to bottom priority", disabled: atBottom },
   ];
-  return <div className="todo-group-priority-controls" role="group" aria-label={`Change ${groupName} group priority`}>
+  return <div className="todo-priority-controls" role="group" aria-label={`Change ${todoText} priority within its group`}>
     {controls.map(({ movement, symbol, label, disabled }) => <button
-      className="todo-group-priority-button"
+      className="todo-priority-button"
       type="button"
       title={`Move ${label}`}
-      aria-label={`Move ${groupName} group ${label}`}
+      aria-label={`Move ${todoText} ${label} within its group`}
       disabled={busy || disabled}
-      onClick={() => onMove(groupId, movement)}
+      onClick={() => onMove(todoId, movement)}
       key={movement}
     >{symbol}</button>)}
   </div>;
@@ -1066,7 +1066,7 @@ function TodoScreen() {
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/todo-groups");
   const [draft, setDraft] = useState("");
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
-  const [reorderingGroupId, setReorderingGroupId] = useState<number | null>(null);
+  const [reorderingTodoId, setReorderingTodoId] = useState<number | null>(null);
   const [reorderError, setReorderError] = useState("");
   const add = async (event: FormEvent) => { event.preventDefault(); await api("/api/todos", { method: "POST", body: JSON.stringify({ text: draft, status: "todo" }) }); setDraft(""); await reload(); };
   const statusTodos = (data?.todos || []).filter((todo) =>
@@ -1084,30 +1084,29 @@ function TodoScreen() {
     });
     await reloadGroups();
   };
-  const orderedGroupIds = (groupData?.groups || []).map((group) => Number(group.id));
-  const moveGroup = async (groupId: number, movement: TodoGroupPriorityMovement) => {
-    const currentIndex = orderedGroupIds.indexOf(groupId);
+  const moveTodo = async (groupId: number, orderedTodoIds: number[], todoId: number, movement: TodoPriorityMovement) => {
+    const currentIndex = orderedTodoIds.indexOf(todoId);
     const targetIndex = movement === "top"
       ? 0
       : movement === "bottom"
-        ? orderedGroupIds.length - 1
+        ? orderedTodoIds.length - 1
         : currentIndex + (movement === "up" ? -1 : 1);
-    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= orderedGroupIds.length || targetIndex === currentIndex) return;
-    const nextGroupIds = [...orderedGroupIds];
-    nextGroupIds.splice(currentIndex, 1);
-    nextGroupIds.splice(targetIndex, 0, groupId);
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= orderedTodoIds.length || targetIndex === currentIndex) return;
+    const nextTodoIds = [...orderedTodoIds];
+    nextTodoIds.splice(currentIndex, 1);
+    nextTodoIds.splice(targetIndex, 0, todoId);
     setReorderError("");
-    setReorderingGroupId(groupId);
+    setReorderingTodoId(todoId);
     try {
-      await api("/api/todo-groups/reorder", {
+      await api(`/api/todo-groups/${groupId}/reorder`, {
         method: "POST",
-        body: JSON.stringify({ orderedGroupIds: nextGroupIds }),
+        body: JSON.stringify({ orderedTodoIds: nextTodoIds }),
       });
-      await reloadGroups();
+      await reload();
     } catch (caught) {
-      setReorderError(caught instanceof Error ? caught.message : "Could not change the group priority.");
+      setReorderError(caught instanceof Error ? caught.message : "Could not change the to-do priority.");
     } finally {
-      setReorderingGroupId(null);
+      setReorderingTodoId(null);
     }
   };
   const groups = useMemo(() => {
@@ -1150,21 +1149,27 @@ function TodoScreen() {
       <label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label>
     </>} />
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{reorderError && <p className="inline-error" role="alert">{reorderError}</p>}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => {
-      const priorityIndex = group.groupId == null ? -1 : orderedGroupIds.indexOf(group.groupId);
+      const orderedTodoIds = group.todos.map((todo) => Number(todo.id));
       return <section className="todo-group" key={group.id} aria-label={`${group.name} to-do group`}>
         {group.groupId != null ? <TodoGroupCard
           object={{ id: group.groupId, type: "todos.todo_group", label: "To-do group", display: group.name, attributes: [{ label: "Items", value: String(group.todos.length) }], badges: [group.dailyPaperPinned ? "Pinned to paper" : "Active"] }}
           controls={<ObjectSelectionControls identity={todoGroupIdentity({ id: group.groupId, name: group.name })} subject={`to-do group ${group.name}`} />}
-          details={<div className="todo-group-management"><TodoGroupPriorityControls
-              groupId={group.groupId}
-              groupName={group.name}
-              groupIndex={priorityIndex}
-              groupCount={orderedGroupIds.length}
-              busy={reorderingGroupId != null}
-              onMove={(id, movement) => void moveGroup(id, movement)}
-            />{group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}<button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" aria-pressed={group.dailyPaperPinned} onClick={() => void setDailyPaperPinned(group.groupId!, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button></div>}
+          details={<div className="todo-group-management">{group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}<button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" aria-pressed={group.dailyPaperPinned} onClick={() => void setDailyPaperPinned(group.groupId!, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button></div>}
         /> : <header className="todo-group-heading"><h2>{group.name}</h2></header>}
-        <div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} key={String(todo.id)} />)}</div>
+        <div className="todo-group-items">{group.todos.map((todo, todoIndex) => <TodoItem
+          todo={todo}
+          groups={groupData?.groups || []}
+          onChanged={reload}
+          cardControls={group.groupId != null ? <TodoPriorityControls
+            todoId={Number(todo.id)}
+            todoText={textKey(todo, "text", "title") || "Task"}
+            todoIndex={todoIndex}
+            todoCount={group.todos.length}
+            busy={reorderingTodoId != null}
+            onMove={(todoId, movement) => void moveTodo(group.groupId!, orderedTodoIds, todoId, movement)}
+          /> : undefined}
+          key={String(todo.id)}
+        />)}</div>
       </section>;
     })}</div>
     {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }} />}
