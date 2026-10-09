@@ -40,6 +40,8 @@ test("first-class object controls expose one lazy visual network without editing
   assert.match(styles, /\.network-rail::before/u);
   assert.match(styles, /\.network-heading-object \.network-object-slot/u);
   assert.match(styles, /\.compact-object-card/u);
+  assert.match(styles, /\.app-shell:has\(\.network-backdrop\)\s*>\s*\.composer\s*\{\s*z-index:\s*41;/u);
+  assert.doesNotMatch(component, /aria-modal="true"/u);
   assert.doesNotMatch(styles, /\.network-object-open|\.network-card-action/u);
   assert.doesNotMatch(editor, /ObjectNetworkButton|relatedContactId[^\n]*<select/u);
 });

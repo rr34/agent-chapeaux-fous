@@ -269,7 +269,7 @@ function ObjectNetworkExplorer({ initial, onClose }: {
   return <div className="object-editor-backdrop network-backdrop" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}>
-    <section className="object-editor object-network" role="dialog" aria-modal="true" aria-label="Object connections">
+    <section className="object-editor object-network" role="dialog" aria-label="Object connections">
       <header className="network-heading">
         <div className="network-heading-object">
           {history.length > 0 && <button className="network-back-button" type="button" onClick={goBack} aria-label="Back">←</button>}

@@ -147,6 +147,7 @@ textarea { resize: vertical; }
 .turn-brief { margin: 16px 0 0 128px; padding: 16px; border: 1px solid #cbd3c3; background: #fbfcf7; border-radius: 12px; }
 .turn-brief > div { display: flex; gap: 8px; margin-top: 12px; }
 .composer { position: fixed; z-index: 4; bottom: 22px; left: calc(216px + clamp(24px, 4vw, 68px)); right: clamp(24px, 4vw, 68px); max-width: 1300px; margin: auto; padding: 12px; border: 1px solid #c7ccc1; border-radius: 15px; background: rgba(251, 250, 245, .94); box-shadow: var(--shadow); backdrop-filter: blur(14px); }
+.app-shell:has(.network-backdrop) > .composer { z-index: 41; }
 .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
 .composer-selection-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; padding: 8px 10px; border: 1px solid #abb5a1; border-radius: 9px; color: var(--olive-dark); background: var(--olive-soft); font-size: 12px; }
 .composer-selection-summary .button { min-height: 30px; padding: 4px 9px; font-size: 11px; }
