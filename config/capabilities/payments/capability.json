@@ -18,6 +18,10 @@
     "payment_invoice_list",
     "payment_invoice_send_prepare"
   ],
+  "dependentTools": [
+    "contact_search",
+    "todo_list"
+  ],
   "attachmentHints": [
     {
       "extensions": [".pdf", ".jpg", ".jpeg", ".png"],

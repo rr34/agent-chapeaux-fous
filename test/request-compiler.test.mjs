@@ -725,6 +725,36 @@ test("accepted capability overrides include declared dependent tools without lat
   assert.equal(names(compiled).includes("database_write"), false);
 });
 
+test("a focused payment execution includes authoritative payer and to-do reads", async () => {
+  const compiler = new RequestCompiler();
+  const compiled = await compiler.compile({
+    tools: [
+      {
+        ...tool("payment_invoice_prepare"),
+        capabilityId: "payments",
+        capability: { dependentTools: ["contact_search", "todo_list"] },
+      },
+      { ...tool("contact_search"), capabilityId: "contacts" },
+      { ...tool("todo_list"), capabilityId: "todos" },
+      { ...tool("global_search"), capabilityId: "search" },
+    ],
+    text: "Make Lucas an invoice with his trench to-do.",
+    capabilityOverride: ["payments", "search"],
+    toolOverride: ["payment_invoice_prepare"],
+    allowCapabilityExpansion: false,
+    allowToolExpansion: true,
+  });
+
+  assert.deepEqual(names(compiled), [
+    "payment_invoice_prepare", "contact_search", "todo_list", "request_tools",
+  ]);
+  assert.deepEqual(compiled.dependentTools, ["contact_search", "todo_list"]);
+  assert.deepEqual(
+    compiled.deferredTools.map(({ name }) => name),
+    ["global_search"],
+  );
+});
+
 test("required tool capability validation rejects tools outside the TurnBrief families", () => {
   const candidateTools = [
     { ...tool("tool_receipt_read"), capabilityId: "database" },

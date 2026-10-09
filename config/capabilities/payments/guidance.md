@@ -50,6 +50,10 @@ the current snapshot without finalizing or sending it through Stripe.
 
 Use exact bound `personal_task_ids` for stored to-do prices, bound `todo_lines`
 for invoice-only to-do prices, explicit `manual_lines`, or any combination.
+When the request names a payer or to-do that is not already bound, use the
+provided authoritative `contact_search` or `todo_list` read in the same
+execution. A matching conversation-history result may guide that lookup, but it
+does not replace the current domain-owned binding required by Payments.
 Supply `contact_id`, `due_on`, and amounts only when the user provided them or
 they are already known; do not ask for those fields merely to create a draft.
 Use `payment_invoice_update` for an exact prepared invoice when the user asks to

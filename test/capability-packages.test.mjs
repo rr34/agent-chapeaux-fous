@@ -52,6 +52,11 @@ test("native capability packages are the complete schema-validated runtime catal
   }
 });
 
+test("payments declares authoritative reads for its cross-domain object inputs", () => {
+  const payments = loadCapabilityPackages().find(({ id }) => id === "payments");
+  assert.deepEqual(payments.dependentTools, ["contact_search", "todo_list"]);
+});
+
 test("capability package validation rejects schema, identity, and filesystem drift", async context => {
   const invalidId = await temporaryPackage(context, manifest => ({ ...manifest, id: "different" }));
   assert.throws(() => loadCapabilityPackages({ capabilityRoot: invalidId.root }), /directory example must match manifest ID different/);
