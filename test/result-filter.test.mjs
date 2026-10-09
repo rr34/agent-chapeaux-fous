@@ -122,6 +122,32 @@ test("the result boundary deterministically searches, projects, and limits a rec
   assert.match(result.deliveredResult.result_filter.requiredAction, /Do not treat this partial result/);
 });
 
+test("query correlation metadata cannot masquerade as matching record evidence", () => {
+  const result = new ResultFilterBoundary().filterReadResult({
+    results: [{
+      query_id: "lucas_trench",
+      filters: { text_query: "Lucas trench" },
+      tasks: [{ personal_task_id: 284, text: "Schedule bankruptcy consultation with Lucas" }],
+      count: 1,
+      has_more: false,
+      next_cursor: null,
+    }],
+    has_more: false,
+  }, {
+    requestId: "request-control-metadata",
+    interactionId: "call-control-metadata",
+    tool: "todo_list",
+    source: "local",
+    filterRequest: filterRequest({ query: "Lucas trench" }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.deliveredResult.results, []);
+  assert.equal(result.receipt.status, "empty");
+  assert.equal(result.receipt.summary.candidates, 1);
+  assert.equal(result.receipt.summary.returned, 0);
+});
+
 test("provider-declared identity, reference, and display fields survive projection", () => {
   const result = new ResultFilterBoundary().filterReadResult({ records: [{
     providerKey: "acct-178", locator: "accounting://accounts/178",

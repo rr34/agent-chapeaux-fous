@@ -67,6 +67,29 @@ test("to-dos can be created, listed, and completed without calendar fields", asy
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM calendar_events").get().count, 0);
 });
 
+test("to-do text lookup returns an exact terminal task instead of an open-task dump", async (context) => {
+  const { registry, toolContext } = harness(context);
+  const created = await registry.execute("todo_add", {
+    text: "Lucas Trench", todo_group_id: 1, status: "todo",
+    related_contact_id: null, planning_prompt_text: null, position: null,
+  }, toolContext);
+  await registry.execute("todo_update", { updates: [{
+    personal_task_id: created.task.personal_task_id, status: "complete",
+  }] }, toolContext);
+
+  const listed = await registry.execute("todo_list", { queries: [{
+    query_id: "lucas_trench", group: null, text_query: "Lucas trench",
+    status: null, limit: 20,
+  }] });
+  assert.deepEqual(listed.results[0].tasks.map(({ personal_task_id, text, status }) => ({
+    personal_task_id, text, status,
+  })), [{
+    personal_task_id: created.task.personal_task_id,
+    text: "Lucas Trench",
+    status: "complete",
+  }]);
+});
+
 test("to-dos can link and unlink exact content-library items idempotently", async (context) => {
   const { store, registry, toolContext } = harness(context);
   const created = await registry.execute("todo_add", {

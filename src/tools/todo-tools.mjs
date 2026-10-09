@@ -99,7 +99,7 @@ const toolDescriptions = Object.freeze({
   "todo_list": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Read paginated batches of non-temporal native personal to-dos and their linked content-library items by task IDs, group, status, or completion date.",
+    "summary": "Search or read paginated batches of non-temporal native personal to-dos and linked content by task text, exact IDs, group, status, or completion date.",
     "actionClasses": [
       "READ"
     ],
@@ -347,7 +347,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_list",
-    description: "Read non-temporal native personal to-dos and their linked content-library items in one or more paginated queries. Schedules and deadlines are calendar events and are read with calendar tools.",
+    description: "Search or read non-temporal native personal to-dos and their linked content-library items in one or more paginated queries. Use text_query for descriptive task-text lookup; query_id only correlates each query with its result and never searches data. When conversation supplies a candidate task ID, verify it with personal_task_ids and status null instead of scanning all open tasks. Use a null result_filter query because this tool applies its owned filters before returning task records. Schedules and deadlines are calendar events and are read with calendar tools.",
     outputSchema: { type: "object", properties: {
       has_more: { type: "boolean" }, results: { type: "array", items: { type: "object", properties: {
         query_id: { type: "string" }, filters: { type: "object", properties: todoQueryFilterProperties },

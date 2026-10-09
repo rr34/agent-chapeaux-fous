@@ -54,6 +54,10 @@ When the request names a payer or to-do that is not already bound, use the
 provided authoritative `contact_search` or `todo_list` read in the same
 execution. A matching conversation-history result may guide that lookup, but it
 does not replace the current domain-owned binding required by Payments.
+When that history supplies a candidate to-do `#<id>`, reread that exact ID with
+`todo_list.personal_task_ids` and `status: null`; do not replace the exact
+candidate with an unfiltered scan of open tasks. For a name-only lookup, use
+`todo_list.text_query` and a null generic result-filter query.
 Supply `contact_id`, `due_on`, and amounts only when the user provided them or
 they are already known; do not ask for those fields merely to create a draft.
 Use `payment_invoice_update` for an exact prepared invoice when the user asks to

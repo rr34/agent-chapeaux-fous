@@ -14,7 +14,11 @@ const task = (id, overrides = {}) => ({
 function fixture(pages = []) {
   const reads = [];
   const database = { prepare(sql) {
-    return { all(...parameters) { reads.push({ sql, parameters }); return pages.shift() ?? []; } };
+    return { all(...parameters) {
+      if (/FROM todo_content_join AS relation/u.test(sql)) return [];
+      reads.push({ sql, parameters });
+      return pages.shift() ?? [];
+    } };
   } };
   const registry = new ToolRegistry();
   registerTodoTools(registry, { requireReady: () => database }, {});
@@ -36,11 +40,24 @@ test("todo_list accepts only bounded query batches and validates the full batch 
     { completed_date_range: { start_date: "2026-09-20", end_date: "2026-09-14" }, time_zone: "America/New_York" },
     { completed_date_range: day("2026-09-14"), time_zone: null },
     { completed_date_range: day("2026-09-14"), time_zone: "not-a-zone" },
+    { text_query: "   " },
     { cursor: "not-a-cursor" },
   ]) {
     await assert.rejects(execute([query({ query_id: "valid" }), query(invalid)]));
   }
   assert.equal(reads.length, 0);
+});
+
+test("task-text lookup searches owned task records and includes terminal matches", async () => {
+  const { execute, reads } = fixture([[task(335, { text: "Lucas Trench", status: "complete" })]]);
+  const result = await execute([query({
+    query_id: "lucas_trench", text_query: "  Lucas   trench  ", status: null,
+  })]);
+  assert.deepEqual(result.results[0].tasks.map(({ personal_task_id }) => personal_task_id), [335]);
+  assert.equal(result.results[0].filters.text_query, "Lucas trench");
+  assert.equal((reads[0].sql.match(/LOCATE\(LOWER\(\?\), LOWER\(task\.text\)\) > 0/g) ?? []).length, 2);
+  assert.doesNotMatch(reads[0].sql, /status NOT IN/);
+  assert.deepEqual(reads[0].parameters, ["Lucas", "trench", 3]);
 });
 
 test("completed local ranges use inclusive dates and exclusive UTC ends across DST", async () => {

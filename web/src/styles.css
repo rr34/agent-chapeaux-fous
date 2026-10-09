@@ -506,13 +506,13 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .invoice-line-heading-actions { display: flex; align-items: center; gap: 10px; }
 .invoice-line-heading-actions button { padding: 0; border: 0; color: #8c3025; background: transparent; font-size: 11px; font-weight: 750; }
 .invoice-line-heading-actions button:hover { text-decoration: underline; }
+.invoice-line-heading-actions .invoice-line-receipt-add { color: var(--olive-dark); }
 .invoice-line-editor label { min-width: 0; }
 .invoice-line-editor textarea { min-height: 74px; resize: vertical; }
 .invoice-line-editor input, .invoice-line-editor textarea { color: var(--ink); background: var(--paper); }
 .invoice-line-editor input[readonly], .invoice-line-editor textarea[readonly] { border-color: transparent; background: transparent; }
 .invoice-line-amount input { font-variant-numeric: tabular-nums; }
 .invoice-line-receipt { grid-column: 1 / -1; min-width: 0; }
-.invoice-line-receipt-add { min-height: 32px; padding: 5px 10px; font-size: 11px; }
 .invoice-line-receipt-picker { display: flex; align-items: center; gap: 8px; }
 .invoice-line-receipt-picker select { min-width: 0; max-width: 440px; }
 .invoice-line-receipt-picker .button { min-height: 36px; padding: 6px 10px; font-size: 11px; }

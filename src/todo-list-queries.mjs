@@ -15,9 +15,13 @@ const localDateRange = {
 
 export const todoQueryFilterProperties = {
   group: { type: ["string", "null"], description: "Exact group name; null selects all groups." },
+  text_query: {
+    type: ["string", "null"], minLength: 1, maxLength: 500,
+    description: "Optional case-insensitive task-text search. Every whitespace-delimited term must occur in task.text. Null disables text search. This is the search input; query_id is only a correlation label.",
+  },
   status: {
     type: ["string", "null"], enum: [...todoStatuses, null],
-    description: "todo: intended work; complete: finished; ignore: intentionally skipped; archive: retained history; ai_suggested: awaiting acceptance. Null excludes terminal tasks unless a completion range or task IDs are supplied, in which case all statuses are eligible.",
+    description: "todo: intended work; complete: finished; ignore: intentionally skipped; archive: retained history; ai_suggested: awaiting acceptance. Null excludes terminal tasks unless a text search, completion range, or task IDs are supplied, in which case all statuses are eligible.",
   },
   personal_task_ids: {
     type: ["array", "null"], minItems: 1, maxItems: 200, uniqueItems: true,
@@ -37,7 +41,7 @@ export const todoListInputSchema = {
       items: {
         type: "object", additionalProperties: false,
         properties: {
-          query_id: { type: "string", minLength: 1, maxLength: 80, description: "Unique label within this batch, echoed with the corresponding results." },
+          query_id: { type: "string", minLength: 1, maxLength: 80, description: "Unique correlation label within this batch, echoed with the corresponding results. It never searches tasks; use text_query for task text." },
           ...todoQueryFilterProperties,
           limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum tasks on this query's page. Follow next_cursor to retrieve remaining matches." },
           cursor: { type: ["string", "null"], minLength: 1, maxLength: 4096, description: "Null for the first page; otherwise the exact next_cursor from this query's previous page. Keep all filters unchanged." },
@@ -76,6 +80,9 @@ function sortFields(filters) {
 function prepareQuery(query) {
   const filters = {
     group: query.group?.trim() || null,
+    text_query: query.text_query == null
+      ? null
+      : query.text_query.normalize("NFKC").trim().replaceAll(/\s+/gu, " "),
     status: query.status ?? null,
     personal_task_ids: query.personal_task_ids ? [...query.personal_task_ids].sort((a, b) => a - b) : null,
     completed_date_range: query.completed_date_range == null ? null : {
@@ -85,10 +92,19 @@ function prepareQuery(query) {
   };
   const conditions = [];
   const parameters = [];
+  if (query.text_query != null && !filters.text_query) {
+    throw new Error(`text_query for query ${query.query_id} must contain searchable text.`);
+  }
   if (filters.group) { conditions.push("todo_group.name = ?"); parameters.push(filters.group); }
   if (filters.status) { conditions.push("task.status = ?"); parameters.push(filters.status); }
-  else if (!filters.completed_date_range && !filters.personal_task_ids) {
+  else if (!filters.text_query && !filters.completed_date_range && !filters.personal_task_ids) {
     conditions.push("task.status NOT IN ('complete', 'ignore', 'archive')");
+  }
+  if (filters.text_query) {
+    for (const term of [...new Set(filters.text_query.split(" "))]) {
+      conditions.push("LOCATE(LOWER(?), LOWER(task.text)) > 0");
+      parameters.push(term);
+    }
   }
   if (filters.personal_task_ids) {
     conditions.push(`task.personal_task_id IN (${filters.personal_task_ids.map(() => "?").join(", ")})`);

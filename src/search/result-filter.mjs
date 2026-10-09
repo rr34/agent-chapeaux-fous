@@ -115,7 +115,11 @@ function scalarText(value, output = []) {
     return output;
   }
   if (typeof value === "object") {
-    for (const item of Object.values(value)) scalarText(item, output);
+    const queryEnvelope = typeof value.query_id === "string";
+    for (const [name, item] of Object.entries(value)) {
+      if (name === "query_id" || (queryEnvelope && name === "filters")) continue;
+      scalarText(item, output);
+    }
   }
   return output;
 }

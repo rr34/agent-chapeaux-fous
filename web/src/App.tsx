@@ -2213,10 +2213,10 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
               : sourceReceipt ? textKey(sourceReceipt, "displayName") : "";
             const choosingReceipt = editable && receiptPickerPosition === line.position;
             return <article className="invoice-line-editor" key={line.position}>
-              <div className="invoice-line-heading"><span>Line {line.position}</span><div className="invoice-line-heading-actions"><strong>{line.isNew ? "New manual line" : line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong>{line.isNew && <button type="button" disabled={editingLocked} onClick={() => removeNewLine(line.position)}>Remove</button>}</div></div>
+              <div className="invoice-line-heading"><span>Line {line.position}</span><div className="invoice-line-heading-actions"><strong>{line.isNew ? "New manual line" : line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong>{editable && !line.receiptFileId && !choosingReceipt && <button className="invoice-line-receipt-add" type="button" disabled={editingLocked || !receiptFiles.length} onClick={() => setReceiptPickerPosition(line.position)}>+ Receipt</button>}{line.isNew && <button type="button" disabled={editingLocked} onClick={() => removeNewLine(line.position)}>Remove</button>}</div></div>
               <label className="invoice-line-description">Description<textarea value={line.description} maxLength={1000} required readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { description: event.target.value })} /></label>
               <label className="invoice-line-amount">Amount ({currency}) <span className="field-hint">Use 0.00 for no charge</span><input type="text" inputMode="decimal" value={line.amount} readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { amount: event.target.value })} placeholder="0.00" /></label>
-              {(editable || line.receiptFileId) && <div className="invoice-line-receipt">
+              {(choosingReceipt || line.receiptFileId) && <div className="invoice-line-receipt">
                 {choosingReceipt
                   ? <div className="invoice-line-receipt-picker">
                     <select autoFocus defaultValue="" aria-label={`Choose receipt for line ${line.position}`} disabled={editingLocked} onChange={(event) => {
@@ -2233,7 +2233,7 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
                       <span><strong>Receipt</strong>{receiptName || `File #${line.receiptFileId}`}</span>
                       {editable && <div><button className="button button--quiet" type="button" disabled={editingLocked || !receiptFiles.length} onClick={() => setReceiptPickerPosition(line.position)}>Change</button><button className="button button--quiet" type="button" disabled={editingLocked} onClick={() => updateLine(index, { receiptFileId: "" })}>Remove</button></div>}
                     </div>
-                    : <button className="button button--quiet invoice-line-receipt-add" type="button" disabled={editingLocked || !receiptFiles.length} onClick={() => setReceiptPickerPosition(line.position)}>+ Receipt</button>}
+                    : null}
               </div>}
             </article>;
           })}

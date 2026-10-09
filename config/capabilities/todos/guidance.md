@@ -27,11 +27,17 @@ Daily-paper pinning belongs to a to-do group, never to an individual task. Use
 A pinned active group and all of its open tasks appear on every daily paper,
 including when that group is empty; unpinning does not alter its tasks.
 
-Use `todo_list.queries` for lookups. Batch independent lookups, use
-`personal_task_ids` for known tasks, and follow each `next_cursor` until the
-needed result is complete. `completed_date_range` filters the task's completion
-instant; there is no scheduled-date filter. Show stable task IDs as `#<id>` in
-user-facing lists and confirmations.
+Use `todo_list.queries` for lookups. Batch independent lookups. Use
+`text_query` for descriptive task-text search; `query_id` is only a correlation
+label and never searches records. When conversation or another exact source
+supplies a candidate `#<id>`, verify it with `personal_task_ids` and with
+`status: null` instead of scanning all open tasks. Candidate prose guides this
+owning read but is not itself a binding for mutation. Use a null
+`result_filter.query` because `todo_list` applies its domain filters before
+returning records. Follow each `next_cursor` until the needed result is complete.
+`completed_date_range` filters the task's completion instant; there is no
+scheduled-date filter. Show stable task IDs as `#<id>` in user-facing lists and
+confirmations.
 
 Use one `todo_update` call for all independently identified tasks in the same
 request, preserving every selected `personal_task_id`. Null values are no-change placeholders; clear flags apply only when
