@@ -247,13 +247,13 @@ test("migration adds only one table, preserves domain rows, replays partial DDL,
   db.exec("INSERT INTO journal_groups (journal_group_id, name) VALUES (901, 'Health')");
   db.exec("INSERT INTO trackers (tracker_id, journal_group_id, name, unit) VALUES (901, 901, 'Weight', 'kg')");
   const options = { connectionSettings: temp.target.connection, backupConfirmed: true, writersStopped: true, output: { write() {} } };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
   assert.equal(db.prepare("SELECT asking_recurrence_rule FROM journal2_trackers WHERE tracker_id=901").get().asking_recurrence_rule, null);
   await verifyDatabase(db);
   restoreLegacyJoinTableNames(db);
   restorePre46JournalTableNames(db);
   db.exec("UPDATE database_meta SET schema_version=35 WHERE singleton=1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
   assert.deepEqual((await runDatabaseMigrations(options)).applied, []);
   db.exec("ALTER TABLE catch_up_questions DROP FOREIGN KEY catch_up_tracker");
   await assert.rejects(verifyDatabase(db), /source foreign key catch_up_tracker/);

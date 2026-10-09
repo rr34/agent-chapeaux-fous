@@ -8,6 +8,15 @@ editor. Once sending begins, the invoice description and lines are immutable.
 Accounting remains a downstream ledger domain and must not be inferred from
 payment-provider fields.
 
+Each invoice line may have at most one receipt file, while the same receipt may
+support several lines on that invoice. Use the exact `files.file` binding with
+`payment_invoice_update.receipt_updates`; a null file removes the current line
+receipt. Receipt changes are invoice-owned preview changes: they rotate the
+preview digest, invalidate earlier confirmation, and freeze when sending begins.
+Only verified PDF, JPEG, and PNG files are accepted. The local invoice PDF
+appends each distinct receipt once, with an index naming every supported line.
+Do not duplicate receipt pages merely because one file supports several lines.
+
 Every invoice exposes a deliberately minimal payment status: `unpaid` or
 `paid`. For a local-only invoice, use `payment_invoice_payment_status_set` when
 the user asks to mark that exact invoice paid or unpaid. Read the invoice first

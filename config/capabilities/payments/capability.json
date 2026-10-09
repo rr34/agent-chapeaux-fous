@@ -4,7 +4,7 @@
   "version": 1,
   "id": "payments",
   "title": "Payments",
-  "summary": "Create and revise editable local invoice drafts from to-dos or manual lines, track the minimal paid or unpaid payment status natively, then optionally complete, preview, explicitly confirm, send, and track Stripe-hosted invoices.",
+  "summary": "Create and revise editable local invoice drafts from to-dos or manual lines, attach one receipt file to each line with receipt reuse across lines, track payment status, and optionally complete, preview, confirm, send, and track Stripe-hosted invoices.",
   "aliases": [
     "payment",
     "invoice",
@@ -16,6 +16,12 @@
     "payment_stripe_status",
     "payment_stripe_connect_link",
     "payment_invoice_list"
+  ],
+  "attachmentHints": [
+    {
+      "extensions": [".pdf", ".jpg", ".jpeg", ".png"],
+      "mimeIncludes": ["application/pdf", "image/jpeg", "image/png"]
+    }
   ],
   "guidance": "guidance.md"
 }

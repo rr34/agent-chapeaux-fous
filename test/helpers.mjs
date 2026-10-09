@@ -13,8 +13,14 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
-export function baselineBeforeIncompleteInvoiceDrafts(source) {
+export function baselineBeforeInvoiceLineReceipts(source) {
   return source
+    .replace(/CREATE TABLE payment_invoice_line_receipts \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
+    .replace("VALUES (1, 52,", "VALUES (1, 51,");
+}
+
+export function baselineBeforeIncompleteInvoiceDrafts(source) {
+  return baselineBeforeInvoiceLineReceipts(source)
     .replace(
       "payer_contact_id BIGINT UNSIGNED COMMENT 'Optional native contact selected as customer; required before sending.',",
       "payer_contact_id BIGINT UNSIGNED NOT NULL COMMENT 'Native contact selected as customer.',",

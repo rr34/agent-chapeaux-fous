@@ -16,6 +16,30 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0052: attach-receipts-to-invoice-lines
+-- writer downtime: required; payment readers and writers must switch together
+-- because invoice preview digests and line result shapes now include receipts.
+-- locking: CREATE TABLE briefly takes metadata locks while establishing the two
+-- foreign keys; the new table is empty and no existing invoice rows are rewritten.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped and replay this
+-- additive guarded block after a partial commit.
+
+CREATE TABLE IF NOT EXISTS payment_invoice_line_receipts (
+    payment_invoice_line_id BIGINT UNSIGNED NOT NULL COMMENT 'Invoice line supported by this receipt; the primary key permits at most one receipt per line.',
+    file_id BIGINT UNSIGNED NOT NULL COMMENT 'Durably stored receipt file. The same file may support multiple lines.',
+    display_name_snapshot VARCHAR(255) NOT NULL COMMENT 'Customer-facing receipt label frozen with the prepared invoice preview.',
+    mime_type_snapshot VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Verified supported receipt media type frozen with the prepared invoice preview.',
+    sha256_snapshot CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Lowercase SHA-256 of the exact receipt bytes bound to the prepared invoice preview.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the receipt was attached to this invoice line.',
+    PRIMARY KEY (payment_invoice_line_id),
+    KEY payment_invoice_line_receipts_file (file_id, payment_invoice_line_id),
+    CONSTRAINT payment_invoice_line_receipts_line FOREIGN KEY (payment_invoice_line_id) REFERENCES payment_invoice_lines(payment_invoice_line_id) ON DELETE CASCADE,
+    CONSTRAINT payment_invoice_line_receipts_file FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE RESTRICT,
+    CONSTRAINT payment_invoice_line_receipts_digest CHECK (sha256_snapshot REGEXP '^[0-9a-f]{64}$')
+) ENGINE=InnoDB COMMENT='Associates at most one receipt file with each invoice line while allowing one receipt to support several lines. The file owns the durable bytes; this table owns the invoice-specific label, type, integrity snapshot, and relationship. Receipt associations freeze when the invoice leaves editable local preparation.';
+
+-- end migration 0052
+
 -- migration 0051: allow-incomplete-invoice-drafts
 -- writer downtime: required; invoice readers and writers must switch together
 -- because draft payer, due-date, and price fields become nullable or zeroable.

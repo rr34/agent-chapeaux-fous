@@ -1648,6 +1648,7 @@ type InvoiceLineDraft = {
   personalTaskId: number | null;
   description: string;
   amount: string;
+  receiptFileId: string;
   isNew: boolean;
 };
 
@@ -1890,9 +1891,10 @@ function CreateInvoiceEditor({ contacts, todos, unavailableTodoIds, loading, loa
   </div>;
 }
 
-function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
+function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
   invoice: Entity;
   contacts: Entity[];
+  files: Entity[];
   onClose: () => void;
   onChanged: (invoice: Entity) => void | Promise<void>;
 }) {
@@ -1907,8 +1909,12 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
     personalTaskId: readKey(line, "personalTaskId") == null ? null : Number(readKey(line, "personalTaskId")),
     description: textKey(line, "description"),
     amount: invoiceAmountDraft(readKey(line, "amountMinor"), currency),
+    receiptFileId: line.receipt && typeof line.receipt === "object" && !Array.isArray(line.receipt)
+      ? String(readKey(line.receipt as Entity, "fileId")) : "",
     isNew: false,
   })));
+  const receiptFiles = files.filter((file) => ["application/pdf", "image/jpeg", "image/png"]
+    .includes(textKey(file, "mimeType").toLowerCase()));
   const [paymentMethodPolicy, setPaymentMethodPolicy] = useState(textKey(invoice, "paymentMethodPolicy") || "ach_only");
   const [contactId, setContactId] = useState(readKey(invoice, "payerContactId") == null ? "" : String(readKey(invoice, "payerContactId")));
   const [dueOn, setDueOn] = useState(textKey(invoice, "dueOn"));
@@ -1943,6 +1949,9 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
     || lines.some((line) => {
     const source = sourceLines.find((candidate) => Number(readKey(candidate, "position")) === line.position);
     if (!source || textKey(source, "description") !== line.description.trim()) return true;
+    const sourceReceiptFileId = source.receipt && typeof source.receipt === "object" && !Array.isArray(source.receipt)
+      ? String(readKey(source.receipt as Entity, "fileId")) : "";
+    if (sourceReceiptFileId !== line.receiptFileId) return true;
     try { return Number(readKey(source, "amountMinor")) !== invoiceDraftAmountMinor(line.amount, currency); }
     catch { return true; }
   });
@@ -1967,6 +1976,7 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
         personalTaskId: null,
         description: "",
         amount: "",
+        receiptFileId: "",
         isNew: true,
       }];
     });
@@ -2004,6 +2014,10 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
             position: line.position,
             description: line.description.trim(),
             amountMinor: invoiceDraftAmountMinor(line.amount, currency),
+          })),
+          receiptUpdates: lines.map((line) => ({
+            position: line.position,
+            fileId: line.receiptFileId ? Number(line.receiptFileId) : null,
           })),
         }),
       });
@@ -2101,6 +2115,7 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
             <div className="invoice-line-heading"><span>Line {line.position}</span><div className="invoice-line-heading-actions"><strong>{line.isNew ? "New manual line" : line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong>{line.isNew && <button type="button" disabled={editingLocked} onClick={() => removeNewLine(line.position)}>Remove</button>}</div></div>
             <label className="invoice-line-description">Description<textarea value={line.description} maxLength={1000} required readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { description: event.target.value })} /></label>
             <label className="invoice-line-amount">Amount ({currency}) <span className="field-hint">Use 0.00 for no charge</span><input type="text" inputMode="decimal" value={line.amount} readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { amount: event.target.value })} placeholder="0.00" /></label>
+            <label className="invoice-line-receipt">Receipt <span className="field-hint">Optional · PDF, JPEG, or PNG</span><select value={line.receiptFileId} disabled={!editable || editingLocked} onChange={(event) => updateLine(index, { receiptFileId: event.target.value })}><option value="">No receipt</option>{receiptFiles.map((file) => <option key={String(readKey(file, "fileId"))} value={String(readKey(file, "fileId"))}>{textKey(file, "title") || textKey(file, "originalFilename") || `File #${String(readKey(file, "fileId"))}`}</option>)}</select></label>
           </article>)}
         </div>
         {editable && <div className="invoice-line-toolbar"><span>{lines.length} of 100 lines</span><button className="button button--quiet" type="button" disabled={editingLocked || lines.length >= 100} onClick={addLine}>Add line</button></div>}
@@ -2125,6 +2140,7 @@ function PaymentsScreen() {
   const { data: invoiceData, error: invoiceError, loading: invoicesLoading, reload: reloadInvoices } = useApi<{ count: number; invoices: Entity[] }>("/api/payment-invoices?limit=100");
   const { data: contactData, error: contactError, loading: contactsLoading } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=active&limit=10000");
   const { data: todoData, error: todoError, loading: todosLoading } = useApi<{ todos: Entity[] }>("/api/todos?scope=all&limit=10000");
+  const { data: fileData } = useApi<{ files: Entity[] }>("/api/files?limit=500");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState("");
   const [creatingInvoice, setCreatingInvoice] = useState(false);
@@ -2210,6 +2226,7 @@ function PaymentsScreen() {
       key={`${String(selectedInvoice.invoiceId)}:${textKey(selectedInvoice, "previewDigest")}`}
       invoice={selectedInvoice}
       contacts={contactData?.contacts ?? []}
+      files={fileData?.files ?? []}
       onClose={() => setSelectedInvoice(null)}
       onChanged={async (updated) => { setSelectedInvoice(updated); await reloadInvoices(); }}
     />}

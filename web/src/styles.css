@@ -503,6 +503,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .invoice-line-editor input, .invoice-line-editor textarea { color: var(--ink); background: var(--paper); }
 .invoice-line-editor input[readonly], .invoice-line-editor textarea[readonly] { border-color: transparent; background: transparent; }
 .invoice-line-amount input { font-variant-numeric: tabular-nums; }
+.invoice-line-receipt { grid-column: 1 / -1; }
+.invoice-line-receipt select:disabled { border-color: transparent; color: var(--ink); background: transparent; opacity: 1; }
 .invoice-send-confirmation { display: grid; gap: 11px; padding: 14px; border: 1px solid #aeb8a3; border-radius: 11px; background: #eef2e8; }
 .invoice-send-confirmation p { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.5; }
 .invoice-send-confirmation > div { display: flex; justify-content: flex-end; gap: 8px; }

@@ -12,6 +12,12 @@ import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { temporaryDatabase, baselineBeforeCatchUp } from "./helpers.mjs";
 
 function catalog(database) {
+  const laterTables = new Set([
+    "catch_up_questions",
+    "todo_correspondence_join",
+    "calendar_events_correspondence_join",
+    "payment_invoice_line_receipts",
+  ]);
   const isInstant = (name) => name.endsWith("_at_utc")
     || ["ask_after", "resolved_at", "routine_occurrence_key"].includes(name);
   const columns = database.prepare(`SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE,
@@ -37,10 +43,10 @@ function catalog(database) {
     }
   }
   return {
-    columns: columns.filter(row => !["catch_up_questions", "todo_correspondence_join", "calendar_events_correspondence_join"].includes(row.TABLE_NAME)
+    columns: columns.filter(row => !laterTables.has(row.TABLE_NAME)
       && !row.COLUMN_NAME.startsWith("asking_") && !isInstant(row.COLUMN_NAME)),
-    indexes: indexes.filter(row => !["catch_up_questions", "todo_correspondence_join", "calendar_events_correspondence_join"].includes(row.TABLE_NAME)),
-    keys: keys.filter(row => !["catch_up_questions", "todo_correspondence_join", "calendar_events_correspondence_join"].includes(row.TABLE_NAME)),
+    indexes: indexes.filter(row => !laterTables.has(row.TABLE_NAME)),
+    keys: keys.filter(row => !laterTables.has(row.TABLE_NAME)),
   };
 }
 
@@ -59,7 +65,7 @@ test("comment migration preserves mechanics and rows, supports replay, and expos
     connectionSettings: temporary.target.connection,
     backupConfirmed: true, writersStopped: true, output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
   assert.deepEqual(catalog(database), before);
   assert.deepEqual(database.prepare("SELECT * FROM files").all(), rows);
   await verifyDatabase(database);
@@ -68,7 +74,7 @@ test("comment migration preserves mechanics and rows, supports replay, and expos
   restoreLegacyJoinTableNames(database);
   restorePre46JournalTableNames(database);
   database.exec("UPDATE database_meta SET schema_version = 34 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
   assert.deepEqual(catalog(database), before);
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());

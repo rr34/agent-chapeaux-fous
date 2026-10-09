@@ -21,7 +21,7 @@ const toolDescriptions = Object.freeze({
   },
   payment_invoice_update: {
     protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Revise one exact editable local invoice draft without changing its referenced to-dos; update its description, payer, due date, payment methods, line snapshots, or appended manual lines.",
+    summary: "Revise one exact editable local invoice draft without changing its referenced to-dos; update its description, payer, due date, payment methods, line snapshots, line receipt bindings, or appended manual lines.",
     actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
   },
   payment_invoice_payment_status_set: {
@@ -41,6 +41,10 @@ const lineSchema = {
     lineSource: { type: "string", enum: ["todo", "manual"] },
     personalTaskId: { type: ["integer", "null"] }, position: { type: "integer" },
     description: { type: "string" }, amountMinor: { type: "integer", minimum: 0 },
+    receipt: { type: ["object", "null"], properties: {
+      fileId: { type: "integer" }, ref: { type: "string" }, displayName: { type: "string" },
+      mimeType: { type: "string" }, sha256: { type: "string" },
+    } },
   },
 };
 
@@ -77,7 +81,10 @@ const nativeContracts = Object.freeze({
     "/contact_id": "payer",
   } },
   payment_invoice_update: {
-    inputRoles: { "/invoice_id": "subject", "/contact_id": "payer" },
+    inputRoles: {
+      "/invoice_id": "subject", "/contact_id": "payer",
+      "/receipt_updates/*/file_id": "invoice_line_receipt",
+    },
   },
   payment_invoice_payment_status_set: { inputRoles: { "/invoice_id": "subject" } },
   payment_invoice_send: { inputRoles: { "/invoice_id": "subject" } },
@@ -157,7 +164,7 @@ export function registerPaymentTools(registry, payments) {
   registry.register({
     name: "payment_invoice_update",
     confirmationHandoff: true,
-    description: "Update one exact local prepared invoice while leaving its referenced to-dos unchanged. Use payment_invoice_list first and pass its current preview_digest. Supply only intended header changes and line updates; unchanged line text and prices are preserved. line_updates addresses existing invoice snapshots by position, and manual_lines appends new independent lines. An amount_minor of zero is a valid no-charge line. This never finalizes, sends, emails, or changes a to-do.",
+    description: "Update one exact local prepared invoice while leaving its referenced to-dos unchanged. Use payment_invoice_list first and pass its current preview_digest. Supply only intended header changes, line updates, and receipt updates; unchanged line text, prices, and receipts are preserved. line_updates addresses existing invoice snapshots by position, manual_lines appends new independent lines, and receipt_updates attaches or removes at most one receipt file per line while allowing one file to support several lines. An amount_minor of zero is a valid no-charge line. Any receipt change rotates the preview digest. This never finalizes, sends, emails, or changes a to-do.",
     outputSchema: preparedInvoiceResultSchema,
     parameters: { type: "object", additionalProperties: false, properties: {
       invoice_id: { type: "integer", minimum: 1 },
@@ -181,10 +188,17 @@ export function registerPaymentTools(registry, payments) {
           amount_minor: { type: "integer", minimum: 0 },
         }, required: ["description"],
       } },
+      receipt_updates: { type: "array", minItems: 1, maxItems: 100, items: {
+        type: "object", additionalProperties: false, properties: {
+          position: { type: "integer", minimum: 1 },
+          file_id: { type: ["integer", "null"], minimum: 1 },
+          display_name: { type: "string", minLength: 1, maxLength: 255 },
+        }, required: ["position", "file_id"],
+      } },
     }, required: ["invoice_id", "preview_digest"], anyOf: [
       { required: ["description"] }, { required: ["contact_id"] }, { required: ["due_on"] },
       { required: ["payment_method_policy"] }, { required: ["line_updates"] },
-      { required: ["manual_lines"] },
+      { required: ["manual_lines"] }, { required: ["receipt_updates"] },
     ] },
     async execute(input, context) {
       return payments.patchPreparedInvoice(input.invoice_id, input, {

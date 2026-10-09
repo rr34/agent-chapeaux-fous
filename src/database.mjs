@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 51;
+export const requiredDatabaseSchemaVersion = 52;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -88,6 +88,10 @@ export const requiredDatabaseShape = {
   payment_invoice_lines: [
     "payment_invoice_line_id", "payment_invoice_id", "line_source", "personal_task_id", "line_position",
     "description_snapshot", "amount_minor_snapshot", "created_at_utc",
+  ],
+  payment_invoice_line_receipts: [
+    "payment_invoice_line_id", "file_id", "display_name_snapshot", "mime_type_snapshot",
+    "sha256_snapshot", "created_at_utc",
   ],
   journal1_groups: ["journal_group_id", "name", "archived_at_utc"],
   journal2_trackers: ["tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "asking_starts_at_utc", "asking_recurrence_rule", "asking_time_zone"],

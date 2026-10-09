@@ -199,6 +199,37 @@ test("receipt images are stored with integrity metadata and read only while proc
   assert.deepEqual(Buffer.from(attachment.dataBase64, "base64"), png);
 });
 
+test("receipt PDFs are stored as verified binary documents without decoding them as text", async (context) => {
+  const mediaRoot = temporaryMedia(context);
+  let registration;
+  const ledger = {
+    registerFile(input) {
+      registration = input;
+      return { fileId: 46, duplicate: false, storagePath: input.storagePath };
+    },
+  };
+  const pdf = Buffer.from("%PDF-1.7\nreceipt bytes\n%%EOF\n");
+  const uploaded = await receiveRequestAttachment(uploadRequest(pdf, "application/pdf"), {
+    filename: "receipt.pdf", mediaRoot, maximumBytes: 1024, ledger,
+    now: new Date("2026-08-18T12:00:00.000Z"), uuid: () => "receipt-pdf-id",
+  });
+  assert.equal(uploaded.mediaKind, "document");
+  assert.equal(uploaded.mimeType, "application/pdf");
+  assert.equal(registration.storagePath, "media/2026/08/receipt-pdf-id.pdf");
+
+  const attachment = await readRequestAttachment({
+    mediaRoot, maximumBytes: 1024, maximumTextBytes: 16,
+    file: {
+      file_id: 46, storage_path: registration.storagePath, original_filename: "receipt.pdf",
+      media_kind: "document", mime_type: "application/pdf", sha256: registration.sha256,
+      byte_size: registration.byteSize,
+    },
+  });
+  assert.equal(attachment.filename, "receipt.pdf");
+  assert.equal(attachment.text, "");
+  assert.equal(attachment.sha256, registration.sha256);
+});
+
 test("request images reject mismatched content but use a generous configurable ceiling", async (context) => {
   const mediaRoot = temporaryMedia(context);
   const ledger = { registerFile() { throw new Error("must not register"); } };

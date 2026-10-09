@@ -31,8 +31,12 @@ const allowedImageExtensions = new Map([
   [".gif", new Set(["image/gif", "application/octet-stream"])],
 ]);
 
+const allowedBinaryDocumentExtensions = new Map([
+  [".pdf", new Set(["application/pdf", "application/octet-stream"])],
+]);
+
 const supportedAttachmentMessage = "Only text CSV, TSV, JSON, JSON Lines, TXT, and vCard attachments are supported";
-const supportedRequestAttachmentMessage = "Only JPEG, PNG, WebP, GIF, CSV, TSV, JSON, JSON Lines, TXT, and vCard attachments are supported";
+const supportedRequestAttachmentMessage = "Only PDF, JPEG, PNG, WebP, GIF, CSV, TSV, JSON, JSON Lines, TXT, and vCard attachments are supported";
 const allowedTextControlBytes = new Set([0x09, 0x0a, 0x0c, 0x0d]);
 
 function inputError(message, statusCode = 400) {
@@ -126,6 +130,10 @@ function imageSignatureMatches(bytes, mimeType) {
       && bytes.subarray(8, 12).toString("ascii") === "WEBP";
   }
   return false;
+}
+
+function pdfSignatureMatches(bytes) {
+  return bytes.length >= 5 && bytes.subarray(0, 5).toString("ascii") === "%PDF-";
 }
 
 function canonicalImageMimeType(extension) {
@@ -264,6 +272,26 @@ export async function receiveRequestAttachment(request, options = {}) {
     });
   }
   const suppliedMimeType = normalizedMimeType(request.headers?.["content-type"]);
+  const allowedDocumentMimeTypes = allowedBinaryDocumentExtensions.get(extension);
+  if (allowedDocumentMimeTypes) {
+    if (!allowedDocumentMimeTypes.has(suppliedMimeType)) {
+      throw inputError(supportedRequestAttachmentMessage, 415);
+    }
+    const bytes = await requestBytes(request, options.maximumBytes);
+    if (!pdfSignatureMatches(bytes)) throw inputError("Attachment bytes do not match application/pdf", 415);
+    return storeAttachment(bytes, {
+      extension,
+      originalFilename,
+      title: originalFilename,
+      description: "PDF document.",
+      mediaKind: "document",
+      mimeType: "application/pdf",
+      mediaRoot: options.mediaRoot,
+      ledger: options.ledger,
+      now: options.now ?? new Date(),
+      uuid: options.uuid ?? randomUUID,
+    });
+  }
   const allowedMimeTypes = allowedImageExtensions.get(extension);
   if (!allowedMimeTypes || !allowedMimeTypes.has(suppliedMimeType)) {
     throw inputError(supportedRequestAttachmentMessage, 415);
@@ -319,6 +347,23 @@ export async function readTextAttachment({ mediaRoot, file, maximumBytes }) {
 
 export async function readRequestAttachment({ mediaRoot, file, maximumBytes, maximumTextBytes = maximumBytes }) {
   if (file?.media_kind === "document") {
+    const originalFilename = normalizedFilename(file.original_filename);
+    const extension = path.extname(originalFilename).toLowerCase();
+    const mimeType = normalizedMimeType(file.mime_type);
+    if (extension === ".pdf" && mimeType === "application/pdf") {
+      const bytes = await fsp.readFile(safeMediaPath(mediaRoot, file.storage_path));
+      if (bytes.length > maximumBytes) throw new Error("Stored request PDF exceeds the configured operational safety ceiling");
+      if (file.byte_size != null && Number(file.byte_size) !== bytes.length) {
+        throw new Error("Stored request PDF size does not match its file record");
+      }
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      if (file.sha256 && file.sha256 !== sha256) throw new Error("Stored request PDF checksum does not match its file record");
+      if (!pdfSignatureMatches(bytes)) throw new Error("Stored request PDF bytes do not match application/pdf");
+      return {
+        fileId: Number(file.file_id), filename: originalFilename, mediaKind: "document",
+        mimeType, byteSize: bytes.length, sha256, text: "", encoding: null,
+      };
+    }
     return readTextAttachment({ mediaRoot, file, maximumBytes: maximumTextBytes });
   }
   if (!file || file.media_kind !== "image") throw new Error("Request attachment is not a supported document or image");

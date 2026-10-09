@@ -97,12 +97,13 @@ and a grouped personal journal with native entry creation. Contacts support
 people, organizations, and services with tags, birthday, notes, and stacked
 contact methods. Possible duplicates are reviewed and merged explicitly; source records
 remain as inactive history so existing references are preserved. Stored birthdays
-continue to appear on the calendar. Agent requests may include one JPEG, PNG,
+continue to appear on the calendar. Agent requests may include one PDF, JPEG, PNG,
 WebP, GIF, CSV, TSV, JSON, JSON Lines, vCard/VCF, or plain-text attachment. Text is decoded as UTF-8,
 UTF-16, or Windows-1252. Image originals remain in the existing media store and
 are loaded only while the queued request is processed. OpenAI receives images at
 the configured detail; `original` is the default so small receipt text remains
-visible. Small text files appear in full in visible model context;
+visible. PDF originals are verified and retained as durable files without being
+decoded as text; invoice receipts use their exact file bindings. Small text files appear in full in visible model context;
 large files contribute a bounded preview while native file tools can process the verified
 full attachment. A task's Schedule
 button opens the calendar in day-pick mode; selecting a day writes the task's

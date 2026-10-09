@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 51.
+-- Target: MariaDB 10.11, schema version 52.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -571,6 +571,20 @@ CREATE TABLE payment_invoice_lines (
     CONSTRAINT payment_invoice_lines_position_check CHECK (line_position > 0),
     CONSTRAINT payment_invoice_lines_amount CHECK (amount_minor_snapshot >= 0)
 ) ENGINE=InnoDB COMMENT='Immutable task-backed or manual line snapshots composing an invoice.';
+
+CREATE TABLE payment_invoice_line_receipts (
+    payment_invoice_line_id BIGINT UNSIGNED NOT NULL COMMENT 'Invoice line supported by this receipt; the primary key permits at most one receipt per line.',
+    file_id BIGINT UNSIGNED NOT NULL COMMENT 'Durably stored receipt file. The same file may support multiple lines.',
+    display_name_snapshot VARCHAR(255) NOT NULL COMMENT 'Customer-facing receipt label frozen with the prepared invoice preview.',
+    mime_type_snapshot VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Verified supported receipt media type frozen with the prepared invoice preview.',
+    sha256_snapshot CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Lowercase SHA-256 of the exact receipt bytes bound to the prepared invoice preview.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the receipt was attached to this invoice line.',
+    PRIMARY KEY (payment_invoice_line_id),
+    KEY payment_invoice_line_receipts_file (file_id, payment_invoice_line_id),
+    CONSTRAINT payment_invoice_line_receipts_line FOREIGN KEY (payment_invoice_line_id) REFERENCES payment_invoice_lines(payment_invoice_line_id) ON DELETE CASCADE,
+    CONSTRAINT payment_invoice_line_receipts_file FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE RESTRICT,
+    CONSTRAINT payment_invoice_line_receipts_digest CHECK (sha256_snapshot REGEXP '^[0-9a-f]{64}$')
+) ENGINE=InnoDB COMMENT='Associates at most one receipt file with each invoice line while allowing one receipt to support several lines. The file owns the durable bytes; this table owns the invoice-specific label, type, integrity snapshot, and relationship. Receipt associations freeze when the invoice leaves editable local preparation.';
 
 CREATE TABLE calendar_events_todo_join (
     -- sourceOfTruth: true
@@ -1322,4 +1336,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 51, 'Chapeaux Fous MariaDB database');
+VALUES (1, 52, 'Chapeaux Fous MariaDB database');

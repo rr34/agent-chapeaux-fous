@@ -319,6 +319,31 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 52) {
+    const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'payment_invoice_line_receipts'`, [databaseName]);
+    if (tables[0]?.TABLE_TYPE !== "BASE TABLE") {
+      throw new Error("Migration 0052 is missing payment_invoice_line_receipts");
+    }
+    const [columns] = await connection.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'payment_invoice_line_receipts'`, [databaseName]);
+    const names = new Set(columns.map((row) => row.COLUMN_NAME));
+    for (const name of ["payment_invoice_line_id", "file_id", "display_name_snapshot", "mime_type_snapshot", "sha256_snapshot"]) {
+      if (!names.has(name)) throw new Error(`Migration 0052 is missing payment_invoice_line_receipts.${name}`);
+    }
+    const [keys] = await connection.query(`SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ?
+        AND TABLE_NAME = 'payment_invoice_line_receipts'`, [databaseName]);
+    for (const [column, parent, target] of [
+      ["payment_invoice_line_id", "payment_invoice_lines", "payment_invoice_line_id"],
+      ["file_id", "files", "file_id"],
+    ]) {
+      if (!keys.some((row) => row.COLUMN_NAME === column
+        && row.REFERENCED_TABLE_NAME === parent && row.REFERENCED_COLUMN_NAME === target)) {
+        throw new Error(`Migration 0052 is missing payment_invoice_line_receipts.${column} to ${parent} relationship`);
+      }
+    }
+  }
   if (migration.version === 51) {
     const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT
       FROM information_schema.COLUMNS

@@ -20,7 +20,7 @@ test("to-do content migration adds a replayable cascading many-to-many relations
     output: { write() {} },
   };
 
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [49, 50, 51]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [49, 50, 51, 52]);
   await verifyDatabase(database);
   database.exec(`INSERT INTO todo_personal (personal_task_id, todo_group_id, text)
     VALUES (501, 1, 'Review content')`);
@@ -34,7 +34,7 @@ test("to-do content migration adds a replayable cascading many-to-many relations
   );
 
   database.exec("UPDATE database_meta SET schema_version = 48 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [49, 50, 51]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [49, 50, 51, 52]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM todo_content_join").get().count, 1);
 
   database.exec("DELETE FROM content_items WHERE content_id = 601");

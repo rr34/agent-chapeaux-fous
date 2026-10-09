@@ -68,15 +68,15 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 51", () => {
+test("the authoritative MariaDB baseline is complete at schema version 52", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 36);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 37);
   assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
   assert.equal(source.match(/\bENUM\(/gu)?.length, 33);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 57);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 77);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 58);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 78);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
@@ -133,17 +133,33 @@ test("the authoritative MariaDB baseline is complete at schema version 51", () =
   assert.match(invoiceLinesTable, /line_source = 'todo' AND personal_task_id IS NOT NULL[\s\S]*line_source = 'manual' AND personal_task_id IS NULL/u);
   assert.match(invoiceLinesTable, /amount_minor_snapshot\s+BIGINT UNSIGNED NOT NULL DEFAULT 0/u);
   assert.match(invoiceLinesTable, /payment_invoice_lines_amount CHECK \(amount_minor_snapshot >= 0\)/u);
+  const invoiceLineReceiptsTable = statements.find((statement) => statement.startsWith("CREATE TABLE payment_invoice_line_receipts "));
+  assert.ok(invoiceLineReceiptsTable);
+  assert.match(invoiceLineReceiptsTable, /PRIMARY KEY \(payment_invoice_line_id\)/u);
+  assert.match(invoiceLineReceiptsTable, /KEY payment_invoice_line_receipts_file \(file_id, payment_invoice_line_id\)/u);
+  assert.match(invoiceLineReceiptsTable, /REFERENCES files\(file_id\) ON DELETE RESTRICT/u);
   for (const retired of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
     assert.doesNotMatch(todoTable, new RegExp(`\\b${retired}\\b`, "u"));
   }
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 51, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 52, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
   );
+});
+
+test("the invoice-line receipt migration adds only the constrained receipt relationship", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 52);
+  assert.equal(migration.label, "0052:attach-receipts-to-invoice-lines");
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.match(migration.sql, /PRIMARY KEY \(payment_invoice_line_id\)/u);
+  assert.match(migration.sql, /REFERENCES payment_invoice_lines\(payment_invoice_line_id\) ON DELETE CASCADE/u);
+  assert.match(migration.sql, /REFERENCES files\(file_id\) ON DELETE RESTRICT/u);
+  assert.doesNotMatch(migration.sql, /^\s*(?:UPDATE|DELETE|TRUNCATE)\b/gimu);
 });
 
 test("the invoice-draft migration preserves lines while relaxing only draft fields", () => {

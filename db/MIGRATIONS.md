@@ -11,6 +11,19 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 52: Attach receipts to invoice lines
+
+Adds a payment-owned association from each invoice line to at most one durable
+receipt file while allowing the same receipt to support several lines. The
+relationship freezes the customer-facing label, MIME type, and SHA-256 used by
+the prepared preview. Generated local invoice PDFs append each distinct receipt
+once and identify the supported line positions.
+
+The matching application requires schema version 52. Apply with writers stopped
+because payment readers, writers, preview digests, and PDF generation must switch
+together. The new empty table is additive and safe to replay after a partial DDL
+commit.
+
 ## Version 51: Allow incomplete invoice drafts
 
 Allows prepared local invoice drafts to omit the payer and due date and to keep

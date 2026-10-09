@@ -93,6 +93,7 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     relationships: [
       relationship("payer", "contacts.contact", "Contact billed by this invoice."),
       relationship("lines", "todos.personal_task", "Task-backed invoice lines; manual lines have no to-do relationship."),
+      relationship("receipts", "files.file", "Receipt files attached to individual invoice lines."),
     ],
     idFields: ["payment_invoice_id", "invoiceId"], displayFields: ["display"],
     refFields: ["ref"], refPrefix: "agent-slayer://payment-invoices/",
@@ -182,7 +183,7 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     reference: field("ref", "Stable Agent Slayer file reference."),
     display: field("title", "Human-facing file title."),
     qualifiers: [field("originalFilename", "Original filename when known."), field("mimeType", "Declared media type when known.")],
-    relationships: [],
+    relationships: [relationship("invoiceLines", "payments.invoice", "Invoices whose individual lines use this file as a receipt.")],
     idFields: ["file_id", "fileId"], displayFields: ["title", "original_filename", "originalFilename", "name"],
     refFields: ["ref"], refPrefix: "agent-slayer://files/",
     inputFields: ["file_id"], searchFields: ["title", "original_filename", "description"],

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { invoicePdfHtml, PaymentInputError, PaymentService } from "../src/payments.mjs";
+import { PDFDocument } from "pdf-lib";
+import { composeInvoicePdf, invoicePdfHtml, PaymentInputError, PaymentService } from "../src/payments.mjs";
 import { registerPaymentTools } from "../src/tools/payment-tools.mjs";
 import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
 
@@ -139,6 +140,22 @@ test("invoice update is a bound snapshot edit that cannot send or rewrite to-dos
     input,
     activity: { requestId: "request-1", actorType: "tool", actorName: "payment_invoice_update" },
   }]);
+});
+
+test("invoice update accepts one exact receipt per line and allows one file across lines", () => {
+  const registry = new ToolRegistry();
+  registerPaymentTools(registry, {});
+  const definition = registry.get("payment_invoice_update");
+  const input = {
+    invoice_id: 3,
+    preview_digest: `sha256:${"a".repeat(64)}`,
+    receipt_updates: [
+      { position: 1, file_id: 42 },
+      { position: 2, file_id: 42, display_name: "Hardware receipt" },
+    ],
+  };
+  assert.equal(schemaProblem(input, definition.parameters), null);
+  assert.match(definition.description, /at most one receipt file per line while allowing one file to support several lines/u);
 });
 
 test("the agent can set only paid or unpaid on an exact native invoice", async () => {
@@ -281,6 +298,7 @@ test("partial invoice patches preserve unspecified snapshot text and prices", ()
         { position: 2, description: "Replace doorbell — 5423 Garden Ridge", amountMinor: 2500 },
         { position: 3, description: "Materials", amountMinor: 0 },
       ],
+      receiptUpdates: [],
     },
     activity,
   });
@@ -469,17 +487,18 @@ test("a prepared local invoice can atomically revise existing lines, append a ma
     stripe_invoice_id: null,
   };
   const existingLines = [{
-    line_source: "todo", personal_task_id: 11, line_position: 1,
+    payment_invoice_line_id: 911, line_source: "todo", personal_task_id: 11, line_position: 1,
     description_snapshot: "First task", amount_minor_snapshot: 2500,
   }, {
-    line_source: "manual", personal_task_id: null, line_position: 2,
+    payment_invoice_line_id: 912, line_source: "manual", personal_task_id: null, line_position: 2,
     description_snapshot: "Materials", amount_minor_snapshot: 2500,
   }];
   const database = {
     exec(sql) { writes.transactions.push(sql); },
     prepare(sql) {
       if (/SELECT \* FROM payment_invoices/u.test(sql)) return { get: () => row };
-      if (/SELECT line_source, personal_task_id/u.test(sql)) return { all: () => existingLines };
+      if (/SELECT payment_invoice_line_id, line_source/u.test(sql)) return { all: () => existingLines };
+      if (/FROM payment_invoice_line_receipts/u.test(sql)) return { all: () => [] };
       if (/UPDATE payment_invoice_lines/u.test(sql)) return {
         run(...values) { writes.lines.push(values); return { changes: 1 }; },
       };
@@ -543,6 +562,71 @@ test("a prepared local invoice can atomically revise existing lines, append a ma
   assert.equal(activities[0].type, "payment.invoice.preview_updated");
 });
 
+test("a prepared invoice can bind one verified receipt file to several lines atomically", () => {
+  const oldDigest = `sha256:${"1".repeat(64)}`;
+  const writes = { transactions: [], receipts: [], invoice: null };
+  const row = {
+    payment_invoice_id: 99, payer_contact_id: 7, status: "prepared", currency: "USD",
+    amount_minor: 3000, due_on: "2099-01-02", payment_method_policy: "ach_only",
+    description: null, payer_name_snapshot: "Ruby", payer_email_snapshot: "ruby@example.test",
+    preview_digest: oldDigest, stripe_invoice_id: null,
+  };
+  const existingLines = [
+    { payment_invoice_line_id: 1001, line_source: "manual", personal_task_id: null,
+      line_position: 1, description_snapshot: "Fasteners", amount_minor_snapshot: 1000 },
+    { payment_invoice_line_id: 1002, line_source: "manual", personal_task_id: null,
+      line_position: 2, description_snapshot: "Brackets", amount_minor_snapshot: 2000 },
+  ];
+  const database = {
+    exec(sql) { writes.transactions.push(sql); },
+    prepare(sql) {
+      if (/SELECT \* FROM payment_invoices/u.test(sql)) return { get: () => row };
+      if (/SELECT payment_invoice_line_id, line_source/u.test(sql)) return { all: () => existingLines };
+      if (/FROM payment_invoice_line_receipts receipt/u.test(sql)) return { all: () => [] };
+      if (/FROM files WHERE file_id/u.test(sql)) return { get: () => ({
+        file_id: 42, title: "Hardware receipt", original_filename: "receipt.pdf",
+        mime_type: "application/pdf", sha256: "a".repeat(64), byte_size: 2048,
+      }) };
+      if (/UPDATE payment_invoice_lines/u.test(sql)) return { run: () => ({ changes: 1 }) };
+      if (/INSERT INTO payment_invoice_lines/u.test(sql)) return { run: () => ({ lastInsertRowid: 0 }) };
+      if (/DELETE FROM payment_invoice_line_receipts/u.test(sql)) return { run: () => ({ changes: 0 }) };
+      if (/INSERT INTO payment_invoice_line_receipts/u.test(sql)) return {
+        run(...values) { writes.receipts.push(values); return { changes: 1 }; },
+      };
+      if (/UPDATE payment_invoices/u.test(sql)) return {
+        run(...values) { writes.invoice = values; return { changes: 1 }; },
+      };
+      throw new Error(`Unexpected SQL in receipt update: ${sql}`);
+    },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database }, config: {},
+  });
+  payments.getInvoice = () => ({
+    invoiceId: 99, display: "Ruby — $30.00", status: "prepared", payerContactId: 7,
+    payerName: "Ruby", payerEmail: "ruby@example.test", currency: "USD", amountMinor: 3000,
+    dueOn: "2099-01-02", paymentMethodPolicy: "ach_only", previewDigest: writes.invoice[7],
+    preparationExpiresAtUtc: writes.invoice[8], lines: [],
+  });
+
+  const result = payments.updatePreparedInvoice(99, {
+    previewDigest: oldDigest,
+    paymentMethodPolicy: "ach_only",
+    lines: [
+      { position: 1, description: "Fasteners", amountMinor: 1000 },
+      { position: 2, description: "Brackets", amountMinor: 2000 },
+    ],
+    receiptUpdates: [{ position: 1, fileId: 42 }, { position: 2, fileId: 42 }],
+  });
+
+  assert.deepEqual(writes.transactions, ["START TRANSACTION", "COMMIT"]);
+  assert.deepEqual(writes.receipts, [
+    [1001, 42, "Hardware receipt", "application/pdf", "a".repeat(64)],
+    [1002, 42, "Hardware receipt", "application/pdf", "a".repeat(64)],
+  ]);
+  assert.notEqual(result.invoice.previewDigest, oldDigest);
+});
+
 test("saving an unchanged prepared invoice preserves its digest and confirmation", () => {
   const previewDigest = `sha256:${"b".repeat(64)}`;
   const transactions = [];
@@ -560,10 +644,11 @@ test("saving an unchanged prepared invoice preserves its digest and confirmation
         status: "prepared", stripe_invoice_id: null, preview_digest: previewDigest,
         payment_method_policy: "ach_only",
       }) };
-      if (/SELECT line_source, personal_task_id/u.test(sql)) return { all: () => [{
-        line_source: "manual", personal_task_id: null, line_position: 1,
+      if (/SELECT payment_invoice_line_id, line_source/u.test(sql)) return { all: () => [{
+        payment_invoice_line_id: 921, line_source: "manual", personal_task_id: null, line_position: 1,
         description_snapshot: "Help moving", amount_minor_snapshot: 2500,
       }] };
+      if (/FROM payment_invoice_line_receipts/u.test(sql)) return { all: () => [] };
       throw new Error(`An unchanged invoice must not be written: ${sql}`);
     },
   };
@@ -626,9 +711,9 @@ test("new invoice lines must be appended without removing existing lines", () =>
   };
   const existingLines = [
     { line_source: "manual", personal_task_id: null, line_position: 1,
-      description_snapshot: "First", amount_minor_snapshot: 1000 },
+      payment_invoice_line_id: 941, description_snapshot: "First", amount_minor_snapshot: 1000 },
     { line_source: "manual", personal_task_id: null, line_position: 2,
-      description_snapshot: "Second", amount_minor_snapshot: 2000 },
+      payment_invoice_line_id: 942, description_snapshot: "Second", amount_minor_snapshot: 2000 },
   ];
   for (const [lines, code] of [
     [[{ position: 1, description: "First", amountMinor: 1000 }], "INVOICE_LINE_SET_CHANGED"],
@@ -641,7 +726,7 @@ test("new invoice lines must be appended without removing existing lines", () =>
       exec(sql) { transactions.push(sql); },
       prepare(sql) {
         if (/SELECT \* FROM payment_invoices/u.test(sql)) return { get: () => row };
-        if (/SELECT line_source, personal_task_id/u.test(sql)) return { all: () => existingLines };
+        if (/SELECT payment_invoice_line_id, line_source/u.test(sql)) return { all: () => existingLines };
         throw new Error(`Invalid line set must not be written: ${sql}`);
       },
     };
@@ -801,6 +886,63 @@ test("a local invoice PDF renders the exact current snapshot without Stripe", as
   assert.equal(result.filename, "invoice-96.pdf");
   assert.deepEqual(result.bytes, Buffer.from("pdf bytes"));
   assert.deepEqual(calls, [{ invoice, browserExecutable: "/configured/chromium" }]);
+});
+
+test("local invoice PDF reads a shared receipt once and preserves all supported line positions", async () => {
+  const receipt = {
+    fileId: 42, ref: "agent-slayer://files/42", displayName: "Hardware receipt",
+    mimeType: "application/pdf", sha256: "a".repeat(64),
+  };
+  const invoice = {
+    invoiceId: 98, payerName: "Ruby", payerEmail: "ruby@example.test", dueOn: "2099-01-02",
+    currency: "USD", amountMinor: 3000, description: null,
+    lines: [
+      { position: 1, description: "Fasteners", amountMinor: 1000, receipt },
+      { position: 2, description: "Brackets", amountMinor: 2000, receipt },
+    ],
+  };
+  const opens = [];
+  let composed;
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => ({}) }, config: {},
+    renderInvoicePdf: async () => Buffer.from("invoice"),
+    artifactSource: { async open(fileId) {
+      opens.push(fileId);
+      return {
+        descriptor: { fileId, mimeType: receipt.mimeType, sha256: receipt.sha256, byteSize: 7 },
+        async read() { return Buffer.from("receipt"); }, async close() {},
+      };
+    } },
+    composePdf: async (invoiceBytes, receipts) => {
+      composed = { invoiceBytes, receipts };
+      return Buffer.from("combined");
+    },
+  });
+  payments.getInvoice = () => invoice;
+
+  const result = await payments.localInvoicePdf(98);
+
+  assert.deepEqual(opens, [42]);
+  assert.deepEqual(result.bytes, Buffer.from("combined"));
+  assert.deepEqual(composed.receipts[0].linePositions, [1, 2]);
+  assert.deepEqual(composed.receipts[0].bytes, Buffer.from("receipt"));
+});
+
+test("PDF composition appends an index and every page of each distinct PDF receipt", async () => {
+  const invoice = await PDFDocument.create();
+  invoice.addPage();
+  const receipt = await PDFDocument.create();
+  receipt.addPage();
+  receipt.addPage();
+  const result = await composeInvoicePdf(
+    Buffer.from(await invoice.save()),
+    [{
+      fileId: 42, displayName: "Hardware receipt", mimeType: "application/pdf",
+      sha256: "a".repeat(64), linePositions: [1, 2], bytes: Buffer.from(await receipt.save()),
+    }],
+  );
+  const combined = await PDFDocument.load(result);
+  assert.equal(combined.getPageCount(), 4);
 });
 
 test("invoice PDF line descriptions preserve newlines and wrap long text", () => {

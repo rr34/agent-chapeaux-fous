@@ -1,9 +1,15 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import Stripe from "stripe";
 import { chromium } from "playwright-core";
+import { createFileArtifactSource } from "./artifact-source.mjs";
 
 const policies = new Set(["ach_only", "card_only", "card_and_ach"]);
 const activeInvoiceStatuses = ["prepared", "sending", "open", "processing", "paid", "failed"];
+const supportedReceiptMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const maximumReceiptFileBytes = 20 * 1024 * 1024;
+const maximumReceiptBundleBytes = 50 * 1024 * 1024;
+const maximumReceiptPages = 500;
 
 export class PaymentInputError extends Error {
   constructor(message, statusCode = 400, code = "INVALID_PAYMENT_REQUEST") {
@@ -82,6 +88,115 @@ function canonical(value) {
 
 function digest(value) {
   return `sha256:${createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex")}`;
+}
+
+function receiptPreview(receipts) {
+  return [...receipts]
+    .sort((left, right) => left.linePosition - right.linePosition)
+    .map(({ linePosition, fileId, displayName, mimeType, sha256 }) => ({
+      linePosition, fileId, displayName, mimeType, sha256,
+    }));
+}
+
+function previewShape({ contactId, payerName, payerEmail, dueOn, policy, description,
+  currency, amountMinor, lines, receipts = [] }) {
+  return {
+    contactId, payerName, payerEmail, dueOn, policy, description, currency, amountMinor,
+    lines: lines.map(({ receipt: _receipt, ...line }) => line),
+    receipts: receiptPreview(receipts),
+  };
+}
+
+function distinctInvoiceReceipts(invoice) {
+  const byFile = new Map();
+  for (const line of invoice.lines ?? []) {
+    if (!line.receipt) continue;
+    const existing = byFile.get(line.receipt.fileId);
+    if (existing) existing.linePositions.push(line.position);
+    else byFile.set(line.receipt.fileId, {
+      ...line.receipt,
+      linePositions: [line.position],
+    });
+  }
+  return [...byFile.values()].sort((left, right) => left.linePositions[0] - right.linePositions[0]);
+}
+
+function fitWithin(width, height, maximumWidth, maximumHeight) {
+  const scale = Math.min(maximumWidth / width, maximumHeight / height, 1);
+  return { width: width * scale, height: height * scale };
+}
+
+export async function composeInvoicePdf(invoicePdfBytes, receipts) {
+  const output = await PDFDocument.create();
+  const invoiceDocument = await PDFDocument.load(invoicePdfBytes);
+  const invoicePages = await output.copyPages(invoiceDocument, invoiceDocument.getPageIndices());
+  for (const page of invoicePages) output.addPage(page);
+  if (!receipts.length) return Buffer.from(await output.save());
+
+  const font = await output.embedFont(StandardFonts.Helvetica);
+  const bold = await output.embedFont(StandardFonts.HelveticaBold);
+  let indexPage = output.addPage([612, 792]);
+  let y = 744;
+  indexPage.drawText("Supporting receipts", { x: 54, y, size: 20, font: bold, color: rgb(0.13, 0.15, 0.12) });
+  y -= 32;
+  for (const [index, receipt] of receipts.entries()) {
+    if (y < 72) {
+      indexPage = output.addPage([612, 792]);
+      y = 744;
+    }
+    const lines = receipt.linePositions.join(", ");
+    indexPage.drawText(`${index + 1}. ${receipt.displayName}`, {
+      x: 54, y, size: 11, font: bold, maxWidth: 504, color: rgb(0.13, 0.15, 0.12),
+    });
+    y -= 16;
+    indexPage.drawText(`Supports invoice line${receipt.linePositions.length === 1 ? "" : "s"} ${lines}`, {
+      x: 68, y, size: 9, font, color: rgb(0.38, 0.41, 0.36),
+    });
+    y -= 24;
+  }
+
+  let receiptPageCount = 0;
+  for (const receipt of receipts) {
+    if (receipt.mimeType === "application/pdf") {
+      let source;
+      try { source = await PDFDocument.load(receipt.bytes); }
+      catch {
+        throw new PaymentInputError(`Receipt ${receipt.displayName} is not a readable, unencrypted PDF.`, 409, "RECEIPT_PDF_INVALID");
+      }
+      receiptPageCount += source.getPageCount();
+      if (receiptPageCount > maximumReceiptPages) {
+        throw new PaymentInputError(`Receipt pages exceed the ${maximumReceiptPages}-page safety limit.`, 413, "RECEIPT_PAGE_LIMIT");
+      }
+      const pages = await output.copyPages(source, source.getPageIndices());
+      for (const page of pages) output.addPage(page);
+      continue;
+    }
+    receiptPageCount += 1;
+    if (receiptPageCount > maximumReceiptPages) {
+      throw new PaymentInputError(`Receipt pages exceed the ${maximumReceiptPages}-page safety limit.`, 413, "RECEIPT_PAGE_LIMIT");
+    }
+    let image;
+    try {
+      image = receipt.mimeType === "image/jpeg"
+        ? await output.embedJpg(receipt.bytes)
+        : await output.embedPng(receipt.bytes);
+    } catch {
+      throw new PaymentInputError(`Receipt ${receipt.displayName} is not a readable ${receipt.mimeType} image.`, 409, "RECEIPT_IMAGE_INVALID");
+    }
+    const page = output.addPage([612, 792]);
+    const fitted = fitWithin(image.width, image.height, 504, 684);
+    page.drawText(receipt.displayName, { x: 54, y: 750, size: 11, font: bold });
+    page.drawText(`Supports line${receipt.linePositions.length === 1 ? "" : "s"} ${receipt.linePositions.join(", ")}`, {
+      x: 54, y: 734, size: 9, font, color: rgb(0.38, 0.41, 0.36),
+    });
+    page.drawImage(image, {
+      x: (612 - fitted.width) / 2,
+      y: 36 + (684 - fitted.height) / 2,
+      width: fitted.width,
+      height: fitted.height,
+    });
+  }
+  return Buffer.from(await output.save());
 }
 
 function formattedMoney(amountMinor, currency) {
@@ -207,12 +322,16 @@ export class PaymentService {
     ledger = null,
     stripeFactory = (key) => new Stripe(key),
     renderInvoicePdf = defaultRenderInvoicePdf,
+    composePdf = composeInvoicePdf,
+    artifactSource = ledger && config?.mediaRoot ? createFileArtifactSource({ ledger, mediaRoot: config.mediaRoot }) : null,
   }) {
     this.store = store;
     this.config = config;
     this.ledger = ledger;
     this.stripeFactory = stripeFactory;
     this.renderInvoicePdf = renderInvoicePdf;
+    this.composePdf = composePdf;
+    this.artifactSource = artifactSource;
   }
 
   recordActivity({ type, status = "complete", actorType = "service", actorName = "payments",
@@ -348,8 +467,13 @@ export class PaymentService {
     const id = positiveInteger(invoiceId, "invoice_id");
     const row = this.database.prepare("SELECT * FROM payment_invoices WHERE payment_invoice_id = ?").get(id);
     if (!row) return null;
-    const lines = this.database.prepare(`SELECT line_source, personal_task_id, line_position, description_snapshot, amount_minor_snapshot
-      FROM payment_invoice_lines WHERE payment_invoice_id = ? ORDER BY line_position`).all(id);
+    const lines = this.database.prepare(`SELECT line.payment_invoice_line_id, line.line_source, line.personal_task_id,
+        line.line_position, line.description_snapshot, line.amount_minor_snapshot,
+        receipt.file_id AS receipt_file_id, receipt.display_name_snapshot AS receipt_display_name,
+        receipt.mime_type_snapshot AS receipt_mime_type, receipt.sha256_snapshot AS receipt_sha256
+      FROM payment_invoice_lines line
+      LEFT JOIN payment_invoice_line_receipts receipt USING (payment_invoice_line_id)
+      WHERE line.payment_invoice_id = ? ORDER BY line.line_position`).all(id);
     return {
       invoiceId: Number(row.payment_invoice_id), ref: `agent-slayer://payment-invoices/${Number(row.payment_invoice_id)}`,
       display: `${row.payer_name_snapshot || "Payer not set"} — ${formattedMoney(Number(row.amount_minor), row.currency)}`,
@@ -364,11 +488,19 @@ export class PaymentService {
       hostedInvoiceUrl: row.hosted_invoice_url ?? null, amountPaidMinor: Number(row.amount_paid_minor),
       createdAtUtc: row.created_at_utc, updatedAtUtc: row.updated_at_utc,
       lines: lines.map((line) => ({
+        invoiceLineId: Number(line.payment_invoice_line_id),
         lineSource: line.line_source,
         personalTaskId: line.personal_task_id == null ? null : Number(line.personal_task_id),
         position: Number(line.line_position),
         description: line.description_snapshot,
         amountMinor: Number(line.amount_minor_snapshot),
+        receipt: line.receipt_file_id == null ? null : {
+          fileId: Number(line.receipt_file_id),
+          ref: `agent-slayer://files/${Number(line.receipt_file_id)}`,
+          displayName: line.receipt_display_name,
+          mimeType: line.receipt_mime_type,
+          sha256: line.receipt_sha256,
+        },
       })),
     };
   }
@@ -508,7 +640,10 @@ export class PaymentService {
       const amountMinor = snapshots.reduce((sum, line) => sum + line.amountMinor, 0);
       if (!Number.isSafeInteger(amountMinor) || amountMinor < 0) throw new PaymentInputError("The invoice total is outside the supported range.");
       const [currency = "USD"] = currencies;
-      const preview = { contactId, payerName: contact?.display_name ?? null, payerEmail: contact?.email ?? null, dueOn, policy, description, currency, amountMinor, lines: snapshots };
+      const preview = previewShape({
+        contactId, payerName: contact?.display_name ?? null, payerEmail: contact?.email ?? null,
+        dueOn, policy, description, currency, amountMinor, lines: snapshots, receipts: [],
+      });
       const previewDigest = digest(preview);
       const expiresAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
       const idempotencyKey = randomUUID();
@@ -578,6 +713,23 @@ export class PaymentService {
     if (new Set(suppliedLines.map(({ position }) => position)).size !== suppliedLines.length) {
       throw new PaymentInputError("Invoice line positions must be distinct.");
     }
+    const receiptUpdates = input?.receiptUpdates == null ? [] : input.receiptUpdates.map((update, index) => {
+      if (!update || typeof update !== "object" || Array.isArray(update)) {
+        throw new PaymentInputError(`Receipt update ${index + 1} must be an object.`);
+      }
+      const displayName = String(update.displayName ?? "").trim() || null;
+      if (displayName && displayName.length > 255) {
+        throw new PaymentInputError(`Receipt update ${index + 1} display name must be at most 255 characters.`);
+      }
+      return {
+        position: positiveInteger(update.position, `Receipt update ${index + 1} position`),
+        fileId: update.fileId == null ? null : positiveInteger(update.fileId, `Receipt update ${index + 1} fileId`),
+        displayName,
+      };
+    });
+    if (new Set(receiptUpdates.map(({ position }) => position)).size !== receiptUpdates.length) {
+      throw new PaymentInputError("Receipt updates must address distinct invoice line positions.");
+    }
 
     this.database.exec("START TRANSACTION");
     try {
@@ -598,7 +750,7 @@ export class PaymentService {
           "PREVIEW_MISMATCH",
         );
       }
-      const existingLines = this.database.prepare(`SELECT line_source, personal_task_id,
+      const existingLines = this.database.prepare(`SELECT payment_invoice_line_id, line_source, personal_task_id,
           line_position, description_snapshot, amount_minor_snapshot
         FROM payment_invoice_lines WHERE payment_invoice_id = ?
         ORDER BY line_position FOR UPDATE`).all(invoiceId);
@@ -626,6 +778,68 @@ export class PaymentService {
           "INVALID_INVOICE_LINE_POSITION",
         );
       }
+      const knownPositions = new Set(suppliedLines.map(({ position }) => position));
+      const unknownReceiptPosition = receiptUpdates.find(({ position }) => !knownPositions.has(position));
+      if (unknownReceiptPosition) {
+        throw new PaymentInputError(
+          `Invoice line position ${unknownReceiptPosition.position} was not found for its receipt.`,
+          404,
+          "INVOICE_LINE_NOT_FOUND",
+        );
+      }
+      const existingReceiptRows = this.database.prepare(`SELECT line.line_position, receipt.file_id,
+          receipt.display_name_snapshot, receipt.mime_type_snapshot, receipt.sha256_snapshot
+        FROM payment_invoice_line_receipts receipt
+        JOIN payment_invoice_lines line USING (payment_invoice_line_id)
+        WHERE line.payment_invoice_id = ? ORDER BY line.line_position FOR UPDATE`).all(invoiceId);
+      const receiptsByPosition = new Map(existingReceiptRows.map((receipt) => [Number(receipt.line_position), {
+        linePosition: Number(receipt.line_position),
+        fileId: Number(receipt.file_id),
+        displayName: receipt.display_name_snapshot,
+        mimeType: receipt.mime_type_snapshot,
+        sha256: receipt.sha256_snapshot,
+      }]));
+      for (const receiptUpdate of receiptUpdates) {
+        if (receiptUpdate.fileId == null) {
+          receiptsByPosition.delete(receiptUpdate.position);
+          continue;
+        }
+        const file = this.database.prepare(`SELECT file_id, title, original_filename, mime_type, sha256, byte_size
+          FROM files WHERE file_id = ? FOR UPDATE`).get(receiptUpdate.fileId);
+        if (!file) throw new PaymentInputError(`Receipt file ${receiptUpdate.fileId} was not found.`, 404, "RECEIPT_FILE_NOT_FOUND");
+        const mimeType = String(file.mime_type ?? "").toLowerCase();
+        if (!supportedReceiptMimeTypes.has(mimeType)) {
+          throw new PaymentInputError(
+            `Receipt file ${receiptUpdate.fileId} must be a PDF, JPEG, or PNG.`,
+            409,
+            "RECEIPT_FILE_TYPE_UNSUPPORTED",
+          );
+        }
+        const sha256 = String(file.sha256 ?? "").toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(sha256)) {
+          throw new PaymentInputError(`Receipt file ${receiptUpdate.fileId} has no verified SHA-256.`, 409, "RECEIPT_FILE_UNVERIFIED");
+        }
+        const byteSize = Number(file.byte_size);
+        if (!Number.isSafeInteger(byteSize) || byteSize < 1 || byteSize > maximumReceiptFileBytes) {
+          throw new PaymentInputError(
+            `Receipt file ${receiptUpdate.fileId} must be between 1 byte and ${maximumReceiptFileBytes} bytes.`,
+            413,
+            "RECEIPT_FILE_SIZE_UNSUPPORTED",
+          );
+        }
+        const displayName = receiptUpdate.displayName ?? (
+          String(file.title ?? "").trim()
+          || String(file.original_filename ?? "").trim()
+          || `Receipt ${receiptUpdate.fileId}`
+        ).slice(0, 255);
+        receiptsByPosition.set(receiptUpdate.position, {
+          linePosition: receiptUpdate.position,
+          fileId: receiptUpdate.fileId,
+          displayName,
+          mimeType,
+          sha256,
+        });
+      }
       const snapshots = [...suppliedLines]
         .sort((left, right) => left.position - right.position)
         .map((supplied) => {
@@ -644,7 +858,16 @@ export class PaymentService {
       const payerName = contactSupplied ? suppliedContact?.display_name ?? null : row.payer_name_snapshot ?? null;
       const payerEmail = contactSupplied ? suppliedContact?.email ?? null : row.payer_email_snapshot ?? null;
       const dueOn = dueOnSupplied ? suppliedDueOn : row.due_on ?? null;
-      const changed = addedLines.length > 0 || existingLines.some((line) => {
+      const receiptChanged = receiptUpdates.some(({ position }) => {
+        const before = existingReceiptRows.find((receipt) => Number(receipt.line_position) === position);
+        const after = receiptsByPosition.get(position);
+        return before == null ? after != null : after == null
+          || Number(before.file_id) !== after.fileId
+          || String(before.display_name_snapshot) !== after.displayName
+          || String(before.mime_type_snapshot) !== after.mimeType
+          || String(before.sha256_snapshot) !== after.sha256;
+      });
+      const changed = receiptChanged || addedLines.length > 0 || existingLines.some((line) => {
         const supplied = suppliedByPosition.get(Number(line.line_position));
         return String(line.description_snapshot) !== supplied.description
           || Number(line.amount_minor_snapshot) !== supplied.amountMinor;
@@ -660,7 +883,7 @@ export class PaymentService {
       if (!Number.isSafeInteger(amountMinor) || amountMinor < 0) {
         throw new PaymentInputError("The invoice total is outside the supported range.");
       }
-      const preview = {
+      const preview = previewShape({
         contactId,
         payerName,
         payerEmail,
@@ -670,7 +893,8 @@ export class PaymentService {
         currency: row.currency,
         amountMinor,
         lines: snapshots,
-      };
+        receipts: [...receiptsByPosition.values()],
+      });
       const previewDigest = digest(preview);
       const expiresAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
       const idempotencyKey = randomUUID();
@@ -680,17 +904,38 @@ export class PaymentService {
       const insertLine = this.database.prepare(`INSERT INTO payment_invoice_lines
         (payment_invoice_id,line_source,personal_task_id,line_position,description_snapshot,amount_minor_snapshot)
         VALUES (?,?,?,?,?,?)`);
+      const lineIdsByPosition = new Map(existingLines.map((line) => [
+        Number(line.line_position), Number(line.payment_invoice_line_id),
+      ]));
       for (const line of snapshots) {
         if (existingByPosition.has(line.position)) {
           updateLine.run(line.description, line.amountMinor, invoiceId, line.position);
         } else {
-          insertLine.run(
+          const inserted = insertLine.run(
             invoiceId,
             "manual",
             null,
             line.position,
             line.description,
             line.amountMinor,
+          );
+          lineIdsByPosition.set(line.position, Number(inserted.lastInsertRowid));
+        }
+      }
+      if (receiptUpdates.length) {
+        const deleteReceipt = this.database.prepare(`DELETE FROM payment_invoice_line_receipts
+          WHERE payment_invoice_line_id = ?`);
+        const upsertReceipt = this.database.prepare(`INSERT INTO payment_invoice_line_receipts
+          (payment_invoice_line_id,file_id,display_name_snapshot,mime_type_snapshot,sha256_snapshot)
+          VALUES (?,?,?,?,?)
+          ON DUPLICATE KEY UPDATE file_id=VALUES(file_id),display_name_snapshot=VALUES(display_name_snapshot),
+            mime_type_snapshot=VALUES(mime_type_snapshot),sha256_snapshot=VALUES(sha256_snapshot)`);
+        for (const receiptUpdate of receiptUpdates) {
+          const invoiceLineId = lineIdsByPosition.get(receiptUpdate.position);
+          const receipt = receiptsByPosition.get(receiptUpdate.position);
+          if (!receipt) deleteReceipt.run(invoiceLineId);
+          else upsertReceipt.run(
+            invoiceLineId, receipt.fileId, receipt.displayName, receipt.mimeType, receipt.sha256,
           );
         }
       }
@@ -782,6 +1027,11 @@ export class PaymentService {
       paymentMethodPolicy: Object.hasOwn(input ?? {}, "payment_method_policy")
         ? input.payment_method_policy : current.paymentMethodPolicy,
       lines,
+      receiptUpdates: Array.isArray(input?.receipt_updates) ? input.receipt_updates.map((receipt) => ({
+        position: receipt.position,
+        fileId: receipt.file_id ?? null,
+        displayName: receipt.display_name,
+      })) : [],
     };
     if (Object.hasOwn(input ?? {}, "description")) update.description = input.description;
     if (Object.hasOwn(input ?? {}, "contact_id")) update.contactId = input.contact_id;
@@ -808,8 +1058,43 @@ export class PaymentService {
       invoice,
       browserExecutable: this.config.pdfBrowserExecutable,
     });
-    const bytes = Buffer.from(rendered);
-    if (!bytes.length) throw new PaymentInputError("The invoice PDF renderer returned an empty document.", 502, "INVOICE_PDF_EMPTY");
+    const invoiceBytes = Buffer.from(rendered);
+    if (!invoiceBytes.length) throw new PaymentInputError("The invoice PDF renderer returned an empty document.", 502, "INVOICE_PDF_EMPTY");
+    const receiptBindings = distinctInvoiceReceipts(invoice);
+    if (!receiptBindings.length) return { invoiceId, filename: `invoice-${invoiceId}.pdf`, bytes: invoiceBytes };
+    if (!this.artifactSource) {
+      throw new PaymentInputError("Receipt storage is unavailable to the invoice PDF renderer.", 503, "RECEIPT_STORAGE_UNAVAILABLE");
+    }
+    let totalBytes = 0;
+    const receipts = [];
+    for (const receipt of receiptBindings) {
+      const source = await this.artifactSource.open(receipt.fileId);
+      try {
+        const { descriptor } = source;
+        if (descriptor.sha256 !== receipt.sha256 || descriptor.mimeType !== receipt.mimeType) {
+          throw new PaymentInputError(
+            `Receipt ${receipt.displayName} no longer matches the prepared invoice preview.`,
+            409,
+            "RECEIPT_SNAPSHOT_MISMATCH",
+          );
+        }
+        if (descriptor.byteSize > maximumReceiptFileBytes) {
+          throw new PaymentInputError(`Receipt ${receipt.displayName} exceeds the per-file safety limit.`, 413, "RECEIPT_FILE_SIZE_UNSUPPORTED");
+        }
+        totalBytes += descriptor.byteSize;
+        if (totalBytes > maximumReceiptBundleBytes) {
+          throw new PaymentInputError(`Receipt files exceed the ${maximumReceiptBundleBytes}-byte bundle limit.`, 413, "RECEIPT_BUNDLE_SIZE_UNSUPPORTED");
+        }
+        receipts.push({
+          ...receipt,
+          bytes: await source.read(0, descriptor.byteSize),
+        });
+      } finally {
+        await source.close();
+      }
+    }
+    const bytes = await this.composePdf(invoiceBytes, receipts);
+    if (!bytes.length) throw new PaymentInputError("The invoice PDF composer returned an empty document.", 502, "INVOICE_PDF_EMPTY");
     return { invoiceId, filename: `invoice-${invoiceId}.pdf`, bytes };
   }
 
