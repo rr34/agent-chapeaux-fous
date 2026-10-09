@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nativeObjectTypes, normalizeSelectedObjectCandidates, objectSearchTerms, registerNativeObjectContextView, resolveNativeObjectCandidates, searchNativeObjects, selectedObjectMentionsAreVisible } from "../src/native-object-search.mjs";
+import { nativeObjectTypes, normalizeSelectedObjectCandidates, objectSearchTerms, registerNativeObjectContextView, resolveNativeObjectCandidates, searchNativeObjects } from "../src/native-object-search.mjs";
 import { objectReferenceGroupsFromToolResult } from "../src/object-references.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
@@ -232,21 +232,6 @@ test("bulk composer selection accepts 500 exact objects and rejects 501 without 
     ...selections,
     { ...selections[0], id: 501, ref: "agent-slayer://todos/501", display: "Task 501", mention: "@Task 501" },
   ]), /At most 500 selected objects are allowed/u);
-});
-
-test("every structured selection must have its own exact visible mention", () => {
-  const lucas = {
-    mention: "@Lucas", type: "contacts.contact", source: "native:contacts",
-    id: 7, ref: "agent-slayer://contacts/7", display: "Lucas",
-  };
-  const otherLucas = {
-    ...lucas, id: 8, ref: "agent-slayer://contacts/8",
-  };
-  assert.equal(selectedObjectMentionsAreVisible("Ask @Lucas about this.", [lucas]), true);
-  assert.equal(selectedObjectMentionsAreVisible("Ask @Lucas about this.", [lucas, otherLucas]), false);
-  assert.equal(selectedObjectMentionsAreVisible("Compare @Lucas and @Lucas.", [lucas, otherLucas]), true);
-  assert.equal(selectedObjectMentionsAreVisible("Ask @Lucasette about this.", [lucas]), false);
-  assert.equal(selectedObjectMentionsAreVisible("Ask Lucas about this.", [lucas]), false);
 });
 
 test("composer selections are verified by stable ID without ranked-search truncation", () => {

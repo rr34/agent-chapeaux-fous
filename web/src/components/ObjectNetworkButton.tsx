@@ -3,12 +3,12 @@ import { api, downloadAuthenticated } from "../api";
 import type {
   NetworkObject, ObjectNetworkGraph, ObjectSearchCandidate, SelectedObjectCandidate,
 } from "../types";
-import type { AddAgentReference } from "./AgentReferenceButton";
 import {
   CalendarEventEditor, CalendarRoutineEditor, ContactEditor, TodoEditor, toggleTodoCompletion,
 } from "./EditableItems";
 import { ObjectCard, type ObjectCardModel } from "./object-cards/ObjectCard";
-import { ObjectCardNetworkButton, ObjectCardReferenceButton } from "./object-cards/ObjectCardButtons";
+import { ObjectCardNetworkButton, ObjectCardSelectionCheckbox } from "./object-cards/ObjectCardButtons";
+import { useObjectSelection } from "./ObjectSelectionContext";
 
 const supportedTypes = new Set([
   "contacts.contact", "todos.todo_group", "todos.personal_task", "payments.invoice",
@@ -50,26 +50,32 @@ function attributeValue(object: NetworkObject, label: string) {
   return object.attributes.find((attribute) => attribute.label === label)?.value;
 }
 
-function NetworkObjectControls({ object, onNetwork, onRespond }: {
-  object: { display: string };
+function NetworkObjectControls({ object, onNetwork }: {
+  object: NetworkObject | SelectedObjectCandidate;
   onNetwork?: () => void;
-  onRespond?: () => void;
 }) {
-  return <span className="object-reference-actions">
+  const selection = useObjectSelection();
+  const selected = selection?.selections.some(({ ref }) => ref === object.ref) ?? false;
+  return <span className="object-card-controls">
     <ObjectCardNetworkButton label={`Open network for ${object.display}`} onClick={onNetwork} />
-    <ObjectCardReferenceButton label={`Reference ${object.display} in Agent`} onClick={onRespond} />
+    <ObjectCardSelectionCheckbox
+      label={`${selected ? "Remove" : "Select"} ${object.display} ${selected ? "from" : "for"} the next Agent request`}
+      checked={selected}
+      onChange={selection ? () => selection.toggleSelection(
+        "mention" in object ? object : selectionOf(object),
+      ) : undefined}
+    />
   </span>;
 }
 
 function NetworkCard({
-  object, focus = false, onToggleComplete, onEdit, onRespond, onDownload,
+  object, focus = false, onToggleComplete, onEdit, onDownload,
   onOpen, onDisconnect, busy,
 }: {
   object: NetworkObject;
   focus?: boolean;
   onToggleComplete?: () => void;
   onEdit?: () => void;
-  onRespond?: () => void;
   onDownload?: () => void;
   onOpen?: () => void;
   onDisconnect?: () => void;
@@ -79,7 +85,7 @@ function NetworkCard({
     <ObjectCard
       object={object as ObjectCardModel}
       focus={focus}
-      controls={<NetworkObjectControls object={object} onNetwork={onOpen} onRespond={onRespond} />}
+      controls={<NetworkObjectControls object={object} onNetwork={onOpen} />}
       onToggleComplete={onToggleComplete}
       onEdit={onEdit}
       onDownload={onDownload}
@@ -126,10 +132,9 @@ function candidateIdentity(candidate: ObjectSearchCandidate): SelectedObjectCand
   };
 }
 
-function ObjectNetworkExplorer({ initial, onClose, onReference }: {
+function ObjectNetworkExplorer({ initial, onClose }: {
   initial: SelectedObjectCandidate;
   onClose: () => void;
-  onReference?: AddAgentReference;
 }) {
   const [graph, setGraph] = useState<ObjectNetworkGraph | null>(null);
   const [history, setHistory] = useState<NetworkObject[]>([]);
@@ -221,10 +226,6 @@ function ObjectNetworkExplorer({ initial, onClose, onReference }: {
     }
   };
 
-  const respondTo = (object: NetworkObject) => {
-    onReference?.(selectionOf(object), `${object.label.toLowerCase()} ${object.display}`);
-  };
-
   const downloadFile = (object: NetworkObject) => {
     const filename = attributeValue(object, "Filename") || object.display || `file-${object.id}`;
     void downloadAuthenticated(`/api/files/${object.id}/download`, filename);
@@ -277,7 +278,6 @@ function ObjectNetworkExplorer({ initial, onClose, onReference }: {
             focus
             onToggleComplete={graph.focus.type === "todos.personal_task" ? () => void toggleTodo(graph.focus) : undefined}
             onEdit={editableTypes.has(graph.focus.type) ? () => setEditingObject(graph.focus) : undefined}
-            onRespond={onReference && graph.focus.respondable ? () => respondTo(graph.focus) : undefined}
             onDownload={graph.focus.type === "files.file" ? () => downloadFile(graph.focus) : undefined}
             busy={changingRef === graph.focus.ref}
           />}
@@ -293,7 +293,6 @@ function ObjectNetworkExplorer({ initial, onClose, onReference }: {
             object={object}
             onToggleComplete={object.type === "todos.personal_task" ? () => void toggleTodo(object) : undefined}
             onEdit={editableTypes.has(object.type) ? () => setEditingObject(object) : undefined}
-            onRespond={onReference && object.respondable ? () => respondTo(object) : undefined}
             onDownload={object.type === "files.file" ? () => downloadFile(object) : undefined}
             onOpen={() => openObject(object)}
             onDisconnect={removable ? () => void changeConnection(object, false) : undefined}
@@ -325,9 +324,8 @@ function ObjectNetworkExplorer({ initial, onClose, onReference }: {
                   key={candidate.ref}
                   object={candidateObject}
                   controls={<NetworkObjectControls
-                    object={candidateObject}
+                    object={identity}
                     onNetwork={() => { if (graph) setHistory((current) => [...current, graph.focus]); void load(identity); }}
-                    onRespond={onReference ? () => onReference(identity, `${candidate.label.toLowerCase()} ${candidate.title}`) : undefined}
                   />}
                   actions={[{ key: "connect", label: "Connect", onClick: () => void changeConnection(identity, true), disabled: changingRef === candidate.ref }]}
                 />;
@@ -344,16 +342,15 @@ function ObjectNetworkExplorer({ initial, onClose, onReference }: {
   </div>;
 }
 
-export function ObjectNetworkButton({ identity, subject, onReference }: {
+export function ObjectNetworkButton({ identity, subject }: {
   identity: SelectedObjectCandidate;
   subject: string;
-  onReference?: AddAgentReference;
 }) {
   const [open, setOpen] = useState(false);
   if (!supportedTypes.has(identity.type)) return null;
   const label = `Show connections for ${subject}`;
   return <>
     <ObjectCardNetworkButton label={label} onClick={() => setOpen(true)} />
-    {open && <ObjectNetworkExplorer initial={identity} onClose={() => setOpen(false)} onReference={onReference} />}
+    {open && <ObjectNetworkExplorer initial={identity} onClose={() => setOpen(false)} />}
   </>;
 }

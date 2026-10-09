@@ -1,4 +1,4 @@
-import { NetworkIcon, ReferenceIcon } from "./ObjectCardIcons";
+import { NetworkIcon } from "./ObjectCardIcons";
 
 export function ObjectCardNetworkButton({ label, onClick, disabled = false }: {
   label: string;
@@ -15,17 +15,20 @@ export function ObjectCardNetworkButton({ label, onClick, disabled = false }: {
   ><NetworkIcon /></button>;
 }
 
-export function ObjectCardReferenceButton({ label, onClick, disabled = false }: {
+export function ObjectCardSelectionCheckbox({ label, checked, onChange, disabled = false }: {
   label: string;
-  onClick?: () => void;
+  checked: boolean;
+  onChange?: () => void;
   disabled?: boolean;
 }) {
-  return <button
-    className="agent-reference-button"
-    type="button"
-    onClick={onClick}
-    disabled={disabled || !onClick}
-    title={label}
-    aria-label={label}
-  ><ReferenceIcon /></button>;
+  return <label className="object-selection-control" title={label}>
+    <input
+      className="object-selection-checkbox"
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      disabled={disabled || !onChange}
+      aria-label={label}
+    />
+  </label>;
 }

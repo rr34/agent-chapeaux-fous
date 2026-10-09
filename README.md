@@ -129,15 +129,16 @@ composer. On submission, the server validates that ID and records it as bounded
 request metadata; orientation and execution then receive the source-referenced
 request and response even when that exchange is outside ordinary recent history.
 
-The Agent composer also supports first-class object mentions. Type `@` followed
-by a name to search the native object tables; results appear in fixed domain
-groups with Contacts first, then Events, To-dos, Routines, Files, Journal,
-Check-in, Library and video, and Profile. Choosing a result inserts a
-visible `@Display name` mention and retains its exact type, source, primary ID,
-stable reference, and display name in request metadata. The server validates
-that identity, and orientation must select the bounded native-object context
-view before the application rereads it and exposes it as a verified TurnBrief
-object binding. Selection identifies an object; it never authorizes a write.
+Every first-class object card exposes the same selection checkbox. Checked
+cards stage a bounded batch for the next Agent request, and the persistent
+composer shows only the selected count while the source cards remain the sole
+object visualization. The optional `@` picker can also search native objects in
+fixed domain groups and insert an inline mention. Both paths retain the exact
+type, source, primary ID, stable reference, and display name in request
+metadata. The server validates each identity tuple, and orientation must select
+the bounded native-object context view before the application rereads it and
+exposes it as a verified TurnBrief object binding. Selection identifies an
+object; it never authorizes a write.
 
 Calendar candidates have no future cutoff but expire from the selector one
 month after they end (or start when no end is stored). To-do candidates include

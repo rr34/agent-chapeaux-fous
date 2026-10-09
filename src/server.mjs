@@ -15,7 +15,7 @@ import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { ObjectNetworkService } from "./object-network.mjs";
 import { PaymentService } from "./payments.mjs";
-import { normalizeSelectedObjectCandidates, registerNativeObjectContextView, selectedObjectMentionsAreVisible } from "./native-object-search.mjs";
+import { normalizeSelectedObjectCandidates, registerNativeObjectContextView } from "./native-object-search.mjs";
 import { createModelTransport } from "./model-transport.mjs";
 import { assertNativeCapabilityRegistrations, registerNativeCapabilities, validateNativeCapabilityPackages } from "./native-capabilities.mjs";
 import { assertNativeToolDescriptions } from "./native-tool-descriptions.mjs";
@@ -1179,7 +1179,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/api/requests") {
       // A request may carry a bounded bulk object selection. The ordinary
       // endpoint default is intentionally smaller, but 500 complete identity
-      // tuples plus their visible mentions need a larger explicit envelope.
+      // tuples need a larger explicit envelope.
       const body = await readJson(request, 2 * 1024 * 1024);
       const text = typeof body.text === "string" ? body.text.trim() : "";
       if (!text) throw Object.assign(new Error("Request text is required"), { statusCode: 400 });
@@ -1191,9 +1191,6 @@ const server = http.createServer(async (request, response) => {
         selectedObjectCandidates = normalizeSelectedObjectCandidates(body.selectedObjectCandidates);
       } catch (error) {
         throw Object.assign(error, { statusCode: 400 });
-      }
-      if (!selectedObjectMentionsAreVisible(text, selectedObjectCandidates)) {
-        throw Object.assign(new Error("Every selected object must remain visible in the request text"), { statusCode: 400 });
       }
       if (primaryFileId !== null) {
         if (!Number.isSafeInteger(primaryFileId) || primaryFileId <= 0) {

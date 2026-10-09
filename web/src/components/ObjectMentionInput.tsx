@@ -67,6 +67,7 @@ function submissionCandidate(candidate: ObjectSearchCandidate): SelectedObjectCa
     display: candidate.title,
     label: candidate.label,
     detail: candidate.detail,
+    selectionOrigin: "mention",
   };
 }
 
@@ -172,7 +173,9 @@ export function ObjectMentionInput({
     const selectionEnd = event.target.selectionEnd ?? cursor;
     onChange(next);
     onSelectionChange({ start: cursor, end: selectionEnd });
-    onSelectionsChange(selections.filter(({ mention }) => next.includes(mention)));
+    onSelectionsChange(selections.filter(({ mention, selectionOrigin }) => (
+      selectionOrigin === "card" || next.includes(mention)
+    )));
     setActiveMention(mentionAtCursor(next, cursor, selections));
   };
 
@@ -198,9 +201,10 @@ export function ObjectMentionInput({
     const next = value.slice(0, activeMention.start) + selected.mention + spacer + suffix;
     const cursor = activeMention.start + selected.mention.length + spacer.length;
     onChange(next);
+    const existing = selections.find(({ ref }) => ref === selected.ref);
     onSelectionsChange([
       ...selections.filter(({ ref }) => ref !== selected.ref),
-      selected,
+      existing?.selectionOrigin === "card" ? existing : selected,
     ]);
     setActiveMention(null);
     setResults([]);

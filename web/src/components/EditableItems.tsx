@@ -6,9 +6,8 @@ import { api } from "../api";
 import { formatDisplayDate } from "../date-format";
 import type { CalendarEvent, CalendarRoutine, Entity, LinkedTodo } from "../types";
 import {
-  AgentReferenceButton, calendarEventIdentity, calendarRoutineIdentity, todoIdentity,
-  type AddAgentReference,
-} from "./AgentReferenceButton";
+  ObjectSelectionControls, calendarEventIdentity, calendarRoutineIdentity, todoIdentity,
+} from "./ObjectSelectionControls";
 import {
   buildRecurrenceRule, RecurrenceEditor, recurrenceDraft, type RecurrenceDraft,
 } from "./RecurrenceEditor";
@@ -528,11 +527,10 @@ export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
   </EditorFrame>;
 }
 
-export function CalendarRoutineItem({ routine, timeLabel, onChanged, onReference }: {
+export function CalendarRoutineItem({ routine, timeLabel, onChanged }: {
   routine: CalendarRoutine;
   timeLabel: string;
   onChanged?: Changed;
-  onReference?: AddAgentReference;
 }) {
   const [editing, setEditing] = useState(false);
   const id = Number(routine.id);
@@ -551,18 +549,17 @@ export function CalendarRoutineItem({ routine, timeLabel, onChanged, onReference
         badges: [routine.disabledAtUtc ? "Disabled" : "Active"],
       }}
       onEdit={editable ? () => setEditing(true) : undefined}
-      controls={onReference ? <AgentReferenceButton identity={calendarRoutineIdentity(routine)} subject={`calendar routine ${routine.title}`} onReference={onReference} /> : undefined}
+      controls={<ObjectSelectionControls identity={calendarRoutineIdentity(routine)} subject={`calendar routine ${routine.title}`} />}
     />
     {editing && onChanged && <CalendarRoutineEditor routineId={id} onClose={() => setEditing(false)} onChanged={onChanged} />}
   </>;
 }
 
-export function CalendarEventItem({ event, timeZone, timeLabel, onChanged, onReference }: {
+export function CalendarEventItem({ event, timeZone, timeLabel, onChanged }: {
   event: CalendarEvent;
   timeZone: string;
   timeLabel: string;
   onChanged?: Changed;
-  onReference?: AddAgentReference;
 }) {
   const [editing, setEditing] = useState(false);
   const eventId = Number(event.seriesId ?? event.id);
@@ -582,7 +579,7 @@ export function CalendarEventItem({ event, timeZone, timeLabel, onChanged, onRef
         badges: event.seriesId ? ["Recurring"] : [],
       }}
       onEdit={editable ? () => setEditing(true) : undefined}
-      controls={onReference && Number.isSafeInteger(eventId) && eventId > 0 ? <AgentReferenceButton identity={calendarEventIdentity(event, timeZone)} subject={`calendar event ${event.title}`} onReference={onReference} /> : undefined}
+      controls={Number.isSafeInteger(eventId) && eventId > 0 ? <ObjectSelectionControls identity={calendarEventIdentity(event, timeZone)} subject={`calendar event ${event.title}`} /> : undefined}
     />
     {editing && onChanged && <CalendarEventEditor eventId={eventId} recurring={Boolean(event.seriesId)} onClose={() => setEditing(false)} onChanged={onChanged} />}
   </li>;
@@ -743,17 +740,13 @@ export function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
 }
 
 export function TodoItem({
-  todo, groups, eventTitles, variant = "row", onChanged, onReference,
-  selected = false, onSelectionChange,
+  todo, groups, eventTitles, variant = "row", onChanged,
 }: {
   todo: Entity | LinkedTodo;
   groups?: Entity[];
   eventTitles?: string[];
   variant?: "row" | "scheduled";
   onChanged?: Changed;
-  onReference?: AddAgentReference;
-  selected?: boolean;
-  onSelectionChange?: (selected: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -801,20 +794,11 @@ export function TodoItem({
     onToggleComplete={editable ? () => void toggle() : undefined}
     onEdit={editable ? () => setEditing(true) : undefined}
     busy={updating}
-    controls={onReference ? <AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${text}`} onReference={onReference} /> : undefined}
+    controls={<ObjectSelectionControls identity={todoIdentity(todo)} subject={`task ${text}`} />}
     details={error ? <p className="inline-error todo-item-error" role="alert">{error}</p> : undefined}
   />;
   return <>
-    {onSelectionChange ? <div className="todo-card-selection">
-      <input
-        className="todo-select"
-        type="checkbox"
-        checked={selected}
-        onChange={(event) => onSelectionChange(event.target.checked)}
-        aria-label={`Select ${text} for Agent reference`}
-      />
-      {card}
-    </div> : card}
+    {card}
     {editing && onChanged && <TodoEditor todoId={id} suppliedGroups={groups} onClose={() => setEditing(false)} onChanged={onChanged} />}
   </>;
 }

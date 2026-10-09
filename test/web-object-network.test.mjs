@@ -7,14 +7,15 @@ const root = path.resolve(import.meta.dirname, "..");
 
 test("first-class object controls expose one lazy visual network without editing-form fields", () => {
   const component = fs.readFileSync(path.join(root, "web/src/components/ObjectNetworkButton.tsx"), "utf8");
-  const references = fs.readFileSync(path.join(root, "web/src/components/AgentReferenceButton.tsx"), "utf8");
+  const references = fs.readFileSync(path.join(root, "web/src/components/ObjectSelectionControls.tsx"), "utf8");
   const editor = fs.readFileSync(path.join(root, "web/src/components/EditableItems.tsx"), "utf8");
   const dispatcher = fs.readFileSync(path.join(root, "web/src/components/object-cards/ObjectCard.tsx"), "utf8");
   const buttons = fs.readFileSync(path.join(root, "web/src/components/object-cards/ObjectCardButtons.tsx"), "utf8");
   const icons = fs.readFileSync(path.join(root, "web/src/components/object-cards/ObjectCardIcons.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
 
-  assert.match(references, /<ObjectNetworkButton identity=\{identity\} subject=\{subject\} onReference=\{onReference\}/u);
+  assert.match(references, /<ObjectNetworkButton identity=\{identity\} subject=\{subject\}/u);
+  assert.match(references, /<ObjectCardSelectionCheckbox/u);
   assert.match(buttons, /className="object-network-button"/u);
   assert.match(icons, /<circle cx="12" cy="12"/u);
   assert.match(component, /\/api\/object-network\?/u);
@@ -24,6 +25,7 @@ test("first-class object controls expose one lazy visual network without editing
   assert.doesNotMatch(component, /<h2>Object network<\/h2>/u);
   assert.match(component, /<ObjectCard/u);
   assert.match(component, /NetworkObjectControls/u);
+  assert.match(component, /selection\.toggleSelection/u);
   assert.match(component, /<ObjectCardNetworkButton/u);
   assert.doesNotMatch(component, /network-object-open|network-card-action/u);
   assert.match(component, /Open network for \$\{object\.display\}/u);

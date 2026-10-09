@@ -66,10 +66,11 @@ a { color: inherit; }
 .button--quiet:hover { background: var(--olive-soft); }
 .button--danger { margin-right: auto; border-color: #8c3025; background: #8c3025; }
 .button--danger:hover { background: #6f241c; }
-.agent-reference-button, .object-network-button { width: 32px; height: 32px; min-width: 32px; display: inline-grid; place-items: center; padding: 0; border: 1px solid #b9c0b2; border-radius: 8px; color: var(--olive-dark); background: transparent; }
-.agent-reference-button:hover, .object-network-button:hover { color: white; border-color: var(--olive-dark); background: var(--olive-dark); }
-.agent-reference-button:focus-visible, .object-network-button:focus-visible { outline: 3px solid rgba(104, 116, 90, .22); outline-offset: 2px; }
-.agent-reference-button svg, .object-network-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.object-selection-control, .object-network-button { width: 32px; height: 32px; min-width: 32px; display: inline-grid; place-items: center; padding: 0; border: 1px solid #b9c0b2; border-radius: 8px; color: var(--olive-dark); background: transparent; }
+.object-selection-control:hover, .object-network-button:hover { border-color: var(--olive-dark); background: var(--olive-soft); }
+.object-selection-control:focus-within, .object-network-button:focus-visible { outline: 3px solid rgba(104, 116, 90, .22); outline-offset: 2px; }
+.object-network-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.object-selection-checkbox { width: 17px; min-height: 17px; height: 17px; margin: 0; padding: 0; border: 0; border-radius: 3px; accent-color: var(--olive-dark); box-shadow: none; cursor: pointer; }
 .first-class-object-card { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 15px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
 .first-class-object-card:hover { background: rgba(223, 229, 215, .24); }
 .first-class-object-card.is-focus { border-color: #9eaa92; box-shadow: 0 0 0 3px rgba(104, 116, 90, .09); }
@@ -94,16 +95,16 @@ a { color: inherit; }
 .compact-object-identity { min-width: 0; display: grid; gap: 2px; }
 .compact-object-identity span { color: var(--olive); font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .compact-object-identity strong { overflow: hidden; font: 600 17px/1.15 "Newsreader", Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
-.compact-object-controls, .compact-object-controls > .object-reference-actions { display: flex; align-items: center; gap: 6px; }
+.compact-object-controls, .compact-object-controls > .object-card-controls { display: flex; align-items: center; gap: 6px; }
 .compact-object-expand, .compact-object-collapse { width: 32px; height: 32px; min-width: 32px; display: inline-grid; place-items: center; padding: 0; border: 1px solid #b9c0b2; border-radius: 8px; color: var(--olive-dark); background: transparent; }
 .compact-object-expand:hover, .compact-object-collapse:hover { color: white; border-color: var(--olive-dark); background: var(--olive-dark); }
 .compact-object-expand svg, .compact-object-collapse svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .compact-object-expanded { position: relative; min-width: 0; }
 .compact-object-expanded > .compact-object-collapse { position: absolute; z-index: 2; top: 10px; right: 10px; background: var(--paper); }
 .todo-domain-leading { display: flex; align-items: center; gap: 9px; }
-.todo-card-selection { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
-.todo-card-selection > .todo-select { margin: 0; }
-.object-reference-actions { display: inline-flex; align-items: center; gap: 6px; }
+.first-class-object-card:has(.object-selection-checkbox:checked),
+.compact-object-card:has(.object-selection-checkbox:checked) { border-color: var(--olive-dark); box-shadow: 0 0 0 3px rgba(104, 116, 90, .12); }
+.object-card-controls { display: inline-flex; align-items: center; gap: 6px; }
 .agent-reference-notice { width: fit-content; margin: -14px 0 18px; padding: 8px 11px; border-radius: 8px; color: var(--olive-dark); background: var(--olive-soft); font-size: 12px; }
 input, textarea, select { width: 100%; border: 1px solid #cbd0c6; border-radius: 9px; padding: 10px 12px; background: white; color: var(--ink); outline: none; }
 input:focus, textarea:focus, select:focus { border-color: var(--olive); box-shadow: 0 0 0 3px rgba(104, 116, 90, .14); }
@@ -147,6 +148,8 @@ textarea { resize: vertical; }
 .turn-brief > div { display: flex; gap: 8px; margin-top: 12px; }
 .composer { position: fixed; z-index: 4; bottom: 22px; left: calc(216px + clamp(24px, 4vw, 68px)); right: clamp(24px, 4vw, 68px); max-width: 1300px; margin: auto; padding: 12px; border: 1px solid #c7ccc1; border-radius: 15px; background: rgba(251, 250, 245, .94); box-shadow: var(--shadow); backdrop-filter: blur(14px); }
 .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.composer-selection-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; padding: 8px 10px; border: 1px solid #abb5a1; border-radius: 9px; color: var(--olive-dark); background: var(--olive-soft); font-size: 12px; }
+.composer-selection-summary .button { min-height: 30px; padding: 4px 9px; font-size: 11px; }
 .composer-run-limits { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .run-limits-button { min-height: 32px; padding: 5px 10px; font-size: 12px; }
 .run-limits-button.ready { border-color: var(--olive-dark); background: var(--olive-soft); }
@@ -311,9 +314,6 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .todo-group-pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .todo-group-pin.is-pinned { color: white; background: var(--olive-dark); }
 .todo-group-items { display: grid; gap: 8px; }
-.todo-selection-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: -10px 0 20px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--paper); }
-.todo-selection-bar > span { color: var(--muted); font-size: 13px; white-space: nowrap; }
-.todo-selection-bar > div { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .todo-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 13px; padding: 14px 16px; border: 1px solid var(--line); background: var(--paper); border-radius: 11px; }
 .todo-row.has-sequence { grid-template-columns: auto 54px minmax(0, 1fr) auto; }
 .todo-row.is-selectable { grid-template-columns: auto auto minmax(0, 1fr) auto; }
@@ -326,7 +326,6 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .todo-row.is-selectable .todo-item-error { grid-column-start: 3; }
 .todo-row.has-sequence.is-selectable .todo-item-error { grid-column-start: 4; }
 .todo-sequence { color: var(--olive-dark); font-size: 13px; font-weight: 750; font-variant-numeric: tabular-nums; }
-.todo-select { width: 24px; height: 24px; margin: 0; accent-color: var(--olive-dark); cursor: pointer; }
 .todo-check { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 1.5px solid var(--olive); border-radius: 6px; background: white; color: var(--olive-dark); font-weight: 800; }
 .todo-check.todo-check--mark-complete, .paper-todos .todo-check.todo-check--mark-complete { width: 52px; height: auto; min-height: 46px; grid-auto-flow: row; place-content: center; gap: 1px; padding: 5px 6px; font-size: 10px; line-height: 1.05; text-align: center; }
 .object-row-actions { display: flex; align-items: center; gap: 8px; }
@@ -698,9 +697,6 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .todo-group-meta { width: 100%; justify-content: space-between; }
   .todo-row.has-sequence { grid-template-columns: auto 44px minmax(0, 1fr) auto; }
   .todo-row.has-sequence.is-selectable { grid-template-columns: auto auto 44px minmax(0, 1fr) auto; }
-  .todo-selection-bar { align-items: stretch; flex-direction: column; }
-  .todo-selection-bar > div { justify-content: stretch; }
-  .todo-selection-bar .button { flex: 1; }
   .section-filter { align-items: stretch; flex-direction: column; margin-top: -8px; }
   .section-filter-field { width: 100%; max-width: none; }
   .section-filter-controls { align-items: stretch; flex-direction: column; width: 100%; }
@@ -739,7 +735,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 @media print {
   html, body, #root { margin: 0 !important; padding: 0 !important; background: white !important; }
   body > * { visibility: hidden; }
-  .agent-reference-button, .object-network-button, .composer, .trace-backdrop, .object-editor-backdrop { display: none !important; }
+  .object-selection-control, .object-network-button, .composer, .trace-backdrop, .object-editor-backdrop { display: none !important; }
   #root, #root * { visibility: visible; }
   .app-shell .sidebar, .app-shell .page-heading, .app-shell .calendar-screen > :not(.paper-preview), .paper-preview > summary { display: none !important; }
   .app-shell, .workspace, .calendar-screen, .paper-preview { display: block !important; width: auto !important; max-width: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; background: white !important; box-shadow: none !important; }

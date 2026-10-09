@@ -3,7 +3,6 @@ import type {
   ScheduledTracker, TodoEventLink,
 } from "../types";
 import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
-import { type AddAgentReference } from "./AgentReferenceButton";
 import { CalendarEventItem, TodoItem } from "./EditableItems";
 import { matchesSearch, searchTerms } from "../search-filter";
 
@@ -90,10 +89,9 @@ export function CalendarGrid({
   );
 }
 
-export function DayTimeline({ events, timeZone, onReference, onChanged }: {
+export function DayTimeline({ events, timeZone, onChanged }: {
   events: CalendarEvent[];
   timeZone: string;
-  onReference?: AddAgentReference;
   onChanged?: () => void | Promise<void>;
 }) {
   if (!events.length) return <p className="paper-empty">No events scheduled. The day is yours.</p>;
@@ -104,16 +102,14 @@ export function DayTimeline({ events, timeZone, onReference, onChanged }: {
         timeZone={timeZone}
         timeLabel={timeLabel(event, timeZone)}
         onChanged={onChanged}
-        onReference={onReference}
         key={event.id}
       />)}
     </ol>
   );
 }
 
-export function ScheduledTodos({ todos, onReference, onChanged }: {
+export function ScheduledTodos({ todos, onChanged }: {
   todos: LinkedTodo[];
-  onReference?: AddAgentReference;
   onChanged?: () => void | Promise<void>;
 }) {
   if (!todos.length) return <p className="paper-empty">No to-dos are attached to this day’s events.</p>;
@@ -124,7 +120,6 @@ export function ScheduledTodos({ todos, onReference, onChanged }: {
         eventTitles={todo.eventTitles}
         variant="scheduled"
         onChanged={onChanged}
-        onReference={onReference}
         key={todo.todoId}
       />)}
     </ul>

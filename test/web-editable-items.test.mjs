@@ -33,8 +33,7 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.ok(todoCard.includes('className={`todo-check${complete ? "" : " todo-check--mark-complete"}`}'));
   assert.match(items, /onToggleComplete=\{editable \? \(\) => void toggle\(\) : undefined\}/);
   assert.ok(todoCard.includes('{complete ? "✓" : <><span>Mark</span><span>complete</span></>}'));
-  assert.match(items, /className="todo-select"/);
-  assert.match(items, /aria-label=\{`Select \$\{text\} for Agent reference`\}/);
+  assert.match(items, /<ObjectSelectionControls identity=\{todoIdentity\(todo\)\}/);
   assert.match(styles, /\.todo-check\.todo-check--mark-complete[^\{]*\{[^}]*width: 52px;[^}]*min-height: 46px;/);
   assert.match(styles, /\.todo-check\.todo-check--mark-complete[^\{]*\{[^}]*place-content: center;[^}]*text-align: center;/);
   assert.match(styles, /\.paper-todos li \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/);

@@ -8,6 +8,7 @@ import { ObjectMentionInput } from "./components/ObjectMentionInput";
 import { CalendarEventEditor, ContactEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
+import { ObjectSelectionProvider } from "./components/ObjectSelectionContext";
 import { ContactCard } from "./components/object-cards/ContactCard";
 import { FileCard } from "./components/object-cards/FileCard";
 import { InvoiceCard } from "./components/object-cards/InvoiceCard";
@@ -20,14 +21,12 @@ import { ObjectCard, type ObjectCardModel } from "./components/object-cards/Obje
 import { VideoScriptCard } from "./components/object-cards/VideoScriptCard";
 import { TodoGroupCard } from "./components/object-cards/TodoGroupCard";
 import {
-  AgentReferenceButton, contactIdentity, exchangeIdentity,
+  ObjectSelectionControls, contactIdentity, exchangeIdentity,
   contentGroupIdentity, genericEntityIdentity, invoiceIdentity, journalEntryIdentity,
   journalGroupIdentity, journalTrackerIdentity, todoGroupIdentity, todoIdentity,
-  type AddAgentReference, type AddAgentReferences, type GenericObjectKind,
-} from "./components/AgentReferenceButton";
-import {
-  insertObjectMentions, maximumObjectReferences, type ComposerTextSelection,
-} from "./object-references";
+  type GenericObjectKind,
+} from "./components/ObjectSelectionControls";
+import { maximumObjectReferences, type ComposerTextSelection } from "./object-references";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
 import { matchesSearch } from "./search-filter";
 import type {
@@ -406,15 +405,15 @@ function runLimitsText(runLimits: RunLimits) {
 }
 
 function AgentComposer({
-  text, setText, selections, setSelections, referenceNotice, clearReferenceNotice,
+  text, setText, selections, setSelections, selectionNotice, clearSelectionNotice,
   cursorRequest, onSelectionChange, onSubmitted,
 }: {
   text: string;
   setText: (value: string) => void;
   selections: SelectedObjectCandidate[];
   setSelections: (selections: SelectedObjectCandidate[]) => void;
-  referenceNotice: string | null;
-  clearReferenceNotice: () => void;
+  selectionNotice: string | null;
+  clearSelectionNotice: () => void;
   cursorRequest: { position: number; revision: number } | null;
   onSelectionChange: (selection: ComposerTextSelection) => void;
   onSubmitted: (request: RequestRecord) => void;
@@ -587,7 +586,7 @@ function AgentComposer({
   };
 
   const startRecording = async () => {
-    if (!recordingSupported || recordingPhase !== "idle") return;
+    if (!recordingSupported || recordingPhase !== "idle" || selections.length > 0) return;
     setSubmitError(null);
     setRecordingStatus("Requesting microphone access…");
     setRecordingPhase("requesting");
@@ -717,14 +716,14 @@ function AgentComposer({
     if (!text.trim() || sending || recordingPhase !== "idle") return;
     setSubmitError(null);
     setRecordingStatus("");
-    clearReferenceNotice();
+    clearSelectionNotice();
     setSending(true);
     try {
       const referencedRequestIds = [...new Set(selections.flatMap(
         ({ referencedRequestId }) => referencedRequestId ? [referencedRequestId] : [],
       ))].slice(0, 8);
       const selectedObjectCandidates = selections.flatMap(
-        ({ label: _label, detail: _detail, referencedRequestId, ...selection }) =>
+        ({ label: _label, detail: _detail, referencedRequestId, selectionOrigin: _selectionOrigin, ...selection }) =>
           referencedRequestId ? [] : [selection],
       );
       const created = await api<{ requestId: string }>("/api/requests", { method: "POST", body: JSON.stringify({
@@ -755,7 +754,9 @@ function AgentComposer({
     finally { setSending(false); }
   };
 
-  const recorderTitle = !recordingSupported
+  const recorderTitle = selections.length > 0
+    ? "Send or clear the selected objects before recording a voice request"
+    : !recordingSupported
     ? "Audio recording is not supported by this browser"
     : recordingPhase === "requesting"
       ? "Requesting microphone access"
@@ -767,10 +768,23 @@ function AgentComposer({
             ? "Cancelling recording"
             : "Record a voice request";
 
+  const clearObjectSelections = () => {
+    const mentions = selections.filter(({ selectionOrigin }) => selectionOrigin === "mention").map(({ mention }) => mention);
+    if (mentions.length) {
+      setText(mentions.reduce((current, mention) => current.replaceAll(mention, ""), text).replace(/ {2,}/gu, " ").trimStart());
+    }
+    setSelections([]);
+    clearSelectionNotice();
+  };
+
   return <><form className={`composer${isRecording ? " recording" : ""}${composerExpanded ? " expanded" : ""}`} onSubmit={submit}>
-    {referenceNotice && <div className="composer-feedback" role="status">{referenceNotice}</div>}
+    {selectionNotice && <div className="composer-feedback" role="status">{selectionNotice}</div>}
     {recordingStatus && <div className="composer-feedback recording-status" role="status">{recordingStatus}</div>}
     {submitError && <ErrorState error={submitError} dismiss={() => setSubmitError(null)} />}
+    {selections.length > 0 && <div className="composer-selection-summary">
+      <span role="status"><strong>{selections.length}</strong> {selections.length === 1 ? "object" : "objects"} selected for this request</span>
+      <button className="button button--quiet" type="button" onClick={clearObjectSelections}>Clear</button>
+    </div>}
     {!isRecording && <div className="composer-toolbar">
       <div className="composer-run-limits">
         <button className={`button button--quiet run-limits-button${pendingRunLimits ? " ready" : ""}`} type="button" onClick={openRunLimits}>Increase limits</button>
@@ -796,7 +810,7 @@ function AgentComposer({
       {isRecording && <button className="button button--quiet cancel-recording" type="button" onClick={cancelRecording} aria-label="Cancel recording" title="Cancel recording"><span aria-hidden="true">×</span><span>Cancel</span></button>}
       {!isRecording && <ObjectMentionInput
         value={text}
-        onChange={(value) => { setText(value); clearReferenceNotice(); setRecordingStatus(""); setSubmitError(null); }}
+        onChange={(value) => { setText(value); clearSelectionNotice(); setRecordingStatus(""); setSubmitError(null); }}
         selections={selections}
         onSelectionsChange={setSelections}
         onSelectionChange={onSelectionChange}
@@ -807,7 +821,7 @@ function AgentComposer({
           className={`record-button ${isRecording ? "recording" : ""}`}
           type="button"
           onClick={() => void startRecording()}
-          disabled={!recordingSupported || !["idle", "recording"].includes(recordingPhase)}
+          disabled={!recordingSupported || selections.length > 0 || !["idle", "recording"].includes(recordingPhase)}
           aria-label={isRecording ? "Microphone input level" : "Start recording"}
           title={recorderTitle}
         >
@@ -906,8 +920,7 @@ function RequestInteractionMetrics({ request }: { request: RequestRecord }) {
   </div>;
 }
 
-function AgentScreen({ onReference, onShowTrace, refreshKey, optimisticRequests, onRequestsObserved }: {
-  onReference: AddAgentReference;
+function AgentScreen({ onShowTrace, refreshKey, optimisticRequests, onRequestsObserved }: {
   onShowTrace: (requestId: string) => void;
   refreshKey: number;
   optimisticRequests: RequestRecord[];
@@ -962,16 +975,15 @@ function AgentScreen({ onReference, onShowTrace, refreshKey, optimisticRequests,
         {request.response && <div className="request-response"><span>Time v3 Agent</span><p>{request.response}</p></div>}
         {request.error && <p className="inline-error">{request.error}</p>}
         <RequestInteractionMetrics request={request} />
-        <footer><span className={`status-dot status-${request.status}`} />{request.status.replaceAll("_", " ")}<code>{request.requestId.slice(0, 8)}</code><button className="trace-button" type="button" onClick={() => onShowTrace(request.requestId)}>Show trace</button>{["complete", "error"].includes(request.status) && <AgentReferenceButton identity={exchangeIdentity(request)} subject={`exchange ${request.requestId.slice(0, 8)}`} onReference={onReference} />}</footer>
+        <footer><span className={`status-dot status-${request.status}`} />{request.status.replaceAll("_", " ")}<code>{request.requestId.slice(0, 8)}</code><button className="trace-button" type="button" onClick={() => onShowTrace(request.requestId)}>Show trace</button>{["complete", "error"].includes(request.status) && <ObjectSelectionControls identity={exchangeIdentity(request)} subject={`exchange ${request.requestId.slice(0, 8)}`} />}</footer>
       </article>) : !loading && <Empty>{filterQuery.trim() ? "No exchanges match the filter." : "No requests yet. Start with what is on your mind."}</Empty>}
     </section>
   </>;
 }
 
-function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference }: {
+function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   generationNotice?: string | null;
   dismissGenerationNotice?: () => void;
-  onReference: AddAgentReference;
 }) {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = localToday(timeZone);
@@ -1035,7 +1047,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
         <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDate} onSelect={setSelectedDate} searchQuery={filterQuery} />
         <button className="calendar-range-arrow" type="button" aria-label="Next week" aria-controls="calendar-grid" title="Next week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, 7))}>▼</button>
       </section>
-      <div className="calendar-lower"><section className="surface"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} onReference={onReference} onChanged={reload} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} onReference={onReference} onChanged={reload} /></section></div>
+      <div className="calendar-lower"><section className="surface"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} onChanged={reload} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} onChanged={reload} /></section></div>
       <details className="paper-preview surface">
         <summary>Preview the printed page</summary>
         {previewModel ? <DailyPaper model={previewModel} preview /> : <Loading label="Refreshing preview" />}
@@ -1045,10 +1057,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice, onReference
   </>;
 }
 
-function TodoScreen({ onReference, onReferences }: {
-  onReference: AddAgentReference;
-  onReferences: AddAgentReferences;
-}) {
+function TodoScreen() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [filterQuery, setFilterQuery] = useState("");
@@ -1059,8 +1068,6 @@ function TodoScreen({ onReference, onReferences }: {
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const [reorderingGroupId, setReorderingGroupId] = useState<number | null>(null);
   const [reorderError, setReorderError] = useState("");
-  const [selectedTodos, setSelectedTodos] = useState<Map<string, SelectedObjectCandidate>>(new Map());
-  const [selectionError, setSelectionError] = useState("");
   const add = async (event: FormEvent) => { event.preventDefault(); await api("/api/todos", { method: "POST", body: JSON.stringify({ text: draft, status: "todo" }) }); setDraft(""); await reload(); };
   const statusTodos = (data?.todos || []).filter((todo) =>
     todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
@@ -1070,41 +1077,6 @@ function TodoScreen({ onReference, onReferences }: {
     : statusTodos.filter((todo) => String(readKey(todo, "groupId")) === selectedGroupId);
   const filteredTodos = groupTodos.filter((todo) => matchesSearch(todo, filterQuery));
   const todos = showCompleted ? [...filteredTodos].sort(compareTodoDisplayOrder) : filteredTodos;
-  const setTodoSelected = (todo: Entity, selected: boolean) => {
-    const identity = todoIdentity(todo);
-    setSelectionError("");
-    setSelectedTodos((current) => {
-      const next = new Map(current);
-      if (!selected) next.delete(identity.ref);
-      else if (!next.has(identity.ref)) {
-        if (next.size >= maximumObjectReferences) {
-          setSelectionError(`A request can reference at most ${maximumObjectReferences} objects. Nothing was truncated.`);
-          return current;
-        }
-        next.set(identity.ref, identity);
-      }
-      return next;
-    });
-  };
-  const selectVisibleTodos = () => {
-    const visible = todos.map((todo) => todoIdentity(todo));
-    const additions = visible.filter(({ ref }) => !selectedTodos.has(ref));
-    if (selectedTodos.size + additions.length > maximumObjectReferences) {
-      setSelectionError(`Selecting all ${visible.length} visible items would exceed the ${maximumObjectReferences}-object request limit. Nothing was selected or truncated.`);
-      return;
-    }
-    setSelectionError("");
-    setSelectedTodos((current) => new Map([
-      ...current,
-      ...additions.map((identity) => [identity.ref, identity] as const),
-    ]));
-  };
-  const referenceSelectedTodos = () => {
-    if (!selectedTodos.size) return;
-    onReferences([...selectedTodos.values()].map((identity) => ({
-      identity, subject: `task ${identity.display}`,
-    })));
-  };
   const setDailyPaperPinned = async (groupId: number, dailyPaperPinned: boolean) => {
     await api(`/api/todo-groups/${groupId}/daily-paper-pin`, {
       method: "POST",
@@ -1177,21 +1149,12 @@ function TodoScreen({ onReference, onReferences }: {
       </SectionSelectFilter>
       <label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label>
     </>} />
-    <section className="todo-selection-bar" aria-label="To-do selection controls">
-      <span><strong>{selectedTodos.size}</strong> selected</span>
-      <div>
-        <button className="button button--quiet" type="button" disabled={!todos.length} onClick={selectVisibleTodos}>Select all visible</button>
-        <button className="button" type="button" disabled={!selectedTodos.size} onClick={referenceSelectedTodos}>Reference selected in Agent</button>
-        <button className="button button--quiet" type="button" disabled={!selectedTodos.size} onClick={() => { setSelectedTodos(new Map()); setSelectionError(""); }}>Clear selection</button>
-      </div>
-    </section>
-    {selectionError && <p className="inline-error" role="alert">{selectionError}</p>}
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{reorderError && <p className="inline-error" role="alert">{reorderError}</p>}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => {
       const priorityIndex = group.groupId == null ? -1 : orderedGroupIds.indexOf(group.groupId);
       return <section className="todo-group" key={group.id} aria-label={`${group.name} to-do group`}>
         {group.groupId != null ? <TodoGroupCard
           object={{ id: group.groupId, type: "todos.todo_group", label: "To-do group", display: group.name, attributes: [{ label: "Items", value: String(group.todos.length) }], badges: [group.dailyPaperPinned ? "Pinned to paper" : "Active"] }}
-          controls={<AgentReferenceButton identity={todoGroupIdentity({ id: group.groupId, name: group.name })} subject={`to-do group ${group.name}`} onReference={onReference} />}
+          controls={<ObjectSelectionControls identity={todoGroupIdentity({ id: group.groupId, name: group.name })} subject={`to-do group ${group.name}`} />}
           details={<div className="todo-group-management"><TodoGroupPriorityControls
               groupId={group.groupId}
               groupName={group.name}
@@ -1201,17 +1164,14 @@ function TodoScreen({ onReference, onReferences }: {
               onMove={(id, movement) => void moveGroup(id, movement)}
             />{group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}<button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" aria-pressed={group.dailyPaperPinned} onClick={() => void setDailyPaperPinned(group.groupId!, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button></div>}
         /> : <header className="todo-group-heading"><h2>{group.name}</h2></header>}
-        <div className="todo-group-items">{group.todos.map((todo) => {
-          const identity = todoIdentity(todo);
-          return <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} onReference={onReference} selected={selectedTodos.has(identity.ref)} onSelectionChange={(selected) => setTodoSelected(todo, selected)} key={String(todo.id)} />;
-        })}</div>
+        <div className="todo-group-items">{group.todos.map((todo) => <TodoItem todo={todo} groups={groupData?.groups || []} onChanged={reload} key={String(todo.id)} />)}</div>
       </section>;
     })}</div>
     {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }} />}
   </>;
 }
 
-function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
+function ContactsScreen() {
   const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=all&limit=10000");
   const [draft, setDraft] = useState("");
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
@@ -1292,7 +1252,7 @@ function ContactsScreen({ onReference }: { onReference: AddAgentReference }) {
               links,
             })}
             onEdit={() => setEditingContactId(Number(contact.id))}
-            controls={<AgentReferenceButton identity={contactIdentity(contact)} subject={`contact ${name}`} onReference={onReference} />}
+            controls={<ObjectSelectionControls identity={contactIdentity(contact)} subject={`contact ${name}`} />}
           />;
           })}
           </ul>
@@ -1309,7 +1269,7 @@ const genericScreens: Record<GenericObjectKind, { eyebrow: string; title: string
   files: { eyebrow: "Durable artifacts", title: "Files", detail: "Uploads, generated documents, and their source evidence.", url: "/api/files?limit=200", key: "files" },
 };
 
-function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
+function LibraryScreen() {
   const { data, error, loading, reload } = useApi<{ content: Entity[] }>("/api/content-items?limit=1000");
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/content-groups");
   const [filterQuery, setFilterQuery] = useState("");
@@ -1359,7 +1319,7 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
       {groups.map((group) => <section className="library-group" key={group.id} aria-label={`${group.name} library group`}>
         {Number.isSafeInteger(Number(group.id)) && Number(group.id) > 0 ? <LibraryGroupCard
           object={{ id: Number(group.id), type: "video.content_group", label: "Library group", display: group.name, attributes: [{ label: "Items", value: String(group.items.length) }] }}
-          controls={<AgentReferenceButton identity={contentGroupIdentity({ id: Number(group.id), name: group.name })} subject={`library group ${group.name}`} onReference={onReference} />}
+          controls={<ObjectSelectionControls identity={contentGroupIdentity({ id: Number(group.id), name: group.name })} subject={`library group ${group.name}`} />}
           actions={group.editable ? [{ key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups" }) }] : []}
         /> : <header className="library-group-heading"><h2 id={`library-group-${group.id}`}>{group.name}</h2><span>{group.items.length} {group.items.length === 1 ? "item" : "items"}</span></header>}
         {group.items.length ? <ul className="library-list">
@@ -1378,7 +1338,7 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
                 ],
                 badges: [textKey(entity, "contentType").replaceAll("_", " "), textKey(entity, "contentStatus", "status").replaceAll("_", " ")],
               })}
-              controls={<AgentReferenceButton identity={genericEntityIdentity("content", entity)} subject={`library ${title}`} onReference={onReference} />}
+              controls={<ObjectSelectionControls identity={genericEntityIdentity("content", entity)} subject={`library ${title}`} />}
             />;
           })}
         </ul> : <p className="library-group-empty">No items in this group.</p>}
@@ -1388,7 +1348,7 @@ function LibraryScreen({ onReference }: { onReference: AddAgentReference }) {
   </>;
 }
 
-function VideoScriptsScreen({ onReference }: { onReference: AddAgentReference }) {
+function VideoScriptsScreen() {
   const { data, error, loading, reload } = useApi<{ scripts: Entity[] }>("/api/video-scripts?status=all&limit=500");
   const [filterQuery, setFilterQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
@@ -1444,7 +1404,7 @@ function VideoScriptsScreen({ onReference }: { onReference: AddAgentReference })
                 attributes: [{ label: "ID", value: `#${String(scriptId)}` }],
                 badges: [`${sourceCount} ${sourceCount === 1 ? "source" : "sources"}`, textKey(render, "status").replaceAll("_", " ")],
               })}
-              controls={<AgentReferenceButton identity={genericEntityIdentity("video-scripts", script)} subject={`video script ${title}`} onReference={onReference} />}
+              controls={<ObjectSelectionControls identity={genericEntityIdentity("video-scripts", script)} subject={`video script ${title}`} />}
             />;
           })}
         </ul> : <p className="library-group-empty">No scripts in this group.</p>}
@@ -1453,7 +1413,7 @@ function VideoScriptsScreen({ onReference }: { onReference: AddAgentReference })
   </>;
 }
 
-function FilesScreen({ onReference }: { onReference: AddAgentReference }) {
+function FilesScreen() {
   const { data, error, loading, reload } = useApi<{ files: Entity[] }>("/api/files?limit=200");
   const [filterQuery, setFilterQuery] = useState("");
   const [selectedMediaKind, setSelectedMediaKind] = useState("all");
@@ -1511,7 +1471,7 @@ function FilesScreen({ onReference }: { onReference: AddAgentReference }) {
                 attributes: [{ label: "ID", value: `#${String(fileId)}` }],
                 badges: [textKey(file, "mimeType")],
               })}
-              controls={<AgentReferenceButton identity={genericEntityIdentity("files", file)} subject={`file ${title}`} onReference={onReference} />}
+              controls={<ObjectSelectionControls identity={genericEntityIdentity("files", file)} subject={`file ${title}`} />}
               onDownload={() => void downloadAuthenticated(`/api/files/${fileId}/download`, textKey(file, "originalFilename") || `file-${fileId}`)}
             />;
           })}
@@ -1521,7 +1481,7 @@ function FilesScreen({ onReference }: { onReference: AddAgentReference }) {
   </>;
 }
 
-function GenericScreen({ kind, onReference }: { kind: keyof typeof genericScreens; onReference: AddAgentReference }) {
+function GenericScreen({ kind }: { kind: keyof typeof genericScreens }) {
   const config = genericScreens[kind];
   const { data, error, loading, reload } = useApi<Record<string, unknown>>(config.url);
   const [filterQuery, setFilterQuery] = useState("");
@@ -1539,7 +1499,7 @@ function GenericScreen({ kind, onReference }: { kind: keyof typeof genericScreen
         attributes: readKey(entity, "sequence") != null ? [{ label: "Sequence", value: `#${String(entity.sequence)}` }] : [],
         badges: [textKey(entity, "status", "contentStatus", "mediaKind") || config.title],
       })}
-      controls={<AgentReferenceButton identity={genericEntityIdentity(kind, entity)} subject={`${config.title.toLowerCase()} ${title}`} onReference={onReference} />}
+      controls={<ObjectSelectionControls identity={genericEntityIdentity(kind, entity)} subject={`${config.title.toLowerCase()} ${title}`} />}
       actions={kind === "files" && entityId ? [{ key: "download", label: "Download", onClick: () => void downloadAuthenticated(`/api/files/${entityId}/download`, textKey(entity, "originalFilename") || `file-${entityId}`) }] : []}
     />;
   })}</div></>;
@@ -1553,7 +1513,7 @@ function HatsScreen() {
   return <><PageHeading eyebrow="Ways of working" title="Hats" detail={String(data?.introduction || "Name a hat when you want a particular working stance.")} /><SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleHats.length} noun="hat" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !visibleHats.length && <Empty>{filterQuery.trim() ? "No hats match the filter." : "No hats are available."}</Empty>}<div className="hat-grid">{visibleHats.map((hat, index) => <article className="hat-card" key={hat.id || index}><img className="hat-shape" src="/logo-outline-hat.svg" alt="" aria-hidden="true" /><h2>{textKey(hat, "title", "label", "name")}</h2><p>{textKey(hat, "description", "summary")}</p></article>)}</div></>;
 }
 
-function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
+function JournalScreen() {
   const { data: trackers, error, loading, reload } = useApi<{ trackers: Entity[] }>("/api/journal-trackers?limit=200");
   const { data: entries, error: entryError, loading: entriesLoading, reload: reloadEntries } = useApi<{ entries: Entity[] }>("/api/journal-entries?limit=100");
   const [filterQuery, setFilterQuery] = useState("");
@@ -1612,7 +1572,7 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
         return <section className="library-group" key={group.id} aria-label={`${group.name} journal group`}>
           {group.groupId != null ? <JournalGroupCard
             object={{ id: group.groupId, type: "journal.group", label: "Journal group", display: group.name, attributes: [{ label: "Items", value: String(count) }] }}
-            controls={<AgentReferenceButton identity={journalGroupIdentity({ id: group.groupId, name: group.name })} subject={`journal group ${group.name}`} onReference={onReference} />}
+            controls={<ObjectSelectionControls identity={journalGroupIdentity({ id: group.groupId, name: group.name })} subject={`journal group ${group.name}`} />}
             actions={group.name.toLowerCase() !== "general" ? [{ key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: group.groupId!, name: group.name, resource: "journal-groups" }) }] : []}
           /> : <header className="library-group-heading"><h2>{group.name}</h2><span>{count} {count === 1 ? "item" : "items"}</span></header>}
           <ul className="library-list">
@@ -1629,7 +1589,7 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
                     { label: "Group", value: group.name },
                   ],
                 })}
-                controls={<AgentReferenceButton identity={journalTrackerIdentity(tracker)} subject={`journal tracker ${name}`} onReference={onReference} />}
+                controls={<ObjectSelectionControls identity={journalTrackerIdentity(tracker)} subject={`journal tracker ${name}`} />}
                 details={<TrackerSchedule tracker={tracker} onChanged={reloadJournal} />}
               />;
             })}
@@ -1643,7 +1603,7 @@ function JournalScreen({ onReference }: { onReference: AddAgentReference }) {
                 body: textKey(entry, "contentText", "text", "numberValue") || null,
                 attributes: [{ label: "Occurred", value: formatDisplayDate(textKey(entry, "occurredAtUtc", "createdAtUtc")) }],
               })}
-              controls={<AgentReferenceButton identity={journalEntryIdentity(entry)} subject={`journal entry ${entry.id}`} onReference={onReference} />}
+              controls={<ObjectSelectionControls identity={journalEntryIdentity(entry)} subject={`journal entry ${entry.id}`} />}
             />)}
           </ul>
         </section>;
@@ -2154,7 +2114,7 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
   </div>;
 }
 
-function PaymentsScreen({ onReference }: { onReference: AddAgentReference }) {
+function PaymentsScreen() {
   const { data: statusData, error: statusError, loading: statusLoading, reload: reloadStatus } = useApi<{ stripe: StripeConnectionStatus }>("/api/payments/stripe/status");
   const { data: invoiceData, error: invoiceError, loading: invoicesLoading, reload: reloadInvoices } = useApi<{ count: number; invoices: Entity[] }>("/api/payment-invoices?limit=100");
   const { data: contactData, error: contactError, loading: contactsLoading } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=active&limit=10000");
@@ -2237,7 +2197,7 @@ function PaymentsScreen({ onReference }: { onReference: AddAgentReference }) {
         badges: [invoicePaymentStatusLabel(invoice)],
       })}
       onEdit={() => setSelectedInvoice(invoice)}
-      controls={<AgentReferenceButton identity={invoiceIdentity(invoice)} subject={`invoice ${String(invoice.invoiceId)}`} onReference={onReference} />}
+      controls={<ObjectSelectionControls identity={invoiceIdentity(invoice)} subject={`invoice ${String(invoice.invoiceId)}`} />}
       actions={Boolean(invoice.hostedInvoiceUrl) ? [{ key: "stripe", label: "Open Stripe", href: String(invoice.hostedInvoiceUrl), external: true }] : []}
     />)}</div>
     {selectedInvoice && <InvoiceEditor
@@ -2278,7 +2238,7 @@ function Workspace() {
   const [calendarGenerationNotice, setCalendarGenerationNotice] = useState<string | null>(null);
   const [agentDraft, setAgentDraft] = useState("");
   const [agentObjectSelections, setAgentObjectSelections] = useState<SelectedObjectCandidate[]>([]);
-  const [agentReferenceNotice, setAgentReferenceNotice] = useState<string | null>(null);
+  const [agentSelectionNotice, setAgentSelectionNotice] = useState<string | null>(null);
   const [agentComposerSelection, setAgentComposerSelection] = useState<ComposerTextSelection | null>(null);
   const [agentComposerCursorRequest, setAgentComposerCursorRequest] = useState<{ position: number; revision: number } | null>(null);
   const [requestRefreshKey, setRequestRefreshKey] = useState(0);
@@ -2287,40 +2247,22 @@ function Workspace() {
   const [requestTrace, setRequestTrace] = useState<RequestTrace | null>(null);
   const [traceError, setTraceError] = useState<unknown>(null);
   const go = (next: string) => { setView(next); history.replaceState(null, "", `#${next}`); };
-  const referenceManyInAgent: AddAgentReferences = (entries) => {
-    const existing = new Set(agentObjectSelections.map(({ ref }) => ref));
-    const additions = entries.filter(({ identity }, index, values) => (
-      !existing.has(identity.ref)
-      && values.findIndex((entry) => entry.identity.ref === identity.ref) === index
-    ));
-    if (agentObjectSelections.length + additions.length > maximumObjectReferences) {
-      setAgentReferenceNotice(`Adding ${additions.length} objects would exceed the ${maximumObjectReferences}-object request limit. Nothing was added or truncated.`);
+  const toggleObjectSelection = (identity: SelectedObjectCandidate) => {
+    const selected = agentObjectSelections.find(({ ref }) => ref === identity.ref);
+    if (selected) {
+      setAgentObjectSelections((current) => current.filter(({ ref }) => ref !== identity.ref));
+      if (selected.selectionOrigin === "mention") {
+        setAgentDraft((current) => current.replaceAll(selected.mention, "").replace(/ {2,}/gu, " ").trimStart());
+      }
+      setAgentSelectionNotice(null);
       return;
     }
-    if (additions.length) {
-      const insertion = insertObjectMentions(
-        agentDraft,
-        additions.map(({ identity }) => identity.mention),
-        agentComposerSelection,
-      );
-      setAgentObjectSelections([
-        ...agentObjectSelections.filter(({ mention }) => insertion.value.includes(mention)),
-        ...additions.map(({ identity }) => identity),
-      ]);
-      setAgentDraft(insertion.value);
-      setAgentComposerSelection({ start: insertion.cursor, end: insertion.cursor });
-      setAgentComposerCursorRequest((current) => ({
-        position: insertion.cursor,
-        revision: (current?.revision ?? 0) + 1,
-      }));
+    if (agentObjectSelections.length >= maximumObjectReferences) {
+      setAgentSelectionNotice(`A request can reference at most ${maximumObjectReferences} objects. Nothing was selected or truncated.`);
+      return;
     }
-    const subjects = entries.map(({ subject }) => subject);
-    setAgentReferenceNotice(additions.length
-      ? `Added ${additions.length} ${additions.length === 1 ? "object" : "objects"} to the Agent composer.`
-      : subjects.length === 1 ? `Already referencing ${subjects[0]} in the Agent composer.` : "Those objects are already referenced in the Agent composer.");
-  };
-  const referenceInAgent: AddAgentReference = (identity, subject) => {
-    referenceManyInAgent([{ identity, subject }]);
+    setAgentSelectionNotice(null);
+    setAgentObjectSelections((current) => [...current, { ...identity, selectionOrigin: "card" }]);
   };
   const showTrace = async (requestId: string) => {
     setTraceRequestId(requestId);
@@ -2337,7 +2279,6 @@ function Workspace() {
   };
   let screen: ReactNode;
   if (view === "agent") screen = <AgentScreen
-    onReference={referenceInAgent}
     onShowTrace={(requestId) => void showTrace(requestId)}
     refreshKey={requestRefreshKey}
     optimisticRequests={optimisticRequests}
@@ -2346,19 +2287,19 @@ function Workspace() {
       setOptimisticRequests((current) => current.filter(({ requestId }) => !observed.has(requestId)));
     }}
   />;
-  else if (view === "calendar") screen = <CalendarScreen generationNotice={calendarGenerationNotice} dismissGenerationNotice={() => setCalendarGenerationNotice(null)} onReference={referenceInAgent} />;
-  else if (view === "todos") screen = <TodoScreen onReference={referenceInAgent} onReferences={referenceManyInAgent} />;
-  else if (view === "contacts") screen = <ContactsScreen onReference={referenceInAgent} />;
+  else if (view === "calendar") screen = <CalendarScreen generationNotice={calendarGenerationNotice} dismissGenerationNotice={() => setCalendarGenerationNotice(null)} />;
+  else if (view === "todos") screen = <TodoScreen />;
+  else if (view === "contacts") screen = <ContactsScreen />;
   else if (view === "hats") screen = <HatsScreen />;
-  else if (view === "routine") screen = <RoutineScreen onGenerated={(message) => { setCalendarGenerationNotice(message); go("calendar"); }} onReference={referenceInAgent} />;
-  else if (view === "journal") screen = <JournalScreen onReference={referenceInAgent} />;
-  else if (view === "payments") screen = <PaymentsScreen onReference={referenceInAgent} />;
+  else if (view === "routine") screen = <RoutineScreen onGenerated={(message) => { setCalendarGenerationNotice(message); go("calendar"); }} />;
+  else if (view === "journal") screen = <JournalScreen />;
+  else if (view === "payments") screen = <PaymentsScreen />;
   else if (view === "ai-usage") screen = <UsageScreen />;
-  else if (view === "content") screen = <LibraryScreen onReference={referenceInAgent} />;
-  else if (view === "video-scripts") screen = <VideoScriptsScreen onReference={referenceInAgent} />;
-  else if (view === "files") screen = <FilesScreen onReference={referenceInAgent} />;
-  else screen = <GenericScreen kind={view as keyof typeof genericScreens} onReference={referenceInAgent} />;
-  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav><div className="token-settings">
+  else if (view === "content") screen = <LibraryScreen />;
+  else if (view === "video-scripts") screen = <VideoScriptsScreen />;
+  else if (view === "files") screen = <FilesScreen />;
+  else screen = <GenericScreen kind={view as keyof typeof genericScreens} />;
+  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection}><div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav><div className="token-settings">
     <button className="token-button" onClick={() => { setTokenDraft(getAccessToken()); setEditingToken((open) => !open); }}>Access token</button>
     {editingToken && <form className="token-editor" onSubmit={saveToken}>
       <label>Replace token<input autoFocus type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} /></label>
@@ -2369,8 +2310,8 @@ function Workspace() {
     setText={setAgentDraft}
     selections={agentObjectSelections}
     setSelections={setAgentObjectSelections}
-    referenceNotice={agentReferenceNotice}
-    clearReferenceNotice={() => setAgentReferenceNotice(null)}
+    selectionNotice={agentSelectionNotice}
+    clearSelectionNotice={() => setAgentSelectionNotice(null)}
     cursorRequest={agentComposerCursorRequest}
     onSelectionChange={setAgentComposerSelection}
     onSubmitted={(request) => {
@@ -2379,7 +2320,7 @@ function Workspace() {
       setOptimisticRequests((current) => [request, ...current.filter(({ requestId }) => requestId !== request.requestId)]);
       setRequestRefreshKey((current) => current + 1);
     }}
-  />{traceRequestId && <TracePanel requestId={traceRequestId} trace={requestTrace} error={traceError} onClose={() => setTraceRequestId(null)} />}</div>;
+  />{traceRequestId && <TracePanel requestId={traceRequestId} trace={requestTrace} error={traceError} onClose={() => setTraceRequestId(null)} />}</div></ObjectSelectionProvider>;
 }
 
 export default function App() {

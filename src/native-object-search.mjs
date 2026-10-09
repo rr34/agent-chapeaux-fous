@@ -116,31 +116,6 @@ export function normalizeSelectedObjectCandidates(value, { maximum = maximumSele
   return output;
 }
 
-function visibleMentionCount(text, mention) {
-  let count = 0;
-  let offset = 0;
-  while (offset < text.length) {
-    const index = text.indexOf(mention, offset);
-    if (index < 0) break;
-    const before = text[index - 1] ?? "";
-    const after = text[index + mention.length] ?? "";
-    const startsAtBoundary = !before || /[\s([{]/u.test(before);
-    const endsAtBoundary = !after || /[\s,.;:!?()[\]{}]/u.test(after);
-    if (startsAtBoundary && endsAtBoundary) count += 1;
-    offset = index + mention.length;
-  }
-  return count;
-}
-
-export function selectedObjectMentionsAreVisible(requestText, selectedCandidates) {
-  const text = String(requestText ?? "");
-  const required = new Map();
-  for (const { mention } of selectedCandidates) {
-    required.set(mention, (required.get(mention) ?? 0) + 1);
-  }
-  return [...required].every(([mention, count]) => visibleMentionCount(text, mention) >= count);
-}
-
 export function objectSearchTerms(query) {
   if (typeof query !== "string" || query.length > 400) throw new TypeError("Object search text must be at most 400 characters.");
   const words = query.normalize("NFKC").toLocaleLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? [];

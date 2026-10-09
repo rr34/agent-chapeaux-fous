@@ -59,7 +59,12 @@ test("database and model failures still make the core service unavailable", () =
 
 test("new requests are admitted while TLOM is disconnected", async () => {
   const responses = [];
+  const createdRequests = [];
   let queueWakes = 0;
+  const selectedObjectCandidates = [{
+    mention: "@Call Jordan — To-do #7", type: "todos.personal_task", source: "native:todos",
+    id: 7, ref: "agent-slayer://todos/7", display: "Call Jordan",
+  }];
   const context = vm.createContext({
     URL,
     http: { createServer: handler => ({ handler }) },
@@ -68,12 +73,11 @@ test("new requests are admitted while TLOM is disconnected", async () => {
     store: { status: { ready: true } },
     mcp: { requiredProblem: () => "tlom integration is unavailable" },
     jmap: { requiredProblem: () => null },
-    readJson: async () => ({ text: "Add a personal to-do" }),
+    readJson: async () => ({ text: "Please handle the selected work", selectedObjectCandidates }),
     normalizeRunLimits: () => null,
     normalizeReferencedRequestIds: () => [],
-    normalizeSelectedObjectCandidates: () => [],
-    selectedObjectMentionsAreVisible: () => true,
-    ledger: { createRequest: () => ({ requestId: "new-request" }) },
+    normalizeSelectedObjectCandidates: () => selectedObjectCandidates,
+    ledger: { createRequest: (request) => { createdRequests.push(request); return { requestId: "new-request" }; } },
     queue: { notify: () => { queueWakes++; } },
     sendJson: (_response, status, body) => responses.push({ status, body }),
     console: { error: error => { throw error; } },
@@ -87,6 +91,7 @@ test("new requests are admitted while TLOM is disconnected", async () => {
   assert.equal(responses[0].status, 202);
   assert.equal(responses[0].body.requestId, "new-request");
   assert.equal(queueWakes, 1);
+  assert.deepEqual(createdRequests[0].metadata.selectedObjectCandidates, selectedObjectCandidates);
 });
 test("tracker schedule route delegates to the owning catch-up service", async () => {
   const calls = [];

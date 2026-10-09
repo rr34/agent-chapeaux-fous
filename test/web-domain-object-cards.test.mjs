@@ -40,9 +40,9 @@ test("the network dispatches to domain cards instead of rendering its own object
   assert.match(app, /<InvoiceCard/);
 });
 
-test("compact cards have one identity and exactly the shared expand, network, and reference controls", () => {
+test("compact cards have one identity and exactly the shared expand, network, and selection controls", () => {
   const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");
-  const references = fs.readFileSync(path.join(root, "web/src/components/AgentReferenceButton.tsx"), "utf8");
+  const references = fs.readFileSync(path.join(root, "web/src/components/ObjectSelectionControls.tsx"), "utf8");
   const buttons = fs.readFileSync(path.join(cardsRoot, "ObjectCardButtons.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
   assert.match(compact, /object\.label/);
@@ -51,8 +51,8 @@ test("compact cards have one identity and exactly the shared expand, network, an
   assert.match(compact, /\{controls\}/);
   assert.doesNotMatch(compact, /object\.body|object\.attributes|object\.badges|actions\.map/);
   assert.match(references, /<ObjectNetworkButton identity=\{identity\}/);
-  assert.match(references, /<ObjectCardReferenceButton/);
-  assert.match(buttons, /className="agent-reference-button"/);
+  assert.match(references, /<ObjectCardSelectionCheckbox/);
+  assert.match(buttons, /className="object-selection-checkbox"/);
   assert.match(buttons, /className="object-network-button"/);
   assert.match(styles, /\.compact-object-card \{/);
   assert.match(styles, /\.compact-object-controls/);

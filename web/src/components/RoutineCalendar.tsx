@@ -13,7 +13,6 @@ import type {
 import { CalendarGrid } from "./DailyPaper";
 import { CalendarRoutineEditor, CalendarRoutineItem } from "./EditableItems";
 import { ErrorState, Loading } from "./State";
-import { type AddAgentReference } from "./AgentReferenceButton";
 import { SectionFilter } from "./SectionFilter";
 import { matchesSearch } from "../search-filter";
 
@@ -123,12 +122,11 @@ function recurrenceLabel(rule: string) {
   return interval === 1 ? `${name[0].toUpperCase()}${name.slice(1)}ly` : `Every ${interval} ${name}s`;
 }
 
-function RoutineAgenda({ day, routines, query, onChanged, onReference }: {
+function RoutineAgenda({ day, routines, query, onChanged }: {
   day?: CalendarDay;
   routines: Map<number, CalendarRoutine>;
   query: string;
   onChanged: () => void | Promise<void>;
-  onReference: AddAgentReference;
 }) {
   if (!day) return null;
   const visibleEvents = day.events.filter((event) => matchesSearch(routines.get(Number(event.id)), query));
@@ -138,14 +136,13 @@ function RoutineAgenda({ day, routines, query, onChanged, onReference }: {
       const routine = routines.get(Number(event.id));
       if (!routine) return null;
       const timeLabel = `${event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, event.timeZone || undefined)} · ${recurrenceLabel(routine.recurrenceRule)}`;
-      return <CalendarRoutineItem key={`${event.id}-${event.startsAtUtc}`} routine={routine} timeLabel={timeLabel} onChanged={onChanged} onReference={onReference} />;
+      return <CalendarRoutineItem key={`${event.id}-${event.startsAtUtc}`} routine={routine} timeLabel={timeLabel} onChanged={onChanged} />;
     })}
   </div>;
 }
 
-export function RoutineScreen({ onGenerated, onReference }: {
+export function RoutineScreen({ onGenerated }: {
   onGenerated: (message: string) => void;
-  onReference: AddAgentReference;
 }) {
   const today = useMemo(() => startOfDay(new Date()), []);
   const monthDates = useMemo(() => routineMonthDates(today), [today]);
@@ -214,12 +211,12 @@ export function RoutineScreen({ onGenerated, onReference }: {
       <section className="surface routine-calendar-section">
         <div className="section-title"><div><p className="eyebrow">Reusable week</p><h2>Weekly &amp; daily</h2><p>Select a weekday, then click a routine to edit it.</p></div></div>
         <div className="routine-calendar-scroll"><CalendarGrid days={weeklyDays} selectedDate={selectedWeekday} onSelect={setSelectedWeekday} ariaLabel="Weekly routine calendar, Monday through Sunday" searchQuery={filterQuery} /></div>
-        <RoutineAgenda day={selectedWeeklyDay} routines={routineMap} query={filterQuery} onChanged={reload} onReference={onReference} />
+        <RoutineAgenda day={selectedWeeklyDay} routines={routineMap} query={filterQuery} onChanged={reload} />
       </section>
       <section className="surface routine-calendar-section">
         <div className="section-title"><div><p className="eyebrow">Month pattern</p><h2>{monthName}</h2><p>Monthly and yearly routines. Daily and weekly patterns appear above.</p></div></div>
         <div className="routine-calendar-scroll"><CalendarGrid days={monthlyDays} selectedDate={selectedMonthDate} onSelect={setSelectedMonthDate} ariaLabel={`Monthly routine calendar for ${monthName}`} searchQuery={filterQuery} /></div>
-        <RoutineAgenda day={selectedMonthlyDay} routines={routineMap} query={filterQuery} onChanged={reload} onReference={onReference} />
+        <RoutineAgenda day={selectedMonthlyDay} routines={routineMap} query={filterQuery} onChanged={reload} />
       </section>
     </div>}
     {adding && <CalendarRoutineEditor onClose={() => setAdding(false)} onChanged={reload} />}

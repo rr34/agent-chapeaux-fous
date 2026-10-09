@@ -17,10 +17,3 @@ export function NetworkIcon({ broken = false }: { broken?: boolean }) {
     {!broken && <circle cx="12" cy="12" r="2.2" />}
   </svg>;
 }
-
-export function ReferenceIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M20 19c0-4.4-3.6-8-8-8H4" />
-    <path d="m9 6-5 5 5 5" />
-  </svg>;
-}

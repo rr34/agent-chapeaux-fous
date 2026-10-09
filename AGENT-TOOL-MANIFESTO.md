@@ -260,15 +260,15 @@ primary object. An object reference narrows what the user and agent are
 discussing; it does not make a tool callable, authorize a mutation, or bypass
 the owning tool's validation.
 
-While the user composes a request, the web client may open a draft-only `@`
-picker above the text area. Its authorized, read-only search uses selected
-database fields and groups results by domain type. The picker and its identity
-chips are separate from durable request history; the composer remains the one
-text input. A selection must remain visible in the submitted request as
-`@Display name`, while the client submits the matching domain type, owning
-source, provider ID, stable reference, and display name as bounded request
-metadata. The server validates that tuple and its visible mention before
-accepting the request. A derived index is considered only if direct reads
+While the user composes a request, every canonical object card exposes the same
+selection checkbox, and the persistent Agent composer shows the bounded total
+selected for the next request. The checked source cards remain the sole object
+visualization while selection is in progress; the composer does not duplicate
+them. The client submits each selection's matching domain type, owning source,
+provider ID, stable reference, and display name as bounded request metadata,
+and the server validates every exact tuple before accepting the request. The
+optional draft-only `@` picker uses the same selection metadata while also
+inserting a visible inline mention for prose composed that way. A derived index is considered only if direct reads
 prove inadequate under the conditions above. Deterministic candidate matching
 does not decide what the user meant. Agent request processing does not make an
 unselected database read before execution or insert UI candidates into model

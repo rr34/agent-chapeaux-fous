@@ -2,14 +2,8 @@ import type { CalendarEvent, Entity, LinkedTodo, RequestRecord, SelectedObjectCa
 import { formatDisplayDate, formatDisplayTime } from "../date-format";
 import { ObjectNetworkButton } from "./ObjectNetworkButton";
 import { descriptiveObjectMention } from "../object-references";
-import { ObjectCardReferenceButton } from "./object-cards/ObjectCardButtons";
-
-export type AddAgentReference = (identity: SelectedObjectCandidate, subject: string) => void;
-export interface AgentReferenceEntry {
-  identity: SelectedObjectCandidate;
-  subject: string;
-}
-export type AddAgentReferences = (entries: AgentReferenceEntry[]) => void;
+import { ObjectCardSelectionCheckbox } from "./object-cards/ObjectCardButtons";
+import { useObjectSelection } from "./ObjectSelectionContext";
 
 function concise(value: unknown, maximum = 200) {
   const text = String(value ?? "").replace(/\s+/gu, " ").trim();
@@ -52,15 +46,20 @@ function nativeReference({
   };
 }
 
-export function AgentReferenceButton({ identity, subject, onReference }: {
+export function ObjectSelectionControls({ identity, subject }: {
   identity: SelectedObjectCandidate;
   subject: string;
-  onReference: AddAgentReference;
 }) {
-  const label = `Reference ${subject} in Agent`;
-  return <span className="object-reference-actions">
-    <ObjectNetworkButton identity={identity} subject={subject} onReference={onReference} />
-    <ObjectCardReferenceButton label={label} onClick={() => onReference(identity, subject)} />
+  const selection = useObjectSelection();
+  const selected = selection?.selections.some(({ ref }) => ref === identity.ref) ?? false;
+  const label = `${selected ? "Remove" : "Select"} ${subject} ${selected ? "from" : "for"} the next Agent request`;
+  return <span className="object-card-controls">
+    <ObjectNetworkButton identity={identity} subject={subject} />
+    <ObjectCardSelectionCheckbox
+      label={label}
+      checked={selected}
+      onChange={selection ? () => selection.toggleSelection(identity) : undefined}
+    />
   </span>;
 }
 

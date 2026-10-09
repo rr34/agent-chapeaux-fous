@@ -39,15 +39,12 @@ test("the React to-do page can filter its visible tasks by group", () => {
   assert.match(styles, /\.section-filter-controls/);
 });
 
-test("to-do cards support bounded bulk selection and one bulk Agent reference", () => {
-  assert.match(appSource, /selectedTodos, setSelectedTodos/);
-  assert.match(appSource, /Select all visible/);
-  assert.match(appSource, /Reference selected in Agent/);
-  assert.match(appSource, /Nothing was selected or truncated/);
-  assert.match(appSource, /selected=\{selectedTodos\.has\(identity\.ref\)\}/);
-  assert.match(appSource, /onSelectionChange=\{\(selected\) => setTodoSelected\(todo, selected\)\}/);
-  assert.match(styles, /\.todo-selection-bar/);
-  assert.match(styles, /\.todo-select \{[^}]*width: 24px;[^}]*height: 24px;/);
+test("to-do cards use the workspace-wide Agent selection instead of a section-only batch bar", () => {
+  assert.doesNotMatch(appSource, /Select all visible|Reference selected in Agent/);
+  assert.match(appSource, /<TodoItem todo=\{todo\}[^>]+onChanged=\{reload\}/);
+  assert.match(appSource, /<ObjectSelectionProvider selections=\{agentObjectSelections\}/);
+  assert.match(styles, /\.object-selection-checkbox \{[^}]*width: 17px;[^}]*height: 17px;/);
+  assert.doesNotMatch(styles, /\.todo-selection-bar/);
 });
 
 test("the React to-do page pins group containers rather than individual tasks", () => {

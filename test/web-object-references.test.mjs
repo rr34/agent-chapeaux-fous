@@ -6,16 +6,15 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("the React UI can reference every displayed first-class object in Agent", () => {
+test("the React UI can select every displayed first-class object for Agent", () => {
   const app = fs.readFileSync(path.join(root, "web", "src", "App.tsx"), "utf8");
   const dailyPaper = fs.readFileSync(path.join(root, "web", "src", "components", "DailyPaper.tsx"), "utf8");
   const routines = fs.readFileSync(path.join(root, "web", "src", "components", "RoutineCalendar.tsx"), "utf8");
   const editableItems = fs.readFileSync(path.join(root, "web", "src", "components", "EditableItems.tsx"), "utf8");
-  const references = fs.readFileSync(path.join(root, "web", "src", "components", "AgentReferenceButton.tsx"), "utf8");
-  const icons = fs.readFileSync(path.join(root, "web", "src", "components", "object-cards", "ObjectCardIcons.tsx"), "utf8");
+  const references = fs.readFileSync(path.join(root, "web", "src", "components", "ObjectSelectionControls.tsx"), "utf8");
   const buttons = fs.readFileSync(path.join(root, "web", "src", "components", "object-cards", "ObjectCardButtons.tsx"), "utf8");
 
-  assert.match(icons, /M20 19c0-4\.4-3\.6-8-8-8H4/);
+  assert.match(buttons, /type="checkbox"/);
   assert.match(buttons, /aria-label=\{label\}/);
   assert.match(references, /ref: stableReference\("calendar-events", numericEventId\)/);
   assert.match(references, /ref: stableReference\("todos", id\)/);
@@ -37,24 +36,22 @@ test("the React UI can reference every displayed first-class object in Agent", (
   assert.match(app, /identity=\{journalEntryIdentity\(entry\)\}/);
   assert.match(editableItems, /identity=\{calendarEventIdentity\(event, timeZone\)\}/);
   assert.match(editableItems, /identity=\{todoIdentity\(todo\)\}/);
-  assert.match(editableItems, /onReference && Number\.isSafeInteger\(eventId\) && eventId > 0/);
-  assert.match(editableItems, /onReference \? <AgentReferenceButton identity=\{todoIdentity\(todo\)\}/);
+  assert.match(editableItems, /Number\.isSafeInteger\(eventId\) && eventId > 0 \? <ObjectSelectionControls/);
+  assert.match(editableItems, /controls=\{<ObjectSelectionControls identity=\{todoIdentity\(todo\)\}/);
   assert.match(editableItems, /identity=\{calendarRoutineIdentity\(routine\)\}/);
 });
 
-test("React reference arrows add native inline objects while retaining exact source metadata", () => {
+test("card checkboxes stage exact native object bindings without modifying the instruction text", () => {
   const app = fs.readFileSync(path.join(root, "web", "src", "App.tsx"), "utf8");
-  const references = fs.readFileSync(path.join(root, "web", "src", "components", "AgentReferenceButton.tsx"), "utf8");
-  const objectReferences = fs.readFileSync(path.join(root, "web", "src", "object-references.ts"), "utf8");
+  const references = fs.readFileSync(path.join(root, "web", "src", "components", "ObjectSelectionControls.tsx"), "utf8");
   assert.doesNotMatch(app, /"In reference to:\\n" \+ identity/);
-  assert.match(app, /agentObjectSelections\.filter\(\(\{ mention \}\) => insertion\.value\.includes\(mention\)\)/);
-  assert.match(app, /insertObjectMentions\(\s*agentDraft,\s*additions\.map\(\(\{ identity \}\) => identity\.mention\),\s*agentComposerSelection/);
-  assert.match(objectReferences, /mentions\.join\(" "\)/);
-  assert.match(app, /Nothing was added or truncated/);
+  assert.doesNotMatch(app, /insertObjectMentions/);
+  assert.match(app, /selectionOrigin: "card"/);
+  assert.match(app, /composer-selection-summary/);
+  assert.match(app, /selected for this request/);
   assert.match(app, /const referencedRequestIds = \[\.\.\.new Set\(selections\.flatMap/);
   assert.match(app, /referencedRequestId \? \[\] : \[selection\]/);
   assert.match(references, /mention: descriptiveObjectMention/);
-  assert.match(objectReferences, /— \$\{label\} #\$\{String\(id\)\}/);
   assert.match(references, /type: "calendar\.event", source: "native:calendar"/);
   assert.match(references, /collection: "calendar-events", label: "Calendar event"/);
   assert.match(references, /const detail = \[\s*`Calendar event:/);
@@ -62,11 +59,11 @@ test("React reference arrows add native inline objects while retaining exact sou
   assert.match(references, /referencedRequestId: request\.requestId/);
 });
 
-test("reference arrows insert at the remembered composer selection without changing sections", () => {
+test("object selection stays in the current section and shares one workspace selection state", () => {
   const app = fs.readFileSync(path.join(root, "web", "src", "App.tsx"), "utf8");
-  const handler = app.slice(app.indexOf("const referenceManyInAgent"), app.indexOf("const referenceInAgent"));
+  const handler = app.slice(app.indexOf("const toggleObjectSelection"), app.indexOf("const showTrace"));
   assert.doesNotMatch(handler, /go\("agent"\)/);
-  assert.match(app, /cursorRequest=\{agentComposerCursorRequest\}/);
-  assert.match(app, /onSelectionChange=\{setAgentComposerSelection\}/);
-  assert.match(app, /setSelectionRange\(position, position\)/);
+  assert.match(app, /<ObjectSelectionProvider selections=\{agentObjectSelections\}/);
+  assert.match(handler, /current\.filter\(\(\{ ref \}\) => ref !== identity\.ref\)/);
+  assert.match(handler, /maximumObjectReferences/);
 });

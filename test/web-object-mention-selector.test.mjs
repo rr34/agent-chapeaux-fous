@@ -25,7 +25,7 @@ test("the Agent composer searches and groups native objects after @", () => {
   assert.match(picker, /event\.key === "Escape"/);
 });
 
-test("a chosen object remains visible and submits its exact identity tuple", () => {
+test("a chosen object submits its exact identity tuple", () => {
   assert.match(picker, /mention: descriptiveObjectMention/);
   assert.match(references, /`@\$\{boundedDisplay\}\$\{suffix\}`/);
   assert.match(references, /— \$\{label\} #\$\{String\(id\)\}/);
@@ -36,7 +36,8 @@ test("a chosen object remains visible and submits its exact identity tuple", () 
   assert.match(app, /const selectedObjectCandidates = selections\.flatMap/);
   assert.match(app, /detail: _detail/);
   assert.match(server, /normalizeSelectedObjectCandidates\(body\.selectedObjectCandidates\)/);
-  assert.match(server, /selectedObjectMentionsAreVisible\(text, selectedObjectCandidates\)/);
+  assert.doesNotMatch(server, /selectedObjectMentionsAreVisible\(text, selectedObjectCandidates\)/);
+  assert.match(app, /selectionOrigin: _selectionOrigin/);
 });
 
 test("selected identities render as inline objects with hover details", () => {

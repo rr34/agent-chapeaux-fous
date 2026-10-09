@@ -178,6 +178,7 @@ export interface SelectedObjectCandidate {
   label: string;
   detail?: string;
   referencedRequestId?: string;
+  selectionOrigin?: "card" | "mention";
 }
 
 export interface NetworkObject {
