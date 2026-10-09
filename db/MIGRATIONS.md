@@ -11,6 +11,17 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 51: Allow incomplete invoice drafts
+
+Allows prepared local invoice drafts to omit the payer and due date and to keep
+line prices at zero. Sending remains the enforcement boundary for complete
+customer, due-date, and positive-price data.
+
+The matching application requires schema version 51. Apply with writers
+stopped because invoice readers and writers must switch together. MariaDB DDL
+commits implicitly; keep writers stopped and replay the guarded migration after
+a partial failure.
+
 ## Version 50: Pin to-do groups to the daily paper
 
 Adds the default-false `todo_groups.daily_paper_pinned` preference. A pinned

@@ -16,11 +16,11 @@ test("daily-paper group pin migration is default-false, constrained, and replaya
   const options = {
     connectionSettings: temporary.target.connection,
     backupConfirmed: true,
-    writersStopped: false,
+    writersStopped: true,
     output: { write() {} },
   };
 
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [50]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [50, 51]);
   await verifyDatabase(database);
   assert.deepEqual(database.prepare(`
     SELECT name, daily_paper_pinned FROM todo_groups ORDER BY todo_group_id
@@ -35,7 +35,7 @@ test("daily-paper group pin migration is default-false, constrained, and replaya
 
   database.exec("UPDATE todo_groups SET daily_paper_pinned = 1 WHERE todo_group_id = 1");
   database.exec("UPDATE database_meta SET schema_version = 49 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [50]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [50, 51]);
   assert.equal(database.prepare(`
     SELECT daily_paper_pinned FROM todo_groups WHERE todo_group_id = 1
   `).get().daily_paper_pinned, 1);

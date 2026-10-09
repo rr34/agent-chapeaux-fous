@@ -28,7 +28,7 @@ test("migration removes populated legacy agent turn attempts and safely replays"
     writersStopped: true,
     output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]);
   assert.deepEqual(database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agent_turn_attempts'`).all(), []);
   await verifyDatabase(database);
@@ -37,6 +37,6 @@ test("migration removes populated legacy agent turn attempts and safely replays"
   restorePre46JournalTableNames(database);
 
   database.exec("UPDATE database_meta SET schema_version = 37 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]);
   await verifyDatabase(database);
 });

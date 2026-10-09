@@ -1,5 +1,7 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
+export const requiredDatabaseSchemaVersion = 51;
+
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
   activity_events: [
@@ -236,8 +238,10 @@ export function inspectDatabase(database) {
   const meta = database.prepare(`
     SELECT schema_version FROM database_meta WHERE singleton = 1
   `).get();
-  if (Number(meta?.schema_version) !== 50) {
-    problems.push(`Expected MariaDB schema version 50, found ${meta?.schema_version ?? "none"}`);
+  if (Number(meta?.schema_version) !== requiredDatabaseSchemaVersion) {
+    problems.push(
+      `Expected MariaDB schema version ${requiredDatabaseSchemaVersion}, found ${meta?.schema_version ?? "none"}`,
+    );
   }
   return { ready: problems.length === 0, problems, objects };
 }

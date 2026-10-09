@@ -9,7 +9,7 @@ import {
   quoteMariaDbIdentifier,
 } from "../scripts/mariadb-schema.mjs";
 import { readMigrationLedger, splitMariaDbStatements } from "../scripts/database-migrations.mjs";
-import { requiredEnumColumns } from "../src/database.mjs";
+import { requiredDatabaseSchemaVersion, requiredEnumColumns } from "../src/database.mjs";
 import { baselineBeforeJournalLevels } from "./helpers.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -140,6 +140,10 @@ test("the authoritative MariaDB baseline is complete at schema version 51", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
   assert.match(statements.at(-1), /VALUES \(1, 51, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.equal(
+    requiredDatabaseSchemaVersion,
+    readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
+  );
 });
 
 test("the invoice-draft migration preserves lines while relaxing only draft fields", () => {

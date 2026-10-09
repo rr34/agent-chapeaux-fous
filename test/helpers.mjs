@@ -13,8 +13,36 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
-export function baselineBeforeDailyPaperPin(source) {
+export function baselineBeforeIncompleteInvoiceDrafts(source) {
   return source
+    .replace(
+      "payer_contact_id BIGINT UNSIGNED COMMENT 'Optional native contact selected as customer; required before sending.',",
+      "payer_contact_id BIGINT UNSIGNED NOT NULL COMMENT 'Native contact selected as customer.',",
+    )
+    .replace(
+      "amount_minor BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Current line total in the smallest currency unit; may be zero while the local draft is incomplete.',",
+      "amount_minor BIGINT UNSIGNED NOT NULL COMMENT 'Current line total in the smallest currency unit.',",
+    )
+    .replace(
+      "due_on DATE COMMENT 'Optional customer-facing due date; required before sending.',",
+      "due_on DATE NOT NULL COMMENT 'Customer-facing due date.',",
+    )
+    .replace(
+      "payer_name_snapshot VARCHAR(500) COMMENT 'Customer name captured when a payer is selected.',",
+      "payer_name_snapshot VARCHAR(500) NOT NULL COMMENT 'Customer name captured when the draft is prepared.',",
+    )
+    .replace(
+      "payer_email_snapshot VARCHAR(320) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Customer email captured when a payer is selected.',",
+      "payer_email_snapshot VARCHAR(320) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Customer email captured when the draft is prepared.',",
+    )
+    .replace("amount_minor_snapshot BIGINT UNSIGNED NOT NULL DEFAULT 0,", "amount_minor_snapshot BIGINT UNSIGNED NOT NULL,")
+    .replace("payment_invoices_amount CHECK (amount_minor >= 0)", "payment_invoices_amount CHECK (amount_minor > 0)")
+    .replace("payment_invoice_lines_amount CHECK (amount_minor_snapshot >= 0)", "payment_invoice_lines_amount CHECK (amount_minor_snapshot > 0)")
+    .replace("VALUES (1, 51,", "VALUES (1, 50,");
+}
+
+export function baselineBeforeDailyPaperPin(source) {
+  return baselineBeforeIncompleteInvoiceDrafts(source)
     .replace(/^    -- daily_paper_pinned .+\n/gmu, "")
     .replace(/^    daily_paper_pinned .+\n/mu, "")
     .replace(/^    CONSTRAINT todo_groups_daily_paper_pinned .+\n/mu, "")
