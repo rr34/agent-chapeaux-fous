@@ -33,6 +33,7 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.match(appSource, /<PaymentsScreen onReference=\{referenceInAgent\} \/>/);
   assert.match(appSource, /Save changes/);
   assert.match(appSource, /Add line/);
+  assert.ok(appSource.indexOf('className="invoice-line-toolbar"') > appSource.indexOf('className="invoice-line-list"'));
   assert.match(appSource, /New manual line/);
   assert.match(appSource, /removeNewLine/);
   assert.match(appSource, /method: "PATCH"/);
@@ -45,6 +46,8 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.match(appSource, /Yes, send invoice/);
   assert.match(appSource, /\/api\/payment-invoices\/\$\{invoiceId\}\/send/);
   assert.match(appSource, /Save your line changes before previewing, downloading, or sending this invoice/);
+  assert.match(appSource, /Use 0\.00 for no charge/);
+  assert.match(appSource, /Zero-dollar lines are allowed/);
   assert.match(appSource, /invoice-history-list/);
   assert.match(appSource, /Newest first/);
   assert.match(appSource, /rightCreated - leftCreated/);

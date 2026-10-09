@@ -111,7 +111,7 @@ export function registerPaymentTools(registry, payments) {
   registry.register({
     name: "payment_invoice_prepare",
     confirmationHandoff: true,
-    description: "Immediately create an editable local invoice draft with at least one exact to-do or manual line. Do not ask for line prices, payer, or due date before calling this tool: those fields may be omitted and completed later in Payments. Return the created draft and report missingFields afterward. This does not require Stripe, contact the payer, or change a to-do's stored price. Only a send-ready result includes an exact confirmation handoff.",
+    description: "Immediately create an editable local invoice draft with at least one exact to-do or manual line. Do not ask for line prices, payer, or due date before calling this tool: those fields may be omitted and completed later in Payments. Zero-dollar lines are valid for explicitly documenting work that was not charged, but the invoice total must be positive before sending. Return the created draft and report missingFields afterward. This does not require Stripe, contact the payer, or change a to-do's stored price. Only a send-ready result includes an exact confirmation handoff.",
     outputSchema: preparedInvoiceResultSchema,
     parameters: { type: "object", additionalProperties: false, properties: {
       personal_task_ids: { type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
@@ -148,7 +148,7 @@ export function registerPaymentTools(registry, payments) {
   registry.register({
     name: "payment_invoice_update",
     confirmationHandoff: true,
-    description: "Update one exact local prepared invoice while leaving its referenced to-dos unchanged. Use payment_invoice_list first and pass its current preview_digest. Supply only intended header changes and line updates; unchanged line text and prices are preserved. line_updates addresses existing invoice snapshots by position, and manual_lines appends new independent lines. This never finalizes, sends, emails, or changes a to-do.",
+    description: "Update one exact local prepared invoice while leaving its referenced to-dos unchanged. Use payment_invoice_list first and pass its current preview_digest. Supply only intended header changes and line updates; unchanged line text and prices are preserved. line_updates addresses existing invoice snapshots by position, and manual_lines appends new independent lines. An amount_minor of zero is a valid no-charge line. This never finalizes, sends, emails, or changes a to-do.",
     outputSchema: preparedInvoiceResultSchema,
     parameters: { type: "object", additionalProperties: false, properties: {
       invoice_id: { type: "integer", minimum: 1 },

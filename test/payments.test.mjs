@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PaymentInputError, PaymentService } from "../src/payments.mjs";
+import { invoicePdfHtml, PaymentInputError, PaymentService } from "../src/payments.mjs";
 import { registerPaymentTools } from "../src/tools/payment-tools.mjs";
 import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
 
@@ -113,7 +113,7 @@ test("invoice update is a bound snapshot edit that cannot send or rewrite to-dos
   registerPaymentTools(registry, {
     patchPreparedInvoice(invoiceId, input, activity) {
       calls.push({ invoiceId, input, activity });
-      return { status: "draft", invoice: { invoiceId }, missingFields: ["line_prices"] };
+      return { status: "draft", invoice: { invoiceId }, missingFields: ["invoice_total"] };
     },
   });
   const definition = registry.get("payment_invoice_update");
@@ -132,7 +132,7 @@ test("invoice update is a bound snapshot edit that cannot send or rewrite to-dos
   assert.match(definition.description, /never finalizes, sends, emails, or changes a to-do/u);
   assert.equal(definition.confirmationHandoff, true);
   assert.deepEqual(await definition.execute(input, { requestId: "request-1" }), {
-    status: "draft", invoice: { invoiceId: 3 }, missingFields: ["line_prices"],
+    status: "draft", invoice: { invoiceId: 3 }, missingFields: ["invoice_total"],
   });
   assert.deepEqual(calls, [{
     invoiceId: 3,
@@ -289,7 +289,7 @@ test("invoice preparation creates an editable unpriced draft without payer, due 
   assert.equal(writes.invoice[3], null);
   assert.equal(writes.invoice[11], null);
   assert.equal(result.status, "draft");
-  assert.deepEqual(result.missingFields, ["payer", "due_date", "line_prices"]);
+  assert.deepEqual(result.missingFields, ["payer", "due_date", "invoice_total"]);
   assert.equal(result.nextAction, null);
 });
 
@@ -630,8 +630,12 @@ test("sending always calls Stripe send after finalization changes the invoice to
     previewDigest,
     preparationExpiresAtUtc: "2099-01-01T00:00:00.000Z",
     stripeInvoiceId,
-    lines: [{ position: 1, lineSource: "manual", personalTaskId: null,
-      description: "Help moving", amountMinor: 2500 }],
+    lines: [
+      { position: 1, lineSource: "manual", personalTaskId: null,
+        description: "Help moving", amountMinor: 2500 },
+      { position: 2, lineSource: "manual", personalTaskId: null,
+        description: "Courtesy follow-up — no charge", amountMinor: 0 },
+    ],
   });
 
   const result = await payments.sendInvoice({ invoice_id: 95, preview_digest: previewDigest });
@@ -639,6 +643,7 @@ test("sending always calls Stripe send after finalization changes the invoice to
   assert.deepEqual(stripeCalls, [
     ["create", ["us_bank_account", "card"]],
     ["line", 2500],
+    ["line", 0],
     ["finalize", "in_123"],
     ["send", "in_123"],
   ]);
@@ -693,4 +698,23 @@ test("a local invoice PDF renders the exact current snapshot without Stripe", as
   assert.equal(result.filename, "invoice-96.pdf");
   assert.deepEqual(result.bytes, Buffer.from("pdf bytes"));
   assert.deepEqual(calls, [{ invoice, browserExecutable: "/configured/chromium" }]);
+});
+
+test("invoice PDF line descriptions preserve newlines and wrap long text", () => {
+  const html = invoicePdfHtml({
+    invoiceId: 97,
+    payerName: "Ruby",
+    payerEmail: "ruby@example.test",
+    dueOn: "2099-01-02",
+    currency: "USD",
+    amountMinor: 0,
+    description: null,
+    lines: [{
+      description: "Warranty follow-up\nNo charge: corrected installation & explained the result",
+      amountMinor: 0,
+    }],
+  });
+
+  assert.match(html, /\.line-description \{ white-space: pre-wrap; overflow-wrap: anywhere; \}/u);
+  assert.match(html, /<td class="line-description">Warranty follow-up\nNo charge: corrected installation &amp; explained the result<\/td>/u);
 });

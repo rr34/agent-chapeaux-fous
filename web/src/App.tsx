@@ -1643,7 +1643,7 @@ function invoiceAmountDraft(amountMinor: unknown, currency: string) {
   const digits = invoiceCurrencyDigits(currency);
   const divisor = 10 ** digits;
   const amount = Number(amountMinor);
-  return amount > 0 ? (amount / divisor).toFixed(digits) : "";
+  return Number.isSafeInteger(amount) && amount >= 0 ? (amount / divisor).toFixed(digits) : "";
 }
 
 function invoiceAmountMinor(amount: string, currency: string) {
@@ -1652,11 +1652,11 @@ function invoiceAmountMinor(amount: string, currency: string) {
     ? new RegExp(`^(?:0|[1-9]\\d*)(?:\\.(\\d{1,${digits}}))?$`)
     : /^(?:0|[1-9]\d*)$/;
   const match = pattern.exec(amount.trim());
-  if (!match) throw new Error(`Every line amount must be positive with at most ${digits} decimal places.`);
+  if (!match) throw new Error(`Every line amount must be zero or greater with at most ${digits} decimal places.`);
   const whole = Number(amount.trim().split(".")[0] ?? "0");
   const fraction = digits > 0 ? (match[1] || "").padEnd(digits, "0") : "";
   const minor = whole * (10 ** digits) + Number(fraction || 0);
-  if (!Number.isSafeInteger(minor) || minor <= 0) throw new Error("Every line amount must be greater than zero.");
+  if (!Number.isSafeInteger(minor) || minor < 0) throw new Error("Every line amount must be zero or greater.");
   return minor;
 }
 
@@ -1889,16 +1889,15 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
   const payerEmail = contactId === originalContactId
     ? textKey(invoice, "payerEmail")
     : selectedContact ? invoiceContactEmail(selectedContact) : "";
-  const hasBlankPrices = lines.some((line) => !line.amount.trim());
-  const sendReady = Boolean(contactId && payerEmail && dueOn && !hasBlankPrices);
-  const sendable = ["prepared", "failed", "sending"].includes(status)
-    && sendReady && (!expired || Boolean(invoice.stripeInvoiceId));
   const busy = saving || sending || openingPdf || downloadingPdf;
   const editingLocked = busy || confirmingSend;
   const draftTotal = useMemo(() => {
     try { return lines.reduce((sum, line) => sum + invoiceDraftAmountMinor(line.amount, currency), 0); }
     catch { return null; }
   }, [currency, lines]);
+  const sendReady = Boolean(contactId && payerEmail && dueOn && draftTotal != null && draftTotal > 0);
+  const sendable = ["prepared", "failed", "sending"].includes(status)
+    && sendReady && (!expired || Boolean(invoice.stripeInvoiceId));
   const hasChanges = contactId !== originalContactId
     || dueOn !== textKey(invoice, "dueOn")
     || paymentMethodPolicy !== textKey(invoice, "paymentMethodPolicy")
@@ -2051,7 +2050,7 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
           <div><span>Email</span><strong>{payerEmail || "Not set"}</strong></div>
           <div><span>Due</span><strong>{dueOn ? formatLocalDate(dueOn) : "Not set"}</strong></div>
           <div><span>Status</span><strong>{textKey(invoice, "status")}</strong></div>
-          <div><span>Total</span><strong>{draftTotal == null || hasBlankPrices ? "Not fully priced" : formatInvoiceMoney(draftTotal, currency)}</strong></div>
+          <div><span>Total</span><strong>{draftTotal == null ? "Invalid total" : formatInvoiceMoney(draftTotal, currency)}</strong></div>
         </div>
         <label className="invoice-editor-description"><span>Invoice description <small>Optional</small></span><textarea value={description} maxLength={1000} readOnly={!editable || editingLocked} onChange={(event) => setDescription(event.target.value)} placeholder="What this invoice covers" /></label>
         <label className="invoice-payment-methods"><span>Payment methods</span><select value={paymentMethodPolicy} disabled={!editable || editingLocked} onChange={(event) => setPaymentMethodPolicy(event.target.value)}>
@@ -2059,18 +2058,18 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
           <option value="card_and_ach">Credit card and bank account</option>
           <option value="card_only">Credit card only</option>
         </select><span>{editable ? "Choose which payment methods Stripe will offer on this invoice." : invoicePaymentMethodLabel(paymentMethodPolicy)}</span></label>
-        {editable && <div className="invoice-line-toolbar"><span>{lines.length} of 100 lines</span><button className="button button--quiet" type="button" disabled={editingLocked || lines.length >= 100} onClick={addLine}>Add line</button></div>}
         <div className="invoice-line-list">
           {lines.map((line, index) => <article className="invoice-line-editor" key={line.position}>
             <div className="invoice-line-heading"><span>Line {line.position}</span><div className="invoice-line-heading-actions"><strong>{line.isNew ? "New manual line" : line.lineSource === "todo" && line.personalTaskId != null ? `To-do #${line.personalTaskId}` : "Manual line"}</strong>{line.isNew && <button type="button" disabled={editingLocked} onClick={() => removeNewLine(line.position)}>Remove</button>}</div></div>
             <label className="invoice-line-description">Description<textarea value={line.description} maxLength={1000} required readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { description: event.target.value })} /></label>
-            <label className="invoice-line-amount">Amount ({currency}) <span className="field-hint">Optional until sending</span><input type="text" inputMode="decimal" value={line.amount} readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { amount: event.target.value })} placeholder="Leave blank" /></label>
+            <label className="invoice-line-amount">Amount ({currency}) <span className="field-hint">Use 0.00 for no charge</span><input type="text" inputMode="decimal" value={line.amount} readOnly={!editable || editingLocked} onChange={(event) => updateLine(index, { amount: event.target.value })} placeholder="0.00" /></label>
           </article>)}
         </div>
+        {editable && <div className="invoice-line-toolbar"><span>{lines.length} of 100 lines</span><button className="button button--quiet" type="button" disabled={editingLocked || lines.length >= 100} onClick={addLine}>Add line</button></div>}
         {editable
-          ? <p className="object-editor-note">Payer, due date, and every price are required only when you send. Saving creates a new preview digest and expiry, invalidating any earlier send confirmation.</p>
+          ? <p className="object-editor-note">Payer, due date, and a positive invoice total are required only when you send. Individual lines may be $0.00. Saving creates a new preview digest and expiry, invalidating any earlier send confirmation.</p>
           : <p className="object-editor-state">This invoice has left local preview status, so its details and line snapshots are read-only.</p>}
-        {editable && !sendReady && <p className="object-editor-state">This draft is saved. Add a payer with a receivable email, a due date, and every line price before sending.</p>}
+        {editable && !sendReady && <p className="object-editor-state">This draft is saved. Add a payer with a receivable email, a due date, and a positive invoice total before sending. Zero-dollar lines are allowed.</p>}
         {sendable && hasChanges && <p className="object-editor-state">Save your line changes before previewing, downloading, or sending this invoice.</p>}
         {confirmingSend && <section className="invoice-send-confirmation" aria-label="Confirm invoice send">
           <p>Send <strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), currency)}</strong> to <strong>{selectedContact ? textKey(selectedContact, "displayName") : textKey(invoice, "payerName")}</strong> at <strong>{payerEmail}</strong>, due {formatLocalDate(dueOn)}, accepting <strong>{invoicePaymentMethodLabel(paymentMethodPolicy).toLowerCase()}</strong>?</p>
@@ -2155,7 +2154,7 @@ function PaymentsScreen({ onReference }: { onReference: AddAgentReference }) {
       <button className="invoice-list-open" type="button" onClick={() => setSelectedInvoice(invoice)}>
         <div className="invoice-list-status"><span className="pill">{textKey(invoice, "status")}</span><span>#{String(invoice.invoiceId)}</span></div>
         <div className="invoice-list-copy"><h2>{textKey(invoice, "payerName") || "Payer not set"}</h2><p>{textKey(invoice, "payerEmail") || "Email not set"}</p><small>{textKey(invoice, "description") || `${Array.isArray(invoice.lines) ? invoice.lines.length : 0} invoice line(s)`}</small></div>
-        <div className="invoice-list-money"><strong>{Number(readKey(invoice, "amountMinor")) > 0 ? formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), textKey(invoice, "currency")) : "Not priced"}</strong><span>{textKey(invoice, "dueOn") ? `Due ${formatLocalDate(textKey(invoice, "dueOn"))}` : "Due date not set"}</span></div>
+        <div className="invoice-list-money"><strong>{formatInvoiceMoney(Number(readKey(invoice, "amountMinor")), textKey(invoice, "currency"))}</strong><span>{textKey(invoice, "dueOn") ? `Due ${formatLocalDate(textKey(invoice, "dueOn"))}` : "Due date not set"}</span></div>
         <div className="invoice-list-created"><span>Created</span><strong>{formatDisplayDate(textKey(invoice, "createdAtUtc"))}</strong></div>
         <span className="invoice-list-action">View invoice</span>
       </button>

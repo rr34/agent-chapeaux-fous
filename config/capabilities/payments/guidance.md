@@ -52,9 +52,10 @@ handoff is stale and must not be reused.
 The Payments UI may also present that exact recipient, total, and due date for
 an explicit confirmation and submit the same digest-bound send directly.
 
-Before sending, every line must have a positive amount, one payer contact must
-have a receivable email address, a non-past due date must be set, and Stripe must
-be connected and charge-enabled. Only after the user clearly approves that exact prepared preview may you call
+Before sending, the invoice total must be positive, one payer contact must have
+a receivable email address, a non-past due date must be set, and Stripe must be
+connected and charge-enabled. Individual lines may be zero dollars so the invoice
+can explain work or materials that were not charged. Only after the user clearly approves that exact prepared preview may you call
 the returned `payment_invoice_send` tool with the exact returned arguments.
 Never construct, alter, or guess those arguments. Sending creates/finalizes and
 emails a Stripe-hosted invoice and is an external side effect. If the preview

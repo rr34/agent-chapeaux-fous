@@ -99,10 +99,10 @@ function escapedHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function invoicePdfHtml(invoice) {
+export function invoicePdfHtml(invoice) {
   const lineRows = invoice.lines.map((line) => `<tr>
-    <td>${escapedHtml(line.description)}</td>
-    <td>${line.amountMinor > 0 ? escapedHtml(formattedMoney(line.amountMinor, invoice.currency)) : ""}</td>
+    <td class="line-description">${escapedHtml(line.description)}</td>
+    <td>${escapedHtml(formattedMoney(line.amountMinor, invoice.currency))}</td>
   </tr>`).join("");
   return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${invoice.invoiceId}</title>
   <style>
@@ -119,6 +119,7 @@ function invoicePdfHtml(invoice) {
     table { width: 100%; border-collapse: collapse; }
     th { padding: 9px 10px; color: #62695e; border-bottom: 1px solid #abb2a5; font-size: 11px; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
     td { padding: 13px 10px; border-bottom: 1px solid #dde1d8; vertical-align: top; }
+    .line-description { white-space: pre-wrap; overflow-wrap: anywhere; }
     th:last-child, td:last-child { width: 150px; text-align: right; }
     .total { display: flex; justify-content: flex-end; gap: 30px; margin-top: 18px; font-size: 18px; }
     .description { margin-top: 28px; padding: 14px 16px; background: #f4f5f1; white-space: pre-wrap; }
@@ -129,7 +130,7 @@ function invoicePdfHtml(invoice) {
     </header>
     <section class="recipient"><strong>Bill to</strong><p>${escapedHtml(invoice.payerName || "Not set")}</p><p class="muted">${escapedHtml(invoice.payerEmail)}</p></section>
     <table><thead><tr><th>Description</th><th>Amount</th></tr></thead><tbody>${lineRows}</tbody></table>
-    <div class="total"><strong>Total</strong><strong>${invoice.amountMinor > 0 ? escapedHtml(formattedMoney(invoice.amountMinor, invoice.currency)) : "Not priced"}</strong></div>
+    <div class="total"><strong>Total</strong><strong>${escapedHtml(formattedMoney(invoice.amountMinor, invoice.currency))}</strong></div>
     ${invoice.description ? `<div class="description">${escapedHtml(invoice.description)}</div>` : ""}
     <footer>This is a preview. It has not been sent to the customer.</footer>
   </body></html>`;
@@ -170,7 +171,7 @@ function invoiceMissingFields(invoice) {
   if (!invoice.payerContactId) missing.push("payer");
   else if (!String(invoice.payerEmail ?? "").trim()) missing.push("payer_email");
   if (!invoice.dueOn) missing.push("due_date");
-  if ((invoice.lines ?? []).some((line) => line.amountMinor <= 0)) missing.push("line_prices");
+  if (invoice.amountMinor <= 0) missing.push("invoice_total");
   return missing;
 }
 
@@ -351,7 +352,7 @@ export class PaymentService {
       FROM payment_invoice_lines WHERE payment_invoice_id = ? ORDER BY line_position`).all(id);
     return {
       invoiceId: Number(row.payment_invoice_id), ref: `agent-slayer://payment-invoices/${Number(row.payment_invoice_id)}`,
-      display: `${row.payer_name_snapshot || "Payer not set"} — ${Number(row.amount_minor) > 0 ? formattedMoney(Number(row.amount_minor), row.currency) : "not priced"}`,
+      display: `${row.payer_name_snapshot || "Payer not set"} — ${formattedMoney(Number(row.amount_minor), row.currency)}`,
       payerContactId: row.payer_contact_id == null ? null : Number(row.payer_contact_id), payerName: row.payer_name_snapshot ?? null, payerEmail: row.payer_email_snapshot ?? null,
       status: row.status, currency: row.currency, amountMinor: Number(row.amount_minor), dueOn: row.due_on ?? null,
       paymentMethodPolicy: row.payment_method_policy, description: row.description ?? null,
