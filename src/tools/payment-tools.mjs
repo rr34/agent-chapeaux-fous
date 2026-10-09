@@ -19,6 +19,11 @@ const toolDescriptions = Object.freeze({
     summary: "Immediately create an editable local invoice draft from one or more to-do or manual lines, then report what remains. Never ask first for prices, payer, or due date; they may be left blank. A send-ready draft returns the exact final-confirmation handoff.",
     actionClasses: ["CREATE"], effectClassifications: ["MUTATING"],
   },
+  payment_invoice_update: {
+    protocol: "agent-slayer.tool-description", version: 1,
+    summary: "Revise one exact editable local invoice draft without changing its referenced to-dos; update its description, payer, due date, payment methods, line snapshots, or appended manual lines.",
+    actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
+  },
   payment_invoice_send: {
     protocol: "agent-slayer.tool-description", version: 1,
     summary: "Execute the exact confirmed prepared handoff by creating, finalizing, and emailing a Stripe-hosted invoice.",
@@ -36,7 +41,7 @@ const lineSchema = {
 
 const invoiceSchema = {
   type: ["object", "null"],
-  description: "One native invoice whose current line descriptions and prices snapshot selected to-dos, manual lines, or both. Prepared previews may be revised in the Payments UI; sending makes them immutable.",
+  description: "One native invoice whose current line descriptions and prices snapshot selected to-dos, manual lines, or both. Prepared previews may be revised in the Payments UI or with payment_invoice_update; sending makes them immutable.",
   properties: {
     invoiceId: { type: "integer" }, ref: { type: "string" }, display: { type: "string" },
     payerContactId: { type: ["integer", "null"] }, payerName: { type: ["string", "null"] }, payerEmail: { type: ["string", "null"] },
@@ -50,6 +55,12 @@ const invoiceSchema = {
   },
 };
 
+const preparedInvoiceResultSchema = { type: "object", properties: {
+  contractVersion: { type: "integer" }, status: { type: "string" }, expiresAt: { type: "string" },
+  invoice: invoiceSchema, missingFields: { type: "array", items: { type: "string" } },
+  nextAction: { type: ["object", "null"] },
+} };
+
 const nativeContracts = Object.freeze({
   payment_invoice_list: { objectTypes: ["payments.invoice"] },
   payment_invoice_prepare: { inputRoles: {
@@ -57,6 +68,9 @@ const nativeContracts = Object.freeze({
     "/todo_lines/*/personal_task_id": "invoice_line_source",
     "/contact_id": "payer",
   } },
+  payment_invoice_update: {
+    inputRoles: { "/invoice_id": "subject", "/contact_id": "payer" },
+  },
   payment_invoice_send: { inputRoles: { "/invoice_id": "subject" } },
 });
 
@@ -98,11 +112,7 @@ export function registerPaymentTools(registry, payments) {
     name: "payment_invoice_prepare",
     confirmationHandoff: true,
     description: "Immediately create an editable local invoice draft with at least one exact to-do or manual line. Do not ask for line prices, payer, or due date before calling this tool: those fields may be omitted and completed later in Payments. Return the created draft and report missingFields afterward. This does not require Stripe, contact the payer, or change a to-do's stored price. Only a send-ready result includes an exact confirmation handoff.",
-    outputSchema: { type: "object", properties: {
-      contractVersion: { type: "integer" }, status: { type: "string" }, expiresAt: { type: "string" },
-      invoice: invoiceSchema, missingFields: { type: "array", items: { type: "string" } },
-      nextAction: { type: ["object", "null"] },
-    } },
+    outputSchema: preparedInvoiceResultSchema,
     parameters: { type: "object", additionalProperties: false, properties: {
       personal_task_ids: { type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
         items: { type: "integer", minimum: 1 } },
@@ -132,6 +142,45 @@ export function registerPaymentTools(registry, payments) {
     ] },
     async execute(input, context) {
       return payments.prepareInvoice(input, { ...context, actorType: "tool", actorName: "payment_invoice_prepare" });
+    },
+  });
+
+  registry.register({
+    name: "payment_invoice_update",
+    confirmationHandoff: true,
+    description: "Update one exact local prepared invoice while leaving its referenced to-dos unchanged. Use payment_invoice_list first and pass its current preview_digest. Supply only intended header changes and line updates; unchanged line text and prices are preserved. line_updates addresses existing invoice snapshots by position, and manual_lines appends new independent lines. This never finalizes, sends, emails, or changes a to-do.",
+    outputSchema: preparedInvoiceResultSchema,
+    parameters: { type: "object", additionalProperties: false, properties: {
+      invoice_id: { type: "integer", minimum: 1 },
+      preview_digest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
+      description: { type: ["string", "null"], maxLength: 1000 },
+      contact_id: { type: ["integer", "null"], minimum: 1 },
+      due_on: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+      payment_method_policy: { type: "string", enum: ["ach_only", "card_only", "card_and_ach"] },
+      line_updates: { type: "array", minItems: 1, maxItems: 100, items: {
+        type: "object", additionalProperties: false, properties: {
+          position: { type: "integer", minimum: 1 },
+          description: { type: "string", minLength: 1, maxLength: 1000 },
+          amount_minor: { type: "integer", minimum: 0 },
+        }, required: ["position"], anyOf: [
+          { required: ["description"] }, { required: ["amount_minor"] },
+        ],
+      } },
+      manual_lines: { type: "array", minItems: 1, maxItems: 100, items: {
+        type: "object", additionalProperties: false, properties: {
+          description: { type: "string", minLength: 1, maxLength: 1000 },
+          amount_minor: { type: "integer", minimum: 0 },
+        }, required: ["description"],
+      } },
+    }, required: ["invoice_id", "preview_digest"], anyOf: [
+      { required: ["description"] }, { required: ["contact_id"] }, { required: ["due_on"] },
+      { required: ["payment_method_policy"] }, { required: ["line_updates"] },
+      { required: ["manual_lines"] },
+    ] },
+    async execute(input, context) {
+      return payments.patchPreparedInvoice(input.invoice_id, input, {
+        ...context, actorType: "tool", actorName: "payment_invoice_update",
+      });
     },
   });
 

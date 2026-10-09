@@ -107,6 +107,86 @@ test("invoice preparation tells the model to create before reporting optional mi
   assert.match(definition.description, /report missingFields afterward/);
 });
 
+test("invoice update is a bound snapshot edit that cannot send or rewrite to-dos", async () => {
+  const calls = [];
+  const registry = new ToolRegistry();
+  registerPaymentTools(registry, {
+    patchPreparedInvoice(invoiceId, input, activity) {
+      calls.push({ invoiceId, input, activity });
+      return { status: "draft", invoice: { invoiceId }, missingFields: ["line_prices"] };
+    },
+  });
+  const definition = registry.get("payment_invoice_update");
+  const input = {
+    invoice_id: 3,
+    preview_digest: `sha256:${"a".repeat(64)}`,
+    description: "5423 Garden Ridge",
+    line_updates: [{ position: 1, description: "Install anti-tip device" }],
+  };
+
+  assert.equal(schemaProblem(input, definition.parameters), null);
+  assert.match(schemaProblem({
+    invoice_id: 3, preview_digest: input.preview_digest,
+  }, definition.parameters), /does not match any allowed schema/u);
+  assert.match(definition.description, /leaving its referenced to-dos unchanged/u);
+  assert.match(definition.description, /never finalizes, sends, emails, or changes a to-do/u);
+  assert.equal(definition.confirmationHandoff, true);
+  assert.deepEqual(await definition.execute(input, { requestId: "request-1" }), {
+    status: "draft", invoice: { invoiceId: 3 }, missingFields: ["line_prices"],
+  });
+  assert.deepEqual(calls, [{
+    invoiceId: 3,
+    input,
+    activity: { requestId: "request-1", actorType: "tool", actorName: "payment_invoice_update" },
+  }]);
+});
+
+test("partial invoice patches preserve unspecified snapshot text and prices", () => {
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady() { throw new Error("database should not be read directly"); } },
+    config: {},
+  });
+  payments.getInvoice = () => ({
+    invoiceId: 3,
+    paymentMethodPolicy: "ach_only",
+    lines: [
+      { position: 1, description: "Install anti-tip device — 5423 Garden Ridge", amountMinor: 0 },
+      { position: 2, description: "Replace doorbell — 5423 Garden Ridge", amountMinor: 2500 },
+    ],
+  });
+  let forwarded;
+  payments.updatePreparedInvoice = (invoiceId, input, activity) => {
+    forwarded = { invoiceId, input, activity };
+    return { invoice: { invoiceId } };
+  };
+
+  const activity = { actorType: "tool", actorName: "payment_invoice_update" };
+  assert.deepEqual(payments.patchPreparedInvoice(3, {
+    preview_digest: `sha256:${"b".repeat(64)}`,
+    description: "5423 Garden Ridge",
+    line_updates: [{ position: 1, description: "Install anti-tip device" }],
+    manual_lines: [{ description: "Materials" }],
+  }, activity), { invoice: { invoiceId: 3 } });
+  assert.deepEqual(forwarded, {
+    invoiceId: 3,
+    input: {
+      previewDigest: `sha256:${"b".repeat(64)}`,
+      paymentMethodPolicy: "ach_only",
+      description: "5423 Garden Ridge",
+      lines: [
+        { position: 1, description: "Install anti-tip device", amountMinor: 0 },
+        { position: 2, description: "Replace doorbell — 5423 Garden Ridge", amountMinor: 2500 },
+        { position: 3, description: "Materials", amountMinor: 0 },
+      ],
+    },
+    activity,
+  });
+  assert.throws(() => payments.patchPreparedInvoice(3, {
+    preview_digest: `sha256:${"b".repeat(64)}`,
+    line_updates: [{ position: 9, description: "Unknown" }],
+  }), (error) => error instanceof PaymentInputError && error.code === "INVOICE_LINE_NOT_FOUND");
+});
+
 test("invoice preparation accepts an invoice-only price for an otherwise unpriced to-do", async () => {
   const writes = { transactions: [], lines: [] };
   const database = {

@@ -45,8 +45,7 @@ const exactCandidateReads = Object.freeze({
   content_group: { display: "name", where: "1 = 1" },
   content_item: { display: "title", where: "1 = 1" },
   "payments.invoice": {
-    display: `CONCAT(COALESCE(payer_name_snapshot, 'Payer not set'), ' — ',
-      IF(amount_minor > 0, CONCAT(currency, ' ', FORMAT(amount_minor / 100, 2)), 'not priced'))`,
+    display: "CONCAT(COALESCE(payer_name_snapshot, 'Payer not set'), ' — Invoice ', payment_invoice_id)",
     where: "1 = 1",
   },
 });

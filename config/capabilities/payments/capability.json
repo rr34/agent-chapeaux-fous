@@ -4,7 +4,7 @@
   "version": 1,
   "id": "payments",
   "title": "Payments",
-  "summary": "Create editable local invoice drafts from to-dos or manual lines, optionally leave prices, payer, and due date blank, then complete, preview, explicitly confirm, send, and track Stripe-hosted invoices.",
+  "summary": "Create and revise editable local invoice drafts from to-dos or manual lines, optionally leave prices, payer, and due date blank, then complete, preview, explicitly confirm, send, and track Stripe-hosted invoices.",
   "aliases": [
     "payment",
     "invoice",

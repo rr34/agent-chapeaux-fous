@@ -1,8 +1,8 @@
 Use Payments for customer billing and processor state. A to-do may own its
 current fixed billable price, while a local prepared invoice owns its current
 invoice description plus line-description and amount snapshots. The Payments UI
-may explicitly revise the invoice description and those line snapshots or append
-manual lines before sending; every changed preview produces a new digest and
+and `payment_invoice_update` may explicitly revise the invoice description and
+those line snapshots or append manual lines before sending; every changed preview produces a new digest and
 invalidates prior confirmation. Existing lines cannot be removed through this
 editor. Once sending begins, the invoice description and lines are immutable.
 Accounting remains a downstream ledger domain and must not be inferred from
@@ -35,13 +35,20 @@ Use exact bound `personal_task_ids` for stored to-do prices, bound `todo_lines`
 for invoice-only to-do prices, explicit `manual_lines`, or any combination.
 Supply `contact_id`, `due_on`, and amounts only when the user provided them or
 they are already known; do not ask for those fields merely to create a draft.
+Use `payment_invoice_update` for an exact prepared invoice when the user asks to
+revise invoice-owned wording, prices, description, payer, due date, payment
+methods, or to append manual lines. Invoice line updates address the current
+snapshot by line position and never rewrite the referenced to-do. Read the
+current invoice first, preserve every unspecified field, and never substitute a
+to-do update for an invoice-line edit.
 Every manual line requires a concrete description. All nonblank prices must use
 the same ISO currency. Use `payment_invoice_prepare` first. It creates a local
 snapshot only; it does not contact the customer. An incomplete result has
 `status: draft`, lists `missingFields`, and has no confirmation handoff. A
 send-ready result has `status: ready`; only then present the literal yes-or-no
 question from `nextAction.instruction`. If the user revises that preview in the
-Payments UI, the earlier confirmation handoff is stale and must not be reused.
+Payments UI or through `payment_invoice_update`, the earlier confirmation
+handoff is stale and must not be reused.
 The Payments UI may also present that exact recipient, total, and due date for
 an explicit confirmation and submit the same digest-bound send directly.
 

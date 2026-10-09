@@ -681,6 +681,62 @@ export class PaymentService {
     }
   }
 
+  patchPreparedInvoice(invoiceIdValue, input, activity = {}) {
+    const invoiceId = positiveInteger(invoiceIdValue, "invoice_id");
+    const current = this.getInvoice(invoiceId);
+    if (!current) throw new PaymentInputError("Prepared invoice not found.", 404, "INVOICE_NOT_FOUND");
+    const lineUpdates = Array.isArray(input?.line_updates) ? input.line_updates : [];
+    const manualLines = Array.isArray(input?.manual_lines) ? input.manual_lines : [];
+    const updatesByPosition = new Map();
+    for (const [index, update] of lineUpdates.entries()) {
+      if (!update || typeof update !== "object" || Array.isArray(update)) {
+        throw new PaymentInputError(`line_updates item ${index + 1} must be an object.`);
+      }
+      const position = positiveInteger(update.position, `line_updates item ${index + 1} position`);
+      if (updatesByPosition.has(position)) {
+        throw new PaymentInputError("Invoice line update positions must be distinct.");
+      }
+      updatesByPosition.set(position, update);
+    }
+    const knownPositions = new Set(current.lines.map(({ position }) => position));
+    const unknownPosition = [...updatesByPosition.keys()].find((position) => !knownPositions.has(position));
+    if (unknownPosition != null) {
+      throw new PaymentInputError(
+        `Invoice line position ${unknownPosition} was not found.`,
+        404,
+        "INVOICE_LINE_NOT_FOUND",
+      );
+    }
+    const lines = current.lines.map((line) => {
+      const update = updatesByPosition.get(line.position);
+      return {
+        position: line.position,
+        description: Object.hasOwn(update ?? {}, "description") ? update.description : line.description,
+        amountMinor: Object.hasOwn(update ?? {}, "amount_minor") ? update.amount_minor : line.amountMinor,
+      };
+    });
+    for (const [index, line] of manualLines.entries()) {
+      if (!line || typeof line !== "object" || Array.isArray(line)) {
+        throw new PaymentInputError(`manual_lines item ${index + 1} must be an object.`);
+      }
+      lines.push({
+        position: lines.length + 1,
+        description: line.description,
+        amountMinor: line.amount_minor ?? 0,
+      });
+    }
+    const update = {
+      previewDigest: input?.preview_digest,
+      paymentMethodPolicy: Object.hasOwn(input ?? {}, "payment_method_policy")
+        ? input.payment_method_policy : current.paymentMethodPolicy,
+      lines,
+    };
+    if (Object.hasOwn(input ?? {}, "description")) update.description = input.description;
+    if (Object.hasOwn(input ?? {}, "contact_id")) update.contactId = input.contact_id;
+    if (Object.hasOwn(input ?? {}, "due_on")) update.dueOn = input.due_on;
+    return this.updatePreparedInvoice(invoiceId, update, activity);
+  }
+
   async reusableCustomer(invoice, accountId) {
     const row = this.database.prepare(`SELECT stripe_customer_id FROM payment_invoices WHERE payer_contact_id = ?
       AND stripe_connected_account_id = ? AND stripe_customer_id IS NOT NULL ORDER BY payment_invoice_id DESC LIMIT 1`)

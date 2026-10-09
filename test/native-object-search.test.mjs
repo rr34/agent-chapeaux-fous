@@ -181,7 +181,9 @@ test("composer object selections retain exact searchable identity fields", () =>
 });
 
 test("displayed invoices are reread by exact stable reference without entering lexical search", () => {
+  let statement = "";
   const database = { prepare(sql) {
+    statement = sql;
     assert.match(sql, /FROM payment_invoices/u);
     return { get(id) {
       assert.equal(id, 51);
@@ -203,6 +205,7 @@ test("displayed invoices are reread by exact stable reference without entering l
     display: "Payer not set — not priced",
   }]);
   assert.equal(nativeObjectTypes.some(({ domainType }) => domainType === "payments.invoice"), false);
+  assert.doesNotMatch(statement, /\bcurrency\b/u);
   assert.deepEqual(objectReferenceGroupsFromToolResult({
     toolDefinition: { name: "context:search.native_object_candidates", source: "local" },
     result: { objects: resolved },
