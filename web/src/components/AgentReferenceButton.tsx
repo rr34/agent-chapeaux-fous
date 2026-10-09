@@ -234,3 +234,30 @@ export function calendarRoutineIdentity(routine: Entity) {
     collection: "calendar-routines", label: "Calendar routine", display: title, detail,
   });
 }
+
+export function todoGroupIdentity(group: Entity) {
+  const name = group.name || `To-do group ${group.id}`;
+  return nativeReference({
+    type: "todos.todo_group", source: "native:todos", id: group.id,
+    collection: "todo-groups", label: "To-do group", display: name,
+    detail: [`To-do group: ${concise(name)}`, referenceCode({ todo_group_id: group.id, ref: stableReference("todo-groups", group.id) })].join("\n"),
+  });
+}
+
+export function journalGroupIdentity(group: Entity) {
+  const name = group.name || `Journal group ${group.id}`;
+  return nativeReference({
+    type: "journal.group", source: "native:journal", id: group.id,
+    collection: "journal-groups", label: "Journal group", display: name,
+    detail: [`Journal group: ${concise(name)}`, referenceCode({ journal_group_id: group.id, ref: stableReference("journal-groups", group.id) })].join("\n"),
+  });
+}
+
+export function contentGroupIdentity(group: Entity) {
+  const name = group.name || `Library group ${group.id}`;
+  return nativeReference({
+    type: "video.content_group", source: "native:video", id: group.id,
+    collection: "content-groups", label: "Library group", display: name,
+    detail: [`Library group: ${concise(name)}`, referenceCode({ content_group_id: group.id, ref: stableReference("content-groups", group.id) })].join("\n"),
+  });
+}

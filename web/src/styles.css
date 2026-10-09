@@ -70,6 +70,28 @@ a { color: inherit; }
 .agent-reference-button:hover, .object-network-button:hover { color: white; border-color: var(--olive-dark); background: var(--olive-dark); }
 .agent-reference-button:focus-visible, .object-network-button:focus-visible { outline: 3px solid rgba(104, 116, 90, .22); outline-offset: 2px; }
 .agent-reference-button svg, .object-network-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.first-class-object-card { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 15px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.first-class-object-card:hover { background: rgba(223, 229, 215, .24); }
+.first-class-object-card.is-focus { border-color: #9eaa92; box-shadow: 0 0 0 3px rgba(104, 116, 90, .09); }
+.first-class-object-card--compact { padding: 11px 12px; border-radius: 10px; }
+.first-class-object-leading { align-self: start; grid-row: 1 / span 2; }
+.first-class-object-content { min-width: 0; display: grid; gap: 5px; color: var(--ink); text-align: left; }
+.first-class-object-content--open { width: 100%; padding: 0; border: 0; background: transparent; }
+.first-class-object-content--open:hover .first-class-object-title { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.first-class-object-label { color: var(--olive); font-size: 10px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+.first-class-object-title { margin: 0; font: 600 20px/1.15 "Newsreader", Georgia, serif; overflow-wrap: anywhere; white-space: pre-wrap; }
+.first-class-object-card--compact .first-class-object-title { font-size: 17px; }
+.first-class-object-body { display: -webkit-box; overflow: hidden; margin: 1px 0; color: var(--muted); font-size: 13px; line-height: 1.45; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.first-class-object-badges, .first-class-object-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.first-class-object-attributes { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 0; }
+.first-class-object-attributes div { min-width: 0; display: flex; gap: 5px; color: var(--muted); font-size: 11px; }
+.first-class-object-attributes dt { font-weight: 750; }
+.first-class-object-attributes dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.first-class-object-details { min-width: 0; grid-column: 1 / -1; }
+.first-class-object-actions { justify-content: flex-end; }
+.first-class-object-action { min-height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 5px 9px; border: 1px solid #b9c0b2; border-radius: 8px; color: var(--olive-dark); background: transparent; font-size: 12px; font-weight: 700; text-decoration: none; }
+.first-class-object-action:hover { color: white; border-color: var(--olive-dark); background: var(--olive-dark); }
+.first-class-object-action--danger:hover { color: #8c3025; border-color: #e1b7aa; background: #fff3ef; }
 .object-reference-actions { display: inline-flex; align-items: center; gap: 6px; }
 .agent-reference-notice { width: fit-content; margin: -14px 0 18px; padding: 8px 11px; border-radius: 8px; color: var(--olive-dark); background: var(--olive-soft); font-size: 12px; }
 input, textarea, select { width: 100%; border: 1px solid #cbd0c6; border-radius: 9px; padding: 10px 12px; background: white; color: var(--ink); outline: none; }
@@ -337,32 +359,18 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .network-heading > .button { flex: 0 0 auto; }
 .network-back-button { width: 34px; height: 34px; flex: 0 0 34px; border: 1px solid #b9c0b2; border-radius: 9px; color: var(--olive-dark); background: transparent; font-size: 18px; }
 .network-back-button:hover { background: var(--olive-soft); }
-.network-object-card { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: #fffefa; }
-.network-object-card.is-focus { border-color: #9eaa92; box-shadow: 0 0 0 3px rgba(104, 116, 90, .09); }
-.network-object-open { width: 100%; display: grid; gap: 6px; padding: 15px 16px; color: var(--ink); text-align: left; }
-.network-object-open strong, .network-object-open h2 { margin: 0; font: 600 20px/1.15 "Newsreader", Georgia, serif; overflow-wrap: anywhere; }
-.network-object-open p { margin: 2px 0; color: var(--muted); font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
-.network-object-label { color: var(--olive); font-size: 10px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
-.network-object-open dl { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 0; }
-.network-object-open dl div { min-width: 0; display: flex; gap: 5px; color: var(--muted); font-size: 11px; }
-.network-object-open dt { font-weight: 750; }
-.network-object-open dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.network-object-card { position: relative; }
 .network-rail { position: relative; display: grid; gap: 9px; padding-left: 27px; }
 .network-rail::before { position: absolute; top: -16px; bottom: 18px; left: 10px; width: 1px; background: #aeb7a5; content: ""; }
 .network-rail > .network-object-card::before, .network-empty::before { position: absolute; top: 25px; right: 100%; width: 17px; height: 1px; background: #aeb7a5; content: ""; }
 .network-empty { position: relative; margin: 0; padding: 12px 14px; border: 1px dashed #bbc2b5; border-radius: 10px; color: var(--muted); background: var(--surface); font-size: 12px; }
-.network-card-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 12px; }
-.network-card-action { min-height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 5px 9px; border: 1px solid #b9c0b2; border-radius: 8px; color: var(--olive-dark); background: transparent; font-size: 12px; font-weight: 700; text-decoration: none; }
-.network-card-action:hover { color: white; border-color: var(--olive-dark); background: var(--olive-dark); }
-.network-card-action--disconnect:hover { color: #8c3025; border-color: #e1b7aa; background: #fff3ef; }
 .network-linker { display: grid; gap: 9px; padding-top: 14px; border-top: 1px solid var(--line); }
 .network-linker > .button { justify-self: start; }
 .network-linker small { color: var(--muted); }
 .network-search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .network-search-results { max-height: 260px; display: grid; gap: 6px; overflow: auto; }
-.network-search-results button { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: white; text-align: left; }
-.network-search-results button:hover { border-color: #9eaa92; background: var(--olive-soft); }
-.network-search-results button span { color: var(--olive); font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.network-search-results .first-class-object-card { background: white; }
+.network-search-results .first-class-object-card:hover { border-color: #9eaa92; background: var(--olive-soft); }
 .card-grid, .hat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
 .entity-card, .hat-card { padding: 20px; min-width: 0; }
 .entity-card p, .hat-card p { color: var(--muted); line-height: 1.45; }
@@ -760,3 +768,29 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .mention-group button span { overflow: hidden; opacity: .76; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .mention-picker-state { margin: 0; padding: 10px; color: var(--muted); font-size: 12px; }
 .mention-picker-error { color: #8c3025; }
+
+/* Every first-class object surface uses this one layout. Domain screens may only
+   select full or compact mode; they do not restyle the object representation. */
+.first-class-object-card:has(> .first-class-object-leading) { grid-template-columns: auto minmax(0, 1fr) auto; }
+.first-class-object-card:has(> .first-class-object-leading) > .first-class-object-leading { grid-column: 1; grid-row: 1; }
+.first-class-object-card:has(> .first-class-object-leading) > .first-class-object-content { grid-column: 2; }
+.first-class-object-card:has(> .first-class-object-leading) > .first-class-object-actions { grid-column: 3; }
+.first-class-object-card:has(> .first-class-object-leading) > .first-class-object-details { grid-column: 1 / -1; }
+.contact-card.is-inactive { background: rgba(121, 116, 105, .07); }
+.todo-card-leading { display: flex; align-items: center; gap: 9px; }
+.todo-object-card.is-complete .first-class-object-title,
+.scheduled-todo-card.is-complete .first-class-object-title { color: var(--muted); text-decoration: line-through; }
+.routine-agenda-item.first-class-object-card { display: grid; align-items: center; }
+.timeline-list .timeline-event-item.first-class-object-card { padding: 11px 12px 11px 16px; }
+.timeline-list .timeline-event-item.first-class-object-card::before { left: -3px; top: 17px; }
+.journal-row-schedule .tracker-schedule,
+.first-class-object-details .tracker-schedule { margin-top: 0; padding-top: 0; border-top: 0; }
+
+@media (max-width: 720px) {
+  .first-class-object-card,
+  .first-class-object-card:has(> .first-class-object-leading) { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .first-class-object-card > .first-class-object-content { grid-column: 1 / -1; }
+  .first-class-object-card:has(> .first-class-object-leading) > .first-class-object-content { grid-column: 2; }
+  .first-class-object-card > .first-class-object-actions,
+  .first-class-object-card:has(> .first-class-object-leading) > .first-class-object-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}

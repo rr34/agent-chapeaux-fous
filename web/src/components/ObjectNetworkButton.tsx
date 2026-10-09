@@ -7,10 +7,13 @@ import type { AddAgentReference } from "./AgentReferenceButton";
 import {
   CalendarEventEditor, CalendarRoutineEditor, ContactEditor, TodoEditor, toggleTodoCompletion,
 } from "./EditableItems";
+import { FirstClassObjectCard, type FirstClassObjectCardAction } from "./FirstClassObjectCard";
 
 const supportedTypes = new Set([
-  "contacts.contact", "todos.personal_task", "calendar.event", "calendar.routine",
-  "files.file", "journal.tracker", "journal.entry", "video.script", "video.content_item",
+  "contacts.contact", "todos.todo_group", "todos.personal_task", "payments.invoice",
+  "journal.group", "journal.tracker", "journal.entry", "calendar.event", "calendar.routine",
+  "files.file", "profile.fact", "catch_up.question", "video.script", "video.content_group",
+  "video.content_item",
 ]);
 const editableTypes = new Set([
   "contacts.contact", "todos.personal_task", "calendar.event", "calendar.routine",
@@ -72,45 +75,22 @@ function NetworkCard({
   onDisconnect?: () => void;
   busy?: boolean;
 }) {
-  const content = <>
-    <span className="network-object-label">{object.label}</span>
-    {focus ? <h2>{object.display}</h2> : <strong>{object.display}</strong>}
-    {object.body && object.body !== object.display && <p>{object.body}</p>}
-    {object.attributes.length > 0 && <dl>{object.attributes.map(({ label, value }) => <div key={`${label}-${value}`}>
-      <dt>{label}</dt><dd>{value}</dd>
-    </div>)}</dl>}
-  </>;
-  const hasActions = Boolean(
-    onToggleComplete || onEdit || onRespond || onDownload || onOpen || onDisconnect || object.links?.length,
-  );
   const complete = attributeValue(object, "Status") === "complete";
-  return <article className={`network-object-card${focus ? " is-focus" : ""}${hasActions ? " has-actions" : ""}`}>
-    <div className="network-object-open">{content}</div>
-    {hasActions && <div className="network-card-actions">
-      {onToggleComplete && <button className="network-card-action" type="button" disabled={busy} onClick={onToggleComplete}>
-        {complete ? "Reopen" : "Complete"}
-      </button>}
-      {onEdit && <button className="network-card-action" type="button" onClick={onEdit}>Edit</button>}
-      {onRespond && <button className="network-card-action" type="button" onClick={onRespond}>Respond</button>}
-      {onDownload && <button className="network-card-action" type="button" onClick={onDownload}>Download</button>}
-      {object.links?.map((link) => <a className="network-card-action" href={link.href} key={`${link.label}-${link.href}`}>{link.label}</a>)}
-      {onOpen && <button
-        className="network-card-action"
-        type="button"
-        onClick={onOpen}
-        title={`Open network for ${object.display}`}
-        aria-label={`Open network for ${object.display}`}
-      >Network</button>}
-      {onDisconnect && <button
-        className="network-card-action network-card-action--disconnect"
-        type="button"
-        disabled={busy}
-        onClick={onDisconnect}
-        title={`Disconnect ${object.display}`}
-        aria-label={`Disconnect ${object.display}`}
-      >Disconnect</button>}
-    </div>}
-  </article>;
+  const actions: FirstClassObjectCardAction[] = [
+    ...(onToggleComplete ? [{ key: "complete", label: complete ? "Reopen" : "Complete", onClick: onToggleComplete, disabled: busy }] : []),
+    ...(onEdit ? [{ key: "edit", label: "Edit", onClick: onEdit }] : []),
+    ...(onRespond ? [{ key: "respond", label: "Agent", onClick: onRespond }] : []),
+    ...(onDownload ? [{ key: "download", label: "Download", onClick: onDownload }] : []),
+    ...(object.links || []).map((link) => ({ key: `${link.label}-${link.href}`, label: link.label, href: link.href })),
+    ...(onOpen ? [{ key: "network", label: "Network", onClick: onOpen, title: `Open network for ${object.display}` }] : []),
+    ...(onDisconnect ? [{ key: "disconnect", label: "Disconnect", onClick: onDisconnect, disabled: busy, danger: true }] : []),
+  ];
+  return <FirstClassObjectCard
+    object={object}
+    focus={focus}
+    className="network-object-card"
+    actions={actions}
+  />;
 }
 
 function NetworkObjectEditor({ object, onClose, onChanged }: {
@@ -333,9 +313,19 @@ function ObjectNetworkExplorer({ initial, onClose, onReference }: {
               {query.trim().length >= 2 && !searching && choices.length === 0 && <small>No available objects match.</small>}
               {choices.length > 0 && <div className="network-search-results">{choices.map((candidate) => {
                 const identity = candidateIdentity(candidate);
-                return <button type="button" key={candidate.ref} onClick={() => void changeConnection(identity, true)} disabled={changingRef === candidate.ref}>
-                  <span>{candidate.label}</span><strong>{candidate.title}</strong>
-                </button>;
+                return <FirstClassObjectCard
+                  mode="compact"
+                  key={candidate.ref}
+                  object={{
+                    type: candidate.domainType,
+                    label: candidate.label,
+                    display: candidate.title,
+                    body: candidate.detail,
+                  }}
+                  onOpen={() => void changeConnection(identity, true)}
+                  openLabel={`Connect ${candidate.title}`}
+                  openDisabled={changingRef === candidate.ref}
+                />;
               })}</div>}
             </>}
         </div>}

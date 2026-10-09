@@ -12,6 +12,7 @@ import {
 import {
   buildRecurrenceRule, RecurrenceEditor, recurrenceDraft, type RecurrenceDraft,
 } from "./RecurrenceEditor";
+import { FirstClassObjectCard } from "./FirstClassObjectCard";
 
 type Changed = () => void | Promise<void>;
 
@@ -534,17 +535,26 @@ export function CalendarRoutineItem({ routine, timeLabel, onChanged, onReference
   const [editing, setEditing] = useState(false);
   const id = Number(routine.id);
   const editable = Boolean(onChanged && Number.isSafeInteger(id) && id > 0);
-  const body = <><strong className="multiline-item-text">{routine.title}</strong>{routine.description && <p className="multiline-item-text">{routine.description}</p>}</>;
-  return <article className="routine-agenda-item">
-    {editable
-      ? <button className="routine-item-content" type="button" onClick={() => setEditing(true)} title="Edit routine">{body}</button>
-      : <div className="routine-item-content">{body}</div>}
-    <div className="routine-agenda-actions">
-      <span>{timeLabel}</span>
-      {onReference && <AgentReferenceButton identity={calendarRoutineIdentity(routine)} subject={`calendar routine ${routine.title}`} onReference={onReference} />}
-    </div>
+  return <>
+    <FirstClassObjectCard
+      mode="compact"
+      className="routine-agenda-item"
+      object={{
+        type: "calendar.routine", label: "Calendar routine", display: routine.title,
+        body: routine.description,
+        attributes: [
+          { label: "When", value: timeLabel },
+          ...(routine.location ? [{ label: "Where", value: routine.location }] : []),
+          { label: "Repeats", value: routine.recurrenceRule },
+        ],
+        badges: [routine.disabledAtUtc ? "Disabled" : "Active"],
+      }}
+      onOpen={editable ? () => setEditing(true) : undefined}
+      openLabel="Edit routine"
+      controls={onReference ? <AgentReferenceButton identity={calendarRoutineIdentity(routine)} subject={`calendar routine ${routine.title}`} onReference={onReference} /> : undefined}
+    />
     {editing && onChanged && <CalendarRoutineEditor routineId={id} onClose={() => setEditing(false)} onChanged={onChanged} />}
-  </article>;
+  </>;
 }
 
 export function CalendarEventItem({ event, timeZone, timeLabel, onChanged, onReference }: {
@@ -558,19 +568,24 @@ export function CalendarEventItem({ event, timeZone, timeLabel, onChanged, onRef
   const eventId = Number(event.seriesId ?? event.id);
   const generatedReadOnly = Boolean(event.readOnly && !event.seriesId);
   const editable = Boolean(onChanged && Number.isSafeInteger(eventId) && eventId > 0 && !generatedReadOnly);
-  const content = <>
-    <strong className="multiline-item-text">{event.title}</strong>
-    {event.location && <span className="event-place">{event.location}</span>}
-    {event.description && <p className="multiline-item-text">{event.description}</p>}
-  </>;
   return <li>
     <time>{timeLabel}</time>
-    <div className="timeline-event-item">
-      {editable
-        ? <button className="editable-object-content" type="button" onClick={() => setEditing(true)} title={event.seriesId ? "Edit this recurring event series" : "Edit event"}>{content}</button>
-        : <div className="editable-object-content" title={generatedReadOnly ? "This event is managed by its source record" : undefined}>{content}</div>}
-    </div>
-    {onReference && Number.isSafeInteger(eventId) && eventId > 0 && <AgentReferenceButton identity={calendarEventIdentity(event, timeZone)} subject={`calendar event ${event.title}`} onReference={onReference} />}
+    <FirstClassObjectCard
+      mode="compact"
+      className="timeline-event-item"
+      object={{
+        type: "calendar.event", label: "Calendar event", display: event.title,
+        body: event.description,
+        attributes: [
+          ...(event.location ? [{ label: "Where", value: event.location }] : []),
+          ...(event.status ? [{ label: "Status", value: event.status }] : []),
+        ],
+        badges: event.seriesId ? ["Recurring"] : [],
+      }}
+      onOpen={editable ? () => setEditing(true) : undefined}
+      openLabel={event.seriesId ? "Edit this recurring event series" : generatedReadOnly ? "This event is managed by its source record" : "Edit event"}
+      controls={onReference && Number.isSafeInteger(eventId) && eventId > 0 ? <AgentReferenceButton identity={calendarEventIdentity(event, timeZone)} subject={`calendar event ${event.title}`} onReference={onReference} /> : undefined}
+    />
     {editing && onChanged && <CalendarEventEditor eventId={eventId} recurring={Boolean(event.seriesId)} onClose={() => setEditing(false)} onChanged={onChanged} />}
   </li>;
 }
@@ -771,13 +786,7 @@ export function TodoItem({
     }
   };
 
-  const body = <>
-    <strong className="multiline-item-text">{text}</strong>
-    {completedAtUtc && <small className="todo-completed-date">Completed {formatDisplayDate(completedAtUtc, { includeTime: false })}</small>}
-    {billable && <small>{billable} billable</small>}
-    {eventTitles?.length ? <small className="multiline-item-text">For {eventTitles.join(", ")}</small> : null}
-  </>;
-  const itemContent = <>
+  const leading = <>
     {onSelectionChange && <input
       className="todo-select"
       type="checkbox"
@@ -789,17 +798,28 @@ export function TodoItem({
       ? <button className={`todo-check${complete ? "" : " todo-check--mark-complete"}`} type="button" disabled={updating} onClick={() => void toggle()} aria-label={`Mark ${text} ${complete ? "open" : "complete"}`}>{complete ? "✓" : <><span>Mark</span><span>complete</span></>}</button>
       : <span className={`paper-checkbox ${complete ? "is-complete" : ""}`} aria-hidden="true">{complete ? "✓" : ""}</span>}
     {sequence && <span className="todo-sequence" aria-label={`Sequence ${sequence}`}>#{sequence}</span>}
-    {editable
-      ? <button className="todo-item-content" type="button" onClick={() => setEditing(true)} title="Edit to-do">{body}</button>
-      : <div className="todo-item-content">{body}</div>}
-    <div className="object-row-actions">
-      {variant === "row" && <span className="pill">{status}</span>}
-      {onReference && <AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${text}`} onReference={onReference} />}
-    </div>
-    {error && <p className="inline-error todo-item-error" role="alert">{error}</p>}
+  </>;
+  const card = <FirstClassObjectCard
+    as={variant === "scheduled" ? "li" : "article"}
+    mode={variant === "scheduled" ? "compact" : "full"}
+    className={`${variant === "scheduled" ? "scheduled-todo-card" : "todo-object-card"}${complete ? " is-complete" : ""}${onSelectionChange ? " is-selectable" : ""}`}
+    object={{
+      type: "todos.personal_task", label: "To-do", display: text,
+      attributes: [
+        ...(completedAtUtc ? [{ label: "Completed", value: formatDisplayDate(completedAtUtc, { includeTime: false }) }] : []),
+        ...(billable ? [{ label: "Billable", value: billable }] : []),
+        ...(eventTitles?.length ? [{ label: "For", value: eventTitles.join(", ") }] : []),
+      ],
+      badges: variant === "row" ? [status.replaceAll("_", " ")] : [],
+    }}
+    leading={<div className="todo-card-leading">{leading}</div>}
+    onOpen={editable ? () => setEditing(true) : undefined}
+    openLabel="Edit to-do"
+    controls={onReference ? <AgentReferenceButton identity={todoIdentity(todo)} subject={`task ${text}`} onReference={onReference} /> : undefined}
+    details={error ? <p className="inline-error todo-item-error" role="alert">{error}</p> : undefined}
+  />;
+  return <>
+    {card}
     {editing && onChanged && <TodoEditor todoId={id} suppliedGroups={groups} onClose={() => setEditing(false)} onChanged={onChanged} />}
   </>;
-  return variant === "scheduled"
-    ? <li className={`scheduled-todo-card${complete ? " is-complete" : ""}`}>{itemContent}</li>
-    : <article className={`todo-row${sequence ? " has-sequence" : ""}${complete ? " is-complete" : ""}${onSelectionChange ? " is-selectable" : ""}`}>{itemContent}</article>;
 }

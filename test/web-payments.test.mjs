@@ -25,12 +25,12 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.match(appSource, /api<\{ url: string \}>\("\/api\/payments\/stripe\/oauth\/start", \{ method: "POST" \}\)/);
   assert.match(appSource, /window\.location\.assign\(result\.url\)/);
   assert.match(appSource, /useApi<\{ count: number; invoices: Entity\[\] \}>\("\/api\/payment-invoices\?limit=100"\)/);
-  assert.match(appSource, /"Due date not set"/);
+  assert.match(appSource, /label: "Due", value: textKey\(invoice, "dueOn"\) \? formatLocalDate\(textKey\(invoice, "dueOn"\)\) : "Not set"/);
   assert.match(appSource, /Open Stripe/);
   assert.match(appSource, /function InvoiceEditor\(/);
   assert.match(appSource, /function invoicePaymentStatusLabel\(invoice: Entity\)/);
   assert.match(appSource, /Payment status/);
-  assert.match(appSource, /View invoice/);
+  assert.match(appSource, /openLabel=\{`View invoice/);
   assert.match(appSource, /identity=\{invoiceIdentity\(invoice\)\}/);
   assert.match(appSource, /<PaymentsScreen onReference=\{referenceInAgent\} \/>/);
   assert.match(appSource, /Save changes/);

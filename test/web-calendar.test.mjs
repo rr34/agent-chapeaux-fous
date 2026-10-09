@@ -101,7 +101,7 @@ test("daily paper groups identified to-dos once by group and joined object in th
 });
 
 test("journal trackers expose basic daily, weekly, and monthly RRULE controls", () => {
-  assert.match(appSource, /<TrackerSchedule tracker=\{tracker\} onChanged=\{reload\}/);
+  assert.match(appSource, /<TrackerSchedule tracker=\{tracker\} onChanged=\{reloadJournal\}/);
   assert.match(trackerScheduleSource, /<option value="off">Not scheduled<\/option>/);
   assert.match(trackerScheduleSource, /<option value="daily">Daily<\/option>/);
   assert.match(trackerScheduleSource, /<option value="weekly">Weekly<\/option>/);

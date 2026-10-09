@@ -14,8 +14,10 @@ test("the React library renders content as grouped list rows", () => {
   assert.match(librarySource, /useApi<\{ groups: Entity\[\] \}>\("\/api\/content-groups"\)/);
   assert.match(librarySource, /readKey\(item, "groupId"\)/);
   assert.match(librarySource, /<ul className="library-list">/);
-  assert.match(librarySource, /<li className="library-row"/);
+  assert.match(librarySource, /<FirstClassObjectCard\s+as="li"/);
+  assert.match(librarySource, /type: "video\.content_item"/);
   assert.match(appSource, /view === "content"\) screen = <LibraryScreen/);
   assert.match(styles, /\.library-groups/);
   assert.match(styles, /\.library-row/);
+  assert.match(styles, /\.first-class-object-card/);
 });

@@ -14,7 +14,7 @@ test("timeline events use a reusable clickable editor with fresh versioned saves
   assert.match(items, /export function CalendarEventItem/);
   assert.match(dailyPaper, /<CalendarEventItem/);
   assert.match(app, /<DayTimeline[^>]+onChanged=\{reload\}/);
-  assert.match(items, /onClick=\{\(\) => setEditing\(true\)\}/);
+  assert.match(items, /onOpen=\{editable \? \(\) => setEditing\(true\) : undefined\}/);
   assert.match(items, /api<\{ event: CalendarEvent \}>\(`\/api\/calendar-events\/\$\{eventId\}`\)/);
   assert.match(items, /version: event\.version/);
   assert.match(items, /method: "PATCH"/);
@@ -37,14 +37,15 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(styles, /\.todo-check\.todo-check--mark-complete[^\{]*\{[^}]*width: 52px;[^}]*min-height: 46px;/);
   assert.match(styles, /\.todo-check\.todo-check--mark-complete[^\{]*\{[^}]*place-content: center;[^}]*text-align: center;/);
   assert.match(styles, /\.paper-todos li \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/);
-  assert.match(items, /className="todo-item-content"[^>]+onClick=\{\(\) => setEditing\(true\)\}/);
+  assert.match(items, /<FirstClassObjectCard[\s\S]+type: "todos\.personal_task"/);
+  assert.match(items, /onOpen=\{editable \? \(\) => setEditing\(true\) : undefined\}/);
   assert.match(items, /className="todo-sequence"[^>]*>#\{sequence\}<\/span>/);
-  assert.match(items, /className=\{`todo-row\$\{sequence \? " has-sequence" : ""\}/);
+  assert.match(items, /variant === "scheduled" \? "scheduled-todo-card" : "todo-object-card"/);
   assert.match(styles, /\.todo-row\.has-sequence \{ grid-template-columns: auto 54px minmax\(0, 1fr\) auto; \}/);
   assert.match(styles, /\.todo-sequence \{[^}]*font-weight: 750;/);
   assert.match(items, /version: current\.version/);
   assert.match(items, /status: current\.status === "complete" \? "todo" : "complete"/);
-  assert.match(items, /Completed \{formatDisplayDate\(completedAtUtc, \{ includeTime: false \}\)\}/);
+  assert.match(items, /label: "Completed", value: formatDisplayDate\(completedAtUtc, \{ includeTime: false \}\)/);
   assert.match(items, /version: todo\.version/);
   assert.match(items, /export function TodoEditor/);
   assert.match(server, /request\.method === "GET" && todoMatch/);
@@ -52,8 +53,9 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
 
 test("contacts are click-to-edit and expose a complete versioned editor", () => {
   assert.match(app, /<ContactEditor contactId=\{editingContactId\}/);
-  assert.match(app, /className="contact-row-identity contact-row-edit"[^>]+onClick=\{\(\) => setEditingContactId/);
-  assert.match(app, />Edit<\/button>/);
+  assert.match(app, /className=\{`contact-card/);
+  assert.match(app, /onOpen=\{\(\) => setEditingContactId/);
+  assert.match(app, /key: "edit", label: "Edit"/);
   assert.match(items, /export function ContactEditor/);
   assert.match(items, /export function CalendarEventEditor/);
   assert.match(items, /api<\{ contact: Entity \}>\(`\/api\/contacts\/\$\{contactId\}`\)/);
@@ -70,7 +72,8 @@ test("routine agenda items open a reusable versioned editor directly", () => {
   assert.match(items, /export function CalendarRoutineItem/);
   assert.match(routines, /<CalendarRoutineItem/);
   assert.ok(routines.includes("onChanged={reload}"));
-  assert.ok(items.includes('className="routine-item-content" type="button" onClick={() => setEditing(true)}'));
+  assert.ok(items.includes('type: "calendar.routine", label: "Calendar routine"'));
+  assert.ok(items.includes('onOpen={editable ? () => setEditing(true) : undefined}'));
   assert.ok(items.includes('api<{ routine: CalendarRoutine | null }>(`/api/calendar-routines/${routineId}`)'));
   assert.ok(items.includes("version: routine.version"));
   assert.ok(items.includes("recurrenceRule: buildRecurrenceRule(draft.recurrence, true)"));
@@ -113,11 +116,12 @@ test("calendar event timing keeps start, duration, and end synchronized", () => 
 
 test("events, to-dos, and routines preserve authored newlines everywhere they display", () => {
   assert.ok(dailyPaper.includes('className="multiline-item-text">{event.title}</span>'));
-  assert.ok(items.includes('className="multiline-item-text">{routine.title}</strong>'));
-  assert.ok(items.includes('className="multiline-item-text">{routine.description}</p>'));
-  assert.ok(items.includes('className="multiline-item-text">{event.title}</strong>'));
-  assert.ok(items.includes('className="multiline-item-text">{event.description}</p>'));
-  assert.ok(items.includes('className="multiline-item-text">{text}</strong>'));
-  assert.ok(styles.includes(".multiline-item-text { white-space: pre-wrap; overflow-wrap: anywhere; }"));
+  assert.ok(items.includes("display: routine.title"));
+  assert.ok(items.includes("body: routine.description"));
+  assert.ok(items.includes("display: event.title"));
+  assert.ok(items.includes("body: event.description"));
+  assert.ok(items.includes('type: "todos.personal_task", label: "To-do", display: text'));
+  assert.match(styles, /\.first-class-object-title \{[^}]*white-space: pre-wrap;/);
+  assert.match(styles, /\.first-class-object-body \{[^}]*white-space: pre-wrap;/);
   assert.ok(styles.includes(".calendar-chip span { min-width: 0; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }"));
 });

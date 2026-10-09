@@ -19,7 +19,8 @@ test("video scripts mirror the grouped Library list by lifecycle status", () => 
   assert.match(source, /\["draft", \{ id: "draft", name: "Drafts"/);
   assert.match(source, /\["archived", \{ id: "archived", name: "Archived"/);
   assert.match(source, /<ul className="library-list">/);
-  assert.match(source, /<li className="library-row"/);
+  assert.match(source, /<FirstClassObjectCard\s+as="li"/);
+  assert.match(source, /type: "video\.script"/);
   assert.match(appSource, /view === "video-scripts"\) screen = <VideoScriptsScreen/);
 });
 
@@ -28,7 +29,8 @@ test("files mirror the grouped Library list by stored media kind", () => {
   assert.match(source, /textKey\(file, "mediaKind"\)/);
   assert.match(source, /document: "Documents", image: "Images", video: "Videos", audio: "Audio"/);
   assert.match(source, /<ul className="library-list">/);
-  assert.match(source, /<li className="library-row"/);
+  assert.match(source, /<FirstClassObjectCard\s+as="li"/);
+  assert.match(source, /type: "files\.file"/);
   assert.match(appSource, /view === "files"\) screen = <FilesScreen/);
 });
 
@@ -37,7 +39,8 @@ test("contacts render list groups for people, organizations, and services", () =
   assert.match(source, /person: "People", organization: "Organizations", service: "Services"/);
   assert.match(source, /textKey\(contact, "kind"\)/);
   assert.match(source, /<ul className="library-list grouped-contact-list">/);
-  assert.match(source, /<li className="contact-row"/);
+  assert.match(source, /className=\{`contact-card/);
+  assert.match(source, /type: "contacts\.contact"/);
 });
 
 test("journal trackers and entries share lists under their persisted journal groups", () => {
@@ -45,16 +48,15 @@ test("journal trackers and entries share lists under their persisted journal gro
   assert.match(source, /readKey\(tracker, "groupId"\)/);
   assert.match(source, /readKey\(entry, "groupId"\)/);
   assert.match(source, /<ul className="library-list">/);
-  assert.match(source, /journal-tracker-row/);
-  assert.match(source, /journal-entry-row/);
+  assert.match(source, /type: "journal\.tracker"/);
+  assert.match(source, /type: "journal\.entry"/);
 });
 
 test("grouped list rows have shared and responsive styling", () => {
   assert.match(styles, /\.library-groups/);
   assert.match(styles, /\.library-row-actions/);
-  assert.match(styles, /\.grouped-contact-list \.contact-row/);
-  assert.match(styles, /\.journal-tracker-row/);
-  assert.match(styles, /\.journal-entry-row/);
+  assert.match(styles, /\.first-class-object-card/);
+  assert.match(styles, /\.contact-card\.is-inactive/);
 });
 
 test("every grouped section puts its group selector in the text-filter card", () => {
@@ -94,9 +96,9 @@ test("contacts hide inactive records by default and identify them when requested
   assert.match(contacts, /selectedStatus === "all" \|\| textKey\(contact, "status"\) === selectedStatus/);
   assert.match(contacts, /<SectionSelectFilter label="Status"/);
   assert.match(contacts, /<option value="active">Active<\/option><option value="all">All records<\/option>/);
-  assert.match(contacts, /status !== "active" && <span className="pill contact-record-status">\{status\}<\/span>/);
-  assert.match(styles, /\.contact-row:not\(\[data-status="active"\]\)/);
-  assert.match(styles, /\.contact-record-status/);
+  assert.match(contacts, /\.\.\.\(status !== "active" \? \[status\] : \[\]\)/);
+  assert.match(contacts, /contact-card\$\{status !== "active" \? " is-inactive" : ""\}/);
+  assert.match(styles, /\.contact-card\.is-inactive/);
 });
 
 test("persisted group headers expose the shared editor while synthetic groups do not", () => {
@@ -124,6 +126,6 @@ test("persisted group headers expose the shared editor while synthetic groups do
 test("video scripts are the last workspace section before AI usage", () => {
   assert.match(
     appSource,
-    /\["journal", "Journal"\], \["video-scripts", "Video Scripts"\],\s*\["ai-usage", "AI Usage"\]/,
+    /\["journal", "Journal"\], \["video-scripts", "Video Scripts"\],\s*\["payments", "Payments"\], \["ai-usage", "AI Usage"\]/,
   );
 });

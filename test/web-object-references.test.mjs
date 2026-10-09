@@ -36,7 +36,7 @@ test("the React UI can reference every displayed first-class object in Agent", (
   assert.match(editableItems, /identity=\{calendarEventIdentity\(event, timeZone\)\}/);
   assert.match(editableItems, /identity=\{todoIdentity\(todo\)\}/);
   assert.match(editableItems, /onReference && Number\.isSafeInteger\(eventId\) && eventId > 0/);
-  assert.match(editableItems, /onReference && <AgentReferenceButton identity=\{todoIdentity\(todo\)\}/);
+  assert.match(editableItems, /onReference \? <AgentReferenceButton identity=\{todoIdentity\(todo\)\}/);
   assert.match(editableItems, /identity=\{calendarRoutineIdentity\(routine\)\}/);
 });
 

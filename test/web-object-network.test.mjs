@@ -19,11 +19,14 @@ test("first-class object controls expose one lazy visual network without editing
   assert.match(component, /className="network-rail"/u);
   assert.match(component, /<NetworkCard\s+object=\{graph\.focus\}\s+focus/u);
   assert.doesNotMatch(component, /<h2>Object network<\/h2>/u);
-  assert.match(component, /className="network-card-action"/u);
+  assert.match(component, /<FirstClassObjectCard/u);
+  assert.match(component, /FirstClassObjectCardAction/u);
+  assert.match(component, /label: "Network"/u);
+  assert.doesNotMatch(component, /network-object-open|network-card-action/u);
   assert.match(component, /Open network for \$\{object\.display\}/u);
   assert.match(component, /complete \? "Reopen" : "Complete"/u);
-  assert.match(component, />Edit<\/button>/u);
-  assert.match(component, />Respond<\/button>/u);
+  assert.match(component, /label: "Edit"/u);
+  assert.match(component, /label: "Agent"/u);
   assert.match(component, /<ContactEditor contactId=\{object\.id\}/u);
   assert.match(component, /<TodoEditor todoId=\{object\.id\}/u);
   assert.match(component, /await toggleTodoCompletion\(object\.id\)/u);
@@ -32,6 +35,8 @@ test("first-class object controls expose one lazy visual network without editing
   assert.doesNotMatch(component, /relationshipKind|relationship label|Linked to/u);
   assert.match(styles, /\.network-rail::before/u);
   assert.match(styles, /\.network-heading-object \.network-object-card/u);
+  assert.match(styles, /\.first-class-object-card--compact/u);
+  assert.doesNotMatch(styles, /\.network-object-open|\.network-card-action/u);
   assert.doesNotMatch(editor, /ObjectNetworkButton|relatedContactId[^\n]*<select/u);
 });
 
