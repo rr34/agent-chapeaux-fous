@@ -646,9 +646,10 @@ function billableMinorUnits(amount: string, currencyValue: string) {
   return { billableAmountMinor: minor, billableCurrency: currency };
 }
 
-export function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
-  todoId: number;
+export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose, onChanged }: {
+  todoId?: number;
   suppliedGroups?: Entity[];
+  initialGroupId?: number;
   onClose: () => void;
   onChanged: Changed;
 }) {
@@ -663,21 +664,27 @@ export function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
     const groupRequest = suppliedGroups?.length
       ? Promise.resolve({ groups: suppliedGroups })
       : api<{ groups: Entity[] }>("/api/todo-groups");
-    void Promise.all([api<{ todo: Entity }>(`/api/todos/${id}`), groupRequest]).then(([todoBody, groupBody]) => {
+    const todoRequest = id == null
+      ? Promise.resolve({ todo: null })
+      : api<{ todo: Entity }>(`/api/todos/${id}`);
+    void Promise.all([todoRequest, groupRequest]).then(([todoBody, groupBody]) => {
       if (!active) return;
       const current = todoBody.todo;
       setTodo(current);
       setGroups(groupBody.groups);
+      const selectedGroup = groupBody.groups.find((group) => Number(group.id) === initialGroupId)
+        ?? groupBody.groups.find((group) => String(group.name).toLowerCase() === "inbox")
+        ?? groupBody.groups[0];
       setDraft({
-        text: String(current.text || ""),
-        planningPromptText: String(current.planningPromptText || ""),
-        groupId: String(current.groupId || ""),
-        sequence: current.sequence == null ? "" : String(current.sequence),
-        status: String(current.status || "todo"),
-        billableAmount: current.billableAmountMinor == null ? "" : String(
+        text: String(current?.text || ""),
+        planningPromptText: String(current?.planningPromptText || ""),
+        groupId: String(current?.groupId || selectedGroup?.id || ""),
+        sequence: current?.sequence == null ? "" : String(current.sequence),
+        status: String(current?.status || "todo"),
+        billableAmount: current?.billableAmountMinor == null ? "" : String(
           Number(current.billableAmountMinor) / (10 ** currencyDigits(String(current.billableCurrency || "USD"))),
         ),
-        billableCurrency: String(current.billableCurrency || "USD"),
+        billableCurrency: String(current?.billableCurrency || "USD"),
       });
     }).catch((caught) => {
       if (active) setError(caught instanceof Error ? caught.message : String(caught));
@@ -685,19 +692,19 @@ export function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [id, suppliedGroups]);
+  }, [id, initialGroupId, suppliedGroups]);
 
   const save = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
-    if (!todo || !draft) return;
+    if (!draft || (id != null && !todo)) return;
     setSaving(true);
     setError("");
     try {
       const price = billableMinorUnits(draft.billableAmount, draft.billableCurrency);
-      await api(`/api/todos/${id}`, {
-        method: "PATCH",
+      await api(id == null ? "/api/todos" : `/api/todos/${id}`, {
+        method: id == null ? "POST" : "PATCH",
         body: JSON.stringify({
-          version: todo.version,
+          ...(todo ? { version: todo.version } : {}),
           text: draft.text,
           planningPromptText: draft.planningPromptText,
           groupId: Number(draft.groupId),
@@ -715,10 +722,11 @@ export function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
     }
   };
 
-  return <EditorFrame title="Edit to-do" onClose={onClose}>
+  const editorTitle = id == null ? "New to-do" : "Edit to-do";
+  return <EditorFrame title={editorTitle} onClose={onClose}>
     <form onSubmit={(submitEvent) => void save(submitEvent)}>
-      <header className="object-editor-heading"><div><p className="eyebrow">Personal to-do</p><h2>Edit to-do</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
-      {loading && <p className="object-editor-state">Loading current to-do...</p>}
+      <header className="object-editor-heading"><div><p className="eyebrow">Personal to-do</p><h2>{editorTitle}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      {loading && <p className="object-editor-state">{id == null ? "Preparing new to-do..." : "Loading current to-do..."}</p>}
       {draft && <>
         <label>Task<textarea autoFocus required rows={4} maxLength={10_000} value={draft.text} onChange={(change) => setDraft({ ...draft, text: change.target.value })} /></label>
         <label>Planning prompt<textarea rows={3} maxLength={10_000} value={draft.planningPromptText} onChange={(change) => setDraft({ ...draft, planningPromptText: change.target.value })} /></label>
@@ -734,7 +742,7 @@ export function TodoEditor({ todoId: id, suppliedGroups, onClose, onChanged }: {
         <label>Status<select value={draft.status} onChange={(change) => setDraft({ ...draft, status: change.target.value })}><option value="todo">To do</option><option value="complete">Complete</option><option value="ignore">Ignore</option><option value="archive">Archive</option><option value="ai_suggested">AI suggested</option></select></label>
       </>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : "Save to-do"}</button></footer>
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : id == null ? "Add to-do" : "Save to-do"}</button></footer>
     </form>
   </EditorFrame>;
 }

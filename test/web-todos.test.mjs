@@ -3,6 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 
 const appSource = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
+const editableItemsSource = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
 
 test("the React to-do page starts with open tasks and opts into completed tasks", () => {
@@ -12,6 +13,16 @@ test("the React to-do page starts with open tasks and opts into completed tasks"
   assert.match(appSource, />Show completed<\/label>/);
   assert.match(appSource, /<SectionFilter[^>]*controls=\{<>[\s\S]*className="todo-completed-filter"/);
   assert.match(styles, /\.todo-completed-filter input \{[^}]*width: 24px;[^}]*height: 24px;/);
+});
+
+test("the React to-do page opens the full editor from one add button", () => {
+  assert.match(appSource, /const \[addingTodo, setAddingTodo\] = useState\(false\)/);
+  assert.match(appSource, /actions=\{<button className="button" type="button" onClick=\{\(\) => setAddingTodo\(true\)\}>Add<\/button>\}/);
+  assert.match(appSource, /\{addingTodo && <TodoEditor/);
+  assert.doesNotMatch(appSource, /placeholder="Add a task"/);
+  assert.match(editableItemsSource, /todoId\?: number/);
+  assert.match(editableItemsSource, /api\(id == null \? "\/api\/todos" : `\/api\/todos\/\$\{id\}`/);
+  assert.match(editableItemsSource, /method: id == null \? "POST" : "PATCH"/);
 });
 
 test("completed to-dos sort ahead of open work with the newest completion first", () => {

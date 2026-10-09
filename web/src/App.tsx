@@ -5,7 +5,7 @@ import { CalendarGrid, DailyPaper, DayTimeline, ScheduledTodos } from "./compone
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput } from "./components/ObjectMentionInput";
-import { CalendarEventEditor, ContactEditor, TodoItem } from "./components/EditableItems";
+import { CalendarEventEditor, ContactEditor, TodoEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
 import { Markdown } from "./components/Markdown";
@@ -1155,11 +1155,10 @@ function TodoScreen() {
   const scope = showCompleted ? "all" : "active";
   const { data, error, loading, reload } = useApi<{ todos: Entity[] }>(`/api/todos?scope=${scope}&limit=1000`);
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/todo-groups");
-  const [draft, setDraft] = useState("");
+  const [addingTodo, setAddingTodo] = useState(false);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const [reorderingTodoId, setReorderingTodoId] = useState<number | null>(null);
   const [reorderError, setReorderError] = useState("");
-  const add = async (event: FormEvent) => { event.preventDefault(); await api("/api/todos", { method: "POST", body: JSON.stringify({ text: draft, status: "todo" }) }); setDraft(""); await reload(); };
   const statusTodos = (data?.todos || []).filter((todo) =>
     todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
   );
@@ -1232,7 +1231,7 @@ function TodoScreen() {
     }
     return [...grouped.values()];
   }, [filterQuery, groupData?.groups, selectedGroupId, todos]);
-  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<form className="inline-create" onSubmit={(event) => void add(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a task" required /><button className="button">Add</button></form>} />
+  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<button className="button" type="button" onClick={() => setAddingTodo(true)}>Add</button>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" controls={<>
       <SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
         <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
@@ -1263,6 +1262,12 @@ function TodoScreen() {
         />)}</div>
       </section>;
     })}</div>
+    {addingTodo && <TodoEditor
+      suppliedGroups={groupData?.groups}
+      initialGroupId={selectedGroupId === "all" ? undefined : Number(selectedGroupId)}
+      onClose={() => setAddingTodo(false)}
+      onChanged={reload}
+    />}
     {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }} />}
   </>;
 }
