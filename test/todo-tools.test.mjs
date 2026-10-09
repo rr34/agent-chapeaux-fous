@@ -55,10 +55,15 @@ test("to-dos can be created, listed, and completed without calendar fields", asy
   for (const retired of ["scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes", "todo_routine_id"]) {
     assert.equal(Object.hasOwn(created.task, retired), false);
   }
+  const newer = await registry.execute("todo_add", {
+    text: "Call the groomer", todo_group_id: 1, status: "todo",
+    related_contact_id: null, planning_prompt_text: null, position: null,
+  }, toolContext);
   const listed = await registry.execute("todo_list", { queries: [{
     query_id: "open", group: null, status: "todo", limit: 20,
   }] });
-  assert.deepEqual(listed.results[0].tasks.map(({ text }) => text), ["Bathe Ruby"]);
+  assert.deepEqual(listed.results[0].tasks.map(({ text }) => text), ["Call the groomer", "Bathe Ruby"]);
+  assert.ok(newer.task.sort_position < created.task.sort_position);
   const updated = await registry.execute("todo_update", { updates: [{
     personal_task_id: created.task.personal_task_id, status: "complete",
   }] }, toolContext);

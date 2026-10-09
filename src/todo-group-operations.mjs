@@ -18,6 +18,14 @@ function selectedActiveGroup(database, { groupId = null, groupName = null } = {}
       `).get(Number(groupId));
 }
 
+export function nextTopTodoSortPosition(database, groupId) {
+  return Number(database.prepare(`
+    SELECT COALESCE(MIN(sort_position), 20) - 10 AS value
+    FROM todo_personal
+    WHERE todo_group_id = ?
+  `).get(groupId).value);
+}
+
 export function renameTodoGroup(database, { groupId = null, groupName = null, newName } = {}) {
   const group = selectedActiveGroup(database, { groupId, groupName });
   if (!group) throw new TodoGroupOperationError("To-do group not found.", 404);

@@ -1014,6 +1014,24 @@ test("group reordering atomically normalizes every task position", () => {
   }
 });
 
+test("new to-dos start at the top of their group", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target);
+  try {
+    const group = organizer.createTodoGroup({ name: "Newest first" });
+    organizer.createTodo({ text: "First task", groupId: group.id });
+    organizer.createTodo({ text: "Second task", groupId: group.id });
+    organizer.createTodo({ text: "Third task", groupId: group.id });
+
+    const ordered = organizer.listTodos({ scope: "all" }).filter(({ groupId }) => groupId === group.id);
+    assert.deepEqual(ordered.map(({ text }) => text), ["Third task", "Second task", "First task"]);
+    assert.deepEqual(ordered.map(({ sortPosition }) => sortPosition), [-10, 0, 10]);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("to-do group sequence mode assigns stable next numbers only while enabled", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);
@@ -1029,7 +1047,7 @@ test("to-do group sequence mode assigns stable next numbers only while enabled",
     assert.equal(organizer.listTodoGroups().find(({ id }) => id === group.id).usesSequence, true);
     assert.deepEqual(
       [numbered.id, first.id, second.id].map((id) => organizer.getTodo(id).sequence),
-      [7, 8, 9],
+      [7, 9, 8],
     );
     assert.equal(organizer.createTodo({ text: "Next watch job", groupId: group.id }).sequence, 10);
     assert.deepEqual(
@@ -1043,7 +1061,7 @@ test("to-do group sequence mode assigns stable next numbers only while enabled",
       version: organizer.getTodo(first.id).version,
     });
     assert.equal(reassigned.sequence, 11);
-    assert.equal(organizer.getTodo(second.id).sequence, 9);
+    assert.equal(organizer.getTodo(second.id).sequence, 8);
 
     const disabled = organizer.setTodoGroupSequenceMode(group.id, { usesSequence: false });
     assert.equal(disabled.changed, true);

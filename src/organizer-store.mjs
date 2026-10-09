@@ -9,7 +9,7 @@ import {
 } from "./contact-duplicates.mjs";
 import { redactText, safeJson } from "./redaction.mjs";
 import {
-  archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupDailyPaperPinned,
+  archiveEmptyTodoGroup, nextTopTodoSortPosition, renameTodoGroup, setTodoGroupDailyPaperPinned,
   setTodoGroupSequenceMode,
 } from "./todo-group-operations.mjs";
 import { renameJournalGroup } from "./journal-group-operations.mjs";
@@ -3987,11 +3987,7 @@ export class OrganizerStore {
 
     this.database.exec("START TRANSACTION");
     try {
-      const sortPosition = Number(this.database.prepare(`
-        SELECT COALESCE(MAX(sort_position), 0) + 10 AS next_position
-        FROM todo_personal
-        WHERE todo_group_id = ?
-      `).get(groupId).next_position);
+      const sortPosition = nextTopTodoSortPosition(this.database, groupId);
       const result = this.database.prepare(`
         INSERT INTO todo_personal (
           todo_group_id, sequence, related_contact_id, text,

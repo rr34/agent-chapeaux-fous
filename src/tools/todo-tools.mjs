@@ -1,5 +1,5 @@
 import {
-  archiveEmptyTodoGroup, renameTodoGroup, setTodoGroupDailyPaperPinned,
+  archiveEmptyTodoGroup, nextTopTodoSortPosition, renameTodoGroup, setTodoGroupDailyPaperPinned,
   setTodoGroupSequenceMode,
 } from "../todo-group-operations.mjs";
 import { selectedFields } from "./record-fields.mjs";
@@ -371,7 +371,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_add",
-    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. It may carry a fixed billable amount in minor currency units. To place work or a deadline on the calendar, create a calendar event and link it to the to-do.",
+    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. New items default to the top of their group unless an explicit position is supplied. It may carry a fixed billable amount in minor currency units. To place work or a deadline on the calendar, create a calendar event and link it to the to-do.",
     outputSchema: { type: "object", properties: { task: todoTaskRecordSchema } },
     parameters: { type: "object", additionalProperties: false, properties: {
       text: { type: "string", minLength: 1, maxLength: 10000 },
@@ -381,7 +381,7 @@ export function registerTodoTools(registry, store, ledger) {
       planning_prompt_text: optionalText,
       billable_amount_minor: { type: ["integer", "null"], minimum: 1 },
       billable_currency: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },
-      position: { type: ["integer", "null"], minimum: 1, maximum: 1_000_000_000 },
+      position: { type: ["integer", "null"], minimum: 1, maximum: 1_000_000_000, description: "Optional final one-based position in the group. Null places the new task at the top." },
     }, required: ["text", "todo_group_id"] },
     async execute(input, context) {
       const database = store.requireReady();
@@ -393,8 +393,7 @@ export function registerTodoTools(registry, store, ledger) {
       ).get(input.related_contact_id)) throw new Error(`Related contact ${input.related_contact_id} does not exist`);
       database.exec("START TRANSACTION");
       try {
-        const position = Number(database.prepare(`SELECT COALESCE(MAX(sort_position), 0) + 10 AS value
-          FROM todo_personal WHERE todo_group_id = ?`).get(group.todo_group_id).value);
+        const position = nextTopTodoSortPosition(database, group.todo_group_id);
         const completed = input.status === "complete" ? new Date().toISOString() : null;
         const inserted = database.prepare(`
           INSERT INTO todo_personal (
