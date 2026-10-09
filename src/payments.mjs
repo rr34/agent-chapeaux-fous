@@ -135,25 +135,6 @@ export async function composeInvoicePdf(invoicePdfBytes, receipts) {
 
   const font = await output.embedFont(StandardFonts.Helvetica);
   const bold = await output.embedFont(StandardFonts.HelveticaBold);
-  let indexPage = output.addPage([612, 792]);
-  let y = 744;
-  indexPage.drawText("Supporting receipts", { x: 54, y, size: 20, font: bold, color: rgb(0.13, 0.15, 0.12) });
-  y -= 32;
-  for (const [index, receipt] of receipts.entries()) {
-    if (y < 72) {
-      indexPage = output.addPage([612, 792]);
-      y = 744;
-    }
-    const lines = receipt.linePositions.join(", ");
-    indexPage.drawText(`${index + 1}. ${receipt.displayName}`, {
-      x: 54, y, size: 11, font: bold, maxWidth: 504, color: rgb(0.13, 0.15, 0.12),
-    });
-    y -= 16;
-    indexPage.drawText(`Supports invoice line${receipt.linePositions.length === 1 ? "" : "s"} ${lines}`, {
-      x: 68, y, size: 9, font, color: rgb(0.38, 0.41, 0.36),
-    });
-    y -= 24;
-  }
 
   let receiptPageCount = 0;
   for (const receipt of receipts) {
@@ -219,9 +200,12 @@ export function invoicePdfHtml(invoice) {
     const position = Number.isSafeInteger(Number(line.position)) && Number(line.position) > 0
       ? Number(line.position)
       : index + 1;
+    const receiptName = line.receipt && typeof line.receipt === "object"
+      ? String(line.receipt.displayName ?? "").trim()
+      : "";
     return `<tr>
     <td class="line-number">${escapedHtml(position)}</td>
-    <td class="line-description">${escapedHtml(line.description)}</td>
+    <td class="line-description"><div>${escapedHtml(line.description)}</div>${receiptName ? `<div class="line-receipt">Receipt attached: <strong>${escapedHtml(receiptName)}</strong></div>` : ""}</td>
     <td>${escapedHtml(formattedMoney(line.amountMinor, invoice.currency))}</td>
   </tr>`;
   }).join("");
@@ -242,6 +226,7 @@ export function invoicePdfHtml(invoice) {
     td { padding: 13px 10px; border-bottom: 1px solid #dde1d8; vertical-align: top; }
     .line-number { width: 54px; color: #62695e; text-align: center; font-variant-numeric: tabular-nums; }
     .line-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .line-receipt { margin-top: 7px; color: #58634f; font-size: 11px; white-space: normal; }
     th:last-child, td:last-child { width: 150px; text-align: right; }
     .total { display: flex; justify-content: flex-end; gap: 30px; margin-top: 18px; font-size: 18px; }
     .description { margin-top: 28px; padding: 14px 16px; background: #f4f5f1; white-space: pre-wrap; }

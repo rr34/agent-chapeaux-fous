@@ -925,17 +925,22 @@ test("a local invoice PDF renders the exact current snapshot without Stripe", as
   assert.deepEqual(calls, [{ invoice, browserExecutable: "/configured/chromium" }]);
 });
 
-test("local invoice PDF reads a shared receipt once and preserves all supported line positions", async () => {
-  const receipt = {
+test("local invoice PDF orders receipts by line and reads a shared receipt only once", async () => {
+  const sharedReceipt = {
     fileId: 42, ref: "agent-slayer://files/42", displayName: "Hardware receipt",
     mimeType: "application/pdf", sha256: "a".repeat(64),
   };
+  const earlierReceipt = {
+    fileId: 43, ref: "agent-slayer://files/43", displayName: "Delivery receipt",
+    mimeType: "application/pdf", sha256: "b".repeat(64),
+  };
   const invoice = {
     invoiceId: 98, payerName: "Ruby", payerEmail: "ruby@example.test", dueOn: "2099-01-02",
-    currency: "USD", amountMinor: 3000, description: null,
+    currency: "USD", amountMinor: 6000, description: null,
     lines: [
-      { position: 1, description: "Fasteners", amountMinor: 1000, receipt },
-      { position: 2, description: "Brackets", amountMinor: 2000, receipt },
+      { position: 7, description: "Fasteners", amountMinor: 1000, receipt: sharedReceipt },
+      { position: 2, description: "Delivery", amountMinor: 3000, receipt: earlierReceipt },
+      { position: 8, description: "Brackets", amountMinor: 2000, receipt: sharedReceipt },
     ],
   };
   const opens = [];
@@ -945,9 +950,10 @@ test("local invoice PDF reads a shared receipt once and preserves all supported 
     renderInvoicePdf: async () => Buffer.from("invoice"),
     artifactSource: { async open(fileId) {
       opens.push(fileId);
+      const receipt = fileId === earlierReceipt.fileId ? earlierReceipt : sharedReceipt;
       return {
         descriptor: { fileId, mimeType: receipt.mimeType, sha256: receipt.sha256, byteSize: 7 },
-        async read() { return Buffer.from("receipt"); }, async close() {},
+        async read() { return Buffer.from(`receipt-${fileId}`); }, async close() {},
       };
     } },
     composePdf: async (invoiceBytes, receipts) => {
@@ -959,13 +965,16 @@ test("local invoice PDF reads a shared receipt once and preserves all supported 
 
   const result = await payments.localInvoicePdf(98);
 
-  assert.deepEqual(opens, [42]);
+  assert.deepEqual(opens, [43, 42]);
   assert.deepEqual(result.bytes, Buffer.from("combined"));
-  assert.deepEqual(composed.receipts[0].linePositions, [1, 2]);
-  assert.deepEqual(composed.receipts[0].bytes, Buffer.from("receipt"));
+  assert.deepEqual(composed.receipts.map(({ fileId, linePositions }) => ({ fileId, linePositions })), [
+    { fileId: 43, linePositions: [2] },
+    { fileId: 42, linePositions: [7, 8] },
+  ]);
+  assert.deepEqual(composed.receipts[1].bytes, Buffer.from("receipt-42"));
 });
 
-test("PDF composition appends an index and every page of each distinct PDF receipt", async () => {
+test("PDF composition appends every receipt page without a separate receipt index", async () => {
   const invoice = await PDFDocument.create();
   invoice.addPage();
   const receipt = await PDFDocument.create();
@@ -979,7 +988,7 @@ test("PDF composition appends an index and every page of each distinct PDF recei
     }],
   );
   const combined = await PDFDocument.load(result);
-  assert.equal(combined.getPageCount(), 4);
+  assert.equal(combined.getPageCount(), 3);
 });
 
 test("invoice PDF line descriptions preserve newlines and wrap long text", () => {
@@ -995,11 +1004,13 @@ test("invoice PDF line descriptions preserve newlines and wrap long text", () =>
       position: 7,
       description: "Warranty follow-up\nNo charge: corrected installation & explained the result",
       amountMinor: 0,
+      receipt: { displayName: "Lowes receipt 88.05.pdf" },
     }],
   });
 
   assert.match(html, /<th class="line-number">Line<\/th>/u);
   assert.match(html, /<td class="line-number">7<\/td>/u);
+  assert.match(html, /Receipt attached: <strong>Lowes receipt 88\.05\.pdf<\/strong>/u);
   assert.match(html, /\.line-description \{ white-space: pre-wrap; overflow-wrap: anywhere; \}/u);
-  assert.match(html, /<td class="line-description">Warranty follow-up\nNo charge: corrected installation &amp; explained the result<\/td>/u);
+  assert.match(html, /<td class="line-description"><div>Warranty follow-up\nNo charge: corrected installation &amp; explained the result<\/div>/u);
 });
