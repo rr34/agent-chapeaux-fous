@@ -996,7 +996,7 @@ test("invoice PDF line descriptions preserve newlines and wrap long text", () =>
     invoiceId: 97,
     payerName: "Ruby",
     payerEmail: "ruby@example.test",
-    dueOn: "2099-01-02",
+    dueOn: "2026-10-15",
     currency: "USD",
     amountMinor: 0,
     description: "Installation and materials",
@@ -1009,6 +1009,7 @@ test("invoice PDF line descriptions preserve newlines and wrap long text", () =>
   });
 
   assert.match(html, /<th class="line-number">Line<\/th>/u);
+  assert.match(html, /<span>Due<\/span><strong>15 Oct 2026<\/strong>/u);
   assert.match(html, /<td class="line-number">7<\/td>/u);
   assert.match(html, /Receipt attached: <strong>Lowes receipt 88\.05\.pdf<\/strong>/u);
   const descriptionIndex = html.indexOf('<div class="description">Installation and materials</div>');

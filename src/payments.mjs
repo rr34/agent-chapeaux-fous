@@ -186,6 +186,22 @@ function formattedMoney(amountMinor, currency) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amountMinor / divisor);
 }
 
+function formattedDateOnly(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "Not set";
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!match) return text;
+  const [, year, month, day] = match;
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthIndex = Number(month) - 1;
+  const parsed = new Date(Date.UTC(Number(year), monthIndex, Number(day)));
+  if (monthIndex < 0 || monthIndex > 11
+    || parsed.getUTCFullYear() !== Number(year)
+    || parsed.getUTCMonth() !== monthIndex
+    || parsed.getUTCDate() !== Number(day)) return text;
+  return `${Number(day)} ${monthNames[monthIndex]} ${year}`;
+}
+
 function escapedHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -233,7 +249,7 @@ export function invoicePdfHtml(invoice) {
     footer { margin-top: 36px; padding-top: 12px; color: #62695e; border-top: 1px solid #dde1d8; font-size: 11px; }
   </style></head><body>
     <header><div><h1>Invoice</h1><div class="muted">Preview prepared in TLOM</div></div>
-      <div class="meta"><span>Invoice</span><strong>#${invoice.invoiceId}</strong><span>Due</span><strong>${escapedHtml(invoice.dueOn || "Not set")}</strong><span>Currency</span><strong>${escapedHtml(invoice.currency)}</strong></div>
+      <div class="meta"><span>Invoice</span><strong>#${invoice.invoiceId}</strong><span>Due</span><strong>${escapedHtml(formattedDateOnly(invoice.dueOn))}</strong><span>Currency</span><strong>${escapedHtml(invoice.currency)}</strong></div>
     </header>
     <section class="recipient"><strong>Bill to</strong><p>${escapedHtml(invoice.payerName || "Not set")}</p><p class="muted">${escapedHtml(invoice.payerEmail)}</p></section>
     ${invoice.description ? `<div class="description">${escapedHtml(invoice.description)}</div>` : ""}
