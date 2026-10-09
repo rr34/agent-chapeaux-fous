@@ -195,8 +195,16 @@ textarea { resize: vertical; }
 .run-limits-summary { color: var(--olive-dark); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .composer-size-button { min-height: 32px; flex: 0 0 auto; padding: 5px 9px; font-size: 12px; }
 .composer-size-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
-.composer-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 48px auto; align-items: stretch; gap: 10px; }
+.composer-input-row { display: grid; grid-template-columns: 46px minmax(0, 1fr) 48px auto; align-items: stretch; gap: 10px; }
 .composer textarea { border: 0; box-shadow: none; background: transparent; min-height: 68px; }
+.visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
+.composer-attachment-button { display: grid; place-items: center; align-self: center; width: 46px; height: 46px; min-height: 46px; padding: 0; color: var(--olive-dark); background: var(--paper); border: 1px solid var(--line); border-radius: 50%; }
+.composer-attachment-button:hover, .composer-attachment-button.selected { color: white; background: var(--olive-dark); }
+.composer-attachment-button:focus-visible { outline: 3px solid rgba(78, 91, 67, .25); outline-offset: 3px; }
+.composer-attachment-icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.composer-attachment-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; margin-bottom: 9px; padding: 7px 9px; color: var(--olive-dark); background: var(--olive-soft); border-radius: 9px; font-size: 12px; }
+.composer-attachment-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-attachment-summary .button { min-height: 30px; flex: 0 0 auto; padding: 4px 9px; font-size: 11px; }
 .composer.expanded { z-index: 20; inset: 0; display: flex; width: 100%; height: 100vh; height: 100dvh; max-width: none; margin: 0; padding: clamp(14px, 2vw, 28px); border: 0; border-radius: 0; background: var(--paper); backdrop-filter: none; }
 .composer.expanded .composer-toolbar { flex: 0 0 auto; }
 .composer.expanded .composer-input-row { flex: 1 1 auto; min-height: 0; align-items: end; }
@@ -712,7 +720,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .composer-run-limits { align-items: flex-start; flex-direction: column; gap: 5px; }
   .composer-size-button span { display: none; }
   .composer-size-button { width: 36px; padding-inline: 8px; }
-  .composer-input-row { grid-template-columns: minmax(0, 1fr) 42px auto; gap: 7px; }
+  .composer-input-row { grid-template-columns: 42px minmax(0, 1fr) 42px auto; gap: 7px; }
+  .composer-attachment-button { width: 42px; height: 42px; min-height: 42px; }
   .record-button { width: 42px; height: 42px; min-height: 42px; }
   .cancel-recording { min-height: 42px; padding-inline: 9px; }
   .trace-backdrop { padding: 0; }

@@ -394,6 +394,33 @@ type RunLimits = {
   promptForTurnBrief: boolean;
 };
 
+type PendingRequestAttachment = {
+  file: File;
+  storedFileId: number | null;
+};
+
+const requestAttachmentAccept = [
+  ".pdf", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".csv", ".tsv", ".json", ".jsonl", ".vcf", ".txt",
+  "application/pdf", "image/jpeg", "image/png", "image/webp", "image/gif", "text/csv",
+  "text/tab-separated-values", "application/json", "application/x-ndjson", "text/vcard", "text/x-vcard", "text/plain",
+].join(",");
+
+function requestAttachmentMimeType(file: File) {
+  if (file.type) return file.type;
+  const extension = file.name.toLowerCase().split(".").pop();
+  return ({
+    pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+    webp: "image/webp", gif: "image/gif", csv: "text/csv", tsv: "text/tab-separated-values",
+    json: "application/json", jsonl: "application/x-ndjson", vcf: "text/vcard", txt: "text/plain",
+  } as Record<string, string>)[extension ?? ""] || "application/octet-stream";
+}
+
+function attachmentSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function formatRecordingClock(milliseconds: number) {
   const totalSeconds = Math.floor(Math.max(0, milliseconds) / 1000);
   return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
@@ -420,6 +447,7 @@ function AgentComposer({
   onSubmitted: (request: RequestRecord) => void;
 }) {
   const textArea = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const recordMeter = useRef<HTMLSpanElement>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const recordingStream = useRef<MediaStream | null>(null);
@@ -441,6 +469,8 @@ function AgentComposer({
   const [recordingStatus, setRecordingStatus] = useState("");
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [pendingRunLimits, setPendingRunLimits] = useState<RunLimits | null>(null);
+  const [attachment, setAttachment] = useState<PendingRequestAttachment | null>(null);
+  const [attachmentStatus, setAttachmentStatus] = useState("");
   const [runLimitsOpen, setRunLimitsOpen] = useState(false);
   const [toolCallLimit, setToolCallLimit] = useState(256);
   const [toolCallsUnlimited, setToolCallsUnlimited] = useState(false);
@@ -587,7 +617,7 @@ function AgentComposer({
   };
 
   const startRecording = async () => {
-    if (!recordingSupported || recordingPhase !== "idle" || selections.length > 0) return;
+    if (!recordingSupported || recordingPhase !== "idle" || selections.length > 0 || attachment) return;
     setSubmitError(null);
     setRecordingStatus("Requesting microphone access…");
     setRecordingPhase("requesting");
@@ -727,8 +757,26 @@ function AgentComposer({
         ({ label: _label, detail: _detail, referencedRequestId, selectionOrigin: _selectionOrigin, ...selection }) =>
           referencedRequestId ? [] : [selection],
       );
+      let primaryFileId = attachment?.storedFileId ?? null;
+      if (attachment && primaryFileId === null) {
+        setAttachmentStatus(`Uploading ${attachment.file.name}…`);
+        const uploaded = await api<{ fileId: number }>(
+          `/api/request-files?filename=${encodeURIComponent(attachment.file.name)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": requestAttachmentMimeType(attachment.file) },
+            body: attachment.file,
+          },
+        );
+        primaryFileId = uploaded.fileId;
+        setAttachment((current) => current?.file === attachment.file
+          ? { ...current, storedFileId: uploaded.fileId }
+          : current);
+        setAttachmentStatus(`Uploaded ${attachment.file.name}. Submitting request…`);
+      }
       const created = await api<{ requestId: string }>("/api/requests", { method: "POST", body: JSON.stringify({
         text,
+        primaryFileId,
         referencedRequestIds,
         selectedObjectCandidates,
         runLimits: pendingRunLimits,
@@ -736,6 +784,9 @@ function AgentComposer({
       setPendingRunLimits(null);
       setText("");
       setSelections([]);
+      setAttachment(null);
+      setAttachmentStatus("");
+      if (fileInput.current) fileInput.current.value = "";
       setComposerExpanded(false);
       const submittedAtMs = Date.now();
       onSubmitted({
@@ -755,8 +806,8 @@ function AgentComposer({
     finally { setSending(false); }
   };
 
-  const recorderTitle = selections.length > 0
-    ? "Send or clear the selected objects before recording a voice request"
+  const recorderTitle = selections.length > 0 || attachment
+    ? "Send or clear the selected objects and file before recording a voice request"
     : !recordingSupported
     ? "Audio recording is not supported by this browser"
     : recordingPhase === "requesting"
@@ -778,9 +829,21 @@ function AgentComposer({
     clearSelectionNotice();
   };
 
+  const chooseAttachment = (file: File | null) => {
+    setAttachment(file ? { file, storedFileId: null } : null);
+    setAttachmentStatus("");
+    setSubmitError(null);
+  };
+
+  const removeAttachment = () => {
+    chooseAttachment(null);
+    if (fileInput.current) fileInput.current.value = "";
+  };
+
   return <><form className={`composer${isRecording ? " recording" : ""}${composerExpanded ? " expanded" : ""}`} onSubmit={submit}>
     {selectionNotice && <div className="composer-feedback" role="status">{selectionNotice}</div>}
     {recordingStatus && <div className="composer-feedback recording-status" role="status">{recordingStatus}</div>}
+    {attachmentStatus && <div className="composer-feedback" role="status">{attachmentStatus}</div>}
     {submitError && <ErrorState error={submitError} dismiss={() => setSubmitError(null)} />}
     {selections.length > 0 && <div className="composer-selection-summary">
       <span role="status"><strong>{selections.length}</strong> {selections.length === 1 ? "object" : "objects"} selected for this request</span>
@@ -807,8 +870,34 @@ function AgentComposer({
         <span>{composerExpanded ? "Collapse" : "Expand"}</span>
       </button>
     </div>}
+    {!isRecording && attachment && <div className="composer-attachment-summary" role="status">
+      <span title={attachment.file.name}><strong>{attachment.file.name}</strong> · {attachmentSize(attachment.file.size)}</span>
+      <button className="button button--quiet" type="button" disabled={sending} onClick={removeAttachment} aria-label={`Remove attached file ${attachment.file.name}`}>Remove</button>
+    </div>}
     <div className="composer-input-row">
       {isRecording && <button className="button button--quiet cancel-recording" type="button" onClick={cancelRecording} aria-label="Cancel recording" title="Cancel recording"><span aria-hidden="true">×</span><span>Cancel</span></button>}
+      {!isRecording && <>
+        <button
+          className={`composer-attachment-button${attachment ? " selected" : ""}`}
+          type="button"
+          disabled={sending || recordingPhase !== "idle"}
+          onClick={() => fileInput.current?.click()}
+          aria-label={attachment ? `Replace attached file ${attachment.file.name}` : "Attach a file"}
+          title={attachment ? "Replace attached file" : "Attach a file"}
+        >
+          <svg className="composer-attachment-icon" aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+          </svg>
+        </button>
+        <input
+          ref={fileInput}
+          className="visually-hidden"
+          type="file"
+          accept={requestAttachmentAccept}
+          disabled={sending}
+          onChange={(event) => chooseAttachment(event.currentTarget.files?.[0] ?? null)}
+        />
+      </>}
       {!isRecording && <ObjectMentionInput
         value={text}
         onChange={(value) => { setText(value); clearSelectionNotice(); setRecordingStatus(""); setSubmitError(null); }}
@@ -822,7 +911,7 @@ function AgentComposer({
           className={`record-button ${isRecording ? "recording" : ""}`}
           type="button"
           onClick={() => void startRecording()}
-          disabled={!recordingSupported || selections.length > 0 || !["idle", "recording"].includes(recordingPhase)}
+          disabled={!recordingSupported || selections.length > 0 || Boolean(attachment) || !["idle", "recording"].includes(recordingPhase)}
           aria-label={isRecording ? "Microphone input level" : "Start recording"}
           title={recorderTitle}
         >
