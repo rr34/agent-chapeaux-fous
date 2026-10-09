@@ -147,6 +147,22 @@ export function contactIdentity(contact: Entity) {
   });
 }
 
+export function invoiceIdentity(invoice: Entity) {
+  const id = Number(invoice.invoiceId);
+  const display = invoice.display || `Invoice ${id}`;
+  const detail = [
+    `Invoice: ${concise(display)}`,
+    invoice.status ? `Status: ${concise(invoice.status, 80)}` : null,
+    invoice.dueOn ? `Due: ${concise(invoice.dueOn, 80)}` : null,
+    invoice.description ? `Description: ${concise(invoice.description)}` : null,
+    referenceCode({ payment_invoice_id: id, ref: stableReference("payment-invoices", id) }),
+  ].filter(Boolean).join("\n");
+  return nativeReference({
+    type: "payments.invoice", source: "native:payments", id,
+    collection: "payment-invoices", label: "Payment invoice", display, detail,
+  });
+}
+
 export type GenericObjectKind = "content" | "video-scripts" | "files";
 
 const genericReferenceConfig: Record<GenericObjectKind, {

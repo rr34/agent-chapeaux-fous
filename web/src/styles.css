@@ -381,7 +381,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .invoice-list-created > span { font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .invoice-list-created strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .invoice-list-action { color: var(--olive-dark); font-size: 11px; font-weight: 750; white-space: nowrap; }
-.invoice-list-stripe { align-self: stretch; display: inline-flex; align-items: center; padding: 0 16px; border-left: 1px solid var(--line); color: var(--olive-dark); font-size: 11px; font-weight: 750; text-decoration: none; white-space: nowrap; }
+.invoice-list-side-actions { align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-left: 1px solid var(--line); }
+.invoice-list-stripe { align-self: stretch; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 8px; color: var(--olive-dark); font-size: 11px; font-weight: 750; text-decoration: none; white-space: nowrap; }
 .invoice-list-stripe:hover { background: var(--olive-soft); }
 .invoice-editor { width: min(900px, 100%); }
 .invoice-create-editor { width: min(980px, 100%); }
@@ -715,7 +716,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .invoice-list-money { grid-column: 2; }
   .invoice-list-created { display: grid; grid-column: 2; }
   .invoice-list-action { grid-column: 2; }
-  .invoice-list-stripe { min-height: 42px; justify-content: center; border-top: 1px solid var(--line); border-left: 0; }
+  .invoice-list-side-actions { min-height: 50px; justify-content: center; border-top: 1px solid var(--line); border-left: 0; }
+  .invoice-list-stripe { min-height: 34px; justify-content: center; }
   .invoice-create-grid, .invoice-create-manual-lines > div, .invoice-create-selected-todos > div { grid-template-columns: 1fr; }
   .invoice-create-manual-lines > div > button { justify-self: start; min-height: 30px; padding-left: 0; }
   .invoice-editor-summary, .invoice-line-editor { grid-template-columns: 1fr; }

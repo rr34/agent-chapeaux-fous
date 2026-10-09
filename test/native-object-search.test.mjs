@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { nativeObjectTypes, normalizeSelectedObjectCandidates, objectSearchTerms, registerNativeObjectContextView, resolveNativeObjectCandidates, searchNativeObjects, selectedObjectMentionsAreVisible } from "../src/native-object-search.mjs";
+import { objectReferenceGroupsFromToolResult } from "../src/object-references.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
 test("native object candidates come from selected authoritative tables and rank direct names above relationships", () => {
@@ -161,6 +162,57 @@ test("composer object selections retain exact searchable identity fields", () =>
   assert.deepEqual(normalizeSelectedObjectCandidates([{
     ...selected[0], mention: "@Lucas Ruffing — Contact #7",
   }])[0].mention, "@Lucas Ruffing — Contact #7");
+
+  assert.deepEqual(normalizeSelectedObjectCandidates([{
+    mention: "@Payer not set — not priced — Payment invoice #51",
+    type: "payments.invoice",
+    source: "native:payments",
+    id: 51,
+    ref: "agent-slayer://payment-invoices/51",
+    display: "Payer not set — not priced",
+  }]), [{
+    mention: "@Payer not set — not priced — Payment invoice #51",
+    type: "payments.invoice",
+    source: "native:payments",
+    id: 51,
+    ref: "agent-slayer://payment-invoices/51",
+    display: "Payer not set — not priced",
+  }]);
+});
+
+test("displayed invoices are reread by exact stable reference without entering lexical search", () => {
+  const database = { prepare(sql) {
+    assert.match(sql, /FROM payment_invoices/u);
+    return { get(id) {
+      assert.equal(id, 51);
+      return { title: "Payer not set — not priced" };
+    } };
+  } };
+  const selected = [{
+    mention: "@Payer not set — not priced — Payment invoice #51",
+    type: "payments.invoice", source: "native:payments", id: 51,
+    ref: "agent-slayer://payment-invoices/51", display: "Payer not set — not priced",
+  }];
+
+  const resolved = resolveNativeObjectCandidates(database, selected);
+  assert.deepEqual(resolved, [{
+    type: "payments.invoice", domainType: "payments.invoice", source: "native:payments",
+    table: "payment_invoices", id: 51, ref: "agent-slayer://payment-invoices/51",
+    label: "Payment invoice", title: "Payer not set — not priced", detail: "",
+    matchedOn: ["selected stable reference"], related: [], invoiceId: 51,
+    display: "Payer not set — not priced",
+  }]);
+  assert.equal(nativeObjectTypes.some(({ domainType }) => domainType === "payments.invoice"), false);
+  assert.deepEqual(objectReferenceGroupsFromToolResult({
+    toolDefinition: { name: "context:search.native_object_candidates", source: "local" },
+    result: { objects: resolved },
+    sourceEventSeq: 91,
+  }), [{
+    mention: "Payment invoice returned by context:search.native_object_candidates",
+    role: "subject", type: "payments.invoice", source: "native:payments",
+    objects: [{ id: 51, ref: "agent-slayer://payment-invoices/51", display: "Payer not set — not priced" }],
+    sourceEventSeqs: [91],
+  }]);
 });
 
 test("bulk composer selection accepts 500 exact objects and rejects 501 without truncation", () => {

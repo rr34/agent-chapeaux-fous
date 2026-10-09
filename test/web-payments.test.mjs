@@ -7,7 +7,7 @@ const serverSource = fs.readFileSync(new URL("../src/server.mjs", import.meta.ur
 
 test("the React workspace exposes Stripe connection status and invoice history", () => {
   assert.match(appSource, /\["payments", "Payments"\], \["ai-usage", "AI Usage"\]/);
-  assert.match(appSource, /function PaymentsScreen\(\)/);
+  assert.match(appSource, /function PaymentsScreen\(\{ onReference \}: \{ onReference: AddAgentReference \}\)/);
   assert.match(appSource, /function CreateInvoiceEditor\(/);
   assert.match(appSource, />Create invoice<\/button>/);
   assert.match(appSource, /"\/api\/payment-invoices\/prepare"/);
@@ -29,6 +29,8 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.match(appSource, /Open Stripe/);
   assert.match(appSource, /function InvoiceEditor\(/);
   assert.match(appSource, /View invoice/);
+  assert.match(appSource, /identity=\{invoiceIdentity\(invoice\)\}/);
+  assert.match(appSource, /<PaymentsScreen onReference=\{referenceInAgent\} \/>/);
   assert.match(appSource, /Save changes/);
   assert.match(appSource, /Add line/);
   assert.match(appSource, /New manual line/);

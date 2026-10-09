@@ -10,7 +10,7 @@ import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
 import {
   AgentReferenceButton, contactIdentity, exchangeIdentity,
-  genericEntityIdentity, journalEntryIdentity, journalTrackerIdentity,
+  genericEntityIdentity, invoiceIdentity, journalEntryIdentity, journalTrackerIdentity,
   todoIdentity, type AddAgentReference, type AddAgentReferences, type GenericObjectKind,
 } from "./components/AgentReferenceButton";
 import {
@@ -2083,7 +2083,7 @@ function InvoiceEditor({ invoice, contacts, onClose, onChanged }: {
   </div>;
 }
 
-function PaymentsScreen() {
+function PaymentsScreen({ onReference }: { onReference: AddAgentReference }) {
   const { data: statusData, error: statusError, loading: statusLoading, reload: reloadStatus } = useApi<{ stripe: StripeConnectionStatus }>("/api/payments/stripe/status");
   const { data: invoiceData, error: invoiceError, loading: invoicesLoading, reload: reloadInvoices } = useApi<{ count: number; invoices: Entity[] }>("/api/payment-invoices?limit=100");
   const { data: contactData, error: contactError, loading: contactsLoading } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=active&limit=10000");
@@ -2159,7 +2159,10 @@ function PaymentsScreen() {
         <div className="invoice-list-created"><span>Created</span><strong>{formatDisplayDate(textKey(invoice, "createdAtUtc"))}</strong></div>
         <span className="invoice-list-action">View invoice</span>
       </button>
-      {Boolean(invoice.hostedInvoiceUrl) && <a className="invoice-list-stripe" href={String(invoice.hostedInvoiceUrl)} target="_blank" rel="noreferrer">Open Stripe</a>}
+      <div className="invoice-list-side-actions">
+        <AgentReferenceButton identity={invoiceIdentity(invoice)} subject={`invoice ${String(invoice.invoiceId)}`} onReference={onReference} />
+        {Boolean(invoice.hostedInvoiceUrl) && <a className="invoice-list-stripe" href={String(invoice.hostedInvoiceUrl)} target="_blank" rel="noreferrer">Open Stripe</a>}
+      </div>
     </article>)}</div>
     {selectedInvoice && <InvoiceEditor
       key={`${String(selectedInvoice.invoiceId)}:${textKey(selectedInvoice, "previewDigest")}`}
@@ -2273,7 +2276,7 @@ function Workspace() {
   else if (view === "hats") screen = <HatsScreen />;
   else if (view === "routine") screen = <RoutineScreen onGenerated={(message) => { setCalendarGenerationNotice(message); go("calendar"); }} onReference={referenceInAgent} />;
   else if (view === "journal") screen = <JournalScreen onReference={referenceInAgent} />;
-  else if (view === "payments") screen = <PaymentsScreen />;
+  else if (view === "payments") screen = <PaymentsScreen onReference={referenceInAgent} />;
   else if (view === "ai-usage") screen = <UsageScreen />;
   else if (view === "content") screen = <LibraryScreen onReference={referenceInAgent} />;
   else if (view === "video-scripts") screen = <VideoScriptsScreen onReference={referenceInAgent} />;

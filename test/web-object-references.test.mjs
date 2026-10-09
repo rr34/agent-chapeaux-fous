@@ -18,6 +18,8 @@ test("the React UI can reference every displayed first-class object in Agent", (
   assert.match(references, /ref: stableReference\("calendar-events", numericEventId\)/);
   assert.match(references, /ref: stableReference\("todos", id\)/);
   assert.match(references, /ref: stableReference\("contacts", contact\.id\)/);
+  assert.match(references, /type: "payments\.invoice", source: "native:payments"/);
+  assert.match(references, /payment_invoice_id: id, ref: stableReference\("payment-invoices", id\)/);
   assert.match(references, /content_id/);
   assert.match(references, /video_script_id/);
   assert.match(references, /file_id/);
@@ -27,6 +29,7 @@ test("the React UI can reference every displayed first-class object in Agent", (
   assert.match(app, /identity=\{exchangeIdentity\(request\)\}/);
   assert.match(editableItems, /identity=\{todoIdentity\(todo\)\}/);
   assert.match(app, /identity=\{contactIdentity\(contact\)\}/);
+  assert.match(app, /identity=\{invoiceIdentity\(invoice\)\}/);
   assert.match(app, /identity=\{genericEntityIdentity\(kind, entity\)\}/);
   assert.match(app, /identity=\{journalTrackerIdentity\(tracker\)\}/);
   assert.match(app, /identity=\{journalEntryIdentity\(entry\)\}/);

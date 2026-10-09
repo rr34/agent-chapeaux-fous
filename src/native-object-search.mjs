@@ -44,11 +44,27 @@ const exactCandidateReads = Object.freeze({
   video_script: { display: "title", where: "1 = 1" },
   content_group: { display: "name", where: "1 = 1" },
   content_item: { display: "title", where: "1 = 1" },
+  "payments.invoice": {
+    display: `CONCAT(COALESCE(payer_name_snapshot, 'Payer not set'), ' — ',
+      IF(amount_minor > 0, CONCAT(currency, ' ', FORMAT(amount_minor / 100, 2)), 'not priced'))`,
+    where: "1 = 1",
+  },
 });
 const missingExactCandidateRead = nativeObjectTypes.find(({ type }) => !exactCandidateReads[type]);
 if (missingExactCandidateRead) {
   throw new Error(`Searchable object type ${missingExactCandidateRead.type} has no exact candidate read`);
 }
+const selectableObjectTypes = Object.freeze(nativeFirstClassObjectTypes
+  .filter((type) => exactCandidateReads[type.searchType ?? type.id])
+  .map((type) => Object.freeze({
+    type: type.searchType ?? type.id, domainType: type.id, source: type.source,
+    table: type.table, key: type.key, label: type.title, refPrefix: type.refPrefix,
+    producerIdentityField: type.identity.field,
+    producerReferenceField: type.reference.field,
+    producerDisplayField: type.display.field,
+  })));
+const selectableByDomainType = new Map(selectableObjectTypes
+  .map((definition) => [definition.domainType, definition]));
 
 
 function canonicalCandidateId(value, definition) {
@@ -80,8 +96,8 @@ export function normalizeSelectedObjectCandidates(value, { maximum = maximumSele
   const output = [];
   const seen = new Set();
   for (const [index, candidate] of value.entries()) {
-    const definition = byDomainType.get(candidate?.type);
-    if (!definition) throw new TypeError(`selectedObjectCandidates[${index}].type is not searchable.`);
+    const definition = selectableByDomainType.get(candidate?.type);
+    if (!definition) throw new TypeError(`selectedObjectCandidates[${index}].type is not referenceable.`);
     const id = canonicalCandidateId(candidate?.id, definition);
     const display = compact(candidate?.display, 500);
     const mention = compact(candidate?.mention, 500);
@@ -370,17 +386,22 @@ export function resolveNativeObjectCandidates(database, selectedCandidates = [])
   const normalized = normalizeSelectedObjectCandidates(selectedCandidates);
   const resolved = [];
   for (const selection of normalized) {
-    const definition = byDomainType.get(selection.type);
+    const definition = selectableByDomainType.get(selection.type);
     const read = exactCandidateReads[definition.type];
     const row = database.prepare(`SELECT ${read.display} AS title FROM ${definition.table}
       WHERE ${definition.key} = ? AND ${read.where} LIMIT 1`).get(selection.id);
     const title = compact(row?.title, 160);
     if (!title) continue;
+    const producerFields = definition.type === definition.domainType ? {
+      [definition.producerIdentityField]: selection.id,
+      [definition.producerReferenceField]: selection.ref,
+      [definition.producerDisplayField]: title,
+    } : {};
     resolved.push({
       type: definition.type, domainType: definition.domainType, source: definition.source,
       table: definition.table, id: selection.id, ref: selection.ref,
       label: definition.label, title, detail: "", matchedOn: ["selected stable reference"],
-      related: [],
+      related: [], ...producerFields,
     });
   }
   return resolved;
