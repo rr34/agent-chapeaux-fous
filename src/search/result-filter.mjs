@@ -44,14 +44,27 @@ export const readResultFilterSchema = {
   ],
 };
 
-export function withReadResultFilterSchema(inputSchema, readOnly) {
+export function withReadResultFilterSchema(inputSchema, readOnly, collectionPaths = []) {
   if (!readOnly || inputSchema?.type !== "object") return inputSchema;
   if (Object.hasOwn(inputSchema.properties ?? {}, "result_filter")) {
     throw new Error("Tool input schema reserves result_filter for Agent Slayer's read-result boundary");
   }
+  const exactPaths = [...new Set(collectionPaths)];
+  if (exactPaths.some((path) => typeof path !== "string" || !path.startsWith("/"))) {
+    throw new Error("Read-result collection paths must be RFC 6901 JSON Pointers beginning with /");
+  }
+  const filterSchema = structuredClone(readResultFilterSchema);
+  if (exactPaths.length) {
+    filterSchema.description = `${filterSchema.description} This tool has multiple result collections, so select one of its exact advertised collection paths.`;
+    filterSchema.properties.collection_path = {
+      type: "string",
+      enum: exactPaths,
+      description: "Exact provider-declared result collection to filter.",
+    };
+  }
   return {
     ...inputSchema,
-    properties: { ...(inputSchema.properties ?? {}), result_filter: readResultFilterSchema },
+    properties: { ...(inputSchema.properties ?? {}), result_filter: filterSchema },
     required: [...new Set([...(inputSchema.required ?? []), "result_filter"])],
   };
 }

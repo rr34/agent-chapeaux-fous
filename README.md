@@ -367,12 +367,13 @@ capability selector, which controls which exact tool schemas are callable.
   it never sends the message, writes to a remote calendar, or changes the local
   calendar's authority. Every displayed agenda event also has a phone-friendly
   copy action for sharing its saved details through another app.
-- `journal_add`, `journal_import`, `journal_list`, `journal_update`,
+- `tracker_create`, `journal_add`, `journal_import`, `journal_list`, `journal_update`,
   `journal_group_rename`, `tracker_list`, and `tracker_update`
   provide the native grouped personal-journal path. Each entry keeps complete
   natural-language content with an optional numeric projection for calculation
   and trends. Each tracker owns the one canonical unit shared by its numeric
-  series; entries do not duplicate it. Exact-ID corrections update an original entry without
+  series; entries do not duplicate it. Trackers can be created atomically
+  without fabricating an initial journal entry. Exact-ID corrections update an original entry without
   creating a duplicate. Bounded imports use generic source and external IDs for
   safe replay without source-specific application code.
 - `contact_file_import` parses a complete attached CSV or vCard/VCF directly,

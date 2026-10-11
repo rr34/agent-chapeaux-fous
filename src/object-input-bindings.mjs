@@ -75,6 +75,15 @@ function schemaAtPointer(root, segments) {
   return current ?? null;
 }
 
+function schemaAllowsNull(schema) {
+  if (!schema || typeof schema !== "object") return false;
+  if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.includes("null"))) {
+    return true;
+  }
+  if (schema.const === null || schema.enum?.includes(null)) return true;
+  return [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])].some(schemaAllowsNull);
+}
+
 export function constrainToolObjectInputs(toolDefinition, selectedGroups = [], observedGroups = []) {
   const contract = toolDefinition?.metadata?.[objectInputBindingsMetadataKey];
   if (!contract) return toolDefinition;
@@ -86,9 +95,13 @@ export function constrainToolObjectInputs(toolDefinition, selectedGroups = [], o
       toolDefinition, binding.objectType, role, selectedGroups, observedGroups,
     );
     if (!references.length) continue;
-    const allowed = [...new Set(references.map((object) => object[binding.value]))];
     const target = schemaAtPointer(inputSchema, pointerSegments(binding.path));
     if (!target) continue;
+    const allowed = [...new Set(references.map((object) => object[binding.value]))];
+    // A nullable object identity represents the provider-owned branch where no
+    // existing object is consumed (for example, creating a missing tracker).
+    // Narrow exact observed identities without erasing that declared branch.
+    if (schemaAllowsNull(target)) allowed.push(null);
     target.enum = allowed;
     changed = true;
   }

@@ -5,7 +5,18 @@ const toolDescriptions = Object.freeze({
   "journal_add": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Record one authoritative personal-journal entry, selecting an existing tracker and group by stable ID or explicitly creating missing ones.",
+    "summary": "Record one real personal-journal observation, optionally creating its missing tracker; use tracker_create for tracker-only requests.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
+  "tracker_create": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Create one or more personal-journal trackers without recording journal entries.",
     "actionClasses": [
       "CREATE"
     ],
@@ -650,8 +661,146 @@ export function registerJournalTools(registry, store, ledger) {
     execute: () => journalCapabilityContext(store),
   });
   registry.register({
+    name: "tracker_create",
+    description: "Atomically create one through 100 personal-journal trackers without creating journal entries. Every tracker requires a canonical unit and an exact parent group. Select an existing group by stable journal_group_id while retaining its display name in group. Use a null journal_group_id only when the named group does not exist and should be created as part of this request. Existing or known alias-equivalent tracker names, duplicate names within the batch, an archived group, or a name-only reference to an existing group rejects the complete call without partial writes. A successful result proves only that the trackers exist with zero entries, so do not invent placeholder observations or replay the call.",
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        created_count: { type: "integer", minimum: 1, maximum: 100 },
+        trackers: { type: "array", minItems: 1, maxItems: 100, items: trackerRecordSchema },
+      },
+      required: ["created_count", "trackers"],
+    },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        trackers: {
+          type: "array", minItems: 1, maxItems: 100,
+          description: "Complete atomic batch of new trackers.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              name: {
+                type: "string", minLength: 1, maxLength: 200,
+                description: "Complete globally unique human-facing tracker name.",
+              },
+              journal_group_id: {
+                type: ["integer", "null"], minimum: 1,
+                description: "Stable ID of an existing active parent group, or null only to create the missing group named by group.",
+              },
+              group: {
+                type: "string", minLength: 1, maxLength: 200,
+                description: "Exact display name of the selected group, or the complete name of a missing group to create.",
+              },
+              unit: {
+                type: "string", minLength: 1, maxLength: 100,
+                description: "Canonical unit shared by every future numeric entry in this tracker.",
+              },
+            },
+            required: ["name", "journal_group_id", "group", "unit"],
+          },
+        },
+      },
+      required: ["trackers"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    async execute({ trackers }, context) {
+      const database = store.requireReady();
+      const inputs = trackers.map((tracker) => ({
+        name: requiredText(tracker.name, "Tracker name", 200),
+        journalGroupId: tracker.journal_group_id == null ? null : Number(tracker.journal_group_id),
+        group: requiredText(tracker.group, "Journal group name", 200),
+        unit: requiredText(tracker.unit, "Unit", 100),
+      }));
+      const batchNames = new Set();
+      for (const input of inputs) {
+        if (input.unit.toLowerCase() === "set me") {
+          throw new Error("New journal trackers require a real canonical unit, not set me");
+        }
+        const key = input.name.toLowerCase();
+        if (batchNames.has(key)) throw new Error(`Duplicate journal tracker name in batch: ${input.name}`);
+        batchNames.add(key);
+      }
+
+      database.exec("START TRANSACTION");
+      try {
+        const groups = new Map();
+        for (const input of inputs) {
+          const existingTracker = findTracker(database, input.name).row;
+          if (existingTracker) {
+            throw new Error(`Journal tracker ${input.name} matches existing tracker ${existingTracker.name}`);
+          }
+          const groupKey = input.journalGroupId == null
+            ? `name:${input.group.toLowerCase()}`
+            : `id:${input.journalGroupId}`;
+          if (groups.has(groupKey)) {
+            const selected = groups.get(groupKey);
+            const expectedName = selected.row?.name ?? selected.requestedName;
+            if (input.group !== expectedName) {
+              throw new Error(`Journal group ${input.journalGroupId ?? input.group} must retain display name ${expectedName}`);
+            }
+            continue;
+          }
+          if (input.journalGroupId == null) {
+            const existingGroup = database.prepare("SELECT * FROM journal1_groups WHERE name = ?")
+              .get(input.group);
+            if (existingGroup) {
+              throw new Error(`Existing journal group ${existingGroup.name} must be selected by journal_group_id`);
+            }
+            groups.set(groupKey, { row: null, requestedName: input.group });
+            continue;
+          }
+          const group = requireGroupById(database, input.journalGroupId, new Date().toISOString());
+          if (group.archived_at_utc !== null) {
+            throw new Error(`Journal group ${group.name} is archived`);
+          }
+          if (input.group !== group.name) {
+            throw new Error(`Journal group ${input.journalGroupId} must retain display name ${group.name}`);
+          }
+          groups.set(groupKey, { row: group, requestedName: group.name });
+        }
+
+        const now = new Date().toISOString();
+        const created = [];
+        for (const input of inputs) {
+          const groupKey = input.journalGroupId == null
+            ? `name:${input.group.toLowerCase()}`
+            : `id:${input.journalGroupId}`;
+          const selectedGroup = groups.get(groupKey);
+          let group = selectedGroup.row;
+          if (!group) {
+            group = ensureGroup(database, input.group, now).row;
+            selectedGroup.row = group;
+          }
+          const inserted = database.prepare(`
+            INSERT INTO journal2_trackers (journal_group_id, name, unit, updated_at_utc)
+            VALUES (?, ?, ?, ?)
+            RETURNING tracker_id
+          `).get(group.journal_group_id, input.name, input.unit, now);
+          const tracker = databaseTracker(joinedTracker(database, inserted.tracker_id));
+          created.push(tracker);
+          ledger.append({
+            type: "personal_journal_tracker.created", status: "complete", actorType: "tool",
+            actorName: "tracker_create", turnId: context.requestId, operationId: context.callId,
+            name: "Personal journal tracker created", content: tracker.name,
+            payload: { tracker }, subjectType: "tracker", subjectId: String(tracker.tracker_id),
+          });
+        }
+        const result = { created_count: created.length, trackers: created };
+        database.exec("COMMIT");
+        return result;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  });
+  registry.register({
     name: "journal_add",
-    description: "Record one entry in the user's authoritative personal journal. Select an existing tracker by stable tracker_id; tracker is its human-facing name. A null tracker_id is valid only while proposing or explicitly creating a missing tracker. Select an existing parent group by journal_group_id. The content remains complete human-readable text; number_value is an optional trend projection whose canonical unit belongs to the tracker.",
+    description: "Record one real observation in the user's authoritative personal journal. Select an existing tracker by stable tracker_id; tracker is its human-facing name. A null tracker_id is valid only while proposing or explicitly creating a missing tracker together with this actual observation. Use tracker_create instead when the request is only to define trackers; never create placeholder observations. Select an existing parent group by journal_group_id. The content remains complete human-readable text; number_value is an optional trend projection whose canonical unit belongs to the tracker.",
     outputSchema: {
       type: "object",
       properties: { entry: journalEntryRecordSchema, tracker: trackerRecordSchema },
@@ -1031,7 +1180,8 @@ export function registerJournalTools(registry, store, ledger) {
 
   registry.register({
     name: "tracker_list",
-    description: "List personal-journal trackers with their groups, canonical units, entry counts, and most recent occurrence times.",
+    description: "List personal-journal trackers with their groups, canonical units, entry counts, and most recent occurrence times. The result has two record arrays: use result_filter.collection_path /trackers for tracker records or /groups for group records.",
+    readResultCollectionPaths: ["/trackers", "/groups"],
     outputSchema: {
       type: "object",
       properties: {

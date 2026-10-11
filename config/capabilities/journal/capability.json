@@ -4,7 +4,7 @@
   "version": 1,
   "id": "journal",
   "title": "Personal journal",
-  "summary": "Read, record, and correct native journal entries, trackers, and their named groups.",
+  "summary": "Create and manage native journal trackers and groups, and read, record, and correct their entries.",
   "aliases": [
     "journal",
     "tracker",

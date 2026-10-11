@@ -39,6 +39,70 @@ test("journal_add exposes one complete content field and no boolean or mandatory
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "valueKind"), false);
 });
 
+test("tracker_create atomically creates trackers without journal entries", async (context) => {
+  const { store, ledger, request, registry } = journalHarness(context, "Create family trackers");
+  const group = store.requireReady().prepare(
+    "INSERT INTO journal1_groups (name) VALUES ('Biometrics') RETURNING journal_group_id",
+  ).get();
+  const created = await registry.execute("tracker_create", {
+    trackers: [
+      { name: "Vince height", journal_group_id: group.journal_group_id, group: "Biometrics", unit: "cm" },
+      { name: "Vince weight", journal_group_id: group.journal_group_id, group: "Biometrics", unit: "kg" },
+      { name: "Eric height", journal_group_id: group.journal_group_id, group: "Biometrics", unit: "cm" },
+      { name: "Eric weight", journal_group_id: group.journal_group_id, group: "Biometrics", unit: "kg" },
+    ],
+  }, { requestId: request.requestId, requestEventId: request.eventId, callId: "tracker-create" });
+
+  assert.equal(created.created_count, 4);
+  assert.deepEqual(created.trackers.map(({ name }) => name), [
+    "Vince height", "Vince weight", "Eric height", "Eric weight",
+  ]);
+  assert.ok(created.trackers.every((tracker) => tracker.group_name === "Biometrics"));
+  assert.equal(
+    Number(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal2_trackers").get().count),
+    4,
+  );
+  assert.equal(
+    Number(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal3_entries").get().count),
+    0,
+  );
+  assert.equal(
+    ledger.trace(request.requestId)
+      .filter((event) => event.type === "personal_journal_tracker.created").length,
+    4,
+  );
+});
+
+test("tracker_create rejects an invalid batch without partial writes", async (context) => {
+  const { store, request, registry } = journalHarness(context, "Create duplicate trackers");
+  const group = store.requireReady().prepare(
+    "INSERT INTO journal1_groups (name) VALUES ('Biometrics') RETURNING journal_group_id",
+  ).get();
+  await assert.rejects(registry.execute("tracker_create", {
+    trackers: [
+      { name: "Vince height", journal_group_id: group.journal_group_id, group: "Biometrics", unit: "cm" },
+      { name: "vince HEIGHT", journal_group_id: group.journal_group_id, group: "Biometrics", unit: "in" },
+    ],
+  }, { requestId: request.requestId, callId: "tracker-create-invalid" }), /Duplicate journal tracker name/u);
+  assert.equal(
+    Number(store.requireReady().prepare("SELECT COUNT(*) AS count FROM journal2_trackers").get().count),
+    0,
+  );
+});
+
+test("tracker_list requires an explicit result collection path", (context) => {
+  const { registry } = journalHarness(context);
+  const definition = registry.toolDefinitions().find((tool) => tool.name === "tracker_list");
+  assert.deepEqual(
+    definition.inputSchema.properties.result_filter.properties.collection_path.enum,
+    ["/trackers", "/groups"],
+  );
+  assert.equal(
+    definition.inputSchema.properties.result_filter.properties.collection_path.type,
+    "string",
+  );
+});
+
 test("journal_update exposes exact-ID partial corrections without tracker or provenance fields", (context) => {
   const { registry } = journalHarness(context);
   const definition = registry.toolDefinitions().find((tool) => tool.name === "journal_update");

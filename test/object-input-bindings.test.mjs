@@ -45,6 +45,21 @@ test("provider-declared object inputs narrow the callable schema to accepted exa
   assert.equal(tool.inputSchema.properties.account_id.enum, undefined, "the registered provider schema stays immutable");
 });
 
+test("schema narrowing preserves a provider-declared null branch", () => {
+  const nullableTool = {
+    ...tool,
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { account_id: { type: ["integer", "null"], minimum: 1 } },
+    },
+  };
+  const constrained = constrainToolObjectInputs(nullableTool, selected);
+  assert.deepEqual(constrained.inputSchema.properties.account_id.enum, [178, null]);
+  assert.equal(objectInputBindingProblem({
+    toolDefinition: nullableTool, argumentsObject: { account_id: null }, selectedGroups: selected,
+  }), null);
+});
+
 test("the call boundary rejects a substituted ID and accepts the exact bound ID", () => {
   assert.match(objectInputBindingProblem({
     toolDefinition: tool, argumentsObject: { account_id: 1 }, selectedGroups: selected,

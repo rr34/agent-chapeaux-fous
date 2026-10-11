@@ -199,6 +199,9 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     { path: "/tracker_id", objectType: "journal.tracker", value: "id", role: "subject" },
     { path: "/journal_group_id", objectType: "journal.group", value: "id", role: "subject" },
   ]);
+  assert.deepEqual(bindings("tracker_create"), [
+    { path: "/trackers/*/journal_group_id", objectType: "journal.group", value: "id", role: "subject" },
+  ]);
   assert.deepEqual(bindings("journal_import"), [
     { path: "/entries/*/tracker_id", objectType: "journal.tracker", value: "id", role: "subject" },
     { path: "/entries/*/journal_group_id", objectType: "journal.group", value: "id", role: "subject" },
@@ -275,6 +278,41 @@ test("native results bind only complete identity and preserve the correct parent
       type: "journal.tracker", source: "native:journal",
       objects: [{ id: 14, ref: "agent-slayer://journal-trackers/14", display: "Push-ups" }],
       sourceEventSeqs: [91],
+    },
+  ]);
+
+  const trackerCreate = definitions.find(({ name }) => name === "tracker_create");
+  assert.deepEqual(objectReferenceGroupsFromToolResult({
+    toolDefinition: trackerCreate,
+    toolDefinitions: definitions,
+    sourceEventSeq: 93,
+    result: { trackers: [
+      {
+        tracker_id: 15, ref: "agent-slayer://journal-trackers/15", name: "Vince height",
+        journal_group_id: 5, group_ref: "agent-slayer://journal-groups/5", group_name: "Biometrics",
+      },
+      {
+        tracker_id: 16, ref: "agent-slayer://journal-trackers/16", name: "Eric height",
+        journal_group_id: 5, group_ref: "agent-slayer://journal-groups/5", group_name: "Biometrics",
+      },
+    ] },
+  }), [
+    {
+      mention: "Journal group returned by tracker_create",
+      role: "subject",
+      type: "journal.group", source: "native:journal",
+      objects: [{ id: 5, ref: "agent-slayer://journal-groups/5", display: "Biometrics" }],
+      sourceEventSeqs: [93],
+    },
+    {
+      mention: "Journal tracker returned by tracker_create",
+      role: "subject",
+      type: "journal.tracker", source: "native:journal",
+      objects: [
+        { id: 15, ref: "agent-slayer://journal-trackers/15", display: "Vince height" },
+        { id: 16, ref: "agent-slayer://journal-trackers/16", display: "Eric height" },
+      ],
+      sourceEventSeqs: [93],
     },
   ]);
 

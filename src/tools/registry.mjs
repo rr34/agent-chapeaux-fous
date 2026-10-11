@@ -254,6 +254,7 @@ export class ToolRegistry {
         inputSchema: withReadResultFilterSchema(
           tool.parameters,
           annotations?.readOnlyHint === true,
+          tool.readResultCollectionPaths ?? [],
         ),
         outputSchema: tool.outputSchema ?? null,
         strict: tool.strict,
