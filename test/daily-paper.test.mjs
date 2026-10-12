@@ -30,7 +30,9 @@ function events() {
       timeZone: "America/New_York",
       isAllDay: false,
       status: "confirmed",
+      planningPromptText: "What should the next experiment be?",
       linkedTodos: [openTodo, { todoId: 18, title: "Finished already", status: "complete" }],
+      linkedContacts: [{ contactId: 8, displayName: "Jane Smith", participantRole: "attendee" }],
     },
     {
       id: 2,
@@ -60,7 +62,14 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
   let trackerRequest;
   const service = new DailyPaperService({
     organizer: { listCalendar(range) { calendarRange = range; return events(); } },
-    trackerSchedule: { scheduledTrackersForDay(input) {
+    trackerSchedule: {
+      withCalendarPlanningStates(calendarEvents) {
+        return calendarEvents.map((event) => ({
+          ...event,
+          planningState: event.id === 1 ? "needs_planning" : null,
+        }));
+      },
+      scheduledTrackersForDay(input) {
       trackerRequest = input;
       return [{
         trackerId: 31,
@@ -90,6 +99,11 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
   assert.equal(model.heading, "Sun, 4 Oct 2026");
   assert.equal(model.rangeHeading, "28 Sep - 11 Oct 2026");
   assert.deepEqual(model.todayEvents.map(({ id }) => id), [1, 2]);
+  assert.equal(model.todayEvents[0].planningState, "needs_planning");
+  assert.equal(model.todayEvents[0].planningPromptText, "What should the next experiment be?");
+  assert.deepEqual(model.todayEvents[0].linkedContacts, [{
+    contactId: 8, displayName: "Jane Smith", participantRole: "attendee",
+  }]);
   assert.deepEqual(model.scheduledTodos, [{
     todoId: 17,
     title: "Bring the annotated draft",
@@ -117,9 +131,7 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
       relationshipKind: "deadline",
     }],
   }]);
-  assert.deepEqual(model.printableTodoGroups.map(({ id, name, dailyPaperPinned, todos }) => ({
-    id, name, dailyPaperPinned, todoIds: todos.map(({ todoId }) => todoId),
-  })), [{ id: 4, name: "Writing", dailyPaperPinned: false, todoIds: [17] }]);
+  assert.deepEqual(model.printableTodoGroups, []);
   assert.deepEqual(trackerRequest, { localDate: "2026-10-04", timeZone: "America/New_York" });
   assert.equal(model.scheduledTrackers.length, 1);
   assert.equal(model.scheduledTrackers[0].name, "Weight");
@@ -162,11 +174,11 @@ test("daily paper includes pinned groups, their open tasks, and empty group cont
   assert.deepEqual(model.printableTodoGroups.map(({ name, dailyPaperPinned, todos }) => ({
     name, dailyPaperPinned, todoIds: todos.map(({ todoId }) => todoId),
   })), [
-    { name: "Writing", dailyPaperPinned: true, todoIds: [17] },
+    { name: "Writing", dailyPaperPinned: true, todoIds: [] },
     { name: "Shopping", dailyPaperPinned: true, todoIds: [19] },
     { name: "Packing", dailyPaperPinned: true, todoIds: [] },
   ]);
-  assert.equal(model.printableTodoGroups[0].todos[0].eventLinks.length, 2);
+  assert.equal(model.todayEvents[0].linkedTodos[0].todoId, 17);
 });
 
 test("daily paper validates physical-page inputs", () => {

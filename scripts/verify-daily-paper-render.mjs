@@ -114,24 +114,28 @@ const model = {
   ],
 };
 model.printableTodoGroups = [{
-  id: 4,
-  name: "Writing",
-  sortPosition: 1,
-  dailyPaperPinned: false,
-  todos: model.scheduledTodos.filter(({ groupId }) => groupId === 4),
-}, {
-  id: 7,
-  name: "Personal",
-  sortPosition: 2,
-  dailyPaperPinned: false,
-  todos: model.scheduledTodos.filter(({ groupId }) => groupId === 7),
-}, {
   id: 9,
   name: "Shopping",
   sortPosition: 3,
   dailyPaperPinned: true,
+  todos: [{
+    todoId: 21, title: "Buy coffee beans", status: "todo",
+    groupId: 9, groupName: "Shopping", groupSortPosition: 3, sortPosition: 1,
+    relatedContact: null, eventLinks: [],
+  }],
+}, {
+  id: 10,
+  name: "Packing",
+  sortPosition: 4,
+  dailyPaperPinned: true,
   todos: [],
 }];
+for (const todo of model.scheduledTodos) {
+  for (const link of todo.eventLinks) {
+    const event = events.find(({ id }) => id === link.eventId);
+    event?.linkedTodos.push({ ...todo, relationshipKind: link.relationshipKind });
+  }
+}
 
 const serveStatic = createStaticHandler({ repositoryRoot, publicRoot: path.join(repositoryRoot, "public") });
 const server = http.createServer(async (request, response) => {
@@ -168,20 +172,19 @@ try {
   await page.goto(`${origin}/app?paper=daily&date=2026-10-04&timeZone=America%2FNew_York&paperSize=letter`, { waitUntil: "networkidle", timeout: 60_000 });
   await page.waitForFunction(() => window.__DAILY_PAPER_READY__ === true, null, { timeout: 60_000 });
   const groupLabels = await page.locator(".paper-todo-group > h3").allTextContents();
-  const clusterLabels = await page.locator(".paper-todo-cluster-heading").allTextContents();
-  if (groupLabels.join("|") !== "Writing|Personal|Shopping") throw new Error(`Unexpected to-do groups: ${groupLabels.join("|")}`);
+  if (groupLabels.join("|") !== "Shopping|Packing") throw new Error(`Unexpected pinned to-do groups: ${groupLabels.join("|")}`);
   if (await page.locator(".paper-todo-empty-lines").count() !== 1) {
     throw new Error("Expected one empty pinned to-do group checklist");
   }
-  if (clusterLabels.filter((label) => label.includes("Jane Smith")).length !== 1) {
-    throw new Error(`Expected one Jane Smith cluster: ${clusterLabels.join("|")}`);
+  if (await page.locator(".paper-event-todos .paper-todo-card").count() !== 4) {
+    throw new Error("Expected four event-owned to-dos in the printed timeline");
   }
-  if (clusterLabels.filter((label) => label.includes("Call Mom")).length !== 1) {
-    throw new Error(`Expected one Call Mom cluster: ${clusterLabels.join("|")}`);
+  if (await page.locator(".paper-pinned-todos .paper-todo-card").count() !== 1) {
+    throw new Error("Expected one pinned-only to-do after the timeline");
   }
-  const cardTexts = await page.locator(".scheduled-todo-card").allTextContents();
-  if (cardTexts.some((text) => text.includes("Jane Smith") || text.includes("Call Mom"))) {
-    throw new Error(`Cluster labels were repeated on to-do cards: ${cardTexts.join("|")}`);
+  const pinnedText = await page.locator(".paper-pinned-todos").allTextContents();
+  if (pinnedText.some((text) => text.includes("Bring the annotated draft"))) {
+    throw new Error("A scheduled to-do was duplicated in the pinned appendage");
   }
   await page.emulateMedia({ media: "print" });
   await page.screenshot({ path: screenshotPath, fullPage: true });

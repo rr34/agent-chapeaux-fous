@@ -28,8 +28,11 @@ test("timeline events use a reusable clickable editor with fresh versioned saves
 test("one reusable to-do item keeps completion separate from click-to-edit", () => {
   assert.match(items, /export function TodoItem/);
   assert.match(app, /<TodoItem[\s\S]*?todo=\{todo\}/);
-  assert.match(dailyPaper, /<TodoItem/);
-  assert.match(app, /<ScheduledTodos[^>]+onChanged=\{reload\}/);
+  assert.match(dailyPaper, /<PrintableTodoCard todo=\{todo\}/);
+  assert.match(items, /className="timeline-event-linked-todos"/);
+  assert.match(items, /linkedTodos\.map\(\(todo\) => <TodoItem/);
+  assert.match(items, /variant="scheduled"/);
+  assert.doesNotMatch(app, /<ScheduledTodos/);
   assert.ok(todoCard.includes('className={`todo-check${complete ? "" : " todo-check--mark-complete"}`}'));
   assert.match(items, /onToggleComplete=\{editable \? \(\) => void toggle\(\) : undefined\}/);
   assert.ok(todoCard.includes('{complete ? "✓" : <><span>Mark</span><span>complete</span></>}'));
@@ -102,6 +105,9 @@ test("calendar creation and routines share structured recurrence controls", () =
   assert.match(recurrence, /recurrence-weekdays/);
   assert.match(recurrence, /Day of the month/);
   assert.match(recurrence, /Weekday pattern/);
+  assert.match(items, /<label>Event title<input/);
+  assert.match(items, /<label>Notes \(optional\)<textarea/);
+  assert.match(items, /<label>Planning prompt<textarea/);
 });
 
 test("calendar event timing keeps start, duration, and end synchronized", () => {

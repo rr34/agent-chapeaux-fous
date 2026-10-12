@@ -1,7 +1,7 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, downloadAuthenticated, getAccessToken, previewAuthenticated, setAccessToken } from "./api";
 import { useApi, localToday, useRequestFeed } from "./hooks";
-import { CalendarGrid, DailyPaper, DayTimeline, ScheduledTodos } from "./components/DailyPaper";
+import { CalendarGrid, DailyPaper, DayTimeline } from "./components/DailyPaper";
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput } from "./components/ObjectMentionInput";
@@ -256,29 +256,14 @@ function linkedTodosForEvents(events: DailyPaperModel["todayEvents"]) {
 function printableTodoGroupsForPreview(
   groups: DailyPaperTodoGroup[], scheduledTodos: LinkedTodo[],
 ) {
-  const byGroup = new Map<number, DailyPaperTodoGroup & { todoMap: Map<number, LinkedTodo> }>();
-  for (const group of groups.filter(({ dailyPaperPinned }) => dailyPaperPinned)) {
-    byGroup.set(group.id, {
+  const scheduledTodoIds = new Set(scheduledTodos.map(({ todoId }) => Number(todoId)));
+  return groups
+    .filter(({ dailyPaperPinned }) => dailyPaperPinned)
+    .map((group) => ({
       ...group,
-      todoMap: new Map(group.todos.map((todo) => [todo.todoId, todo])),
-    });
-  }
-  for (const todo of scheduledTodos) {
-    const groupId = Number(todo.groupId);
-    const group = byGroup.get(groupId) || {
-      id: groupId,
-      name: todo.groupName?.trim() || "Inbox",
-      sortPosition: Number(todo.groupSortPosition ?? Number.MAX_SAFE_INTEGER),
-      dailyPaperPinned: false,
-      todos: [],
-      todoMap: new Map<number, LinkedTodo>(),
-    };
-    group.todoMap.set(todo.todoId, todo);
-    byGroup.set(groupId, group);
-  }
-  return [...byGroup.values()]
-    .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name))
-    .map(({ todoMap, ...group }) => ({ ...group, todos: [...todoMap.values()] }));
+      todos: group.todos.filter(({ todoId }) => !scheduledTodoIds.has(Number(todoId))),
+    }))
+    .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name));
 }
 
 function TokenGate({ children }: { children: ReactNode }) {
@@ -1138,7 +1123,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
         <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDate} onSelect={setSelectedDate} searchQuery={filterQuery} />
         <button className="calendar-range-arrow" type="button" aria-label="Next week" aria-controls="calendar-grid" title="Next week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, 7))}>▼</button>
       </section>
-      <div className="calendar-lower"><section className="surface"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s timeline</h2><DayTimeline events={selectedEvents} timeZone={data.timeZone} onChanged={reload} /></section><section className="surface"><p className="eyebrow">Attached work</p><h2>Scheduled to-dos</h2><ScheduledTodos todos={selectedTodos} onChanged={reload} /></section></div>
+      <section className="surface calendar-day-plan"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s plan</h2><p className="calendar-day-plan-intro">Expand an event to see its notes, contacts, planning prompt, and linked to-dos.</p><DayTimeline events={selectedEvents} timeZone={data.timeZone} onChanged={reload} /></section>
       <details className="paper-preview surface">
         <summary>Preview the printed page</summary>
         {previewModel ? <DailyPaper model={previewModel} preview /> : <Loading label="Refreshing preview" />}

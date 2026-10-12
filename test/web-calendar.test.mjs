@@ -18,7 +18,14 @@ test("calendar days select the detailed timeline and linked to-dos", () => {
   assert.match(calendarSource, /onClick=\{\(\) => onSelect\(day\.localDate\)\}/);
   assert.match(calendarSource, /aria-pressed=\{isSelected\}/);
   assert.match(appSource, /events=\{selectedEvents\}/);
-  assert.match(appSource, /todos=\{selectedTodos\}/);
+  assert.match(appSource, /const selectedTodos = useMemo\(\(\) => linkedTodosForEvents\(selectedEvents\)/);
+});
+
+test("screen calendar nests scheduled to-dos beneath their linked events", () => {
+  assert.match(appSource, /<h2>Selected day’s plan<\/h2>/);
+  assert.match(appSource, /Expand an event to see its notes, contacts, planning prompt, and linked to-dos/);
+  assert.doesNotMatch(appSource, /<h2>Scheduled to-dos<\/h2>/);
+  assert.match(styles, /\.timeline-event-linked-todos \{[^}]*display: grid;[^}]*list-style: none;/s);
 });
 
 test("calendar week arrows move only the displayed range and Today restores today", () => {
@@ -72,19 +79,27 @@ test("printable calendar shows every event with hanging-indented wrapped titles"
   assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
 });
 
-test("daily paper groups identified to-dos once by group and joined object in the larger right column", () => {
+test("the printed timeline has its own compact event layout with two-line notes", () => {
+  assert.match(calendarSource, /function PrintableDayTimeline/);
+  assert.match(calendarSource, /<PrintableDayTimeline[\s\S]*?events=\{model\.todayEvents\}/);
+  assert.match(calendarSource, /event\.description && <p>\{event\.description\}<\/p>/);
+  assert.match(styles, /\.daily-paper \.timeline-list p \{[^}]*font-size: 5\.8pt;/s);
+  assert.match(styles, /\.paper-event-card p \{[^}]*-webkit-line-clamp: 2;/s);
+});
+
+test("daily paper keeps one today section with event-owned to-dos and pinned groups appended", () => {
   const paperLayout = calendarSource.slice(calendarSource.indexOf("export function DailyPaper"));
   assert.doesNotMatch(calendarSource, /TodoWorksheet|Handwriting sheets follow|TODOS_PER_WORKSHEET/);
-  assert.match(calendarSource, /className="paper-day-left"/);
-  assert.ok(paperLayout.indexOf("Today’s timeline") < paperLayout.indexOf("Trackers"));
-  assert.match(calendarSource, /<PrintableTodos groups=\{model\.printableTodoGroups\} timeZone=\{model\.timeZone\} \/>/);
+  assert.match(paperLayout, /className="paper-section paper-today"/);
+  assert.match(paperLayout, /<h2>Today’s stuff<\/h2>/);
+  assert.doesNotMatch(paperLayout, /<h2>To-dos<\/h2>|<h2>Trackers<\/h2>/);
+  assert.match(calendarSource, /className="paper-event-todos"/);
+  assert.match(calendarSource, /<PrintableTodoCard todo=\{todo\} showRelationship/);
+  assert.match(calendarSource, /<PrintablePinnedTodoGroups groups=\{model\.printableTodoGroups\} \/>/);
+  assert.ok(paperLayout.indexOf("PrintableDayTimeline") < paperLayout.indexOf("PrintablePinnedTodoGroups"));
   assert.match(calendarSource, /className="paper-todo-empty-lines"/);
   assert.match(calendarSource, /className="paper-todo-group"/);
-  assert.match(calendarSource, /className="paper-todo-cluster"/);
-  assert.match(calendarSource, /key: `contact:\$\{todo\.relatedContact\.contactId\}`/);
-  assert.match(calendarSource, /key: `event:\$\{String\(event\.eventId\)\}`/);
-  assert.match(calendarSource, /cluster\.eventId != null && String\(cluster\.eventId\) === String\(event\.eventId\)/);
-  assert.doesNotMatch(calendarSource, /For \{todo\.eventTitles\.join/);
+  assert.doesNotMatch(calendarSource, /paper-todo-cluster/);
   assert.match(organizerSource, /related_contact\.display_name AS related_contact_name/);
   assert.match(organizerSource, /linkedTodos: links\.get\(eventId\(event\)\) \?\? \[\]/);
   assert.match(calendarSource, /return `personal_task_id:\$\{todo\.todoId\}`/);
@@ -92,12 +107,12 @@ test("daily paper groups identified to-dos once by group and joined object in th
   assert.match(calendarSource, /className="paper-todo-id">\{todoPrintIdentifier\(todo\)\}/);
   assert.match(calendarSource, /Blank writing area for \$\{todoPrintIdentifier\(todo\)\}/);
   assert.match(calendarSource, /className="paper-handwriting-space"/);
-  assert.match(styles, /\.paper-day-columns \{[^}]*grid-template-columns: minmax\(0, \.9fr\) minmax\(0, 1\.4fr\)/s);
-  assert.match(styles, /\.daily-paper \.timeline-list li \{[^}]*grid-template-columns: \.62in 1fr/s);
-  assert.match(styles, /\.daily-paper \.timeline-list time \{[^}]*text-align: left/s);
+  assert.match(styles, /\.paper-today \{[^}]*border-top: 1px solid/s);
+  assert.match(styles, /\.daily-paper \.timeline-list > li \{[^}]*grid-template-columns: \.62in 1fr/s);
+  assert.match(styles, /\.daily-paper \.timeline-list > li > time \{[^}]*text-align: left/s);
+  assert.match(styles, /\.paper-event-todos \{[^}]*border-left: 2px solid #a4492e/s);
   assert.match(styles, /\.paper-todo-group > h3 \{/);
-  assert.match(styles, /\.paper-todo-cluster::before \{/);
-  assert.match(styles, /\.paper-todo-cards > li \{[^}]*border: 1px solid/s);
+  assert.match(styles, /\.paper-todo-card \{[^}]*border: 1px solid/s);
 });
 
 test("journal trackers expose basic daily, weekly, and monthly RRULE controls", () => {
@@ -115,7 +130,7 @@ test("journal trackers expose basic daily, weekly, and monthly RRULE controls", 
 });
 
 test("daily paper renders RRULE-driven tracker status", () => {
-  assert.match(calendarSource, /<h2>Trackers<\/h2>/);
+  assert.match(calendarSource, /<h3>Trackers<\/h3>/);
   assert.match(calendarSource, /<ScheduledTrackers trackers=\{model\.scheduledTrackers\}/);
   assert.match(calendarSource, /tracker\.logged \? "✓" : ""/);
   assert.match(calendarSource, /trackerCadenceLabel\(tracker\)/);

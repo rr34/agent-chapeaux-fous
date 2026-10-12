@@ -1,9 +1,9 @@
 import type {
   CalendarDay, CalendarEvent, DailyPaperModel, DailyPaperTodoGroup, LinkedTodo,
-  ScheduledTracker, TodoEventLink,
+  ScheduledTracker,
 } from "../types";
 import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
-import { CalendarEventItem, TodoItem } from "./EditableItems";
+import { CalendarEventItem } from "./EditableItems";
 import { matchesSearch, searchTerms } from "../search-filter";
 
 function timeLabel(event: CalendarEvent, timeZone: string) {
@@ -108,22 +108,64 @@ export function DayTimeline({ events, timeZone, onChanged }: {
   );
 }
 
-export function ScheduledTodos({ todos, onChanged }: {
-  todos: LinkedTodo[];
-  onChanged?: () => void | Promise<void>;
+function todoTitle(todo: LinkedTodo) {
+  return todo.text || todo.title || "Task";
+}
+
+function todoPrintIdentifier(todo: LinkedTodo) {
+  return `personal_task_id:${todo.todoId}`;
+}
+
+function relationshipKindLabel(value?: string | null) {
+  return value ? value[0].toUpperCase() + value.slice(1) : null;
+}
+
+function PrintableTodoCard({ todo, showRelationship = false }: {
+  todo: LinkedTodo;
+  showRelationship?: boolean;
 }) {
-  if (!todos.length) return <p className="paper-empty">No to-dos are attached to this day’s events.</p>;
-  return (
-    <ul className="paper-todos">
-      {todos.map((todo) => <TodoItem
-        todo={todo}
-        eventTitles={todo.eventTitles}
-        variant="scheduled"
-        onChanged={onChanged}
-        key={todo.todoId}
-      />)}
-    </ul>
-  );
+  const details = [
+    showRelationship ? relationshipKindLabel(todo.relationshipKind) : null,
+    todo.relatedContact ? `Contact · ${todo.relatedContact.displayName}` : null,
+  ].filter(Boolean);
+  return <li className="paper-todo-card" data-object-reference={todoPrintIdentifier(todo)}>
+    <span className="paper-todo-check" aria-hidden="true">{todo.status === "complete" ? "✓" : ""}</span>
+    <div>
+      <header>
+        <strong className="multiline-item-text">{todoTitle(todo)}</strong>
+        <span className="paper-todo-id">{todoPrintIdentifier(todo)}</span>
+      </header>
+      {details.length > 0 && <small className="paper-todo-relationships multiline-item-text">{details.join(" · ")}</small>}
+      <div className="paper-handwriting-space" aria-label={`Blank writing area for ${todoPrintIdentifier(todo)}`}>
+        <span aria-hidden="true">&#123;</span>
+      </div>
+    </div>
+  </li>;
+}
+
+function PrintableDayTimeline({ events, timeZone, includeCompletedTodos }: {
+  events: CalendarEvent[];
+  timeZone: string;
+  includeCompletedTodos: boolean;
+}) {
+  if (!events.length) return <p className="paper-empty">No events scheduled. The day is yours.</p>;
+  return <ol className="timeline-list paper-event-timeline">
+    {events.map((event) => {
+      const linkedTodos = (event.linkedTodos || [])
+        .filter((todo) => includeCompletedTodos || todo.status !== "complete");
+      return <li key={`${event.id}-${event.startsAtUtc}`}>
+        <time>{timeLabel(event, timeZone)}</time>
+        <article className={`paper-event-card${linkedTodos.length ? " has-linked-todos" : ""}`}>
+          <strong className="multiline-item-text">{event.title}</strong>
+          {event.description && <p>{event.description}</p>}
+          {event.location && <small>{event.location}</small>}
+          {linkedTodos.length > 0 && <ul className="paper-event-todos" aria-label={`To-dos linked to ${event.title}`}>
+            {linkedTodos.map((todo) => <PrintableTodoCard todo={todo} showRelationship key={todo.todoId} />)}
+          </ul>}
+        </article>
+      </li>;
+    })}
+  </ol>;
 }
 
 function trackerCadenceLabel(tracker: ScheduledTracker) {
@@ -146,73 +188,6 @@ export function ScheduledTrackers({ trackers }: { trackers: ScheduledTracker[] }
   </ul>;
 }
 
-function todoTitle(todo: LinkedTodo) {
-  return todo.text || todo.title || "Task";
-}
-
-function todoPrintIdentifier(todo: LinkedTodo) {
-  return `personal_task_id:${todo.todoId}`;
-}
-
-interface PrintableTodoCluster {
-  key: string;
-  kind: "Contact" | "Event" | "Other";
-  label: string;
-  eventId?: number | string;
-  todos: LinkedTodo[];
-}
-
-interface PrintableTodoGroup {
-  key: string;
-  name: string;
-  sortPosition: number;
-  clusters: PrintableTodoCluster[];
-}
-
-const todoClusterRank = { Contact: 0, Event: 1, Other: 2 };
-
-function orderedEventLinks(todo: LinkedTodo) {
-  return [...(todo.eventLinks || [])].sort((left, right) => (
-    left.startsAtUtc.localeCompare(right.startsAtUtc)
-    || String(left.eventId).localeCompare(String(right.eventId))
-  ));
-}
-
-function eventClusterLabel(event: TodoEventLink, timeZone: string) {
-  const when = event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, timeZone);
-  return `${when} · ${event.title}`;
-}
-
-function clusterCandidatesForTodo(todo: LinkedTodo, timeZone: string): Omit<PrintableTodoCluster, "todos">[] {
-  const candidates: Omit<PrintableTodoCluster, "todos">[] = [];
-  if (todo.relatedContact) candidates.push({
-    key: `contact:${todo.relatedContact.contactId}`,
-    kind: "Contact",
-    label: todo.relatedContact.displayName,
-  });
-  candidates.push(...orderedEventLinks(todo).map((event) => ({
-    key: `event:${String(event.eventId)}`, kind: "Event" as const,
-    label: eventClusterLabel(event, timeZone), eventId: event.eventId,
-  })));
-  if (!todo.eventLinks?.length) candidates.push(...(todo.eventTitles || []).map((title) => ({
-    key: `event-title:${title}`, kind: "Event" as const, label: title,
-  })));
-  if (!candidates.length) candidates.push({
-    key: "other", kind: "Other", label: "No linked item",
-  });
-  return candidates;
-}
-
-function bestClusterForTodo(todo: LinkedTodo, timeZone: string, counts: Map<string, number>) {
-  const candidates = clusterCandidatesForTodo(todo, timeZone);
-  candidates.sort((left, right) => (
-    Number(counts.get(right.key) || 0) - Number(counts.get(left.key) || 0)
-    || todoClusterRank[left.kind] - todoClusterRank[right.kind]
-    || left.label.localeCompare(right.label)
-  ));
-  return candidates[0];
-}
-
 function compareTodoOrder(left: LinkedTodo, right: LinkedTodo) {
   const leftHasSequence = left.sequence != null;
   const rightHasSequence = right.sequence != null;
@@ -225,107 +200,25 @@ function compareTodoOrder(left: LinkedTodo, right: LinkedTodo) {
     || left.todoId - right.todoId;
 }
 
-function clusteredTodoGroups(groups: DailyPaperTodoGroup[], timeZone: string) {
-  return groups
-    .map((group) => ({
-      key: `group:${group.id}`,
-      name: group.name,
-      sortPosition: group.sortPosition,
-      todos: group.todos,
-    }))
-    .map((group): PrintableTodoGroup => {
-      const counts = new Map<string, number>();
-      for (const todo of group.todos) {
-        for (const candidate of clusterCandidatesForTodo(todo, timeZone)) {
-          counts.set(candidate.key, Number(counts.get(candidate.key) || 0) + 1);
-        }
-      }
-      const clusters = new Map<string, PrintableTodoCluster>();
-      for (const todo of group.todos) {
-        const selected = bestClusterForTodo(todo, timeZone, counts);
-        const cluster = clusters.get(selected.key) || { ...selected, todos: [] };
-        cluster.todos.push(todo);
-        clusters.set(selected.key, cluster);
-      }
-      return {
-        key: group.key,
-        name: group.name,
-        sortPosition: group.sortPosition,
-        clusters: [...clusters.values()]
-          .sort((left, right) => {
-            return todoClusterRank[left.kind] - todoClusterRank[right.kind]
-              || left.label.localeCompare(right.label);
-          })
-          .map((cluster) => ({
-            ...cluster,
-            todos: cluster.todos.sort(compareTodoOrder),
-          })),
-      };
-    });
-}
-
-function relationshipKindLabel(value: string | null) {
-  return value ? value[0].toUpperCase() + value.slice(1) : null;
-}
-
-function remainingRelationshipLabels(todo: LinkedTodo, cluster: PrintableTodoCluster) {
-  const labels: string[] = [];
-  if (todo.relatedContact && cluster.key !== `contact:${todo.relatedContact.contactId}`) {
-    labels.push(`Contact · ${todo.relatedContact.displayName}`);
-  }
-  const eventLinks = orderedEventLinks(todo);
-  for (const event of eventLinks) {
-    const relationship = relationshipKindLabel(event.relationshipKind);
-    if (cluster.eventId != null && String(cluster.eventId) === String(event.eventId)) {
-      if (relationship) labels.push(relationship);
-      continue;
-    }
-    labels.push(["Event", event.title, relationship].filter(Boolean).join(" · "));
-  }
-  if (!eventLinks.length && cluster.kind !== "Event") {
-    labels.push(...(todo.eventTitles || []).map((title) => `Event · ${title}`));
-  }
-  return labels;
-}
-
-function PrintableTodos({ groups, timeZone }: { groups: DailyPaperTodoGroup[]; timeZone: string }) {
-  if (!groups.length) return <p className="paper-empty">No to-dos are attached to this day’s events.</p>;
-  return <div className="paper-todo-groups">
-    {clusteredTodoGroups(groups, timeZone).map((group) => <section className="paper-todo-group" key={group.key}>
+function PrintablePinnedTodoGroups({ groups }: { groups: DailyPaperTodoGroup[] }) {
+  if (!groups.length) return null;
+  return <section className="paper-pinned-todos">
+    <header className="paper-append-heading">
+      <h3>Pinned to-do groups</h3>
+      <small>Appended after today’s calendar</small>
+    </header>
+    <div className="paper-todo-groups">{groups.map((group) => <section className="paper-todo-group" key={group.id}>
       <h3>{group.name}</h3>
-      {group.clusters.length ? <div className="paper-todo-clusters">
-        {group.clusters.map((cluster) => <section className="paper-todo-cluster" key={cluster.key}>
-          <header className="paper-todo-cluster-heading">
-            <span>{cluster.kind}</span><strong className="multiline-item-text">{cluster.label}</strong>
-          </header>
-          <ul className="paper-todo-cards">
-            {cluster.todos.map((todo) => {
-              const relationshipLabels = remainingRelationshipLabels(todo, cluster);
-              return <li className="scheduled-todo-card" key={todo.todoId} data-object-reference={todoPrintIdentifier(todo)}>
-                <header>
-                  <strong className="multiline-item-text">{todoTitle(todo)}</strong>
-                  <span className="paper-todo-id">{todoPrintIdentifier(todo)}</span>
-                </header>
-                {relationshipLabels.length
-                  ? <small className="paper-todo-relationships multiline-item-text">{relationshipLabels.join("; ")}</small>
-                  : null}
-                <div className="paper-handwriting-space" aria-label={`Blank writing area for ${todoPrintIdentifier(todo)}`}>
-                  <span aria-hidden="true">&#123;</span>
-                </div>
-              </li>;
-            })}
-          </ul>
-        </section>)}
-      </div> : <div className="paper-todo-empty-lines" aria-label={`Blank checklist for ${group.name}`}>
+      {group.todos.length ? <ul className="paper-todo-cards">
+        {[...group.todos].sort(compareTodoOrder).map((todo) => <PrintableTodoCard todo={todo} key={todo.todoId} />)}
+      </ul> : <div className="paper-todo-empty-lines" aria-label={`Blank checklist for ${group.name}`}>
         {Array.from({ length: 3 }, (_, index) => <span key={index} />)}
       </div>}
-    </section>)}
-  </div>;
+    </section>)}</div>
+  </section>;
 }
 
 export function DailyPaper({ model, preview = false }: { model: DailyPaperModel; preview?: boolean }) {
-  const printableTodoCount = model.printableTodoGroups
-    .reduce((count, group) => count + group.todos.length, 0);
   return (
     <div className="daily-paper-document">
     <article className={`daily-paper paper-${model.paperSize} ${preview ? "daily-paper--preview" : ""}`}>
@@ -342,33 +235,25 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
 
       <CalendarGrid days={model.calendarDays} compact />
 
-      <div className="paper-day-columns">
-        <div className="paper-day-left">
-          <section className="paper-section paper-timeline">
-            <header className="paper-section-heading">
-              <span>01</span><h2>Today’s timeline</h2><small>{model.timeZone.replaceAll("_", " ")}</small>
-            </header>
-            <DayTimeline events={model.todayEvents} timeZone={model.timeZone} />
-          </section>
-          <section className="paper-section paper-tracker-section">
-            <header className="paper-section-heading">
-              <span>02</span><h2>Trackers</h2><small>{model.scheduledTrackers.length} scheduled</small>
-            </header>
-            <ScheduledTrackers trackers={model.scheduledTrackers} />
-          </section>
-        </div>
-
-        <section className="paper-section paper-tasks">
-          <header className="paper-section-heading">
-            <span>03</span><h2>To-dos</h2><small>{printableTodoCount} item{printableTodoCount === 1 ? "" : "s"}</small>
-          </header>
-          <PrintableTodos groups={model.printableTodoGroups} timeZone={model.timeZone} />
-        </section>
-      </div>
+      <section className="paper-section paper-today">
+        <header className="paper-section-heading">
+          <span>01</span><h2>Today’s stuff</h2><small>{model.timeZone.replaceAll("_", " ")}</small>
+        </header>
+        <PrintableDayTimeline
+          events={model.todayEvents}
+          timeZone={model.timeZone}
+          includeCompletedTodos={model.includeCompletedTodos}
+        />
+        {model.scheduledTrackers.length > 0 && <section className="paper-today-trackers">
+          <header className="paper-append-heading"><h3>Trackers</h3><small>{model.scheduledTrackers.length} scheduled</small></header>
+          <ScheduledTrackers trackers={model.scheduledTrackers} />
+        </section>}
+        <PrintablePinnedTodoGroups groups={model.printableTodoGroups} />
+      </section>
 
       <section className="paper-section paper-notes">
         <header className="paper-section-heading">
-          <span>04</span><h2>Notes</h2><small>Make it yours</small>
+          <span>02</span><h2>Notes</h2><small>Make it yours</small>
         </header>
         <div className="writing-lines" aria-label="Blank ruled writing area">
           {Array.from({ length: 9 }, (_, index) => <span key={index} />)}

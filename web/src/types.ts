@@ -47,6 +47,13 @@ export interface CalendarEvent {
   status?: string;
   planningState?: string | null;
   linkedTodos?: LinkedTodo[];
+  linkedContacts?: Array<{
+    contactId: number;
+    displayName: string;
+    contactStatus?: string;
+    participantRole?: string;
+    responseStatus?: string | null;
+  }>;
 }
 
 export interface CalendarDay {

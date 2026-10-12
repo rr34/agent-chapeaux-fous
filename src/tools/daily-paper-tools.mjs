@@ -105,7 +105,7 @@ export function registerDailyPaperTools(registry, service) {
         timeZone: result.model.timeZone,
         paperSize: result.model.paperSize,
         eventCount: result.model.todayEvents.length,
-        todoCount: result.model.printableTodoGroups.reduce(
+        todoCount: result.model.scheduledTodos.length + result.model.printableTodoGroups.reduce(
           (count, group) => count + group.todos.length, 0,
         ),
         trackerCount: result.model.scheduledTrackers.length,

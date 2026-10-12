@@ -20,7 +20,7 @@ const generated = {
     scheduledTodos: [{ todoId: 2 }],
     printableTodoGroups: [{
       id: 7, name: "Shopping", sortPosition: 1, dailyPaperPinned: true,
-      todos: [{ todoId: 2 }, { todoId: 4 }],
+      todos: [{ todoId: 4 }],
     }],
     scheduledTrackers: [{ trackerId: 3 }],
   },

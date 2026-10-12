@@ -320,7 +320,7 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
       {loading && <p className="object-editor-state">Loading current event...</p>}
       {draft && <>
         {isRecurring && !creating && <p className="object-editor-note">This occurrence belongs to a recurring series. Changes apply to the whole series.</p>}
-        <label>Title<input autoFocus required maxLength={500} value={draft.title} onChange={(change) => setDraft({ ...draft, title: change.target.value })} /></label>
+        <label>Event title<input autoFocus required maxLength={500} value={draft.title} onChange={(change) => setDraft({ ...draft, title: change.target.value })} /></label>
         <label className="object-editor-check"><input type="checkbox" checked={draft.isAllDay} onChange={(change) => {
           const isAllDay = change.target.checked;
           const timing = !isAllDay
@@ -349,7 +349,7 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
           }} /></label>
         </div>
         <label>Location<input maxLength={1000} value={draft.location} onChange={(change) => setDraft({ ...draft, location: change.target.value })} /></label>
-        <label>Description<textarea rows={4} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
+        <label>Notes (optional)<textarea rows={4} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
         <label>Planning prompt<textarea rows={3} maxLength={10_000} value={draft.planningPromptText} onChange={(change) => setDraft({ ...draft, planningPromptText: change.target.value })} /></label>
         <RecurrenceEditor value={draft.recurrence} onChange={(recurrence) => setDraft({ ...draft, recurrence })} />
         <label>Status<select value={draft.status} onChange={(change) => setDraft({ ...draft, status: change.target.value })}><option value="active">Active</option><option value="archived">Archived</option></select></label>
@@ -565,9 +565,20 @@ export function CalendarEventItem({ event, timeZone, timeLabel, onChanged }: {
   const eventId = Number(event.seriesId ?? event.id);
   const generatedReadOnly = Boolean(event.readOnly && !event.seriesId);
   const editable = Boolean(onChanged && Number.isSafeInteger(eventId) && eventId > 0 && !generatedReadOnly);
+  const linkedTodos = (event.linkedTodos || []).filter(({ status }) => status !== "complete");
+  const linkedTodoDetails = linkedTodos.length > 0 ? <ul className="timeline-event-linked-todos" aria-label={`To-dos linked to ${event.title}`}>
+    {linkedTodos.map((todo) => <TodoItem
+      todo={todo}
+      variant="scheduled"
+      onChanged={onChanged}
+      key={todo.todoId}
+    />)}
+  </ul> : undefined;
   return <li>
     <time>{timeLabel}</time>
     <CalendarEventCard
+      event={{ ...event, linkedTodos }}
+      linkedTodoDetails={linkedTodoDetails}
       mode="compact"
       object={{
         id: eventId, type: "calendar.event", label: "Calendar event", display: event.title,
@@ -804,6 +815,9 @@ export function TodoItem({
     onEdit={editable ? () => setEditing(true) : undefined}
     busy={updating}
     controls={<><ObjectSelectionControls identity={todoIdentity(todo)} subject={`task ${text}`} />{cardControls}</>}
+    compactDetails={variant === "scheduled" && todo.relationshipKind
+      ? <span className="timeline-linked-todo-relationship">{String(todo.relationshipKind).replaceAll("_", " ")}</span>
+      : undefined}
     details={error ? <p className="inline-error todo-item-error" role="alert">{error}</p> : undefined}
   />;
   return <>

@@ -95,10 +95,12 @@ function compactEvent(event) {
     isAllDay: Boolean(event.isAllDay),
     status: event.status,
     planningState: event.planningState ?? null,
+    planningPromptText: event.planningPromptText ?? null,
     ...(event.seriesId != null ? { seriesId: event.seriesId } : {}),
     ...(event.isGeneratedOccurrence ? { isGeneratedOccurrence: true } : {}),
     ...(event.readOnly ? { readOnly: true } : {}),
     linkedTodos: event.linkedTodos ?? [],
+    linkedContacts: event.linkedContacts ?? [],
   };
 }
 
@@ -122,34 +124,19 @@ function compactPinnedTodo(todo, group) {
 }
 
 function buildPrintableTodoGroups(scheduledTodos, pinnedGroups) {
-  const groups = new Map();
-  for (const group of pinnedGroups) {
-    groups.set(Number(group.id), {
+  const scheduledTodoIds = new Set(scheduledTodos.map(({ todoId }) => Number(todoId)));
+  return pinnedGroups
+    .map((group) => ({
       id: Number(group.id),
       name: group.name,
       sortPosition: Number(group.sortPosition),
       dailyPaperPinned: true,
-      todos: new Map((group.todos || []).map((todo) => {
-        const compact = compactPinnedTodo(todo, group);
-        return [compact.todoId, compact];
-      })),
-    });
-  }
-  for (const todo of scheduledTodos) {
-    const groupId = Number(todo.groupId);
-    const existing = groups.get(groupId) ?? {
-      id: groupId,
-      name: todo.groupName?.trim() || "Inbox",
-      sortPosition: Number(todo.groupSortPosition ?? Number.MAX_SAFE_INTEGER),
-      dailyPaperPinned: false,
-      todos: new Map(),
-    };
-    existing.todos.set(Number(todo.todoId), todo);
-    groups.set(groupId, existing);
-  }
-  return [...groups.values()]
+      todos: (group.todos || [])
+        .map((todo) => compactPinnedTodo(todo, group))
+        .filter((todo) => !scheduledTodoIds.has(todo.todoId)),
+    }))
     .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name))
-    .map((group) => ({ ...group, todos: [...group.todos.values()] }));
+    .map((group) => ({ ...group, todos: [...group.todos] }));
 }
 
 function formatLocalDate(localDate, options) {
@@ -235,10 +222,14 @@ export class DailyPaperService {
       localDate: addLocalDays(dates.at(-1), 1),
       timeZone: selected.timeZone,
     });
-    const rangeEvents = this.organizer.listCalendar({
+    const listedRangeEvents = this.organizer.listCalendar({
       from: rangeStart.startsAtUtc,
       to: rangeEnd.startsAtUtc,
-    }).map(compactEvent);
+    });
+    const withPlanningStates = (events) => (this.trackerSchedule?.withCalendarPlanningStates
+      ? this.trackerSchedule.withCalendarPlanningStates(events)
+      : events);
+    const rangeEvents = withPlanningStates(listedRangeEvents).map(compactEvent);
     const calendarDays = dates.map((localDate) => {
       const bounds = localDateUtcBounds({ localDate, timeZone: selected.timeZone });
       return {
@@ -257,10 +248,10 @@ export class DailyPaperService {
     const selectedDateIsVisible = selected.date >= dates[0] && selected.date <= dates.at(-1);
     const selectedEvents = selectedDateIsVisible
       ? rangeEvents
-      : this.organizer.listCalendar({
+      : withPlanningStates(this.organizer.listCalendar({
         from: todayBounds.startsAtUtc,
         to: todayBounds.endsAtUtc,
-      }).map(compactEvent);
+      })).map(compactEvent);
     const todayEvents = selectedEvents.filter((event) => eventOverlaps(event, todayBounds, selected.date))
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc));
     const scheduledTrackers = this.trackerSchedule?.scheduledTrackersForDay({
@@ -368,7 +359,8 @@ export class DailyPaperService {
           paperSize: model.paperSize,
           includeCompletedTodos: model.includeCompletedTodos,
           eventCount: model.todayEvents.length,
-          todoCount: model.printableTodoGroups.reduce((count, group) => count + group.todos.length, 0),
+          todoCount: model.scheduledTodos.length
+            + model.printableTodoGroups.reduce((count, group) => count + group.todos.length, 0),
           trackerCount: model.scheduledTrackers.length,
         },
       });

@@ -626,7 +626,7 @@ const server = http.createServer(async (request, response) => {
         timeZone: generated.model.timeZone,
         paperSize: generated.model.paperSize,
         eventCount: generated.model.todayEvents.length,
-        todoCount: generated.model.printableTodoGroups.reduce(
+        todoCount: generated.model.scheduledTodos.length + generated.model.printableTodoGroups.reduce(
           (count, group) => count + group.todos.length, 0,
         ),
         trackerCount: generated.model.scheduledTrackers.length,

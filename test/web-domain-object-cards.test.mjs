@@ -58,3 +58,16 @@ test("compact cards have one identity and exactly the shared expand, network, an
   assert.match(styles, /\.compact-object-controls/);
   assert.doesNotMatch(styles, /network-search-results \.first-class-object-card|network-object-card/);
 });
+
+test("calendar event cards keep notes and event details behind the shared expansion", () => {
+  const calendar = fs.readFileSync(path.join(cardsRoot, "CalendarEventCard.tsx"), "utf8");
+  const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
+  assert.match(compact, /compactDetails && <div className="compact-object-details">/);
+  assert.match(calendar, /Needs planning/);
+  assert.match(calendar, /linked.*to-do/);
+  assert.match(calendar, /<h4>Contacts<\/h4>/);
+  assert.match(calendar, /<h4>Planning prompt<\/h4>/);
+  assert.match(calendar, /event\?: CalendarEvent/);
+  assert.match(styles, /\.calendar-event-card \.first-class-object-body \{[^}]*-webkit-line-clamp: 2;[^}]*font-size: 11px;/s);
+});

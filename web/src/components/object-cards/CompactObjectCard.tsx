@@ -3,10 +3,12 @@ import { useState } from "react";
 import { ExpandIcon } from "./ObjectCardIcons";
 import type { ObjectCardModel } from "./types";
 
-export function CompactObjectCard({ object, controls, full, as: Root = "article" }: {
+export function CompactObjectCard({ object, controls, compactDetails, full, className = "", as: Root = "article" }: {
   object: ObjectCardModel;
   controls?: ReactNode;
+  compactDetails?: ReactNode;
   full: ReactNode;
+  className?: string;
   as?: ElementType;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -17,10 +19,11 @@ export function CompactObjectCard({ object, controls, full, as: Root = "article"
       <ExpandIcon expanded />
     </button>
   </ExpandedRoot>;
-  return <Root className="compact-object-card" data-object-type={object.type}>
+  return <Root className={`compact-object-card${className ? ` ${className}` : ""}`} data-object-type={object.type}>
     <div className="compact-object-identity">
       <span>{object.label}</span>
       <strong>{object.display}</strong>
+      {compactDetails && <div className="compact-object-details">{compactDetails}</div>}
     </div>
     <div className="compact-object-controls">
       <button className="compact-object-expand" type="button" onClick={() => setExpanded(true)} title={`Expand ${object.display}`} aria-label={`Expand ${object.display}`}>

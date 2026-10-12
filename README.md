@@ -114,10 +114,13 @@ The **Calendar** screen composes a shared React daily-paper component from the
 authoritative two-week calendar, the selected day's timeline, to-dos linked
 to those events, and active to-do groups pinned to the daily paper. Pinned
 groups contribute all open tasks and remain as writable sections when empty.
-Printed to-dos are grouped by their configured to-do group,
-then clustered once by their strongest shared contact or calendar event.
-Its compact Trackers section uses tracker asking RRULEs and
-marks periods that already contain an observation. Choose Letter or A4 and click
+On screen, each calendar event owns its linked reusable to-do cards and their
+relationship labels instead of duplicating them in a separate to-do column.
+The paper has one **Today’s stuff** section: linked to-dos sit inside their
+calendar events, trackers remain in the same section, and pinned to-do groups
+are appended at the bottom without duplicating scheduled tasks. Its compact
+tracker list uses tracker asking RRULEs and marks periods that already contain
+an observation. Choose Letter or A4 and click
 **Download daily PDF** to render, store, and download a printable document with
 ruled handwriting space. The
 agent can invoke the same behavior through `daily_paper_generate`. Chromium is

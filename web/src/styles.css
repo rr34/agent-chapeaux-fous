@@ -95,6 +95,9 @@ a { color: inherit; }
 .compact-object-identity { min-width: 0; display: grid; gap: 2px; }
 .compact-object-identity span { color: var(--olive); font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .compact-object-identity strong { overflow: hidden; font: 600 17px/1.15 "Newsreader", Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
+.compact-object-details { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; margin-top: 3px; }
+.compact-object-details .pill { padding: 2px 6px; font-size: 9px; }
+.calendar-event-todo-count { color: var(--muted); font-size: 10px; font-weight: 700; }
 .compact-object-controls, .compact-object-controls > .object-card-controls { display: flex; align-items: center; gap: 6px; }
 .compact-object-expand, .compact-object-collapse { width: 32px; height: 32px; min-width: 32px; display: inline-grid; place-items: center; padding: 0; border: 1px solid #b9c0b2; border-radius: 8px; color: var(--olive-dark); background: transparent; }
 .compact-object-expand:hover, .compact-object-collapse:hover { color: white; border-color: var(--olive-dark); background: var(--olive-dark); }
@@ -105,6 +108,18 @@ a { color: inherit; }
 .first-class-object-card:has(.object-selection-checkbox:checked),
 .compact-object-card:has(.object-selection-checkbox:checked) { border-color: var(--olive-dark); box-shadow: 0 0 0 3px rgba(104, 116, 90, .12); }
 .object-card-controls { display: inline-flex; align-items: center; gap: 6px; }
+.calendar-event-card .first-class-object-body { -webkit-line-clamp: 2; font-size: 11px; line-height: 1.35; }
+.calendar-event-expanded-details { display: grid; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.calendar-event-expanded-details section { display: grid; gap: 6px; }
+.calendar-event-expanded-details h4 { margin: 0; color: var(--olive); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.calendar-event-expanded-details ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.calendar-event-expanded-details li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 11px; }
+.calendar-event-expanded-details li > span { color: var(--muted); font-size: 10px; text-transform: capitalize; }
+.calendar-event-expanded-details li.is-complete strong { color: var(--muted); text-decoration: line-through; }
+.calendar-event-expanded-details p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; white-space: pre-wrap; }
+.calendar-planning-state.needs_planning { color: #7a4d08; background: #fff0c7; }
+.calendar-planning-state.deferred { color: var(--muted); background: var(--surface); }
+.calendar-planning-state.planned { color: #3f6334; background: #e2efdc; }
 .agent-reference-notice { width: fit-content; margin: -14px 0 18px; padding: 8px 11px; border-radius: 8px; color: var(--olive-dark); background: var(--olive-soft); font-size: 12px; }
 input, textarea, select { width: 100%; border: 1px solid #cbd0c6; border-radius: 9px; padding: 10px 12px; background: white; color: var(--ink); outline: none; }
 input:focus, textarea:focus, select:focus { border-color: var(--olive); box-shadow: 0 0 0 3px rgba(104, 116, 90, .14); }
@@ -271,7 +286,7 @@ textarea { resize: vertical; }
 .calendar-range-arrow { width: 100%; height: 30px; min-height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-size: 12px; line-height: 1; cursor: pointer; }
 .calendar-range-arrow:hover { color: var(--olive-dark); background: var(--olive-soft); }
 .calendar-range-arrow:focus-visible { outline: 3px solid rgba(104, 116, 90, .24); outline-offset: -2px; }
-.calendar-lower { display: grid; grid-template-columns: 1.45fr 1fr; gap: 20px; }
+.calendar-day-plan-intro { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
 .two-week-grid { display: grid; gap: 7px; }
 .weekdays, .calendar-cells { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; }
 .weekdays span { padding: 0 8px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
@@ -317,11 +332,14 @@ button.routine-item-content:focus-visible { outline: 3px solid rgba(104, 116, 90
 .routine-empty { margin: 18px 0 0; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-style: italic; }
 
 .timeline-list { list-style: none; margin: 18px 0 0; padding: 0; display: grid; }
-.timeline-list li { display: grid; grid-template-columns: 102px minmax(0, 1fr) auto; gap: 16px; position: relative; padding: 0 0 18px; }
-.timeline-list li:not(:last-child)::after { content: ""; position: absolute; left: 101px; top: 18px; bottom: 0; border-left: 1px solid #cbd0c5; }
-.timeline-list time { color: var(--muted); font-size: 12px; text-align: right; padding-top: 2px; }
+.timeline-list > li { display: grid; grid-template-columns: 102px minmax(0, 1fr) auto; gap: 16px; position: relative; padding: 0 0 18px; }
+.timeline-list > li:not(:last-child)::after { content: ""; position: absolute; left: 101px; top: 18px; bottom: 0; border-left: 1px solid #cbd0c5; }
+.timeline-list > li > time { color: var(--muted); font-size: 12px; text-align: right; padding-top: 2px; }
 .timeline-list strong { display: block; }
 .timeline-list p { color: var(--muted); margin: 5px 0 0; line-height: 1.45; }
+.timeline-event-linked-todos { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.timeline-event-linked-todos .compact-object-card { background: var(--surface); }
+.timeline-linked-todo-relationship { padding: 2px 6px; border-radius: 999px; color: var(--muted) !important; background: var(--olive-soft); font-size: 9px !important; letter-spacing: .04em !important; }
 .event-place { display: block; color: var(--olive); font-size: 12px; margin-top: 2px; }
 .editable-object-content, .todo-item-content { width: 100%; min-width: 0; margin: -7px; padding: 7px; border: 0; border-radius: 8px; color: inherit; background: transparent; font: inherit; text-align: left; }
 button.editable-object-content, button.todo-item-content { cursor: pointer; }
@@ -632,21 +650,26 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .two-week-grid--compact .calendar-chip { gap: .02in; padding-left: .025in; font-size: 5.5pt; line-height: 1.15; }
 .two-week-grid--compact .calendar-chip time { font-size: 4.8pt; }
 .two-week-grid--compact .calendar-cell-events small { font-size: 5pt; }
-.paper-day-columns { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.4fr); gap: .22in; border-top: 1px solid #272c24; padding-top: .12in; }
-.paper-day-left { display: grid; align-content: start; gap: .14in; }
 .paper-section { break-inside: avoid; }
+.paper-today { border-top: 1px solid #272c24; padding-top: .12in; break-inside: auto; }
 .paper-section-heading { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: .07in; border-bottom: 1px solid #b8bdb2; padding-bottom: .045in; }
 .paper-section-heading > span { color: #a4492e; font: 700 6pt Inter, Arial, sans-serif; }
 .paper-section-heading h2 { margin: 0; font: 600 12pt "Newsreader", Georgia, serif; }
 .paper-section-heading small { color: #72796d; font-size: 5.6pt; }
 .daily-paper .timeline-list { margin-top: .1in; }
-.daily-paper .timeline-list li { grid-template-columns: .62in 1fr; gap: .06in; padding-bottom: .09in; }
-.daily-paper .timeline-list li:not(:last-child)::after { left: .615in; top: .12in; }
-.daily-paper .timeline-list time { font-size: 6.2pt; text-align: left; white-space: nowrap; }
+.daily-paper .timeline-list > li { grid-template-columns: .62in 1fr; gap: .06in; padding-bottom: .09in; }
+.daily-paper .timeline-list > li:not(:last-child)::after { left: .615in; top: .12in; }
+.daily-paper .timeline-list > li > time { font-size: 6.2pt; text-align: left; white-space: nowrap; }
 .daily-paper .timeline-list .timeline-event-item { padding-left: .09in; }
 .daily-paper .timeline-list .timeline-event-item::before { width: .045in; height: .045in; left: -.025in; top: .045in; box-shadow: 0 0 0 2px #fffefa; }
 .daily-paper .timeline-list strong { font-size: 7.4pt; }
 .daily-paper .timeline-list p { max-height: .28in; overflow: hidden; margin-top: .02in; font-size: 5.8pt; line-height: 1.25; }
+.paper-event-card { min-width: 0; padding-left: .09in; }
+.paper-event-card strong { display: block; }
+.paper-event-card p { display: -webkit-box; overflow: hidden; color: #596054; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.paper-event-card small { display: block; margin-top: .015in; color: #70776b; font-size: 5.4pt; line-height: 1.15; }
+.paper-event-todos { display: grid; gap: .04in; margin: .055in 0 0 .02in; padding: .045in 0 0 .10in; border-top: 1px solid #d5d8d0; border-left: 2px solid #a4492e; list-style: none; }
+.paper-event-todos .paper-todo-card { background: #fbfaf5; }
 .daily-paper .event-place { font-size: 5.7pt; }
 .daily-paper .paper-todos { gap: .065in; margin-top: .1in; }
 .daily-paper .paper-todos li { grid-template-columns: .13in 1fr; gap: .06in; }
@@ -662,6 +685,10 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-tracker-text strong { font-size: 7pt; line-height: 1.15; }
 .paper-tracker-text small { overflow: hidden; color: #72796d; font-size: 5.2pt; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
 .paper-trackers li.is-logged .paper-tracker-text { color: #596253; }
+.paper-append-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .12in; margin-bottom: .055in; }
+.paper-append-heading h3 { margin: 0; color: #252b22; font: 700 6.5pt/1.1 Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.paper-append-heading small { color: #72796d; font-size: 5.4pt; }
+.paper-today-trackers, .paper-pinned-todos { margin-top: .11in; padding-top: .075in; border-top: 1px solid #b8bdb2; }
 .paper-notes { min-height: 2.25in; flex: 1 0 2.25in; display: flex; flex-direction: column; border-top: 1px solid #272c24; margin-top: .14in; padding-top: .12in; }
 .writing-lines { flex: 1; min-height: 1.8in; display: grid; grid-template-rows: repeat(9, 1fr); margin-top: .04in; }
 .writing-lines span { border-bottom: 1px solid #d5d8d0; }
@@ -672,17 +699,13 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-todo-group > h3 { margin: 0; padding-bottom: .018in; border-bottom: 1px solid #80877c; color: #252b22; font: 700 6.4pt/1.1 Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; break-after: avoid; }
 .paper-todo-empty-lines { display: grid; grid-template-rows: repeat(3, .18in); }
 .paper-todo-empty-lines span { border-bottom: 1px solid #d5d8d0; }
-.paper-todo-clusters { display: grid; gap: .06in; }
-.paper-todo-cluster { display: grid; grid-template-columns: .055in minmax(0, 1fr); column-gap: .045in; break-inside: avoid; }
-.paper-todo-cluster::before { content: ""; grid-row: 1 / span 2; border-left: 2px solid #a4492e; }
-.paper-todo-cluster-heading { min-width: 0; display: flex; align-items: baseline; gap: .035in; margin-bottom: .025in; break-after: avoid; }
-.paper-todo-cluster-heading > span { flex: 0 0 auto; color: #72796d; font-size: 5pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.paper-todo-cluster-heading > strong { min-width: 0; font: 600 6.4pt/1.15 "Newsreader", Georgia, serif; }
 .paper-todo-cards { display: grid; gap: .055in; margin: 0; padding: 0; list-style: none; }
-.paper-todo-cards > li { min-height: .38in; display: flex; flex-direction: column; padding: .055in .07in .04in; border: 1px solid #484d45; border-radius: .04in; break-inside: avoid; }
-.paper-todo-cards header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .08in; }
-.paper-todo-cards strong { font: 600 7.5pt/1.15 "Newsreader", Georgia, serif; }
-.paper-todo-cards small { margin-top: .01in; color: #70776b; font-size: 5.3pt; line-height: 1.1; }
+.paper-todo-card { min-height: .32in; display: grid; grid-template-columns: .12in minmax(0, 1fr); align-items: start; gap: .055in; padding: .045in .06in .035in; border: 1px solid #484d45; border-radius: .04in; break-inside: avoid; }
+.paper-todo-check { box-sizing: border-box; width: .11in; height: .11in; display: grid; place-items: center; margin-top: .005in; border: 1px solid #60675d; color: #4f6544; font-size: 6pt; font-weight: 800; line-height: 1; }
+.paper-todo-card > div { min-width: 0; }
+.paper-todo-card header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .08in; }
+.paper-todo-card strong { font: 600 7.2pt/1.15 "Newsreader", Georgia, serif; }
+.paper-todo-card small { margin-top: .01in; color: #70776b; font-size: 5.3pt; line-height: 1.1; }
 .paper-todo-relationships { display: block; }
 .paper-todo-id { color: #252b22; font: 700 7pt/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
 .paper-handwriting-space { min-height: .13in; flex: 1 1 auto; position: relative; margin-top: .015in; border-bottom: 1px solid #d5d8d0; }
@@ -707,7 +730,6 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .token-settings { display: none; }
   .workspace { padding-top: 28px; }
   .composer { left: 18px; right: 18px; }
-  .calendar-lower { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 700px) {
