@@ -465,7 +465,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/payment-invoices") {
-      const invoices = payments.listInvoices({ limit: url.searchParams.get("limit") || 100 });
+      const invoices = await payments.listInvoices({ limit: url.searchParams.get("limit") || 100 });
       sendJson(response, 200, { count: invoices.length, invoices });
       return;
     }

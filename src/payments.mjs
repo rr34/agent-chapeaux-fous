@@ -80,6 +80,30 @@ function accountSummary(account) {
   };
 }
 
+function stripeObjectId(value) {
+  if (typeof value === "string") return value;
+  return value && typeof value === "object" ? String(value.id ?? "") || null : null;
+}
+
+function invoiceStatusFromStripe(invoice, eventType) {
+  if (["invoice.paid", "invoice.payment_succeeded"].includes(eventType)) return "paid";
+  if (eventType === "invoice.payment_failed") return "failed";
+  if (eventType === "invoice.voided") return "voided";
+  if (eventType === "invoice.marked_uncollectible") return "uncollectible";
+  if (invoice?.status === "paid") return "paid";
+  if (invoice?.status === "void") return "voided";
+  if (invoice?.status === "uncollectible") return "uncollectible";
+  if (invoice?.status === "open") return "open";
+  return null;
+}
+
+function stripeSnapshotEventType(invoice) {
+  if (invoice?.status === "paid") return "invoice.paid";
+  if (invoice?.status === "void") return "invoice.voided";
+  if (invoice?.status === "uncollectible") return "invoice.marked_uncollectible";
+  return "invoice.refreshed";
+}
+
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
   if (!value || typeof value !== "object") return value;
@@ -513,33 +537,98 @@ export class PaymentService {
     };
   }
 
-  listInvoices({ limit = 100 } = {}) {
+  async listInvoices({ limit = 100 } = {}) {
     const bounded = Math.min(500, Math.max(1, Number(limit) || 100));
-    return this.database.prepare("SELECT payment_invoice_id FROM payment_invoices ORDER BY payment_invoice_id DESC LIMIT ?").all(bounded)
-      .map((row) => this.getInvoice(row.payment_invoice_id));
+    const rows = this.database.prepare(`SELECT payment_invoice_id,status,stripe_connected_account_id,stripe_invoice_id,
+        processor_status,hosted_invoice_url,amount_paid_minor,stripe_payment_intent_id,stripe_charge_id
+      FROM payment_invoices ORDER BY payment_invoice_id DESC LIMIT ?`).all(bounded);
+    await this.refreshStripeInvoiceRows(rows);
+    return rows.map((row) => this.getInvoice(row.payment_invoice_id));
   }
 
-  setNativePaymentStatus(invoiceIdValue, paymentStatusValue, activity = {}) {
-    const invoiceId = positiveInteger(invoiceIdValue, "invoice_id");
-    const paymentStatus = String(paymentStatusValue ?? "").trim().toLowerCase();
-    if (!new Set(["unpaid", "paid"]).has(paymentStatus)) {
-      throw new PaymentInputError("payment_status must be unpaid or paid.");
+  async refreshStripeInvoiceRows(rows) {
+    const stripeRows = rows.filter((row) => row.stripe_connected_account_id && row.stripe_invoice_id);
+    if (!stripeRows.length) return;
+    const stripe = this.stripe();
+    const concurrency = 5;
+    for (let offset = 0; offset < stripeRows.length; offset += concurrency) {
+      const snapshots = await Promise.all(stripeRows.slice(offset, offset + concurrency).map(async (row) => ({
+        row,
+        invoice: await stripe.invoices.retrieve(
+          row.stripe_invoice_id,
+          undefined,
+          { stripeAccount: row.stripe_connected_account_id },
+        ),
+      })));
+      for (const { row, invoice } of snapshots) {
+        const eventType = stripeSnapshotEventType(invoice);
+        const incomingStatus = invoiceStatusFromStripe(invoice, eventType);
+        const guardedStatus = ["paid", "voided", "uncollectible"].includes(row.status)
+          && ["open", "failed"].includes(incomingStatus)
+          ? row.status
+          : incomingStatus;
+        const amountPaidMinor = Math.max(Number(row.amount_paid_minor ?? 0), Number(invoice?.amount_paid ?? 0));
+        const processorStatus = String(invoice?.status ?? eventType).slice(0, 64);
+        const hostedInvoiceUrl = invoice?.hosted_invoice_url ?? row.hosted_invoice_url ?? null;
+        const paymentIntentId = stripeObjectId(invoice?.payment_intent) ?? row.stripe_payment_intent_id ?? null;
+        const chargeId = stripeObjectId(invoice?.charge) ?? row.stripe_charge_id ?? null;
+        const changed = guardedStatus && (
+          guardedStatus !== row.status
+          || amountPaidMinor !== Number(row.amount_paid_minor ?? 0)
+          || processorStatus !== row.processor_status
+          || hostedInvoiceUrl !== (row.hosted_invoice_url ?? null)
+          || paymentIntentId !== (row.stripe_payment_intent_id ?? null)
+          || chargeId !== (row.stripe_charge_id ?? null)
+        );
+        if (changed) this.processInvoiceEvent(row.stripe_connected_account_id, invoice, eventType);
+      }
+    }
+  }
+
+  setNativePaymentStatuses(updatesValue, activity = {}) {
+    if (!Array.isArray(updatesValue) || !updatesValue.length || updatesValue.length > 100) {
+      throw new PaymentInputError("updates must contain between 1 and 100 invoice payment-status updates.");
+    }
+    const updates = updatesValue.map((update, index) => {
+      if (!update || typeof update !== "object" || Array.isArray(update)) {
+        throw new PaymentInputError(`updates item ${index + 1} must be an object.`);
+      }
+      const invoiceId = positiveInteger(update.invoice_id, `updates item ${index + 1} invoice_id`);
+      const paymentStatus = String(update.payment_status ?? "").trim().toLowerCase();
+      if (!new Set(["unpaid", "paid"]).has(paymentStatus)) {
+        throw new PaymentInputError(`updates item ${index + 1} payment_status must be unpaid or paid.`);
+      }
+      return { invoiceId, paymentStatus };
+    });
+    if (new Set(updates.map(({ invoiceId }) => invoiceId)).size !== updates.length) {
+      throw new PaymentInputError("updates must identify distinct invoices.", 400, "DUPLICATE_INVOICE_UPDATE");
     }
     this.database.exec("START TRANSACTION");
-    let changed = false;
+    const changedInvoiceIds = new Set();
     try {
-      const row = this.database.prepare(`SELECT status, stripe_invoice_id FROM payment_invoices
-        WHERE payment_invoice_id = ? FOR UPDATE`).get(invoiceId);
-      if (!row) throw new PaymentInputError("Invoice not found.", 404, "INVOICE_NOT_FOUND");
-      const currentPaymentStatus = row.status === "paid" ? "paid" : "unpaid";
-      if (currentPaymentStatus !== paymentStatus && row.stripe_invoice_id) {
-        throw new PaymentInputError(
-          "This invoice is backed by Stripe, so its paid or unpaid status must come from Stripe.",
-          409,
-          "STRIPE_OWNS_PAYMENT_STATUS",
-        );
+      const placeholders = updates.map(() => "?").join(",");
+      const rows = this.database.prepare(`SELECT payment_invoice_id,status,stripe_invoice_id FROM payment_invoices
+        WHERE payment_invoice_id IN (${placeholders}) FOR UPDATE`).all(...updates.map(({ invoiceId }) => invoiceId));
+      const rowsById = new Map(rows.map((row) => [Number(row.payment_invoice_id), row]));
+      const missing = updates.filter(({ invoiceId }) => !rowsById.has(invoiceId)).map(({ invoiceId }) => invoiceId);
+      if (missing.length) {
+        throw new PaymentInputError(`Invoice not found: ${missing.join(", ")}.`, 404, "INVOICE_NOT_FOUND");
       }
-      if (currentPaymentStatus !== paymentStatus) {
+      for (const { invoiceId, paymentStatus } of updates) {
+        const row = rowsById.get(invoiceId);
+        const currentPaymentStatus = row.status === "paid" ? "paid" : "unpaid";
+        if (currentPaymentStatus !== paymentStatus && row.stripe_invoice_id) {
+          throw new PaymentInputError(
+            `Invoice ${invoiceId} is backed by Stripe, so its paid or unpaid status must come from Stripe.`,
+            409,
+            "STRIPE_OWNS_PAYMENT_STATUS",
+          );
+        }
+      }
+      for (const { invoiceId, paymentStatus } of updates) {
+        const row = rowsById.get(invoiceId);
+        const currentPaymentStatus = row.status === "paid" ? "paid" : "unpaid";
+        if (currentPaymentStatus === paymentStatus) continue;
         if (paymentStatus === "paid") {
           this.database.prepare(`UPDATE payment_invoices SET status='paid',amount_paid_minor=amount_minor,
             paid_at_utc=COALESCE(paid_at_utc,UTC_TIMESTAMP(3)),failure_code=NULL,failure_message=NULL,
@@ -549,22 +638,34 @@ export class PaymentService {
             paid_at_utc=NULL,failure_code=NULL,failure_message=NULL,failed_at_utc=NULL,
             updated_at_utc=UTC_TIMESTAMP(3) WHERE payment_invoice_id=?`).run(invoiceId);
         }
-        changed = true;
+        changedInvoiceIds.add(invoiceId);
       }
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
     }
-    const invoice = this.getInvoice(invoiceId);
-    if (changed) this.recordActivity({
-      type: "payment.invoice.payment_status_set", status: "complete",
-      actorType: activity.actorType ?? "user", actorName: activity.actorName ?? "payments",
-      turnId: activity.requestId ?? null, operationId: activity.callId ?? null,
-      name: `Invoice marked ${paymentStatus}`, contentText: invoice.display,
-      payload: { paymentStatus, invoice }, subjectType: "payment_invoice", subjectId: String(invoice.invoiceId),
+    const results = updates.map(({ invoiceId, paymentStatus }) => {
+      const invoice = this.getInvoice(invoiceId);
+      const changed = changedInvoiceIds.has(invoiceId);
+      if (changed) this.recordActivity({
+        type: "payment.invoice.payment_status_set", status: "complete",
+        actorType: activity.actorType ?? "user", actorName: activity.actorName ?? "payments",
+        turnId: activity.requestId ?? null, operationId: activity.callId ?? null,
+        name: `Invoice marked ${paymentStatus}`, contentText: invoice.display,
+        payload: { paymentStatus, invoice }, subjectType: "payment_invoice", subjectId: String(invoice.invoiceId),
+      });
+      return { idempotentReplay: !changed, invoice };
     });
-    return { status: "complete", idempotentReplay: !changed, invoice };
+    return { status: "complete", results };
+  }
+
+  setNativePaymentStatus(invoiceIdValue, paymentStatusValue, activity = {}) {
+    const result = this.setNativePaymentStatuses([{
+      invoice_id: invoiceIdValue,
+      payment_status: paymentStatusValue,
+    }], activity);
+    return { status: result.status, ...result.results[0] };
   }
 
   async prepareInvoice(input, activity = {}) {
@@ -1233,11 +1334,8 @@ export class PaymentService {
   processInvoiceEvent(accountId, invoice, eventType) {
     const invoiceId = String(invoice?.id ?? "");
     if (!accountId || !invoiceId) return;
-    let status = "open";
-    if (["invoice.paid", "invoice.payment_succeeded"].includes(eventType)) status = "paid";
-    else if (eventType === "invoice.payment_failed") status = "failed";
-    else if (eventType === "invoice.voided") status = "voided";
-    else if (eventType === "invoice.marked_uncollectible") status = "uncollectible";
+    const status = invoiceStatusFromStripe(invoice, eventType);
+    if (!status) return;
     const result = this.database.prepare(`UPDATE payment_invoices SET status=CASE WHEN status IN ('paid','voided','uncollectible') AND ? IN ('open','failed') THEN status ELSE ? END,
       amount_paid_minor=GREATEST(amount_paid_minor,?),processor_status=?,hosted_invoice_url=COALESCE(?,hosted_invoice_url),
       stripe_payment_intent_id=COALESCE(?,stripe_payment_intent_id),stripe_charge_id=COALESCE(?,stripe_charge_id),

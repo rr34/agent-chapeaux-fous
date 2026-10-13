@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PDFDocument } from "pdf-lib";
+import { objectInputBindingProblem } from "../src/object-input-bindings.mjs";
 import { composeInvoicePdf, invoicePdfHtml, PaymentInputError, PaymentService } from "../src/payments.mjs";
 import { registerPaymentTools } from "../src/tools/payment-tools.mjs";
 import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
@@ -54,7 +55,7 @@ test("Stripe readiness stays unavailable until a connected account is stored", (
   });
 });
 
-test("invoice history is loaded newest first", () => {
+test("invoice history is loaded newest first", async () => {
   const database = {
     prepare(sql) {
       assert.match(sql, /ORDER BY payment_invoice_id DESC LIMIT \?/u);
@@ -70,11 +71,68 @@ test("invoice history is loaded newest first", () => {
   });
   payments.getInvoice = (invoiceId) => ({ invoiceId });
 
-  assert.deepEqual(payments.listInvoices({ limit: 3 }), [
+  assert.deepEqual(await payments.listInvoices({ limit: 3 }), [
     { invoiceId: 9 },
     { invoiceId: 7 },
     { invoiceId: 2 },
   ]);
+});
+
+test("invoice history refreshes Stripe payment truth before returning", async () => {
+  const providerCalls = [];
+  const observedEvents = [];
+  let localStatus = "open";
+  const database = {
+    prepare(sql) {
+      assert.match(sql, /ORDER BY payment_invoice_id DESC LIMIT \?/u);
+      return { all: () => [{
+        payment_invoice_id: 1,
+        status: "open",
+        stripe_connected_account_id: "acct_123",
+        stripe_invoice_id: "in_123",
+        processor_status: "open",
+        hosted_invoice_url: "https://stripe.example/open",
+        amount_paid_minor: 0,
+        stripe_payment_intent_id: null,
+        stripe_charge_id: null,
+      }] };
+    },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: { stripeSecretKey: "sk_test_example" },
+    stripeFactory: () => ({ invoices: {
+      async retrieve(invoiceId, _parameters, options) {
+        providerCalls.push([invoiceId, options]);
+        return {
+          id: invoiceId,
+          status: "paid",
+          amount_paid: 21_000,
+          hosted_invoice_url: "https://stripe.example/paid",
+          status_transitions: { paid_at: 1_791_763_200 },
+        };
+      },
+    } }),
+  });
+  payments.processInvoiceEvent = (accountId, invoice, eventType) => {
+    observedEvents.push([accountId, invoice.id, eventType]);
+    localStatus = "paid";
+  };
+  payments.getInvoice = (invoiceId) => ({
+    invoiceId,
+    status: localStatus,
+    paymentStatus: localStatus === "paid" ? "paid" : "unpaid",
+    paymentStatusManagedBy: "stripe",
+  });
+
+  assert.deepEqual(await payments.listInvoices({ limit: 100 }), [{
+    invoiceId: 1,
+    status: "paid",
+    paymentStatus: "paid",
+    paymentStatusManagedBy: "stripe",
+  }]);
+  assert.deepEqual(providerCalls, [["in_123", { stripeAccount: "acct_123" }]]);
+  assert.deepEqual(observedEvents, [["acct_123", "in_123", "invoice.paid"]]);
 });
 
 test("invoice preparation accepts task-backed, manual, and mixed line sources", () => {
@@ -208,28 +266,65 @@ test("the agent can set only paid or unpaid on an exact native invoice", async (
   const calls = [];
   const registry = new ToolRegistry();
   registerPaymentTools(registry, {
-    setNativePaymentStatus(invoiceId, paymentStatus, activity) {
-      calls.push({ invoiceId, paymentStatus, activity });
-      return { status: "complete", idempotentReplay: false, invoice: {
-        invoiceId, paymentStatus, paymentStatusManagedBy: "native",
-      } };
+    setNativePaymentStatuses(updates, activity) {
+      calls.push({ updates, activity });
+      return { status: "complete", results: updates.map((update) => ({
+        idempotentReplay: false,
+        invoice: {
+          invoiceId: update.invoice_id,
+          paymentStatus: update.payment_status,
+          paymentStatusManagedBy: "native",
+        },
+      })) };
     },
   });
   const definition = registry.get("payment_invoice_payment_status_set");
-  const input = { invoice_id: 3, payment_status: "paid" };
+  const input = { updates: [{ invoice_id: 3, payment_status: "paid" }] };
 
   assert.equal(schemaProblem(input, definition.parameters), null);
-  assert.match(schemaProblem({ invoice_id: 3, payment_status: "processing" }, definition.parameters), /must be one of/u);
+  assert.match(schemaProblem({ updates: [{ invoice_id: 3, payment_status: "processing" }] }, definition.parameters), /must be one of/u);
+  assert.match(definition.description, /Atomically mark one or more exact native invoices/u);
   assert.match(definition.description, /does not send, email, charge, refund, or modify invoice contents/u);
   assert.deepEqual(await definition.execute(input, { requestId: "request-2" }), {
-    status: "complete", idempotentReplay: false,
-    invoice: { invoiceId: 3, paymentStatus: "paid", paymentStatusManagedBy: "native" },
+    status: "complete", results: [{ idempotentReplay: false,
+      invoice: { invoiceId: 3, paymentStatus: "paid", paymentStatusManagedBy: "native" } }],
   });
   assert.deepEqual(calls, [{
-    invoiceId: 3,
-    paymentStatus: "paid",
+    updates: [{ invoice_id: 3, payment_status: "paid" }],
     activity: { requestId: "request-2", actorType: "tool", actorName: "payment_invoice_payment_status_set" },
   }]);
+});
+
+test("the payment-status tool consumes a complete multi-invoice binding", () => {
+  const registry = new ToolRegistry();
+  registerPaymentTools(registry, {});
+  const definition = registry.toolDefinitions()
+    .find(({ name }) => name === "payment_invoice_payment_status_set");
+  const selectedGroups = [{
+    mention: "the two selected invoices",
+    role: "subject",
+    type: "payments.invoice",
+    source: "native:payments",
+    objects: [
+      { id: 1, ref: "agent-slayer://payment-invoices/1", display: "Brian Lesko — Invoice 1" },
+      { id: 5, ref: "agent-slayer://payment-invoices/5", display: "Lucas Ruffing — Invoice 5" },
+    ],
+    sourceEventSeqs: [39_075],
+  }];
+
+  assert.match(objectInputBindingProblem({
+    toolDefinition: definition,
+    argumentsObject: { updates: [{ invoice_id: 5, payment_status: "paid" }] },
+    selectedGroups,
+  }), /must include the complete accepted.*Brian Lesko/u);
+  assert.equal(objectInputBindingProblem({
+    toolDefinition: definition,
+    argumentsObject: { updates: [
+      { invoice_id: 1, payment_status: "paid" },
+      { invoice_id: 5, payment_status: "paid" },
+    ] },
+    selectedGroups,
+  }), null);
 });
 
 test("native invoice payment status toggles between paid and unpaid with an audit entry", () => {
@@ -239,7 +334,9 @@ test("native invoice payment status toggles between paid and unpaid with an audi
   const database = {
     exec(sql) { transactions.push(sql); },
     prepare(sql) {
-      if (/SELECT status, stripe_invoice_id FROM payment_invoices/u.test(sql)) return { get: () => ({ ...row }) };
+      if (/SELECT payment_invoice_id,status,stripe_invoice_id FROM payment_invoices/u.test(sql)) {
+        return { all: () => [{ payment_invoice_id: 3, ...row }] };
+      }
       if (/SET status='paid'/u.test(sql)) return { run() { row.status = "paid"; } };
       if (/SET status='prepared'/u.test(sql)) return { run() { row.status = "prepared"; } };
       throw new Error(`Unexpected SQL while setting native payment status: ${sql}`);
@@ -276,13 +373,92 @@ test("native invoice payment status toggles between paid and unpaid with an audi
   ]);
 });
 
+test("native invoice payment status updates validate and commit as one batch", () => {
+  const transactions = [];
+  const activities = [];
+  const rows = new Map([
+    [3, { payment_invoice_id: 3, status: "prepared", stripe_invoice_id: null }],
+    [5, { payment_invoice_id: 5, status: "paid", stripe_invoice_id: "in_5" }],
+  ]);
+  const database = {
+    exec(sql) { transactions.push(sql); },
+    prepare(sql) {
+      if (/SELECT payment_invoice_id,status,stripe_invoice_id FROM payment_invoices/u.test(sql)) {
+        return { all: (...invoiceIds) => invoiceIds.map((invoiceId) => ({ ...rows.get(invoiceId) })) };
+      }
+      if (/SET status='paid'/u.test(sql)) return { run(invoiceId) { rows.get(invoiceId).status = "paid"; } };
+      throw new Error(`Unexpected SQL while setting batch payment status: ${sql}`);
+    },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: {},
+  });
+  payments.getInvoice = (invoiceId) => ({
+    invoiceId,
+    display: `Invoice ${invoiceId}`,
+    status: rows.get(invoiceId).status,
+    paymentStatus: rows.get(invoiceId).status === "paid" ? "paid" : "unpaid",
+    paymentStatusManagedBy: rows.get(invoiceId).stripe_invoice_id ? "stripe" : "native",
+  });
+  payments.recordActivity = (activity) => activities.push(activity);
+
+  assert.deepEqual(payments.setNativePaymentStatuses([
+    { invoice_id: 3, payment_status: "paid" },
+    { invoice_id: 5, payment_status: "paid" },
+  ]), {
+    status: "complete",
+    results: [
+      { idempotentReplay: false, invoice: {
+        invoiceId: 3, display: "Invoice 3", status: "paid",
+        paymentStatus: "paid", paymentStatusManagedBy: "native",
+      } },
+      { idempotentReplay: true, invoice: {
+        invoiceId: 5, display: "Invoice 5", status: "paid",
+        paymentStatus: "paid", paymentStatusManagedBy: "stripe",
+      } },
+    ],
+  });
+  assert.deepEqual(transactions, ["START TRANSACTION", "COMMIT"]);
+  assert.deepEqual(activities.map(({ subjectId }) => subjectId), ["3"]);
+});
+
+test("a conflicting Stripe status rejects the complete native payment-status batch", () => {
+  const transactions = [];
+  let writes = 0;
+  const database = {
+    exec(sql) { transactions.push(sql); },
+    prepare(sql) {
+      if (/SELECT payment_invoice_id,status,stripe_invoice_id FROM payment_invoices/u.test(sql)) {
+        return { all: () => [
+          { payment_invoice_id: 3, status: "prepared", stripe_invoice_id: null },
+          { payment_invoice_id: 5, status: "open", stripe_invoice_id: "in_5" },
+        ] };
+      }
+      if (/UPDATE payment_invoices/u.test(sql)) return { run() { writes += 1; } };
+      throw new Error(`Unexpected SQL while rejecting batch payment status: ${sql}`);
+    },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: {},
+  });
+
+  assert.throws(() => payments.setNativePaymentStatuses([
+    { invoice_id: 3, payment_status: "paid" },
+    { invoice_id: 5, payment_status: "paid" },
+  ]), (error) => error instanceof PaymentInputError && error.code === "STRIPE_OWNS_PAYMENT_STATUS");
+  assert.equal(writes, 0);
+  assert.deepEqual(transactions, ["START TRANSACTION", "ROLLBACK"]);
+});
+
 test("native payment status cannot override a Stripe-backed invoice", () => {
   const transactions = [];
   const database = {
     exec(sql) { transactions.push(sql); },
     prepare(sql) {
-      assert.match(sql, /SELECT status, stripe_invoice_id FROM payment_invoices/u);
-      return { get: () => ({ status: "open", stripe_invoice_id: "in_123" }) };
+      assert.match(sql, /SELECT payment_invoice_id,status,stripe_invoice_id FROM payment_invoices/u);
+      return { all: () => [{ payment_invoice_id: 3, status: "open", stripe_invoice_id: "in_123" }] };
     },
   };
   const payments = new PaymentService({

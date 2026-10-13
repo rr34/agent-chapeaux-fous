@@ -192,6 +192,9 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     { path: "/calendar_event_id", objectType: "calendar.event", value: "id", role: "subject" },
     { path: "/contact_id", objectType: "contacts.contact", value: "id", role: "subject" },
   ]);
+  assert.deepEqual(bindings("payment_invoice_payment_status_set"), [{
+    path: "/updates/*/invoice_id", objectType: "payments.invoice", value: "id", role: "subject",
+  }]);
   assert.deepEqual(bindings("journal_update"), [
     { path: "/journal_entry_id", objectType: "journal.entry", value: "id", role: "subject" },
   ]);

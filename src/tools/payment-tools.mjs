@@ -26,7 +26,7 @@ const toolDescriptions = Object.freeze({
   },
   payment_invoice_payment_status_set: {
     protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Mark one exact native invoice paid or unpaid; Stripe-backed invoices keep Stripe-owned payment truth.",
+    summary: "Atomically mark one or more exact native invoices paid or unpaid; Stripe-backed invoices keep Stripe-owned payment truth.",
     actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
   },
   payment_invoice_send_prepare: {
@@ -91,7 +91,7 @@ const nativeContracts = Object.freeze({
       "/receipt_updates/*/file_id": "invoice_line_receipt",
     },
   },
-  payment_invoice_payment_status_set: { inputRoles: { "/invoice_id": "subject" } },
+  payment_invoice_payment_status_set: { inputRoles: { "/updates/*/invoice_id": "subject" } },
   payment_invoice_send_prepare: { inputRoles: { "/invoice_id": "subject" } },
   payment_invoice_send: { inputRoles: { "/invoice_id": "subject" } },
 });
@@ -125,7 +125,7 @@ export function registerPaymentTools(registry, payments) {
       limit: { type: "integer", minimum: 1, maximum: 500 },
     }, required: [] },
     async execute(input) {
-      const invoices = payments.listInvoices(input);
+      const invoices = await payments.listInvoices(input);
       return { count: invoices.length, invoices };
     },
   });
@@ -213,16 +213,22 @@ export function registerPaymentTools(registry, payments) {
 
   registry.register({
     name: "payment_invoice_payment_status_set",
-    description: "Mark one exact native invoice paid or unpaid. Use payment_invoice_list first to identify the invoice. This changes only the native two-state payment status and records an activity entry; it does not send, email, charge, refund, or modify invoice contents. If the invoice has reached Stripe, an already-matching status is an idempotent no-op and a conflicting change is rejected because Stripe remains authoritative.",
+    description: "Atomically mark one or more exact native invoices paid or unpaid. Use payment_invoice_list first to identify every invoice. This changes only native two-state payment statuses and records an activity entry for each change; it does not send, email, charge, refund, or modify invoice contents. If an invoice has reached Stripe, an already-matching status is an idempotent no-op and a conflicting change rejects the complete batch because Stripe remains authoritative.",
     outputSchema: { type: "object", properties: {
-      status: { type: "string" }, idempotentReplay: { type: "boolean" }, invoice: invoiceSchema,
+      status: { type: "string" }, results: { type: "array", items: { type: "object", properties: {
+        idempotentReplay: { type: "boolean" }, invoice: invoiceSchema,
+      } } },
     } },
     parameters: { type: "object", additionalProperties: false, properties: {
-      invoice_id: { type: "integer", minimum: 1 },
-      payment_status: { type: "string", enum: ["unpaid", "paid"] },
-    }, required: ["invoice_id", "payment_status"] },
+      updates: { type: "array", minItems: 1, maxItems: 100, items: {
+        type: "object", additionalProperties: false, properties: {
+          invoice_id: { type: "integer", minimum: 1 },
+          payment_status: { type: "string", enum: ["unpaid", "paid"] },
+        }, required: ["invoice_id", "payment_status"],
+      } },
+    }, required: ["updates"] },
     async execute(input, context) {
-      return payments.setNativePaymentStatus(input.invoice_id, input.payment_status, {
+      return payments.setNativePaymentStatuses(input.updates, {
         ...context, actorType: "tool", actorName: "payment_invoice_payment_status_set",
       });
     },

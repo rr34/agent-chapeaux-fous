@@ -18,12 +18,14 @@ appends each distinct receipt once, with an index naming every supported line.
 Do not duplicate receipt pages merely because one file supports several lines.
 
 Every invoice exposes a deliberately minimal payment status: `unpaid` or
-`paid`. For a local-only invoice, use `payment_invoice_payment_status_set` when
-the user asks to mark that exact invoice paid or unpaid. Read the invoice first
-and use its exact stable binding. This native status change does not collect,
-refund, send, or email anything. Once an invoice has a Stripe invoice ID,
-Stripe owns its payment truth and the native status tool must not override it;
-provider events update the same two-state payment status instead.
+`paid`. For local-only invoices, use `payment_invoice_payment_status_set` when
+the user asks to mark one or more exact invoices paid or unpaid. Read every
+invoice first and pass the complete exact stable binding as one atomic batch.
+This native status change does not collect, refund, send, or email anything.
+Once an invoice has a Stripe invoice ID, Stripe owns its payment truth and the
+native status tool must not override it; provider events and an authoritative
+Stripe refresh during invoice reads update the same two-state payment status
+instead.
 
 The prepared preview also owns its payment-method policy. The Payments UI may
 choose bank account only, credit card only, or both before sending; changing the
@@ -96,7 +98,8 @@ Use `payment_stripe_status` before promising that billing is available. If the
 server is configured but no account is connected, use
 `payment_stripe_connect_link` and give the user its exact short-lived Stripe
 authorization URL. Use
-`payment_invoice_list` to verify status and hosted invoice URLs. Do not claim
-payment merely because an invoice was sent; report the invoice's `paymentStatus`
-as `paid` or `unpaid`. Stripe webhook state is
-authoritative for paid, failed, voided, and uncollectible outcomes.
+`payment_invoice_list` to refresh and verify status and hosted invoice URLs.
+Do not claim payment merely because an invoice was sent; report the invoice's
+`paymentStatus` as `paid` or `unpaid`. Stripe's refreshed invoice record and
+webhook events are authoritative for paid, failed, voided, and uncollectible
+outcomes.
