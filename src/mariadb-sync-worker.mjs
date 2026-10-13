@@ -141,9 +141,31 @@ function insertInstantParameterIndexes(sql, offsets) {
   return marked;
 }
 
+function updateInstantParameterIndexes(sql, offsets) {
+  const marked = new Set();
+  const set = topLevelKeyword(sql, 0, "SET");
+  if (set < 0 || !/^\s*UPDATE\b/iu.test(sql)) return marked;
+  const start = set + "SET".length;
+  const where = topLevelKeyword(sql, start, "WHERE");
+  const end = where < 0 ? sql.replace(/;\s*$/u, "").length : where;
+  for (const [expressionStart, expressionEnd] of commaSeparatedExpressions(sql, start, end)) {
+    const expression = sql.slice(expressionStart, expressionEnd);
+    const equals = expression.indexOf("=");
+    if (equals < 0) continue;
+    const assignedColumn = expression.slice(0, equals).trim().replaceAll(/[`"]/gu, "");
+    if (!instantColumn.test(assignedColumn)) continue;
+    const valueStart = expressionStart + equals + 1;
+    offsets.forEach((offset, parameterIndex) => {
+      if (offset >= valueStart && offset < expressionEnd) marked.add(parameterIndex);
+    });
+  }
+  return marked;
+}
+
 export function normalizeMariaDbDateTimeParameters(sql, parameters) {
   const offsets = placeholderOffsets(sql);
   const marked = insertInstantParameterIndexes(sql, offsets);
+  for (const index of updateInstantParameterIndexes(sql, offsets)) marked.add(index);
   const sqlIdentifier = "[`\"]?[A-Za-z_][A-Za-z0-9_]*[`\"]?";
   const columnName = `(?:${sqlIdentifier}\\.)?[\`\"]?(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)[\`\"]?`;
   offsets.forEach((offset, parameterIndex) => {

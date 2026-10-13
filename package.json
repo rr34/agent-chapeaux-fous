@@ -16,7 +16,9 @@
     "capabilities:verify": "node scripts/verify-capabilities.mjs",
     "start:built": "npm run build:web && node src/server.mjs",
     "pretest": "npm run build:web",
-    "test": "node --test test/*.test.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "test:unit": "node scripts/run-tests.mjs unit",
+    "test:integration": "node scripts/run-tests.mjs integration",
     "db:migrate": "node scripts/migrate-database.mjs",
     "db:verify": "node scripts/verify-database.mjs"
   },

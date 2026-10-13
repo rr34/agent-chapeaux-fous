@@ -1284,7 +1284,7 @@ test("tool-budget exhaustion is returned to the model so it can finish gracefull
       responses.push(await payload.onToolCall({
         callId: `call-${index}`,
         tool: "ping",
-        arguments: {},
+        arguments: { sequence: index },
       }));
     }
     return completedTurn({ text: "I stopped after the tool budget was exhausted." });
@@ -1293,8 +1293,11 @@ test("tool-budget exhaustion is returned to the model so it can finish gracefull
   registry.register({
     name: "ping",
     description: "Return pong.",
-    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
-    async execute() { return { pong: true }; },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { sequence: { type: "integer" } }, required: ["sequence"],
+    },
+    async execute({ sequence }) { return { pong: true, sequence }; },
   });
   const runtime = new SlayerRuntime({
     modelTransport,
@@ -1322,7 +1325,7 @@ test("a request can override the normal tool budget and pass a model-turn deadli
       toolResponses.push(await payload.onToolCall({
         callId: `call-${index}`,
         tool: "ping",
-        arguments: {},
+        arguments: { sequence: index },
       }));
     }
     return completedTurn({ text: "All calls completed." });
@@ -1331,8 +1334,11 @@ test("a request can override the normal tool budget and pass a model-turn deadli
   registry.register({
     name: "ping",
     description: "Return pong.",
-    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
-    async execute() { return { pong: true }; },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { sequence: { type: "integer" } }, required: ["sequence"],
+    },
+    async execute({ sequence }) { return { pong: true, sequence }; },
   });
   const events = [];
   const runtime = new SlayerRuntime({

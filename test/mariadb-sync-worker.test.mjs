@@ -132,6 +132,14 @@ test("only parameters bound to native instant columns use MariaDB DATETIME liter
     [instant, 12],
   ), ["2026-09-13 01:02:03.456", 12]);
   assert.deepEqual(normalizeMariaDbDateTimeParameters(
+    `UPDATE payment_invoices SET
+       status=CASE WHEN status IN ('paid','voided','uncollectible') AND ? IN ('open','failed') THEN status ELSE ? END,
+       paid_at_utc=CASE WHEN ?='paid' THEN COALESCE(paid_at_utc,?,UTC_TIMESTAMP(3)) ELSE paid_at_utc END,
+       updated_at_utc=UTC_TIMESTAMP(3)
+     WHERE stripe_connected_account_id=? AND stripe_invoice_id=?`,
+    ["paid", "paid", "paid", instant, "acct_123", "in_123"],
+  ), ["paid", "paid", "paid", "2026-09-13 01:02:03.456", "acct_123", "in_123"]);
+  assert.deepEqual(normalizeMariaDbDateTimeParameters(
     "UPDATE calendar_events SET title = ? WHERE calendar_event_id = ? AND COALESCE(updated_at_utc, created_at_utc) = ?",
     ["launch", 12, instant],
   ), ["launch", 12, "2026-09-13 01:02:03.456"]);

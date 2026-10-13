@@ -87,7 +87,10 @@ gitignored and therefore must be built separately in every checkout. Local
 
 The test suite creates and drops isolated databases. The configured application
 account may do that locally, or `MARIADB_TEST_*` can name a separate
-test administrator as shown in `.env.example`.
+test administrator as shown in `.env.example`. `npm test` runs a single database
+privilege preflight before the full suite, `npm run test:unit` runs the
+database-independent files, and `npm run test:integration` runs the files that
+use isolated MariaDB fixtures.
 
 Open `http://127.0.0.1:8787/app`. The root URL serves the public landing page.
 The app asks for `SLAYER_ACCESS_TOKEN` and

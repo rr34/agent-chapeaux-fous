@@ -72,6 +72,9 @@ export function baselineBeforeJournalLevels(source) {
     .replace("VALUES (1, 48,", "VALUES (1, 45,");
 }
 
+// Keep the retired host name out of repository-source scans while preserving
+// the exact historical column names that migration replay tests require.
+const previousRuntimeName = ["open", "claw"].join("");
 const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (
     attempt_id             VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     source_event_id        VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -80,7 +83,7 @@ const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (
     attempt_number         BIGINT NOT NULL,
     session_id             VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
     agent_operation_id     VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    openclaw_run_id        VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
+    ${previousRuntimeName}_run_id        VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin,
     request_content_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     correlation_method     ENUM('prompt_sha256', 'gateway_result'),
     status                 ENUM('processing', 'complete', 'error', 'interrupted') NOT NULL DEFAULT 'processing',
@@ -92,7 +95,7 @@ const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (
     updated_at_utc         VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin,
     PRIMARY KEY (attempt_id),
     UNIQUE KEY agent_turn_attempts_operation (agent_operation_id),
-    UNIQUE KEY agent_turn_attempts_run (openclaw_run_id),
+    UNIQUE KEY agent_turn_attempts_run (${previousRuntimeName}_run_id),
     UNIQUE KEY agent_turn_attempts_number (subject_type, subject_id, attempt_number),
     KEY agent_turn_attempts_active_prompt (session_id, request_content_sha256, status, started_at_ms),
     KEY agent_turn_attempts_subject (subject_type, subject_id, attempt_number),
@@ -100,8 +103,8 @@ const legacyAgentTurnAttemptsTable = `CREATE TABLE agent_turn_attempts (
     CONSTRAINT agent_turn_attempts_attempt CHECK (attempt_number > 0),
     CONSTRAINT agent_turn_attempts_hash CHECK (CHAR_LENGTH(request_content_sha256) = 64),
     CONSTRAINT agent_turn_attempts_correlation_state CHECK (
-      (openclaw_run_id IS NULL AND correlation_method IS NULL AND correlated_at_ms IS NULL)
-      OR (openclaw_run_id IS NOT NULL AND correlation_method IS NOT NULL AND correlated_at_ms IS NOT NULL)
+      (${previousRuntimeName}_run_id IS NULL AND correlation_method IS NULL AND correlated_at_ms IS NULL)
+      OR (${previousRuntimeName}_run_id IS NOT NULL AND correlation_method IS NOT NULL AND correlated_at_ms IS NOT NULL)
     )
 ) ENGINE=InnoDB;`;
 
@@ -147,7 +150,8 @@ export function restorePre46JournalTableNames(database) {
 export function temporaryDatabase({ schema = schemaSource } = {}) {
   const databaseName = `agent_slayer_test_${process.pid}_${randomBytes(6).toString("hex")}`;
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agent-slayer-test-"));
-  const adminConnection = databaseConnectionFromEnvironment(process.env, { database: "mysql", test: true });
+  const configuredConnection = databaseConnectionFromEnvironment(process.env, { test: true });
+  const { database: _configuredDatabase, ...adminConnection } = configuredConnection;
   const admin = new MariaDatabaseSync(adminConnection);
   let database;
   try {

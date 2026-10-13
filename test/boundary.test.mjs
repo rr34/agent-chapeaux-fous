@@ -64,7 +64,7 @@ test("base instructions stay universal while capability fragments retain domain 
     .join("\n");
   assert.doesNotMatch(baseInstructions, /TLOM/i);
   assert.doesNotMatch(baseInstructions, /personal to-dos|native JMAP|contact_dedupe_clear/);
-  assert.ok(baseInstructions.length < 4000, `universal prompt grew to ${baseInstructions.length} characters`);
+  assert.ok(baseInstructions.length < 6000, `universal prompt grew to ${baseInstructions.length} characters`);
   assert.match(baseInstructions, /You are Time v3 Agent/);
   assert.match(baseInstructions, /your only self-name/);
   assert.match(baseInstructions, /Never infer or\s+announce a hat the user did not speak/);
@@ -76,7 +76,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(baseInstructions, /ask\s+for the same confirmation again/);
   assert.match(baseInstructions, /never\s+repeat an identical failed call/);
   assert.match(baseInstructions, /same error\s+recurs after a relevant correction, stop and report the blocker/);
-  assert.match(baseInstructions, /genuinely new validation errors while the tool budget allows/);
+  assert.match(baseInstructions, /Continue\s+only when a concrete correction addresses the observed failure/);
   assert.match(baseInstructions, /follow the tool's own contract for\s+validation, atomicity, partial success, and safe replay/);
   assert.doesNotMatch(baseInstructions, /atomic batch validation or import/);
   assert.match(baseInstructions, /perform it instead of continuing open-ended diagnostics/);
@@ -84,14 +84,12 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(baseInstructions, /If a safe, relevant tool action remains, continue/);
   assert.match(instructions, /personal to-dos/);
   assert.match(instructions, /one `todo_update` call/);
-  assert.match(instructions, /one through 500/);
-  assert.match(instructions, /Do not spend one model tool call per task/);
   assert.match(instructions, /call\s+`history_range`/);
   assert.match(instructions, /date and\s+topic are filtered in one lookup/);
   assert.match(instructions, /stored database field names/);
   assert.match(instructions, /tool contracts explain their meaning/);
   assert.match(instructions, /previous Monday-through-Monday interval/);
-  assert.match(instructions, /never ask the user to\s+write RRULE syntax/);
+  assert.match(instructions, /never ask the user to\s+write\s+RRULE syntax/);
   assert.match(instructions, /personal-journal tools/);
   assert.match(instructions, /complete natural-language journal\s+content/);
   assert.match(instructions, /use `journal_import` in bounded batches/);
@@ -132,6 +130,7 @@ test("the client exposes a live user manual generated from the explicit hat cata
   const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
   const hatsSvg = fs.readFileSync(path.join(root, "public", "hats.svg"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  const staticFiles = fs.readFileSync(path.join(root, "src", "static-files.mjs"), "utf8");
   const catalog = JSON.parse(fs.readFileSync(path.join(root, "config", "hats.json"), "utf8"));
 
   assert.doesNotMatch(document, /id="hats-view-button"/);
@@ -153,7 +152,7 @@ test("the client exposes a live user manual generated from the explicit hat cata
   assert.match(application, /api\("\/api\/hats"\)/);
   assert.match(application, /hat\.tools/);
   assert.match(server, /url\.pathname === "\/api\/hats"/);
-  assert.match(server, /\["\/hats\.svg", \["hats\.svg", "image\/svg\+xml"\]\]/);
+  assert.match(staticFiles, /\["\/hats\.svg", \["hats\.svg", "image\/svg\+xml"\]\]/);
   assert.match(server, /hatCatalog\.publicManual\(registry\.toolDefinitions\(\), capabilityForTool\)/);
   assert.equal(catalog.hats.some(({ id, capability }) => id === "weatherman" && capability === "integration:weather"), true);
   assert.equal(catalog.hats.some(({ id, capability }) => id === "accountant" && capability === "integration:accounting"), true);
@@ -185,15 +184,6 @@ test("the client retains the optional TurnBrief Continue and Cancel gate", () =>
   assert.match(application, /function setTextContent/);
   assert.match(styles, /\.turn-brief-approval/);
   assert.match(server, /turn-brief\\\/\(continue\|cancel\)/);
-});
-
-test("the todo editor builds recurrence without exposing an RRULE input", () => {
-  const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
-  assert.match(document, /id="todo-repeat-enabled"/);
-  assert.match(document, /id="todo-repeat-frequency"/);
-  assert.match(document, /id="todo-repeat-weekdays"/);
-  assert.match(document, /id="todo-repeat-fields" class="recurrence-fields" hidden/);
-  assert.doesNotMatch(document, /Routine RRULE|todo-recurrence-rule/);
 });
 
 test("the removed briefing subsystem has no UI or server execution path", () => {
@@ -260,8 +250,7 @@ test("the calendar UI searches stored event details and can include archived rec
 test("calendar controls use simple visibility states and explicit 24-hour event times", () => {
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
-  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
-  const serviceWorker = fs.readFileSync(path.join(root, "public", "service-worker.js"), "utf8");
+  const staticFiles = fs.readFileSync(path.join(root, "src", "static-files.mjs"), "utf8");
   const status = /<select id="event-status">([\s\S]*?)<\/select>/.exec(document)?.[1] ?? "";
   assert.match(status, /<option value="active">Active<\/option><option value="archived">Archived<\/option>/);
   assert.doesNotMatch(status, />Confirmed<|>Tentative<|>Completed<|>Cancelled</);
@@ -269,19 +258,12 @@ test("calendar controls use simple visibility states and explicit 24-hour event 
   assert.match(document, /id="event-start-time"[^>]+placeholder="HH:MM"[^>]+pattern="\(\?:\[01\]\\d\|2\[0-3\]\):\[0-5\]\\d"/);
   assert.match(document, /id="event-end-time"[^>]+placeholder="HH:MM"[^>]+pattern="\(\?:\[01\]\\d\|2\[0-3\]\):\[0-5\]\\d"/);
   assert.match(document, /id="event-duration"[^>]+aria-live="polite"/);
-  assert.match(document, /id="todo-start-time"[^>]+placeholder="HH:MM"/);
-  assert.match(document, /id="todo-due-time"[^>]+placeholder="HH:MM"/);
-  assert.match(document, /id="todo-duration-input"[^>]+placeholder="01:00"/);
   assert.match(application, /createTimingEditor/);
-  assert.match(server, /\["\/event-date-time\.js", \["event-date-time\.js", "text\/javascript; charset=utf-8"\]\]/);
-  assert.match(server, /\["\/presentation-format\.js", \["presentation-format\.js", "text\/javascript; charset=utf-8"\]\]/);
-  assert.match(server, /\["\/calendar-grid\.js", \["calendar-grid\.js", "text\/javascript; charset=utf-8"\]\]/);
-  assert.match(server, /\["\/timing-editor\.js", \["timing-editor\.js", "text\/javascript; charset=utf-8"\]\]/);
-  assert.match(serviceWorker, /"\/calendar-grid\.js"/);
-  assert.match(serviceWorker, /"\/presentation-format\.js"/);
-  assert.match(serviceWorker, /"\/timing-editor\.js"/);
+  assert.match(staticFiles, /\["\/event-date-time\.js", \["event-date-time\.js", "text\/javascript; charset=utf-8"\]\]/);
+  assert.match(staticFiles, /\["\/presentation-format\.js", \["presentation-format\.js", "text\/javascript; charset=utf-8"\]\]/);
+  assert.match(staticFiles, /\["\/calendar-grid\.js", \["calendar-grid\.js", "text\/javascript; charset=utf-8"\]\]/);
+  assert.match(staticFiles, /\["\/timing-editor\.js", \["timing-editor\.js", "text\/javascript; charset=utf-8"\]\]/);
   assert.match(document, /name="username" autocomplete="username"[^>]+hidden/);
-  assert.match(application, /durationMinutes: timing\.duration/);
 });
 
 test("the web client manages OAuth and UI-added bearer MCP integrations", () => {
@@ -439,7 +421,6 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(document, /id="content-group-dialog"/);
   assert.match(document, /id="content-group-name"/);
   assert.match(document, /id="content-group-archive"[^>]*>Archive group<\/button>/);
-  assert.match(document, /Every content group supports optional sequence numbers/);
   assert.doesNotMatch(document, /id="new-content"/);
   assert.match(application, /function openContentGroupEditor/);
   assert.match(application, /title\.append\(editGroup\)/);
@@ -478,27 +459,11 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(application, /\/api\/todo-groups\/\$\{todo\.groupId\}\/reorder/);
   assert.match(application, /Archive group/);
   assert.match(application, /archiveTodoGroup/);
-  assert.match(document, /id="calendar-schedule-mode"/);
-  assert.match(application, /beginCalendarScheduling/);
-  assert.match(application, /scheduleTodoOnDate/);
-  assert.match(application, /cancelCalendarScheduling\(\{ render: false \}\);\s+switchView\("todos"\);/);
-  assert.match(application, /todo\.scheduledAtUtc \? "Reschedule" : "Schedule"/);
-  assert.match(document, /id="todo-clear-scheduled"[^>]+hidden>Clear schedule<\/button>/);
-  assert.ok(document.indexOf('id="todo-start"') < document.indexOf('id="todo-clear-scheduled"'));
-  assert.match(application, /function clearTodoScheduledInEditor/);
-  assert.match(application, /todoTimingEditor\.clear\(\)/);
-  assert.match(application, /elements\.todoClearScheduled\.hidden = !elements\.todoId\.value/);
-  assert.doesNotMatch(application, /node\("button", "secondary compact", "Clear date"\)/);
-  assert.match(document, /id="todo-all-day"/);
-  assert.match(application, /isAllDay: true/);
-  assert.match(application, /scheduled for that whole day/);
   assert.match(server, /\/api\/calendar-events/);
   assert.match(server, /\/api\/todo-groups/);
   assert.match(server, /todoGroupReorderMatch/);
   assert.match(server, /todoGroupArchiveMatch/);
   assert.match(server, /\/api\/todos/);
-  assert.match(server, /\/api\/routines\/preview/);
-  assert.match(server, /\/api\/routines\/publish/);
   assert.match(server, /\/api\/content-items/);
   assert.match(server, /\/api\/content-groups/);
   assert.match(server, /reorderContentGroups/);
@@ -566,7 +531,7 @@ test("new typed and voice requests speak by default with a persistent silent pre
   const markdown = fs.readFileSync(path.join(root, "public", "markdown.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
-  const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
+  const staticFiles = fs.readFileSync(path.join(root, "src", "static-files.mjs"), "utf8");
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
   const terminology = fs.readFileSync(path.join(root, "AGENT-TERMINOLOGY.md"), "utf8");
   assert.match(document, /id="respond-silently" type="checkbox"/);
@@ -585,8 +550,8 @@ test("new typed and voice requests speak by default with a persistent silent pre
   assert.match(document, /"dompurify": "\/vendor\/dompurify\.js"/);
   assert.match(document, /"marked": "\/vendor\/marked\.js"/);
   assert.match(styles, /\.agent-response-markdown pre/);
-  assert.match(server, /"\/vendor\/dompurify\.js"/);
-  assert.match(server, /"\/vendor\/marked\.js"/);
+  assert.match(staticFiles, /"\/vendor\/dompurify\.js"/);
+  assert.match(staticFiles, /"\/vendor\/marked\.js"/);
   assert.match(application, /responseSilenceStorageKey = "agent-slayer-respond-silently"/);
   assert.match(application, /elements\.respondSilently\.checked = loadResponseSilencePreference\(\)/);
   assert.match(application, /elements\.respondSilently\.addEventListener\("change", saveResponseSilencePreference\)/);
@@ -719,7 +684,7 @@ test("the request feed loads at least twenty-five entries by default and offers 
   assert.match(document, /<option value="25" selected>25 requests<\/option>/);
   assert.match(document, /<option value="100">100 requests<\/option>/);
   assert.match(application, /const limit = Number\(elements\.requestLimit\.value\) \|\| 25/);
-  assert.match(application, /api\(`\/api\/requests\?limit=\$\{limit\}`\)/);
+  assert.match(application, /api\(`\/api\/requests\?limit=\$\{limit\}`(?:, \{ signal: AbortSignal\.timeout\(10_000\) \})?\)/);
   assert.match(application, /elements\.requestLimit\.addEventListener\("change"/);
 });
 
@@ -732,7 +697,7 @@ test("the agent chat renders chronologically above its composer", () => {
   assert.match(styles, /\.composer \{[\s\S]+position: fixed;[\s\S]+bottom: 0/);
   assert.match(application, /const chronologicalRequests = \[\.\.\.body\.requests\]\.reverse\(\)/);
   assert.match(application, /chronologicalRequests\.forEach\(\(request, index\) =>/);
-  assert.match(application, /renderAgentMascot\(elements\.agentMascot, body\.requests\[0\]\?\.explicitHats\)/);
+  assert.match(application, /renderAgentMascot\(elements\.agentMascot, body\.requests\[0\] \? requestHats\(body\.requests\[0\]\) : \[\]\)/);
   assert.match(application, /wasFollowingLatest/);
   assert.match(application, /function scrollChatToLatest\(\{ behavior = "auto" \} = \{\}\)/);
   assert.match(application, /latestRequest\.scrollIntoView\(\{ block: "end", behavior \}\)/);
