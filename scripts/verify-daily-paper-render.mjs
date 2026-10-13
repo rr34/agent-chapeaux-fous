@@ -31,7 +31,11 @@ const events = [
 ];
 dates[1].events = [{ ...events[0], id: 11, title: "Dentist" }];
 dates[3].events = [{ ...events[1], id: 12, title: "Project check-in" }];
-dates[5].events = [{ ...events[2], id: 13, title: "Farmers market" }];
+dates[5].events = Array.from({ length: 12 }, (_, index) => ({
+  ...events[index % events.length],
+  id: 100 + index,
+  title: `Crowded calendar event ${index + 1}`,
+}));
 dates[6].events = events;
 dates[8].events = [{ ...events[0], id: 14, title: "Send estimate" }];
 dates[10].events = [{ ...events[2], id: 15, title: "Dinner with Alex" }];
@@ -187,6 +191,18 @@ try {
     throw new Error("A scheduled to-do was duplicated in the pinned appendage");
   }
   await page.emulateMedia({ media: "print" });
+  const calendarOverflow = await page.locator(".two-week-grid--compact .calendar-cell").evaluateAll((cells) => cells
+    .map((cell, index) => {
+      const lastEvent = cell.querySelector(".calendar-chip:last-child");
+      if (!lastEvent) return null;
+      const cellBounds = cell.getBoundingClientRect();
+      const eventBounds = lastEvent.getBoundingClientRect();
+      return eventBounds.bottom > cellBounds.bottom + 0.5 ? { index, cellBottom: cellBounds.bottom, eventBottom: eventBounds.bottom } : null;
+    })
+    .filter(Boolean));
+  if (calendarOverflow.length) {
+    throw new Error(`Printable calendar events escaped their day borders: ${JSON.stringify(calendarOverflow)}`);
+  }
   await page.screenshot({ path: screenshotPath, fullPage: true });
   await page.pdf({ path: pdfPath, format: "Letter", printBackground: true, preferCSSPageSize: true, tagged: true, outline: true });
 } finally {

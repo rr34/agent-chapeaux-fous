@@ -641,8 +641,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-range strong { font: 600 10pt "Newsreader", Georgia, serif; }
 .two-week-grid--compact { gap: .035in; margin-bottom: .16in; }
 .two-week-grid--compact .weekdays, .two-week-grid--compact .calendar-cells { gap: .035in; }
+.two-week-grid--compact .calendar-cells { grid-auto-rows: max-content; align-items: stretch; }
 .two-week-grid--compact .weekdays span { padding: 0 .04in .02in; font-size: 5.8pt; }
-.two-week-grid--compact .calendar-cell { min-height: .70in; aspect-ratio: 2 / 3; padding: .045in; border-radius: .035in; }
+.two-week-grid--compact .calendar-cell { min-height: .70in; aspect-ratio: auto; padding: .045in; border-radius: .035in; }
 .two-week-grid--compact .calendar-cell-header { padding-bottom: .025in; }
 .two-week-grid--compact .calendar-cell-header span { font-size: 5.4pt; }
 .two-week-grid--compact .calendar-cell-header strong { font-size: 10pt; }

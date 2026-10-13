@@ -64,10 +64,11 @@ test("print preview follows the selected calendar day immediately", () => {
   assert.match(appSource, /<DailyPaper model=\{previewModel\} preview \/>/);
 });
 
-test("screen and printable calendar days share a two-by-three aspect ratio", () => {
+test("screen calendar days keep their aspect ratio while printable days grow with their events", () => {
   assert.match(styles, /\.calendar-cell \{[^}]*aspect-ratio: 2 \/ 3;/);
   assert.match(styles, /\.calendar-cell \{[^}]*justify-content: flex-start;[^}]*align-items: stretch;/);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*aspect-ratio: 2 \/ 3;/);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-cells \{[^}]*grid-auto-rows: max-content;[^}]*align-items: stretch;/);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*min-height: \.70in;[^}]*aspect-ratio: auto;/);
   assert.match(calendarSource, /const visibleEvents = compact \? orderedEvents : orderedEvents\.slice\(0, eventLimit\)/);
   assert.match(calendarSource, /!compact && day\.events\.length > eventLimit/);
 });
