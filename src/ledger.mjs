@@ -765,6 +765,15 @@ export class Ledger {
     const turnBriefApproval = approvalRequired && !approvalResolved && !terminal
       ? approvalRequired.payload
       : null;
+    const attachedObjectCount = (
+      Array.isArray(request.payload?.selectedObjectCandidates)
+        ? request.payload.selectedObjectCandidates.length
+        : 0
+    ) + (
+      Array.isArray(request.payload?.referencedRequestIds)
+        ? new Set(request.payload.referencedRequestIds).size
+        : 0
+    );
     const status = terminal?.status || (events.some((event) => ["request.processing", "agent.turn.start", "voice.transcription.start"].includes(event.type)) ? "processing" : "queued");
     const requestKind = request.payload?.requestKind ?? null;
     const sourceFile = !includeAttachment || request.primaryFileId == null
@@ -798,6 +807,7 @@ export class Ledger {
       response: response?.content || null,
       error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
       usage,
+      attachedObjectCount,
       ...(includeSteps ? { steps: workflowSteps(events) } : {}),
       ...(includeObjectActivity ? { objectActivity: interactionObjectActivity(events) } : {}),
       eventCount: events.length,

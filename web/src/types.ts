@@ -231,6 +231,7 @@ export interface RequestRecord {
   createdAt?: string;
   submittedAtMs?: number;
   elapsedMs?: number | null;
+  attachedObjectCount?: number;
   progress?: RequestProgress | null;
   usage?: RequestUsage | null;
   turnBriefApproval?: {

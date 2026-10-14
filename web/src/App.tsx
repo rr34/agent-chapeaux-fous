@@ -797,6 +797,7 @@ function AgentComposer({
         request: text.trim(),
         status: "queued",
         submittedAtMs,
+        attachedObjectCount: selections.length,
         progress: {
           label: "Queued",
           startedAtMs: submittedAtMs,
@@ -977,7 +978,14 @@ function callCountLabel(count: number, noun: "LLM call" | "tool call") {
   return count.toLocaleString() + " " + noun + (count === 1 ? "" : "s");
 }
 
-function RequestProgressIndicator({ progress }: { progress: NonNullable<RequestRecord["progress"]> }) {
+function attachedObjectCountLabel(count: number) {
+  return `${count.toLocaleString()} attached ${count === 1 ? "object" : "objects"}`;
+}
+
+function RequestProgressIndicator({ progress, attachedObjectCount }: {
+  progress: NonNullable<RequestRecord["progress"]>;
+  attachedObjectCount: number;
+}) {
   const [, advanceClock] = useState(0);
   useEffect(() => {
     const timer = window.setInterval(() => advanceClock((value) => value + 1), 1000);
@@ -993,6 +1001,7 @@ function RequestProgressIndicator({ progress }: { progress: NonNullable<RequestR
         <span>{formatRequestDuration(elapsedMs)} elapsed</span>
         <span>{callCountLabel(progress.modelCalls, "LLM call")}</span>
         <span>{callCountLabel(progress.toolCalls, "tool call")}</span>
+        {attachedObjectCount > 0 && <span>{attachedObjectCountLabel(attachedObjectCount)}</span>}
         {quietMs >= 60_000 && <span>{formatRequestDuration(quietMs)} since last activity</span>}
       </div>
     </div>
@@ -1000,7 +1009,13 @@ function RequestProgressIndicator({ progress }: { progress: NonNullable<RequestR
 }
 
 function RequestInteractionMetrics({ request }: { request: RequestRecord }) {
-  if (request.progress) return <RequestProgressIndicator progress={request.progress} />;
+  const attachedObjectCount = Number.isSafeInteger(request.attachedObjectCount)
+    ? Math.max(0, request.attachedObjectCount!)
+    : 0;
+  if (request.progress) return <RequestProgressIndicator
+    progress={request.progress}
+    attachedObjectCount={attachedObjectCount}
+  />;
   const modelCalls = Number.isSafeInteger(request.usage?.modelCallCount) ? request.usage!.modelCallCount : 0;
   const toolCalls = Number.isSafeInteger(request.usage?.toolCallCount) ? request.usage!.toolCallCount : 0;
   const tokens = Number(request.usage?.tokenUsage?.totalTokens);
@@ -1010,6 +1025,7 @@ function RequestInteractionMetrics({ request }: { request: RequestRecord }) {
     <span>{callCountLabel(modelCalls, "LLM call")}</span>
     <span>{callCountLabel(toolCalls, "tool call")}</span>
     {Number.isFinite(tokens) && <span>{tokens.toLocaleString()} tokens</span>}
+    {attachedObjectCount > 0 && <span>{attachedObjectCountLabel(attachedObjectCount)}</span>}
   </div>;
 }
 

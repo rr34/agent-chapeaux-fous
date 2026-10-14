@@ -93,10 +93,13 @@ test("the recorder remains mounted through React Strict Mode effect replay", () 
 test("request cards show live and persisted LLM and tool call metrics", () => {
   assert.match(types, /progress\?: RequestProgress \| null/);
   assert.match(types, /usage\?: RequestUsage \| null/);
+  assert.match(types, /attachedObjectCount\?: number/);
   assert.match(app, /callCountLabel\(progress\.modelCalls, "LLM call"\)/);
   assert.match(app, /callCountLabel\(progress\.toolCalls, "tool call"\)/);
   assert.match(app, /request\.usage\?\.modelCallCount/);
   assert.match(app, /request\.usage\?\.toolCallCount/);
+  assert.match(app, /attachedObjectCountLabel\(attachedObjectCount\)/);
+  assert.match(app, /attachedObjectCount: selections\.length/);
   assert.match(app, /<RequestInteractionMetrics request=\{request\} \/>/);
   assert.match(styles, /\.progress-spinner \{[^}]*animation: progress-spin/s);
   assert.match(styles, /\.interaction-metrics \{/);

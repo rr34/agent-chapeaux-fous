@@ -95,7 +95,13 @@ test("incremental request loading skips unchanged request traces", () => {
 });
 
 test("initial incremental loading projects only feed fields for recent requests", () => {
-  const received = requestRow("turn-1", 1);
+  const received = {
+    ...requestRow("turn-1", 1),
+    payload_json: JSON.stringify({
+      selectedObjectCandidates: [{ ref: "agent-slayer://contacts/7" }],
+      referencedRequestIds: ["exchange-1", "exchange-2"],
+    }),
+  };
   const terminal = {
     ...requestRow("turn-1", 2),
     event_id: "terminal-turn-1",
@@ -132,6 +138,7 @@ test("initial incremental loading projects only feed fields for recent requests"
   const result = ledger.recentRequestChanges(25, 0);
   assert.equal(result.requests.length, 1);
   assert.equal(result.requests[0].status, "complete");
+  assert.equal(result.requests[0].attachedObjectCount, 3);
   assert.equal("steps" in result.requests[0], false);
   assert.equal("objectActivity" in result.requests[0], false);
   assert.equal(calls.length, 3);
