@@ -84,6 +84,7 @@ function NetworkCard({
   return <div className="network-object-slot">
     <ObjectCard
       object={object as ObjectCardModel}
+      mode="compact"
       focus={focus}
       controls={<NetworkObjectControls object={object} onNetwork={onOpen} />}
       onToggleComplete={onToggleComplete}
@@ -323,6 +324,7 @@ function ObjectNetworkExplorer({ initial, onClose }: {
                 return <ObjectCard
                   key={candidate.ref}
                   object={candidateObject}
+                  mode="compact"
                   controls={<NetworkObjectControls
                     object={identity}
                     onNetwork={() => { if (graph) setHistory((current) => [...current, graph.focus]); void load(identity); }}

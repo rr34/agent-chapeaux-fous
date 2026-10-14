@@ -24,6 +24,7 @@ test("first-class object controls expose one lazy visual network without editing
   assert.match(component, /<NetworkCard\s+object=\{graph\.focus\}\s+focus/u);
   assert.doesNotMatch(component, /<h2>Object network<\/h2>/u);
   assert.match(component, /<ObjectCard/u);
+  assert.equal(component.match(/mode="compact"/gu)?.length, 2);
   assert.match(component, /NetworkObjectControls/u);
   assert.match(component, /selection\.toggleSelection/u);
   assert.match(component, /<ObjectCardNetworkButton/u);

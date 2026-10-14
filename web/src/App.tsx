@@ -432,6 +432,7 @@ function AgentComposer({
   onSelectionChange: (selection: ComposerTextSelection) => void;
   onSubmitted: (request: RequestRecord) => void;
 }) {
+  const composer = useRef<HTMLFormElement>(null);
   const textArea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const recordMeter = useRef<HTMLSpanElement>(null);
@@ -467,6 +468,22 @@ function AgentComposer({
     && Boolean(navigator.mediaDevices?.getUserMedia)
     && typeof MediaRecorder !== "undefined";
   const isRecording = recordingPhase === "recording";
+
+  useEffect(() => {
+    const element = composer.current;
+    const shell = element?.closest<HTMLElement>(".app-shell");
+    if (!element || !shell || typeof ResizeObserver === "undefined") return;
+    const updateComposerHeight = () => {
+      shell.style.setProperty("--agent-composer-height", `${Math.ceil(element.getBoundingClientRect().height)}px`);
+    };
+    updateComposerHeight();
+    const observer = new ResizeObserver(updateComposerHeight);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      shell.style.removeProperty("--agent-composer-height");
+    };
+  }, []);
 
   useEffect(() => {
     if (!cursorRequest) return;
@@ -826,7 +843,7 @@ function AgentComposer({
     if (fileInput.current) fileInput.current.value = "";
   };
 
-  return <><form className={`composer${isRecording ? " recording" : ""}${composerExpanded ? " expanded" : ""}`} onSubmit={submit}>
+  return <><form ref={composer} className={`composer${isRecording ? " recording" : ""}${composerExpanded ? " expanded" : ""}`} onSubmit={submit}>
     {selectionNotice && <div className="composer-feedback" role="status">{selectionNotice}</div>}
     {recordingStatus && <div className="composer-feedback recording-status" role="status">{recordingStatus}</div>}
     {attachmentStatus && <div className="composer-feedback" role="status">{attachmentStatus}</div>}

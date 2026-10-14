@@ -10,8 +10,11 @@ const types = fs.readFileSync(new URL("../web/src/types.ts", import.meta.url), "
 test("the Agent composer stays fixed and is rendered by the workspace", () => {
   assert.match(app, /<main className="workspace">\{screen\}<\/main><AgentComposer/);
   assert.match(app, /function AgentComposer\(/);
+  assert.match(app, /new ResizeObserver\(updateComposerHeight\)/);
+  assert.match(app, /--agent-composer-height/);
   assert.match(styles, /\.composer \{[^}]*position: fixed[^}]*bottom:/s);
-  assert.match(styles, /\.workspace \{[^}]*padding:[^;}]*170px/s);
+  assert.match(styles, /\.workspace \{[^}]*padding:[^;}]*var\(--agent-composer-clearance\)/s);
+  assert.match(styles, /\.network-backdrop > \.object-network \{[^}]*max-height:[^;}]*var\(--agent-composer-clearance\)/s);
 });
 
 test("submitting from another screen leaves that screen open while the Agent works", () => {

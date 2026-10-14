@@ -24,6 +24,7 @@ test("the network dispatches to domain cards instead of rendering its own object
   const editable = fs.readFileSync(path.join(root, "web/src/components/EditableItems.tsx"), "utf8");
   const app = fs.readFileSync(path.join(root, "web/src/App.tsx"), "utf8");
   assert.match(network, /<ObjectCard/);
+  assert.equal(network.match(/mode="compact"/gu)?.length, 2);
   assert.doesNotMatch(network, /<FirstClassObjectCard/);
   assert.match(dispatcher, /case "todos\.personal_task": return <TodoCard/);
   assert.match(dispatcher, /case "contacts\.contact": return <ContactCard/);
