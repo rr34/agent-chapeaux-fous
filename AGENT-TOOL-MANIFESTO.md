@@ -730,10 +730,14 @@ or paraphrases it.
 10. **Owning implementation** — authorization, validation, transactions,
     idempotency, persistence, and actual effects behind the published contract.
 
-Layers 1 through 5 form the orientation catalog entry. Layers 6 through 9 are
-shown only when the exact tool becomes callable in execution. Layer 10 never
-becomes model context; the model observes only its published contracts and
-results.
+Layers 1 and 2 form the compact tool index visible for every connected
+capability family in orientation. Layers 3 through 5 are expanded for the
+families the deterministic router found plausible and for families selected by
+a context-informed orientation pass. This progressive disclosure never hides a
+connected family or tool identity and never represents a deferred tool as
+callable. Layers 6 through 9 are shown only when the exact tool becomes callable
+in execution. Layer 10 never becomes model context; the model observes only its
+published contracts and results.
 
 Every Tool Description validates against the single authoritative versioned
 schema at
@@ -926,12 +930,14 @@ The protocol carries:
 - effect receipts; and
 - opaque provider-owned workflow references.
 
-Orientation receives a bounded capability catalog containing only capability
-identity, title, summary, and context views plus each candidate tool's machine
-name, concise title, complete validated selection summary, optional bounded
-operations, and an explicit status only when Tool Description validation is
-missing. Raw annotation objects, representative
-tool lists, counts derivable from the list, callable schemas, and execution
+Orientation receives a bounded capability catalog containing capability
+identity, title, summary, and context views plus every connected tool's machine
+name and concise title. Plausible routed families additionally contain each
+tool's complete validated selection summary, optional bounded operations, and
+an explicit status only when Tool Description validation is missing. A
+context-informed orientation expands those details for the families selected
+by the first pass. Raw annotation objects, duplicate tool listings, counts
+derivable from the list, callable schemas, and execution
 descriptions are omitted. Execution receives full guidance, complete execution
 descriptions, annotations, and exact schemas only for selected tools. It may
 make a bounded request for additional exact tools only inside the accepted

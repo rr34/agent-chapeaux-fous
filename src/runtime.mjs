@@ -46,6 +46,7 @@ import {
   objectReferenceGroupsFromToolResult,
   objectReferenceProtectedFields,
   objectReferenceSelectionFindings,
+  relevantObjectReferenceCatalog,
   unresolvedSelectedObjectCandidates,
 } from "./object-references.mjs";
 import {
@@ -723,14 +724,6 @@ export class SlayerRuntime {
       const unavailable = [...allowedToolNames].filter((name) => !availableNames.has(name));
       throw new Error(`Authorized request tool is unavailable: ${unavailable.join(", ")}`);
     }
-    const catalog = requestCapabilityCatalog(availableTools);
-    const routing = await this.requestCompiler.compile({
-      tools: availableTools,
-      text: args.text,
-      attachment: args.attachment,
-      recentConversation: [],
-      previousCapabilities: [],
-    });
     const boundaryEventSeq = typeof this.ledger.conversationBoundaryEventSeq === "function"
       ? this.ledger.conversationBoundaryEventSeq()
       : 0;
@@ -738,12 +731,24 @@ export class SlayerRuntime {
       ? this.ledger.recentConversation({
           beforeRequestId: args.requestId,
           afterEventSeq: boundaryEventSeq,
-          limit: 6,
+          limit: 3,
         })
       : [];
     const previousState = typeof this.ledger.latestConversationState === "function"
       ? this.ledger.latestConversationState({ afterEventSeq: boundaryEventSeq })
       : null;
+    const catalog = requestCapabilityCatalog(availableTools);
+    const routing = await this.requestCompiler.compile({
+      tools: availableTools,
+      text: args.text,
+      attachment: args.attachment,
+      recentConversation,
+      previousCapabilities: [],
+    });
+    const routedDetailedCapabilities = routing.capabilities.filter((capability) => (
+      routing.reasons.some((reason) => reason.startsWith(`${capability}:`))
+      || routing.explicitHats.some((hat) => hat.available && hat.capability === capability)
+    ));
     const activeActionReferences = typeof this.ledger.activeDeferredActionReferences === "function"
       ? this.ledger.activeDeferredActionReferences({ afterEventSeq: boundaryEventSeq })
       : [];
@@ -763,10 +768,18 @@ export class SlayerRuntime {
       args.attachment,
       requestEventSeq,
     );
-    const availableObjectReferences = explicitReferenceObjectCatalog(
+    const recentEvidenceText = [
+      args.text,
+      ...recentConversation.slice(-4).map(({ content }) => content),
+    ].filter(Boolean).join("\n");
+    const relevantRecentObjectReferences = relevantObjectReferenceCatalog(
       nonReusableExchangeReferenced
         ? []
         : recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
+      { evidenceText: recentEvidenceText, maximumObjects: 24 },
+    );
+    const availableObjectReferences = explicitReferenceObjectCatalog(
+      relevantRecentObjectReferences,
       [
         ...reusableReferencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
         ...currentAttachmentReferences,
@@ -818,6 +831,8 @@ export class SlayerRuntime {
         availableObjectReferences,
         selectedObjectCandidates: args.selectedObjectCandidates ?? [],
         explicitHats: routing.explicitHats,
+        detailedCapabilities: routedDetailedCapabilities,
+        requestText: args.text,
       }),
       args.supplementalInstructions,
     );
@@ -1094,9 +1109,22 @@ export class SlayerRuntime {
         ...group, objects: group.objects.filter(({ ref }) => !freshlyPreparedRefs.has(ref)),
       }))
       .filter(({ objects }) => objects.length);
-    const refinementObjectReferences = mergeObjectReferenceGroups([
+    const selectedCandidateRefs = (args.selectedObjectCandidates ?? [])
+      .map(({ ref }) => ref).filter(Boolean);
+    const refinementEvidenceText = [
+      args.text,
+      brief.objective,
+      brief.summary,
+      ...brief.requestedActions.map(({ text: actionText }) => actionText),
+      ...brief.constraints.map(({ text: constraintText }) => constraintText),
+    ].filter(Boolean).join("\n");
+    const refinementObjectReferences = relevantObjectReferenceCatalog(mergeObjectReferenceGroups([
       ...retainedBriefObjectReferences, ...preparedObjectReferences,
-    ]);
+    ]), {
+      evidenceText: refinementEvidenceText,
+      alwaysRefs: selectedCandidateRefs,
+      maximumObjects: 32,
+    });
     if ((args.selectedObjectCandidates?.length ?? 0) > 0 && preparedObjectReferences.length) {
       const requiredContractTools = [];
       const refinementSchema = turnBriefSchema(
@@ -1114,8 +1142,9 @@ export class SlayerRuntime {
         preparedContextOrientationContext({
           brief,
           preparedCapabilityContext,
-          preparedObjectReferences,
+          preparedObjectReferences: refinementObjectReferences,
           capabilityCatalog: catalog,
+          detailedCapabilities: brief.requiredCapabilities,
         }),
         args.supplementalInstructions,
       );

@@ -11,6 +11,15 @@ Every user request must begin with a literal orientation interaction that visibl
 3. the strict TurnBrief output schema; and
 4. an organized catalog of connected capability families.
 
+Orientation first preserves the ordinary conversational end condition: what
+must exist, change, remain unchanged, or be answered when the request is done.
+Capability and tool routing serves that interpretation and must not narrow it.
+The catalog uses progressive disclosure: every connected family and tool
+identity remains visible, while complete selection summaries are initially
+expanded only for families the deterministic router found plausible. A
+context-informed orientation may expand the families selected by the first
+pass before execution.
+
 The execution interaction must visibly contain the accepted TurnBrief and the
 exact schema of every callable tool. Before execution, the application may read
 only named, bounded, read-only context views advertised in the orientation

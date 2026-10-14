@@ -10,6 +10,7 @@ import {
   normalizeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
   objectReferenceSelectionFindings,
+  relevantObjectReferenceCatalog,
   unresolvedSelectedObjectCandidates,
 } from "../src/object-references.mjs";
 
@@ -425,4 +426,47 @@ test("native prepared context produces compact human and machine identity bindin
     objects: [{ id: 7, ref: "agent-slayer://todo-groups/7", display: "Wedding" }],
     sourceEventSeqs: [55],
   }]);
+});
+
+test("orientation relevance keeps exact mentioned bindings and drops unrelated history", () => {
+  const groups = [{
+    mention: "Recent calendar results", role: "subject", type: "calendar.event",
+    source: "native:calendar",
+    objects: [{ id: 3204, ref: "agent-slayer://calendar-events/3204", display: "Admin" }, {
+      id: 3176, ref: "agent-slayer://calendar-events/3176", display: "Morning Exercise",
+    }],
+    sourceEventSeqs: [39_599],
+  }, {
+    mention: "Recent to-do results", role: "subject", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{
+      id: 126, ref: "agent-slayer://todos/126", display: "Patek Philippe repair status",
+    }, {
+      id: 411, ref: "agent-slayer://todos/411", display: "Nathan Brazil visa",
+    }],
+    sourceEventSeqs: [39_599],
+  }];
+  const relevant = relevantObjectReferenceCatalog(groups, {
+    evidenceText: "Add that to the Admin event you just made. It already has the Patek Philippe repair status task.",
+  });
+  assert.deepEqual(
+    relevant.flatMap(({ objects }) => objects.map(({ id }) => id)).sort((left, right) => left - right),
+    [126, 3204],
+  );
+  assert.equal(relevant.every(({ sourceEventSeqs }) => sourceEventSeqs[0] === 39_599), true);
+});
+
+test("orientation relevance retains a complete explicitly described plural selection", () => {
+  const groups = [{
+    mention: "Selected invoice tasks", role: "invoice_line_source", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [1, 2, 3, 4, 5].map((id) => ({
+      id, ref: `agent-slayer://todos/${id}`, display: `Construction item ${id}`,
+    })),
+    sourceEventSeqs: [40_100],
+  }];
+  const relevant = relevantObjectReferenceCatalog(groups, {
+    evidenceText: "Preview the invoice with those five selected tasks.",
+  });
+  assert.deepEqual(relevant[0].objects.map(({ id }) => id), [1, 2, 3, 4, 5]);
 });

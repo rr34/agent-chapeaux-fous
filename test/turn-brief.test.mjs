@@ -245,3 +245,51 @@ test("a repeated import request after a deleted attempt starts from current prov
   assert.match(orientationInstructions, /if the old object is absent, continue the fresh workflow/);
   assert.match(orientationInstructions, /Do not claim old ready, exception, or balance counts describe the new attempt/);
 });
+
+test("orientation progressively discloses tool selection summaries and prunes unrelated state", () => {
+  const context = orientationContext({
+    requestId: "request-watch-jobs",
+    requestEventSeq: 39_616,
+    requestText: "Add another Admin task to organize the Watch Jobs sequence.",
+    recentConversation: [{
+      eventSeq: 39_614,
+      requestId: "request-admin-event",
+      occurredAtUtc: "2026-10-14T12:13:11.346Z",
+      role: "assistant",
+      content: "Created today's Admin event with the Patek Philippe task.",
+    }],
+    previousState: {
+      activeObjective: "Maintain today's Admin event.",
+      openCommitments: [],
+      durableConstraints: [{
+        text: "Keep the Watch Jobs sequence organized.", sourceEventSeqs: [39_614],
+      }, {
+        text: "Do not modify Luzia's dentist appointment.", sourceEventSeqs: [34_499],
+      }],
+      unresolvedQuestions: [],
+      relevantRequestIds: ["request-admin-event", "request-dentist"],
+    },
+    capabilityCatalog: [{
+      capability: "calendar", title: "Calendar", summary: "Manage calendar events.",
+      contextViews: [], objectTypes: [], tools: [{
+        name: "calendar_event_add", title: "Calendar event add",
+        summary: "Create one exact event. Actions: CREATE. Effects: MUTATING.",
+      }],
+    }, {
+      capability: "payments", title: "Payments", summary: "Manage invoices.",
+      contextViews: [], objectTypes: [], tools: [{
+        name: "payment_invoice_send", title: "Invoice send",
+        summary: "Send a final invoice to its payer. Actions: EXECUTE. Effects: EXTERNAL.",
+      }],
+    }],
+    detailedCapabilities: ["calendar"],
+  });
+
+  assert.match(context, /calendar_event_add.*Create one exact event/);
+  assert.match(context, /payment_invoice_send \(Invoice send\)/);
+  assert.doesNotMatch(context, /Send a final invoice to its payer/);
+  assert.match(context, /Keep the Watch Jobs sequence organized/);
+  assert.doesNotMatch(context, /dentist appointment/);
+  assert.match(context, /request-admin-event/);
+  assert.doesNotMatch(context, /request-dentist/);
+});

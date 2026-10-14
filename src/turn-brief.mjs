@@ -275,8 +275,9 @@ function sourceEntry(entry) {
   };
 }
 
-function orientationCapabilityCatalog(catalog) {
+function orientationCapabilityCatalog(catalog, detailedCapabilities = []) {
   if (!catalog.length) return "No connected capability families are currently advertised.";
+  const detailed = new Set(detailedCapabilities);
   return catalog.flatMap((capability) => {
     const lines = [
       `### ${capability.capability} — ${capability.title ?? capability.capability}`,
@@ -292,21 +293,70 @@ function orientationCapabilityCatalog(catalog) {
         + ` Identity fields: id=${object.identity.field}, ref=${object.reference.field}, display=${object.display.field}.${aliases}`,
       );
     }
-    for (const tool of capability.tools ?? []) {
-      const status = tool.descriptionStatus ? ` [${tool.descriptionStatus}]` : "";
-      lines.push(`- tool:${tool.name}${tool.title ? ` — ${tool.title}` : ""}${status}: ${tool.summary}`);
-      if (tool.objectRoles?.length) {
-        lines.push(`  object roles: ${tool.objectRoles.map(({ role, objectType }) => `${role} (${objectType})`).join(", ")}`);
-      }
-      if (tool.operations) {
-        lines.push(`  operations exhaustive=${tool.operations.exhaustive}`);
-        for (const operation of tool.operations.entries) {
-          lines.push(`  - ${operation.name} — ${operation.title}: ${operation.summary} Actions: ${operation.actionClasses.join(", ")}. Effects: ${operation.effectClassifications.join(", ")}.`);
+    if (detailed.has(capability.capability)) {
+      for (const tool of capability.tools ?? []) {
+        const status = tool.descriptionStatus ? ` [${tool.descriptionStatus}]` : "";
+        lines.push(`- tool:${tool.name}${tool.title ? ` — ${tool.title}` : ""}${status}: ${tool.summary}`);
+        if (tool.objectRoles?.length) {
+          lines.push(`  object roles: ${tool.objectRoles.map(({ role, objectType }) => `${role} (${objectType})`).join(", ")}`);
+        }
+        if (tool.operations) {
+          lines.push(`  operations exhaustive=${tool.operations.exhaustive}`);
+          for (const operation of tool.operations.entries) {
+            lines.push(`  - ${operation.name} — ${operation.title}: ${operation.summary} Actions: ${operation.actionClasses.join(", ")}. Effects: ${operation.effectClassifications.join(", ")}.`);
+          }
         }
       }
+    } else if (capability.tools?.length) {
+      lines.push(`- available tools: ${capability.tools.map((tool) => (
+        `tool:${tool.name}${tool.title ? ` (${tool.title})` : ""}`
+      )).join(", ")}`);
+      lines.push("  Selection summaries are deferred unless this family is relevant to the current request.");
     }
     return [...lines, ""];
   }).join("\n").trim();
+}
+
+const conversationStopWords = new Set([
+  "about", "after", "again", "also", "another", "before", "being", "calendar",
+  "could", "does", "event", "from", "have", "into", "just", "made", "make",
+  "more", "other", "please", "same", "should", "task", "that", "their", "there",
+  "these", "they", "this", "those", "today", "todo", "with", "would", "your",
+]);
+
+function conversationalTokens(value) {
+  return new Set(String(value ?? "").normalize("NFKC").toLowerCase()
+    .match(/[\p{L}\p{N}]+/gu)
+    ?.filter((token) => token.length >= 3 && !conversationStopWords.has(token)) ?? []);
+}
+
+function statementIsRelevant(statement, evidenceText, evidenceEventSeqs) {
+  if ((statement?.sourceEventSeqs ?? []).some((seq) => evidenceEventSeqs.has(seq))) return true;
+  const evidenceTokens = conversationalTokens(evidenceText);
+  const statementTokens = conversationalTokens(statement?.text);
+  let overlap = 0;
+  for (const token of statementTokens) if (evidenceTokens.has(token)) overlap += 1;
+  return overlap >= 2;
+}
+
+function relevantRollingState(previousState, recentConversation, requestText) {
+  if (!previousState) return null;
+  const evidenceText = [requestText, ...recentConversation.slice(-4).map(({ content }) => content)]
+    .filter(Boolean).join("\n");
+  const evidenceEventSeqs = new Set(recentConversation.map(({ eventSeq }) => eventSeq));
+  const relevantStatements = (values) => (values ?? [])
+    .filter((statement) => statementIsRelevant(statement, evidenceText, evidenceEventSeqs));
+  const recentRequestIds = new Set(recentConversation.map(({ requestId }) => requestId).filter(Boolean));
+  return {
+    activeObjective: previousState.activeObjective ?? null,
+    openCommitments: relevantStatements(previousState.openCommitments),
+    durableConstraints: relevantStatements(previousState.durableConstraints),
+    unresolvedQuestions: (previousState.unresolvedQuestions ?? []).filter((question) => (
+      statementIsRelevant({ text: question, sourceEventSeqs: [] }, evidenceText, evidenceEventSeqs)
+    )),
+    relevantRequestIds: (previousState.relevantRequestIds ?? [])
+      .filter((requestId) => recentRequestIds.has(requestId)),
+  };
 }
 
 export function orientationContext({
@@ -321,7 +371,10 @@ export function orientationContext({
   availableObjectReferences = [],
   selectedObjectCandidates = [],
   explicitHats = [],
+  detailedCapabilities = [],
+  requestText = "",
 }) {
+  const rollingState = relevantRollingState(previousState, recentConversation, requestText);
   return [
     "# Orientation source",
     "Interpret the current user request against these literal application-owned sources. The ledger remains authoritative. The prior rolling state is a replaceable index, not proof; retain or change it only when supported by source event numbers. Never broaden the requested scope.",
@@ -341,7 +394,8 @@ export function orientationContext({
     JSON.stringify(compactObjectReferenceContext(availableObjectReferences), null, 2),
     "",
     "## Prior rolling conversation state",
-    JSON.stringify(previousState ?? null, null, 2),
+    "Only state relevant to the current request or the bounded recent conversation is carried here. Omitted historical constraints remain in the ledger and are not evidence for this turn.",
+    JSON.stringify(rollingState, null, 2),
     "",
     "## Prepared changes waiting for confirmation",
     "These references are derived from immutable tool receipts. Each one is an exact prepared MCP change, not proof that its provider object still exists. Select a reference ID only when the current request clearly confirms that exact change. A new request to perform or redo the task, especially after the user deleted or reset an earlier attempt, does not confirm the old change. Never substitute a request ID or infer an opaque identifier from prose.",
@@ -360,7 +414,7 @@ export function orientationContext({
     JSON.stringify(explicitHats, null, 2),
     "",
     "## Connected capability families",
-    orientationCapabilityCatalog(capabilityCatalog),
+    orientationCapabilityCatalog(capabilityCatalog, detailedCapabilities),
     "Each capability entry includes a compact catalog of its provider-published tools without their input schemas. Select the smallest initial tool set likely to complete the request in `requiredTools`. It is acceptable to omit a tool that later evidence may require because execution can request additional tools inside the accepted capability families. Never select a tool outside `requiredCapabilities`.",
     "Context views are small read-only datasets that the application can prepare after orientation and before execution. Request only views that materially help execution resolve existing names, identifiers, or categories. They are not writes and do not replace domain tools.",
   ].join("\n");
@@ -371,6 +425,7 @@ export function preparedContextOrientationContext({
   preparedCapabilityContext,
   preparedObjectReferences = [],
   capabilityCatalog,
+  detailedCapabilities = [],
 }) {
   return [
     "# Finalize orientation from selected read-only context",
@@ -389,7 +444,7 @@ export function preparedContextOrientationContext({
     JSON.stringify(compactObjectReferenceContext(preparedObjectReferences), null, 2),
     "",
     "## Connected capability families",
-    orientationCapabilityCatalog(capabilityCatalog),
+    orientationCapabilityCatalog(capabilityCatalog, detailedCapabilities),
   ].join("\n");
 }
 
@@ -443,6 +498,8 @@ export function auditContext({
 
 export const orientationInstructions = [
   "You are the orientation phase of Time v3 Agent. Produce only the schema-constrained TurnBrief.",
+  "First understand the ordinary conversational outcome before routing it. State the desired end condition plainly in objective, summary, requestedActions, constraints, and completionCriteria; preserve existing state the user did not ask to remove. Tool and capability selection serves that end condition and must never narrow it.",
+  "Treat the catalog as progressive disclosure. Detailed selection summaries are shown for the families the application found plausible; other connected families remain visible by family, tool name, and title. Select a different family when the request requires it even if its detailed summaries are deferred, and keep requiredTools to the smallest probable initial set.",
   "Resolve the exact current request against the supplied recent conversation and rolling state.",
   "A receipt index proves only its displayed metadata. When selecting receiptReferences, state the information to check, not an assertion about unseen result contents. Prefer a live domain read for current state; include its tool in requiredTools rather than making historical receipt reconstruction a prerequisite. Prior assistant explanations are claims to verify against tool evidence, especially when continuing failed work.",
   "For an informational continuation, use exact recent conversation entries as evidence when they already answer the question; leave requiredTools empty rather than selecting a tool merely because its catalog topic is related. A focused knowledge tool supplies evidence, not final wording: select it when current facts are needed, and define completion around answering the user's actual question rather than reproducing a stored fact or prior response.",

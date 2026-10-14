@@ -332,6 +332,67 @@ export function explicitReferenceObjectCatalog(recentGroups, referencedGroups) {
   return authoritativeObjectReferenceCatalog(recentGroups, referencedGroups);
 }
 
+const relevanceStopWords = new Set([
+  "about", "after", "again", "also", "another", "before", "being", "could",
+  "does", "from", "have", "into", "just", "made", "make", "more", "most",
+  "other", "please", "same", "should", "that", "their", "there", "these",
+  "they", "this", "those", "today", "want", "were", "what", "when", "where",
+  "which", "with", "would", "your",
+]);
+
+function relevanceTokens(value) {
+  return new Set(String(value ?? "").normalize("NFKC").toLowerCase()
+    .match(/[\p{L}\p{N}]+/gu)
+    ?.filter((token) => token.length >= 3 && !relevanceStopWords.has(token)) ?? []);
+}
+
+/**
+ * Reduce already-verified bindings to the objects that have literal support in
+ * the active conversational evidence. This is a context-selection operation,
+ * never an identity operation: retained objects keep their complete canonical
+ * type, source, ID, stable reference, display, and source evidence.
+ */
+export function relevantObjectReferenceCatalog(groups, {
+  evidenceText = "",
+  alwaysRefs = [],
+  maximumObjects = 24,
+} = {}) {
+  const evidence = String(evidenceText ?? "").normalize("NFKC").toLowerCase();
+  const evidenceTokens = relevanceTokens(evidence);
+  const requiredRefs = new Set(alwaysRefs.filter((value) => typeof value === "string" && value));
+  const selectedPluralTypes = new Set([
+    ...(/\b(?:selected|those|these|all|two|three|four|five|six|seven|eight|nine|ten|\d+)\b[^.\n]{0,40}\b(?:tasks?|to[ -]?dos?)\b/iu.test(evidence)
+      ? ["todos.personal_task"] : []),
+    ...(/\b(?:selected|those|these|all|two|three|four|five|six|seven|eight|nine|ten|\d+)\b[^.\n]{0,40}\b(?:events?|appointments?|meetings?)\b/iu.test(evidence)
+      ? ["calendar.event"] : []),
+    ...(/\b(?:selected|those|these|all|two|three|four|five|six|seven|eight|nine|ten|\d+)\b[^.\n]{0,40}\b(?:contacts?|people)\b/iu.test(evidence)
+      ? ["contacts.contact"] : []),
+  ]);
+  const ranked = [];
+  let order = 0;
+  for (const group of normalizeObjectReferenceGroups(groups)) {
+    for (const object of group.objects) {
+      const display = String(object.display ?? "").normalize("NFKC").toLowerCase();
+      const tokens = relevanceTokens(display);
+      let score = requiredRefs.has(object.ref) ? 10_000 : 0;
+      if (selectedPluralTypes.has(group.type)) score += 300;
+      if (display.length >= 3 && evidence.includes(display)) score += 500;
+      if (evidence.includes(String(object.ref).toLowerCase())) score += 500;
+      if (Number.isSafeInteger(object.id) && new RegExp(`(?:#|\\b)${object.id}\\b`, "u").test(evidence)) {
+        score += 400;
+      }
+      for (const token of tokens) if (evidenceTokens.has(token)) score += 10;
+      if (score > 0) ranked.push({ group, object, score, order });
+      order += 1;
+    }
+  }
+  ranked.sort((left, right) => right.score - left.score || left.order - right.order);
+  return mergeObjectReferenceGroups(ranked.slice(0, Math.max(1, maximumObjects)).map((entry) => ({
+    ...entry.group,
+    objects: [entry.object],
+  })));
+}
+
 export function currentRequestAttachmentObjectReferences(attachment, sourceEventSeq) {
   const fileId = canonicalId(attachment?.fileId, { idKind: "integer" });
   const display = firstDisplay(attachment, ["title", "originalFilename", "filename"]);
