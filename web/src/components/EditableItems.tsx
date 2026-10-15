@@ -781,7 +781,7 @@ export function TodoItem({
   const complete = status === "complete";
   const completedAtUtc = complete && typeof todo.completedAtUtc === "string" ? todo.completedAtUtc : null;
   const editable = Boolean(onChanged && Number.isSafeInteger(id) && id > 0);
-  const sequence = variant === "row" && todo.sequence != null ? String(todo.sequence) : null;
+  const sequence = todo.sequence != null ? String(todo.sequence) : null;
 
   const toggle = async () => {
     if (!onChanged || !editable) return;

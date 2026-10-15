@@ -3,10 +3,11 @@ import { useState } from "react";
 import { ExpandIcon } from "./ObjectCardIcons";
 import type { ObjectCardModel } from "./types";
 
-export function CompactObjectCard({ object, controls, compactDetails, full, className = "", as: Root = "article" }: {
+export function CompactObjectCard({ object, controls, compactDetails, leading, full, className = "", as: Root = "article" }: {
   object: ObjectCardModel;
   controls?: ReactNode;
   compactDetails?: ReactNode;
+  leading?: ReactNode;
   full: ReactNode;
   className?: string;
   as?: ElementType;
@@ -19,7 +20,8 @@ export function CompactObjectCard({ object, controls, compactDetails, full, clas
       <ExpandIcon expanded />
     </button>
   </ExpandedRoot>;
-  return <Root className={`compact-object-card${className ? ` ${className}` : ""}`} data-object-type={object.type}>
+  return <Root className={`compact-object-card${leading ? " has-leading" : ""}${className ? ` ${className}` : ""}`} data-object-type={object.type}>
+    {leading && <div className="compact-object-leading">{leading}</div>}
     <div className="compact-object-identity">
       <span>{object.label}</span>
       <strong>{object.display}</strong>

@@ -14,6 +14,7 @@ test("every visible first-class domain owns a named card component", () => {
     "VideoScriptCard.tsx", "JournalTrackerCard.tsx", "JournalEntryCard.tsx",
     "JournalGroupCard.tsx", "InvoiceCard.tsx", "ProfileFactCard.tsx", "CheckInQuestionCard.tsx",
     "CompactObjectCard.tsx", "FullObjectCard.tsx", "ObjectCardButtons.tsx", "ObjectCardIcons.tsx",
+    "ObjectCardSequence.tsx",
   ];
   for (const filename of expected) assert.equal(fs.existsSync(path.join(cardsRoot, filename)), true, filename);
 });
@@ -71,4 +72,45 @@ test("calendar event cards keep notes and event details behind the shared expans
   assert.match(calendar, /<h4>Planning prompt<\/h4>/);
   assert.match(calendar, /event\?: CalendarEvent/);
   assert.match(styles, /\.calendar-event-card \.first-class-object-body \{[^}]*-webkit-line-clamp: 2;[^}]*font-size: 11px;/s);
+});
+
+test("sequenced to-dos and library items own one prominent marker in full and compact cards", () => {
+  const todo = fs.readFileSync(path.join(cardsRoot, "TodoCard.tsx"), "utf8");
+  const library = fs.readFileSync(path.join(cardsRoot, "LibraryItemCard.tsx"), "utf8");
+  const sequence = fs.readFileSync(path.join(cardsRoot, "ObjectCardSequence.tsx"), "utf8");
+  const simple = fs.readFileSync(path.join(cardsRoot, "SimpleObjectCard.tsx"), "utf8");
+  const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
+
+  assert.match(todo, /prominentObjectSequence\(normalizedObject\)/);
+  assert.match(library, /prominentObjectSequence\(props\.object\)/);
+  assert.match(sequence, /attributes: object\.attributes\?\.filter\(\(\{ label \}\) => label !== "Sequence"\)/);
+  assert.match(sequence, /className="object-card-sequence"/);
+  assert.match(simple, /<CompactObjectCard[\s\S]*leading=\{leading\}/);
+  assert.match(compact, /leading && <div className="compact-object-leading">\{leading\}<\/div>/);
+  assert.match(styles, /\.object-card-sequence \{[^}]*min-width: 54px;[^}]*font: 750 22px\/1/s);
+  assert.match(styles, /\.compact-object-card \.object-card-sequence \{[^}]*min-width: 44px;/s);
+});
+
+test("interactive views do not retain pre-reusable or view-scoped card styling", () => {
+  const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
+  assert.doesNotMatch(styles, /\.todo-row|\.todo-sequence|\.library-row|\.library-sequence/);
+  const reusableRoots = [
+    "first-class-object-", "compact-object-", "contact-card", "todo-card", "todo-group-card",
+    "calendar-event-card", "calendar-routine-card", "file-card", "library-item-card",
+    "library-group-card", "video-script-card", "journal-tracker-card", "journal-entry-card",
+    "journal-group-card", "invoice-card", "profile-fact-card", "check-in-question-card",
+  ];
+  for (const line of styles.split("\n")) {
+    if (!/\.(?:first-class-object-|compact-object-)/.test(line)) continue;
+    for (const selector of line.split("{")[0].split(",")) {
+      const trimmed = selector.trim();
+      if (!/\.(?:first-class-object-|compact-object-)/.test(trimmed)) continue;
+      assert.equal(
+        reusableRoots.some((rootClass) => trimmed.startsWith(`.${rootClass}`)),
+        true,
+        `shared card styling must not be scoped by a view: ${trimmed}`,
+      );
+    }
+  }
 });

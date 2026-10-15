@@ -8,6 +8,7 @@ export function SimpleObjectCard(props: ObjectCardProps) {
     object={object}
     controls={controls}
     compactDetails={compactDetails}
+    leading={leading}
     className={className}
     as={as}
     full={<SimpleObjectCard {...props} as={as === "li" ? "article" : as} mode="full" />}

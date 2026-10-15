@@ -1,16 +1,15 @@
 import { SimpleObjectCard } from "./SimpleObjectCard";
+import { prominentObjectSequence } from "./ObjectCardSequence";
 import { attributeValue, type ObjectCardProps } from "./types";
 
 export function TodoCard(props: ObjectCardProps) {
   const status = attributeValue(props.object, "Status") || props.object.badges?.[0] || "todo";
   const complete = status === "complete";
-  const object = {
+  const normalizedObject = {
     ...props.object,
     badges: [status.replaceAll("_", " ")],
-    attributes: props.object.attributes?.map((attribute) => attribute.label === "Sequence"
-      ? { ...attribute, value: attribute.value.startsWith("#") ? attribute.value : `#${attribute.value}` }
-      : attribute),
   };
+  const { object, marker: sequence } = prominentObjectSequence(normalizedObject);
   const toggle = props.onToggleComplete ? <button
     className={`todo-check${complete ? "" : " todo-check--mark-complete"}`}
     type="button"
@@ -18,7 +17,9 @@ export function TodoCard(props: ObjectCardProps) {
     onClick={props.onToggleComplete}
     aria-label={`Mark ${props.object.display} ${complete ? "open" : "complete"}`}
   >{complete ? "✓" : <><span>Mark</span><span>complete</span></>}</button> : null;
-  const leading = toggle || props.leading ? <div className="todo-domain-leading">{props.leading}{toggle}</div> : undefined;
+  const leading = sequence || toggle || props.leading
+    ? <div className="todo-domain-leading">{sequence}{props.leading}{toggle}</div>
+    : undefined;
   return <SimpleObjectCard
     {...props}
     object={object}

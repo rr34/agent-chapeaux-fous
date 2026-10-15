@@ -43,9 +43,12 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(items, /<TodoCard[\s\S]+type: "todos\.personal_task"/);
   assert.match(items, /onEdit=\{editable \? \(\) => setEditing\(true\) : undefined\}/);
   assert.match(items, /label: "Sequence", value: `#\$\{sequence\}`/);
+  assert.match(items, /const sequence = todo\.sequence != null \? String\(todo\.sequence\) : null/);
+  assert.doesNotMatch(items, /variant === "row" && todo\.sequence/);
   assert.doesNotMatch(items, /className=.*scheduled-todo-card|className=.*todo-object-card/);
-  assert.match(styles, /\.todo-row\.has-sequence \{ grid-template-columns: auto 54px minmax\(0, 1fr\) auto; \}/);
-  assert.match(styles, /\.todo-sequence \{[^}]*font-weight: 750;/);
+  assert.match(todoCard, /prominentObjectSequence\(normalizedObject\)/);
+  assert.match(styles, /\.object-card-sequence \{[^}]*font: 750 22px\/1/s);
+  assert.doesNotMatch(styles, /\.todo-row|\.todo-sequence/);
   assert.match(items, /version: current\.version/);
   assert.match(items, /status: current\.status === "complete" \? "todo" : "complete"/);
   assert.match(items, /label: "Completed", value: formatDisplayDate\(completedAtUtc, \{ includeTime: false \}\)/);

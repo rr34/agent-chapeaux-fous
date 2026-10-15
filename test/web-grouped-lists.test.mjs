@@ -54,9 +54,10 @@ test("journal trackers and entries share lists under their persisted journal gro
 
 test("grouped list rows have shared and responsive styling", () => {
   assert.match(styles, /\.library-groups/);
-  assert.match(styles, /\.library-row-actions/);
+  assert.match(styles, /\.library-list/);
   assert.match(styles, /\.first-class-object-card/);
   assert.match(styles, /\.contact-card\.is-inactive/);
+  assert.doesNotMatch(styles, /\.library-row|\.library-sequence/);
 });
 
 test("every grouped section puts its group selector in the text-filter card", () => {

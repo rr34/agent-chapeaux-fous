@@ -64,3 +64,20 @@ the data. Generic database writes are default-deny for tool-owned tables.
 - Run `npm run db:verify` before and after database-dependent changes.
 - Keep observability linear and literal. Product users should not need to know
   internal lifecycle terminology to understand a trace.
+
+## Reusable object-card invariant
+
+- Every interactive first-class object surface must render the domain card in
+  `web/src/components/object-cards/`. Views may compose cards and provide data,
+  controls, actions, and genuinely contextual details; they must not recreate
+  or restyle an object's visual representation.
+- Put object-specific presentation changes in the named domain card and shared
+  layout changes in `SimpleObjectCard`, `FullObjectCard`, or
+  `CompactObjectCard`. The only ordinary presentation variants are full and
+  compact (expanded and collapsed).
+- A property that identifies or characterizes an object in more than one view
+  belongs to its reusable card. Keep tests in
+  `test/web-domain-object-cards.test.mjs` aligned with this boundary so a new
+  view cannot silently fork the representation.
+- Print-only documents may use their purpose-built physical-page layout; that
+  exception does not authorize a second interactive card design.

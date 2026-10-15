@@ -18,6 +18,8 @@ test("the React library renders content as grouped list rows", () => {
   assert.match(librarySource, /type: "video\.content_item"/);
   assert.match(appSource, /view === "content"\) screen = <LibraryScreen/);
   assert.match(styles, /\.library-groups/);
-  assert.match(styles, /\.library-row/);
+  assert.match(styles, /\.library-list/);
+  assert.match(styles, /\.object-card-sequence/);
+  assert.doesNotMatch(styles, /\.library-row|\.library-sequence/);
   assert.match(styles, /\.first-class-object-card/);
 });
