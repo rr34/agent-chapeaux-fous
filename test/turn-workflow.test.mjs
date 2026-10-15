@@ -49,7 +49,7 @@ function core(overrides = {}) {
 }
 
 function fakeLedger({
-  conversation = null, actionReferences = [], referencedExchanges = [], toolReceipts = [],
+  conversation = null, conversationState = null, actionReferences = [], referencedExchanges = [], toolReceipts = [],
 } = {}) {
   const events = [];
   const sequences = new Map([["event-current", 9]]);
@@ -65,7 +65,7 @@ function fakeLedger({
     },
     eventSequence(eventId) { return sequences.get(eventId) ?? null; },
     conversationBoundaryEventSeq() { return 0; },
-    latestConversationState() { return null; },
+    latestConversationState() { return structuredClone(conversationState); },
     activeDeferredActionReferences() { return structuredClone(actionReferences); },
     referencedExchangesForRequest() { return structuredClone(referencedExchanges); },
     toolReceiptList({ requestId, limit = 20 }) {
@@ -146,11 +146,11 @@ function transport(runTurn, requests) {
   };
 }
 
-function runtimeWith({ registry, ledger, runTurn, requests }) {
+function runtimeWith({ registry, ledger, runTurn, requests, contextBuilderOverride = null }) {
   const runtime = new SlayerRuntime({
     modelTransport: transport(runTurn, requests),
     registry,
-    contextBuilder: contextBuilder(),
+    contextBuilder: contextBuilderOverride ?? contextBuilder(),
     requestCompiler: new RequestCompiler(),
     ledger,
     config: workflowConfig(),
@@ -197,6 +197,8 @@ test("the normal mutation path is one common-sense call plus execution and skips
         assert.equal(payload.tools.length, 0);
         assert.match(payload.developerInstructions, /Common-sense orientation/);
         assert.doesNotMatch(payload.developerInstructions, /calendar_event_update/);
+        assert.doesNotMatch(payload.developerInstructions, /selected event is ready to update/);
+        assert.doesNotMatch(payload.developerInstructions, /Local calendar for relative dates/);
         assert.equal(Object.hasOwn(payload.outputSchema.properties, "requiredTools"), false);
         return completed(JSON.stringify(core({
           objective: "Rename calendar event 3165 to Admin.",
@@ -223,6 +225,136 @@ test("the normal mutation path is one common-sense call plus execution and skips
   assert.equal(requests.length, 2);
   assert.equal(ledger.events.filter(({ type }) => type === "orientation.core").length, 1);
   assert.equal(ledger.events.some(({ payload }) => payload?.workflowStep === "orientation_context"), false);
+  assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
+});
+
+test("a requested context view supplies observed bindings directly to execution", async () => {
+  const requests = [];
+  const ledger = fakeLedger({
+    conversation: [{
+      eventSeq: 4,
+      requestId: "request-unrelated",
+      role: "assistant",
+      content: "Moved Leg day and attached the cookie to-do.",
+      objectReferences: [{
+        mention: "Unrelated calendar event",
+        role: "subject",
+        type: "calendar.event",
+        source: "native:calendar",
+        objects: [{ id: 3169, ref: "agent-slayer://calendar-events/3169", display: "Leg day" }],
+        sourceEventSeqs: [4],
+      }],
+    }],
+    conversationState: {
+      activeObjective: "Attach the cookie to-do to the calendar event.",
+      unresolvedQuestions: [],
+    },
+    actionReferences: [{
+      referenceId: "unrelated-invoice-action",
+      targetTool: "invoice_send",
+      summary: "Send an unrelated invoice after confirmation.",
+    }],
+    toolReceipts: [{
+      receiptEventSeq: 5,
+      requestId: "request-unrelated",
+      tool: "calendar_event_update",
+      status: "complete",
+      ok: true,
+    }],
+  });
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.registerContextView("journal", {
+    id: "journal.active_trackers",
+    title: "Active personal-journal trackers",
+    description: "Active tracker identities and units.",
+    async execute() {
+      return {
+        heading: "Active personal-journal trackers",
+        text: "- [tracker 1] name: Weight | group: Biometrics [journal_group_id=5] | unit: kg",
+        data: {
+          trackers: [{
+            tracker_id: 1,
+            journal_group_id: 5,
+            name: "Weight",
+            unit: "kg",
+            ref: "agent-slayer://journal-trackers/1",
+            group_ref: "agent-slayer://journal-groups/5",
+            group_name: "Biometrics",
+          }],
+        },
+      };
+    },
+  });
+  let additions = 0;
+  registry.register({
+    name: "journal_add",
+    description: "Record one observation under an existing tracker.",
+    capabilityId: "journal",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    metadata: {
+      "agent-slayer/object-input-bindings": {
+        protocol: "agent-slayer.object-input-bindings",
+        version: 1,
+        bindings: [{ path: "/tracker_id", objectType: "journal.tracker", value: "id", role: "subject" }],
+      },
+    },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        tracker_id: { type: "integer" },
+        number_value: { type: "number" },
+      },
+      required: ["tracker_id", "number_value"],
+    },
+    async execute({ tracker_id, number_value }) {
+      additions += 1;
+      assert.equal(tracker_id, 1);
+      assert.equal(number_value, 75.8);
+      return { created: true, tracker: { tracker_id: 1, name: "Weight" } };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        assert.doesNotMatch(payload.developerInstructions, /Leg day|cookie to-do/);
+        assert.doesNotMatch(payload.developerInstructions, /calendar-events\/3169/);
+        assert.doesNotMatch(payload.developerInstructions, /unrelated-invoice-action|unrelated invoice/);
+        assert.doesNotMatch(payload.developerInstructions, /Recent durable receipt index/);
+        assert.doesNotMatch(payload.developerInstructions, /Local calendar for relative dates/);
+        return completed(JSON.stringify(core({
+          objective: "Record a weight measurement of 75.8.",
+          conversationSummary: "The user wants to log a weight measurement.",
+          actions: [{ instruction: "Log a weight measurement of 75.8.", targetRefs: [] }],
+          capabilities: ["journal"],
+          contextRequests: ["journal.active_trackers"],
+        })));
+      }
+      assert.equal(index, 1, "prepared bindings must not require a search or another model stage");
+      assert.match(payload.developerInstructions, /agent-slayer:\/\/journal-trackers\/1/);
+      assert.doesNotMatch(payload.developerInstructions, /unrelated-invoice-action|unrelated invoice/);
+      assert.doesNotMatch(payload.developerInstructions, /Recent durable receipt index/);
+      assert.deepEqual(payload.tools.map(({ name }) => name), ["journal_add"]);
+      const result = await payload.onToolCall({
+        callId: "log-weight",
+        tool: "journal_add",
+        arguments: { tracker_id: 1, number_value: 75.8 },
+      });
+      assert.equal(result.ok, true);
+      return completed("Logged your weight: 75.8 kg.", 30);
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-weight", requestEventId: "event-current", text: "log weight 75.8",
+  }), "Logged your weight: 75.8 kg.");
+  assert.equal(additions, 1);
+  assert.equal(requests.length, 2);
+  assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), false);
   assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
 

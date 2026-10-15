@@ -86,6 +86,19 @@ function objectReferenceGroupsForRefs(groups, refs) {
   });
 }
 
+const conversationalContinuationCue = /\b(?:again|approve|confirm|continue|earlier|existing|go\s+ahead|it|last|previous(?:ly)?|prior|proceed|resume|same|that|them|these|this|those)\b/iu;
+const localCalendarCue = /(?:\b(?:today|tomorrow|yesterday|tonight|morning|afternoon|evening|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b|\b(?:this|next|last)\s+(?:day|week|month|year|weekend)\b|\b\d{4}-\d{2}-\d{2}\b)/iu;
+
+function needsPriorConversation(requestText, selectedObjectCandidates, referencedExchanges) {
+  if ((referencedExchanges ?? []).length) return true;
+  if ((selectedObjectCandidates ?? []).length) return false;
+  return conversationalContinuationCue.test(String(requestText ?? ""));
+}
+
+function needsLocalCalendar(requestText) {
+  return localCalendarCue.test(String(requestText ?? ""));
+}
+
 function exceptionalAuditReasons({ core, receipts, registry, findings, requestText }) {
   const reasons = [...findings.map(({ code, message }) => ({ code, message }))];
   const domainReceipts = receipts.filter(({ tool }) => (
@@ -770,8 +783,15 @@ export class SlayerRuntime {
     const referencedExchanges = typeof this.ledger.referencedExchangesForRequest === "function"
       ? this.ledger.referencedExchangesForRequest(args.requestId, { limit: 8 })
       : [];
+    const includePriorConversation = needsPriorConversation(
+      args.text,
+      args.selectedObjectCandidates,
+      referencedExchanges,
+    );
+    const relevantConversation = includePriorConversation ? recentConversation : [];
+    const relevantActionReferences = includePriorConversation ? activeActionReferences : [];
     const recentToolReceipts = recentToolReceiptIndex(this.ledger, [
-      ...recentConversation,
+      ...relevantConversation,
       ...referencedExchanges.map(({ requestId }) => ({ requestId })),
     ]);
     const reusableReferencedExchanges = referencedExchanges.filter((exchange) => (
@@ -788,10 +808,10 @@ export class SlayerRuntime {
     );
     const recentEvidenceText = [
       args.text,
-      ...recentConversation.map(({ content }) => content),
+      ...relevantConversation.map(({ content }) => content),
     ].filter(Boolean).join("\n");
     const relevantRecentObjectReferences = relevantObjectReferenceCatalog(
-      recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
+      relevantConversation.flatMap(({ objectReferences = [] }) => objectReferences),
       { evidenceText: recentEvidenceText, maximumObjects: 24 },
     );
     const availableObjectReferences = explicitReferenceObjectCatalog(
@@ -815,27 +835,31 @@ export class SlayerRuntime {
     const schema = commonSenseCoreSchema({
       capabilities: catalog.map(({ capability }) => capability),
       contextViewIds: catalog.flatMap(({ contextViews = [] }) => contextViews.map(({ id }) => id)),
-      actionReferenceIds: activeActionReferences.map(({ referenceId }) => referenceId),
+      actionReferenceIds: relevantActionReferences.map(({ referenceId }) => referenceId),
       objectRefs: availableCoreObjectRefs(availableObjectReferences, selectedObjectCandidates),
     });
-    const priorConversationSummary = JSON.stringify({
-      priorObjective: previousState?.activeObjective ?? null,
-      openQuestions: previousState?.unresolvedQuestions ?? [],
-      recent: recentConversation.map(({ eventSeq, role, content }) => ({ eventSeq, role, content })),
-    }, null, 2);
+    const priorConversationSummary = includePriorConversation
+      ? JSON.stringify({
+          priorObjective: previousState?.activeObjective ?? null,
+          openQuestions: previousState?.unresolvedQuestions ?? [],
+          recent: relevantConversation.map(({ eventSeq, role, content }) => ({ eventSeq, role, content })),
+        }, null, 2)
+      : "No earlier conversation is needed to understand this independent request.";
     const orientationDeveloperInstructions = joinedInstructions(
       commonSenseContext({
         requestId: args.requestId,
         requestEventSeq,
         requestText: args.text,
-        recentConversation,
+        recentConversation: relevantConversation,
         conversationSummary: priorConversationSummary,
         capabilityCatalog: catalog,
         selectedObjectCandidates,
         availableObjectReferences,
-        deferredActionReferences: activeActionReferences,
+        deferredActionReferences: relevantActionReferences,
         explicitHats: routing.explicitHats,
-        localCalendar: orientationBaseContext.localCalendar ?? null,
+        localCalendar: needsLocalCalendar(args.text)
+          ? orientationBaseContext.localCalendar ?? null
+          : null,
       }),
       args.supplementalInstructions,
     );
@@ -1000,17 +1024,21 @@ export class SlayerRuntime {
       ...coreTargetRefs(core),
       ...selectedObjectCandidates.map(({ ref }) => ref).filter(Boolean),
     ])];
-    const objectReferences = mergeObjectReferenceGroups(objectReferenceGroupsForRefs(
+    const selectedObjectReferences = mergeObjectReferenceGroups(objectReferenceGroupsForRefs(
       mergeObjectReferenceGroups([...availableObjectReferences, ...preparedObjectReferences]),
       selectedRefs,
     ));
-    const confirmedActionReferences = activeActionReferences
+    const executionObjectReferences = mergeObjectReferenceGroups([
+      ...selectedObjectReferences,
+      ...preparedObjectReferences,
+    ]);
+    const confirmedActionReferences = relevantActionReferences
       .filter(({ referenceId }) => core.confirmedActionReferenceIds.includes(referenceId))
       .map((reference) => ({ ...reference, state: "confirmed" }));
     const confirmedReferenceIds = new Set(
       confirmedActionReferences.map(({ referenceId }) => referenceId),
     );
-    const pendingTargetTools = new Set(activeActionReferences
+    const pendingTargetTools = new Set(relevantActionReferences
       .filter(({ referenceId }) => !confirmedReferenceIds.has(referenceId))
       .map(({ targetTool }) => targetTool));
 
@@ -1018,7 +1046,7 @@ export class SlayerRuntime {
       type: "orientation.core", status: "complete", actorType: "service",
       actorName: "Common-sense orienter", channel, turnId: args.requestId,
       name: "Accepted common-sense core", content: core.conversationSummary,
-      payload: { core, objectReferences, sourceRequestId: args.requestId },
+      payload: { core, objectReferences: selectedObjectReferences, sourceRequestId: args.requestId },
       subjectType: "orientation_core", subjectId: args.requestId,
     });
     const sourceEventSeqsForState = Number.isSafeInteger(requestEventSeq) ? [requestEventSeq] : [];
@@ -1089,15 +1117,15 @@ export class SlayerRuntime {
       },
       supplementalInstructions: joinedInstructions(
         args.supplementalInstructions,
-        commonSenseExecutionInstructions(core, objectReferences, confirmedActionReferences),
+        commonSenseExecutionInstructions(core, executionObjectReferences, confirmedActionReferences),
         priorReceiptInstructions(recentToolReceipts),
       ),
-      activeActionReferences,
+      activeActionReferences: relevantActionReferences,
       confirmedActionReferences,
       preparedCapabilityContext,
       temporalResolutions: core.temporalResolutions,
-      objectReferences,
-      initialObjectReferences: objectReferences,
+      objectReferences: selectedObjectReferences,
+      initialObjectReferences: executionObjectReferences,
     };
 
     if (typeof args.awaitTurnBriefApproval === "function") {

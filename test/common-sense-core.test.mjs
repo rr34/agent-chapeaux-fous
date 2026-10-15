@@ -109,3 +109,22 @@ test("orientation contains families and selections but no exact tool catalog", (
   assert.doesNotMatch(context, /todo_complete_batch/);
   assert.match(commonSenseInstructions, /common-sense orientation/i);
 });
+
+test("orientation omits empty sections and serializes calendar evidence", () => {
+  const context = commonSenseContext({
+    requestId: "request-2",
+    requestEventSeq: 10,
+    requestText: "Move it tomorrow.",
+    recentConversation: [],
+    capabilityCatalog: [{
+      capability: "calendar", title: "Calendar", summary: "Manage calendar events.",
+      tools: [], contextViews: [],
+    }],
+    localCalendar: { today: "2026-10-14", tomorrow: "2026-10-15" },
+  });
+  assert.doesNotMatch(context, /Explicit composer selections/);
+  assert.doesNotMatch(context, /Exact previously verified object references/);
+  assert.doesNotMatch(context, /Explicitly invoked roles/);
+  assert.doesNotMatch(context, /\[object Object\]/);
+  assert.match(context, /"tomorrow": "2026-10-15"/);
+});

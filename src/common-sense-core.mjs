@@ -184,6 +184,11 @@ export function commonSenseContext({
   explicitHats = [],
   localCalendar = null,
 }) {
+  const selected = selectedObjects(selectedObjectCandidates);
+  const priorObjects = compactObjectReferenceContext(availableObjectReferences);
+  const calendarText = typeof localCalendar === "string"
+    ? localCalendar
+    : JSON.stringify(localCalendar, null, 2);
   return [
     "# Common-sense orientation",
     "Understand the request as an ordinary conversation before thinking about execution. The current request and explicit composer selections outrank older conversational context. Produce the smallest useful intent core; do not invent safeguards, repeat generic cautions, choose exact tools, or perform the work.",
@@ -191,17 +196,23 @@ export function commonSenseContext({
     "## Exact current request",
     JSON.stringify({ requestId, requestEventSeq, text: requestText }, null, 2),
     "",
-    "## Explicit composer selections",
-    "These objects were explicitly selected with the request. Treat words such as this, that, these, those, it, and them as referring to these selections when ordinary language supports it. The application will verify their exact identities after orientation.",
-    JSON.stringify(selectedObjects(selectedObjectCandidates), null, 2),
-    "",
+    ...(selected.length ? [
+      "## Explicit composer selections",
+      "These objects were explicitly selected with the request. Treat words such as this, that, these, those, it, and them as referring to these selections when ordinary language supports it. The application will verify their exact identities after orientation.",
+      JSON.stringify(selected, null, 2),
+      "",
+    ] : []),
     "## Brief relevant conversation",
-    conversationSummary || JSON.stringify(recentConversation.map(sourceEntry), null, 2),
+    conversationSummary || (recentConversation.length
+      ? JSON.stringify(recentConversation.map(sourceEntry), null, 2)
+      : "No earlier conversation is needed to understand this request."),
     "",
-    "## Exact previously verified object references",
-    "Use these only when the current request actually refers to them. Put every relevant stable reference in the corresponding action's targetRefs. Names without these bindings remain ordinary search text.",
-    JSON.stringify(compactObjectReferenceContext(availableObjectReferences), null, 2),
-    "",
+    ...(priorObjects.length ? [
+      "## Exact previously verified object references",
+      "Use these only when the current request actually refers to them. Put every relevant stable reference in the corresponding action's targetRefs. Names without these bindings remain ordinary search text.",
+      JSON.stringify(priorObjects, null, 2),
+      "",
+    ] : []),
     ...(deferredActionReferences.length ? [
       "## Prepared changes awaiting confirmation",
       "Select an exact reference only when the user is clearly confirming that prepared change.",
@@ -210,12 +221,14 @@ export function commonSenseContext({
     ] : []),
     ...(localCalendar ? [
       "## Local calendar for relative dates",
-      String(localCalendar),
+      calendarText,
       "",
     ] : []),
-    "## Explicitly invoked roles",
-    JSON.stringify(explicitHats, null, 2),
-    "",
+    ...(explicitHats.length ? [
+      "## Explicitly invoked roles",
+      JSON.stringify(explicitHats, null, 2),
+      "",
+    ] : []),
     "## Connected capability families",
     compactCapabilityCatalog(capabilityCatalog),
     "Select capability families, not tools. Batch work is one action with a list of targetRefs when the same change applies to all targets.",
