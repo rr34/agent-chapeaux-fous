@@ -266,7 +266,10 @@ export function interactionObjectReferences(events) {
   const observedGroups = [];
   for (const event of events ?? []) {
     if (event?.status !== "complete") continue;
-    if (event.type === "turn.brief") {
+    if (event.type === "orientation.core") {
+      selectedGroups.push(...(event.payload?.objectReferences ?? []));
+    } else if (event.type === "turn.brief") {
+      // Compatibility for exchanges recorded before the common-sense core.
       selectedGroups.push(...(event.payload?.brief?.objectReferences ?? []));
     } else if (event.type === "object.references.observed") {
       observedGroups.push(...(event.payload?.objectReferences ?? []));
@@ -352,7 +355,7 @@ export function reusableInteractionObjectReferences(events) {
   // Request completion and identity evidence are independent. An incomplete
   // objective may still contain successful reads or mutations whose exact
   // returned bindings remain valid. Retain only canonical observations from
-  // completed application operations; a TurnBrief selection is not itself a
+  // completed application operations; an orientation selection is not itself a
   // fresh observation and therefore cannot survive on its own.
   return observedInteractionObjectReferences(events);
 }

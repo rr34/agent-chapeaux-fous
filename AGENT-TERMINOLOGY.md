@@ -243,3 +243,13 @@ reference example, not a base tool whose semantics other tools inherit. Native
 object producers, unbound identifying reads, and role-specific object inputs
 are also declared by the owning registration module against the shared object
 ontology rather than inferred from a central tool-name map.
+
+**56. Common-sense core** — The compact structured result of the first model
+interaction for an Agent request. It records the ordinary-language end state,
+batch-shaped actions, supplied stable target references, relevant user
+constraints, genuine blocking questions, bounded context requests, selected
+capability families, confirmed prepared-change references, and literal temporal
+resolutions. It does not select exact tools, copy full object bindings, generate
+audit policy, or restate generic safety prose. Application code verifies current
+selections and hydrates exact bindings before execution receives the core plus
+the exact schemas for tools in its selected capability families.

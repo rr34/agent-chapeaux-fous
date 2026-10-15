@@ -11,30 +11,28 @@ The complete request path is:
 
 ```text
 web or voice input
-  -> orientation call with the exact request, bounded source context, and compact capability/tool catalog
-  -> deterministic TurnBrief validation, with one visible correction pass for invalid weekday/date claims
-  -> strict, source-referenced TurnBrief plus rolling conversation state
-  -> execution call with the accepted TurnBrief and exact initial tool schemas
-  -> optional exact-tool expansion inside accepted capability families, preserving receipts
+  -> common-sense orientation with the exact request, brief relevant conversation, explicit selections, and capability families
+  -> deterministic core validation, with one visible correction pass for invalid weekday/date claims
+  -> deterministic selection verification, bounded context reads, and exact binding hydration
+  -> execution with the accepted common-sense core and exact schemas for the selected capability families
   -> local or MCP tool execution, with results returned to that same model exchange
-  -> conditional receipt-based completion audit
+  -> deterministic receipt checks, with a semantic audit only for exceptional ambiguity
   -> optional receipt-aware repair within the remaining turn-wide budget
   -> final response
 ```
 
 Every boundary is recorded in `activity_events` and shown in the web trace:
-user request, orientation, rolling state, execution, conditional audit and
+user request, common-sense core, brief state, execution, conditional audit and
 repair, context, tools, exact model requests and responses, tool calls and
 results, per-step usage, and the final answer.
 
-Validated TurnBriefs proceed directly to execution by default; their full
-contents remain visible in the trace. For closer supervision of one request,
-open **Run limits** before submitting it and enable the retained TurnBrief
-Continue/Cancel prompt.
+Validated cores proceed directly to execution by default and remain visible in
+the trace. For closer supervision of one request, open **Run limits** before
+submitting it and enable the plan-review Continue/Cancel prompt.
 
 Orientation receives the current local weekday, date, time zone, and an
 eight-day local calendar table. Named-weekday action targets are recorded in
-the TurnBrief and checked with deterministic Gregorian calendar code before
+the common-sense core and checked with deterministic Gregorian calendar code before
 execution. Native to-do and calendar scheduling also validate proposed UTC timestamps
 against those accepted local-date targets before beginning their transactions.
 
@@ -142,10 +140,10 @@ composer shows only the selected count while the source cards remain the sole
 object visualization. The optional `@` picker can also search native objects in
 fixed domain groups and insert an inline mention. Both paths retain the exact
 type, source, primary ID, stable reference, and display name in request
-metadata. The server validates each identity tuple, and orientation must select
-the bounded native-object context view before the application rereads it and
-exposes it as a verified TurnBrief object binding. Selection identifies an
-object; it never authorizes a write.
+metadata. The server validates each identity tuple, automatically rereads it
+through the bounded native-object context view, and exposes the verified exact
+binding to execution. The orienter refers to selected objects only by their
+stable references. Selection identifies an object; it never authorizes a write.
 
 Calendar candidates have no future cutoff but expire from the selector one
 month after they end (or start when no end is stored). To-do candidates include
@@ -181,20 +179,18 @@ are not a reconciliation with the provider invoice.
 ## Conversation state
 
 Each workflow phase is an explicit model interaction. Agent Slayer supplies
-bounded application-owned context and the accepted TurnBrief instead of relying
+bounded application-owned context and the accepted common-sense core instead of relying
 on an opaque provider thread to remember what a short follow-up meant. If an
 execution call requests an additional cataloged tool inside an accepted
 capability family, its continuation receives that exact schema, the original
 request, and bounded receipts for tools already used in that request. Legacy
 direct execution may also request one additional cataloged capability.
 
-Agent Slayer stores a compact, source-referenced rolling conversation state
-after orientation. This state is an index, not authority: each new orienter also
-receives exact recent ledger entries and may retain or change state only when
-those event numbers support it. A bounded conversation checkpoint remains a
-fallback when no structured state exists. Starting a new conversation creates a
-ledger boundary for both recent context and rolling state without deleting
-application history.
+Agent Slayer stores the core's brief conversation summary, objective, current
+constraints, commitments, and unresolved questions after orientation. This
+state is an index, not authority: the next orienter receives a bounded relevant
+conversation view and exact current selections. Starting a new conversation
+creates a ledger boundary without deleting application history.
 
 Active `time_zone`, `time_format`, `date_format`, `measurement_system`, and
 `temperature_unit` profile facts are presentation preferences and accompany
@@ -246,25 +242,22 @@ system.
 ## Request and context compilation
 
 Agent Slayer owns request and context compilation in application code.
-Orientation receives the exact request, verified attachment context, exact
-recent ledger entries, prior rolling state, explicit hats, and an organized
-catalog of every connected capability family with compact provider-published
-tool summaries but no callable schemas. It emits a strict `TurnBrief`
-that classifies continuations, authorizations, corrections, additions, and new
-objectives; identifies authorized and prohibited actions; selects required
-capabilities and the smallest likely initial tool set; and defines concrete
-completion criteria. Source-grounded fields carry ledger event numbers. This
-lets “go ahead and do that” preserve a specific prior offer without hoping the
-executor infers the same continuity.
+Orientation receives the exact request, verified attachment context, a brief
+relevant conversation view, prior objective and open questions, explicit hats
+and selections, and concise descriptions of connected capability families. It
+does not receive callable schemas, exact tool names, audit policy, or unrelated
+historical bindings. It emits a strict common-sense core: the end goal, a
+batch-shaped action list, stable target references, relevant constraints,
+genuine questions, bounded context requests, and capability families.
 
-Execution is compiled from the accepted TurnBrief. It receives the exact schemas
-for the selected initial tools plus versioned guidance from
+Application code then verifies explicit selections, reads the requested bounded
+context views, and hydrates exact object bindings without another model call.
+Execution receives the accepted core, prepared context, exact bindings, and the
+exact schemas for tools in the selected capability families plus versioned guidance from
 `config/capabilities/<id>/guidance.md`; `config/system-prompt.md` contains only universal
-behavior. A bounded `request_tools` call can add exact schemas for omitted tools
-inside the accepted capability families while preserving same-request receipts.
-A newly registered local tool that has not yet been assigned to a capability
-still forces the conservative full fallback so additions cannot silently
-disappear.
+behavior. Provider tool continuations preserve same-request receipts. Prior
+opaque receipts can be recovered through the execution-only receipt reader
+without adding them to orientation.
 
 The selected tool list is enforcement, not a hint: a model call outside the
 current interaction's callable set is rejected before the application function

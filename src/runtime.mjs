@@ -13,8 +13,7 @@ import {
 } from "./deferred-actions.mjs";
 import {
   requestCapabilityCatalog,
-  requiredToolCapabilityFindings,
-  requiredToolCapabilityRepairContext,
+  capabilityForTool,
 } from "./request-compiler.mjs";
 import {
   readResultFilterSchema,
@@ -24,28 +23,27 @@ import {
 import { mcpResultDetails } from "./tools/mcp-tools.mjs";
 import { schemaProblem } from "./tools/registry.mjs";
 import {
+  availableCoreObjectRefs,
   auditContext,
   auditInstructions,
+  commonSenseContext,
+  commonSenseCoreSchema,
+  commonSenseExecutionInstructions,
+  commonSenseInstructions,
   completionAuditSchema,
-  orientationContext,
-  orientationInstructions,
+  coreTargetRefs,
   parseStructuredModelOutput,
-  preparedContextOrientationContext,
-  turnBriefInstructions,
-  turnBriefSchema,
-} from "./turn-brief.mjs";
+} from "./common-sense-core.mjs";
 import {
   temporalConsistencyFindings,
   temporalRepairContext,
 } from "./temporal-consistency.mjs";
 import {
-  canonicalizeObjectReferenceSelection,
   currentRequestAttachmentObjectReferences,
   explicitReferenceObjectCatalog,
   mergeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
   objectReferenceProtectedFields,
-  objectReferenceSelectionFindings,
   relevantObjectReferenceCatalog,
   unresolvedSelectedObjectCandidates,
 } from "./object-references.mjs";
@@ -65,20 +63,78 @@ function callableToolsFingerprint(tools) {
   return createHash("sha256").update(JSON.stringify(tools)).digest("hex");
 }
 
-function catalogObjectRoles(catalog) {
-  return [...new Set(catalog.flatMap(({ tools = [] }) => tools.flatMap(({ objectRoles = [] }) => (
-    objectRoles.map(({ role }) => role)
-  ))))].sort();
+function selectedObjectCapability(selection) {
+  const source = String(selection?.source ?? "");
+  if (source.startsWith("mcp:")) return `integration:${source.slice(4)}`;
+  if (!source.startsWith("native:")) return null;
+  const owner = source.slice("native:".length);
+  return ({
+    calendar: "calendar",
+    contacts: "contacts",
+    todos: "todos",
+    journal: "journal",
+    files: "files",
+    profile: "profile",
+  })[owner] ?? owner;
 }
 
-function selectedToolObjectRoles(candidate, availableTools, extraTools = []) {
-  const names = new Set([...(candidate?.requiredTools ?? []), ...extraTools]);
-  return [...new Set(["subject", ...availableTools
-    .filter(({ name }) => names.has(name))
-    .flatMap((tool) => (
-      tool.metadata?.["agent-slayer/object-input-bindings"]?.bindings ?? []
-    ))
-    .map(({ role }) => role ?? "subject")])];
+function objectReferenceGroupsForRefs(groups, refs) {
+  const selected = new Set(refs);
+  return (groups ?? []).flatMap((group) => {
+    const objects = (group.objects ?? []).filter(({ ref }) => selected.has(ref));
+    return objects.length ? [{ ...group, role: group.role ?? "subject", objects }] : [];
+  });
+}
+
+function exceptionalAuditReasons({ core, receipts, registry, findings, requestText }) {
+  const reasons = [...findings.map(({ code, message }) => ({ code, message }))];
+  const domainReceipts = receipts.filter(({ tool }) => (
+    !["request_capabilities", "request_tools"].includes(tool)
+  ));
+  const successful = domainReceipts.filter(({ ok }) => ok);
+  const failed = domainReceipts.filter(({ ok }) => !ok);
+  if (failed.length) {
+    reasons.push({
+      code: "TOOL_FAILURE_REQUIRES_SEMANTIC_REVIEW",
+      message: "At least one domain tool failed; determine whether later receipts recovered the requested outcome.",
+    });
+  }
+  if (core.mode === "act" && core.actions.length > 0 && successful.length === 0) {
+    reasons.push({
+      code: "ACTION_WITHOUT_SUCCESSFUL_RECEIPT",
+      message: "The accepted action has no successful domain-tool receipt.",
+    });
+  }
+  if (core.mode === "act" && core.actions.length > 0 && successful.length > 0
+    && !successful.some(({ tool }) => registry.get(tool)?.annotations?.readOnlyHint === false)) {
+    reasons.push({
+      code: "ACTION_WITHOUT_MUTATION_RECEIPT",
+      message: "The accepted action has successful reads but no tool receipt declaring a mutation.",
+    });
+  }
+  for (const receipt of successful) {
+    const annotations = registry.get(receipt.tool)?.annotations;
+    if (annotations?.destructiveHint === true) {
+      reasons.push({
+        code: "DESTRUCTIVE_TOOL_RECEIPT",
+        message: `${receipt.tool} declares destructive effects.`,
+      });
+    } else if (annotations?.readOnlyHint !== true && annotations?.readOnlyHint !== false) {
+      reasons.push({
+        code: "UNKNOWN_TOOL_EFFECTS",
+        message: `${receipt.tool} does not declare whether it is read-only.`,
+      });
+    }
+  }
+  const destructiveLanguage = [requestText, ...core.actions.map(({ instruction }) => instruction)]
+    .join("\n");
+  if (/\b(?:delete|destroy|erase|purge)\b/iu.test(destructiveLanguage)) {
+    reasons.push({
+      code: "DESTRUCTIVE_INTENT_SEMANTICS",
+      message: "The request uses destructive language; verify that the tool outcome has the same domain meaning.",
+    });
+  }
+  return [...new Map(reasons.map((reason) => [reason.code, reason])).values()];
 }
 
 function callableToolCatalog(tools) {
@@ -120,14 +176,14 @@ function receiptAttemptKey(receipt) {
   return toolAttemptKey(receipt?.tool, argumentsObject);
 }
 
-function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 24) {
+function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 16) {
   if (typeof ledger?.toolReceiptList !== "function") return [];
   const requestIds = [...new Set(
     [...recentConversation].reverse().map(({ requestId }) => requestId).filter(Boolean),
   )];
   const receipts = [];
   for (const requestId of requestIds) {
-    const page = ledger.toolReceiptList({ requestId, limit: Math.min(8, maximumReceipts) });
+    const page = ledger.toolReceiptList({ requestId, limit: Math.min(6, maximumReceipts) });
     for (const receipt of page.receipts ?? []) {
       receipts.push({
         receiptEventSeq: receipt.receiptEventSeq,
@@ -136,9 +192,6 @@ function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 24
         tool: receipt.tool,
         status: receipt.status,
         ok: receipt.ok,
-        resultCharacters: receipt.resultCharacters,
-        argumentCharacters: receipt.argumentCharacters,
-        error: typeof receipt.error === "string" ? receipt.error.slice(0, 1000) : null,
       });
       if (receipts.length >= maximumReceipts) return receipts;
     }
@@ -146,37 +199,13 @@ function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 24
   return receipts;
 }
 
-function receiptReferenceFindings(brief, recentToolReceipts) {
-  const indexed = new Map(recentToolReceipts.map((receipt) => [receipt.receiptEventSeq, receipt]));
-  const seen = new Set();
-  const findings = [];
-  for (const [index, reference] of (brief.receiptReferences ?? []).entries()) {
-    const receipt = indexed.get(reference.receiptEventSeq);
-    if (seen.has(reference.receiptEventSeq)) {
-      findings.push({
-        code: "duplicate_receipt_reference",
-        path: `brief.receiptReferences[${index}].receiptEventSeq`,
-        message: `Receipt ${reference.receiptEventSeq} is selected more than once`,
-      });
-      continue;
-    }
-    seen.add(reference.receiptEventSeq);
-    if (!receipt || receipt.tool !== reference.tool) {
-      findings.push({
-        code: "receipt_reference_not_indexed",
-        path: `brief.receiptReferences[${index}]`,
-        message: `Receipt ${reference.receiptEventSeq} for ${reference.tool} is not an exact entry in the supplied receipt index`,
-      });
-    }
-  }
-  if ((brief.receiptReferences ?? []).length > 0 && !brief.requiredTools.includes("tool_receipt_read")) {
-    findings.push({
-      code: "receipt_reader_not_selected",
-      path: "brief.requiredTools",
-      message: "receiptReferences requires tool_receipt_read in requiredTools",
-    });
-  }
-  return findings;
+function priorReceiptInstructions(receipts) {
+  if (!receipts.length) return "";
+  return [
+    "# Recent durable receipt index",
+    "This compact index is execution evidence for conversational continuations. It does not contain arguments or results. Use tool_receipt_read only when the current request actually needs an opaque value or exact prior outcome; do not treat the index itself as proof and do not repeat the original action to recover evidence.",
+    JSON.stringify(receipts, null, 2),
+  ].join("\n");
 }
 
 const toolFailureKinds = new Set([
@@ -289,12 +318,14 @@ const internalBlockedResponseNarration = /\b(?:the user|the executor|the (?:prop
 function blockedAuditResponse(audit) {
   const summary = String(audit?.summary ?? "").trim();
   if (summary && !internalBlockedResponseNarration.test(summary)) return summary;
-  const partial = Array.isArray(audit?.satisfiedCriteria) && audit.satisfiedCriteria.length > 0;
+  const satisfied = audit?.satisfied ?? audit?.satisfiedCriteria;
+  const remainingActions = audit?.remaining ?? audit?.remainingActions;
+  const partial = Array.isArray(satisfied) && satisfied.length > 0;
   const opening = partial
     ? "I completed part of the request, but I couldn't complete everything requested."
     : "I couldn't complete the request.";
-  const remaining = Array.isArray(audit?.remainingActions)
-    ? audit.remainingActions.map((action) => String(action).trim()).filter(Boolean)
+  const remaining = Array.isArray(remainingActions)
+    ? remainingActions.map((action) => String(action).trim()).filter(Boolean)
     : [];
   return remaining.length
     ? [opening, "", "Still incomplete:", ...remaining.map((action) => `- ${action}`)].join("\n")
@@ -329,20 +360,6 @@ function finalConfirmationHandoffFailure(toolName, toolDefinition) {
     httpStatus: null,
     sourceTool: toolName,
   };
-}
-
-export function auditEffectsForReceipts(receipts, registry) {
-  return receipts.flatMap((receipt) => {
-    if (!receipt?.ok || ["request_capabilities", "request_tools"].includes(receipt.tool)) return [];
-    const annotations = registry.get(receipt.tool)?.annotations;
-    if (annotations?.readOnlyHint === true) return [];
-    return [{
-      tool: receipt.tool,
-      reason: annotations?.readOnlyHint === false
-        ? "tool declares possible effects"
-        : "tool effects are not declared read-only",
-    }];
-  });
 }
 
 function joinedInstructions(...sections) {
@@ -533,8 +550,8 @@ export class SlayerRuntime {
       model,
       effort,
       conversationId: null,
-      baseInstructions: ["orientation", "orientation_repair"].includes(step)
-        ? orientationInstructions
+      baseInstructions: step.startsWith("orientation")
+        ? commonSenseInstructions
         : auditInstructions,
       developerInstructions,
       input,
@@ -698,7 +715,7 @@ export class SlayerRuntime {
     }
   }
 
-  async #runWorkflow(args) {
+  async #runCommonSenseWorkflow(args) {
     const channel = args.channel ?? "web";
     const workflowStartedAt = Date.now();
     let pausedDurationMs = 0;
@@ -712,6 +729,7 @@ export class SlayerRuntime {
       if (remaining <= 0) throw new Error(`Turn workflow timed out after ${configuredTimeoutMs}ms`);
       return remaining;
     };
+
     const registeredTools = this.registry.toolDefinitions();
     const allowedToolNames = Array.isArray(args.allowedToolNames)
       ? new Set(args.allowedToolNames)
@@ -724,6 +742,7 @@ export class SlayerRuntime {
       const unavailable = [...allowedToolNames].filter((name) => !availableNames.has(name));
       throw new Error(`Authorized request tool is unavailable: ${unavailable.join(", ")}`);
     }
+
     const boundaryEventSeq = typeof this.ledger.conversationBoundaryEventSeq === "function"
       ? this.ledger.conversationBoundaryEventSeq()
       : 0;
@@ -745,22 +764,21 @@ export class SlayerRuntime {
       recentConversation,
       previousCapabilities: [],
     });
-    const routedDetailedCapabilities = routing.capabilities.filter((capability) => (
-      routing.reasons.some((reason) => reason.startsWith(`${capability}:`))
-      || routing.explicitHats.some((hat) => hat.available && hat.capability === capability)
-    ));
     const activeActionReferences = typeof this.ledger.activeDeferredActionReferences === "function"
       ? this.ledger.activeDeferredActionReferences({ afterEventSeq: boundaryEventSeq })
       : [];
     const referencedExchanges = typeof this.ledger.referencedExchangesForRequest === "function"
       ? this.ledger.referencedExchangesForRequest(args.requestId, { limit: 8 })
       : [];
+    const recentToolReceipts = recentToolReceiptIndex(this.ledger, [
+      ...recentConversation,
+      ...referencedExchanges.map(({ requestId }) => ({ requestId })),
+    ]);
     const reusableReferencedExchanges = referencedExchanges.filter((exchange) => (
       exchange.objectReferencePolicy == null
         ? exchange.taskOutcome !== "incomplete" && exchange.status !== "error"
         : exchange.objectReferencePolicy !== "fresh_read_required"
     ));
-    const nonReusableExchangeReferenced = reusableReferencedExchanges.length < referencedExchanges.length;
     const requestEventSeq = typeof this.ledger.eventSequence === "function"
       ? this.ledger.eventSequence(args.requestEventId)
       : null;
@@ -770,12 +788,10 @@ export class SlayerRuntime {
     );
     const recentEvidenceText = [
       args.text,
-      ...recentConversation.slice(-4).map(({ content }) => content),
+      ...recentConversation.map(({ content }) => content),
     ].filter(Boolean).join("\n");
     const relevantRecentObjectReferences = relevantObjectReferenceCatalog(
-      nonReusableExchangeReferenced
-        ? []
-        : recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
+      recentConversation.flatMap(({ objectReferences = [] }) => objectReferences),
       { evidenceText: recentEvidenceText, maximumObjects: 24 },
     );
     const availableObjectReferences = explicitReferenceObjectCatalog(
@@ -785,19 +801,7 @@ export class SlayerRuntime {
         ...currentAttachmentReferences,
       ],
     );
-    const recentToolReceipts = recentToolReceiptIndex(this.ledger, [
-      ...recentConversation,
-      ...referencedExchanges.map(({ requestId }) => ({ requestId })),
-    ]);
-    const fallbackCheckpoint = !previousState
-      && recentConversation.length >= 10
-      && typeof this.ledger.conversationCheckpoint === "function"
-      ? this.ledger.conversationCheckpoint({
-          afterEventSeq: boundaryEventSeq,
-          beforeRequestId: args.requestId,
-          maximumCharacters: 16_000,
-        }).text
-      : null;
+    const selectedObjectCandidates = args.selectedObjectCandidates ?? [];
     const orientationBaseContext = await this.contextBuilder.build(args.requestId, args.text, {
       attachment: args.attachment,
       nativeConversation: false,
@@ -808,31 +812,30 @@ export class SlayerRuntime {
       includeRecentExchanges: false,
       includeReferencedObjectReferences: false,
     });
-    const schema = turnBriefSchema(
-      catalog.map(({ capability }) => capability),
-      activeActionReferences.map(({ referenceId }) => referenceId),
-      catalog.flatMap(({ contextViews = [] }) => contextViews.map(({ id }) => id)),
-      catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
-      recentToolReceipts,
-      availableObjectReferences,
-      catalogObjectRoles(catalog),
-    );
+    const schema = commonSenseCoreSchema({
+      capabilities: catalog.map(({ capability }) => capability),
+      contextViewIds: catalog.flatMap(({ contextViews = [] }) => contextViews.map(({ id }) => id)),
+      actionReferenceIds: activeActionReferences.map(({ referenceId }) => referenceId),
+      objectRefs: availableCoreObjectRefs(availableObjectReferences, selectedObjectCandidates),
+    });
+    const priorConversationSummary = JSON.stringify({
+      priorObjective: previousState?.activeObjective ?? null,
+      openQuestions: previousState?.unresolvedQuestions ?? [],
+      recent: recentConversation.map(({ eventSeq, role, content }) => ({ eventSeq, role, content })),
+    }, null, 2);
     const orientationDeveloperInstructions = joinedInstructions(
-      orientationBaseContext.developerInstructions ?? orientationBaseContext.text,
-      orientationContext({
+      commonSenseContext({
         requestId: args.requestId,
         requestEventSeq,
-        recentConversation,
-        previousState,
-        fallbackCheckpoint,
-        capabilityCatalog: catalog,
-        deferredActionReferences: activeActionReferences,
-        recentToolReceipts,
-        availableObjectReferences,
-        selectedObjectCandidates: args.selectedObjectCandidates ?? [],
-        explicitHats: routing.explicitHats,
-        detailedCapabilities: routedDetailedCapabilities,
         requestText: args.text,
+        recentConversation,
+        conversationSummary: priorConversationSummary,
+        capabilityCatalog: catalog,
+        selectedObjectCandidates,
+        availableObjectReferences,
+        deferredActionReferences: activeActionReferences,
+        explicitHats: routing.explicitHats,
+        localCalendar: orientationBaseContext.localCalendar ?? null,
       }),
       args.supplementalInstructions,
     );
@@ -840,7 +843,7 @@ export class SlayerRuntime {
       requestId: args.requestId,
       channel,
       step: "orientation",
-      label: "Orient request",
+      label: "Understand request",
       stepIndex: 1,
       model: args.model || this.config.model,
       effort: this.config.orientationReasoningEffort ?? "medium",
@@ -850,187 +853,77 @@ export class SlayerRuntime {
       outputSchema: schema,
       runTimeoutMs: remainingTimeoutMs(),
     });
-    const confirmedTargetTools = (candidate) => activeActionReferences
-      .filter(({ referenceId }) => candidate.confirmedActionReferenceIds.includes(referenceId))
-      .map(({ targetTool }) => targetTool);
-    const validateBrief = (candidate, requiredContractTools = [], objectReferenceCatalog = availableObjectReferences) => {
-      const temporalFindings = temporalConsistencyFindings(candidate, {
-        requestText: args.text,
-        requestEventSeq,
-      });
-      const selectionContextFindings = (args.selectedObjectCandidates?.length ?? 0) > 0
-        && !candidate.contextRequests.includes("search.native_object_candidates")
-        ? [{
-            code: "selected_object_context_not_requested",
-            path: "brief.contextRequests",
-            message: "search.native_object_candidates is required to verify the explicit @ object selection before execution",
-          }]
-        : [];
-      const capabilityFindings = requiredToolCapabilityFindings(
-        availableTools,
-        candidate.requiredCapabilities,
-        [...candidate.requiredTools, ...confirmedTargetTools(candidate), ...requiredContractTools],
-      );
-      const selectedToolNames = new Set(candidate.requiredTools);
-      const contractToolFindings = requiredContractTools
-        .filter((tool) => !selectedToolNames.has(tool))
-        .map((tool) => ({
-          code: "contract_tool_not_selected",
-          path: "brief.requiredTools",
-          message: `${tool} is a declared destination operation for the active exchange but is absent from requiredTools`,
-          tool,
-        }));
-      const receiptFindings = receiptReferenceFindings(candidate, recentToolReceipts);
-      const objectFindings = objectReferenceSelectionFindings(
-        candidate.objectReferences,
-        objectReferenceCatalog,
-        selectedToolObjectRoles(candidate, availableTools, [
-          ...confirmedTargetTools(candidate), ...requiredContractTools,
-        ]),
-      );
-      return {
-        temporalFindings,
-        selectionContextFindings,
-        capabilityFindings: [...capabilityFindings, ...contractToolFindings],
-        receiptFindings,
-        objectFindings,
-        findings: [
-          ...temporalFindings, ...selectionContextFindings, ...capabilityFindings, ...contractToolFindings,
-          ...receiptFindings, ...objectFindings,
-        ],
-      };
-    };
-    const canonicalizeBriefObjectReferences = (candidate, objectReferenceCatalog, repaired = false) => {
-      const canonical = canonicalizeObjectReferenceSelection(
-        candidate.objectReferences,
-        objectReferenceCatalog,
-      );
-      if (!canonical.corrections.length) return candidate;
-      const normalized = { ...candidate, objectReferences: canonical.objectReferences };
-      this.ledger.append({
-        type: "turn.brief.object_references.canonicalized",
-        phase: "point",
-        status: "complete",
-        actorType: "service",
-        actorName: "Object reference binder",
-        channel,
-        turnId: args.requestId,
-        name: "TurnBrief object references canonicalized",
-        content: `Restored ${canonical.corrections.length} exact object-binding field${canonical.corrections.length === 1 ? "" : "s"} from the verified catalog`,
-        payload: {
-          repaired,
-          corrections: canonical.corrections,
-          objectReferences: normalized.objectReferences,
-        },
-      });
-      return normalized;
-    };
-    let brief = canonicalizeBriefObjectReferences(
-      orientation.value,
-      availableObjectReferences,
-    );
-    let validation = validateBrief(brief);
-    const recordBriefValidation = (findings, candidate, repaired = false) => {
-      const valid = findings.length === 0;
-      const content = valid
-        ? `TurnBrief validation passed${repaired ? " after repair" : ""}`
-        : findings.map(({ message }) => message).join("; ");
-      this.ledger.append({
-        type: "turn.brief.validation",
-        phase: valid ? "end" : "error",
-        status: valid ? "complete" : "error",
-        actorType: "service",
-        actorName: "TurnBrief validation guard",
-        channel,
-        turnId: args.requestId,
-        name: valid ? "TurnBrief validation passed" : "TurnBrief validation failed",
-        content,
-        payload: {
-          repaired,
-          findings,
-          temporalResolutions: candidate.temporalResolutions,
-          requiredCapabilities: candidate.requiredCapabilities,
-          requiredTools: candidate.requiredTools,
-          receiptReferences: candidate.receiptReferences,
-          objectReferences: candidate.objectReferences,
-        },
-        ...(valid ? {} : { error: content }),
-      });
-    };
-    recordBriefValidation(validation.findings, brief);
-    if (validation.findings.length) {
+    let core = orientation.value;
+    let temporalFindings = temporalConsistencyFindings(core, {
+      requestText: args.text,
+      requestEventSeq,
+    });
+    this.ledger.append({
+      type: "orientation.validation",
+      phase: temporalFindings.length ? "error" : "end",
+      status: temporalFindings.length ? "error" : "complete",
+      actorType: "service",
+      actorName: "Common-sense core validator",
+      channel,
+      turnId: args.requestId,
+      name: temporalFindings.length ? "Orientation validation failed" : "Orientation validation passed",
+      content: temporalFindings.length
+        ? temporalFindings.map(({ message }) => message).join("; ")
+        : "Common-sense core validation passed",
+      payload: { findings: temporalFindings, temporalResolutions: core.temporalResolutions },
+      ...(temporalFindings.length ? { error: temporalFindings.map(({ message }) => message).join("; ") } : {}),
+    });
+    if (temporalFindings.length) {
       orientation = await this.#runStructuredStep({
         requestId: args.requestId,
         channel,
-        step: "orientation_repair",
-        label: "Repair orientation",
+        step: "orientation_correction",
+        label: "Correct date interpretation",
         stepIndex: 1,
         model: args.model || this.config.model,
         effort: this.config.orientationReasoningEffort ?? "medium",
         input: args.text,
         developerInstructions: joinedInstructions(
           orientationDeveloperInstructions,
-          validation.temporalFindings.length
-            ? temporalRepairContext(brief, validation.temporalFindings)
-            : null,
-          validation.selectionContextFindings.length
-            ? [
-                "# Explicit object selection validation requires repair",
-                "The request contains structured @ selections. Include search.native_object_candidates in contextRequests so the application can verify those exact stable IDs before execution.",
-              ].join("\n")
-            : null,
-          validation.capabilityFindings.length
-            ? requiredToolCapabilityRepairContext(brief, validation.capabilityFindings)
-            : null,
-          validation.receiptFindings.length
-            ? [
-                "# Receipt-reference validation requires repair",
-                JSON.stringify(validation.receiptFindings, null, 2),
-                "Select only exact receiptEventSeq and tool pairs from the supplied recent receipt index. Include tool_receipt_read whenever receiptReferences is nonempty.",
-              ].join("\n")
-            : null,
-          validation.objectFindings.length
-            ? [
-                "# Object-reference validation requires repair",
-                JSON.stringify(validation.objectFindings, null, 2),
-                "Copy only exact verified object bindings from the supplied object-reference catalog. Preserve each ID, stable reference, display name, type, source, and evidence together, and assign only a role published by a selected consuming tool.",
-              ].join("\n")
-            : null,
+          temporalRepairContext(core, temporalFindings),
         ),
         requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
         outputSchema: schema,
         runTimeoutMs: remainingTimeoutMs(),
       });
-      brief = canonicalizeBriefObjectReferences(
-        orientation.value,
-        availableObjectReferences,
-        true,
-      );
-      validation = validateBrief(brief);
-      recordBriefValidation(validation.findings, brief, true);
-      if (validation.findings.length) {
-        throw new Error(`TurnBrief validation failed after repair: ${validation.findings.map(({ message }) => message).join("; ")}`);
+      core = orientation.value;
+      temporalFindings = temporalConsistencyFindings(core, {
+        requestText: args.text,
+        requestEventSeq,
+      });
+      if (temporalFindings.length) {
+        throw new Error(`Date interpretation remained inconsistent after correction: ${temporalFindings.map(({ message }) => message).join("; ")}`);
       }
     }
+
+    const contextRequests = [...new Set([
+      ...core.contextRequests,
+      ...(selectedObjectCandidates.length ? ["search.native_object_candidates"] : []),
+    ])];
     const contextOperationId = `${this.modelTransport.id}:${args.requestId}:context_preparation`;
     this.ledger.append({
       type: "agent.step", phase: "start", status: "processing", actorType: "service",
       actorName: "Structured turn workflow", channel, turnId: args.requestId,
       operationId: contextOperationId, name: "Prepare execution context",
-      content: "Preparing orientation-requested context",
+      content: "Started preparing bounded execution context",
       payload: {
         workflowStep: "context_preparation", workflowStepLabel: "Prepare execution context",
-        stepIndex: 2, reasoningEffort: null, requests: brief.contextRequests,
+        stepIndex: 2, reasoningEffort: null, requests: contextRequests,
       },
     });
     let preparedCapabilityContext;
-    let preparedObjectReferences = [];
+    let preparedObjectReferences;
     try {
-      preparedCapabilityContext = await this.registry.prepareContext(brief.contextRequests, {
+      preparedCapabilityContext = await this.registry.prepareContext(contextRequests, {
         requestId: args.requestId,
         requestEventId: args.requestEventId,
         requestText: args.text,
-        selectedObjectCandidates: args.selectedObjectCandidates ?? [],
+        selectedObjectCandidates,
         channel,
       });
       const contextEventId = this.ledger.append({
@@ -1040,7 +933,7 @@ export class SlayerRuntime {
         content: preparedCapabilityContext.length
           ? preparedCapabilityContext.map(({ title, view }) => `${title} (${view})`).join(", ")
           : "No capability context requested",
-        payload: { requests: brief.contextRequests, sections: preparedCapabilityContext },
+        payload: { requests: contextRequests, sections: preparedCapabilityContext },
       });
       const contextEventSeq = typeof this.ledger.eventSequence === "function"
         ? this.ledger.eventSequence(contextEventId)
@@ -1057,13 +950,14 @@ export class SlayerRuntime {
         }),
       ));
       const unresolvedSelections = unresolvedSelectedObjectCandidates(
-        args.selectedObjectCandidates, preparedObjectReferences,
+        selectedObjectCandidates,
+        preparedObjectReferences,
       );
       if (unresolvedSelections.length) {
         const missing = unresolvedSelections.map(({ display, type, id, ref }) => ({
           display, type, id, ref,
         }));
-        throw new Error(`Every selected object must be reread before execution. Missing or unavailable selections: ${JSON.stringify(missing)}`);
+        throw new Error(`Every selected object must be verified before execution. Missing or unavailable selections: ${JSON.stringify(missing)}`);
       }
       if (preparedObjectReferences.length) {
         this.ledger.append({
@@ -1079,11 +973,11 @@ export class SlayerRuntime {
         actorName: "Structured turn workflow", channel, turnId: args.requestId,
         operationId: contextOperationId, name: "Prepare execution context",
         content: preparedCapabilityContext.length
-          ? `Prepared ${preparedCapabilityContext.length} requested context view(s)`
-          : "No execution context was requested",
+          ? `Prepared ${preparedCapabilityContext.length} bounded context view(s)`
+          : "No execution context was needed",
         payload: {
           workflowStep: "context_preparation", workflowStepLabel: "Prepare execution context",
-          stepIndex: 2, reasoningEffort: null, requests: brief.contextRequests,
+          stepIndex: 2, reasoningEffort: null, requests: contextRequests,
           preparedCount: preparedCapabilityContext.length,
         },
       });
@@ -1096,135 +990,22 @@ export class SlayerRuntime {
         content: message, error: message,
         payload: {
           workflowStep: "context_preparation", workflowStepLabel: "Prepare execution context",
-          stepIndex: 2, reasoningEffort: null, requests: brief.contextRequests,
+          stepIndex: 2, reasoningEffort: null, requests: contextRequests,
         },
       });
       throw error;
     }
-    const freshlyPreparedRefs = new Set(preparedObjectReferences.flatMap(
-      ({ objects }) => objects.map(({ ref }) => ref),
+
+    const selectedRefs = [...new Set([
+      ...coreTargetRefs(core),
+      ...selectedObjectCandidates.map(({ ref }) => ref).filter(Boolean),
+    ])];
+    const objectReferences = mergeObjectReferenceGroups(objectReferenceGroupsForRefs(
+      mergeObjectReferenceGroups([...availableObjectReferences, ...preparedObjectReferences]),
+      selectedRefs,
     ));
-    const retainedBriefObjectReferences = brief.objectReferences
-      .map((group) => ({
-        ...group, objects: group.objects.filter(({ ref }) => !freshlyPreparedRefs.has(ref)),
-      }))
-      .filter(({ objects }) => objects.length);
-    const selectedCandidateRefs = (args.selectedObjectCandidates ?? [])
-      .map(({ ref }) => ref).filter(Boolean);
-    const refinementEvidenceText = [
-      args.text,
-      brief.objective,
-      brief.summary,
-      ...brief.requestedActions.map(({ text: actionText }) => actionText),
-      ...brief.constraints.map(({ text: constraintText }) => constraintText),
-    ].filter(Boolean).join("\n");
-    const refinementObjectReferences = relevantObjectReferenceCatalog(mergeObjectReferenceGroups([
-      ...retainedBriefObjectReferences, ...preparedObjectReferences,
-    ]), {
-      evidenceText: refinementEvidenceText,
-      alwaysRefs: selectedCandidateRefs,
-      maximumObjects: 32,
-    });
-    if ((args.selectedObjectCandidates?.length ?? 0) > 0 && preparedObjectReferences.length) {
-      const requiredContractTools = [];
-      const refinementSchema = turnBriefSchema(
-        catalog.map(({ capability }) => capability),
-        activeActionReferences.map(({ referenceId }) => referenceId),
-        brief.contextRequests,
-        catalog.flatMap(({ tools = [] }) => tools.map(({ name }) => name)),
-        recentToolReceipts,
-        refinementObjectReferences,
-        catalogObjectRoles(catalog),
-      );
-      refinementSchema.properties.contextRequests.minItems = brief.contextRequests.length;
-      const refinementDeveloperInstructions = joinedInstructions(
-        orientationBaseContext.developerInstructions ?? orientationBaseContext.text,
-        preparedContextOrientationContext({
-          brief,
-          preparedCapabilityContext,
-          preparedObjectReferences: refinementObjectReferences,
-          capabilityCatalog: catalog,
-          detailedCapabilities: brief.requiredCapabilities,
-        }),
-        args.supplementalInstructions,
-      );
-      orientation = await this.#runStructuredStep({
-        requestId: args.requestId,
-        channel,
-        step: "orientation_context",
-        label: "Finalize orientation from prepared context",
-        stepIndex: 2,
-        model: args.model || this.config.model,
-        effort: this.config.orientationReasoningEffort ?? "medium",
-        input: args.text,
-        developerInstructions: refinementDeveloperInstructions,
-        requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
-        outputSchema: refinementSchema,
-        runTimeoutMs: remainingTimeoutMs(),
-      });
-      brief = canonicalizeBriefObjectReferences(
-        orientation.value,
-        refinementObjectReferences,
-      );
-      validation = validateBrief(brief, requiredContractTools, refinementObjectReferences);
-      recordBriefValidation(validation.findings, brief);
-      if (validation.findings.length) {
-        orientation = await this.#runStructuredStep({
-          requestId: args.requestId,
-          channel,
-          step: "orientation_context_repair",
-          label: "Repair context-informed orientation",
-          stepIndex: 2,
-          model: args.model || this.config.model,
-          effort: this.config.orientationReasoningEffort ?? "medium",
-          input: args.text,
-          developerInstructions: joinedInstructions(
-            refinementDeveloperInstructions,
-            validation.temporalFindings.length
-              ? temporalRepairContext(brief, validation.temporalFindings)
-              : null,
-            validation.selectionContextFindings.length
-              ? [
-                  "# Explicit object selection validation requires repair",
-                  "Keep search.native_object_candidates in contextRequests so the exact structured @ selections remain verified for execution.",
-                ].join("\n")
-              : null,
-            validation.capabilityFindings.length
-              ? requiredToolCapabilityRepairContext(brief, validation.capabilityFindings)
-              : null,
-            validation.receiptFindings.length
-              ? [
-                  "# Receipt-reference validation requires repair",
-                  JSON.stringify(validation.receiptFindings, null, 2),
-                  "Select only exact receiptEventSeq and tool pairs from the supplied recent receipt index. Include tool_receipt_read whenever receiptReferences is nonempty.",
-                ].join("\n")
-              : null,
-            validation.objectFindings.length
-              ? [
-                  "# Object-reference validation requires repair",
-                  JSON.stringify(validation.objectFindings, null, 2),
-                  "Copy only exact verified object bindings from the supplied object-reference catalog. Preserve each ID, stable reference, display name, type, source, and evidence together, and assign only a role published by a selected consuming tool.",
-                ].join("\n")
-              : null,
-          ),
-          requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
-          outputSchema: refinementSchema,
-          runTimeoutMs: remainingTimeoutMs(),
-        });
-        brief = canonicalizeBriefObjectReferences(
-          orientation.value,
-          refinementObjectReferences,
-          true,
-        );
-        validation = validateBrief(brief, requiredContractTools, refinementObjectReferences);
-        recordBriefValidation(validation.findings, brief, true);
-        if (validation.findings.length) {
-          throw new Error(`Context-informed TurnBrief validation failed after repair: ${validation.findings.map(({ message }) => message).join("; ")}`);
-        }
-      }
-    }
     const confirmedActionReferences = activeActionReferences
-      .filter(({ referenceId }) => brief.confirmedActionReferenceIds.includes(referenceId))
+      .filter(({ referenceId }) => core.confirmedActionReferenceIds.includes(referenceId))
       .map((reference) => ({ ...reference, state: "confirmed" }));
     const confirmedReferenceIds = new Set(
       confirmedActionReferences.map(({ referenceId }) => referenceId),
@@ -1232,57 +1013,93 @@ export class SlayerRuntime {
     const pendingTargetTools = new Set(activeActionReferences
       .filter(({ referenceId }) => !confirmedReferenceIds.has(referenceId))
       .map(({ targetTool }) => targetTool));
+
     this.ledger.append({
-      type: "turn.brief", status: "complete", actorType: "service",
-      actorName: "Turn orienter", channel, turnId: args.requestId,
-      name: "Accepted TurnBrief", content: brief.summary,
-      payload: { brief, sourceRequestId: args.requestId },
-      subjectType: "turn_brief", subjectId: args.requestId,
+      type: "orientation.core", status: "complete", actorType: "service",
+      actorName: "Common-sense orienter", channel, turnId: args.requestId,
+      name: "Accepted common-sense core", content: core.conversationSummary,
+      payload: { core, objectReferences, sourceRequestId: args.requestId },
+      subjectType: "orientation_core", subjectId: args.requestId,
     });
+    const sourceEventSeqsForState = Number.isSafeInteger(requestEventSeq) ? [requestEventSeq] : [];
+    const conversationState = {
+      activeObjective: core.objective,
+      openCommitments: core.mode === "act"
+        ? core.actions.map(({ instruction }) => ({ text: instruction, sourceEventSeqs: sourceEventSeqsForState }))
+        : [],
+      durableConstraints: core.constraints.map((constraint) => ({
+        text: constraint,
+        sourceEventSeqs: sourceEventSeqsForState,
+      })),
+      unresolvedQuestions: core.questions,
+      relevantRequestIds: [args.requestId],
+    };
     this.ledger.append({
       type: "conversation.state", status: "complete", actorType: "service",
-      actorName: "Turn orienter", channel, turnId: args.requestId,
-      name: "Rolling conversation state", content: brief.summary,
+      actorName: "Common-sense orienter", channel, turnId: args.requestId,
+      name: "Brief conversation state", content: core.conversationSummary,
       payload: {
-        state: brief.conversationState,
-        sourceTurnBrief: brief,
+        state: conversationState,
+        sourceOrientationCore: core,
         sourceRequestId: args.requestId,
       },
       subjectType: "conversation_state", subjectId: "main",
     });
-    const contextCapabilities = brief.contextRequests.map((viewId) => (
-      this.registry.contextView(viewId)?.capabilityId
-    )).filter(Boolean);
+
     const explicitHatCapabilities = routing.explicitHats
       .filter(({ available }) => available)
       .map(({ capability }) => capability);
-    const executionCapabilities = [...new Set([
+    const selectedObjectCapabilities = selectedObjectCandidates
+      .map(selectedObjectCapability)
+      .filter(Boolean);
+    const confirmedToolCapabilities = confirmedActionReferences
+      .map(({ targetTool }) => availableTools.find(({ name }) => name === targetTool))
+      .filter(Boolean)
+      .map(capabilityForTool);
+    const primaryExecutionCapabilities = [...new Set([
+      ...core.capabilities,
       ...explicitHatCapabilities,
-      ...brief.requiredCapabilities,
-      ...contextCapabilities,
+      ...selectedObjectCapabilities,
+      ...confirmedToolCapabilities,
+    ])];
+    const receiptReader = recentToolReceipts.length
+      ? availableTools.find(({ name }) => name === "tool_receipt_read")
+      : null;
+    const supportTools = [receiptReader].filter(Boolean);
+    const executionCapabilities = [...new Set([
+      ...primaryExecutionCapabilities,
+      ...supportTools.map(capabilityForTool),
+    ])];
+    const primaryExecutionCapabilitySet = new Set(primaryExecutionCapabilities);
+    const executionToolNames = [...new Set([
+      ...availableTools
+        .filter((tool) => primaryExecutionCapabilitySet.has(capabilityForTool(tool)))
+        .map(({ name }) => name)
+        .filter((name) => !pendingTargetTools.has(name)),
+      ...supportTools.map(({ name }) => name),
+      ...confirmedActionReferences.map(({ targetTool }) => targetTool),
     ])];
     const executorArgs = {
       ...args,
       capabilityOverride: executionCapabilities,
-      toolOverride: [...new Set([
-        ...brief.requiredTools.filter((toolName) => !pendingTargetTools.has(toolName)),
-        ...confirmedActionReferences.map(({ targetTool }) => targetTool),
-      ])],
+      toolOverride: executionToolNames,
       runLimits: {
         maxToolCalls: configuredMaxToolCalls,
         timeoutMs: remainingTimeoutMs(),
       },
       supplementalInstructions: joinedInstructions(
         args.supplementalInstructions,
-        turnBriefInstructions(brief, confirmedActionReferences),
+        commonSenseExecutionInstructions(core, objectReferences, confirmedActionReferences),
+        priorReceiptInstructions(recentToolReceipts),
       ),
       activeActionReferences,
       confirmedActionReferences,
       preparedCapabilityContext,
-      temporalResolutions: brief.temporalResolutions,
-      objectReferences: brief.objectReferences,
-      initialObjectReferences: preparedObjectReferences,
+      temporalResolutions: core.temporalResolutions,
+      objectReferences,
+      initialObjectReferences: objectReferences,
     };
+
     if (typeof args.awaitTurnBriefApproval === "function") {
       const capabilityById = new Map(catalog.map((entry) => [entry.capability, entry]));
       const toolByName = new Map(catalog.flatMap(({ tools = [] }) => (
@@ -1294,8 +1111,8 @@ export class SlayerRuntime {
       const approvalStartedAt = Date.now();
       try {
         await args.awaitTurnBriefApproval({
-          objective: brief.objective,
-          summary: brief.summary,
+          objective: core.objective,
+          summary: core.conversationSummary,
           capabilities: executionCapabilities.map((capability) => {
             const entry = capabilityById.get(capability);
             return {
@@ -1304,7 +1121,7 @@ export class SlayerRuntime {
               summary: entry?.summary ?? null,
             };
           }),
-          tools: executorArgs.toolOverride.map((name) => {
+          tools: executionToolNames.map((name) => {
             const entry = toolByName.get(name);
             return {
               name,
@@ -1312,7 +1129,7 @@ export class SlayerRuntime {
               summary: entry?.summary ?? null,
             };
           }),
-          contextViews: brief.contextRequests.map((id) => {
+          contextViews: contextRequests.map((id) => {
             const entry = contextViewById.get(id);
             return {
               id,
@@ -1326,12 +1143,12 @@ export class SlayerRuntime {
         pausedDurationMs += Date.now() - approvalStartedAt;
       }
     }
+
     const execution = await this.#runExecutorStep(executorArgs, {
       step: "execution", label: "Execute request", stepIndex: 3,
       effort: args.effort || this.config.reasoningEffort,
     });
     const receiptFindings = completionReceiptFindings({
-      brief,
       receipts: execution.receipts,
       confirmedActionReferences,
     });
@@ -1340,54 +1157,7 @@ export class SlayerRuntime {
       confirmedActionReferences,
     );
     const terminalFindings = terminalToolFailureFindings(execution.receipts);
-    const executionFindings = [...receiptFindings, ...confirmationFindings, ...terminalFindings];
-    const auditEffects = auditEffectsForReceipts(execution.receipts, this.registry);
-    const declaredActionNeedsAudit = brief.responseMode === "act" && brief.requestedActions.length > 0;
-    if (
-      !brief.audit.required
-      && !declaredActionNeedsAudit
-      && auditEffects.length === 0
-      && executionFindings.length === 0
-    ) {
-      const operationId = `${this.modelTransport.id}:${args.requestId}:audit`;
-      const auditPayload = {
-        workflowStep: "audit", workflowStepLabel: "Audit completion", stepIndex: 4,
-        reasoningEffort: null, skipped: true,
-        reason: "TurnBrief did not require an audit and all successful calls declared read-only effects.",
-      };
-      this.ledger.append({
-        type: "agent.step", phase: "start", status: "processing", actorType: "service",
-        actorName: "Structured turn workflow", channel, turnId: args.requestId, operationId,
-        name: "Audit completion", content: "Evaluating whether an audit is required", payload: auditPayload,
-      });
-      this.ledger.append({
-        type: "agent.step", phase: "end", status: "complete", actorType: "service",
-        actorName: "Structured turn workflow", channel, turnId: args.requestId, operationId,
-        name: "Audit skipped", content: auditPayload.reason, payload: auditPayload,
-      });
-      return execution.text;
-    }
 
-    const audit = await this.#runStructuredStep({
-      requestId: args.requestId,
-      channel,
-      step: "audit",
-      label: "Audit completion",
-      stepIndex: 4,
-      model: args.model || this.config.model,
-      effort: this.config.auditReasoningEffort ?? "low",
-      input: `Audit completion of request ${args.requestId}.`,
-      developerInstructions: auditContext({
-        brief,
-        receipts: execution.receipts,
-        executorResponse: execution.text,
-        deterministicFindings: executionFindings,
-        auditEffects,
-        callableTools: execution.callableToolCatalog,
-      }),
-      outputSchema: completionAuditSchema,
-      runTimeoutMs: remainingTimeoutMs(),
-    });
     if (terminalFindings.length > 0) {
       const notice = terminalToolFailureNotice(terminalFindings);
       this.ledger.append({
@@ -1411,8 +1181,55 @@ export class SlayerRuntime {
       });
       return response;
     }
-    // Missing completion evidence is not, by itself, a repair strategy. An
-    // evidenced blocker must not turn into another automatic mutation attempt.
+
+    const executionFindings = [...receiptFindings];
+    const auditReasons = exceptionalAuditReasons({
+      core,
+      receipts: execution.receipts,
+      registry: this.registry,
+      findings: executionFindings,
+      requestText: args.text,
+    });
+    if (auditReasons.length === 0) {
+      const operationId = `${this.modelTransport.id}:${args.requestId}:audit`;
+      const auditPayload = {
+        workflowStep: "audit", workflowStepLabel: "Audit completion", stepIndex: 4,
+        reasoningEffort: null, skipped: true,
+        reason: "Typed tool receipts were sufficient; no exceptional semantic audit was needed.",
+      };
+      this.ledger.append({
+        type: "agent.step", phase: "start", status: "processing", actorType: "service",
+        actorName: "Structured turn workflow", channel, turnId: args.requestId, operationId,
+        name: "Audit completion", content: "Evaluating whether an exceptional audit is required", payload: auditPayload,
+      });
+      this.ledger.append({
+        type: "agent.step", phase: "end", status: "complete", actorType: "service",
+        actorName: "Structured turn workflow", channel, turnId: args.requestId, operationId,
+        name: "Audit skipped", content: auditPayload.reason, payload: auditPayload,
+      });
+      return execution.text;
+    }
+
+    const audit = await this.#runStructuredStep({
+      requestId: args.requestId,
+      channel,
+      step: "audit",
+      label: "Audit exceptional outcome",
+      stepIndex: 4,
+      model: args.model || this.config.model,
+      effort: this.config.auditReasoningEffort ?? "low",
+      input: `Audit completion of request ${args.requestId}.`,
+      developerInstructions: auditContext({
+        core,
+        receipts: execution.receipts,
+        executorResponse: execution.text,
+        deterministicFindings: executionFindings,
+        reasons: auditReasons,
+        callableTools: execution.callableToolCatalog,
+      }),
+      outputSchema: completionAuditSchema,
+      runTimeoutMs: remainingTimeoutMs(),
+    });
     if (audit.value.outcome === "needs_information") return execution.text;
     if (audit.value.outcome === "blocked") return blockedAuditResponse(audit.value);
     if (audit.value.outcome !== "repair_needed" && executionFindings.length === 0) return execution.text;
@@ -1429,11 +1246,11 @@ export class SlayerRuntime {
       },
       supplementalInstructions: joinedInstructions(
         executorArgs.supplementalInstructions,
-        "# Completion audit requires repair",
+        "# Exceptional audit requires correction",
         JSON.stringify(audit.value, null, 2),
-        "# Application-enforced receipt findings",
+        "# Deterministic receipt findings",
         JSON.stringify(executionFindings, null, 2),
-        "Perform only the remaining requested work. Earlier successful receipts are completed actions and must not be repeated. Use only the completion audit's satisfiedCriteria and successful receipts to carry earlier completed work into the final answer. Return one coherent final response to the original user request. Include earlier completed work only when it remains a user-relevant part of the final outcome. Describe included actions as work completed during this same user request, not as state that merely existed beforehand. Report the resulting state without narrating internal execution, audit, failure, retry, or repair history unless an unresolved problem still affects the user.",
+        "Perform only the remaining work. Do not repeat successful actions. Return one coherent response to the original request without narrating internal audit or repair stages.",
       ),
     };
     const repair = await this.#runExecutorStep(repairArgs, {
@@ -1446,7 +1263,6 @@ export class SlayerRuntime {
       return joinedInstructions(repair.text, terminalToolFailureNotice(repairTerminalFindings));
     }
     const finalFindings = completionReceiptFindings({
-      brief,
       receipts: repair.receipts,
       confirmedActionReferences,
     });
@@ -1471,7 +1287,7 @@ export class SlayerRuntime {
       && this.requestCompiler
       && !Array.isArray(args.capabilityOverride)
     ) {
-      rawResponse = await this.#runWorkflow(args);
+      rawResponse = await this.#runCommonSenseWorkflow(args);
     } else {
       const execution = await this.#runExecutor(args);
       rawResponse = execution.text;
@@ -1965,7 +1781,7 @@ export class SlayerRuntime {
             if (name === "request_capabilities") {
               if (capabilityExpansionRounds >= maximumCapabilityExpansionRounds || expansionRequested) {
                 const message = maximumCapabilityExpansionRounds === 0
-                  ? "Capability expansion is unavailable during structured execution; orientation already selected the accepted TurnBrief capabilities and their declared dependent tools"
+                  ? "Capability expansion is unavailable during structured execution; orientation already selected the accepted common-sense capability families and their declared dependent tools"
                   : "The single capability-expansion round is already used or pending; finish with the callable tools or report the evidenced blocker";
                 this.ledger.append({
                   type: "tool.result", phase: "error", status: "error", actorType: "tool",

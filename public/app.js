@@ -1132,7 +1132,7 @@ function runLimitsText(runLimits) {
   if (runLimits === null) return "";
   const calls = runLimits.maxToolCalls === null ? "unlimited calls" : `${runLimits.maxToolCalls} calls`;
   const time = runLimits.timeoutMs === null ? "no deadline" : `${Math.round(runLimits.timeoutMs / 60_000)} min`;
-  const turnBrief = runLimits.promptForTurnBrief ? " · TurnBrief review" : "";
+  const turnBrief = runLimits.promptForTurnBrief ? " · plan review" : "";
   return `${calls} · ${time}${turnBrief}`;
 }
 
@@ -2191,10 +2191,12 @@ function traceLabel(event, index) {
   const labels = {
     "request.received": "USER REQUEST",
     "agent.step": "AGENT STEP",
+    "orientation.core": "ACCEPTED COMMON-SENSE CORE",
+    "orientation.validation": "ORIENTATION VALIDATION",
     "turn.brief": "ACCEPTED TURNBRIEF",
-    "turn.brief.approval_required": "TURNBRIEF REVIEW REQUIRED",
-    "turn.brief.approved": "TURNBRIEF CONTINUED",
-    "turn.brief.cancelled": "TURNBRIEF CANCELLED",
+    "turn.brief.approval_required": "PLAN REVIEW REQUIRED",
+    "turn.brief.approved": "PLAN CONTINUED",
+    "turn.brief.cancelled": "PLAN CANCELLED",
     "conversation.state": "ROLLING CONVERSATION STATE",
     "context.sent": "CONTEXT SENT",
     "tools.sent": "TOOLS AVAILABLE",

@@ -4,9 +4,6 @@ import { RequestCompiler } from "../src/request-compiler.mjs";
 import { SlayerRuntime } from "../src/runtime.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
-import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
-import { objectInputBindingsMetadataKey } from "../src/object-input-bindings.mjs";
-import { toolDescriptionMetadataKey } from "../src/tool-description.mjs";
 import { registerNativeObjectContextView } from "../src/native-object-search.mjs";
 
 function usage(totalTokens) {
@@ -22,7 +19,7 @@ function usage(totalTokens) {
   };
 }
 
-function completed(text, totalTokens) {
+function completed(text, totalTokens = 20) {
   return {
     text,
     threadId: null,
@@ -34,67 +31,25 @@ function completed(text, totalTokens) {
   };
 }
 
-function identityResultFilter(overrides = {}) {
+function core(overrides = {}) {
   return {
-    collection_path: null,
-    query: null,
-    match_mode: "all_terms",
-    include_fields: [],
-    exclude_fields: [],
-    max_items: 200,
-    max_characters: 32768,
+    version: 1,
+    mode: "act",
+    objective: "Update the selected object.",
+    conversationSummary: "The user wants the selected object updated.",
+    actions: [{ instruction: "Update the selected object.", targetRefs: [] }],
+    constraints: [],
+    questions: [],
+    capabilities: ["calendar"],
+    contextRequests: [],
+    confirmedActionReferenceIds: [],
+    temporalResolutions: [],
     ...overrides,
   };
 }
 
-function fixtureToolDescription(summary, {
-  actionClasses = ["READ"],
-  effectClassifications = ["READ-ONLY"],
-} = {}) {
-  return {
-    protocol: "agent-slayer.tool-description",
-    version: 1,
-    summary,
-    actionClasses,
-    effectClassifications,
-  };
-}
-
-function brief({ auditRequired = true, confirmedActionReferenceIds = [] } = {}) {
-  const source = { text: "Run the previously offered action.", sourceEventSeqs: [4, 9] };
-  return {
-    contractVersion: 1,
-    requestType: "confirmation",
-    responseMode: "act",
-    objective: "Create the reminder that the assistant just offered to create.",
-    summary: "The user confirmed the concrete action offered in the prior assistant turn.",
-    requiredCapabilities: ["todos"],
-    requiredTools: ["todo_create"],
-    confirmedActionReferenceIds,
-    contextRequests: [],
-    objectReferences: [],
-    receiptReferences: [],
-    temporalResolutions: [],
-    requestedActions: [source],
-    prohibitedActions: [],
-    deferredActions: [],
-    constraints: [],
-    unresolvedQuestions: [],
-    completionCriteria: ["A successful todo_create receipt exists."],
-    evidence: [source],
-    audit: { required: auditRequired, reasons: auditRequired ? ["This is a write operation."] : [] },
-    conversationState: {
-      activeObjective: "Create the offered reminder.",
-      openCommitments: [source],
-      durableConstraints: [],
-      unresolvedQuestions: [],
-      relevantRequestIds: ["request-prior", "request-current"],
-    },
-  };
-}
-
 function fakeLedger({
-  actionReferences = [], toolReceipts = [], conversation = null, referencedExchanges = [],
+  conversation = null, actionReferences = [], referencedExchanges = [], toolReceipts = [],
 } = {}) {
   const events = [];
   const sequences = new Map([["event-current", 9]]);
@@ -112,1240 +67,23 @@ function fakeLedger({
     conversationBoundaryEventSeq() { return 0; },
     latestConversationState() { return null; },
     activeDeferredActionReferences() { return structuredClone(actionReferences); },
+    referencedExchangesForRequest() { return structuredClone(referencedExchanges); },
     toolReceiptList({ requestId, limit = 20 }) {
-      const receipts = toolReceipts.filter((receipt) => requestId == null || receipt.requestId === requestId)
+      const receipts = toolReceipts
+        .filter((receipt) => requestId == null || receipt.requestId === requestId)
         .slice(0, limit);
-      return { count: receipts.length, hasMore: false, nextBeforeEventSeq: null, receipts: structuredClone(receipts) };
+      return { receipts: structuredClone(receipts), count: receipts.length, hasMore: false };
     },
     recentConversation() {
-      return conversation ?? [
-        {
-          eventSeq: 3, requestId: "request-prior", occurredAtUtc: "2026-08-24T13:40:00Z",
-          role: "user", content: "Can you create that reminder?",
-        },
-        {
-          eventSeq: 4, requestId: "request-prior", occurredAtUtc: "2026-08-24T13:40:01Z",
-          role: "assistant", content: "I can create the reminder now. Say go ahead and I will do it.",
-        },
-      ];
+      return conversation ?? [{
+        eventSeq: 4,
+        requestId: "request-prior",
+        role: "assistant",
+        content: "The selected event is ready to update.",
+      }];
     },
-    referencedExchangesForRequest() { return structuredClone(referencedExchanges); },
   };
 }
-
-test("a TurnBrief can skip the audit for declared read-only work and the trace says so", async () => {
-  const requests = [];
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  registerNativeCapabilities(registry);
-  registry.withCapability("todos", {
-    todo_list: fixtureToolDescription("List current to-dos without changing them."),
-  }).register({
-    name: "todo_list",
-    description: "List to-dos without changing them.",
-    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
-    async execute() { return { todos: [] }; },
-  });
-  registry.registerContextView("todos", {
-    id: "todos.active_groups",
-    title: "Active to-do groups",
-    description: "Existing active to-do groups and IDs.",
-    maximumItems: 100,
-    async execute() {
-      return {
-        heading: "Active to-do groups",
-        text: "- [group 7] Wedding",
-        data: { groups: [{ todoGroupId: 7, name: "Wedding" }] },
-      };
-    },
-  });
-  const readBrief = {
-    ...brief({ auditRequired: false }),
-    requestType: "informational",
-    responseMode: "answer",
-    objective: "List the current to-dos.",
-    summary: "The user asked to read current to-dos.",
-    requiredTools: ["todo_list"],
-    contextRequests: ["todos.active_groups"],
-    requestedActions: [],
-    completionCriteria: ["Report the current to-do list."],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) {
-      assert.match(payload.developerInstructions, /todos\.active_groups/);
-      return completed(JSON.stringify(readBrief), 12);
-    }
-    assert.match(payload.developerInstructions, /\[group 7\] Wedding/);
-    const response = await payload.onToolCall({
-      callId: "read-todos",
-      tool: "todo_list",
-      arguments: { result_filter: identityResultFilter() },
-    });
-    assert.equal(response.ok, true);
-    return completed("There are no current to-dos.", 18);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  let approvalPlan;
-  let releaseApproval;
-  let approvalReached;
-  const waitingForApproval = new Promise((resolve) => { approvalReached = resolve; });
-  const run = runtime.run({
-    requestId: "request-read-todos", requestEventId: "event-current", text: "What are my to-dos?",
-    awaitTurnBriefApproval(plan) {
-      approvalPlan = plan;
-      approvalReached();
-      return new Promise((resolve) => { releaseApproval = resolve; });
-    },
-  });
-  await waitingForApproval;
-  assert.equal(requests.length, 1, "execution must not start before the displayed TurnBrief is continued");
-  assert.equal(approvalPlan.objective, readBrief.objective);
-  assert.equal(approvalPlan.summary, readBrief.summary);
-  assert.deepEqual(approvalPlan.capabilities.map(({ capability }) => capability), ["todos"]);
-  assert.deepEqual(approvalPlan.tools.map(({ name }) => name), ["todo_list"]);
-  assert.deepEqual(approvalPlan.contextViews.map(({ id }) => id), ["todos.active_groups"]);
-  releaseApproval();
-  assert.equal(await run, "There are no current to-dos.");
-  assert.equal(requests.length, 2);
-  const skipped = ledger.events.find(({ type, phase, payload }) => (
-    type === "agent.step" && phase === "end" && payload?.skipped
-  ));
-  assert.equal(skipped.name, "Audit skipped");
-  assert.match(skipped.content, /declared read-only effects/);
-});
-
-test("structured execution starts with orientation-selected tools and expands exactly within the accepted capability", async () => {
-  const requests = [];
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  let listCalls = 0;
-  let verifyCalls = 0;
-  registry.register({
-    name: "remote_accounting_list_transactions",
-    description: "List the current owner-scoped accounting transactions.",
-    source: "mcp:accounting",
-    annotations: { readOnlyHint: true },
-    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
-    async execute() { listCalls += 1; return { transactionCount: 13 }; },
-  });
-  registry.register({
-    name: "remote_accounting_verify_ledger",
-    description: "Verify current accounting ledger invariants after inspecting transactions.",
-    source: "mcp:accounting",
-    annotations: { readOnlyHint: true },
-    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
-    async execute() { verifyCalls += 1; return { valid: true }; },
-  });
-  const accountingBrief = {
-    ...brief({ auditRequired: false }),
-    requestType: "informational",
-    responseMode: "answer",
-    objective: "Count the accounting transactions and verify the ledger.",
-    summary: "Inspect the transaction count and verify the ledger.",
-    requiredCapabilities: ["integration:accounting"],
-    requiredTools: ["remote_accounting_list_transactions"],
-    requestedActions: [],
-    completionCriteria: ["Report the transaction count and current ledger verification."],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) {
-      assert.match(payload.developerInstructions, /remote_accounting_verify_ledger/);
-      assert.doesNotMatch(payload.developerInstructions, /"inputSchema"/);
-      return completed(JSON.stringify(accountingBrief), 20);
-    }
-    if (index === 1) {
-      assert.deepEqual(payload.tools.map(({ name }) => name), [
-        "remote_accounting_list_transactions",
-        "request_tools",
-      ]);
-      const listed = await payload.onToolCall({
-        callId: "list-transactions",
-        tool: "remote_accounting_list_transactions",
-        arguments: { result_filter: identityResultFilter() },
-      });
-      assert.equal(listed.ok, true);
-      const expansion = await payload.onToolCall({
-        callId: "request-ledger-verification",
-        tool: "request_tools",
-        arguments: { tools: ["remote_accounting_verify_ledger"] },
-      });
-      assert.equal(expansion.ok, true);
-      return completed("Continuing with ledger verification.", 30);
-    }
-    assert.deepEqual(payload.tools.map(({ name }) => name), [
-      "remote_accounting_list_transactions",
-      "remote_accounting_verify_ledger",
-    ]);
-    assert.match(payload.developerInstructions, /Earlier execution evidence from this same user request/);
-    assert.match(payload.developerInstructions, /"transactionCount":13/);
-    const verified = await payload.onToolCall({
-      callId: "verify-ledger",
-      tool: "remote_accounting_verify_ledger",
-      arguments: { result_filter: identityResultFilter() },
-    });
-    assert.equal(verified.ok, true);
-    return completed("There are 13 transactions and the ledger is valid.", 30);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  assert.equal(await runtime.run({
-    requestId: "request-accounting-verify",
-    requestEventId: "event-current",
-    text: "How many accounting transactions are there, and is the ledger valid?",
-  }), "There are 13 transactions and the ledger is valid.");
-  assert.equal(requests.length, 3);
-  assert.equal(listCalls, 1);
-  assert.equal(verifyCalls, 1);
-  const expansions = ledger.events.filter(({ type }) => type === "tools.expansion.requested");
-  assert.deepEqual(expansions[0].payload.tools, ["remote_accounting_verify_ledger"]);
-  assert.equal(
-    ledger.events.some(({ type, name }) => type === "agent.step" && name === "Audit skipped"),
-    true,
-  );
-});
-
-test("a published account object leads from orientation to its exact read tool and verified record", async () => {
-  const requests = [];
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  let reads = 0;
-  registry.registerCapability({
-    id: "integration:accounting", title: "Accounting", summary: "Read accounting records.",
-    aliases: ["accounting"],
-  });
-  registry.register({
-    name: "remote_accounting_list_account_objects",
-    description: "Read account objects with stable references and currencies.",
-    source: "mcp:accounting", capabilityId: "integration:accounting",
-    annotations: { readOnlyHint: true },
-    parameters: { type: "object", additionalProperties: false, properties: {} },
-    metadata: {
-      [toolDescriptionMetadataKey]: {
-        protocol: "agent-slayer.tool-description", version: 1,
-        summary: "List ledger accounts and their currencies.",
-        actionClasses: ["READ"], effectClassifications: ["READ-ONLY"],
-      },
-      [objectDescriptionMetadataKey]: {
-        protocol: "agent-slayer.object-description", version: 1,
-        types: [{
-          id: "accounting.account", title: "Accounting account",
-          summary: "A ledger account whose name and currency identify it in conversation.",
-          identity: { field: "id", summary: "Provider-native account ID." },
-          reference: { field: "sourceRef", summary: "Stable account reference." },
-          display: { field: "displayName", summary: "Account name." },
-          qualifiers: [{ field: "currencyCode", summary: "Currency code." }],
-        }],
-      },
-    },
-    async execute() {
-      reads += 1;
-      return { accounts: [{ id: 42, sourceRef: "accounting:account:42", displayName: "coinbase", currencyCode: "BTC" }] };
-    },
-  });
-  const accountBrief = {
-    ...brief({ auditRequired: false }), requestType: "informational", responseMode: "answer",
-    objective: "Identify the Coinbase Bitcoin accounting account.",
-    summary: "Read the account object before answering.",
-    requiredCapabilities: ["integration:accounting"],
-    requiredTools: ["remote_accounting_list_account_objects"],
-    requestedActions: [],
-    completionCriteria: ["Identify the verified account and currency."],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) {
-      assert.match(payload.developerInstructions, /object:accounting\.account/);
-      assert.match(payload.developerInstructions, /Identity fields: id=id, ref=sourceRef, display=displayName/);
-      assert.match(payload.developerInstructions, /Read: tool:remote_accounting_list_account_objects/);
-      assert.doesNotMatch(payload.developerInstructions, /"inputSchema"/);
-      assert.equal(reads, 0);
-      return completed(JSON.stringify(accountBrief), 20);
-    }
-    assert.equal(payload.tools[0].name, "remote_accounting_list_account_objects");
-    assert.deepEqual(payload.tools[0].inputSchema.properties.result_filter != null, true);
-    const result = await payload.onToolCall({
-      callId: "read-account", tool: "remote_accounting_list_account_objects",
-      arguments: { result_filter: identityResultFilter() },
-    });
-    assert.equal(result.ok, true);
-    assert.match(JSON.stringify(result), /accounting:account:42/);
-    assert.deepEqual(result.objectReferences[0].objects, [{
-      id: 42, ref: "accounting:account:42", display: "coinbase",
-    }]);
-    assert.match(JSON.stringify(result), /"currencyCode":"BTC"/);
-    return completed("Coinbase is an accounting account denominated in Bitcoin (BTC).", 30);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport, registry, contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(), ledger, config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-  assert.equal(await runtime.run({
-    requestId: "request-coinbase", requestEventId: "event-current",
-    text: "There is a coinbase bitcoin account. What is it?",
-  }), "Coinbase is an accounting account denominated in Bitcoin (BTC).");
-  assert.equal(reads, 1);
-  assert.equal(requests.length, 2);
-});
-
-test("an accepted account binding constrains and guards the later tool ID", async () => {
-  const requests = [];
-  const binding = {
-    mention: "that account", type: "accounting.account", source: "mcp:accounting",
-    role: "subject",
-    objects: [{ id: 178, ref: "accounting://accounts/178", display: "Operating Checking" }],
-    sourceEventSeqs: [4],
-  };
-  const ledger = fakeLedger({ conversation: [{
-    eventSeq: 4, requestId: "request-prior", occurredAtUtc: "2026-09-20T12:00:00Z",
-    role: "assistant", content: "I identified Operating Checking.", objectReferences: [binding],
-  }] });
-  const registry = new ToolRegistry();
-  let calls = 0;
-  registry.registerCapability({
-    id: "integration:accounting", title: "Accounting", summary: "Read accounting records.",
-  });
-  registry.register({
-    name: "remote_accounting_search_transactions",
-    description: "Search transactions for one verified account.",
-    source: "mcp:accounting", capabilityId: "integration:accounting",
-    annotations: { readOnlyHint: true },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { account_id: { type: "integer", minimum: 1 } },
-      required: ["account_id"],
-    },
-    metadata: {
-      [objectInputBindingsMetadataKey]: {
-        protocol: "agent-slayer.object-input-bindings", version: 1,
-        bindings: [{ path: "/account_id", objectType: "accounting.account", value: "id" }],
-      },
-    },
-    async execute({ account_id }) {
-      calls += 1;
-      assert.equal(account_id, 178);
-      return { transactions: [{ id: 9001, accountId: 178 }] };
-    },
-  });
-  const accountBrief = {
-    ...brief({ auditRequired: false }),
-    requestType: "informational", responseMode: "answer",
-    objective: "Find transactions for the previously identified account.",
-    summary: "Use the exact accepted account binding.",
-    requiredCapabilities: ["integration:accounting"],
-    requiredTools: ["remote_accounting_search_transactions"],
-    objectReferences: [binding], requestedActions: [],
-    completionCriteria: ["Report matching transactions for account 178."],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) {
-      assert.match(payload.developerInstructions, /accounting:\/\/accounts\/178/);
-      return completed(JSON.stringify(accountBrief), 20);
-    }
-    assert.deepEqual(payload.tools[0].inputSchema.properties.account_id.enum, [178]);
-    const wrong = await payload.onToolCall({
-      callId: "wrong-account", tool: "remote_accounting_search_transactions",
-      arguments: { account_id: 1, result_filter: identityResultFilter() },
-    });
-    assert.equal(wrong.ok, false);
-    assert.match(wrong.error, /must use the exact id.*178/);
-    const duplicateWrong = await payload.onToolCall({
-      callId: "wrong-account-again", tool: "remote_accounting_search_transactions",
-      arguments: { account_id: 1, result_filter: identityResultFilter() },
-    });
-    assert.equal(duplicateWrong.ok, false);
-    assert.equal(duplicateWrong.stopToolLoop, true);
-    const exact = await payload.onToolCall({
-      callId: "exact-account", tool: "remote_accounting_search_transactions",
-      arguments: { account_id: 178, result_filter: identityResultFilter() },
-    });
-    assert.equal(exact.ok, true);
-    return completed("Account 178 has one matching transaction.", 30);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport, registry, contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(), ledger, config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-  assert.equal(await runtime.run({
-    requestId: "request-account-binding", requestEventId: "event-current",
-    text: "Show transactions for that account.",
-  }), "Account 178 has one matching transaction.");
-  assert.equal(calls, 1);
-  assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), true);
-});
-
-test("whitespace-only binding drift is canonicalized before validation without shrinking the batch", async () => {
-  const requests = [];
-  const recentEvidence = [35300, 35322, 35374, 35410, 35464];
-  const subjectBindings = [{
-    mention: "To-do returned by todo_list", role: "subject", type: "todos.personal_task",
-    source: "native:todos",
-    objects: [{
-      id: 360, ref: "agent-slayer://todos/360",
-      display: "Mount bathroom holders\nAddress: 73 E Patterson Ave",
-    }],
-    sourceEventSeqs: [35197, ...recentEvidence],
-  }, {
-    mention: "To-do returned by todo_list", role: "subject", type: "todos.personal_task",
-    source: "native:todos",
-    objects: [{
-      id: 386, ref: "agent-slayer://todos/386",
-      display: "Install drywall Address: 73 E Patterson Ave",
-    }],
-    sourceEventSeqs: [35220, 35263, ...recentEvidence],
-  }, {
-    mention: "To-do returned by todo_list", role: "subject", type: "todos.personal_task",
-    source: "native:todos",
-    objects: [{
-      id: 359, ref: "agent-slayer://todos/359",
-      display: "Fix bathroom door\nAddress: 73 E Patterson Ave",
-    }, {
-      id: 361, ref: "agent-slayer://todos/361",
-      display: "Wire exhaust fan\nAddress: 73 E Patterson Ave",
-    }, {
-      id: 364, ref: "agent-slayer://todos/364",
-      display: "Take down the sign\nAddress: 217 E Oakland",
-    }],
-    sourceEventSeqs: recentEvidence,
-  }];
-  const olderRoleBinding = {
-    mention: "Five selected invoice task to-dos", role: "invoice_line_source",
-    type: "todos.personal_task", source: "native:todos",
-    objects: [{
-      id: 386, ref: "agent-slayer://todos/386",
-      display: "Install drywall Address: 73 E Patterson Ave",
-    }, {
-      id: 359, ref: "agent-slayer://todos/359",
-      display: "Fix bathroom door Address: 73 E Patterson Ave",
-    }, {
-      id: 361, ref: "agent-slayer://todos/361",
-      display: "Wire exhaust fan Address: 73 E Patterson Ave",
-    }, {
-      id: 360, ref: "agent-slayer://todos/360",
-      display: "Mount bathroom holders Address: 73 E Patterson Ave",
-    }],
-    sourceEventSeqs: [35069, 35197, 35220, 35263],
-  };
-  const candidateBinding = {
-    ...olderRoleBinding,
-    role: "invoice_line_source",
-    objects: [
-      ...olderRoleBinding.objects,
-      {
-        id: 364, ref: "agent-slayer://todos/364",
-        display: "Take down the sign Address: 217 E Oakland",
-      },
-    ],
-    sourceEventSeqs: recentEvidence,
-  };
-  const ledger = fakeLedger({ conversation: [{
-    eventSeq: 4,
-    requestId: "request-prior",
-    occurredAtUtc: "2026-10-07T16:34:54Z",
-    role: "assistant",
-    content: "I verified the five selected tasks.",
-    objectReferences: [...subjectBindings, olderRoleBinding],
-  }] });
-  const registry = new ToolRegistry();
-  registry.registerCapability({
-    id: "payments", title: "Payments", summary: "Prepare invoice previews.",
-  });
-  let calls = 0;
-  registry.register({
-    name: "test_invoice_preview",
-    description: "Preview an invoice from exact selected tasks.",
-    source: "local",
-    capabilityId: "payments",
-    annotations: { readOnlyHint: true },
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        personal_task_ids: {
-          type: "array", minItems: 1, items: { type: "integer", minimum: 1 },
-        },
-      },
-      required: ["personal_task_ids"],
-    },
-    metadata: {
-      [objectInputBindingsMetadataKey]: {
-        protocol: "agent-slayer.object-input-bindings",
-        version: 1,
-        bindings: [{
-          path: "/personal_task_ids/*",
-          objectType: "todos.personal_task",
-          value: "id",
-          role: "invoice_line_source",
-        }],
-      },
-    },
-    async execute({ personal_task_ids }) {
-      calls += 1;
-      return { personal_task_ids };
-    },
-  });
-  const candidate = {
-    ...brief({ auditRequired: false }),
-    requestType: "continuation",
-    objective: "Preview the invoice from the five selected tasks.",
-    summary: "Use all five selected invoice tasks.",
-    requiredCapabilities: ["payments"],
-    requiredTools: ["test_invoice_preview"],
-    objectReferences: [candidateBinding],
-    requestedActions: [],
-    completionCriteria: ["Preview tasks 386, 359, 361, 360, and 364."],
-  };
-  const runtime = new SlayerRuntime({
-    modelTransport: transport(async (payload, index) => {
-      if (index === 0) return completed(JSON.stringify(candidate), 20);
-      assert.equal(index, 1, "a formatting-only mismatch must not trigger model repair");
-      assert.deepEqual(
-        payload.tools[0].inputSchema.properties.personal_task_ids.items.enum,
-        [386, 359, 361, 360, 364],
-      );
-      const result = await payload.onToolCall({
-        callId: "preview-invoice",
-        tool: "test_invoice_preview",
-        arguments: {
-          personal_task_ids: [386, 359, 361, 360, 364],
-          result_filter: identityResultFilter(),
-        },
-      });
-      assert.equal(result.ok, true, JSON.stringify(result));
-      return completed("Previewed all five tasks.", 30);
-    }, requests),
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  assert.equal(await runtime.run({
-    requestId: "request-canonical-binding",
-    requestEventId: "event-current",
-    text: "Preview the invoice with those five selected tasks.",
-  }), "Previewed all five tasks.");
-  assert.equal(calls, 1);
-  assert.equal(requests.length, 2);
-  const canonicalized = ledger.events.find(
-    ({ type }) => type === "turn.brief.object_references.canonicalized",
-  );
-  assert.equal(canonicalized.payload.corrections.length, 2);
-  const accepted = ledger.events.find(({ type }) => type === "turn.brief").payload.brief;
-  assert.deepEqual(accepted.objectReferences[0].objects.map(({ id }) => id), [386, 359, 361, 360, 364]);
-  assert.equal(accepted.objectReferences[0].objects[4].display, subjectBindings[2].objects[2].display);
-  assert.deepEqual(accepted.objectReferences[0].sourceEventSeqs, [
-    35069, 35197, 35220, 35263, ...recentEvidence,
-  ]);
-});
-
-test("an explicitly referenced exchange deterministically excludes stale same-named IDs", async () => {
-  const requests = [];
-  const staleBinding = {
-    mention: "Events from unrelated recent conversation",
-    role: "subject",
-    type: "calendar.event",
-    source: "native:calendar",
-    objects: [{
-      id: 3129, ref: "agent-slayer://calendar-events/3129", display: "Morning Exercise",
-    }],
-    sourceEventSeqs: [34253],
-  };
-  const referencedBinding = {
-    mention: "Events from the explicitly referenced exchange",
-    role: "subject",
-    type: "calendar.event",
-    source: "native:calendar",
-    objects: [{
-      id: 3128, ref: "agent-slayer://calendar-events/3128", display: "Morning Exercise",
-    }],
-    sourceEventSeqs: [34319],
-  };
-  const ledger = fakeLedger({
-    conversation: [{
-      eventSeq: 34253,
-      requestId: "unrelated-request",
-      occurredAtUtc: "2026-10-06T05:30:00.000Z",
-      role: "assistant",
-      content: "I found another Morning Exercise event.",
-      objectReferences: [staleBinding],
-    }],
-    referencedExchanges: [{
-      requestId: "referenced-request",
-      requestEventSeq: 34295,
-      responseEventSeq: 34368,
-      request: "Shift today's morning events.",
-      response: "Shifted today's Morning Exercise event.",
-      objectReferences: [referencedBinding],
-      status: "complete",
-      error: null,
-    }],
-  });
-  const registry = new ToolRegistry();
-  registerNativeCapabilities(registry);
-  let updatedId = null;
-  registry.withCapability("calendar", {
-    calendar_event_update: fixtureToolDescription("Update one exact stored calendar event.", {
-      actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
-    }),
-  }).register({
-    name: "calendar_event_update",
-    description: "Update one exact stored calendar event.",
-    annotations: { readOnlyHint: false, destructiveHint: false },
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: { calendar_event_id: { type: "integer", minimum: 1 } },
-      required: ["calendar_event_id"],
-    },
-    async execute({ calendar_event_id }) {
-      updatedId = calendar_event_id;
-      return { updated: true, calendar_event_id };
-    },
-  });
-  const correctionBrief = {
-    ...brief({ auditRequired: false }),
-    requestType: "correction",
-    responseMode: "act",
-    objective: "Move the Morning Exercise event from the explicitly referenced exchange.",
-    summary: "Update the exact referenced calendar event.",
-    requiredCapabilities: ["calendar"],
-    requiredTools: ["calendar_event_update"],
-    objectReferences: [referencedBinding],
-    requestedActions: [{ text: "Move the referenced event.", sourceEventSeqs: [9] }],
-    completionCriteria: ["The exact referenced calendar event receives a successful update receipt."],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) {
-      const catalog = payload.developerInstructions
-        .split("## Verified first-class object references available to this request")[1]
-        .split("## Prior rolling conversation state")[0];
-      assert.match(catalog, /calendar-events\/3128/);
-      assert.doesNotMatch(catalog, /calendar-events\/3129/);
-      return completed(JSON.stringify(correctionBrief), 20);
-    }
-    if (index === 1) {
-      assert.deepEqual(payload.tools[0].inputSchema.properties.calendar_event_id.enum, [3128]);
-      const result = await payload.onToolCall({
-        callId: "move-referenced-event",
-        tool: "calendar_event_update",
-        arguments: { calendar_event_id: 3128 },
-      });
-      assert.equal(result.ok, true);
-      return completed("Moved the referenced Morning Exercise event.", 30);
-    }
-    assert.equal(index, 2);
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "complete",
-      summary: "The exact referenced event was updated.",
-      satisfiedCriteria: correctionBrief.completionCriteria,
-      remainingActions: [],
-      repairInstructions: [],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  assert.equal(await runtime.run({
-    requestId: "request-current",
-    requestEventId: "event-current",
-    text: "Use the event from the referenced exchange.",
-  }), "Moved the referenced Morning Exercise event.");
-  assert.equal(updatedId, 3128);
-});
-
-test("an incomplete referenced exchange cannot contribute callable object IDs", async () => {
-  const staleBinding = {
-    mention: "morning events selected by the failed attempt",
-    role: "subject",
-    type: "calendar.event",
-    source: "native:calendar",
-    objects: [{
-      id: 3129, ref: "agent-slayer://calendar-events/3129", display: "Morning Exercise",
-    }],
-    sourceEventSeqs: [34405],
-  };
-  const ledger = fakeLedger({
-    conversation: [{
-      eventSeq: 34405,
-      requestId: "recent-but-not-referenced",
-      occurredAtUtc: "2026-10-06T05:31:00.000Z",
-      role: "assistant",
-      content: "A prior attempt selected another Morning Exercise event.",
-      objectReferences: [staleBinding],
-    }],
-    referencedExchanges: [{
-      requestId: "failed-calendar-request",
-      requestEventSeq: 34440,
-      responseEventSeq: 34499,
-      request: "Move today's morning events earlier.",
-      response: "I couldn't complete the correction. The intended time is 05:20.",
-      objectReferences: [staleBinding],
-      taskOutcome: "incomplete",
-      objectReferencePolicy: "fresh_read_required",
-      status: "complete",
-      error: null,
-    }],
-  });
-  const registry = new ToolRegistry();
-  registerNativeCapabilities(registry);
-  registry.register({
-    name: "test_calendar_list",
-    description: "Read today's exact calendar events.",
-    capabilityId: "calendar",
-    source: "local",
-    annotations: { readOnlyHint: true, destructiveHint: false },
-    parameters: { type: "object", additionalProperties: false, properties: {} },
-    metadata: {
-      [toolDescriptionMetadataKey]: fixtureToolDescription("Read today's exact calendar events."),
-      [objectDescriptionMetadataKey]: {
-        protocol: "agent-slayer.object-description",
-        version: 1,
-        types: [{
-          id: "calendar.event",
-          title: "Calendar event",
-          summary: "One concrete stored calendar event.",
-          identity: { field: "calendar_event_id", summary: "Stored event ID." },
-          reference: { field: "ref", summary: "Stable event reference." },
-          display: { field: "title", summary: "Displayed event title." },
-          qualifiers: [{ field: "starts_at_utc", summary: "Current start time." }],
-        }],
-      },
-    },
-    async execute() {
-      return { events: [{
-        calendar_event_id: 3128,
-        ref: "agent-slayer://calendar-events/3128",
-        title: "Morning Exercise",
-        starts_at_utc: "2026-10-06T10:10:00.000Z",
-      }] };
-    },
-  });
-  let updatedId = null;
-  registry.register({
-    name: "test_calendar_update",
-    description: "Update one freshly bound calendar event.",
-    capabilityId: "calendar",
-    source: "local",
-    annotations: { readOnlyHint: false, destructiveHint: false },
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: { calendar_event_id: { type: "integer" } },
-      required: ["calendar_event_id"],
-    },
-    metadata: {
-      [toolDescriptionMetadataKey]: fixtureToolDescription("Update one freshly bound calendar event.", {
-        actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
-      }),
-      [objectInputBindingsMetadataKey]: {
-        protocol: "agent-slayer.object-input-bindings",
-        version: 1,
-        bindings: [{
-          path: "/calendar_event_id", objectType: "calendar.event", value: "id", role: "subject",
-        }],
-      },
-    },
-    async execute({ calendar_event_id }) {
-      updatedId = calendar_event_id;
-      return { updated: true, calendar_event_id };
-    },
-  });
-  const safeBrief = {
-    ...brief(),
-    requestType: "continuation",
-    responseMode: "act",
-    objective: "Reread today's Morning Exercise event and apply the referenced correction.",
-    summary: "Use a fresh calendar binding instead of the failed attempt's event ID.",
-    requiredCapabilities: ["calendar"],
-    requiredTools: ["test_calendar_list", "test_calendar_update"],
-    objectReferences: [],
-    requestedActions: [{ text: "Move today's Morning Exercise after rereading it.", sourceEventSeqs: [9] }],
-    completionCriteria: ["The freshly read Morning Exercise event is updated once."],
-  };
-  const requests = [];
-  const runtime = new SlayerRuntime({
-    registry,
-    ledger,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    config: workflowConfig(),
-    modelTransport: transport(async (payload, index) => {
-      if (index === 0) {
-        const catalog = payload.developerInstructions
-          .split("## Verified first-class object references available to this request")[1]
-          .split("## Prior rolling conversation state")[0];
-        assert.doesNotMatch(catalog, /calendar-events\/3129/);
-        return completed(JSON.stringify(safeBrief), 20);
-      }
-      if (index === 1) {
-        const updateSchema = payload.tools.find(({ name }) => name === "test_calendar_update");
-        assert.equal(updateSchema.inputSchema.properties.calendar_event_id.enum, undefined);
-        const staleUpdate = await payload.onToolCall({
-          callId: "reject-stale-calendar-event",
-          tool: "test_calendar_update",
-          arguments: { calendar_event_id: 3129 },
-        });
-        assert.equal(staleUpdate.ok, false);
-        assert.match(staleUpdate.error, /requires a verified calendar\.event binding/);
-        const read = await payload.onToolCall({
-          callId: "fresh-calendar-read",
-          tool: "test_calendar_list",
-          arguments: { result_filter: identityResultFilter() },
-        });
-        assert.equal(read.ok, true);
-        assert.equal(read.controlTransfer?.type, "object_binding_refresh");
-        return completed("Refreshing the update schema from the live event.", 30);
-      }
-      if (index === 2) {
-        const updateSchema = payload.tools.find(({ name }) => name === "test_calendar_update");
-        assert.deepEqual(updateSchema.inputSchema.properties.calendar_event_id.enum, [3128]);
-        const update = await payload.onToolCall({
-          callId: "update-fresh-calendar-event",
-          tool: "test_calendar_update",
-          arguments: { calendar_event_id: 3128 },
-        });
-        assert.equal(update.ok, true);
-        return completed("Updated today's Morning Exercise event.", 30);
-      }
-      assert.equal(index, 3);
-      return completed(JSON.stringify({
-        contractVersion: 1,
-        outcome: "complete",
-        summary: "The freshly bound event was updated.",
-        satisfiedCriteria: safeBrief.completionCriteria,
-        remainingActions: [],
-        repairInstructions: [],
-      }), 10);
-    }, requests),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  assert.equal(await runtime.run({
-    requestId: "request-retry-failed-calendar",
-    requestEventId: "event-current",
-    text: "Try that failed calendar correction again.",
-  }), "Updated today's Morning Exercise event.");
-  assert.equal(updatedId, 3128);
-});
-
-test("an identical successful mutation cannot be replayed in the same request", async () => {
-  const ledger = fakeLedger();
-  const requests = [];
-  const registry = new ToolRegistry();
-  registry.registerCapability({
-    id: "calendar", title: "Calendar", summary: "Read and update calendar events.",
-  });
-  let writes = 0;
-  registry.withCapability("calendar", {
-    test_event_update: fixtureToolDescription("Update one exact stored calendar event.", {
-      actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
-    }),
-  }).register({
-    name: "test_event_update",
-    description: "Update one exact stored calendar event.",
-    annotations: { readOnlyHint: false, destructiveHint: false },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: {
-        value: { type: "string" },
-      },
-      required: ["value"],
-    },
-    async execute({ value }) {
-      writes += 1;
-      return { updated: true, value };
-    },
-  });
-  const updateBrief = {
-    ...brief({ auditRequired: false }),
-    requestType: "correction",
-    responseMode: "act",
-    objective: "Update one calendar event once.",
-    summary: "Apply one exact event update.",
-    requiredCapabilities: ["calendar"],
-    requiredTools: ["test_event_update"],
-    requestedActions: [{ text: "Update event 3128 once.", sourceEventSeqs: [9] }],
-    completionCriteria: ["One successful update receipt exists."],
-  };
-  const runtime = new SlayerRuntime({
-    registry,
-    ledger,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    config: workflowConfig(),
-    modelTransport: transport(async (payload, index) => {
-      if (index === 0) return completed(JSON.stringify(updateBrief), 20);
-      if (index === 2) return completed(JSON.stringify({
-        contractVersion: 1,
-        outcome: "complete",
-        summary: "The update has one successful mutation receipt.",
-        satisfiedCriteria: updateBrief.completionCriteria,
-        remainingActions: [],
-        repairInstructions: [],
-      }), 10);
-      const argumentsObject = {
-        value: "event-3128@2026-10-06T09:20:00.000Z",
-      };
-      const first = await payload.onToolCall({
-        callId: "first-update", tool: "test_event_update", arguments: argumentsObject,
-      });
-      assert.equal(first.ok, true, JSON.stringify(first));
-      const replay = await payload.onToolCall({
-        callId: "replayed-update", tool: "test_event_update", arguments: argumentsObject,
-      });
-      assert.equal(replay.ok, false);
-      assert.equal(replay.stopToolLoop, true);
-      assert.match(replay.error, /identical successful.*already has a receipt/);
-      return completed("Updated the event once.", 30);
-    }, requests),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  assert.equal(await runtime.run({
-    requestId: "request-no-mutation-replay",
-    requestEventId: "event-current",
-    text: "Update that event.",
-  }), "Updated the event once.");
-  assert.equal(writes, 1);
-  assert.equal(ledger.events.some(({ payload }) => payload?.duplicateSuccessfulMutation === true), true);
-});
-
-test("multiple descriptive @ selections use their complete fresh exact-ID set when an older binding exists", async () => {
-  const requests = [];
-  const priorBinding = {
-    mention: "Lucas from an older exchange", type: "contacts.contact", source: "native:contacts",
-    role: "subject",
-    objects: [{ id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing" }],
-    sourceEventSeqs: [4],
-  };
-  const ledger = fakeLedger({ conversation: [{
-    eventSeq: 4, requestId: "request-prior", occurredAtUtc: "2026-09-20T12:00:00Z", role: "assistant",
-    content: "I found Lucas Ruffing.", objectReferences: [priorBinding],
-  }] });
-  const registry = new ToolRegistry();
-  registerNativeCapabilities(registry);
-  registry.withCapability("search", {
-    global_search: fixtureToolDescription("Search across native records."),
-  }).register({
-    name: "global_search",
-    description: "Search across native records.",
-    annotations: { readOnlyHint: true },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { query: { type: "string" } }, required: ["query"],
-    },
-    async execute() { throw new Error("global_search should remain deferred"); },
-  });
-  const selectedObjectCandidates = [{
-    mention: "@Lucas Ruffing — Contact #7", type: "contacts.contact", source: "native:contacts",
-    id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing",
-  }, {
-    mention: "@Lucas Ruffing — Contact #8", type: "contacts.contact", source: "native:contacts",
-    id: 8, ref: "agent-slayer://contacts/8", display: "Lucas Ruffing",
-  }];
-  let lookups = 0;
-  registry.withCapability("contacts", {
-    contact_lookup_batch: fixtureToolDescription("Read exact contacts by stable ID."),
-  }).register({
-    name: "contact_lookup_batch",
-    description: "Read exact contacts by stable ID.",
-    annotations: { readOnlyHint: true },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: {
-        contact_ids: {
-          type: "array", minItems: 1, maxItems: 10,
-          items: { type: "integer", minimum: 1 },
-        },
-      },
-      required: ["contact_ids"],
-    },
-    async execute({ contact_ids }) {
-      lookups += 1;
-      assert.deepEqual(contact_ids, [7, 8]);
-      return { contacts: [
-        { contact_id: 7, display_name: "Lucas Ruffing" },
-        { contact_id: 8, display_name: "Lucas Ruffing" },
-      ] };
-    },
-  });
-  registerNativeObjectContextView(registry, {
-    searchNativeObjects({ query, limit }) {
-      assert.equal(query, "Compare @Lucas Ruffing — Contact #7 and @Lucas Ruffing — Contact #8.");
-      assert.equal(limit, 6);
-      return { source: "native_mariadb_object_tables", capturedAtUtc: "2026-10-04T12:00:00.000Z", objects: [] };
-    },
-    resolveNativeObjectCandidates(candidates) {
-      assert.deepEqual(candidates, selectedObjectCandidates);
-      return [{
-        type: "contact", domainType: "contacts.contact", source: "native:contacts",
-        table: "contacts", id: 7, ref: "agent-slayer://contacts/7", label: "Contact",
-        title: "Lucas Ruffing", detail: "person", matchedOn: ["selected stable reference"], related: [],
-      }, {
-        type: "contact", domainType: "contacts.contact", source: "native:contacts",
-        table: "contacts", id: 8, ref: "agent-slayer://contacts/8", label: "Contact",
-        title: "Lucas Ruffing", detail: "person", matchedOn: ["selected stable reference"], related: [],
-      }];
-    },
-  });
-  const initial = {
-    ...brief({ auditRequired: false }),
-    requestType: "informational", responseMode: "answer",
-    objective: "Read and compare both explicitly selected contacts.",
-    summary: "Use both selected Lucas Ruffing contacts.",
-    requiredCapabilities: ["contacts"],
-    requiredTools: ["contact_lookup_batch"],
-    contextRequests: [], objectReferences: [priorBinding], requestedActions: [],
-    completionCriteria: ["Compare both verified contacts."],
-  };
-  const withContext = { ...initial, contextRequests: ["search.native_object_candidates"] };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) {
-      assert.match(payload.developerInstructions, /Explicit composer object selections/);
-      assert.match(payload.developerInstructions, /@Lucas Ruffing — Contact #7/);
-      assert.match(payload.developerInstructions, /@Lucas Ruffing — Contact #8/);
-      return completed(JSON.stringify(initial), 20);
-    }
-    if (index === 1) {
-      assert.match(payload.developerInstructions, /Explicit object selection validation requires repair/);
-      assert.match(payload.developerInstructions, /search\.native_object_candidates/);
-      return completed(JSON.stringify(withContext), 20);
-    }
-    if (index === 2) {
-      assert.match(payload.developerInstructions, /Verified first-class object references from prepared context/);
-      assert.match(payload.developerInstructions, /agent-slayer:\/\/contacts\/7/);
-      const binding = ledger.events.find(({ type }) => type === "object.references.observed")
-        .payload.objectReferences[0];
-      assert.equal(binding.type, "contacts.contact");
-      assert.deepEqual(binding.objects, [
-        { id: 7, ref: "agent-slayer://contacts/7", display: "Lucas Ruffing" },
-        { id: 8, ref: "agent-slayer://contacts/8", display: "Lucas Ruffing" },
-      ]);
-      assert.notDeepEqual(binding.sourceEventSeqs, priorBinding.sourceEventSeqs);
-      return completed(JSON.stringify({ ...withContext, objectReferences: [binding] }), 20);
-    }
-    assert.equal(index, 3);
-    assert.deepEqual(payload.tools.map(({ name }) => name), ["contact_lookup_batch", "request_tools"]);
-    assert.deepEqual(payload.tools[0].inputSchema.properties.contact_ids.items.enum, [7, 8]);
-    const result = await payload.onToolCall({
-      callId: "read-selected-contact", tool: "contact_lookup_batch",
-      arguments: { contact_ids: [7, 8], result_filter: identityResultFilter() },
-    });
-    assert.equal(result.ok, true);
-    return completed("Both selected Lucas Ruffing contacts were compared.", 30);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport, registry, contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(), ledger, config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  assert.equal(await runtime.run({
-    requestId: "request-selected-contact", requestEventId: "event-current",
-    text: "Compare @Lucas Ruffing — Contact #7 and @Lucas Ruffing — Contact #8.", selectedObjectCandidates,
-  }), "Both selected Lucas Ruffing contacts were compared.");
-  assert.equal(lookups, 1);
-  assert.equal(requests.length, 4);
-  assert.deepEqual(ledger.events.find(({ type }) => type === "turn.brief")
-    .payload.brief.objectReferences[0].objects.map(({ id }) => id), [7, 8]);
-});
-
-test("execution stops before tool exposure when any explicit object selection cannot be reread", async () => {
-  const requests = [];
-  const selectedObjectCandidates = [{
-    mention: "@First task — To-do #7", type: "todos.personal_task", source: "native:todos",
-    id: 7, ref: "agent-slayer://todos/7", display: "First task",
-  }, {
-    mention: "@Missing task — To-do #8", type: "todos.personal_task", source: "native:todos",
-    id: 8, ref: "agent-slayer://todos/8", display: "Missing task",
-  }];
-  const registry = new ToolRegistry();
-  registerNativeCapabilities(registry);
-  registry.withCapability("search", {
-    global_search: fixtureToolDescription("Search across native records."),
-  }).register({
-    name: "global_search", description: "Search across native records.",
-    annotations: { readOnlyHint: true },
-    parameters: { type: "object", additionalProperties: false, properties: {} },
-    async execute() { throw new Error("global_search must not become callable"); },
-  });
-  registerNativeObjectContextView(registry, {
-    searchNativeObjects() {
-      return { source: "native_mariadb_object_tables", capturedAtUtc: "2026-10-04T12:00:00.000Z", objects: [] };
-    },
-    resolveNativeObjectCandidates(candidates) {
-      assert.deepEqual(candidates, selectedObjectCandidates);
-      return [{
-        type: "todo", domainType: "todos.personal_task", source: "native:todos",
-        table: "todo_personal", id: 7, ref: "agent-slayer://todos/7", label: "To-do",
-        title: "First task", detail: "", matchedOn: ["selected stable reference"], related: [],
-      }];
-    },
-  });
-  const candidate = {
-    ...brief({ auditRequired: false }),
-    requestType: "informational", responseMode: "answer",
-    objective: "Compare both selected tasks.", summary: "Compare both exact tasks.",
-    requiredCapabilities: ["search"], requiredTools: [],
-    contextRequests: ["search.native_object_candidates"], objectReferences: [],
-    requestedActions: [], completionCriteria: ["Describe both tasks."],
-  };
-  const runtime = new SlayerRuntime({
-    modelTransport: transport(async (_payload, index) => {
-      assert.equal(index, 0, "execution must stop before a context-refinement or tool call");
-      return completed(JSON.stringify(candidate), 20);
-    }, requests),
-    registry, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(),
-    ledger: fakeLedger(), config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  await assert.rejects(runtime.run({
-    requestId: "request-incomplete-selection", requestEventId: "event-current",
-    text: "Compare @First task — To-do #7 and @Missing task — To-do #8.",
-    selectedObjectCandidates,
-  }), /Every selected object must be reread.*agent-slayer:\/\/todos\/8/u);
-});
-
-test("a same-execution provider confirmation reference cannot be consumed by tool selection or repair", async () => {
-  const requests = [];
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  let commits = 0;
-  registry.register({
-    name: "remote_accounting_preview_delete_transactions",
-    upstreamName: "preview_delete_transactions",
-    description: "Preview an exact transaction deletion and request user confirmation.",
-    source: "mcp:accounting",
-    annotations: { readOnlyHint: false, destructiveHint: false },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { scope: { type: "string", const: "all" } }, required: ["scope"],
-    },
-    async execute() {
-      return {
-        contractVersion: 1,
-        status: "ready",
-        expiresAt: "2099-01-01T00:00:00.000Z",
-        summary: { transactionCount: 13 },
-        nextAction: {
-          type: "request_user_confirmation",
-          instruction: "Ask the user to confirm deletion of exactly 13 transactions.",
-          onApproval: {
-            tool: "commit_delete_transactions",
-            arguments: { deletion_plan_id: "plan-13", preview_digest: `sha256:${"a".repeat(64)}` },
-          },
-        },
-      };
-    },
-  });
-  registry.register({
-    name: "remote_accounting_commit_delete_transactions",
-    upstreamName: "commit_delete_transactions",
-    description: "Commit only an exact preview explicitly approved by the user.",
-    source: "mcp:accounting",
-    annotations: { readOnlyHint: false, destructiveHint: true },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: {
-        deletion_plan_id: { type: "string" },
-        preview_digest: { type: "string" },
-      },
-      required: ["deletion_plan_id", "preview_digest"],
-    },
-    async execute() { commits += 1; return { status: "committed" }; },
-  });
-  const source = { text: "Preview deletion and show me the exact confirmation.", sourceEventSeqs: [9] };
-  const previewBrief = {
-    ...brief({ auditRequired: false }),
-    requestType: "new_objective",
-    responseMode: "clarify",
-    objective: "Preview deletion of all current accounting transactions and request confirmation.",
-    summary: "Create the exact provider preview without committing it.",
-    requiredCapabilities: ["integration:accounting"],
-    requiredTools: [
-      "remote_accounting_preview_delete_transactions",
-      "remote_accounting_commit_delete_transactions",
-    ],
-    requestedActions: [source],
-    prohibitedActions: ["Commit the deletion before the user approves the exact preview."],
-    completionCriteria: ["The exact preview is reported and its commit remains unexecuted."],
-    evidence: [source],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(previewBrief), 20);
-    if (index === 1) {
-      const preview = await payload.onToolCall({
-        callId: "preview-delete",
-        tool: "remote_accounting_preview_delete_transactions",
-        arguments: { scope: "all" },
-      });
-      assert.equal(preview.ok, true);
-      const forbiddenCommit = await payload.onToolCall({
-        callId: "same-execution-commit",
-        tool: "remote_accounting_commit_delete_transactions",
-        arguments: preview.result.nextAction.onApproval.arguments,
-      });
-      assert.equal(forbiddenCommit.ok, false);
-      assert.match(forbiddenCommit.error, /waiting for the user's confirmation/);
-      return completed("The preview contains 13 transactions. Please confirm that exact deletion.", 30);
-    }
-    assert.match(payload.developerInstructions, /remote_accounting_commit_delete_transactions/);
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "repair_needed",
-      summary: "The requested deletion has not executed.",
-      satisfiedCriteria: ["The exact 13-transaction preview is available for confirmation."],
-      remainingActions: ["Execute the deletion."],
-      repairInstructions: ["Retry the commit."],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  assert.equal(await runtime.run({
-    requestId: "request-delete-preview",
-    requestEventId: "event-current",
-    text: "Preview deleting all transactions and show me what I need to confirm.",
-  }), "The preview contains 13 transactions. Please confirm that exact deletion.");
-  assert.equal(commits, 0);
-  assert.equal(requests.length, 3);
-});
 
 function contextBuilder() {
   return {
@@ -1363,6 +101,7 @@ function contextBuilder() {
         activeProfileFactCount: 0,
         relevantProfileTypes: [],
         relevantProfileQuestions: [],
+        localCalendar: "Wednesday 2026-10-14; Thursday 2026-10-15; Friday 2026-10-16",
         history: [],
         contextBudget: { truncated: false },
         attachment: options.attachment ?? null,
@@ -1374,12 +113,12 @@ function contextBuilder() {
 function workflowConfig() {
   return {
     model: "test-model",
-    reasoningEffort: "xhigh",
+    reasoningEffort: "high",
     orientationReasoningEffort: "medium",
     auditReasoningEffort: "low",
     repairReasoningEffort: "high",
     turnWorkflowEnabled: true,
-    maxToolCalls: 4,
+    maxToolCalls: 8,
     systemPromptPath: "unused",
   };
 }
@@ -1407,1615 +146,486 @@ function transport(runTurn, requests) {
   };
 }
 
-test("an invalid weekday/date TurnBrief is repaired before a mutation becomes callable", async () => {
-  const requests = [];
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  let executions = 0;
+function runtimeWith({ registry, ledger, runTurn, requests }) {
+  const runtime = new SlayerRuntime({
+    modelTransport: transport(runTurn, requests),
+    registry,
+    contextBuilder: contextBuilder(),
+    requestCompiler: new RequestCompiler(),
+    ledger,
+    config: workflowConfig(),
+  });
+  runtime.systemPrompt = "SYSTEM PROMPT";
+  return runtime;
+}
+
+function calendarUpdateTool(registry, execute) {
   registry.withCapability("calendar").register({
     name: "calendar_event_update",
-    description: "Update an exact calendar event.",
+    description: "Update or cancel one exact stored calendar event. Null fields preserve their current values.",
     annotations: { readOnlyHint: false, destructiveHint: false },
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: { starts_at_utc: { type: "string" } },
-      required: ["starts_at_utc"],
+      properties: {
+        calendar_event_id: { type: "integer", minimum: 1 },
+        title: { type: ["string", "null"] },
+        status: { type: ["string", "null"], enum: ["confirmed", "cancelled", null] },
+      },
+      required: ["calendar_event_id", "title", "status"],
     },
-    async execute({ starts_at_utc }, toolContext) {
-      executions += 1;
-      assert.equal(toolContext.temporalResolutions[0].localDate, "2026-09-06");
-      return { updated_count: 1, starts_at_utc };
-    },
+    execute,
   });
-  const invalid = {
-    ...brief(),
-    objective: "Schedule the Watch Jobs for Sunday, 2026-08-31.",
-    summary: "Schedule the Watch Jobs on Sunday afternoon.",
-    requiredCapabilities: ["calendar"],
-    requiredTools: ["calendar_event_update"],
-    temporalResolutions: [{
-      sourceText: "Sunday afternoon",
-      sourceEventSeqs: [9],
-      weekday: "Sunday",
-      localDate: "2026-08-31",
-      timeZone: "America/New_York",
-      role: "target",
-      appliesTo: "calendar_start",
-    }],
-    requestedActions: [{ text: "Schedule the Watch Jobs Sunday afternoon.", sourceEventSeqs: [9] }],
-    completionCriteria: ["A successful calendar_event_update receipt schedules the work on Sunday."],
-  };
-  const corrected = structuredClone(invalid);
-  corrected.objective = "Schedule the Watch Jobs for Sunday, 2026-09-06.";
-  corrected.temporalResolutions[0].localDate = "2026-09-06";
+}
 
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(invalid), 20);
-    if (index === 1) {
-      assert.equal(executions, 0);
-      assert.match(payload.developerInstructions, /Deterministic temporal validation rejected/);
-      assert.match(payload.developerInstructions, /2026-08-31 is Monday, not Sunday/);
-      return completed(JSON.stringify(corrected), 20);
-    }
-    if (index === 2) {
-      assert.equal(executions, 0);
-      assert.deepEqual(payload.tools.map(({ name }) => name), ["calendar_event_update"]);
-      assert.match(payload.developerInstructions, /2026-09-06/);
-      const result = await payload.onToolCall({
-        callId: "schedule-sunday",
-        tool: "calendar_event_update",
-        arguments: { starts_at_utc: "2026-09-06T20:00:00.000Z" },
-      });
-      assert.equal(result.ok, true);
-      return completed("Scheduled the Watch Jobs for Sunday.", 30);
-    }
-    assert.equal(executions, 1);
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "complete",
-      summary: "The Sunday schedule update completed.",
-      satisfiedCriteria: ["The successful receipt uses September 6."],
-      remainingActions: [],
-      repairInstructions: [],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  assert.equal(await runtime.run({
-    requestId: "request-sunday",
-    requestEventId: "event-current",
-    text: "Schedule all Watch Jobs Sunday afternoon.",
-  }), "Scheduled the Watch Jobs for Sunday.");
-  assert.equal(executions, 1);
-  assert.equal(requests.length, 4);
-  assert.deepEqual(
-    ledger.events.filter(({ type }) => type === "turn.brief.validation").map(({ status }) => status),
-    ["error", "complete"],
-  );
-  assert.equal(
-    ledger.events.find(({ type }) => type === "turn.brief").payload.brief.temporalResolutions[0].localDate,
-    "2026-09-06",
-  );
-});
-
-test("a TurnBrief tool outside its selected capability is repaired before execution", async () => {
+test("the normal mutation path is one common-sense call plus execution and skips semantic audit", async () => {
   const requests = [];
-  const executions = [];
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
   registerNativeCapabilities(registry);
-  registry.withCapability("database", {
-    tool_receipt_read: fixtureToolDescription("Read one exact durable tool receipt."),
-  }).register({
-    name: "tool_receipt_read",
-    description: "Read one exact durable tool receipt.",
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { receiptEventSeq: { type: "integer" } },
-      required: ["receiptEventSeq"],
-    },
-    async execute({ receiptEventSeq }) {
-      executions.push({ tool: "tool_receipt_read", receiptEventSeq });
-      return {
-        moves: [{
-          personal_task_id: 322,
-          ref: "agent-slayer://todos/322",
-          text: "Watch Jobs",
-          previous_scheduled_at_utc: "2026-09-02T11:00:00.000Z",
-        }],
-      };
-    },
+  let updates = 0;
+  calendarUpdateTool(registry, async (argumentsObject) => {
+    updates += 1;
+    return { updated: true, event: { calendar_event_id: argumentsObject.calendar_event_id, title: "Admin" } };
   });
-  registry.withCapability("todos", {
-    todo_update: fixtureToolDescription("Update identified to-dos atomically.", {
-      actionClasses: ["UPDATE"],
-      effectClassifications: ["MUTATING"],
-    }),
-  }).register({
-    name: "todo_update",
-    description: "Update identified to-dos atomically.",
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { personal_task_id: { type: "integer" }, scheduled_at_utc: { type: "string" } },
-      required: ["personal_task_id", "scheduled_at_utc"],
-    },
-    async execute(argumentsObject) {
-      executions.push({ tool: "todo_update", ...argumentsObject });
-      return { updated_count: 1, task: argumentsObject };
-    },
-  });
-  const invalid = {
-    ...brief(),
-    requestType: "correction",
-    objective: "Restore to-do #322 to its exact schedule before the prior batch move.",
-    summary: "Restore only #322 to its prior schedule.",
-    requiredCapabilities: ["todos"],
-    requiredTools: ["tool_receipt_read", "todo_update"],
-    requestedActions: [{ text: "Move #322 back to where it was.", sourceEventSeqs: [9] }],
-    completionCriteria: ["The prior receipt is read and #322 is restored by todo_update."],
-  };
-  const corrected = structuredClone(invalid);
-  corrected.requiredCapabilities = ["database", "todos"];
-
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(invalid), 20);
-    if (index === 1) {
-      assert.deepEqual(executions, []);
-      assert.match(payload.developerInstructions, /Deterministic capability validation rejected/);
-      assert.match(payload.developerInstructions, /tool_receipt_read belongs to capability database/);
-      return completed(JSON.stringify(corrected), 20);
-    }
-    if (index === 2) {
-      assert.deepEqual(payload.tools.map(({ name }) => name), ["tool_receipt_read", "todo_update"]);
-      const receipt = await payload.onToolCall({
-        callId: "read-prior-move",
-        tool: "tool_receipt_read",
-        arguments: { receiptEventSeq: 19686, result_filter: identityResultFilter() },
-      });
-      assert.equal(receipt.ok, true);
-      assert.equal(receipt.controlTransfer?.type, "object_binding_refresh");
-      return completed("The receipt identified the exact task; refreshing its bound schema.", 25);
-    }
-    if (index === 3) {
-      assert.deepEqual(payload.tools[1].inputSchema.properties.personal_task_id.enum, [322]);
-      const update = await payload.onToolCall({
-        callId: "restore-task",
-        tool: "todo_update",
-        arguments: {
-          personal_task_id: 322,
-          scheduled_at_utc: "2026-09-02T11:00:00.000Z",
-        },
-      });
-      assert.equal(update.ok, true);
-      return completed("Restored #322 to its prior schedule.", 30);
-    }
-    assert.deepEqual(executions, [
-      { tool: "tool_receipt_read", receiptEventSeq: 19686 },
-      {
-        tool: "todo_update",
-        personal_task_id: 322,
-        scheduled_at_utc: "2026-09-02T11:00:00.000Z",
-      },
-    ]);
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "complete",
-      summary: "The exact prior schedule was restored.",
-      satisfiedCriteria: ["The receipt was read and the task was updated."],
-      remainingActions: [],
-      repairInstructions: [],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
+  const runtime = runtimeWith({
     registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
     ledger,
-    config: workflowConfig(),
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        assert.equal(payload.tools.length, 0);
+        assert.match(payload.developerInstructions, /Common-sense orientation/);
+        assert.doesNotMatch(payload.developerInstructions, /calendar_event_update/);
+        assert.equal(Object.hasOwn(payload.outputSchema.properties, "requiredTools"), false);
+        return completed(JSON.stringify(core({
+          objective: "Rename calendar event 3165 to Admin.",
+          conversationSummary: "The user wants one calendar event renamed.",
+          actions: [{ instruction: "Rename calendar event 3165 to Admin.", targetRefs: [] }],
+        })));
+      }
+      assert.equal(index, 1);
+      assert.deepEqual(payload.tools.map(({ name }) => name), ["calendar_event_update"]);
+      const result = await payload.onToolCall({
+        callId: "update-event",
+        tool: "calendar_event_update",
+        arguments: { calendar_event_id: 3165, title: "Admin", status: null },
+      });
+      assert.equal(result.ok, true);
+      return completed("Renamed the event to Admin.", 30);
+    },
   });
-  runtime.systemPrompt = "SYSTEM PROMPT";
 
   assert.equal(await runtime.run({
-    requestId: "request-restore-task",
-    requestEventId: "event-current",
-    text: "Move #322 back to where it was.",
-  }), "Restored #322 to its prior schedule.");
-  assert.equal(requests.length, 5);
-  assert.deepEqual(
-    ledger.events.filter(({ type }) => type === "turn.brief.validation").map(({ status }) => status),
-    ["error", "complete"],
-  );
-  assert.deepEqual(
-    ledger.events.find(({ type }) => type === "turn.brief").payload.brief.requiredCapabilities,
-    ["database", "todos"],
-  );
+    requestId: "request-rename", requestEventId: "event-current", text: "Rename event 3165 to Admin.",
+  }), "Renamed the event to Admin.");
+  assert.equal(updates, 1);
+  assert.equal(requests.length, 2);
+  assert.equal(ledger.events.filter(({ type }) => type === "orientation.core").length, 1);
+  assert.equal(ledger.events.some(({ payload }) => payload?.workflowStep === "orientation_context"), false);
+  assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
 
-function todoRegistry(executions) {
+test("explicit batch selections are verified once and stay one bulk action", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
   const registry = new ToolRegistry();
-  registry.register({
-    name: "todo_create",
-    description: "Create a todo.",
+  registerNativeCapabilities(registry);
+  const selections = [7, 8, 9].map((id) => ({
+    mention: `@Task ${id} — To-do #${id}`,
+    type: "todos.personal_task",
+    source: "native:todos",
+    id,
+    ref: `agent-slayer://todos/${id}`,
+    display: `Task ${id}`,
+  }));
+  registerNativeObjectContextView(registry, {
+    searchNativeObjects() {
+      return { source: "native_mariadb_object_tables", capturedAtUtc: "2026-10-14T12:00:00Z", objects: [] };
+    },
+    resolveNativeObjectCandidates(candidates) {
+      assert.deepEqual(candidates, selections);
+      return candidates.map(({ id, ref, display }) => ({
+        type: "todo",
+        domainType: "todos.personal_task",
+        source: "native:todos",
+        table: "todo_personal",
+        id,
+        ref,
+        label: "To-do",
+        title: display,
+        detail: "",
+        matchedOn: ["selected stable reference"],
+        related: [],
+      }));
+    },
+  });
+  let bulkCalls = 0;
+  registry.withCapability("todos").register({
+    name: "todo_complete_batch",
+    description: "Complete one through 500 exact to-dos atomically.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: { title: { type: "string" } },
-      required: ["title"],
+      properties: {
+        todo_ids: { type: "array", minItems: 1, maxItems: 500, items: { type: "integer" } },
+      },
+      required: ["todo_ids"],
     },
-    async execute(argumentsObject) {
-      executions.push(argumentsObject);
-      return { todoId: 42, ...argumentsObject };
+    async execute({ todo_ids }) {
+      bulkCalls += 1;
+      assert.deepEqual(todo_ids, [7, 8, 9]);
+      return { updated_count: 3, todo_ids };
     },
   });
-  return registry;
-}
-
-test("orientation resolves a short approval, execution acts from the TurnBrief, and audit verifies the receipt", async () => {
-  const requests = [];
-  const executions = [];
-  const ledger = fakeLedger();
-  const registry = todoRegistry(executions);
-  registry.withCapability("files").register({
-    name: "file_read",
-    description: "Read an unrelated file.",
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { file_id: { type: "integer" } }, required: ["file_id"],
-    },
-    async execute() { return { content: "unrelated" }; },
-  });
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(brief()), 20);
-    if (index === 1) {
-      assert.deepEqual(
-        payload.tools.map(({ name }) => name),
-        ["todo_create"],
-      );
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        assert.match(payload.developerInstructions, /Explicit composer selections/);
+        return completed(JSON.stringify(core({
+          objective: "Complete all three selected to-dos.",
+          conversationSummary: "The user selected three to-dos and wants all of them completed.",
+          actions: [{
+            instruction: "Complete all three selected to-dos.",
+            targetRefs: selections.map(({ ref }) => ref),
+          }],
+          capabilities: ["todos"],
+        })));
+      }
+      assert.equal(index, 1, "selected-object hydration must not add a model call");
+      assert.deepEqual(payload.tools.map(({ name }) => name), ["todo_complete_batch"]);
+      assert.match(payload.developerInstructions, /agent-slayer:\/\/todos\/9/);
       const result = await payload.onToolCall({
-        callId: "todo-call", tool: "todo_create", arguments: { title: "Offered reminder" },
+        callId: "complete-batch",
+        tool: "todo_complete_batch",
+        arguments: { todo_ids: [7, 8, 9] },
       });
       assert.equal(result.ok, true);
-      return completed("Created the reminder.", 50);
-    }
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "complete",
-      summary: "The receipt proves the reminder was created.",
-      satisfiedCriteria: ["A successful todo_create receipt exists."],
-      remainingActions: [],
-      repairInstructions: [],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-current",
-    requestEventId: "event-current",
-    text: "okay go ahead and do that.",
+      return completed("Completed all three selected to-dos.", 30);
+    },
   });
 
-  assert.equal(result, "Created the reminder.");
-  assert.deepEqual(executions, [{ title: "Offered reminder" }]);
-  assert.deepEqual(requests.map(({ effort }) => effort), ["medium", "xhigh", "low"]);
-  assert.deepEqual(
-    requests.map(({ tools }) => tools.map(({ name }) => name)),
-    [[], ["todo_create"], []],
-  );
-  assert.ok(requests[0].outputSchema);
-  assert.equal(requests[0].input, "okay go ahead and do that.");
-  assert.match(requests[0].developerInstructions, /I can create the reminder now/);
-  assert.match(requests[0].developerInstructions, /Connected capability families/);
-  assert.match(requests[1].developerInstructions, /Accepted TurnBrief/);
-  assert.match(requests[2].developerInstructions, /todo_create/);
-  assert.match(requests[2].developerInstructions, /Complete callable-tool snapshot from execution/);
-  assert.equal(ledger.events.some(({ type }) => type === "turn.brief"), true);
-  assert.equal(ledger.events.some(({ type }) => type === "conversation.state"), true);
-  const orientationStart = ledger.events.findIndex(({ type, phase, payload }) => (
-    type === "agent.step" && phase === "start" && payload?.workflowStep === "orientation"
-  ));
-  const orientationFilter = ledger.events.findIndex(({ type, name }) => (
-    type === "search.filter" && name === "Orient request context filter"
-  ));
-  assert.equal(orientationStart < orientationFilter, true);
-  assert.deepEqual(
-    ledger.events.filter(({ type, phase }) => type === "agent.step" && phase === "start")
-      .map(({ payload }) => payload.workflowStep),
-    ["orientation", "context_preparation", "execution", "audit"],
-  );
-  const operationIds = ledger.events
-    .filter(({ type }) => type === "model.request")
-    .map(({ operationId }) => operationId);
-  assert.equal(new Set(operationIds).size, operationIds.length);
+  assert.equal(await runtime.run({
+    requestId: "request-batch", requestEventId: "event-current",
+    text: "Complete these three.", selectedObjectCandidates: selections,
+  }), "Completed all three selected to-dos.");
+  assert.equal(bulkCalls, 1);
+  assert.equal(requests.length, 2);
+  const accepted = ledger.events.find(({ type }) => type === "orientation.core");
+  assert.deepEqual(accepted.payload.core.actions[0].targetRefs, selections.map(({ ref }) => ref));
+  assert.deepEqual(accepted.payload.objectReferences[0].objects.map(({ id }) => id), [7, 8, 9]);
 });
 
-test("structured execution cannot fish in unrelated capabilities when an MCP operation is absent", async () => {
+test("missing explicit selections stop execution deterministically", async () => {
+  const requests = [];
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  const selections = [7, 8].map((id) => ({
+    mention: `@Task ${id} — To-do #${id}`,
+    type: "todos.personal_task",
+    source: "native:todos",
+    id,
+    ref: `agent-slayer://todos/${id}`,
+    display: `Task ${id}`,
+  }));
+  registerNativeObjectContextView(registry, {
+    searchNativeObjects() { return { objects: [] }; },
+    resolveNativeObjectCandidates() {
+      return [{
+        type: "todo", domainType: "todos.personal_task", source: "native:todos",
+        table: "todo_personal", id: 7, ref: "agent-slayer://todos/7", label: "To-do",
+        title: "Task 7", detail: "", matchedOn: ["selected stable reference"], related: [],
+      }];
+    },
+  });
+  registry.withCapability("todos").register({
+    name: "todo_complete_batch",
+    description: "Complete exact to-dos.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    async execute() { throw new Error("must not execute"); },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger: fakeLedger(),
+    requests,
+    runTurn: async (_payload, index) => {
+      assert.equal(index, 0);
+      return completed(JSON.stringify(core({
+        objective: "Complete both selected to-dos.",
+        actions: [{ instruction: "Complete both selected to-dos.", targetRefs: selections.map(({ ref }) => ref) }],
+        capabilities: ["todos"],
+      })));
+    },
+  });
+
+  await assert.rejects(runtime.run({
+    requestId: "request-missing", requestEventId: "event-current",
+    text: "Complete both.", selectedObjectCandidates: selections,
+  }), /Every selected object must be verified.*agent-slayer:\/\/todos\/8/u);
+  assert.equal(requests.length, 1);
+});
+
+test("date inconsistency gets one exceptional correction before tools are exposed", async () => {
   const requests = [];
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
   registerNativeCapabilities(registry);
-  registry.withCapability("database-write").register({
-    name: "database_write",
-    description: "Write only explicitly allowlisted native content tables.",
-    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
-    async execute() { throw new Error("database_write must not be called"); },
-  });
-  registry.register({
-    name: "remote_accounting_list_transactions",
-    description: "List owner-scoped accounting transactions; this tool does not delete them.",
-    source: "mcp:accounting",
-    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
-    async execute() { return { transactions: [] }; },
-  });
-  const accountingBrief = {
-    ...brief(),
-    objective: "Delete the 13 confirmed accounting transactions.",
-    summary: "The user confirmed deletion of the reviewed accounting transactions.",
-    requiredCapabilities: ["integration:accounting"],
-    requiredTools: ["remote_accounting_list_transactions"],
-    completionCriteria: ["A successful accounting transaction-deletion receipt exists."],
+  calendarUpdateTool(registry, async () => ({ updated: true }));
+  const resolution = {
+    sourceText: "Friday",
+    sourceEventSeqs: [9],
+    weekday: "Friday",
+    localDate: "2026-10-16",
+    timeZone: "America/New_York",
+    role: "target",
+    appliesTo: "calendar_start",
   };
-  const blockedResponse = "No supported accounting transaction-deletion operation is callable.";
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(accountingBrief), 20);
-    if (index === 1) {
-      assert.deepEqual(
-        payload.tools.map(({ name }) => name),
-        ["remote_accounting_list_transactions"],
-      );
-      return completed(blockedResponse, 30);
-    }
-    assert.match(payload.developerInstructions, /Complete callable-tool snapshot from execution/);
-    assert.match(payload.developerInstructions, /remote_accounting_list_transactions/);
-    assert.doesNotMatch(payload.developerInstructions, /database_write/);
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "blocked",
-      summary: blockedResponse,
-      satisfiedCriteria: [],
-      remainingActions: ["Delete the confirmed transactions when the accounting MCP publishes that workflow."],
-      repairInstructions: [],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
+  const runtime = runtimeWith({
     registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
     ledger,
-    config: workflowConfig(),
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          objective: "Move event 12 to Friday.",
+          actions: [{ instruction: "Move event 12 to Friday.", targetRefs: [] }],
+          temporalResolutions: [{ ...resolution, localDate: "2026-10-15" }],
+        })));
+      }
+      if (index === 1) {
+        assert.match(payload.developerInstructions, /Deterministic temporal validation rejected/);
+        assert.equal(payload.tools.length, 0);
+        return completed(JSON.stringify(core({
+          objective: "Move event 12 to Friday.",
+          actions: [{ instruction: "Move event 12 to Friday.", targetRefs: [] }],
+          temporalResolutions: [resolution],
+        })));
+      }
+      assert.equal(index, 2);
+      const result = await payload.onToolCall({
+        callId: "move-event",
+        tool: "calendar_event_update",
+        arguments: { calendar_event_id: 12, title: null, status: null },
+      });
+      assert.equal(result.ok, true);
+      return completed("Moved the event to Friday.");
+    },
   });
-  runtime.systemPrompt = "SYSTEM PROMPT";
 
   assert.equal(await runtime.run({
-    requestId: "request-accounting-delete",
-    requestEventId: "event-current",
-    text: "Delete all 13 transactions.",
-  }), blockedResponse);
+    requestId: "request-date", requestEventId: "event-current", text: "Move event 12 to Friday.",
+  }), "Moved the event to Friday.");
   assert.equal(requests.length, 3);
-  assert.equal(ledger.events.some(({ type }) => type === "tools.expansion.requested"), false);
 });
 
-test("a failed completion audit adds a bounded repair call without repeating successful writes", async () => {
+test("destructive language triggers the exceptional semantic audit", async () => {
   const requests = [];
-  const executions = [];
   const ledger = fakeLedger();
-  const registry = todoRegistry(executions);
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(brief()), 20);
-    if (index === 1) {
-      const result = await payload.onToolCall({
-        callId: "todo-call", tool: "todo_create", arguments: { title: "Offered reminder" },
-      });
-      assert.equal(result.ok, true);
-      return completed("I think that should be done.", 50);
-    }
-    if (index === 2) return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "repair_needed",
-      summary: "The write succeeded, but the response does not clearly report the result.",
-      satisfiedCriteria: ["A successful todo_create receipt exists."],
-      remainingActions: ["Report the created reminder clearly."],
-      repairInstructions: ["Do not call todo_create again; use the existing receipt."],
-    }), 10);
-    assert.equal(payload.maxToolCalls, 0);
-    assert.match(payload.developerInstructions, /Earlier execution evidence from this same user request/);
-    assert.match(payload.developerInstructions, /"todoId":42/);
-    assert.doesNotMatch(payload.developerInstructions, /I think that should be done\./);
-    assert.match(payload.developerInstructions, /satisfiedCriteria and successful receipts/);
-    assert.match(payload.developerInstructions, /one coherent final response/);
-    assert.match(payload.developerInstructions, /completed during this same user request/);
-    return completed("Created “Offered reminder” as todo 42.", 30);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  calendarUpdateTool(registry, async () => ({
+    updated: true,
+    event: { calendar_event_id: 3165, status: "cancelled" },
+  }));
+  const runtime = runtimeWith({
     registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
     ledger,
-    config: workflowConfig(),
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          objective: "Delete calendar event 3165.",
+          conversationSummary: "The user explicitly asked to delete one calendar event.",
+          actions: [{ instruction: "Delete calendar event 3165.", targetRefs: [] }],
+        })));
+      }
+      if (index === 1) {
+        const result = await payload.onToolCall({
+          callId: "cancel-event",
+          tool: "calendar_event_update",
+          arguments: { calendar_event_id: 3165, title: null, status: "cancelled" },
+        });
+        assert.equal(result.ok, true);
+        return completed("Archived the event.");
+      }
+      assert.equal(index, 2);
+      assert.match(payload.developerInstructions, /DESTRUCTIVE_INTENT_SEMANTICS/);
+      assert.match(payload.developerInstructions, /not.*interchangeable/si);
+      return completed(JSON.stringify({
+        version: 1,
+        outcome: "blocked",
+        summary: "I cancelled the event, but that receipt does not prove permanent deletion.",
+        satisfied: ["The event was cancelled."],
+        remaining: ["Permanent deletion remains unverified."],
+        repairInstructions: [],
+      }));
+    },
   });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-current",
-    requestEventId: "event-current",
-    text: "okay go ahead and do that.",
-    runLimits: { maxToolCalls: 1, timeoutMs: 60_000 },
-  });
-
-  assert.equal(result, "Created “Offered reminder” as todo 42.");
-  assert.deepEqual(executions, [{ title: "Offered reminder" }]);
-  assert.deepEqual(requests.map(({ effort }) => effort), ["medium", "xhigh", "low", "high"]);
-  assert.deepEqual(
-    ledger.events.filter(({ type, phase }) => type === "agent.step" && phase === "start")
-      .map(({ payload }) => payload.workflowStep),
-    ["orientation", "context_preparation", "execution", "audit", "repair"],
-  );
-});
-
-test("an audit preserves a direct question when execution needs information from the user", async () => {
-  const requests = [];
-  const executions = [];
-  const ledger = fakeLedger();
-  const registry = todoRegistry(executions);
-  const clarification = [
-    "Linked task #109 to Jermaine Fox.",
-    "",
-    "What time on Monday should I defer task #111 to?",
-  ].join("\n");
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(brief()), 20);
-    if (index === 1) {
-      const result = await payload.onToolCall({
-        callId: "todo-call", tool: "todo_create", arguments: { title: "Link task #109" },
-      });
-      assert.equal(result.ok, true);
-      return completed(clarification, 50);
-    }
-    assert.match(payload.developerInstructions, /Mark needs_information/);
-    assert.match(payload.developerInstructions, /asks the user one direct, specific question/);
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "needs_information",
-      summary: "The time needed to defer task #111 is not specified.",
-      satisfiedCriteria: ["Task #109 was linked to Jermaine Fox."],
-      remainingActions: ["Defer task #111 after its time is supplied."],
-      repairInstructions: [],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
 
   assert.equal(await runtime.run({
-    requestId: "request-needs-time",
-    requestEventId: "event-current",
-    text: "Do both updates.",
-  }), clarification);
-  assert.deepEqual(executions, [{ title: "Link task #109" }]);
+    requestId: "request-delete", requestEventId: "event-current", text: "Delete calendar event 3165.",
+  }), "I cancelled the event, but that receipt does not prove permanent deletion.");
   assert.equal(requests.length, 3);
-  assert.deepEqual(
-    ledger.events.filter(({ type, phase }) => type === "agent.step" && phase === "start")
-      .map(({ payload }) => payload.workflowStep),
-    ["orientation", "context_preparation", "execution", "audit"],
-  );
 });
 
-test("a successful repair reports work from execution and repair in one cumulative response", async () => {
+test("ordinary informational work needs no mutation receipt and no audit", async () => {
   const requests = [];
-  const executions = [];
   const ledger = fakeLedger();
-  const registry = todoRegistry(executions);
-  const source = { text: "Create the Alpha and Beta reminders.", sourceEventSeqs: [9] };
-  const twoReminderBrief = {
-    ...brief(),
-    requestType: "new_objective",
-    objective: "Create the Alpha and Beta reminders.",
-    summary: "Create two reminders.",
-    requestedActions: [
-      { text: "Create the Alpha reminder.", sourceEventSeqs: [9] },
-      { text: "Create the Beta reminder.", sourceEventSeqs: [9] },
-    ],
-    completionCriteria: [
-      "A successful todo_create receipt exists for Alpha.",
-      "A successful todo_create receipt exists for Beta.",
-    ],
-    evidence: [source],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(twoReminderBrief), 20);
-    if (index === 1) {
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("todos").register({
+    name: "todo_list",
+    description: "List current to-dos.",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { return { todos: [] }; },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          mode: "answer",
+          objective: "Tell the user which to-dos are current.",
+          conversationSummary: "The user asked for the current to-do list.",
+          actions: [],
+          capabilities: ["todos"],
+        })));
+      }
+      assert.equal(index, 1);
       const result = await payload.onToolCall({
-        callId: "create-alpha", tool: "todo_create", arguments: { title: "Alpha" },
+        callId: "list",
+        tool: "todo_list",
+        arguments: {
+          result_filter: {
+            collection_path: null,
+            query: null,
+            match_mode: "all_terms",
+            include_fields: [],
+            exclude_fields: [],
+            max_items: 200,
+            max_characters: 32768,
+          },
+        },
       });
       assert.equal(result.ok, true);
-      return completed("Created the Alpha reminder, but I could not create Beta.", 50);
-    }
-    if (index === 2) return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "repair_needed",
-      summary: "Alpha was created, but Beta remains to be created.",
-      satisfiedCriteria: ["A successful todo_create receipt exists for Alpha."],
-      remainingActions: ["Create the Beta reminder."],
-      repairInstructions: ["Create Beta without repeating the successful Alpha write."],
-    }), 10);
-    assert.doesNotMatch(payload.developerInstructions, /Created the Alpha reminder, but I could not create Beta\./);
-    assert.match(payload.developerInstructions, /A successful todo_create receipt exists for Alpha\./);
-    assert.match(payload.developerInstructions, /satisfiedCriteria and successful receipts/);
-    assert.match(payload.developerInstructions, /one coherent final response/);
-    assert.match(payload.developerInstructions, /without narrating internal execution, audit, failure, retry, or repair history/);
-    const result = await payload.onToolCall({
-      callId: "create-beta", tool: "todo_create", arguments: { title: "Beta" },
-    });
-    assert.equal(result.ok, true);
-    return completed("Created both reminders: Alpha and Beta.", 30);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-two-reminders",
-    requestEventId: "event-current",
-    text: "Create the Alpha and Beta reminders.",
+      return completed("There are no current to-dos.");
+    },
   });
 
-  assert.equal(result, "Created both reminders: Alpha and Beta.");
-  assert.deepEqual(executions, [{ title: "Alpha" }, { title: "Beta" }]);
-  assert.equal(requests.length, 4);
+  assert.equal(await runtime.run({
+    requestId: "request-list", requestEventId: "event-current", text: "What are my current to-dos?",
+  }), "There are no current to-dos.");
+  assert.equal(requests.length, 2);
 });
 
-test("a historical receipt cannot masquerade as a new dry run and repair preserves the real plan", async () => {
-  const requests = [];
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  let dryRuns = 0;
-  registry.withCapability("database", {
-    tool_receipt_read: fixtureToolDescription("Read one exact durable historical tool receipt."),
-  }).register({
-    name: "tool_receipt_read",
-    description: "Read an old receipt.",
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { receiptEventSeq: { type: "integer" } }, required: ["receiptEventSeq"],
-    },
-    async execute() { return { chunk: '{"dryRun":true,"plannedCount":273}' }; },
-  });
-  registry.register({
-    name: "remote_accounting_import_account_tree",
-    description: "Dry-run an account-tree import and create a durable commit plan.",
-    source: "mcp:accounting",
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: {
-        accounts: { type: "array", items: { type: "object", additionalProperties: true } },
-        dry_run: { type: "boolean" },
-      },
-      required: ["accounts", "dry_run"],
-    },
-    async execute() {
-      dryRuns += 1;
-      return {
-        dryRun: true,
-        readyToCommit: true,
-        importPlanId: "plan-current-273",
-        expiresAt: "2099-01-01T00:00:00.000Z",
-        previewDigest: "sha256:273",
-        summary: { accountsCreated: 273, currenciesCreated: 5 },
-      };
-    },
-  });
-  const dryRunBrief = {
-    ...brief({ auditRequired: false }),
-    requestType: "new_objective",
-    objective: "Perform a new dry run of the account-tree import.",
-    summary: "Dry-run the current account tree.",
-    requiredCapabilities: ["database", "integration:accounting"],
-    requiredTools: ["tool_receipt_read", "remote_accounting_import_account_tree"],
-    requestedActions: [{ text: "Dry-run the current import.", sourceEventSeqs: [9] }],
-    completionCriteria: ["A successful direct dry-run receipt exists."],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(dryRunBrief), 20);
-    if (index === 1) {
-      const historical = await payload.onToolCall({
-        callId: "historical", tool: "tool_receipt_read",
-        arguments: { receiptEventSeq: 42, result_filter: identityResultFilter() },
-      });
-      assert.equal(historical.ok, true);
-      return completed("Dry run completed: 273 accounts.", 50);
-    }
-    if (index === 2) {
-      return completed(JSON.stringify({
-        contractVersion: 1,
-        outcome: "repair_needed",
-        summary: "A historical receipt does not prove this requested operation ran.",
-        satisfiedCriteria: [],
-        remainingActions: ["Run the provider's current preview operation."],
-        repairInstructions: ["Call the current MCP operation instead of reading another receipt."],
-      }), 10);
-    }
-    assert.match(payload.developerInstructions, /Call the current MCP operation/);
-    const direct = await payload.onToolCall({
-      callId: "direct-dry-run",
-      tool: "remote_accounting_import_account_tree",
-      arguments: { accounts: [{ full_name: "Assets" }], dry_run: true },
-    });
-    assert.equal(direct.ok, true);
-    assert.equal(direct.result.importPlanId, "plan-current-273");
-    return completed("New dry run completed and its exact commit plan was preserved.", 40);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: { ...workflowConfig(), maxToolCalls: 4 },
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-dry-run",
-    requestEventId: "event-current",
-    text: "Run a new dry run of the account tree.",
-  });
-
-  assert.equal(result, "New dry run completed and its exact commit plan was preserved.");
-  assert.equal(dryRuns, 1);
-  assert.equal(ledger.events.some(({ type }) => type.startsWith("action.artifact")), false);
-  const directReceipt = ledger.events.find(({ type, name }) => (
-    type === "tool.result" && name === "remote_accounting_import_account_tree"
-  ));
-  assert.equal(directReceipt.payload.result.importPlanId, "plan-current-273");
-});
-
-test("provider-guided missing inputs survive repair instead of being replaced by a domain guard", async () => {
-  const requests = [];
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  registry.register({
-    name: "tool_receipt_read",
-    description: "Read historical evidence without executing the provider operation.",
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { receiptEventSeq: { type: "integer" } }, required: ["receiptEventSeq"],
-    },
-    async execute() { return { chunk: '{"historicalPreview":true}' }; },
-  });
-  registry.register({
-    name: "remote_accounting_provider_preview",
-    description: "Run the current provider preview after all provider-required unit scales are supplied.",
-    source: "mcp:accounting",
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { unit_scales: { type: "object", additionalProperties: { type: "integer" } } },
-      required: ["unit_scales"],
-    },
-    async execute() { return { status: "ready" }; },
-  });
-  const providerBrief = {
-    ...brief(),
-    requestType: "new_objective",
-    objective: "Run the provider's current validation preview.",
-    summary: "Validate the current provider input.",
-    requiredCapabilities: ["database", "integration:accounting"],
-    requiredTools: ["tool_receipt_read", "remote_accounting_provider_preview"],
-    completionCriteria: ["Report the current provider result or its exact missing inputs."],
-  };
-  const missingInputResponse = "I need the five unit scales required by the provider before I can run its current preview.";
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(providerBrief), 20);
-    if (index === 1) {
-      await payload.onToolCall({
-        callId: "historical", tool: "tool_receipt_read", arguments: { receiptEventSeq: 42 },
-      });
-      return completed("The provider preview passed.", 50);
-    }
-    if (index === 2) return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "repair_needed",
-      summary: "Historical evidence did not execute the current provider operation.",
-      satisfiedCriteria: [],
-      remainingActions: ["Follow the provider contract for the current input."],
-      repairInstructions: ["Ask for any exact provider-required inputs that are still missing."],
-    }), 10);
-    return completed(missingInputResponse, 30);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-provider-preview",
-    requestEventId: "event-current",
-    text: "Run the provider's current validation preview.",
-  });
-
-  assert.equal(result, missingInputResponse);
-  assert.equal(ledger.events.some(({ type }) => type === "completion.guard"), false);
-});
-
-test("a terminal tool contract failure is preserved in receipts and deterministically suppresses repair", async () => {
-  const requests = [];
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  registry.registerCapability({
-    id: "integration:accounting",
-    title: "Accounting",
-    summary: "Accounting MCP integration.",
-    aliases: ["accounting"],
-    source: "mcp:accounting",
-  });
-  const toolFailure = {
-    contractVersion: 1,
-    kind: "contract_mismatch",
-    code: "MCP_ARTIFACT_REQUIRED_METHOD_NOT_SUPPORTED",
-    terminalForCurrentRequest: true,
-    retry: "after_provider_or_connection_change",
-    serverName: "accounting",
-    capabilityId: "integration:accounting",
-    transportId: "transaction_import",
-    contractFingerprint: "a".repeat(64),
-    step: "begin",
-    method: "POST",
-    path: "/mcp/artifacts",
-    httpStatus: 405,
-  };
-  registry.register({
-    name: "remote_accounting_upload_transaction_import_file",
-    description: "Upload the canonical transaction file through Accounting's advertised artifact transport.",
-    source: "mcp:accounting",
-    capabilityId: "integration:accounting",
-    annotations: {
-      readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true,
-    },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { file_id: { type: "integer" } }, required: ["file_id"],
-    },
-    async execute() {
-      const error = new Error("accounting artifact begin returned HTTP 405");
-      error.toolFailure = toolFailure;
-      throw error;
-    },
-  });
-  const source = { text: "Import the prepared transaction file.", sourceEventSeqs: [9] };
-  const importBrief = {
-    ...brief(),
-    requestType: "new_objective",
-    objective: "Import the prepared transaction file into Accounting.",
-    summary: "The user requested the prepared accounting-file import.",
-    requiredCapabilities: ["integration:accounting"],
-    requiredTools: ["remote_accounting_upload_transaction_import_file"],
-    requestedActions: [source],
-    completionCriteria: ["The provider accepts the complete artifact or the exact blocker is reported."],
-    evidence: [source],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(importBrief), 20);
-    if (index === 1) {
-      const result = await payload.onToolCall({
-        callId: "upload-call",
-        tool: "remote_accounting_upload_transaction_import_file",
-        arguments: { file_id: 218 },
-      });
-      assert.equal(result.ok, false);
-      assert.deepEqual(result.toolFailure, toolFailure);
-      return completed("The Accounting upload could not start.", 50);
-    }
-    if (index === 2) {
-      assert.match(payload.developerInstructions, /TERMINAL_TOOL_CONTRACT_FAILURE/);
-      assert.match(payload.developerInstructions, /MCP_ARTIFACT_REQUIRED_METHOD_NOT_SUPPORTED/);
-      return completed(JSON.stringify({
-        contractVersion: 1,
-        outcome: "repair_needed",
-        summary: "The artifact still needs to be uploaded.",
-        satisfiedCriteria: [],
-        remainingActions: ["Retry the artifact upload."],
-        repairInstructions: ["Retry the same upload operation."],
-      }), 10);
-    }
-    throw new Error("A terminal contract mismatch must not enter repair");
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-accounting-import",
-    requestEventId: "event-current",
-    text: "Import the prepared transaction file.",
-  });
-
-  assert.equal(requests.length, 3);
-  assert.match(result, /The Accounting upload could not start/);
-  assert.match(result, /POST \/mcp\/artifacts/);
-  assert.match(result, /HTTP 405/);
-  assert.match(result, /will not be retried until the integration is refreshed/);
-  const failedReceipt = ledger.events.find(({ type, name }) => (
-    type === "tool.result" && name === "remote_accounting_upload_transaction_import_file"
-  ));
-  assert.deepEqual(failedReceipt.payload.toolFailure, toolFailure);
-  const retryGuard = ledger.events.find(({ type }) => type === "tool.retry.blocked");
-  assert.equal(retryGuard.payload.findings[0].toolFailure.code, toolFailure.code);
-});
-
-test("an MCP preview cannot ask for approval without a valid durable action handoff", async () => {
-  const requests = [];
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  registry.registerCapability({
-    id: "integration:accounting",
-    title: "Accounting",
-    summary: "Accounting MCP integration.",
-    aliases: ["accounting"],
-    source: "mcp:accounting",
-  });
-  const previewResult = {
-    contractVersion: 1,
-    status: "success",
-    job: {
-      import_job_id: "2a54bf58-b967-4f9e-a54d-d4f0c8402a99",
-      preview_digest: `sha256:${"c".repeat(64)}`,
-      ready_to_commit: true,
-      requiredAction: "REQUEST_USER_CONFIRMATION",
-      nextAction: {
-        onApproval: {
-          tool: "commit_transaction_import_job",
-          arguments: {
-            import_job_id: "2a54bf58-b967-4f9e-a54d-d4f0c8402a99",
-            preview_digest: `sha256:${"c".repeat(64)}`,
-          },
-        },
-      },
-    },
-  };
-  registry.register({
-    name: "remote_accounting_preview_transaction_import_job",
-    description: "Create the final provider-owned transaction import preview.",
-    source: "mcp:accounting",
-    upstreamName: "preview_transaction_import_job",
-    capabilityId: "integration:accounting",
-    annotations: {
-      readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false,
-    },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { import_job_id: { type: "string" } }, required: ["import_job_id"],
-    },
-    outputSchema: { type: "object" },
-    async execute() { return structuredClone(previewResult); },
-  });
-  registry.register({
-    name: "remote_accounting_commit_transaction_import_job",
-    description: "Commit one exact transaction import preview.",
-    source: "mcp:accounting",
-    upstreamName: "commit_transaction_import_job",
-    capabilityId: "integration:accounting",
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: {
-        import_job_id: { type: "string" }, preview_digest: { type: "string" },
-      },
-      required: ["import_job_id", "preview_digest"],
-    },
-    async execute() { throw new Error("The malformed preview must never become callable approval"); },
-  });
-  const source = { text: "Prepare the final transaction import preview.", sourceEventSeqs: [9] };
-  const previewBrief = {
-    ...brief(),
-    requestType: "new_objective",
-    objective: "Prepare the final transaction import preview.",
-    summary: "Create the Accounting preview and report whether it can be approved.",
-    requiredCapabilities: ["integration:accounting"],
-    requiredTools: ["remote_accounting_preview_transaction_import_job"],
-    requestedActions: [source],
-    completionCriteria: ["A valid provider confirmation handoff is durably preserved."],
-    evidence: [source],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) return completed(JSON.stringify(previewBrief), 20);
-    if (index === 1) {
-      const result = await payload.onToolCall({
-        callId: "preview-call",
-        tool: "remote_accounting_preview_transaction_import_job",
-        arguments: { import_job_id: previewResult.job.import_job_id },
-      });
-      assert.equal(result.ok, false);
-      assert.equal(result.toolFailure.code, "MCP_FINAL_CONFIRMATION_INVALID");
-      assert.equal(result.toolFailure.terminalForCurrentRequest, true);
-      assert.deepEqual(result.result, previewResult);
-      return completed("The preview is ready; please approve it.", 50);
-    }
-    if (index === 2) {
-      assert.match(payload.developerInstructions, /MCP_FINAL_CONFIRMATION_INVALID/);
-      return completed(JSON.stringify({
-        contractVersion: 1,
-        outcome: "repair_needed",
-        summary: "The preview result requested confirmation.",
-        satisfiedCriteria: [],
-        remainingActions: ["Ask the user to approve it."],
-        repairInstructions: ["Present the preview for approval."],
-      }), 10);
-    }
-    throw new Error("A malformed provider action handoff must not enter repair");
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-preview",
-    requestEventId: "event-current",
-    text: "Prepare the final transaction import preview.",
-  });
-
-  assert.equal(requests.length, 3);
-  assert.doesNotMatch(result, /please approve/i);
-  assert.match(result, /did not return a usable final yes-or-no step/);
-  assert.match(result, /saved the result instead of retrying/);
-  const receipt = ledger.events.find(({ type, name }) => (
-    type === "tool.result" && name === "remote_accounting_preview_transaction_import_job"
-  ));
-  assert.deepEqual(receipt.payload.result, previewResult);
-  assert.equal(receipt.payload.deferredActionReference, undefined);
-  assert.equal(receipt.payload.toolFailure.code, "MCP_FINAL_CONFIRMATION_INVALID");
-  assert.equal(ledger.events.some(({ type }) => type === "tool.retry.blocked"), true);
-});
-
-test("a continuation recovers an opaque provider job ID from the receipt index without asking the user", async () => {
-  const requests = [];
-  const priorJobId = "2a54bf58-b967-4f9e-a54d-d4f0c8402a99";
-  const priorReceiptEventSeq = 42;
-  const ledger = fakeLedger({
-    toolReceipts: [{
-      receiptEventSeq: priorReceiptEventSeq,
-      requestId: "request-prior",
-      occurredAtUtc: "2026-08-28T02:46:50.000Z",
-      tool: "remote_accounting_preview_transaction_import_job",
-      status: "complete",
-      ok: true,
-      resultCharacters: 1200,
-      argumentCharacters: 56,
-      error: null,
-    }],
-  });
-  const registry = new ToolRegistry();
-  registry.registerCapability({
-    id: "database", title: "Database", summary: "Read durable tool receipts.", source: "local",
-  });
-  registry.registerCapability({
-    id: "integration:accounting", title: "Accounting", summary: "Accounting MCP integration.",
-    aliases: ["accounting"], source: "mcp:accounting",
-  });
-  registry.register({
-    name: "tool_receipt_read",
-    description: "Page an exact durable tool receipt.",
-    capabilityId: "database",
-    annotations: { readOnlyHint: true },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { receiptEventSeq: { type: "integer" } }, required: ["receiptEventSeq"],
-    },
-    async execute({ receiptEventSeq }) {
-      assert.equal(receiptEventSeq, priorReceiptEventSeq);
-      return {
-        chunk: JSON.stringify({
-          outcome: {
-            ok: true,
-            result: {
-              status: "success",
-              job: { import_job_id: priorJobId, preview_digest: `sha256:${"d".repeat(64)}` },
-            },
-          },
-        }),
-      };
-    },
-  });
-  const recoveredPreview = {
-    contractVersion: 1,
-    status: "success",
-    job: {
-      import_job_id: priorJobId,
-      preview_digest: `sha256:${"e".repeat(64)}`,
-      ready_to_commit: true,
-      requiredAction: "REQUEST_USER_CONFIRMATION",
-      nextAction: {
-        type: "request_user_confirmation",
-        instruction: "Ask the user to approve this exact recovered preview.",
-        onApproval: {
-          tool: "commit_transaction_import_job",
-          arguments: { import_job_id: priorJobId, preview_digest: `sha256:${"e".repeat(64)}` },
-        },
-      },
-    },
-  };
-  registry.register({
-    name: "remote_accounting_preview_transaction_import_job",
-    description: "Regenerate the final durable preview for an existing import job.",
-    source: "mcp:accounting",
-    upstreamName: "preview_transaction_import_job",
-    capabilityId: "integration:accounting",
-    annotations: {
-      readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false,
-    },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { import_job_id: { type: "string" } }, required: ["import_job_id"],
-    },
-    async execute({ import_job_id }) {
-      assert.equal(import_job_id, priorJobId);
-      return structuredClone(recoveredPreview);
-    },
-  });
-  registry.register({
-    name: "remote_accounting_commit_transaction_import_job",
-    description: "Commit the exact approved recovered preview.",
-    source: "mcp:accounting",
-    upstreamName: "commit_transaction_import_job",
-    capabilityId: "integration:accounting",
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { import_job_id: { type: "string" }, preview_digest: { type: "string" } },
-      required: ["import_job_id", "preview_digest"],
-    },
-    async execute() { throw new Error("Approval belongs to the next user request"); },
-  });
-  const source = { text: "Resume the existing Accounting import without asking me for its ID.", sourceEventSeqs: [9] };
-  const recoveryBrief = {
-    ...brief(),
-    requestType: "continuation",
-    objective: "Recover the existing import job and regenerate its final preview.",
-    summary: "Use the prior provider receipt instead of asking the user for an opaque identifier.",
-    requiredCapabilities: ["database", "integration:accounting"],
-    requiredTools: ["tool_receipt_read", "remote_accounting_preview_transaction_import_job"],
-    receiptReferences: [{
-      receiptEventSeq: priorReceiptEventSeq,
-      tool: "remote_accounting_preview_transaction_import_job",
-      reason: "Recover the existing provider import job identifier.",
-    }],
-    requestedActions: [source],
-    completionCriteria: ["A fresh valid provider-owned approval reference is preserved."],
-    evidence: [source],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) {
-      assert.match(payload.developerInstructions, /Recent durable tool receipt index/);
-      assert.match(payload.developerInstructions, new RegExp(`"receiptEventSeq": ${priorReceiptEventSeq}`));
-      assert.match(payload.developerInstructions, /instead of asking the user to supply an opaque ID/);
-      return completed(JSON.stringify(recoveryBrief), 20);
-    }
-    if (index === 1) {
-      assert.match(payload.developerInstructions, /"receiptEventSeq": 42/);
-      assert.match(payload.developerInstructions, /"tool": "remote_accounting_preview_transaction_import_job"/);
-      const receipt = await payload.onToolCall({
-        callId: "read-prior-preview",
-        tool: "tool_receipt_read",
-        arguments: { receiptEventSeq: priorReceiptEventSeq, result_filter: identityResultFilter() },
-      });
-      assert.equal(receipt.ok, true);
-      const preview = await payload.onToolCall({
-        callId: "recover-preview",
-        tool: "remote_accounting_preview_transaction_import_job",
-        arguments: { import_job_id: priorJobId },
-      });
-      assert.equal(preview.ok, true);
-      return completed("I recovered the existing job and regenerated its preview. Please approve this exact preview.", 50);
-    }
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "complete",
-      summary: "The recovered preview produced a valid provider-owned approval reference.",
-      satisfiedCriteria: ["The user was not asked for an opaque identifier."],
-      remainingActions: [],
-      repairInstructions: [],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
-    registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
-    ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-recover-import",
-    requestEventId: "event-current",
-    text: "Resume the existing Accounting import without asking me for its ID.",
-  });
-
-  assert.match(result, /recovered the existing job/);
-  const previewReceipt = ledger.events.find(({ type, name }) => (
-    type === "tool.result" && name === "remote_accounting_preview_transaction_import_job"
-  ));
-  assert.equal(previewReceipt.payload.deferredActionReference.targetTool,
-    "remote_accounting_commit_transaction_import_job");
-  assert.deepEqual(previewReceipt.payload.deferredActionReference.arguments,
-    recoveredPreview.job.nextAction.onApproval.arguments);
-});
-
-test("a repeated import request can start a new job after the old job was deleted", async () => {
-  const oldJobId = "11111111-1111-4111-8111-111111111111";
-  const newJobId = "22222222-2222-4222-8222-222222222222";
-  const calls = [];
+test("a complex continuation can recover opaque prior evidence during execution without bloating orientation", async () => {
   const requests = [];
   const ledger = fakeLedger({
     conversation: [{
       eventSeq: 4,
-      requestId: "request-prior",
-      occurredAtUtc: "2026-09-16T12:00:00.000Z",
+      requestId: "request-import-prior",
       role: "assistant",
-      content: "The old Coinbase import has zero ready transactions and 11 misfits. Add zero transactions now?",
+      content: "The import job is ready to continue.",
     }],
-    actionReferences: [{
-      referenceId: "prepared-change:old-import",
-      sourceConnection: "mcp:accounting",
-      sourceReceiptEventSeq: 42,
-      targetTool: "remote_accounting_commit_transaction_import_job",
-      arguments: { import_job_id: oldJobId, preview_digest: `sha256:${"a".repeat(64)}` },
-      readiness: { ready: true },
+    toolReceipts: [{
+      receiptEventSeq: 42,
+      requestId: "request-import-prior",
+      occurredAtUtc: "2026-10-14T12:00:00Z",
+      tool: "remote_accounting_start_import",
+      status: "complete",
+      ok: true,
     }],
   });
-  const registry = new ToolRegistry();
-  registry.registerCapability({
-    id: "files", title: "Files", summary: "Read the user's source file.", source: "local",
-  });
-  registry.registerCapability({
-    id: "integration:accounting", title: "Accounting", summary: "Import ledger transactions.",
-    source: "mcp:accounting",
-  });
-  const register = (name, capabilityId, execute, parameters = {
-    type: "object", additionalProperties: false, properties: {}, required: [],
-  }) => registry.register({
-    name,
-    upstreamName: name.replace(/^remote_accounting_/u, ""),
-    description: name,
-    capabilityId,
-    source: capabilityId === "files" ? "local" : "mcp:accounting",
-    parameters,
-    annotations: { readOnlyHint: name.includes("list") || name.includes("read") },
-    async execute(argumentsObject) {
-      calls.push(name);
-      return execute(argumentsObject);
-    },
-  });
-  register("file_read", "files", ({ file_id }) => {
-    assert.equal(file_id, 290);
-    return { source_name: "coinbase btc July to Sep.csv", transaction_count: 11 };
-  }, {
-    type: "object", additionalProperties: false,
-    properties: { file_id: { type: "integer" } }, required: ["file_id"],
-  });
-  register("remote_accounting_list_transaction_import_jobs", "integration:accounting",
-    () => ({ jobs: [{ source_system: "gnucash", import_job_id: "unrelated-job" }] }));
-  register("remote_accounting_create_transaction_import_job", "integration:accounting",
-    () => ({ job: { import_job_id: newJobId } }));
-  register("remote_accounting_stage_transaction_import_chunk", "integration:accounting",
-    ({ import_job_id }) => {
-      assert.equal(import_job_id, newJobId);
-      return { staged: 11 };
-    }, {
-      type: "object", additionalProperties: false,
-      properties: { import_job_id: { type: "string" } }, required: ["import_job_id"],
-    });
-  register("remote_accounting_commit_transaction_import_job", "integration:accounting",
-    () => { throw new Error("Commit requires the new preview and a later confirmation"); }, {
-      type: "object", additionalProperties: false,
-      properties: { import_job_id: { type: "string" }, preview_digest: { type: "string" } },
-      required: ["import_job_id", "preview_digest"],
-    });
-  const importRequest = "file 290 is for my coinbase bitcoin account. The account is balanced through 14 July, so import transactions after that. the known balance as of the end of today 16 september is 0, recorded in the account already so let's see if it matches after these transactions are entered.";
-  const source = { text: importRequest, sourceEventSeqs: [9] };
-  const restartBrief = {
-    ...brief(),
-    requestType: "new_objective",
-    objective: "Start a fresh Coinbase import from file 290.",
-    summary: "The prior import was deleted; read the source and start a new job.",
-    requiredCapabilities: ["files", "integration:accounting"],
-    requiredTools: [
-      "file_read", "remote_accounting_list_transaction_import_jobs",
-      "remote_accounting_create_transaction_import_job",
-      "remote_accounting_stage_transaction_import_chunk",
-    ],
-    requestedActions: [source],
-    completionCriteria: ["A fresh job contains all 11 source transactions."],
-    evidence: [source],
-  };
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) {
-      assert.match(payload.developerInstructions, /new request to perform or redo the task.*does not confirm the old change/);
-      return completed(JSON.stringify(restartBrief), 20);
-    }
-    if (index === 1) {
-      const file = await payload.onToolCall({
-        callId: "read-source", tool: "file_read",
-        arguments: { file_id: 290, result_filter: identityResultFilter() },
-      });
-      assert.equal(file.ok, true, JSON.stringify(file));
-      const jobs = await payload.onToolCall({
-        callId: "list-jobs", tool: "remote_accounting_list_transaction_import_jobs",
-        arguments: { result_filter: identityResultFilter() },
-      });
-      assert.deepEqual(jobs.result.jobs, [{ source_system: "gnucash", import_job_id: "unrelated-job" }]);
-      const created = await payload.onToolCall({
-        callId: "create-new", tool: "remote_accounting_create_transaction_import_job", arguments: {},
-      });
-      assert.equal(created.result.job.import_job_id, newJobId);
-      const staged = await payload.onToolCall({
-        callId: "stage-new", tool: "remote_accounting_stage_transaction_import_chunk",
-        arguments: { import_job_id: newJobId },
-      });
-      assert.equal(staged.result.staged, 11);
-      return completed("Started a new Coinbase import job and staged all 11 records.", 50);
-    }
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "complete",
-      summary: "A new import job has all 11 records staged.",
-      satisfiedCriteria: ["A fresh job contains all 11 source transactions."],
-      remainingActions: [],
-      repairInstructions: [],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport, registry, contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(), ledger, config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-restart-import",
-    requestEventId: "event-current",
-    text: importRequest,
-  });
-
-  assert.match(result, /Started a new Coinbase import job/);
-  assert.deepEqual(calls, [
-    "file_read", "remote_accounting_list_transaction_import_jobs",
-    "remote_accounting_create_transaction_import_job",
-    "remote_accounting_stage_transaction_import_chunk",
-  ]);
-});
-
-test("approval binds execution to the exact active plan and blocks request-id substitution", async () => {
-  const requests = [];
-  const actionReference = {
-    referenceId: "prepared-change:approved",
-    state: "pending",
-    sourceConnection: "mcp:accounting",
-    sourceTool: "remote_accounting_import_account_tree",
-    sourceRequestId: "request-dry-run",
-    sourceReceiptEventSeq: 42,
-    targetTool: "remote_accounting_commit_account_tree_import",
-    targetUpstreamTool: "commit_account_tree_import",
-    arguments: { import_plan_id: "plan-exact-273" },
-    readiness: { ready: true, expiresAt: "2099-01-01T00:00:00.000Z" },
-  };
-  const ledger = fakeLedger({ actionReferences: [actionReference] });
-  const commits = [];
   const registry = new ToolRegistry();
   registry.register({
-    name: "remote_accounting_commit_account_tree_import",
-    description: "Commit one exact durable account-tree plan.",
-    source: "mcp:accounting",
+    name: "tool_receipt_read",
+    description: "Read one exact durable tool receipt.",
+    capabilityId: "database",
+    annotations: { readOnlyHint: true, destructiveHint: false },
     parameters: {
-      type: "object", additionalProperties: false,
-      properties: { import_plan_id: { type: "string" } }, required: ["import_plan_id"],
+      type: "object",
+      additionalProperties: false,
+      properties: { receipt_event_seq: { type: "integer" } },
+      required: ["receipt_event_seq"],
     },
-    async execute(argumentsObject) {
-      commits.push(argumentsObject);
-      return { status: "committed", accountsCreated: 273, currenciesCreated: 5 };
+    async execute({ receipt_event_seq }) {
+      assert.equal(receipt_event_seq, 42);
+      return { result: { import_job_id: "job-42" } };
     },
   });
-  const approvalBrief = {
-    ...brief({ confirmedActionReferenceIds: [actionReference.referenceId] }),
-    objective: "Commit the exact approved account-tree preview.",
-    summary: "The user approved the commit-ready account-tree plan.",
-    requiredCapabilities: ["integration:accounting"],
-    requiredTools: ["remote_accounting_commit_account_tree_import"],
-    completionCriteria: ["A successful receipt for the authorized MCP action exists."],
-  };
-  const toolResponses = [];
-  const modelTransport = transport(async (payload, index) => {
-    if (index === 0) {
-      assert.match(payload.developerInstructions, /plan-exact-273/);
-      return completed(JSON.stringify(approvalBrief), 20);
-    }
-    if (index === 1) {
-      assert.match(payload.developerInstructions, /prepared-change:approved/);
-      toolResponses.push(await payload.onToolCall({
-        callId: "guessed",
-        tool: "remote_accounting_commit_account_tree_import",
-        arguments: { import_plan_id: "request-dry-run" },
-      }));
-      toolResponses.push(await payload.onToolCall({
-        callId: "exact",
-        tool: "remote_accounting_commit_account_tree_import",
-        arguments: actionReference.arguments,
-      }));
-      return completed("Committed the exact approved plan.", 50);
-    }
-    return completed(JSON.stringify({
-      contractVersion: 1,
-      outcome: "complete",
-      summary: "The exact authorized plan has a successful commit receipt.",
-      satisfiedCriteria: ["The authorized plan was committed."],
-      remainingActions: [],
-      repairInstructions: [],
-    }), 10);
-  }, requests);
-  const runtime = new SlayerRuntime({
-    modelTransport,
+  registry.register({
+    name: "remote_accounting_resume_import",
+    description: "Resume an exact accounting import job.",
+    source: "mcp:accounting",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { import_job_id: { type: "string" } },
+      required: ["import_job_id"],
+    },
+    async execute({ import_job_id }) {
+      assert.equal(import_job_id, "job-42");
+      return { resumed: true, import_job_id };
+    },
+  });
+  const runtime = runtimeWith({
     registry,
-    contextBuilder: contextBuilder(),
-    requestCompiler: new RequestCompiler(),
     ledger,
-    config: workflowConfig(),
-  });
-  runtime.systemPrompt = "SYSTEM PROMPT";
-
-  const result = await runtime.run({
-    requestId: "request-approval",
-    requestEventId: "event-current",
-    text: "Go ahead and execute the import.",
-  });
-
-  assert.equal(result, "Committed the exact approved plan.");
-  assert.equal(toolResponses[0].ok, false);
-  assert.match(toolResponses[0].error, /does not match the exact prepared change/);
-  assert.equal(toolResponses[1].ok, true);
-  assert.deepEqual(commits, [{ import_plan_id: "plan-exact-273" }]);
-  assert.equal(ledger.events.some(({ type }) => type.startsWith("action.artifact")), false);
-});
-
-test("repeated errors stop changed-key retries, allow verification, and override an audit requesting repair", async () => {
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  registerNativeCapabilities(registry);
-  let writes = 0;
-  registry.withCapability("todos").register({
-    name: "todo_create", description: "Create a todo.",
-    parameters: { type: "object", properties: { key: { type: "string" } }, required: ["key"] },
-    async execute() { writes += 1; throw new Error("Provider unavailable"); },
-  });
-  registry.withCapability("todos").register({
-    name: "todo_list", description: "Read current todos.", annotations: { readOnlyHint: true },
-    parameters: { type: "object", properties: {} },
-    async execute() { return { tasks: [] }; },
-  });
-  const requests = [];
-  const selected = { ...brief(), requiredTools: ["todo_create", "todo_list"] };
-  const runtime = new SlayerRuntime({
-    registry, ledger, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(), config: workflowConfig(),
-    modelTransport: transport(async (payload, index) => {
-      if (index === 0) return completed(JSON.stringify(selected), 20);
-      if (index === 1) {
-        for (const key of ["original", "changed", "another"]) {
-          const result = await payload.onToolCall({ callId: key, tool: "todo_create", arguments: { key } });
-          assert.equal(result.ok, false);
-          if (key !== "original") assert.equal(result.toolFailure.code, "REPEATED_TOOL_ERROR");
-        }
-        const verification = await payload.onToolCall({
-          callId: "verify", tool: "todo_list", arguments: { result_filter: identityResultFilter() },
-        });
-        assert.equal(verification.ok, true);
-        return completed("The provider failed; the task list is empty.", 50);
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        assert.doesNotMatch(payload.developerInstructions, /Recent durable receipt index/);
+        return completed(JSON.stringify(core({
+          objective: "Resume the existing accounting import.",
+          conversationSummary: "The user wants the previously prepared accounting import resumed.",
+          actions: [{ instruction: "Resume the existing accounting import.", targetRefs: [] }],
+          capabilities: ["integration:accounting"],
+        })));
       }
-      if (index === 2) return completed(JSON.stringify({
-        contractVersion: 1, outcome: "repair_needed", summary: "Try again.",
-        satisfiedCriteria: [], remainingActions: ["Create the task."], repairInstructions: ["Use another key."],
-      }), 10);
-      throw new Error("Repeated failures must not enter repair");
-    }, requests),
+      assert.equal(index, 1);
+      assert.match(payload.developerInstructions, /Recent durable receipt index/);
+      assert.deepEqual(payload.tools.map(({ name }) => name), [
+        "tool_receipt_read", "remote_accounting_resume_import",
+      ]);
+      const receipt = await payload.onToolCall({
+        callId: "read-receipt",
+        tool: "tool_receipt_read",
+        arguments: {
+          receipt_event_seq: 42,
+          result_filter: {
+            collection_path: null,
+            query: null,
+            match_mode: "all_terms",
+            include_fields: [],
+            exclude_fields: [],
+            max_items: 200,
+            max_characters: 32768,
+          },
+        },
+      });
+      assert.equal(receipt.ok, true);
+      const resumed = await payload.onToolCall({
+        callId: "resume-import",
+        tool: "remote_accounting_resume_import",
+        arguments: { import_job_id: "job-42" },
+      });
+      assert.equal(resumed.ok, true);
+      return completed("Resumed the accounting import.");
+    },
   });
-  runtime.systemPrompt = "SYSTEM";
-  const result = await runtime.run({ requestId: "retry-test", requestEventId: "event-current", text: "Go ahead." });
-  assert.equal(writes, 2);
-  assert.equal(requests.length, 3);
-  assert.match(result, /Automatic retries have stopped/);
-  const failed = ledger.events.filter((event) => event.type === "tool.result" && event.status === "error");
-  assert.ok(failed[1].payload.toolFailure);
-});
 
-test("failed account reads allow a discovered account ID in the same request", async () => {
-  const ledger = fakeLedger();
-  const requests = [];
-  const registry = new ToolRegistry();
-  registry.registerCapability({
-    id: "integration:accounting", title: "Accounting", summary: "Read accounting records.",
-  });
-  const attemptedAccountIds = [];
-  registry.register({
-    name: "remote_accounting_list_account_objects",
-    description: "Read one account object by its verified ID.",
-    capabilityId: "integration:accounting", source: "mcp:accounting",
-    annotations: { readOnlyHint: true },
-    parameters: {
-      type: "object", additionalProperties: false,
-      properties: { account_id: { type: "integer" } }, required: ["account_id"],
-    },
-    async execute({ account_id }) {
-      attemptedAccountIds.push(account_id);
-      if (account_id !== 164) throw new Error("Account not found.");
-      return { accounts: [{ id: 164, displayName: "Coinbase", currencyCode: "BTC" }] };
-    },
-  });
-  registry.register({
-    name: "remote_accounting_list_accounts",
-    description: "Find named accounts in the chart of accounts.",
-    capabilityId: "integration:accounting", source: "mcp:accounting",
-    annotations: { readOnlyHint: true },
-    parameters: { type: "object", additionalProperties: false, properties: {} },
-    async execute() { return { accounts: [{ id: 164, name: "Coinbase", currencyCode: "BTC" }] }; },
-  });
-  const selected = {
-    ...brief({ auditRequired: false }),
-    requestType: "informational", responseMode: "answer",
-    objective: "Identify the Coinbase Bitcoin account.",
-    summary: "Read the chart of accounts and confirm the account object.",
-    requiredCapabilities: ["integration:accounting"],
-    requiredTools: ["remote_accounting_list_account_objects", "remote_accounting_list_accounts"],
-    requestedActions: [],
-    completionCriteria: ["Confirm Coinbase's account ID and currency from a live read."],
-  };
-  const runtime = new SlayerRuntime({
-    registry, ledger, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(),
-    config: { ...workflowConfig(), maxToolCalls: 5 },
-    modelTransport: transport(async (payload, index) => {
-      if (index === 0) return completed(JSON.stringify(selected), 20);
-      const accountObject = async (accountId) => payload.onToolCall({
-        callId: `account-${accountId}`, tool: "remote_accounting_list_account_objects",
-        arguments: { account_id: accountId, result_filter: identityResultFilter() },
-      });
-      assert.equal((await accountObject(1)).ok, false);
-      const secondFailure = await accountObject(2);
-      assert.equal(secondFailure.ok, false);
-      assert.equal(secondFailure.toolFailure, undefined);
-      const duplicate = await accountObject(2);
-      assert.equal(duplicate.ok, false);
-      assert.match(duplicate.error, /identical.*same arguments/);
-      const discovery = await payload.onToolCall({
-        callId: "discover-account", tool: "remote_accounting_list_accounts",
-        arguments: { result_filter: identityResultFilter() },
-      });
-      assert.equal(discovery.ok, true);
-      assert.match(JSON.stringify(discovery.result), /"id":164/);
-      assert.equal((await accountObject(164)).ok, true);
-      return completed("Coinbase is account 164, denominated in BTC.", 30);
-    }, requests),
-  });
-  runtime.systemPrompt = "SYSTEM";
   assert.equal(await runtime.run({
-    requestId: "account-lookup-correction", requestEventId: "event-current",
-    text: "Which account is my Coinbase Bitcoin account?",
-  }), "Coinbase is account 164, denominated in BTC.");
-  assert.deepEqual(attemptedAccountIds, [1, 2, 164]);
-  assert.equal(ledger.events.some(({ payload }) => payload?.toolFailure?.code === "REPEATED_TOOL_ERROR"), false);
-});
-
-test("an audited blocker corrects the executor explanation without another repair attempt", async () => {
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  registerNativeCapabilities(registry);
-  let writes = 0;
-  registry.withCapability("todos").register({
-    name: "todo_create", description: "Create a task.", parameters: { type: "object", properties: {} },
-    async execute() { writes += 1; throw new Error("Database connection refused"); },
-  });
-  const requests = [];
-  const corrected = "The task could not be created because the database connection failed.";
-  const runtime = new SlayerRuntime({
-    registry, ledger, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(), config: workflowConfig(),
-    modelTransport: transport(async (payload, index) => {
-      if (index === 0) return completed(JSON.stringify(brief()), 20);
-      if (index === 1) {
-        await payload.onToolCall({ callId: "write", tool: "todo_create", arguments: {} });
-        return completed("The call limit prevented the update from running.", 30);
-      }
-      if (index === 2) return completed(JSON.stringify({
-        contractVersion: 1, outcome: "blocked", summary: corrected,
-        satisfiedCriteria: [], remainingActions: ["Create task after database recovery."], repairInstructions: [],
-      }), 10);
-      throw new Error("A blocked audit must not repeat the failing write");
-    }, requests),
-  });
-  runtime.systemPrompt = "SYSTEM";
-  assert.equal(await runtime.run({ requestId: "blocked", requestEventId: "event-current", text: "Go ahead." }), corrected);
-  assert.equal(writes, 1);
-  assert.equal(requests.length, 3);
-});
-
-test("a blocked audit cannot leak third-person audit narration to the user", async () => {
-  const ledger = fakeLedger();
-  const registry = new ToolRegistry();
-  registerNativeCapabilities(registry);
-  registry.withCapability("todos").register({
-    name: "todo_create", description: "Create a task.", parameters: { type: "object", properties: {} },
-    async execute() { throw new Error("Database connection refused"); },
-  });
-  const requests = [];
-  const runtime = new SlayerRuntime({
-    registry, ledger, contextBuilder: contextBuilder(), requestCompiler: new RequestCompiler(), config: workflowConfig(),
-    modelTransport: transport(async (payload, index) => {
-      if (index === 0) return completed(JSON.stringify(brief()), 20);
-      if (index === 1) {
-        await payload.onToolCall({ callId: "write", tool: "todo_create", arguments: {} });
-        return completed("I couldn't create the task.", 30);
-      }
-      if (index === 2) return completed(JSON.stringify({
-        contractVersion: 1,
-        outcome: "blocked",
-        summary: "The response told the user that the task was not created.",
-        satisfiedCriteria: [],
-        remainingActions: ["Create the task after the database recovers."],
-        repairInstructions: [],
-      }), 10);
-      throw new Error("A blocked audit must not enter repair");
-    }, requests),
-  });
-  runtime.systemPrompt = "SYSTEM";
-
-  const result = await runtime.run({
-    requestId: "blocked-third-person", requestEventId: "event-current", text: "Go ahead.",
-  });
-  assert.equal(result, [
-    "I couldn't complete the request.",
-    "",
-    "Still incomplete:",
-    "- Create the task after the database recovers.",
-  ].join("\n"));
-  assert.doesNotMatch(result, /the user|the response/iu);
-  assert.equal(requests.length, 3);
+    requestId: "request-resume", requestEventId: "event-current",
+    text: "Resume the existing accounting import.",
+  }), "Resumed the accounting import.");
+  assert.equal(requests.length, 2);
 });

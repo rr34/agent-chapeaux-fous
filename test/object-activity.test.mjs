@@ -145,6 +145,27 @@ test("exchange projection keeps exact canonical bindings but ignores trace copie
   assert.equal(references.some(({ type }) => type === "contacts.contact"), false);
 });
 
+test("exchange projection retains bindings accepted with the common-sense core", () => {
+  const binding = {
+    mention: "the selected calendar events",
+    role: "subject",
+    type: "calendar.event",
+    source: "native:calendar",
+    objects: [
+      { id: 3129, ref: "agent-slayer://calendar-events/3129", display: "Morning Exercise" },
+      { id: 3136, ref: "agent-slayer://calendar-events/3136", display: "Meditate" },
+    ],
+    sourceEventSeqs: [39],
+  };
+
+  assert.deepEqual(interactionObjectReferences([{
+    eventSeq: 40,
+    type: "orientation.core",
+    status: "complete",
+    payload: { core: { objective: "Update both events" }, objectReferences: [binding] },
+  }]), [binding]);
+});
+
 test("an incomplete exchange retains successful observations but withholds unexecuted selections", () => {
   const events = [
     {

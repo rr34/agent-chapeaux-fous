@@ -229,8 +229,8 @@ export function temporalConsistencyFindings(brief, {
 
 export function temporalRepairContext(brief, findings) {
   return [
-    "# Deterministic temporal validation rejected the candidate TurnBrief",
-    "Return a complete replacement TurnBrief. Correct every finding using the literal current local calendar and source conversation above. Do not preserve an invalid date merely because it appeared in the rejected candidate.",
+    "# Deterministic temporal validation rejected the common-sense core",
+    "Return a complete replacement core. Correct every finding using the literal current local calendar and source conversation above. Do not preserve an invalid date merely because it appeared in the rejected candidate.",
     "",
     "## Rejected candidate",
     JSON.stringify(brief, null, 2),

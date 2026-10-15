@@ -183,7 +183,7 @@ export function deferredActionArgumentProblem(
   if (confirmedForTool.length > 0) {
     return "This call does not match the exact prepared change the user confirmed. Do not retry with guessed or substituted identifiers or arguments; use only the exact saved invocation.";
   }
-  return "This prepared write is waiting for the user's confirmation and cannot run in the same request that prepared it. Do not retry it now. Tell the user what the preview contains and ask for a simple yes or no. Never mention internal references, TurnBriefs, or invocation details.";
+  return "This prepared write is waiting for the user's confirmation and cannot run in the same request that prepared it. Do not retry it now. Tell the user what the preview contains and ask for a simple yes or no. Never mention internal references, orientation state, or invocation details.";
 }
 
 export function pendingConfirmationFindings(receipts, confirmedReferences = []) {
@@ -205,7 +205,7 @@ export function pendingConfirmationFindings(receipts, confirmedReferences = []) 
   });
 }
 
-const internalConfirmationJargon = /(?:\bauthorization\b|accepted\s+TurnBrief|provider\s+invocation|MCP\s+action\s+reference|active\s+provider)/iu;
+const internalConfirmationJargon = /(?:\bauthorization\b|accepted\s+(?:TurnBrief|common-sense core)|provider\s+invocation|MCP\s+action\s+reference|active\s+provider)/iu;
 
 export function pendingConfirmationResponse(proposedResponse) {
   const proposed = String(proposedResponse ?? "").trim();

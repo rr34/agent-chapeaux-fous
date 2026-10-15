@@ -7,24 +7,24 @@ This repository is a normal application, not an agent framework or plugin.
 Every user request must begin with a literal orientation interaction that visibly contains:
 
 1. the user's exact request;
-2. the bounded, source-referenced conversation context sent to the model;
-3. the strict TurnBrief output schema; and
-4. an organized catalog of connected capability families.
+2. a brief, bounded conversation summary plus exact current object selections;
+3. the strict common-sense core output schema; and
+4. concise descriptions of every connected capability family.
 
-Orientation first preserves the ordinary conversational end condition: what
-must exist, change, remain unchanged, or be answered when the request is done.
-Capability and tool routing serves that interpretation and must not narrow it.
-The catalog uses progressive disclosure: every connected family and tool
-identity remains visible, while complete selection summaries are initially
-expanded only for families the deterministic router found plausible. A
-context-informed orientation may expand the families selected by the first
-pass before execution.
+Orientation identifies the ordinary conversational end condition, batch-shaped
+actions and targets, explicit constraints, genuine ambiguities, needed context,
+and capability families. It does not select exact tools, copy full object
+bindings, write generic guard prose, decide audit policy, or maintain a second
+protocol-shaped conversation state. The current request and explicit composer
+selections outrank older conversational context.
 
-The execution interaction must visibly contain the accepted TurnBrief and the
-exact schema of every callable tool. Before execution, the application may read
-only named, bounded, read-only context views advertised in the orientation
-catalog and selected by the TurnBrief's strict `contextRequests` field. No
-mutation or ordinary tool may run before its exact schema appears in execution.
+After orientation the application deterministically verifies explicit composer
+selections, reads only the core's named bounded read-only context views, and
+hydrates exact object bindings without another model interpretation. The
+execution interaction must visibly contain the accepted common-sense core,
+verified relevant bindings, and the exact schema of every callable tool from
+the selected capability families. No mutation or ordinary tool may run before
+its exact schema appears in execution.
 A model tool call must execute the named application function, and its result
 must be returned to the same model exchange before a final answer is accepted.
 Every identified first-class object must retain a compact bulk-shaped binding
@@ -34,9 +34,13 @@ IDs alone lack human context. Exact bindings outrank repeated prose during
 context pruning and must be carried into later object use. The normative shape
 is `config/protocol-schemas/first-class-object-binding.v1.schema.json`; Object
 Descriptions produce it and object-input bindings consume it.
-The trace must record orientation, execution-context preparation, execution,
-conditional completion audit, repair, and per-step model usage literally. Never
-claim that an unavailable or merely cataloged tool is callable.
+Typed receipts complete ordinary successful work without another model call.
+An LLM completion audit is exceptional: use it for destructive-language
+semantics, conflicting or failed receipts, unknown tool effects, or missing
+mutation evidence. The trace must record orientation, deterministic context
+preparation, execution, the audit decision, any repair, and per-step model
+usage literally. Never claim that an unavailable or merely cataloged tool is
+callable.
 
 ## Agent and tool manifesto
 

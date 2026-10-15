@@ -128,14 +128,14 @@ export class RequestQueue {
 
   awaitTurnBriefApproval(request, plan) {
     if (this.pendingTurnBriefApprovals.has(request.turnId)) {
-      throw new Error(`TurnBrief approval is already pending for request ${request.turnId}`);
+      throw new Error(`Plan approval is already pending for request ${request.turnId}`);
     }
     const approvalId = randomUUID();
     this.ledger.append({
       type: "turn.brief.approval_required", phase: "start", status: "waiting",
-      actorType: "service", actorName: "TurnBrief approval gate",
+      actorType: "service", actorName: "Plan approval gate",
       channel: request.channel, turnId: request.turnId,
-      operationId: approvalId, name: "TurnBrief approval required",
+      operationId: approvalId, name: "Plan approval required",
       content: plan.summary,
       payload: { approvalId, ...plan },
       subjectType: "turn_brief", subjectId: request.turnId,
@@ -170,9 +170,9 @@ export class RequestQueue {
       actorType: "user", actorName: "User",
       channel: pending.request.channel, turnId: pending.request.turnId,
       operationId: pending.approvalId,
-      name: continuing ? "TurnBrief approved" : "TurnBrief cancelled",
+      name: continuing ? "Plan approved" : "Plan cancelled",
       content: continuing
-        ? "The user continued with the displayed TurnBrief."
+        ? "The user continued with the displayed plan."
         : "The user cancelled before execution.",
       payload: { approvalId: pending.approvalId, decision },
       subjectType: "turn_brief", subjectId: pending.request.turnId,

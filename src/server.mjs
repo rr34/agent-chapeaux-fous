@@ -566,7 +566,7 @@ const server = http.createServer(async (request, response) => {
       const body = await readJson(request);
       const approvalId = typeof body.approvalId === "string" ? body.approvalId : "";
       if (!/^[0-9a-f][0-9a-f-]{35}$/.test(approvalId)) {
-        sendJson(response, 400, { error: "A valid TurnBrief approval ID is required" });
+        sendJson(response, 400, { error: "A valid plan approval ID is required" });
         return;
       }
       const [, requestId, decision] = turnBriefDecisionMatch;
@@ -574,7 +574,7 @@ const server = http.createServer(async (request, response) => {
         ? queue.continueTurnBrief(requestId, approvalId)
         : queue.cancelTurnBrief(requestId, approvalId);
       if (!accepted) {
-        sendJson(response, 409, { error: "That TurnBrief is no longer waiting for a decision" });
+        sendJson(response, 409, { error: "That plan is no longer waiting for a decision" });
         return;
       }
       sendJson(response, 200, { requestId, approvalId, decision });

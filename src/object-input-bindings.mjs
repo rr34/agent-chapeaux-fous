@@ -57,7 +57,7 @@ function referencesFor(toolDefinition, objectType, role, selectedGroups, observe
   const observedForRole = observed.filter((object) => bindingRole(object) === role);
   if (observedForRole.length) return observedForRole;
   // A newly discovered generic object can fill a more specific role on the
-  // next schema interaction. Never apply this fallback to TurnBrief-selected
+  // next schema interaction. Never apply this fallback to orientation-selected
   // subjects: that would once again let one selected object occupy every
   // same-type input field.
   return role === defaultObjectBindingRole

@@ -302,11 +302,13 @@ function traceLabel(event: TraceEvent, index: number) {
   const labels: Record<string, string> = {
     "request.received": "User request",
     "agent.step": "Agent step",
-    "turn.brief": "Accepted TurnBrief",
-    "turn.brief.approval_required": "TurnBrief review required",
-    "turn.brief.approved": "TurnBrief continued",
-    "turn.brief.cancelled": "TurnBrief cancelled",
-    "conversation.state": "Rolling conversation state",
+    "orientation.core": "Accepted common-sense core",
+    "orientation.validation": "Core validation",
+    "turn.brief": "Accepted plan (legacy)",
+    "turn.brief.approval_required": "Plan review required",
+    "turn.brief.approved": "Plan continued",
+    "turn.brief.cancelled": "Plan cancelled",
+    "conversation.state": "Brief conversation state",
     "context.sent": "Context sent",
     "tools.sent": "Tools available",
     "model.request": "Model request",
@@ -415,7 +417,7 @@ function formatRecordingClock(milliseconds: number) {
 function runLimitsText(runLimits: RunLimits) {
   const calls = runLimits.maxToolCalls === null ? "unlimited calls" : `${runLimits.maxToolCalls} calls`;
   const time = runLimits.timeoutMs === null ? "no deadline" : `${Math.round(runLimits.timeoutMs / 60_000)} min`;
-  return `${calls} · ${time}${runLimits.promptForTurnBrief ? " · TurnBrief review" : ""}`;
+  return `${calls} · ${time}${runLimits.promptForTurnBrief ? " · plan review" : ""}`;
 }
 
 function AgentComposer({
@@ -957,7 +959,7 @@ function AgentComposer({
         </fieldset>
         <fieldset className="run-limit-fieldset run-limit-supervision">
           <legend>Supervision</legend>
-          <label className="run-limit-check"><input type="checkbox" checked={promptForTurnBrief} onChange={(event) => setPromptForTurnBrief(event.target.checked)} /><span>Pause for TurnBrief review before execution</span></label>
+          <label className="run-limit-check"><input type="checkbox" checked={promptForTurnBrief} onChange={(event) => setPromptForTurnBrief(event.target.checked)} /><span>Pause for plan review before execution</span></label>
         </fieldset>
         <footer className="run-limits-actions">
           <button className="button button--quiet" type="button" onClick={useDefaultRunLimits}>Use defaults</button>

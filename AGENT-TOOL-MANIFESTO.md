@@ -74,21 +74,19 @@ Request completion and object evidence are independent. A request that pauses
 for missing information or otherwise remains incomplete does not invalidate an
 exact binding produced by a successful read or mutation. Later context retains
 those canonical observations while withholding selections that were merely
-copied into the TurnBrief and never independently observed during the request.
+mentioned in orientation and never independently observed during the request.
 A failed or uncertain operation never becomes successful identity evidence.
 
-Before validating a model-produced TurnBrief, the application may restore a
-selected binding's exact catalog display and evidence only when its stable
-reference, provider ID, type, and source already match and the display differs
-solely in whitespace. This deterministic canonicalization is recorded in the
-trace, never adds or removes an object, and never repairs a meaningful display
-change or machine-identity mismatch. A formatting-only copy error therefore
-cannot be "repaired" by silently shrinking an intended batch.
+The common-sense core names supplied stable references rather than copying full
+bindings. After orientation the application hydrates those references from its
+verified catalog and verifies explicit composer selections through their named
+read-only resolver. This deterministic step is recorded in the trace, never
+adds an unselected object, and never silently shrinks an intended batch.
 
 These bindings are priority context, not context bloat. Context pruning removes
 bulky records and repeated prose before it removes the compact ID/reference/
-display binding. Referenced exchanges and accepted TurnBriefs carry bindings
-forward literally. Binding an object does not authorize an operation, make a
+display binding. Referenced exchanges and accepted orientation records carry
+bindings forward literally. Binding an object does not authorize an operation, make a
 tool callable, or bypass freshness and domain validation; it makes the target
 exact.
 
@@ -96,8 +94,9 @@ Role is use-site context, not another identity and not provider business logic.
 It distinguishes same-type objects that are not interchangeable, such as a
 statement account and a designated suspense account, or the destination and
 sources of a contact merge. Reassigning a role never changes an object's ID,
-reference, display, source, or evidence. Once the TurnBrief assigns a role for
-an intended use, later interactions preserve that role with the binding.
+reference, display, source, or evidence. Tool contracts assign any specialized
+use-site role during execution; later interactions preserve that role with the
+binding.
 
 # 1. The LLM
 
@@ -165,27 +164,28 @@ The agent structure owns:
 For every request, the structure:
 
 1. preserves the user's exact request;
-2. constructs bounded, source-referenced conversation context;
-3. gives orientation the strict TurnBrief output schema;
-4. gives orientation an organized catalog of connected capability families and
-   their compact provider-published tool summaries, without callable schemas;
-5. gives orientation compact verified object bindings from the bounded
-   conversation and explicitly referenced exchanges;
-6. validates the TurnBrief, including exact preservation of every selected
-   object's type, source, ID, stable reference, display name, and evidence;
-7. reads only the named, bounded, read-only context views selected in the
-   TurnBrief;
-8. gives execution the accepted TurnBrief, prepared context, and every exact
-   callable schema for the initial tools selected by orientation;
+2. constructs a brief bounded conversation summary and preserves exact current
+   composer selections;
+3. gives orientation the strict common-sense core output schema;
+4. gives orientation concise descriptions of connected capability families,
+   without tool names or callable schemas;
+5. validates the core's literal temporal facts and supplied stable references;
+6. automatically verifies explicit composer selections and reads only the
+   other named, bounded, read-only context views selected in the core;
+7. deterministically hydrates relevant exact object bindings without another
+   model call;
+8. gives execution the accepted common-sense core, prepared context, verified
+   bindings, and exact schemas for tools in the selected capability families;
 9. invokes the exact application function named by a valid model tool call;
 10. returns each tool result, including compact bindings for identified
     first-class objects, to the same model exchange; and
-11. accepts a final answer only after the required completion checks.
+11. accepts a final answer after deterministic receipt checks or an exceptional
+    semantic audit when those checks are insufficient.
 
-TurnBrief validation includes deterministic facts that application code can
+Core validation includes deterministic facts that application code can
 prove without interpreting user intent. In particular, a named weekday and a
 resolved local calendar date must agree before execution begins. A rejected
-candidate is visibly repaired once and revalidated; a second failure stops the
+date interpretation is visibly corrected once and revalidated; a second failure stops the
 request before mutation tools become callable. Source-referenced temporal
 targets are carried into participating domain tools, which reject scheduled
 timestamps outside the authorized local dates before retaining any mutation.
@@ -194,7 +194,9 @@ Context views are small, live, domain-owned reference datasets such as active
 contact tags, to-do groups, or journal trackers. Each view is advertised in the
 capability catalog, selected through `contextRequests`, read through its owning
 domain service, recorded literally, and supplied to execution without another
-model call.
+model call. The exact resolver for explicit composer selections is application-
+mandated request metadata and is added automatically rather than spending a
+model repair call to request it.
 
 Context views read current tool-owned data for one execution. Account-specific
 and shared product enrichment are separate, optional agent layers defined in
@@ -270,14 +272,15 @@ and the server validates every exact tuple before accepting the request. The
 optional draft-only `@` picker uses the same selection metadata while also
 inserting a visible inline mention for prose composed that way. A derived index is considered only if direct reads
 prove inadequate under the conditions above. Deterministic candidate matching
-does not decide what the user meant. Agent request processing does not make an
-unselected database read before execution or insert UI candidates into model
-context as verified evidence. Fresh object evidence enters execution only
-through named, bounded, read-only context views advertised to orientation and
-selected in the TurnBrief's strict `contextRequests`, or through an exact
-callable read tool during execution. Retrieved evidence passes through the
-search engine before it enters later model context. The LLM decides what the
-user meant from the exact request and verified evidence.
+does not decide what the user meant. UI candidates enter orientation as explicit
+user language, not verified evidence. After orientation, the application
+automatically rereads every explicit selection through the named bounded
+selection resolver and stops before execution if any exact tuple is unavailable.
+Other fresh object evidence enters execution only through bounded context views
+selected in the core or through an exact callable read tool during execution.
+Retrieved evidence passes through the search engine before it enters later
+model context. The LLM decides what the user meant; the application verifies
+identity.
 
 The interaction surface may also present the durable request history as an
 object stream beside the complete conversation view. Each interaction shows the
@@ -328,14 +331,15 @@ combined published object catalog is limited to 32,768 UTF-8 bytes per MCP
 connection so orientation remains bounded.
 
 Discovery validates the schema and these cross-contract rules before replacing
-the connection's registered tools. Orientation displays validated types beside
-the owning capability and names the read tool; execution receives the exact
-schema only if the TurnBrief selects that tool. The model must use the returned
+the connection's registered tools. Orientation sees concise owning capability
+descriptions; execution receives exact schemas for the selected capability
+families. The model must use the returned
 record and its stable reference to verify a particular object before making
 claims or choosing an action. No object metadata authorizes a read, mutation,
 or workflow, and Agent Slayer does not infer provider semantics from field
 names or relationships. Provider-owned bounded context views, when available,
-still require explicit TurnBrief `contextRequests` selection.
+still require common-sense core `contextRequests` selection unless they solely
+verify explicit composer selections.
 
 ## 2A.2. Object-input binding contract
 
@@ -357,17 +361,11 @@ mapping to the native catalog rather than inheriting the remote provider's
 source. Agent Slayer never guesses it at runtime from names such as
 `account_id`, descriptions, or workflow conventions.
 
-Orientation treats `subject` as the compact default and advertises only a
-tool's non-default roles, avoiding repeated catalog prose while keeping every
-same-type distinction explicit.
-
-The provider-facing TurnBrief schema remains structurally strict but does not
-duplicate provider IDs, stable references, or human display text as JSON Schema
-literal enums. Those instance values may contain provider-owned or human text
-that is unsafe in a provider's strict-schema dialect, and repeating every tuple
-inflates context. Immediately after parsing, deterministic application
-validation requires every selected ID/reference/display tuple and its evidence
-to match the verified binding catalog exactly before execution can begin.
+The common-sense core uses supplied stable-reference enums but does not copy
+provider IDs, human display text, or entire bindings. After parsing, the
+application hydrates each selected reference from the verified catalog. Exact
+tool schemas then expose provider-owned input roles during execution without
+repeating them in orientation.
 
 Discovery rejects an invalid mapping, a missing input-schema path, or an object
 type not declared by the same connection or native catalog. Every owned domain
@@ -375,7 +373,7 @@ publishes mappings for every tool input that consumes one of its first-class
 objects and keeps those mappings in contract tests.
 
 Before an exact tool schema becomes callable, the application narrows every
-mapped input to IDs or references in the accepted TurnBrief binding with the
+mapped input to IDs or references in the accepted verified binding set with the
 same type, source, and role when one exists. The call boundary validates the
 arguments again before invoking the provider. A substituted, guessed,
 conventional, stale-context, or same-type-but-wrong-role value such as `1`
@@ -472,23 +470,27 @@ interprets the returned evidence using those published meanings.
 
 Agent Slayer uses a structured loop derived from the military OODA loop:
 
-1. **Orient** — preserve the exact request, gather and filter bounded context,
-   select capability families and the smallest likely initial tool set, request
-   required context views, describe the intended outcome, and declare
-   completion and audit needs in the TurnBrief.
-2. **Execute** — receive the accepted TurnBrief and prepared context, expose
-   exact callable schemas for the selected tools, invoke tools, return every
-   result to the same model exchange, and request exact additional tools inside
-   the accepted capability families when observed evidence requires them.
-3. **Audit** — compare the observed outcome with the request, TurnBrief,
-   deterministic findings, effect annotations, and trustworthy receipts.
-4. **Repair** — correct a concrete audited gap within the user's authorization
+1. **Orient** — understand the exact request as ordinary conversation and emit
+   a compact common-sense core containing its end state, batch-shaped actions,
+   relevant supplied references, explicit constraints, genuine questions,
+   context needs, and capability families. Do not select exact tools or audits.
+2. **Prepare** — deterministically verify explicit selections, read the core's
+   bounded context requests, and hydrate exact bindings without another model
+   interpretation.
+3. **Execute** — receive the accepted core, prepared context, and verified
+   bindings; expose exact schemas for the selected capability families; invoke
+   tools; and return every result to the same model exchange.
+4. **Audit when exceptional** — compare the ordinary-language outcome with
+   exact contracts and receipts only when deterministic completion is
+   insufficient.
+5. **Repair** — correct a concrete audited gap within the user's authorization
    and verify the repaired outcome.
 
-Audit is required when the TurnBrief requests it, deterministic findings call
-for it, or a successful tool declares effects that merit verification. A single
-declared read-only call may complete without audit when the TurnBrief does not
-request one. Unknown effects are treated conservatively.
+Typed successful receipts complete ordinary reads and mutations without an
+additional model call. Audit is required for destructive-language semantics,
+conflicting or failed receipts that may have been recovered, unknown tool
+effects, or an action lacking successful mutation evidence. Unknown effects are
+treated conservatively.
 
 Completion of an authorized mutation requires a successful receipt for the
 exact bound tool and arguments. Status reads and receipt inspection provide
@@ -1363,7 +1365,8 @@ Every LLM input contains:
 - the exact user request in its own field;
 - bounded instructions for that interaction;
 - source-referenced context items with type and capture time;
-- accepted structured state such as the TurnBrief and bound approvals;
+- accepted structured state such as the common-sense core, exact bindings, and
+  bound approvals;
 - either a capability catalog or exact callable tool schemas, according to the
   interaction stage;
 - the exact output schema; and
@@ -1394,7 +1397,7 @@ The versioned implementation schema is authoritative. Its basic shape is:
     "requestId": "agent-request-id",
     "type": "orientation",
     "stage": "orient",
-    "objective": "Produce a valid TurnBrief"
+    "objective": "Produce a valid common-sense core"
   },
   "userRequest": {
     "exactText": "the user's exact request"

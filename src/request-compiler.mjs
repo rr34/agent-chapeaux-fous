@@ -66,7 +66,7 @@ const capabilitySummaries = new Map([
 ]);
 
 // Transitional native writes must be selected from explicit request intent or
-// an accepted TurnBrief. They are never a fallback for a missing domain-owned
+// an accepted common-sense core. They are never a fallback for a missing domain-owned
 // mutation tool, especially one owned by an MCP.
 const explicitSelectionOnlyCapabilities = new Set(["database-write"]);
 
@@ -421,7 +421,7 @@ function requestToolsDefinition(tools) {
   return {
     name: "request_tools",
     title: "Request tool schemas",
-    description: "Request exact schemas for one or more additional tools inside the capability families selected by the accepted TurnBrief. Use this only when the current exact tools cannot finish the request. Agent Slayer will continue the same execution with earlier receipts preserved; this call does not perform the requested domain action.",
+    description: "Request exact schemas for one or more additional tools inside the accepted capability families. Use this only when the current exact tools cannot finish the request. Agent Slayer will continue the same execution with earlier receipts preserved; this call does not perform the requested domain action.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -448,39 +448,6 @@ function requestToolsDefinition(tools) {
       }),
     },
   };
-}
-
-export function requiredToolCapabilityFindings(tools, capabilities, requestedToolNames) {
-  const allowedNames = new Set(overrideSelection(tools, capabilities).tools.map(({ name }) => name));
-  const selectedCapabilities = [...new Set(capabilities)].sort();
-  return [...new Set(requestedToolNames)].flatMap((name, index) => {
-    if (allowedNames.has(name)) return [];
-    const tool = tools.find((candidate) => candidate.name === name);
-    const owningCapability = tool ? capabilityForTool(tool) : null;
-    return [{
-      code: "tool_capability_not_selected",
-      path: `brief.requiredTools[${index}]`,
-      message: owningCapability
-        ? `${name} belongs to capability ${owningCapability}, but that capability is absent from requiredCapabilities`
-        : `${name} is not available in the selected capability families`,
-      tool: name,
-      owningCapability,
-      selectedCapabilities,
-    }];
-  });
-}
-
-export function requiredToolCapabilityRepairContext(brief, findings) {
-  return [
-    "# Deterministic capability validation rejected the candidate TurnBrief",
-    "Return a complete replacement TurnBrief. For every required tool, include its owning capability in requiredCapabilities, or remove the tool if it is unnecessary. Do not change the user's objective merely to avoid a capability requirement.",
-    "",
-    "## Rejected candidate",
-    JSON.stringify(brief, null, 2),
-    "",
-    "## Application findings",
-    JSON.stringify(findings, null, 2),
-  ].join("\n");
 }
 
 function exactToolOverrideSelection(tools, capabilities, requestedToolNames) {
