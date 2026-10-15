@@ -86,6 +86,8 @@ test("sequenced to-dos and library items own one prominent marker in full and co
   assert.match(library, /prominentObjectSequence\(props\.object\)/);
   assert.match(sequence, /attributes: object\.attributes\?\.filter\(\(\{ label \}\) => label !== "Sequence"\)/);
   assert.match(sequence, /className="object-card-sequence"/);
+  assert.match(sequence, />\{sequence\}<\/span>/);
+  assert.doesNotMatch(sequence, />#\{sequence\}<\/span>/);
   assert.match(simple, /<CompactObjectCard[\s\S]*leading=\{leading\}/);
   assert.match(compact, /leading && <div className="compact-object-leading">\{leading\}<\/div>/);
   assert.match(styles, /\.object-card-sequence \{[^}]*min-width: 54px;[^}]*font: 750 22px\/1/s);

@@ -11,6 +11,7 @@ import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
 import { JmapClient } from "./jmap-client.mjs";
 import { DailyPaperService } from "./daily-paper.mjs";
+import { TodoPdfService } from "./todo-pdf.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { ObjectNetworkService } from "./object-network.mjs";
@@ -78,6 +79,11 @@ const dailyPaper = store.status.ready ? new DailyPaperService({
   timeZone: () => timeZoneFromProfileFacts(
     profileFacts.list({ status: "active", limit: null }).facts,
   ),
+}) : null;
+const todoPdf = store.status.ready ? new TodoPdfService({
+  ledger,
+  mediaRoot: config.mediaRoot,
+  browserExecutable: config.pdfBrowserExecutable,
 }) : null;
 const videoScripts = store.status.ready ? new VideoScripts({ store, ledger }) : null;
 const videoContent = store.status.ready ? new VideoContent({ videoScripts, organizer }) : null;
@@ -630,6 +636,21 @@ const server = http.createServer(async (request, response) => {
           (count, group) => count + group.todos.length, 0,
         ),
         trackerCount: generated.model.scheduledTrackers.length,
+        file: generated.file,
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/todos/pdf") {
+      const generated = await todoPdf.generate(await readJson(request, 8 * 1024 * 1024), {
+        actorType: "user",
+        actorName: "todo_checklist_web",
+        channel: "web",
+      });
+      sendJson(response, 201, {
+        status: "complete",
+        groupCount: generated.model.groups.length,
+        todoCount: generated.model.todoCount,
+        filters: generated.model.filters,
         file: generated.file,
       });
       return;

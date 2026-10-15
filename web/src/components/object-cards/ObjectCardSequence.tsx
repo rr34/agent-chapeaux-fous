@@ -14,6 +14,6 @@ export function prominentObjectSequence(object: ObjectCardModel) {
       className="object-card-sequence"
       aria-label={`Sequence ${sequence}`}
       title={`Sequence ${sequence}`}
-    >#{sequence}</span>,
+    >{sequence}</span>,
   };
 }

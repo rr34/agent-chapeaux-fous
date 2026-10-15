@@ -4,6 +4,7 @@ import test from "node:test";
 
 const appSource = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
 const editableItemsSource = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
+const serverSource = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
 
 test("the React to-do page starts with open tasks and opts into completed tasks", () => {
@@ -17,12 +18,24 @@ test("the React to-do page starts with open tasks and opts into completed tasks"
 
 test("the React to-do page opens the full editor from one add button", () => {
   assert.match(appSource, /const \[addingTodo, setAddingTodo\] = useState\(false\)/);
-  assert.match(appSource, /actions=\{<button className="button" type="button" onClick=\{\(\) => setAddingTodo\(true\)\}>Add<\/button>\}/);
+  assert.match(appSource, /actions=\{<>\s*<button className="button" type="button" onClick=\{\(\) => setAddingTodo\(true\)\}>Add<\/button>/);
   assert.match(appSource, /\{addingTodo && <TodoEditor/);
   assert.doesNotMatch(appSource, /placeholder="Add a task"/);
   assert.match(editableItemsSource, /todoId\?: number/);
   assert.match(editableItemsSource, /api\(id == null \? "\/api\/todos" : `\/api\/todos\/\$\{id\}`/);
   assert.match(editableItemsSource, /method: id == null \? "POST" : "PATCH"/);
+});
+
+test("the React to-do page prints exactly its visible filtered groups as a PDF checklist", () => {
+  assert.match(appSource, /const \[generatingPdf, setGeneratingPdf\] = useState\(false\)/);
+  assert.match(appSource, /api<\{ file: StoredFileBinding \}>\("\/api\/todos\/pdf"/);
+  assert.match(appSource, /groups: groups\.map\(\(group\) => \(\{/);
+  assert.match(appSource, /todos: group\.todos\.map\(\(todo\) => \(\{/);
+  assert.match(appSource, /completion: showCompleted \? "Open and completed" : "Open"/);
+  assert.match(appSource, /search: filterQuery\.trim\(\) \|\| null/);
+  assert.match(appSource, /generatingPdf \? "Making PDF…" : "Print PDF"/);
+  assert.match(appSource, /downloadAuthenticated\(result\.file\.downloadUrl/);
+  assert.match(serverSource, /request\.method === "POST" && url\.pathname === "\/api\/todos\/pdf"[\s\S]*readJson\(request, 8 \* 1024 \* 1024\)/);
 });
 
 test("completed to-dos sort ahead of open work with the newest completion first", () => {

@@ -1179,6 +1179,8 @@ function TodoScreen() {
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const [reorderingTodoId, setReorderingTodoId] = useState<number | null>(null);
   const [reorderError, setReorderError] = useState("");
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<unknown>(null);
   const statusTodos = (data?.todos || []).filter((todo) =>
     todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
   );
@@ -1251,14 +1253,49 @@ function TodoScreen() {
     }
     return [...grouped.values()];
   }, [filterQuery, groupData?.groups, selectedGroupId, todos]);
-  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<button className="button" type="button" onClick={() => setAddingTodo(true)}>Add</button>} />
+  const generatePdf = async () => {
+    setPdfError(null);
+    setGeneratingPdf(true);
+    const selectedGroupName = selectedGroupId === "all"
+      ? "All groups"
+      : textKey((groupData?.groups || []).find((group) => String(group.id) === selectedGroupId) || {}, "name") || "Selected group";
+    try {
+      const result = await api<{ file: StoredFileBinding }>("/api/todos/pdf", {
+        method: "POST",
+        body: JSON.stringify({
+          filters: {
+            group: selectedGroupName,
+            completion: showCompleted ? "Open and completed" : "Open",
+            search: filterQuery.trim() || null,
+          },
+          groups: groups.map((group) => ({
+            name: group.name,
+            todos: group.todos.map((todo) => ({
+              id: Number(todo.id),
+              text: textKey(todo, "text", "title") || "Task",
+              status: textKey(todo, "status"),
+              sequence: readKey(todo, "sequence"),
+              billableAmountMinor: readKey(todo, "billableAmountMinor"),
+              billableCurrency: readKey(todo, "billableCurrency"),
+            })),
+          })),
+        }),
+      });
+      await downloadAuthenticated(result.file.downloadUrl, result.file.originalFilename || "todo-checklist.pdf");
+    } catch (caught) {
+      setPdfError(caught);
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<><button className="button" type="button" onClick={() => setAddingTodo(true)}>Add</button><button className="button button--quiet" type="button" onClick={() => void generatePdf()} disabled={generatingPdf || loading || groupsLoading || Boolean(error || groupError)}>{generatingPdf ? "Making PDF…" : "Print PDF"}</button></>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" controls={<>
       <SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
         <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
       </SectionSelectFilter>
       <label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label>
     </>} />
-    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{reorderError && <p className="inline-error" role="alert">{reorderError}</p>}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => {
+    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{pdfError && <ErrorState error={pdfError} retry={() => void generatePdf()} dismiss={() => setPdfError(null)} />}{reorderError && <p className="inline-error" role="alert">{reorderError}</p>}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => {
       const orderedTodoIds = group.todos.map((todo) => Number(todo.id));
       return <section className="todo-group" key={group.id} aria-label={`${group.name} to-do group`}>
         {group.groupId != null ? <TodoGroupCard

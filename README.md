@@ -111,6 +111,12 @@ button opens the calendar in day-pick mode; selecting a day writes the task's
 scheduled date as an all-day task. Timed tasks remain available through the
 to-do editor and agent tools.
 
+The **To do** screen's **Print PDF** action captures its current visible
+projection after the group, text-search, and completed-item filters have been
+applied. It renders those groups and tasks in their current display order as a
+printable checklist, stores the PDF as a durable file, and downloads it. It
+does not independently query or add hidden to-dos while printing.
+
 The **Calendar** screen composes a shared React daily-paper component from the
 authoritative two-week calendar, the selected day's timeline, to-dos linked
 to those events, and active to-do groups pinned to the daily paper. Pinned
