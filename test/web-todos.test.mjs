@@ -18,7 +18,7 @@ test("the React to-do page starts with open tasks and opts into completed tasks"
 
 test("the React to-do page opens the full editor from one add button", () => {
   assert.match(appSource, /const \[addingTodo, setAddingTodo\] = useState\(false\)/);
-  assert.match(appSource, /actions=\{<>\s*<button className="button" type="button" onClick=\{\(\) => setAddingTodo\(true\)\}>Add<\/button>/);
+  assert.match(appSource, /actions=\{<>\s*<button className="button" type="button" onClick=\{\(\) => setAddingTodo\(true\)\}>Add to-do<\/button>/);
   assert.match(appSource, /\{addingTodo && <TodoEditor/);
   assert.doesNotMatch(appSource, /placeholder="Add a task"/);
   assert.match(editableItemsSource, /todoId\?: number/);

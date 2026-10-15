@@ -1288,7 +1288,7 @@ function TodoScreen() {
       setGeneratingPdf(false);
     }
   };
-  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<><button className="button" type="button" onClick={() => setAddingTodo(true)}>Add</button><button className="button button--quiet" type="button" onClick={() => void generatePdf()} disabled={generatingPdf || loading || groupsLoading || Boolean(error || groupError)}>{generatingPdf ? "Making PDF…" : "Print PDF"}</button></>} />
+  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<><button className="button" type="button" onClick={() => setAddingTodo(true)}>Add to-do</button><button className="button button--quiet" type="button" onClick={() => void generatePdf()} disabled={generatingPdf || loading || groupsLoading || Boolean(error || groupError)}>{generatingPdf ? "Making PDF…" : "Print PDF"}</button></>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" controls={<>
       <SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
         <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
@@ -1331,13 +1331,12 @@ function TodoScreen() {
 
 function ContactsScreen() {
   const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=all&limit=10000");
-  const [draft, setDraft] = useState("");
+  const [addingContact, setAddingContact] = useState(false);
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [selectedKind, setSelectedKind] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("active");
   const [selectedTag, setSelectedTag] = useState("all");
-  const create = async (event: FormEvent) => { event.preventDefault(); await api("/api/contacts", { method: "POST", body: JSON.stringify({ displayName: draft, kind: "person", methods: [], tags: [] }) }); setDraft(""); await reload(); };
   const contacts = data?.contacts || [];
   const contactTags = useMemo(() => [...new Set(contacts.flatMap((contact) => (contact.tags as string[] | undefined) || []))].sort((left, right) => left.localeCompare(right)), [contacts]);
   const visibleContacts = contacts.filter((contact) =>
@@ -1359,7 +1358,7 @@ function ContactsScreen() {
   }, [visibleContacts]);
   const contactsFiltered = query.trim() || selectedKind !== "all" || selectedStatus !== "active" || selectedTag !== "all";
   return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<div className="section-heading-actions">
-    <form className="inline-create" onSubmit={(event) => void create(event)}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Contact name" required /><button className="button">Add</button></form>
+    <button className="button" type="button" onClick={() => setAddingContact(true)}>Add contact</button>
   </div>} />
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && <>
@@ -1417,6 +1416,7 @@ function ContactsScreen() {
         </section>)}
       </div>}
     </>}
+    {addingContact && <ContactEditor onClose={() => setAddingContact(false)} onChanged={reload} />}
     {editingContactId != null && <ContactEditor contactId={editingContactId} onClose={() => setEditingContactId(null)} onChanged={reload} />}
   </>;
 }

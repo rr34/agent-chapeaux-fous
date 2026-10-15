@@ -11,7 +11,7 @@ function input() {
     groups: [{
       name: "House",
       todos: [
-        { id: 7, text: "Paint <entry>", status: "todo", sequence: 12, billableAmountMinor: 4500, billableCurrency: "usd" },
+        { id: 7, text: "Paint <entry>", status: "todo", sequence: 123, billableAmountMinor: 4500, billableCurrency: "usd" },
         { id: 8, text: "Finished prep", status: "complete", sequence: null },
       ],
     }],
@@ -27,8 +27,10 @@ test("to-do PDF normalizes the bounded visible projection and renders a safe che
   const html = renderTodoChecklistHtml(model, new Date("2026-10-15T15:30:00.000Z"));
   assert.match(html, /To-do checklist/);
   assert.match(html, /Paint &lt;entry&gt;/);
-  assert.match(html, /class="sequence">12<\/span>/);
-  assert.doesNotMatch(html, /class="sequence">#12/);
+  assert.match(html, /class="sequence">123<\/span>/);
+  assert.doesNotMatch(html, /class="sequence">#123/);
+  assert.match(html, /grid-template-columns: max-content \.18in minmax\(0, 1fr\)/);
+  assert.match(html, /\.sequence \{ min-width: \.32in;[^}]*width: max-content;[^}]*white-space: nowrap;/);
   assert.match(html, /Search<\/strong>paint/);
   assert.match(html, /Billable \$45\.00/);
 });

@@ -57,14 +57,20 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(server, /request\.method === "GET" && todoMatch/);
 });
 
-test("contacts are click-to-edit and expose a complete versioned editor", () => {
+test("contacts use one complete editor for creation and versioned edits", () => {
+  assert.match(app, /onClick=\{\(\) => setAddingContact\(true\)\}>Add contact<\/button>/);
+  assert.match(app, /\{addingContact && <ContactEditor/);
+  assert.doesNotMatch(app, /placeholder="Contact name"/);
   assert.match(app, /<ContactEditor contactId=\{editingContactId\}/);
   assert.match(app, /<ContactCard/);
   assert.match(app, /onEdit=\{\(\) => setEditingContactId/);
   assert.match(items, /export function ContactEditor/);
   assert.match(items, /export function CalendarEventEditor/);
   assert.match(items, /api<\{ contact: Entity \}>\(`\/api\/contacts\/\$\{contactId\}`\)/);
+  assert.match(items, /creating \? "\/api\/contacts" : `\/api\/contacts\/\$\{contactId\}`/);
+  assert.match(items, /method: creating \? "POST" : "PATCH"/);
   assert.match(items, /version: contact\.version/);
+  assert.match(items, /creating \? "Add contact" : "Save contact"/);
   assert.match(items, /Save contact/);
   assert.match(items, /Add detail/);
   assert.match(items, /Add tag/);

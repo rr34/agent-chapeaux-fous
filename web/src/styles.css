@@ -359,7 +359,6 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-preview summary { cursor: pointer; font-weight: 700; }
 .paper-preview[open] summary { margin-bottom: 24px; }
 
-.inline-create { display: flex; gap: 8px; min-width: min(420px, 100%); }
 .section-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
 .section-select-filter { display: grid; grid-template-columns: auto minmax(140px, 190px); align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .section-select-filter select { padding-block: 8px; }
@@ -756,7 +755,6 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .trace-heading { align-items: flex-start; padding: 14px; }
   .trace-actions .button { min-height: 36px; padding: 7px 10px; }
   .trace-events { padding: 10px; }
-  .inline-create { min-width: 100%; }
   .section-heading-actions { align-items: stretch; flex-direction: column; width: 100%; }
   .section-select-filter { grid-template-columns: auto 1fr; }
   .todo-completed-filter { width: 100%; }

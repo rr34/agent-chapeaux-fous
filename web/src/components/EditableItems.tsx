@@ -71,6 +71,21 @@ interface ContactDraft {
   tags: string[];
 }
 
+function newContactDraft(): ContactDraft {
+  return {
+    kind: "person",
+    displayName: "",
+    givenName: "",
+    familyName: "",
+    organizationName: "",
+    status: "active",
+    birthDate: "",
+    notes: "",
+    methods: [],
+    tags: [],
+  };
+}
+
 function contactDraft(contact: Entity): ContactDraft {
   return {
     kind: String(contact.kind || "person"),
@@ -94,17 +109,19 @@ function contactDraft(contact: Entity): ContactDraft {
 }
 
 export function ContactEditor({ contactId, onClose, onChanged }: {
-  contactId: number;
+  contactId?: number;
   onClose: () => void;
   onChanged: Changed;
 }) {
+  const creating = contactId == null;
   const [contact, setContact] = useState<Entity | null>(null);
-  const [draft, setDraft] = useState<ContactDraft | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState<ContactDraft | null>(() => creating ? newContactDraft() : null);
+  const [loading, setLoading] = useState(!creating);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (contactId == null) return;
     let active = true;
     void api<{ contact: Entity }>(`/api/contacts/${contactId}`).then(({ contact: current }) => {
       if (!active) return;
@@ -128,13 +145,13 @@ export function ContactEditor({ contactId, onClose, onChanged }: {
 
   const save = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
-    if (!contact || !draft) return;
+    if (!draft || (!creating && !contact)) return;
     setSaving(true);
     setError("");
     try {
-      await api(`/api/contacts/${contactId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ version: contact.version, ...draft }),
+      await api(creating ? "/api/contacts" : `/api/contacts/${contactId}`, {
+        method: creating ? "POST" : "PATCH",
+        body: JSON.stringify({ ...(!creating && contact ? { version: contact.version } : {}), ...draft }),
       });
       await onChanged();
       onClose();
@@ -145,9 +162,9 @@ export function ContactEditor({ contactId, onClose, onChanged }: {
     }
   };
 
-  return <EditorFrame title="Edit contact" onClose={onClose}>
+  return <EditorFrame title={creating ? "Add contact" : "Edit contact"} onClose={onClose}>
     <form onSubmit={(submitEvent) => void save(submitEvent)}>
-      <header className="object-editor-heading"><div><p className="eyebrow">Contacts</p><h2>Edit contact</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      <header className="object-editor-heading"><div><p className="eyebrow">Contacts</p><h2>{creating ? "Add contact" : "Edit contact"}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
       {loading && <p className="object-editor-state">Loading current contact...</p>}
       {draft && <>
         <div className="object-editor-grid">
@@ -183,7 +200,7 @@ export function ContactEditor({ contactId, onClose, onChanged }: {
         <label>Status<select value={draft.status} onChange={(change) => setDraft({ ...draft, status: change.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option><option value="blocked">Blocked</option><option value="deceased">Deceased</option></select></label>
       </>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : "Save contact"}</button></footer>
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : creating ? "Add contact" : "Save contact"}</button></footer>
     </form>
   </EditorFrame>;
 }

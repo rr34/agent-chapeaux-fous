@@ -140,11 +140,11 @@ export function renderTodoChecklistHtml(model, generatedAt = new Date()) {
     h2 { margin: 0 0 .07in; padding-bottom: .04in; border-bottom: 1px solid #cbd0c6; font: 700 14pt/1.15 Georgia, serif; break-after: avoid; }
     h2 span { margin-left: .05in; color: #71766d; font: 700 7pt Arial, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
     ul { display: grid; gap: .055in; margin: 0; padding: 0; list-style: none; }
-    li { min-height: .34in; display: grid; grid-template-columns: .32in .18in minmax(0, 1fr); align-items: start; gap: .07in; padding: .055in .07in; border: 1px solid #d7dbd2; border-radius: .055in; break-inside: avoid; }
+    li { min-height: .34in; display: grid; grid-template-columns: max-content .18in minmax(0, 1fr); align-items: start; gap: .07in; padding: .055in .07in; border: 1px solid #d7dbd2; border-radius: .055in; break-inside: avoid; }
     li > div { min-width: 0; padding-top: .015in; }
     li > div > strong { display: block; font: 700 9.5pt/1.25 Georgia, serif; overflow-wrap: anywhere; white-space: pre-wrap; }
     li small { display: block; margin-top: .025in; color: #71766d; font-size: 6.7pt; }
-    .sequence { min-height: .27in; display: grid; place-items: center; padding: .025in; border-radius: .055in; color: white; background: #3b4634; font: 700 11pt/1 Georgia, serif; font-variant-numeric: tabular-nums; }
+    .sequence { min-width: .32in; min-height: .27in; width: max-content; display: grid; place-items: center; padding: .025in; border-radius: .055in; color: white; background: #3b4634; font: 700 11pt/1 Georgia, serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .sequence:empty { background: transparent; }
     .checkbox { width: .16in; height: .16in; display: grid; place-items: center; margin-top: .045in; border: 1.5px solid #68745a; border-radius: .025in; color: #3b4634; font-size: 7pt; font-weight: 800; }
     .is-complete > div > strong { color: #71766d; text-decoration: line-through; }
