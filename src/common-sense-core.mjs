@@ -76,7 +76,7 @@ export function commonSenseCoreSchema({
             instruction: text(1_500),
             targetRefs: {
               ...enumArray(allowedObjectRefs, 500),
-              description: "Exact supplied object references involved in this action. Omit objects that have not been supplied as references.",
+              description: "Only the exact supplied objects that the user intends this action to affect. Previously observed objects are evidence, not automatic targets; never copy a whole binding group merely because some members are relevant. Omit objects that have not been supplied as references.",
             },
           },
           required: ["instruction", "targetRefs"],
@@ -209,7 +209,7 @@ export function commonSenseContext({
     "",
     ...(priorObjects.length ? [
       "## Exact previously verified object references",
-      "Use these only when the current request actually refers to them. Put every relevant stable reference in the corresponding action's targetRefs. Names without these bindings remain ordinary search text.",
+      "These are available identity evidence, not a target list. Put a stable reference in targetRefs only when the user intends that individual object to be affected by that action. Select individual members from a binding group; never copy the whole group merely because one or some members are relevant. Names without these bindings remain ordinary search text.",
       JSON.stringify(priorObjects, null, 2),
       "",
     ] : []),
@@ -284,7 +284,7 @@ export const commonSenseInstructions = [
   "You are the common-sense orientation phase of Time v3 Agent. Produce only the schema-constrained intent core.",
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
-  "For a batch, write one action whose targetRefs contains the complete supplied target set. Use separate actions only for genuinely different requested operations.",
+  "For a batch, write one action whose targetRefs contains exactly the objects the user intends to affect: all intended targets and no merely observed objects. A bulk-shaped prior binding is identity evidence, not proof that every member is a current target. Use separate actions only for genuinely different requested operations.",
   "Select the smallest plausible capability-family set. A capability family says where execution belongs; exact tool selection happens later from exact schemas.",
   "Use contextRequests only for advertised read-only context that execution genuinely needs. Explicit composer selections are verified automatically.",
   "When the request names a weekday or relative calendar date that governs execution, record the literal, source event, IANA time zone, weekday, resolved local date, role, and affected field in temporalResolutions.",

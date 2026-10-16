@@ -1057,9 +1057,17 @@ export class SlayerRuntime {
       ...coreTargetRefs(core),
       ...selectedObjectCandidates.map(({ ref }) => ref).filter(Boolean),
     ])];
+    const hydratedObjectReferenceCatalog = mergeObjectReferenceGroups([
+      ...availableObjectReferences,
+      ...preparedObjectReferences,
+    ]);
     const selectedObjectReferences = mergeObjectReferenceGroups(objectReferenceGroupsForRefs(
-      mergeObjectReferenceGroups([...availableObjectReferences, ...preparedObjectReferences]),
+      hydratedObjectReferenceCatalog,
       selectedRefs,
+    ));
+    const completeObjectReferences = mergeObjectReferenceGroups(objectReferenceGroupsForRefs(
+      hydratedObjectReferenceCatalog,
+      selectedObjectCandidates.map(({ ref }) => ref).filter(Boolean),
     ));
     const executionObjectReferences = mergeObjectReferenceGroups([
       ...selectedObjectReferences,
@@ -1158,6 +1166,7 @@ export class SlayerRuntime {
       preparedCapabilityContext,
       temporalResolutions: core.temporalResolutions,
       objectReferences: selectedObjectReferences,
+      completeObjectReferences,
       initialObjectReferences: executionObjectReferences,
     };
 
@@ -1376,7 +1385,7 @@ export class SlayerRuntime {
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
     activeActionReferences = [], confirmedActionReferences = [],
     preparedCapabilityContext = null, temporalResolutions = [], objectReferences = [],
-    initialObjectReferences = [],
+    completeObjectReferences = [], initialObjectReferences = [],
   }) {
     const registeredTools = this.registry.toolDefinitions();
     const allowedToolNames = Array.isArray(allowedToolNameList)
@@ -1915,6 +1924,7 @@ export class SlayerRuntime {
               argumentsObject: toolArguments,
               selectedGroups: objectReferences,
               observedGroups: observedObjectReferences,
+              completeGroups: completeObjectReferences,
             });
             if (objectBindingProblem) {
               failedToolAttempts.add(attemptKey);

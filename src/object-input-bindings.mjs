@@ -110,6 +110,7 @@ export function constrainToolObjectInputs(toolDefinition, selectedGroups = [], o
 
 export function objectInputBindingProblem({
   toolDefinition, argumentsObject, selectedGroups = [], observedGroups = [],
+  completeGroups = [],
 }) {
   const contract = toolDefinition?.metadata?.[objectInputBindingsMetadataKey];
   if (!contract) return null;
@@ -122,6 +123,9 @@ export function objectInputBindingProblem({
     const selectedReferences = referencesFor(
       toolDefinition, binding.objectType, role, selectedGroups, [],
     );
+    const completeReferences = referencesFor(
+      toolDefinition, binding.objectType, role, completeGroups, [],
+    );
     const references = referencesFor(
       toolDefinition, binding.objectType, role, selectedGroups, observedGroups,
     );
@@ -132,9 +136,9 @@ export function objectInputBindingProblem({
         const exact = selectedReferences.map(({ id, ref, display }) => ({ id, ref, display }));
         return `${toolDefinition.name}${binding.path} is a singleton input but the accepted ${binding.objectType} binding in role ${role} contains ${selectedReferences.length} objects: ${JSON.stringify(exact)}. Use a batch-shaped tool; never select only one object silently.`;
       }
-      if (segments.includes("*")) {
+      if (segments.includes("*") && completeReferences.length) {
         const suppliedSet = new Set(supplied);
-        const missing = selectedReferences
+        const missing = completeReferences
           .filter((object) => !suppliedSet.has(object[binding.value]));
         if (missing.length) {
           const exact = missing.map(({ id, ref, display }) => ({ id, ref, display }));

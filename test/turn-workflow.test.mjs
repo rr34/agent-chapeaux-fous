@@ -5,6 +5,7 @@ import { SlayerRuntime } from "../src/runtime.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 import { registerNativeObjectContextView } from "../src/native-object-search.mjs";
+import { objectInputBindingsMetadataKey } from "../src/object-input-bindings.mjs";
 
 function usage(totalTokens) {
   return {
@@ -432,16 +433,36 @@ test("explicit batch selections are verified once and stay one bulk action", asy
     name: "todo_complete_batch",
     description: "Complete one through 500 exact to-dos atomically.",
     annotations: { readOnlyHint: false, destructiveHint: false },
+    metadata: {
+      [objectInputBindingsMetadataKey]: {
+        protocol: "agent-slayer.object-input-bindings",
+        version: 1,
+        bindings: [{
+          path: "/updates/*/personal_task_id",
+          objectType: "todos.personal_task",
+          value: "id",
+          role: "subject",
+        }],
+      },
+    },
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        todo_ids: { type: "array", minItems: 1, maxItems: 500, items: { type: "integer" } },
+        updates: {
+          type: "array", minItems: 1, maxItems: 500,
+          items: {
+            type: "object", additionalProperties: false,
+            properties: { personal_task_id: { type: "integer" } },
+            required: ["personal_task_id"],
+          },
+        },
       },
-      required: ["todo_ids"],
+      required: ["updates"],
     },
-    async execute({ todo_ids }) {
+    async execute({ updates }) {
       bulkCalls += 1;
+      const todo_ids = updates.map(({ personal_task_id }) => personal_task_id);
       assert.deepEqual(todo_ids, [7, 8, 9]);
       return { updated_count: 3, todo_ids };
     },
@@ -463,13 +484,31 @@ test("explicit batch selections are verified once and stay one bulk action", asy
           capabilities: ["todos"],
         })));
       }
+      if (index === 2) {
+        assert.match(payload.developerInstructions, /TOOL_FAILURE_REQUIRES_SEMANTIC_REVIEW/);
+        return completed(JSON.stringify({
+          version: 1,
+          outcome: "complete",
+          summary: "The complete explicit selection was updated successfully after the incomplete call was rejected.",
+          satisfied: ["All three explicitly selected to-dos were completed."],
+          remaining: [],
+          repairInstructions: [],
+        }));
+      }
       assert.equal(index, 1, "selected-object hydration must not add a model call");
       assert.deepEqual(payload.tools.map(({ name }) => name), ["todo_complete_batch"]);
       assert.match(payload.developerInstructions, /agent-slayer:\/\/todos\/9/);
+      const incomplete = await payload.onToolCall({
+        callId: "complete-incomplete-batch",
+        tool: "todo_complete_batch",
+        arguments: { updates: [7, 8].map((personal_task_id) => ({ personal_task_id })) },
+      });
+      assert.equal(incomplete.ok, false);
+      assert.match(incomplete.error, /must include the complete accepted.*Task 9/u);
       const result = await payload.onToolCall({
         callId: "complete-batch",
         tool: "todo_complete_batch",
-        arguments: { todo_ids: [7, 8, 9] },
+        arguments: { updates: [7, 8, 9].map((personal_task_id) => ({ personal_task_id })) },
       });
       assert.equal(result.ok, true);
       return completed("Completed all three selected to-dos.", 30);
@@ -481,10 +520,11 @@ test("explicit batch selections are verified once and stay one bulk action", asy
     text: "Complete these three.", selectedObjectCandidates: selections,
   }), "Completed all three selected to-dos.");
   assert.equal(bulkCalls, 1);
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 3);
   const accepted = ledger.events.find(({ type }) => type === "orientation.core");
   assert.deepEqual(accepted.payload.core.actions[0].targetRefs, selections.map(({ ref }) => ref));
   assert.deepEqual(accepted.payload.objectReferences[0].objects.map(({ id }) => id), [7, 8, 9]);
+  assert.equal(ledger.events.filter(({ type }) => type === "object.binding.rejected").length, 1);
 });
 
 test("missing explicit selections stop execution deterministically", async () => {

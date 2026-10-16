@@ -102,12 +102,23 @@ test("orientation contains families and selections but no exact tool catalog", (
       ref: "agent-slayer://todos/7",
       display: "Task 7",
     }],
+    availableObjectReferences: [{
+      mention: "Earlier to-do results",
+      role: "subject",
+      type: "todos.personal_task",
+      source: "native:todos",
+      objects: [{ id: 8, ref: "agent-slayer://todos/8", display: "Task 8" }],
+      sourceEventSeqs: [8],
+    }],
   });
   assert.match(context, /Exact current request/);
   assert.match(context, /agent-slayer:\/\/todos\/7/);
   assert.match(context, /todos \(To-dos\)/);
+  assert.match(context, /available identity evidence, not a target list/i);
+  assert.match(context, /never copy the whole group/i);
   assert.doesNotMatch(context, /todo_complete_batch/);
   assert.match(commonSenseInstructions, /common-sense orientation/i);
+  assert.match(commonSenseInstructions, /no merely observed objects/i);
 });
 
 test("orientation omits empty sections and serializes calendar evidence", () => {

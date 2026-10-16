@@ -69,7 +69,7 @@ test("the call boundary rejects a substituted ID and accepts the exact bound ID"
   }), null);
 });
 
-test("singleton inputs reject multi-object bindings and batch inputs require the complete set", () => {
+test("singleton inputs reject multi-object bindings and explicit batch selections require the complete set", () => {
   const selectedBatch = [{
     ...selected[0],
     objects: [
@@ -99,12 +99,49 @@ test("singleton inputs reject multi-object bindings and batch inputs require the
     toolDefinition: batchTool,
     argumentsObject: { updates: [{ account_id: 178 }] },
     selectedGroups: selectedBatch,
+    completeGroups: selectedBatch,
   }), /must include the complete accepted.*Tax Checking/u);
   assert.equal(objectInputBindingProblem({
     toolDefinition: batchTool,
     argumentsObject: { updates: [{ account_id: 178 }, { account_id: 179 }] },
     selectedGroups: selectedBatch,
+    completeGroups: selectedBatch,
   }), null);
+});
+
+test("a batch may use a verified subset of ordinary observed intent bindings", () => {
+  const selectedBatch = [{
+    ...selected[0],
+    objects: [
+      ...selected[0].objects,
+      { id: 179, ref: "accounting://accounts/179", display: "Tax Checking" },
+    ],
+  }];
+  const batchTool = {
+    ...tool,
+    name: "remote_accounting_update_accounts",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { updates: { type: "array", items: {
+        type: "object", properties: { account_id: { type: "integer" } },
+      } } },
+    },
+    metadata: { [objectInputBindingsMetadataKey]: {
+      protocol: "agent-slayer.object-input-bindings", version: 1,
+      bindings: [{ path: "/updates/*/account_id", objectType: "accounting.account", value: "id" }],
+    } },
+  };
+
+  assert.equal(objectInputBindingProblem({
+    toolDefinition: batchTool,
+    argumentsObject: { updates: [{ account_id: 178 }] },
+    selectedGroups: selectedBatch,
+  }), null);
+  assert.match(objectInputBindingProblem({
+    toolDefinition: batchTool,
+    argumentsObject: { updates: [{ account_id: 999 }] },
+    selectedGroups: selectedBatch,
+  }), /must use the exact id/u);
 });
 
 test("same-type objects remain distinct across role-qualified input paths", () => {
