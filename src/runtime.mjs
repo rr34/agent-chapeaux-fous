@@ -877,7 +877,15 @@ export class SlayerRuntime {
       outputSchema: schema,
       runTimeoutMs: remainingTimeoutMs(),
     });
-    let core = orientation.value;
+    const withCoreReadCapabilities = (value) => ({
+      ...value,
+      capabilities: [...new Set([
+        ...value.capabilities,
+        ...routing.capabilities.filter((capability) => capability === "database"),
+      ])],
+    });
+    let orientationSelectedCapabilities = [...orientation.value.capabilities];
+    let core = withCoreReadCapabilities(orientation.value);
     let temporalFindings = temporalConsistencyFindings(core, {
       requestText: args.text,
       requestEventSeq,
@@ -915,7 +923,8 @@ export class SlayerRuntime {
         outputSchema: schema,
         runTimeoutMs: remainingTimeoutMs(),
       });
-      core = orientation.value;
+      orientationSelectedCapabilities = [...orientation.value.capabilities];
+      core = withCoreReadCapabilities(orientation.value);
       temporalFindings = temporalConsistencyFindings(core, {
         requestText: args.text,
         requestEventSeq,
@@ -923,6 +932,23 @@ export class SlayerRuntime {
       if (temporalFindings.length) {
         throw new Error(`Date interpretation remained inconsistent after correction: ${temporalFindings.map(({ message }) => message).join("; ")}`);
       }
+    }
+
+    const applicationReadCapabilities = core.capabilities.filter((capability) => (
+      !orientationSelectedCapabilities.includes(capability)
+    ));
+    if (applicationReadCapabilities.length) {
+      this.ledger.append({
+        type: "capability.selection", status: "complete", actorType: "system",
+        actorName: "Capability selector", channel, turnId: args.requestId,
+        name: "Required read-only core capabilities added",
+        content: applicationReadCapabilities.join(", "),
+        payload: {
+          selectedByOrientation: orientationSelectedCapabilities,
+          addedReadOnlyCoreCapabilities: applicationReadCapabilities,
+          acceptedCapabilities: core.capabilities,
+        },
+      });
     }
 
     const contextRequests = [...new Set([

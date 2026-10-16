@@ -95,6 +95,7 @@ test("the printed day eliminates the fixed timeline and uses reusable event card
   assert.match(styles, /\.paper-plan-page \{[^}]*min-height: 11in;[^}]*break-after: page;/s);
   assert.doesNotMatch(styles, /\.paper-plan-page \{[^}]*overflow: hidden/s);
   assert.match(styles, /\.paper-calendar-event-list \{[^}]*display: grid;/s);
+  assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card \.first-class-object-content \{[^}]*grid-template-columns: minmax\(1\.35in, \.8fr\) minmax\(0, 1\.4fr\);/s);
   assert.doesNotMatch(styles, /\.paper-event-bracket|\.paper-event-connector|\.paper-time-scale/);
 });
 

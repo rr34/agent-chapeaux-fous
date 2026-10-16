@@ -50,6 +50,7 @@ const tools = [
   tool("profile_fact_list"),
   tool("profile_fact_set"),
   tool("database_read"),
+  tool("database_aggregate"),
   tool("database_write"),
   tool("history_range"),
   tool("email_search"),
@@ -71,6 +72,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("tracker_update")), "journal");
   assert.equal(capabilityForTool(tool("journal_update")), "journal");
   assert.equal(capabilityForTool(tool("database_read")), "database");
+  assert.equal(capabilityForTool(tool("database_aggregate")), "database");
   assert.equal(capabilityForTool(tool("database_write")), "database-write");
   assert.equal(capabilityForTool(tool("email_send")), "email");
   assert.equal(capabilityForTool(tool("remote_tlom_query_data", "mcp:tlom")), "integration:tlom");
@@ -350,7 +352,7 @@ test("a broad cross-domain discovery request selects global search", () => {
 
 test("an email request receives email and durable-profile tools, not unrelated domains", () => {
   const selection = selectRequestCapabilities({ tools, text: "Show me unread email in my inbox." });
-  assert.deepEqual(names(selection), ["contact_lookup_batch", "profile_fact_list", "profile_fact_set", "database_read", "email_search", "email_send"]);
+  assert.deepEqual(names(selection), ["contact_lookup_batch", "profile_fact_list", "profile_fact_set", "database_read", "database_aggregate", "email_search", "email_send"]);
   assert.deepEqual(selection.dependentTools, ["contact_lookup_batch"]);
   assert.deepEqual(selection.capabilities, ["database", "email", "profile"]);
   assert.equal(selection.fallbackAll, false);
@@ -363,7 +365,7 @@ test("a plural contacts request selects focused contact tools without falling ba
   });
   assert.deepEqual(names(selection), [
     "contact_file_import", "contact_search", "contact_lookup_batch",
-    "profile_fact_list", "profile_fact_set", "database_read",
+    "profile_fact_list", "profile_fact_set", "database_read", "database_aggregate",
   ]);
   assert.deepEqual(selection.capabilities, ["contacts", "database", "profile"]);
   assert.equal(selection.fallbackAll, false);
@@ -457,6 +459,7 @@ test("a request to correct records in the journal selects the personal-journal c
 test("native database reads are always callable while database writes require explicit mutation intent", () => {
   const ordinary = selectRequestCapabilities({ tools, text: "What's going on?" });
   assert.equal(names(ordinary).includes("database_read"), true);
+  assert.equal(names(ordinary).includes("database_aggregate"), true);
   assert.equal(names(ordinary).includes("database_write"), false);
 
   const audit = selectRequestCapabilities({ tools, text: "Read your DB audit trail and tool receipts." });
@@ -498,7 +501,7 @@ test("an explicit plural email request does not inherit an unrelated prior topic
 
 test("an explicit URL receives the page reader without unrelated application tools", () => {
   const selection = selectRequestCapabilities({ tools, text: "Read https://example.com/report for me." });
-  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read", "web_page_read"]);
+  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read", "database_aggregate", "web_page_read"]);
   assert.deepEqual(selection.capabilities, ["database", "profile", "web"]);
 });
 
@@ -510,7 +513,7 @@ test("attachment structure routes known imports and conservatively falls back wh
   });
   assert.deepEqual(names(contacts), [
     "contact_file_import", "contact_search", "contact_lookup_batch",
-    "profile_fact_list", "profile_fact_set", "database_read",
+    "profile_fact_list", "profile_fact_set", "database_read", "database_aggregate",
   ]);
 
   const unknown = selectRequestCapabilities({
@@ -519,7 +522,7 @@ test("attachment structure routes known imports and conservatively falls back wh
     attachment: { filename: "data.csv", mimeType: "text/csv", text: "alpha,beta\n1,2" },
   });
   assert.equal(unknown.fallbackAll, false);
-  assert.deepEqual(names(unknown), ["profile_fact_list", "profile_fact_set", "database_read"]);
+  assert.deepEqual(names(unknown), ["profile_fact_list", "profile_fact_set", "database_read", "database_aggregate"]);
   assert.ok(unknown.reasons.includes("catalog:uncertain-attachment"));
 });
 
@@ -534,7 +537,7 @@ test("short approvals retain prior capabilities and can add an explicit new doma
     recentConversation: prior,
     previousCapabilities: ["database", "database-write", "profile"],
   });
-  assert.deepEqual(names(approved), ["profile_fact_list", "profile_fact_set", "database_read", "database_write"]);
+  assert.deepEqual(names(approved), ["profile_fact_list", "profile_fact_set", "database_read", "database_aggregate", "database_write"]);
   assert.equal(approved.followsPriorTurn, true);
 
   const emailed = selectRequestCapabilities({
@@ -558,7 +561,7 @@ test("short approvals retain prior capabilities and can add an explicit new doma
 test("ambiguous actionable requests keep a small core and expose the deferred catalog", async () => {
   const selection = selectRequestCapabilities({ tools, text: "Take care of it." });
   assert.equal(selection.fallbackAll, false);
-  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read"]);
+  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read", "database_aggregate"]);
   assert.ok(selection.reasons.includes("catalog:ambiguous-request"));
 
   const compiler = new RequestCompiler({

@@ -4,7 +4,7 @@
   "version": 1,
   "id": "todos",
   "title": "To-dos",
-  "summary": "Read and manage non-temporal personal to-dos and their named groups, including links to content-library items. Calendar events own schedules and deadlines and may link to multiple to-dos.",
+  "summary": "Read, count, compare, and manage non-temporal personal to-dos and their named groups, including optional contact connections and links to content-library items. Calendar events own schedules and deadlines and may link to multiple to-dos.",
   "aliases": [
     "todo",
     "to-do",

@@ -328,7 +328,7 @@ export function registerTodoTools(registry, store, ledger) {
   registry = registry.withCapability?.("todos", toolDescriptions, nativeToolContracts) ?? registry;
   rootRegistry.registerContextView?.("todos", {
     id: "todos.active_groups", title: "Active to-do groups",
-    description: "Exact active to-do group names and IDs. Request this when creating or moving a to-do unless an exact to-do-group binding is already supplied. No individual to-do items.",
+    description: "Exact active to-do group names and IDs. Request this whenever a read or change names a to-do group and no exact to-do-group binding is already supplied. No individual to-do items.",
     maximumItems: 100, execute: () => todoGroupContext(store),
   });
 

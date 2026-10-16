@@ -117,6 +117,52 @@ test("structured database reads preserve native fields and access boundaries", a
   );
 });
 
+test("structured database aggregates count complete relationship-presence buckets", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.target);
+  context.after(() => store.close());
+  const ledger = new Ledger(store);
+  const organizer = new OrganizerStore(temporary.target);
+  context.after(() => organizer.close());
+  const group = organizer.createTodoGroup({ name: "Watch Jobs" });
+  const contact = organizer.createContact({ displayName: "Watch Customer" });
+  organizer.createTodo({ text: "Connected one", groupId: group.id, relatedContactId: contact.id });
+  organizer.createTodo({ text: "Unconnected", groupId: group.id });
+  organizer.createTodo({ text: "Connected two", groupId: group.id, relatedContactId: contact.id });
+
+  const registry = new ToolRegistry();
+  registerDatabaseTools(registry, store, ledger);
+  const definition = registry.toolDefinitions().find(({ name }) => name === "database_aggregate");
+  assert.equal(definition.annotations.readOnlyHint, true);
+  assert.equal(definition.inputSchema.properties.dimensions.maxItems, 3);
+
+  const result = await registry.execute("database_aggregate", {
+    objectName: "todo_personal",
+    where: { todo_group_id: group.id },
+    dimensions: [{ column: "related_contact_id", mode: "presence" }],
+    limit: 10,
+    offset: 0,
+  });
+
+  assert.equal(result.totalCount, 3);
+  assert.equal(result.totalBucketCount, 2);
+  assert.equal(result.exhaustive, true);
+  assert.match(result.capturedAtUtc, /^\d{4}-\d{2}-\d{2}T/u);
+  assert.deepEqual(result.buckets, [
+    { values: { related_contact_id: "present" }, count: 2 },
+    { values: { related_contact_id: "missing" }, count: 1 },
+  ]);
+  await assert.rejects(
+    registry.execute("database_aggregate", {
+      objectName: "todo_personal",
+      where: { todo_group_id: group.id },
+      dimensions: [{ column: "related_contact_id; DROP TABLE contacts", mode: "presence" }],
+    }),
+    /Invalid MariaDB column|Unknown column/u,
+  );
+});
+
 test("native database-backed tools preserve their records without result decoration", async (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());

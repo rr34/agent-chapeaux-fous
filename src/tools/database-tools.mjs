@@ -13,6 +13,17 @@ const toolDescriptions = Object.freeze({
       "READ-ONLY"
     ]
   },
+  "database_aggregate": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Count bounded native rows by up to three declared columns or by whether those columns are present, using equality filters and no raw SQL.",
+    "actionClasses": [
+      "READ"
+    ],
+    "effectClassifications": [
+      "READ-ONLY"
+    ]
+  },
   "database_schema": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -178,6 +189,68 @@ export function registerDatabaseTools(
     },
     async execute(argumentsObject, context) {
       return store.read(argumentsObject);
+    },
+  });
+
+  databaseRegistry.register({
+    name: "database_aggregate",
+    description: "Count current rows from one existing native database table or view, grouped by up to three columns. A value dimension groups exact stored values; a presence dimension returns missing versus present without exposing the values. Equality filters only; no raw SQL is accepted. exhaustive is true only when the returned buckets cover the complete result.",
+    strict: false,
+    readResultCollectionPaths: ["/buckets"],
+    outputSchema: {
+      type: "object",
+      properties: {
+        objectName: { type: "string" },
+        dimensions: { type: "array", items: { type: "object" } },
+        where: { type: "object" },
+        capturedAtUtc: { type: "string" },
+        totalCount: { type: "integer" },
+        totalBucketCount: { type: "integer" },
+        returnedBucketCount: { type: "integer" },
+        limit: { type: "integer" },
+        offset: { type: "integer" },
+        hasMore: { type: "boolean" },
+        nextOffset: { type: ["integer", "null"] },
+        exhaustive: { type: "boolean" },
+        buckets: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { values: { type: "object" }, count: { type: "integer" } },
+            required: ["values", "count"],
+          },
+        },
+      },
+      required: [
+        "objectName", "dimensions", "where", "capturedAtUtc", "totalCount", "totalBucketCount",
+        "returnedBucketCount", "limit", "offset", "hasMore", "nextOffset",
+        "exhaustive", "buckets",
+      ],
+    },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["objectName", "dimensions"],
+      properties: {
+        objectName: { type: "string" },
+        where: { type: "object", additionalProperties: true },
+        dimensions: {
+          type: "array", minItems: 1, maxItems: 3,
+          items: {
+            type: "object", additionalProperties: false,
+            properties: {
+              column: { type: "string" },
+              mode: { type: "string", enum: ["value", "presence"] },
+            },
+            required: ["column", "mode"],
+          },
+        },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0, maximum: 1000000 },
+      },
+    },
+    async execute(argumentsObject) {
+      return store.aggregate(argumentsObject);
     },
   });
 

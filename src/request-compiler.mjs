@@ -14,7 +14,7 @@ const localCapabilityMatchers = [
   ["files", (tool) => tool.name.startsWith("file_")],
   ["database-write", (tool) => tool.name === "database_write"],
   ["database", (tool) => [
-    "database_schema", "database_read", "tool_receipt_list", "tool_receipt_read",
+    "database_schema", "database_read", "database_aggregate", "tool_receipt_list", "tool_receipt_read",
   ].includes(tool.name)],
   ["history", (tool) => tool.name.startsWith("history_")],
   ["email", (tool) => tool.name.startsWith("email_")],
@@ -57,7 +57,7 @@ const capabilitySummaries = new Map([
   ["journal", "Read, record, and correct journal entries and trackers."],
   ["profile", "Read and maintain durable profile facts."],
   ["files", "Find, retrieve, inspect, and safely transform durable text and tabular uploads."],
-  ["database", "Inspect schema and read supported native application data, including the durable activity ledger."],
+  ["database", "Inspect schema and read, count, or compare supported native application data, including relationship presence and the durable activity ledger."],
   ["database-write", "Write supported native application data; read-only database access is already callable."],
   ["history", "Search prior Agent Slayer conversations."],
   ["email", "Read, draft, send, organize, and clean up email."],

@@ -4,7 +4,7 @@
   "version": 1,
   "id": "database",
   "title": "Database reads and receipts",
-  "summary": "Inspect native schema and read bounded application data, history, and durable tool receipts.",
+  "summary": "Inspect native schema and read, count, or compare bounded application data, including relationship presence, history, and durable tool receipts.",
   "aliases": [
     "database",
     "schema",
@@ -15,6 +15,7 @@
   "readOnlyTools": [
     "database_schema",
     "database_read",
+    "database_aggregate",
     "tool_receipt_list",
     "tool_receipt_read"
   ],

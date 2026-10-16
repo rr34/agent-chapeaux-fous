@@ -411,12 +411,15 @@ capability selector, which controls which exact tool schemas are callable.
   distinct imports; ambiguous groups remain queued for AI judgment.
 - `profile_fact_list`, `profile_fact_set`, and `profile_fact_delete` manage the
   durable user facts selected as relevant to each first model request.
-- `database_schema` and paginated `database_read` are a small read-only core
+- `database_schema`, paginated `database_read`, and bounded
+  `database_aggregate` are a small read-only core
   capability available on every model request, including access to the native
   activity ledger. `database_write` is a separately routed capability, so broad
   database mutation authority is not sent merely to permit inspection. Ledger
   and schema tables remain protected from model writes. Explicit schema inspection
-  returns live MariaDB table and column comments.
+  returns live MariaDB table and column comments. Aggregate reads accept only
+  validated equality filters and declared value/presence dimensions; they never
+  accept raw SQL and report whether the returned buckets are exhaustive.
 - `tool_receipt_list` and `tool_receipt_read` expose bounded, paginated access
   to exact historical call/result receipts. Tool results larger than
   `SLAYER_MAX_INLINE_TOOL_RESULT_CHARACTERS` remain whole in MariaDB while the

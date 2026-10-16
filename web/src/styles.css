@@ -116,6 +116,14 @@ a { color: inherit; }
 .compact-object-card:has(.object-selection-checkbox:checked) { border-color: var(--olive-dark); box-shadow: 0 0 0 3px rgba(104, 116, 90, .12); }
 .object-card-controls { display: inline-flex; align-items: center; gap: 6px; }
 .calendar-event-card { border-color: #8f9788; }
+.calendar-event-card .first-class-object-label,
+.calendar-event-card .compact-object-identity > span:first-child { display: none; }
+.calendar-event-card .first-class-object-content { grid-template-columns: minmax(9rem, .8fr) minmax(0, 1.4fr); align-items: start; column-gap: 18px; }
+.calendar-event-card .first-class-object-title { grid-column: 1; }
+.calendar-event-card .first-class-object-body { grid-column: 2; margin: 0; }
+.calendar-event-card .first-class-object-badges,
+.calendar-event-card .first-class-object-attributes { grid-column: 1 / -1; }
+.calendar-event-card .first-class-object-content:not(:has(> .first-class-object-body)) > .first-class-object-title { grid-column: 1 / -1; }
 .calendar-event-time { min-width: 0; display: flex; align-items: baseline; justify-content: flex-start; gap: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .calendar-event-time span { font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .calendar-event-time strong { color: var(--olive-dark); font: 700 12px/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; }
@@ -658,7 +666,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-calendar-event-list { display: grid; gap: .07in; margin: .07in 0 0; padding: 0; list-style: none; }
 .paper-calendar-event-list > li { min-width: 0; break-inside: avoid; }
 .calendar-event-card.paper-calendar-event-card { gap: .055in .08in; padding: .07in .09in; border-color: #4f564c; border-radius: .04in; background: #fffefa; box-shadow: none; }
-.calendar-event-card.paper-calendar-event-card .first-class-object-label { font-size: 5.2pt; }
+.calendar-event-card.paper-calendar-event-card .first-class-object-content { grid-template-columns: minmax(1.35in, .8fr) minmax(0, 1.4fr); column-gap: .12in; }
 .calendar-event-card.paper-calendar-event-card .first-class-object-title { font-size: 9pt; }
 .calendar-event-card.paper-calendar-event-card .first-class-object-body { font-size: 5.8pt; line-height: 1.25; }
 .calendar-event-card.paper-calendar-event-card .first-class-object-attributes div,
@@ -872,4 +880,6 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .first-class-object-card:has(> .first-class-object-leading) > .first-class-object-content { grid-column: 2; }
   .first-class-object-card > .first-class-object-actions,
   .first-class-object-card:has(> .first-class-object-leading) > .first-class-object-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .calendar-event-card .first-class-object-content { grid-template-columns: minmax(0, 1fr); }
+  .calendar-event-card .first-class-object-body { grid-column: 1; }
 }

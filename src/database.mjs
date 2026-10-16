@@ -396,6 +396,97 @@ export class SlayerDatabase {
     };
   }
 
+  aggregate({ objectName, where = {}, dimensions, limit = 50, offset = 0 }) {
+    const object = this.objectInfo(objectName);
+    if (!Array.isArray(dimensions) || dimensions.length < 1 || dimensions.length > 3) {
+      throw new Error("dimensions must contain from 1 through 3 entries");
+    }
+    const normalizedDimensions = dimensions.map((dimension, index) => {
+      if (!dimension || typeof dimension !== "object" || Array.isArray(dimension)) {
+        throw new Error(`dimensions[${index}] must be an object`);
+      }
+      const column = dimension.column;
+      const mode = dimension.mode ?? "value";
+      if (!["value", "presence"].includes(mode)) {
+        throw new Error(`dimensions[${index}].mode must be value or presence`);
+      }
+      return { column, mode };
+    });
+    const dimensionColumns = normalizedDimensions.map(({ column }) => column);
+    if (new Set(dimensionColumns).size !== dimensionColumns.length) {
+      throw new Error("dimensions must use distinct columns");
+    }
+    this.validateColumns(dimensionColumns, object.columns);
+    const condition = this.buildWhere(where, object.columns);
+    const boundedLimit = Number(limit);
+    if (!Number.isInteger(boundedLimit) || boundedLimit < 1 || boundedLimit > 200) {
+      throw new Error("limit must be an integer from 1 to 200");
+    }
+    const boundedOffset = Number(offset);
+    if (!Number.isSafeInteger(boundedOffset) || boundedOffset < 0 || boundedOffset > 1_000_000) {
+      throw new Error("offset must be an integer from 0 to 1000000");
+    }
+    const expressions = normalizedDimensions.map(({ column, mode }) => {
+      const quoted = this.quotedIdentifier(column, "column");
+      return mode === "presence"
+        ? `CASE WHEN ${quoted} IS NULL THEN 'missing' ELSE 'present' END`
+        : quoted;
+    });
+    const aliases = expressions.map((_, index) => `dimension_${index}`);
+    const groupSql = expressions.join(", ");
+    const fromSql = `FROM ${this.quotedIdentifier(objectName, "object")}${condition.sql}`;
+    const sql = `SELECT ${expressions.map((expression, index) => `${expression} AS \`${aliases[index]}\``).join(", ")}, COUNT(*) AS aggregate_count ${fromSql} GROUP BY ${groupSql} ORDER BY aggregate_count DESC, ${aliases.map((alias) => `\`${alias}\` ASC`).join(", ")} LIMIT ? OFFSET ?`;
+    const database = this.requireReady();
+    database.exec("START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY");
+    try {
+      const totalRow = database.prepare(
+        `SELECT COUNT(*) AS aggregate_count ${fromSql}`,
+      ).get(...condition.values);
+      const bucketCountRow = database.prepare(
+        `SELECT COUNT(*) AS aggregate_count FROM (SELECT 1 ${fromSql} GROUP BY ${groupSql}) AS aggregate_buckets`,
+      ).get(...condition.values);
+      const fetched = database.prepare(sql)
+        .all(...condition.values, boundedLimit + 1, boundedOffset)
+        .map(serializable);
+      const capturedAtUtc = new Date().toISOString();
+      database.exec("COMMIT");
+      const hasMore = fetched.length > boundedLimit;
+      const rows = fetched.slice(0, boundedLimit);
+      const totalCount = Number(totalRow?.aggregate_count ?? 0);
+      const totalBucketCount = Number(bucketCountRow?.aggregate_count ?? 0);
+      if (!Number.isSafeInteger(totalCount) || !Number.isSafeInteger(totalBucketCount)) {
+        throw new Error("Aggregate counts exceed the supported safe-integer range");
+      }
+      const buckets = rows.map((row) => ({
+        values: Object.fromEntries(normalizedDimensions.map(({ column }, index) => (
+          [column, row[aliases[index]]]
+        ))),
+        count: Number(row.aggregate_count),
+      }));
+      if (buckets.some(({ count }) => !Number.isSafeInteger(count))) {
+        throw new Error("An aggregate bucket count exceeds the supported safe-integer range");
+      }
+      return {
+        objectName,
+        dimensions: normalizedDimensions,
+        where: serializable(where),
+        capturedAtUtc,
+        totalCount,
+        totalBucketCount,
+        returnedBucketCount: buckets.length,
+        limit: boundedLimit,
+        offset: boundedOffset,
+        hasMore,
+        nextOffset: hasMore ? boundedOffset + buckets.length : null,
+        exhaustive: boundedOffset === 0 && !hasMore,
+        buckets,
+      };
+    } catch (error) {
+      try { database.exec("ROLLBACK"); } catch {}
+      throw error;
+    }
+  }
+
   write({ action, table, values = {}, where = {} }) {
     const object = this.objectInfo(table, { writable: true });
     const database = this.requireReady();

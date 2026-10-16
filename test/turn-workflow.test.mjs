@@ -693,6 +693,110 @@ test("ordinary informational work needs no mutation receipt and no audit", async
   assert.equal(requests.length, 2);
 });
 
+test("structured execution retains the database read core when orientation selects only search", async () => {
+  const requests = [];
+  const ledger = fakeLedger({ conversation: [] });
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("search").register({
+    name: "global_search",
+    description: "Search discovery sources.",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { throw new Error("history search must not be needed"); },
+  });
+  for (const name of ["database_schema", "database_read"]) {
+    registry.withCapability("database").register({
+      name,
+      description: `Bounded ${name}.`,
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+      async execute() { return {}; },
+    });
+  }
+  registry.withCapability("database").register({
+    name: "database_aggregate",
+    description: "Count rows by declared dimensions.",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        objectName: { type: "string" },
+        where: { type: "object", additionalProperties: true },
+        dimensions: { type: "array", items: { type: "object", additionalProperties: true } },
+      },
+      required: ["objectName", "where", "dimensions"],
+    },
+    async execute() {
+      return {
+        objectName: "todo_personal", totalCount: 3, totalBucketCount: 2,
+        exhaustive: true, buckets: [
+          { values: { related_contact_id: "present" }, count: 2 },
+          { values: { related_contact_id: "missing" }, count: 1 },
+        ],
+      };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          mode: "answer",
+          objective: "Count Watch Jobs with and without contact connections.",
+          conversationSummary: "The user wants current connected and unconnected Watch Jobs totals.",
+          actions: [],
+          capabilities: ["search"],
+        })));
+      }
+      assert.equal(index, 1);
+      assert.deepEqual(new Set(payload.tools.map(({ name }) => name)), new Set([
+        "global_search", "database_schema", "database_read", "database_aggregate",
+      ]));
+      const result = await payload.onToolCall({
+        callId: "aggregate-watch-jobs",
+        tool: "database_aggregate",
+        arguments: {
+          objectName: "todo_personal",
+          where: { todo_group_id: 10 },
+          dimensions: [{ column: "related_contact_id", mode: "presence" }],
+          result_filter: {
+            collection_path: "/buckets",
+            query: null,
+            match_mode: "all_terms",
+            include_fields: [],
+            exclude_fields: [],
+            max_items: 10,
+            max_characters: 10000,
+          },
+        },
+      });
+      assert.equal(result.ok, true);
+      return completed("Of 3 Watch Jobs, 1 is unconnected and 2 are connected.");
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-watch-job-count", requestEventId: "event-current",
+    text: "how many of the watch jobs are not connected to a contact?",
+  }), "Of 3 Watch Jobs, 1 is unconnected and 2 are connected.");
+  assert.deepEqual(
+    ledger.events.find(({ type }) => type === "orientation.core").payload.core.capabilities,
+    ["search", "database"],
+  );
+  assert.deepEqual(
+    ledger.events.find(({ type }) => type === "capability.selection").payload,
+    {
+      selectedByOrientation: ["search"],
+      addedReadOnlyCoreCapabilities: ["database"],
+      acceptedCapabilities: ["search", "database"],
+    },
+  );
+  assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
+});
+
 test("a complex continuation can recover opaque prior evidence during execution without bloating orientation", async () => {
   const requests = [];
   const ledger = fakeLedger({
