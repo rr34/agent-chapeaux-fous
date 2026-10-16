@@ -41,9 +41,18 @@ returning records. Follow each `next_cursor` until the needed result is complete
 scheduled-date filter. Show stable task IDs as `#<id>` in user-facing lists and
 confirmations.
 
+Some groups use stable group-local sequence numbers as their user-facing item
+numbers. When the user names numbered items within an exact group, resolve them
+with one `todo_list` query containing that exact `group` and all requested
+`sequences`. Never treat a sequence as a `personal_task_id`, and never resolve a
+named to-do-group sequence against a similarly worded content-library item.
+
 Use one `todo_update` call for all independently identified tasks in the same
 request, preserving every selected `personal_task_id`. Null values are no-change placeholders; clear flags apply only when
 the user explicitly asks to remove a relationship or prompt.
+Set `related_contact_id` to connect identified to-dos to one exact active
+contact; use `clear_related_contact` only when the user asks to remove that
+connection.
 
 When a to-do needs supporting or related material from the content library,
 resolve the exact to-do with `todo_list` and the exact library item with

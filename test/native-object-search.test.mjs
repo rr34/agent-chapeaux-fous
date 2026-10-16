@@ -102,6 +102,45 @@ test("native object candidates come from selected authoritative tables and rank 
   assert.equal(statements.some(({ sql }) => sql.includes("FROM todo_personal AS task")), true);
 });
 
+test("named to-do group sequences outrank similarly numbered content-library titles", () => {
+  const statements = [];
+  const request = "You can connect Watch Jobs 11 and 12 to the contact Ann Clark.";
+  const database = { prepare(sql) {
+    return { all(...parameters) {
+      statements.push({ sql, parameters });
+      if (sql.includes("exact_group_sequence")) return [
+        { id: 131, title: "Sector 6500 Quartz", status: "todo", sequence: 11,
+          parent_id: 10, parent_title: "Watch Jobs", exact_group_sequence: 1 },
+        { id: 132, title: "Gucci Quartz", status: "todo", sequence: 12,
+          parent_id: 10, parent_title: "Watch Jobs", exact_group_sequence: 1 },
+      ];
+      if (sql.includes("FROM contacts AS c")) return [
+        { id: 244, title: "Ann Clark", given_name: "Ann", family_name: "Clark", contact_kind: "person" },
+      ];
+      if (sql.includes("FROM content_items AS content")) return [
+        { id: 118, title: "What to Watch 11", parent_id: 3, parent_title: "What to Watch", content_status: "active" },
+        { id: 117, title: "What to Watch 12", parent_id: 3, parent_title: "What to Watch", content_status: "active" },
+      ];
+      if (sql.includes("FROM todo_personal AS task")) return [
+        { id: 356, title: "Link Watch Jobs to contacts", status: "todo", sequence: null,
+          parent_id: 2, parent_title: "Coding" },
+      ];
+      return [];
+    } };
+  } };
+
+  const objects = searchNativeObjects(database, { query: request, limit: 6 }).objects;
+  assert.deepEqual(objects.slice(0, 2).map(({ ref }) => ref), [
+    "agent-slayer://todos/131", "agent-slayer://todos/132",
+  ]);
+  assert.deepEqual(objects.slice(0, 2).map(({ detail }) => detail), [
+    "Watch Jobs · #11 · todo", "Watch Jobs · #12 · todo",
+  ]);
+  const exactRead = statements.find(({ sql }) => sql.includes("exact_group_sequence"));
+  assert.deepEqual(exactRead.parameters, [11, 12, request, 24]);
+  assert.ok(objects.find(({ ref }) => ref === "agent-slayer://contacts/244"));
+});
+
 test("object search bounds text and result count before database work", () => {
   assert.throws(() => objectSearchTerms("x".repeat(401)), /at most 400 characters/u);
   assert.throws(() => objectSearchTerms(null), /at most 400 characters/u);

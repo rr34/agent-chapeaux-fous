@@ -556,6 +556,18 @@ test("short approvals retain prior capabilities and can add an explicit new doma
   });
   assert.deepEqual(explanation.capabilities, ["database", "database-write", "profile"]);
   assert.equal(explanation.followsPriorTurn, true);
+
+  const authorized = selectRequestCapabilities({
+    tools,
+    text: "You can connect Watch Jobs 11 and 12 to the contact Ann Clark.",
+    recentConversation: [
+      { role: "assistant", content: "Watch Jobs is the to-do group whose numbered tasks were just reviewed." },
+    ],
+    previousCapabilities: ["todos", "contacts", "profile"],
+  });
+  assert.equal(authorized.followsPriorTurn, true);
+  assert.ok(authorized.capabilities.includes("todos"));
+  assert.ok(authorized.capabilities.includes("contacts"));
 });
 
 test("ambiguous actionable requests keep a small core and expose the deferred catalog", async () => {

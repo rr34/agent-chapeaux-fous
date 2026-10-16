@@ -99,7 +99,7 @@ const toolDescriptions = Object.freeze({
   "todo_list": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Search or read paginated batches of non-temporal native personal to-dos and linked content by task text, exact IDs, group, status, or completion date.",
+    "summary": "Search or read paginated batches of non-temporal native personal to-dos and linked content by task text, exact IDs, exact group-local sequence numbers, group, status, or completion date.",
     "actionClasses": [
       "READ"
     ],
@@ -121,7 +121,7 @@ const toolDescriptions = Object.freeze({
   "todo_update": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Atomically update up to 500 non-temporal native personal to-dos, including optional fixed billable prices, by stable ID.",
+    "summary": "Atomically update up to 500 non-temporal native personal to-dos by stable ID, including their optional contact connection and fixed billable price.",
     "actionClasses": [
       "UPDATE"
     ],
@@ -347,7 +347,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_list",
-    description: "Search or read non-temporal native personal to-dos and their linked content-library items in one or more paginated queries. Use text_query for descriptive task-text lookup; query_id only correlates each query with its result and never searches data. When conversation supplies a candidate task ID, verify it with personal_task_ids and status null instead of scanning all open tasks. Use a null result_filter query because this tool applies its owned filters before returning task records. Schedules and deadlines are calendar events and are read with calendar tools.",
+    description: "Search or read non-temporal native personal to-dos and their linked content-library items in one or more paginated queries. When the user names numbered items within a named group, such as Watch Jobs 11 and 12, use that exact group with sequences [11, 12]; sequence numbers are stable only within their owning group and are not personal task IDs. Use text_query for descriptive task-text lookup; query_id only correlates each query with its result and never searches data. When conversation supplies a candidate task ID, verify it with personal_task_ids and status null instead of scanning all open tasks. Use a null result_filter query because this tool applies its owned filters before returning task records. Schedules and deadlines are calendar events and are read with calendar tools.",
     outputSchema: { type: "object", properties: {
       has_more: { type: "boolean" }, results: { type: "array", items: { type: "object", properties: {
         query_id: { type: "string" }, filters: { type: "object", properties: todoQueryFilterProperties },
@@ -596,7 +596,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_update",
-    description: "Atomically update one or more non-temporal native personal to-dos. Calendar placement and deadlines must be changed through calendar events.",
+    description: "Atomically update one or more non-temporal native personal to-dos. This is the owning action for setting or clearing a to-do's optional contact connection through related_contact_id or clear_related_contact. Calendar placement and deadlines must be changed through calendar events.",
     outputSchema: { type: "object", properties: { updated_count: { type: "integer" },
       items: { type: "array", items: { type: "object", properties: { task: todoTaskRecordSchema } } } } },
     parameters: { type: "object", additionalProperties: false, properties: {

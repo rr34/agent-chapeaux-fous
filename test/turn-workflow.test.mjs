@@ -197,7 +197,7 @@ test("the normal mutation path is one common-sense call plus execution and skips
         assert.equal(payload.tools.length, 0);
         assert.match(payload.developerInstructions, /Common-sense orientation/);
         assert.doesNotMatch(payload.developerInstructions, /calendar_event_update/);
-        assert.doesNotMatch(payload.developerInstructions, /selected event is ready to update/);
+        assert.match(payload.developerInstructions, /selected event is ready to update/);
         assert.doesNotMatch(payload.developerInstructions, /Local calendar for relative dates/);
         assert.equal(Object.hasOwn(payload.outputSchema.properties, "requiredTools"), false);
         return completed(JSON.stringify(core({
@@ -352,7 +352,7 @@ test("a requested context view supplies observed bindings directly to execution"
     requests,
     runTurn: async (payload, index) => {
       if (index === 0) {
-        assert.doesNotMatch(payload.developerInstructions, /Leg day|cookie to-do/);
+        assert.match(payload.developerInstructions, /Leg day|cookie to-do/);
         assert.doesNotMatch(payload.developerInstructions, /calendar-events\/3169/);
         assert.doesNotMatch(payload.developerInstructions, /unrelated-invoice-action|unrelated invoice/);
         assert.doesNotMatch(payload.developerInstructions, /Recent durable receipt index/);

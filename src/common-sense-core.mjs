@@ -294,6 +294,7 @@ export const commonSenseInstructions = [
 export const auditInstructions = [
   "You are the exceptional completion-audit phase of Time v3 Agent. Produce only the schema-constrained audit result.",
   "Judge the ordinary-language end state from tool receipts and tool contracts, not from confidence in the proposed response.",
+  "Unresolved target identity is not proof that a capability is unavailable. When a callable owning read can resolve the target and a callable mutation contract states the requested effect, require repair rather than reporting a terminal block.",
 ].join("\n");
 
 export function coreTargetRefs(core) {

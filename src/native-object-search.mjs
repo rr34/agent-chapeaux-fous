@@ -152,7 +152,12 @@ function selectedSearchTypes(domainTypes) {
   return selected;
 }
 
-function readCandidates(database, tokens, selectedTypes = null) {
+function mentionedPositiveIntegers(query, maximum = 20) {
+  const values = String(query ?? "").match(/\b[1-9]\d*\b/gu) ?? [];
+  return [...new Set(values.map(Number).filter(Number.isSafeInteger))].slice(0, maximum);
+}
+
+function readCandidates(database, tokens, selectedTypes = null, query = "") {
   const candidates = [];
   const read = (type, select, from, baseWhere, fields, extras = [], order = "id DESC") => {
     if (selectedTypes && !selectedTypes.has(type)) return;
@@ -182,8 +187,25 @@ function readCandidates(database, tokens, selectedTypes = null) {
 
   read("todo_group", "g.todo_group_id AS id, g.name AS title",
     "todo_groups AS g", "g.archived_at_utc IS NULL", ["g.name"], [], "g.name, g.todo_group_id");
+  const mentionedSequences = mentionedPositiveIntegers(query);
+  if ((!selectedTypes || selectedTypes.has("todo")) && mentionedSequences.length) {
+    const rows = database.prepare(`SELECT task.personal_task_id AS id, task.text AS title, task.status,
+      task.sequence, task.todo_group_id AS parent_id, todo_group.name AS parent_title,
+      task.related_contact_id AS contact_id, contact.display_name AS contact_title,
+      1 AS exact_group_sequence
+      FROM todo_personal AS task JOIN todo_groups AS todo_group USING (todo_group_id)
+      LEFT JOIN contacts AS contact ON contact.contact_id = task.related_contact_id
+        AND contact.status <> 'inactive'
+      WHERE task.status IN ('todo', 'ai_suggested')
+        AND todo_group.archived_at_utc IS NULL
+        AND task.sequence IN (${mentionedSequences.map(() => "?").join(", ")})
+        AND LOCATE(LOWER(todo_group.name), LOWER(?)) > 0
+      ORDER BY task.sequence, task.personal_task_id LIMIT ?`)
+      .all(...mentionedSequences, String(query), 24);
+    for (const row of rows) candidates.push({ type: "todo", row });
+  }
   read("todo", `task.personal_task_id AS id, task.text AS title, task.status,
-      task.todo_group_id AS parent_id, todo_group.name AS parent_title,
+      task.sequence, task.todo_group_id AS parent_id, todo_group.name AS parent_title,
       task.related_contact_id AS contact_id, contact.display_name AS contact_title`,
     `todo_personal AS task JOIN todo_groups AS todo_group USING (todo_group_id)
       LEFT JOIN contacts AS contact ON contact.contact_id = task.related_contact_id
@@ -253,6 +275,7 @@ function scoreCandidate({ type, row }, tokens) {
     ["parent", row.parent_title, 2],
     ["related contact", row.contact_title, 2],
     ["group", row.grandparent_title, 1],
+    ["sequence", row.sequence, 8],
   ];
   let score = 0;
   const matchedOn = new Set();
@@ -270,11 +293,12 @@ function scoreCandidate({ type, row }, tokens) {
   const normalizedTitle = String(row.title ?? "").toLocaleLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (normalizedTitle === tokens.join(" ")) score += 10;
+  if (row.exact_group_sequence) score += 20;
   const definition = byType.get(type);
   const id = Number(row.id);
   const title = compact(row.title, 160) ?? "";
   const detail = type === "contact" ? [row.contact_kind, row.tag_labels].filter(Boolean).join(" · ")
-    : type === "todo" ? [row.parent_title, row.status].filter(Boolean).join(" · ")
+    : type === "todo" ? [row.parent_title, row.sequence == null ? null : `#${row.sequence}`, row.status].filter(Boolean).join(" · ")
       : type === "tracker" ? [row.parent_title, row.unit].filter(Boolean).join(" · ")
         : type === "journal_entry" ? [row.parent_title, row.occurred_at_utc].filter(Boolean).join(" · ")
           : type === "calendar_event" ? [row.starts_at_utc, row.location_text].filter(Boolean).join(" · ")
@@ -345,11 +369,14 @@ export function searchNativeObjects(database, { query, limit = 4, domainTypes = 
   if (!Number.isSafeInteger(boundedLimit) || boundedLimit < 1 || boundedLimit > 48) {
     throw new TypeError("Object search limit must be from 1 to 48.");
   }
-  const ranked = readCandidates(database, tokens, selectedTypes)
+  const ranked = readCandidates(database, tokens, selectedTypes, query)
     .map((candidate) => scoreCandidate(candidate, tokens)).filter(Boolean)
     .sort((left, right) => right.score - left.score
+      || (left.row?.exact_group_sequence && right.row?.exact_group_sequence
+        ? Number(left.row.sequence) - Number(right.row.sequence) : 0)
       || left.label.localeCompare(right.label) || left.title.localeCompare(right.title));
-  const objects = ranked.slice(0, boundedLimit).map((item) => {
+  const uniqueRanked = [...new Map(ranked.map((item) => [`${item.type}:${item.id}`, item])).values()];
+  const objects = uniqueRanked.slice(0, boundedLimit).map((item) => {
     const { row: _row, score: _score, ...publicItem } = item;
     return { ...publicItem, related: relatedFor(database, item) };
   });

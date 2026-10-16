@@ -29,11 +29,14 @@ test("todo_list accepts only bounded query batches and validates the full batch 
   const { registry, execute, reads } = fixture();
   const definition = registry.toolDefinitions().find(({ name }) => name === "todo_list");
   assert.equal(definition.inputSchema.properties.queries.items.properties.status.enum.includes("unplanned"), false);
+  assert.equal(definition.inputSchema.properties.queries.items.properties.sequences.items.type, "integer");
   await assert.rejects(registry.execute("todo_list", { group: null, status: null, limit: 2 }), /queries is required/);
   await assert.rejects(execute([]), /too few/);
   await assert.rejects(execute(Array.from({ length: 21 }, (_, i) => query({ query_id: String(i) }))), /too many/);
   await assert.rejects(execute([query({}), query({})]), /unique query_id/);
   await assert.rejects(execute([query({ personal_task_ids: [65, 65] })]), /unique items/);
+  await assert.rejects(execute([query({ sequences: [11, 11], group: "Watch Jobs" })]), /unique items/);
+  await assert.rejects(execute([query({ sequences: [11, 12] })]), /require an exact group name/);
   await assert.rejects(execute([query({ limit: 201 })]), /at most 200/);
   for (const invalid of [
     { completed_date_range: day("2026-02-30"), time_zone: "America/New_York" },
@@ -46,6 +49,22 @@ test("todo_list accepts only bounded query batches and validates the full batch 
     await assert.rejects(execute([query({ query_id: "valid" }), query(invalid)]));
   }
   assert.equal(reads.length, 0);
+});
+
+test("group-local sequence lookup resolves numbered tasks without treating sequences as task IDs", async () => {
+  const { execute, reads } = fixture([[
+    task(131, { group_name: "Watch Jobs", sequence: 11, status: "complete" }),
+    task(132, { group_name: "Watch Jobs", sequence: 12 }),
+  ]]);
+  const result = await execute([query({
+    group: " Watch Jobs ", sequences: [12, 11], status: null,
+  })]);
+
+  assert.deepEqual(result.results[0].filters.sequences, [11, 12]);
+  assert.deepEqual(result.results[0].tasks.map(({ personal_task_id }) => personal_task_id), [131, 132]);
+  assert.match(reads[0].sql, /task\.sequence IN \(\?, \?\)/u);
+  assert.doesNotMatch(reads[0].sql, /status NOT IN/u);
+  assert.deepEqual(reads[0].parameters, ["Watch Jobs", 11, 12, 3]);
 });
 
 test("task-text lookup searches owned task records and includes terminal matches", async () => {

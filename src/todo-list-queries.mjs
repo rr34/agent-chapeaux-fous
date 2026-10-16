@@ -15,13 +15,18 @@ const localDateRange = {
 
 export const todoQueryFilterProperties = {
   group: { type: ["string", "null"], description: "Exact group name; null selects all groups." },
+  sequences: {
+    type: ["array", "null"], minItems: 1, maxItems: 200, uniqueItems: true,
+    items: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+    description: "Exact stable sequence numbers within the named group. Requires group; null disables sequence filtering. These are group-local user-facing numbers, not personal_task_ids.",
+  },
   text_query: {
     type: ["string", "null"], minLength: 1, maxLength: 500,
     description: "Optional case-insensitive task-text search. Every whitespace-delimited term must occur in task.text. Null disables text search. This is the search input; query_id is only a correlation label.",
   },
   status: {
     type: ["string", "null"], enum: [...todoStatuses, null],
-    description: "todo: intended work; complete: finished; ignore: intentionally skipped; archive: retained history; ai_suggested: awaiting acceptance. Null excludes terminal tasks unless a text search, completion range, or task IDs are supplied, in which case all statuses are eligible.",
+    description: "todo: intended work; complete: finished; ignore: intentionally skipped; archive: retained history; ai_suggested: awaiting acceptance. Null excludes terminal tasks unless sequence numbers, a text search, completion range, or task IDs are supplied, in which case all statuses are eligible.",
   },
   personal_task_ids: {
     type: ["array", "null"], minItems: 1, maxItems: 200, uniqueItems: true,
@@ -80,6 +85,7 @@ function sortFields(filters) {
 function prepareQuery(query) {
   const filters = {
     group: query.group?.trim() || null,
+    sequences: query.sequences ? [...query.sequences].sort((a, b) => a - b) : null,
     text_query: query.text_query == null
       ? null
       : query.text_query.normalize("NFKC").trim().replaceAll(/\s+/gu, " "),
@@ -95,10 +101,17 @@ function prepareQuery(query) {
   if (query.text_query != null && !filters.text_query) {
     throw new Error(`text_query for query ${query.query_id} must contain searchable text.`);
   }
+  if (filters.sequences && !filters.group) {
+    throw new Error(`sequences for query ${query.query_id} require an exact group name.`);
+  }
   if (filters.group) { conditions.push("todo_group.name = ?"); parameters.push(filters.group); }
   if (filters.status) { conditions.push("task.status = ?"); parameters.push(filters.status); }
-  else if (!filters.text_query && !filters.completed_date_range && !filters.personal_task_ids) {
+  else if (!filters.sequences && !filters.text_query && !filters.completed_date_range && !filters.personal_task_ids) {
     conditions.push("task.status NOT IN ('complete', 'ignore', 'archive')");
+  }
+  if (filters.sequences) {
+    conditions.push(`task.sequence IN (${filters.sequences.map(() => "?").join(", ")})`);
+    parameters.push(...filters.sequences);
   }
   if (filters.text_query) {
     for (const term of [...new Set(filters.text_query.split(" "))]) {

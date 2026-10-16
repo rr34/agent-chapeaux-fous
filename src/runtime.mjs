@@ -86,13 +86,13 @@ function objectReferenceGroupsForRefs(groups, refs) {
   });
 }
 
-const conversationalContinuationCue = /\b(?:again|approve|confirm|continue|earlier|existing|go\s+ahead|it|last|previous(?:ly)?|prior|proceed|resume|same|that|them|these|this|those)\b/iu;
+const operationalContinuationCue = /(?:^\s*you\s+can\b|\b(?:again|approve|confirm|continue|earlier|existing|go\s+ahead|it|last|previous(?:ly)?|prior|proceed|resume|same|that|them|these|this|those)\b)/iu;
 const localCalendarCue = /(?:\b(?:today|tomorrow|yesterday|tonight|morning|afternoon|evening|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b|\b(?:this|next|last)\s+(?:day|week|month|year|weekend)\b|\b\d{4}-\d{2}-\d{2}\b)/iu;
 
-function needsPriorConversation(requestText, selectedObjectCandidates, referencedExchanges) {
+function needsPriorOperationalEvidence(requestText, selectedObjectCandidates, referencedExchanges) {
   if ((referencedExchanges ?? []).length) return true;
   if ((selectedObjectCandidates ?? []).length) return false;
-  return conversationalContinuationCue.test(String(requestText ?? ""));
+  return operationalContinuationCue.test(String(requestText ?? ""));
 }
 
 function needsLocalCalendar(requestText) {
@@ -785,15 +785,20 @@ export class SlayerRuntime {
     const referencedExchanges = typeof this.ledger.referencedExchangesForRequest === "function"
       ? this.ledger.referencedExchangesForRequest(args.requestId, { limit: 8 })
       : [];
-    const includePriorConversation = needsPriorConversation(
+    const includePriorOperationalEvidence = needsPriorOperationalEvidence(
       args.text,
       args.selectedObjectCandidates,
       referencedExchanges,
     );
-    const relevantConversation = includePriorConversation ? recentConversation : [];
-    const relevantActionReferences = includePriorConversation ? activeActionReferences : [];
+    // Orientation always receives the bounded recent exchange. It decides how
+    // much that conversation matters; a keyword gate cannot reliably classify
+    // ordinary continuations such as "You can connect ...". Exact operational
+    // evidence remains gated so unrelated old bindings, receipts, and deferred
+    // actions do not become current action targets.
+    const relevantConversation = recentConversation;
+    const relevantActionReferences = includePriorOperationalEvidence ? activeActionReferences : [];
     const recentToolReceipts = recentToolReceiptIndex(this.ledger, [
-      ...relevantConversation,
+      ...(includePriorOperationalEvidence ? relevantConversation : []),
       ...referencedExchanges.map(({ requestId }) => ({ requestId })),
     ]);
     const reusableReferencedExchanges = referencedExchanges.filter((exchange) => (
@@ -813,9 +818,9 @@ export class SlayerRuntime {
       ...relevantConversation.map(({ content }) => content),
     ].filter(Boolean).join("\n");
     const relevantRecentObjectReferences = relevantObjectReferenceCatalog(
-      this.objectReferenceFilter(
-        relevantConversation.flatMap(({ objectReferences = [] }) => objectReferences),
-      ),
+      this.objectReferenceFilter(includePriorOperationalEvidence
+        ? relevantConversation.flatMap(({ objectReferences = [] }) => objectReferences)
+        : []),
       { evidenceText: recentEvidenceText, maximumObjects: 24 },
     );
     const availableObjectReferences = explicitReferenceObjectCatalog(
@@ -842,13 +847,11 @@ export class SlayerRuntime {
       actionReferenceIds: relevantActionReferences.map(({ referenceId }) => referenceId),
       objectRefs: availableCoreObjectRefs(availableObjectReferences, selectedObjectCandidates),
     });
-    const priorConversationSummary = includePriorConversation
-      ? JSON.stringify({
-          priorObjective: previousState?.activeObjective ?? null,
-          openQuestions: previousState?.unresolvedQuestions ?? [],
-          recent: relevantConversation.map(({ eventSeq, role, content }) => ({ eventSeq, role, content })),
-        }, null, 2)
-      : "No earlier conversation is needed to understand this independent request.";
+    const priorConversationSummary = JSON.stringify({
+      priorObjective: previousState?.activeObjective ?? null,
+      openQuestions: previousState?.unresolvedQuestions ?? [],
+      recent: relevantConversation.map(({ eventSeq, role, content }) => ({ eventSeq, role, content })),
+    }, null, 2);
     const orientationDeveloperInstructions = joinedInstructions(
       commonSenseContext({
         requestId: args.requestId,

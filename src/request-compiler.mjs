@@ -40,7 +40,7 @@ const capabilityPatterns = new Map([
   ["search", /\b(?:global|unified|cross[ -]?domain|everywhere)\s+search\b|\b(?:find|search|look for)\b.{0,80}\b(?:everything|anything|across (?:all|my)|everywhere|all (?:my|available) (?:data|records?|information))\b/iu],
 ]);
 
-const followupPattern = /^(?:\s)*(?:yes|yeah|yep|okay|ok|sure|correct|right|sounds good|go ahead|do it|proceed|continue|make it so|that one|those|please do)(?:\b|[.!,:])/iu;
+const followupPattern = /^(?:\s)*(?:yes|yeah|yep|okay|ok|sure|correct|right|sounds good|go ahead|do it|proceed|continue|make it so|that one|those|please do|you can)(?:\b|[.!,:])/iu;
 const leadingContinuationReferencePattern = /^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:that|this|it|those|them|the same|again|what happened|tell me more|why did|why was|why is|how about|what about)\b/iu;
 const actionContinuationReferencePattern = /\b(?:do|use|send|email|reply to|forward|delete|remove|update|change|apply|open|read|show|list|find|move|archive|trash|restore)\s+(?:that|this|it|those|them)\b/iu;
 const questionContinuationReferencePattern = /\b(?:what|why|how)\b.{0,40}\b(?:that|this|it|those|them)\b/iu;

@@ -69,7 +69,11 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     identity: field("personal_task_id", "Stable native personal to-do primary ID."),
     reference: field("ref", "Stable Agent Slayer personal to-do reference."),
     display: field("text", "Human-facing to-do text."),
-    qualifiers: [field("status", "Current to-do status."), field("group_name", "Owning to-do group name.")],
+    qualifiers: [
+      field("sequence", "Stable user-facing number within the owning to-do group when that group uses sequences."),
+      field("status", "Current to-do status."),
+      field("group_name", "Owning to-do group name."),
+    ],
     relationships: [
       relationship("group", "todos.todo_group", "Group containing this personal to-do."),
       relationship("contact", "contacts.contact", "Optional contact related to this to-do."),
