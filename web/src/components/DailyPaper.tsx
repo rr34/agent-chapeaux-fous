@@ -183,7 +183,13 @@ type PositionedEvent = {
   continuesBefore: boolean;
   continuesAfter: boolean;
   isPoint: boolean;
+  cardSpan: number;
 };
+
+function estimatedCardSpan(event: CalendarEvent) {
+  const linkedTodoCount = event.linkedTodos?.length ?? 0;
+  return 42 + (event.description ? 20 : 0) + linkedTodoCount * 58;
+}
 
 function positionedTimelineEvents(events: CalendarEvent[], date: string, timeZone: string) {
   const allDay = events.filter((event) => event.isAllDay);
@@ -209,6 +215,7 @@ function positionedTimelineEvents(events: CalendarEvent[], date: string, timeZon
     lane: 0,
     laneCount: 1,
     labelMinute: Math.max(TIMELINE_START_MINUTE, item.start),
+    cardSpan: estimatedCardSpan(item.event),
   }));
 
   const laneEnds: number[] = [];
@@ -218,24 +225,25 @@ function positionedTimelineEvents(events: CalendarEvent[], date: string, timeZon
     laneEnds[item.lane] = item.isPoint ? item.start + 1 : item.end;
   }
   const laneCount = Math.max(1, laneEnds.length);
-  const labelGap = visible.length <= 1
-    ? 0
-    : Math.max(18, Math.min(45, (TIMELINE_MINUTES - 24) / (visible.length - 1)));
-  let labelCursor = TIMELINE_START_MINUTE;
+  const cardGap = 10;
+  let labelCursor = TIMELINE_START_MINUTE + 4;
   for (const item of visible) {
     item.labelMinute = Math.max(item.start, labelCursor);
-    labelCursor = item.labelMinute + labelGap;
+    labelCursor = item.labelMinute + item.cardSpan + cardGap;
   }
-  const overflow = visible.length ? Math.max(0, visible.at(-1)!.labelMinute - (TIMELINE_END_MINUTE - 20)) : 0;
-  if (overflow) {
-    for (const item of visible) item.labelMinute -= overflow;
+  if (labelCursor > TIMELINE_END_MINUTE - 4) {
+    let ceiling = TIMELINE_END_MINUTE - 4;
+    for (let index = visible.length - 1; index >= 0; index -= 1) {
+      const item = visible[index];
+      item.labelMinute = Math.min(item.labelMinute, ceiling - item.cardSpan);
+      ceiling = item.labelMinute - cardGap;
+    }
+    if (visible[0]?.labelMinute < TIMELINE_START_MINUTE + 4) {
+      const correction = TIMELINE_START_MINUTE + 4 - visible[0].labelMinute;
+      for (const item of visible) item.labelMinute += correction;
+    }
   }
-  let floor = TIMELINE_START_MINUTE;
-  for (const item of visible) {
-    item.labelMinute = Math.max(floor, item.labelMinute);
-    floor = item.labelMinute + labelGap;
-    item.laneCount = laneCount;
-  }
+  for (const item of visible) item.laneCount = laneCount;
   return { allDay, before, after, visible };
 }
 
@@ -281,11 +289,28 @@ function OutsideTimelineEvents({ label, events, timeZone }: {
   </div>;
 }
 
-function PrintableFixedTimeline({ events, date, timeZone, weather }: {
+function PrintableEventCard({ event, includeCompletedTodos }: {
+  event: CalendarEvent;
+  includeCompletedTodos: boolean;
+}) {
+  const linkedTodos = (event.linkedTodos || [])
+    .filter((todo) => includeCompletedTodos || todo.status !== "complete");
+  return <article className={`paper-event-card${event.description ? " has-description" : ""}${event.location ? " has-location" : ""}${linkedTodos.length ? " has-linked-todos" : ""}`}>
+    <strong className="multiline-item-text">{event.title}</strong>
+    {event.description && <p className="paper-event-description">{event.description}</p>}
+    {event.location && <small className="paper-event-location">{event.location}</small>}
+    {linkedTodos.length > 0 && <ul className="paper-event-todos" aria-label={`To-dos linked to ${event.title}`}>
+      {linkedTodos.map((todo) => <PrintableTodoCard todo={todo} showRelationship key={todo.todoId} />)}
+    </ul>}
+  </article>;
+}
+
+function PrintableTimelineCards({ events, date, timeZone, weather, includeCompletedTodos }: {
   events: CalendarEvent[];
   date: string;
   timeZone: string;
   weather: DailyPaperModel["weather"];
+  includeCompletedTodos: boolean;
 }) {
   const positioned = positionedTimelineEvents(events, date, timeZone);
   return <div className="paper-fixed-timeline">
@@ -302,28 +327,30 @@ function PrintableFixedTimeline({ events, date, timeZone, weather }: {
         style={{ "--timeline-position": `${timelinePercent(hour * 60)}%` } as CSSProperties}
         key={hour}
       ><time>{String(hour).padStart(2, "0")}:00</time><span /></div>)}
-      <div className="paper-duration-layer">
-        {positioned.visible.map((item) => {
-          const bracketStyle = {
-            "--event-top": `${timelinePercent(item.start)}%`,
-            "--event-height": `${Math.max(0, timelinePercent(item.end) - timelinePercent(item.start))}%`,
-            "--event-lane": item.lane,
-            "--event-lanes": item.laneCount,
-          } as CSSProperties;
-          const labelStyle = {
-            "--event-label-top": `${timelinePercent(item.labelMinute)}%`,
-          } as CSSProperties;
-          return <div className="paper-positioned-event" aria-label={`${timeLabel(item.event, timeZone)}, ${item.event.title}`} key={`${item.event.id}-${item.event.startsAtUtc}`}>
-            <span className={`paper-event-bracket${item.isPoint ? " is-point" : ""}${item.continuesBefore ? " continues-before" : ""}${item.continuesAfter ? " continues-after" : ""}`} style={bracketStyle} aria-hidden="true" />
-            <span className="paper-event-label" style={labelStyle}>
-              <time>{timeLabel(item.event, timeZone)}</time>
-              <strong className="multiline-item-text">{item.event.title}</strong>
-              {item.event.location && <small className="multiline-item-text">{item.event.location}</small>}
-            </span>
-          </div>;
-        })}
-      </div>
-      <aside className="paper-weather-gutter" aria-label="Weather forecast">
+      {positioned.visible.map((item) => {
+        const bracketStyle = {
+          "--event-top": `${timelinePercent(item.start)}%`,
+          "--event-height": `${Math.max(0, timelinePercent(item.end) - timelinePercent(item.start))}%`,
+          "--event-lane": item.lane,
+        } as CSSProperties;
+        const cardStyle = {
+          "--event-card-top": `${timelinePercent(item.labelMinute)}%`,
+        } as CSSProperties;
+        const connectorStyle = {
+          "--event-lane": item.lane,
+        } as CSSProperties;
+        return <div className="paper-positioned-event" aria-label={`${timeLabel(item.event, timeZone)}, ${item.event.title}`} key={`${item.event.id}-${item.event.startsAtUtc}`}>
+          <span className={`paper-event-bracket${item.isPoint ? " is-point" : ""}${item.continuesBefore ? " continues-before" : ""}${item.continuesAfter ? " continues-after" : ""}`} style={bracketStyle} aria-hidden="true" />
+          <svg className="paper-event-connector" style={connectorStyle} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <line x1="0" y1={timelinePercent(item.start)} x2="100" y2={timelinePercent(item.labelMinute)} vectorEffect="non-scaling-stroke" />
+          </svg>
+          <div className="paper-timeline-card" style={cardStyle}>
+            <time>{timeLabel(item.event, timeZone)}</time>
+            <PrintableEventCard event={item.event} includeCompletedTodos={includeCompletedTodos} />
+          </div>
+        </div>;
+      })}
+      <aside className="paper-weather-column" aria-label="Weather forecast">
         {weather?.status === "available" ? weather.points.map((point) => (
           <WeatherPoint point={point} unit={weather.temperatureUnit} key={point.time} />
         )) : weather?.status === "unavailable" ? <small className="paper-weather-unavailable">Weather unavailable</small> : null}
@@ -333,31 +360,6 @@ function PrintableFixedTimeline({ events, date, timeZone, weather }: {
       <OutsideTimelineEvents label="23:00 and later" events={positioned.after} timeZone={timeZone} />
     </div>
   </div>;
-}
-
-function PrintableEventDetails({ events, timeZone, includeCompletedTodos }: {
-  events: CalendarEvent[];
-  timeZone: string;
-  includeCompletedTodos: boolean;
-}) {
-  if (!events.length) return <p className="paper-empty">No event details for this day.</p>;
-  return <ol className="timeline-list paper-event-details">
-    {events.map((event) => {
-      const linkedTodos = (event.linkedTodos || [])
-        .filter((todo) => includeCompletedTodos || todo.status !== "complete");
-      return <li key={`${event.id}-${event.startsAtUtc}`}>
-        <time>{timeLabel(event, timeZone)}</time>
-        <article className={`paper-event-card${event.description ? " has-description" : ""}${event.location ? " has-location" : ""}${linkedTodos.length ? " has-linked-todos" : ""}`}>
-          <strong className="multiline-item-text">{event.title}</strong>
-          {event.description && <p className="paper-event-description">{event.description}</p>}
-          {event.location && <small className="paper-event-location">{event.location}</small>}
-          {linkedTodos.length > 0 && <ul className="paper-event-todos" aria-label={`To-dos linked to ${event.title}`}>
-            {linkedTodos.map((todo) => <PrintableTodoCard todo={todo} showRelationship key={todo.todoId} />)}
-          </ul>}
-        </article>
-      </li>;
-    })}
-  </ol>;
 }
 
 function trackerCadenceLabel(tracker: ScheduledTracker) {
@@ -397,7 +399,7 @@ function PrintablePinnedTodoGroups({ groups }: { groups: DailyPaperTodoGroup[] }
   return <section className="paper-pinned-todos">
     <header className="paper-append-heading">
       <h3>Pinned to-do groups</h3>
-      <small>Appended after today’s calendar</small>
+      <small>Appended after today’s timeline</small>
     </header>
     <div className="paper-todo-groups">{groups.map((group) => <section className="paper-todo-group" key={group.id}>
       <h3>{group.name}</h3>
@@ -432,17 +434,18 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
         <header className="paper-section-heading">
           <span>01</span><h2>Today’s timeline</h2><small>05:00–23:00 · {model.timeZone.replaceAll("_", " ")}</small>
         </header>
-        <PrintableFixedTimeline
+        <PrintableTimelineCards
           events={model.todayEvents}
           date={model.date}
           timeZone={model.timeZone}
           weather={model.weather}
+          includeCompletedTodos={model.includeCompletedTodos}
         />
       </section>
 
       <footer className="paper-footer">
         <span>{availableWeather
-          ? <>Weather: <a href={availableWeather.attributionUrl}>{availableWeather.provider}</a> · {availableWeather.location}</>
+          ? <>Weather (°C): <a href={availableWeather.attributionUrl}>{availableWeather.provider}</a> · {availableWeather.location}</>
           : `Printed ${formatDisplayDate(model.generatedAtUtc, { timeZone: model.timeZone })}`}</span>
         <span>For {formatLocalDate(model.date)}</span>
       </footer>
@@ -450,19 +453,14 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
 
     <article className={`daily-paper paper-details-page paper-${model.paperSize} ${preview ? "daily-paper--preview" : ""}`}>
       <header className="paper-details-masthead">
-        <div><p className="paper-kicker">Daily paper · Details</p><h1>{model.heading}</h1></div>
-        <small>Times, notes, linked work, trackers, and pinned groups</small>
+        <div><p className="paper-kicker">Daily paper · Follow-through</p><h1>{model.heading}</h1></div>
+        <small>Trackers, pinned groups, and notes</small>
       </header>
 
       <section className="paper-section paper-today-details">
         <header className="paper-section-heading">
-          <span>02</span><h2>Today’s details</h2><small>{model.todayEvents.length} event{model.todayEvents.length === 1 ? "" : "s"}</small>
+          <span>02</span><h2>Follow-through</h2><small>After today’s timeline</small>
         </header>
-        <PrintableEventDetails
-          events={model.todayEvents}
-          timeZone={model.timeZone}
-          includeCompletedTodos={model.includeCompletedTodos}
-        />
         {model.scheduledTrackers.length > 0 && <section className="paper-today-trackers">
           <header className="paper-append-heading"><h3>Trackers</h3><small>{model.scheduledTrackers.length} scheduled</small></header>
           <ScheduledTrackers trackers={model.scheduledTrackers} />

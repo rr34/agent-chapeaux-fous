@@ -88,11 +88,12 @@ test("the first printed page uses an exact fixed-height 05:00–23:00 timeline",
   assert.match(calendarSource, /TIMELINE_START_MINUTE = 5 \* 60/);
   assert.match(calendarSource, /TIMELINE_END_MINUTE = 23 \* 60/);
   assert.match(calendarSource, /function timelinePercent/);
-  assert.match(calendarSource, /function PrintableFixedTimeline/);
-  assert.match(calendarSource, /<PrintableFixedTimeline[\s\S]*?events=\{model\.todayEvents\}/);
+  assert.match(calendarSource, /function PrintableTimelineCards/);
+  assert.match(calendarSource, /<PrintableTimelineCards[\s\S]*?events=\{model\.todayEvents\}/);
   assert.match(calendarSource, /className=\{`paper-event-bracket/);
-  assert.match(calendarSource, /className="paper-event-label"/);
-  assert.match(calendarSource, /className="paper-weather-gutter"/);
+  assert.match(calendarSource, /className="paper-event-connector"/);
+  assert.match(calendarSource, /className="paper-timeline-card"/);
+  assert.match(calendarSource, /className="paper-weather-column"/);
   assert.match(calendarSource, /Before 05:00/);
   assert.match(calendarSource, /23:00 and later/);
   assert.match(styles, /\.paper-plan-page \{[^}]*height: 11in;[^}]*overflow: hidden;[^}]*break-after: page;/s);
@@ -100,37 +101,39 @@ test("the first printed page uses an exact fixed-height 05:00–23:00 timeline",
   assert.match(styles, /\.paper-time-scale \{[^}]*flex: 1 1 auto;[^}]*position: relative;/s);
   assert.match(styles, /\.paper-hour-rule \{[^}]*top: var\(--timeline-position\)/s);
   assert.match(styles, /\.paper-event-bracket \{[^}]*top: var\(--event-top\);[^}]*height: var\(--event-height\)/s);
+  assert.match(styles, /\.paper-event-connector \{[^}]*left: calc\(1\.13in \+ var\(--event-lane\) \* \.15in\)/s);
+  assert.match(styles, /\.paper-timeline-card \{[^}]*top: var\(--event-card-top\)/s);
+  assert.match(styles, /\.paper-weather-column \{[^}]*left: 0;[^}]*width: \.48in/s);
   assert.match(styles, /\.paper-weather-point \{[^}]*top: var\(--timeline-position\)/s);
 });
 
-test("the details page preserves event notes, linked work, trackers, and pinned groups", () => {
-  assert.match(calendarSource, /function PrintableEventDetails/);
-  assert.match(calendarSource, /<PrintableEventDetails[\s\S]*?events=\{model\.todayEvents\}/);
+test("the proportional timeline preserves the existing detailed event cards", () => {
+  assert.match(calendarSource, /function PrintableEventCard/);
+  assert.match(calendarSource, /<PrintableEventCard event=\{item\.event\} includeCompletedTodos=\{includeCompletedTodos\} \/>/);
   assert.match(calendarSource, /className="paper-event-description">\{event\.description\}<\/p>/);
-  assert.match(styles, /\.daily-paper \.timeline-list p \{[^}]*font-size: 5\.8pt;/s);
   assert.match(styles, /\.paper-event-card p \{[^}]*-webkit-line-clamp: 2;/s);
   assert.match(styles, /\.paper-event-card \{[^}]*grid-template-columns: minmax\(1\.35in, \.8fr\) minmax\(0, 1\.4fr\) auto;/s);
   assert.match(styles, /\.paper-event-card \{[^}]*border: 1\.5px solid #4f564c;[^}]*print-color-adjust: exact;/s);
   assert.match(styles, /@media print \{[\s\S]*\.paper-event-card \{[^}]*border-color: #30362e;/s);
   assert.match(styles, /\.paper-event-card > \.paper-event-description \{[^}]*grid-column: 2;/s);
   assert.match(styles, /\.paper-event-card:not\(\.has-description\):not\(\.has-location\) > strong \{[^}]*grid-column: 1 \/ -1;/s);
-  assert.match(styles, /\.daily-paper \.timeline-list > li \{[^}]*break-inside: avoid-page;/s);
 });
 
-test("daily paper separates the proportional plan page from complete daily details", () => {
+test("daily paper uses one card-based timeline and keeps follow-through material separate", () => {
   const paperLayout = calendarSource.slice(calendarSource.indexOf("export function DailyPaper"));
   assert.doesNotMatch(calendarSource, /TodoWorksheet|Handwriting sheets follow|TODOS_PER_WORKSHEET/);
   assert.match(paperLayout, /paper-plan-page/);
   assert.match(paperLayout, /paper-details-page/);
   assert.match(paperLayout, /className="paper-section paper-today paper-timeline-page-section"/);
   assert.match(paperLayout, /<h2>Today’s timeline<\/h2>/);
-  assert.match(paperLayout, /<h2>Today’s details<\/h2>/);
+  assert.match(paperLayout, /<h2>Follow-through<\/h2>/);
+  assert.doesNotMatch(paperLayout, /Today’s details/);
   assert.doesNotMatch(paperLayout, /<h2>To-dos<\/h2>|<h2>Trackers<\/h2>/);
   assert.match(calendarSource, /className="paper-event-todos"/);
   assert.match(calendarSource, /<PrintableTodoCard todo=\{todo\} showRelationship/);
   assert.match(calendarSource, /<PrintablePinnedTodoGroups groups=\{model\.printableTodoGroups\} \/>/);
-  assert.ok(paperLayout.indexOf("PrintableFixedTimeline") < paperLayout.indexOf("PrintablePinnedTodoGroups"));
-  assert.ok(paperLayout.indexOf("PrintableEventDetails") < paperLayout.indexOf("PrintablePinnedTodoGroups"));
+  assert.ok(paperLayout.indexOf("PrintableTimelineCards") < paperLayout.indexOf("PrintablePinnedTodoGroups"));
+  assert.doesNotMatch(calendarSource, /PrintableEventDetails/);
   assert.match(calendarSource, /className="paper-todo-empty-lines"/);
   assert.match(calendarSource, /className="paper-todo-group"/);
   assert.doesNotMatch(calendarSource, /paper-todo-cluster/);

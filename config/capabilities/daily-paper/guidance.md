@@ -3,9 +3,10 @@ daily PDF. Do not reconstruct an equivalent document through generic reads.
 The document automatically includes every active to-do group pinned to the
 daily paper, all open tasks in those groups, and an empty writable section when
 a pinned group has no open tasks. Its first page uses a fixed 05:00–23:00
-vertical scale with exact-duration calendar brackets. When the active default
-location can be resolved and the selected date is within the forecast window,
-the document adds a compact weather gutter from Open-Meteo. Weather is optional
+vertical scale with exact-duration calendar brackets connected directly to the
+detailed event cards. When the active default location can be resolved and the
+selected date is within the forecast window, the document adds compact Celsius
+weather in the scale's left column from Open-Meteo. Weather is optional
 enrichment and its absence must not block the calendar document.
 
 Resolve relative dates such as “today” in the user's IANA time zone and pass the

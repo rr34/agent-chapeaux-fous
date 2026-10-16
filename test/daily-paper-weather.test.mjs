@@ -40,7 +40,6 @@ test("daily paper weather deterministically resolves and samples one forecast da
   };
   const profileFacts = { list: () => ({ facts: [
     { factType: "default_location", text: "Delaware, Ohio, United States" },
-    { factType: "temperature_unit", text: "Use Fahrenheit." },
   ] }) };
   const service = new DailyPaperWeatherService({
     profileFacts,
@@ -51,13 +50,14 @@ test("daily paper weather deterministically resolves and samples one forecast da
   const result = await service.read({ date: "2026-10-16", timeZone: "America/New_York" });
   assert.equal(result.status, "available");
   assert.equal(result.location, "Delaware, Ohio, United States");
-  assert.equal(result.temperatureUnit, "fahrenheit");
+  assert.equal(result.temperatureUnit, "celsius");
   assert.deepEqual(result.points.map(({ hour }) => hour), [5, 8, 11, 14, 17, 20, 23]);
   assert.equal(requests.length, 2);
   assert.equal(requests[0].searchParams.get("name"), "Delaware");
   assert.equal(requests[0].searchParams.get("countryCode"), "US");
   assert.equal(requests[1].searchParams.get("start_date"), "2026-10-16");
   assert.equal(requests[1].searchParams.get("timezone"), "America/New_York");
+  assert.equal(requests[1].searchParams.get("temperature_unit"), "celsius");
 });
 
 test("daily paper omits weather outside the bounded forecast window", async () => {

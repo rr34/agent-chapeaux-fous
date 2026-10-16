@@ -124,11 +124,11 @@ const model = {
     attributionUrl: "https://open-meteo.com/",
     fetchedAtUtc: "2026-10-04T11:30:00.000Z",
     location: "Delaware, Ohio, United States",
-    temperatureUnit: "fahrenheit",
+    temperatureUnit: "celsius",
     points: [5, 8, 11, 14, 17, 20, 23].map((hour) => ({
       time: `2026-10-04T${String(hour).padStart(2, "0")}:00`,
       hour,
-      temperature: 48 + hour,
+      temperature: 3 + hour / 2,
       precipitationProbability: hour === 14 ? 25 : 5,
       weatherCode: hour === 14 ? 51 : 3,
     })),
@@ -213,10 +213,28 @@ try {
   if (await page.locator(".paper-event-bracket").count() !== events.length) {
     throw new Error("Expected one proportional bracket for every timed event");
   }
+  if (await page.locator(".paper-event-connector").count() !== events.length) {
+    throw new Error("Expected every event bracket to connect to its existing detail card");
+  }
+  if (await page.locator(".paper-timeline-card > .paper-event-card").count() !== events.length) {
+    throw new Error("Expected every timed event to use one detailed card inside the fixed timeline");
+  }
+  const disconnectedCards = await page.locator(".paper-positioned-event").evaluateAll((items) => items
+    .map((item, index) => {
+      const connector = item.querySelector(".paper-event-connector")?.getBoundingClientRect();
+      const card = item.querySelector(".paper-event-card")?.getBoundingClientRect();
+      return connector && card && Math.abs(connector.right - card.left) > 1
+        ? { index, connectorRight: connector.right, cardLeft: card.left }
+        : null;
+    })
+    .filter(Boolean));
+  if (disconnectedCards.length) {
+    throw new Error(`Event connectors did not meet their cards: ${JSON.stringify(disconnectedCards)}`);
+  }
   if (await page.locator(".paper-weather-point").count() !== model.weather.points.length) {
     throw new Error("Expected weather points aligned to the printed time scale");
   }
-  if ((await page.locator(".paper-plan-page").innerText()).includes("Fahrenheit")) {
+  if ((await page.locator(".paper-plan-page").innerText()).includes("Celsius")) {
     throw new Error("The accessible weather unit leaked into the visible print layout");
   }
   const firstPage = await page.locator(".paper-plan-page").boundingBox();

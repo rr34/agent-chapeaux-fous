@@ -153,7 +153,7 @@ test("daily paper adds deterministic weather without making the core calendar bu
       return {
         status: "available", provider: "Open-Meteo.com", attributionUrl: "https://open-meteo.com/",
         fetchedAtUtc: "2026-10-04T12:00:00.000Z", location: "Delaware, Ohio, United States",
-        temperatureUnit: "fahrenheit", points: [],
+        temperatureUnit: "celsius", points: [],
       };
     } },
     ledger: {},

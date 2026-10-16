@@ -666,35 +666,34 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-outside-events strong { overflow: hidden; font-size: 6.2pt; text-overflow: ellipsis; }
 .paper-all-day-events.is-empty, .paper-outside-events.is-empty { visibility: hidden; }
 .paper-time-scale { min-height: 0; flex: 1 1 auto; position: relative; margin: .07in 0; }
-.paper-hour-rule { position: absolute; z-index: 0; top: var(--timeline-position); right: 0; left: 0; display: grid; grid-template-columns: .42in minmax(0, 1fr); align-items: center; transform: translateY(-50%); }
-.paper-hour-rule time { color: #60675d; font: 600 5.6pt/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.paper-hour-rule span { border-top: 1px solid #d5d8d0; }
-.paper-duration-layer { position: absolute; z-index: 2; inset: 0 .78in 0 .46in; }
+.paper-hour-rule { position: absolute; z-index: 0; top: var(--timeline-position); right: 0; left: 0; display: grid; grid-template-columns: .52in .46in minmax(0, 1fr); align-items: center; transform: translateY(-50%); }
+.paper-hour-rule time { grid-column: 2; color: #60675d; font: 600 5.6pt/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.paper-hour-rule span { grid-column: 3; border-top: 1px solid #d5d8d0; }
 .paper-positioned-event { position: static; }
-.paper-event-bracket { position: absolute; top: var(--event-top); left: calc(var(--event-lane) * .15in); width: .11in; height: var(--event-height); min-height: 2px; box-sizing: border-box; border-top: 1.5px solid #a4492e; border-bottom: 1.5px solid #a4492e; border-left: 2px solid #a4492e; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.paper-event-bracket { position: absolute; z-index: 2; top: var(--event-top); left: calc(1.02in + var(--event-lane) * .15in); width: .11in; height: var(--event-height); min-height: 2px; box-sizing: border-box; border-top: 1.5px solid #a4492e; border-bottom: 1.5px solid #a4492e; border-left: 2px solid #a4492e; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .paper-event-bracket.is-point { width: .13in; height: 0; min-height: 0; border-bottom: 0; border-left: 0; }
 .paper-event-bracket.is-point::before { position: absolute; top: -.035in; left: -.02in; width: .065in; height: .065in; border: 1.5px solid #a4492e; border-radius: 50%; background: #fffefa; content: ""; }
 .paper-event-bracket.continues-before { border-top-style: dashed; }
 .paper-event-bracket.continues-after { border-bottom-style: dashed; }
-.paper-event-label { position: absolute; top: var(--event-label-top); right: .08in; left: 1.18in; display: grid; grid-template-columns: .74in minmax(0, 1fr) minmax(0, .95in); align-items: baseline; gap: .06in; padding: .018in .035in; background: rgba(255, 254, 250, .94); transform: translateY(-.055in); }
-.paper-event-label::before { position: absolute; top: .075in; right: 100%; width: .16in; border-top: 1px solid #a4492e; content: ""; }
-.paper-event-label time { color: #596054; font: 600 5.5pt/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
-.paper-event-label strong { overflow: hidden; font: 600 7pt/1.15 "Newsreader", Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
-.paper-event-label small { overflow: hidden; color: #72796d; font-size: 5.2pt; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.paper-weather-gutter { position: absolute; z-index: 3; top: 0; right: 0; bottom: 0; width: .72in; border-left: 1px solid #aeb4a9; background: rgba(255, 254, 250, .78); }
-.paper-weather-point { position: absolute; top: var(--timeline-position); right: 0; left: .04in; display: grid; grid-template-columns: .13in .23in 1fr; align-items: center; gap: .025in; color: #4d5947; transform: translateY(-50%); }
-.paper-weather-point > span:first-child { font-size: 7pt; line-height: 1; }
-.paper-weather-point strong { font-size: 5.8pt; line-height: 1; }
-.paper-weather-point small { color: #72796d; font-size: 5pt; line-height: 1; }
+.paper-event-connector { position: absolute; z-index: 1; top: 0; bottom: 0; left: calc(1.13in + var(--event-lane) * .15in); width: calc(.97in - var(--event-lane) * .15in); height: 100%; overflow: visible; pointer-events: none; }
+.paper-event-connector line { stroke: #a4492e; stroke-width: 1.25px; }
+.paper-timeline-card { position: absolute; z-index: 3; top: var(--event-card-top); right: 0; left: 1.42in; display: grid; grid-template-columns: .62in minmax(0, 1fr); align-items: start; gap: .06in; transform: translateY(-.025in); }
+.paper-timeline-card > time { padding-top: .045in; color: #596054; font: 600 5.5pt/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+.paper-timeline-card > .paper-event-card { background: rgba(255, 254, 250, .97); }
+.paper-weather-column { position: absolute; z-index: 4; top: 0; bottom: 0; left: 0; width: .48in; border-right: 1px solid #aeb4a9; background: rgba(255, 254, 250, .82); }
+.paper-weather-point { position: absolute; top: var(--timeline-position); right: .025in; left: .015in; display: grid; grid-template-columns: .09in .17in 1fr; align-items: center; gap: .012in; color: #4d5947; transform: translateY(-50%); }
+.paper-weather-point > span:first-child { font-size: 5.8pt; line-height: 1; }
+.paper-weather-point strong { font-size: 5.3pt; line-height: 1; }
+.paper-weather-point small { color: #72796d; font-size: 4.5pt; line-height: 1; }
 .paper-weather-unavailable { position: absolute; top: .08in; right: .03in; left: .04in; color: #72796d; font-size: 5pt; line-height: 1.15; }
 .paper-event-card { min-width: 0; display: grid; grid-template-columns: minmax(1.35in, .8fr) minmax(0, 1.4fr) auto; align-items: start; gap: .04in .09in; padding: .045in .07in; border: 1.5px solid #4f564c; border-radius: .035in; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-.paper-event-card > strong { grid-column: 1; display: block; }
+.paper-event-card > strong { grid-column: 1; display: block; font: 600 7.4pt/1.15 "Newsreader", Georgia, serif; }
 .paper-event-card > .paper-event-description { grid-column: 2; margin: 0; }
 .paper-event-card > .paper-event-location { grid-column: 3; margin: 0; white-space: nowrap; }
 .paper-event-card.has-description:not(.has-location) > .paper-event-description,
 .paper-event-card:not(.has-description).has-location > .paper-event-location { grid-column: 2 / -1; }
 .paper-event-card:not(.has-description):not(.has-location) > strong { grid-column: 1 / -1; }
-.paper-event-card p { display: -webkit-box; overflow: hidden; color: #596054; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.paper-event-card p { display: -webkit-box; max-height: .28in; overflow: hidden; color: #596054; font-size: 5.8pt; line-height: 1.25; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .paper-event-card small { display: block; color: #70776b; font-size: 5.4pt; line-height: 1.15; }
 .paper-event-todos { grid-column: 1 / -1; display: grid; gap: .04in; margin: .015in 0 0 .02in; padding: .045in 0 0 .10in; border-top: 1px solid #d5d8d0; border-left: 2px solid #a4492e; list-style: none; }
 .paper-event-todos .paper-todo-card { background: #fbfaf5; }

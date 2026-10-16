@@ -39,11 +39,6 @@ function locationTextFromFacts(facts) {
   return facts.find(({ factType }) => factType === "default_location")?.text?.trim() || null;
 }
 
-function temperatureUnitFromFacts(facts) {
-  const text = facts.find(({ factType }) => factType === "temperature_unit")?.text || "";
-  return /celsius|centigrade|°c\b/iu.test(text) ? "celsius" : "fahrenheit";
-}
-
 function stateFromPart(part) {
   const normalized = normalizedWords(part).replace(/\b\d{5}(?: \d{4})?\b/g, "").trim();
   for (const [abbreviation, name] of US_STATES) {
@@ -115,7 +110,7 @@ export class DailyPaperWeatherService {
   activeFacts() {
     return this.profileFacts?.list({
       status: "active",
-      factTypes: ["default_location", "temperature_unit"],
+      factTypes: ["default_location"],
       limit: null,
     }).facts ?? [];
   }
@@ -152,7 +147,7 @@ export class DailyPaperWeatherService {
     const today = localDateForInstant(this.now(), timeZone);
     const dayDistance = (dateValue(date) - dateValue(today)) / 86_400_000;
     if (!Number.isInteger(dayDistance) || dayDistance < 0 || dayDistance >= FORECAST_DAYS) return null;
-    const temperatureUnit = temperatureUnitFromFacts(facts);
+    const temperatureUnit = "celsius";
     const location = await this.resolveLocation(requested);
     const cacheKey = [location.latitude, location.longitude, date, timeZone, temperatureUnit].join("|");
     const cached = this.forecasts.get(cacheKey);
