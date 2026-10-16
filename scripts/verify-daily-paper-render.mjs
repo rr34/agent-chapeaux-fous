@@ -4,6 +4,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { PDFDocument } from "pdf-lib";
 import { chromium } from "playwright-core";
 import { createStaticHandler } from "../src/static-files.mjs";
 
@@ -45,6 +46,7 @@ const model = {
   version: 1,
   generatedAtUtc: "2026-10-04T11:30:00.000Z",
   date: "2026-10-04",
+  rangeDate: "2026-10-04",
   timeZone: "America/New_York",
   paperSize: "letter",
   includeCompletedTodos: false,
@@ -116,6 +118,21 @@ const model = {
       logged: false,
     },
   ],
+  weather: {
+    status: "available",
+    provider: "Open-Meteo.com",
+    attributionUrl: "https://open-meteo.com/",
+    fetchedAtUtc: "2026-10-04T11:30:00.000Z",
+    location: "Delaware, Ohio, United States",
+    temperatureUnit: "fahrenheit",
+    points: [5, 8, 11, 14, 17, 20, 23].map((hour) => ({
+      time: `2026-10-04T${String(hour).padStart(2, "0")}:00`,
+      hour,
+      temperature: 48 + hour,
+      precipitationProbability: hour === 14 ? 25 : 5,
+      weatherCode: hour === 14 ? 51 : 3,
+    })),
+  },
 };
 model.printableTodoGroups = [{
   id: 9,
@@ -190,6 +207,23 @@ try {
   if (pinnedText.some((text) => text.includes("Bring the annotated draft"))) {
     throw new Error("A scheduled to-do was duplicated in the pinned appendage");
   }
+  if (await page.locator(".paper-hour-rule").count() !== 19) {
+    throw new Error("Expected fixed hourly rules from 05:00 through 23:00");
+  }
+  if (await page.locator(".paper-event-bracket").count() !== events.length) {
+    throw new Error("Expected one proportional bracket for every timed event");
+  }
+  if (await page.locator(".paper-weather-point").count() !== model.weather.points.length) {
+    throw new Error("Expected weather points aligned to the printed time scale");
+  }
+  if ((await page.locator(".paper-plan-page").innerText()).includes("Fahrenheit")) {
+    throw new Error("The accessible weather unit leaked into the visible print layout");
+  }
+  const firstPage = await page.locator(".paper-plan-page").boundingBox();
+  const timeline = await page.locator(".paper-time-scale").boundingBox();
+  if (!firstPage || !timeline || timeline.height < 400 || timeline.y + timeline.height > firstPage.y + firstPage.height) {
+    throw new Error(`Fixed timeline did not occupy the remaining first page: ${JSON.stringify({ firstPage, timeline })}`);
+  }
   await page.emulateMedia({ media: "print" });
   const calendarOverflow = await page.locator(".two-week-grid--compact .calendar-cell").evaluateAll((cells) => cells
     .map((cell, index) => {
@@ -211,5 +245,7 @@ try {
 }
 const pdf = await fsp.readFile(pdfPath);
 if (!pdf.subarray(0, 5).equals(Buffer.from("%PDF-"))) throw new Error("Chromium did not create a PDF document");
+const pdfDocument = await PDFDocument.load(pdf);
+if (pdfDocument.getPageCount() !== 2) throw new Error(`Expected a two-page PDF; received ${pdfDocument.getPageCount()} pages`);
 if (browserErrors.length) throw new Error(`Browser errors: ${browserErrors.join("; ")}`);
 process.stdout.write(`${JSON.stringify({ pdfPath, screenshotPath, bytes: pdf.length })}\n`);

@@ -120,7 +120,31 @@ export interface DailyPaperModel {
   scheduledTodos: LinkedTodo[];
   printableTodoGroups: DailyPaperTodoGroup[];
   scheduledTrackers: ScheduledTracker[];
+  weather: DailyPaperWeather | null;
 }
+
+export interface DailyPaperWeatherPoint {
+  time: string;
+  hour: number;
+  temperature: number;
+  precipitationProbability: number;
+  weatherCode: number;
+}
+
+export type DailyPaperWeather = {
+  status: "available";
+  provider: string;
+  attributionUrl: string;
+  fetchedAtUtc: string;
+  location: string;
+  temperatureUnit: "fahrenheit" | "celsius";
+  points: DailyPaperWeatherPoint[];
+} | {
+  status: "unavailable";
+  provider: string;
+  fetchedAtUtc: string;
+  message: string;
+};
 
 export interface DailyPaperTodoGroup {
   id: number;

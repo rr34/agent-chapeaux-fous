@@ -1138,6 +1138,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
       todayEvents: selectedEvents,
       scheduledTodos: selectedTodos,
       printableTodoGroups: printableTodoGroupsForPreview(data.printableTodoGroups, selectedTodos),
+      weather: data.date === selectedDate ? data.weather : null,
     };
   }, [data, selectedDate, selectedEvents, selectedTodos]);
   const matchingEventCount = (data?.calendarDays || [])
@@ -2447,7 +2448,9 @@ function PaymentsScreen() {
 function DailyPaperRoute() {
   const parameters = new URLSearchParams(location.search);
   const timeZone = parameters.get("timeZone") || Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const query = new URLSearchParams({ date: parameters.get("date") || localToday(timeZone), timeZone, paperSize: parameters.get("paperSize") || "letter", includeCompletedTodos: parameters.get("includeCompletedTodos") || "false" });
+  const query = parameters.get("snapshot")
+    ? new URLSearchParams({ snapshot: parameters.get("snapshot")! })
+    : new URLSearchParams({ date: parameters.get("date") || localToday(timeZone), timeZone, paperSize: parameters.get("paperSize") || "letter", includeCompletedTodos: parameters.get("includeCompletedTodos") || "false" });
   const { data, error, loading } = useApi<DailyPaperModel>(`/api/daily-paper?${query}`);
   useEffect(() => { if (!data) return; void document.fonts.ready.then(() => { window.__DAILY_PAPER_READY__ = true; }); }, [data]);
   if (loading) return <Loading label="Laying out daily paper" />;

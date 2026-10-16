@@ -617,6 +617,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .daily-paper-document { width: max-content; max-width: 100%; margin: 0 auto; }
 .daily-paper { box-sizing: border-box; width: 8.5in; min-height: 11in; margin: 20px auto; padding: .36in .42in .28in; display: flex; flex-direction: column; color: #161a14; background: #fffefa; box-shadow: 0 18px 70px rgba(25, 31, 21, .18); font-family: Inter, Arial, sans-serif; page: letter; }
 .daily-paper.paper-a4 { width: 8.27in; min-height: 11.69in; page: a4; }
+.paper-plan-page { height: 11in; min-height: 11in; overflow: hidden; break-after: page; }
+.paper-plan-page.paper-a4 { height: 11.69in; min-height: 11.69in; }
+.paper-details-page { break-after: auto; }
 .daily-paper--preview { max-width: 100%; width: 8.5in; box-shadow: 0 8px 28px rgba(25, 31, 21, .12); transform-origin: top left; }
 .paper-masthead { min-height: .66in; display: flex; justify-content: space-between; align-items: end; gap: .3in; border-bottom: 2px solid #252b22; padding-bottom: .11in; margin-bottom: .13in; }
 .paper-masthead h1 { margin: .02in 0 0; font: 600 25pt/.95 "Newsreader", Georgia, serif; letter-spacing: -.02em; }
@@ -626,9 +629,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-range strong { font: 600 10pt "Newsreader", Georgia, serif; }
 .two-week-grid--compact { gap: .035in; margin-bottom: .16in; }
 .two-week-grid--compact .weekdays, .two-week-grid--compact .calendar-cells { gap: .035in; }
-.two-week-grid--compact .calendar-cells { grid-auto-rows: max-content; align-items: stretch; }
+.two-week-grid--compact .calendar-cells { grid-auto-rows: .70in; align-items: stretch; }
 .two-week-grid--compact .weekdays span { padding: 0 .04in .02in; font-size: 5.8pt; }
-.two-week-grid--compact .calendar-cell { min-height: .70in; aspect-ratio: auto; padding: .045in; border-radius: .035in; }
+.two-week-grid--compact .calendar-cell { height: .70in; min-height: .70in; aspect-ratio: auto; overflow: hidden; padding: .045in; border-radius: .035in; }
 .two-week-grid--compact .calendar-cell-header { padding-bottom: .025in; }
 .two-week-grid--compact .calendar-cell-header span { font-size: 5.4pt; }
 .two-week-grid--compact .calendar-cell-header strong { font-size: 10pt; }
@@ -638,6 +641,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .two-week-grid--compact .calendar-cell-events small { font-size: 5pt; }
 .paper-section { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-today { border-top: 1px solid #272c24; padding-top: .12in; break-inside: auto; }
+.paper-timeline-page-section { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
 .paper-section-heading { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: .07in; border-bottom: 1px solid #b8bdb2; padding-bottom: .045in; break-after: avoid-page; }
 .paper-section-heading > span { color: #a4492e; font: 700 6pt Inter, Arial, sans-serif; }
 .paper-section-heading h2 { margin: 0; font: 600 12pt "Newsreader", Georgia, serif; }
@@ -650,6 +654,39 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .daily-paper .timeline-list .timeline-event-item::before { width: .045in; height: .045in; left: -.025in; top: .045in; box-shadow: 0 0 0 2px #fffefa; }
 .daily-paper .timeline-list strong { font-size: 7.4pt; }
 .daily-paper .timeline-list p { max-height: .28in; overflow: hidden; margin-top: .02in; font-size: 5.8pt; line-height: 1.25; }
+.paper-fixed-timeline { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
+.paper-timeline-edge { flex: 0 0 auto; display: grid; overflow: hidden; }
+.paper-timeline-edge--top { height: .34in; grid-template-columns: 1fr 1fr; gap: .12in; border-bottom: 1px solid #d5d8d0; }
+.paper-timeline-edge--bottom { height: .20in; border-top: 1px solid #d5d8d0; }
+.paper-all-day-events, .paper-outside-events { min-width: 0; display: flex; align-items: baseline; gap: .06in; overflow: hidden; color: #252b22; font-size: 5.6pt; white-space: nowrap; }
+.paper-all-day-events > span, .paper-outside-events > span { flex: 0 0 auto; color: #72796d; font-size: 5pt; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.paper-all-day-events strong { overflow: hidden; font-size: 6.2pt; text-overflow: ellipsis; }
+.paper-outside-events p { min-width: 0; display: flex; gap: .035in; margin: 0; overflow: hidden; }
+.paper-outside-events time { flex: 0 0 auto; color: #72796d; }
+.paper-outside-events strong { overflow: hidden; font-size: 6.2pt; text-overflow: ellipsis; }
+.paper-all-day-events.is-empty, .paper-outside-events.is-empty { visibility: hidden; }
+.paper-time-scale { min-height: 0; flex: 1 1 auto; position: relative; margin: .07in 0; }
+.paper-hour-rule { position: absolute; z-index: 0; top: var(--timeline-position); right: 0; left: 0; display: grid; grid-template-columns: .42in minmax(0, 1fr); align-items: center; transform: translateY(-50%); }
+.paper-hour-rule time { color: #60675d; font: 600 5.6pt/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.paper-hour-rule span { border-top: 1px solid #d5d8d0; }
+.paper-duration-layer { position: absolute; z-index: 2; inset: 0 .78in 0 .46in; }
+.paper-positioned-event { position: static; }
+.paper-event-bracket { position: absolute; top: var(--event-top); left: calc(var(--event-lane) * .15in); width: .11in; height: var(--event-height); min-height: 2px; box-sizing: border-box; border-top: 1.5px solid #a4492e; border-bottom: 1.5px solid #a4492e; border-left: 2px solid #a4492e; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.paper-event-bracket.is-point { width: .13in; height: 0; min-height: 0; border-bottom: 0; border-left: 0; }
+.paper-event-bracket.is-point::before { position: absolute; top: -.035in; left: -.02in; width: .065in; height: .065in; border: 1.5px solid #a4492e; border-radius: 50%; background: #fffefa; content: ""; }
+.paper-event-bracket.continues-before { border-top-style: dashed; }
+.paper-event-bracket.continues-after { border-bottom-style: dashed; }
+.paper-event-label { position: absolute; top: var(--event-label-top); right: .08in; left: 1.18in; display: grid; grid-template-columns: .74in minmax(0, 1fr) minmax(0, .95in); align-items: baseline; gap: .06in; padding: .018in .035in; background: rgba(255, 254, 250, .94); transform: translateY(-.055in); }
+.paper-event-label::before { position: absolute; top: .075in; right: 100%; width: .16in; border-top: 1px solid #a4492e; content: ""; }
+.paper-event-label time { color: #596054; font: 600 5.5pt/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+.paper-event-label strong { overflow: hidden; font: 600 7pt/1.15 "Newsreader", Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
+.paper-event-label small { overflow: hidden; color: #72796d; font-size: 5.2pt; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.paper-weather-gutter { position: absolute; z-index: 3; top: 0; right: 0; bottom: 0; width: .72in; border-left: 1px solid #aeb4a9; background: rgba(255, 254, 250, .78); }
+.paper-weather-point { position: absolute; top: var(--timeline-position); right: 0; left: .04in; display: grid; grid-template-columns: .13in .23in 1fr; align-items: center; gap: .025in; color: #4d5947; transform: translateY(-50%); }
+.paper-weather-point > span:first-child { font-size: 7pt; line-height: 1; }
+.paper-weather-point strong { font-size: 5.8pt; line-height: 1; }
+.paper-weather-point small { color: #72796d; font-size: 5pt; line-height: 1; }
+.paper-weather-unavailable { position: absolute; top: .08in; right: .03in; left: .04in; color: #72796d; font-size: 5pt; line-height: 1.15; }
 .paper-event-card { min-width: 0; display: grid; grid-template-columns: minmax(1.35in, .8fr) minmax(0, 1.4fr) auto; align-items: start; gap: .04in .09in; padding: .045in .07in; border: 1.5px solid #4f564c; border-radius: .035in; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .paper-event-card > strong { grid-column: 1; display: block; }
 .paper-event-card > .paper-event-description { grid-column: 2; margin: 0; }
@@ -681,6 +718,10 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-append-heading small { color: #72796d; font-size: 5.4pt; }
 .paper-today-trackers, .paper-pinned-todos { margin-top: .11in; padding-top: .075in; border-top: 1px solid #b8bdb2; }
 .paper-today-trackers { page-break-inside: avoid; break-inside: avoid-page; }
+.paper-details-masthead { min-height: .55in; display: flex; align-items: end; justify-content: space-between; gap: .3in; border-bottom: 2px solid #252b22; padding-bottom: .11in; margin-bottom: .14in; }
+.paper-details-masthead h1 { margin: .02in 0 0; font: 600 20pt/.95 "Newsreader", Georgia, serif; }
+.paper-details-masthead > small { color: #72796d; font-size: 5.6pt; }
+.paper-today-details { break-inside: auto; }
 .paper-notes { min-height: 2.25in; flex: 1 0 2.25in; display: flex; flex-direction: column; border-top: 1px solid #272c24; margin-top: .14in; padding-top: .12in; }
 .writing-lines { flex: 1; min-height: 1.8in; display: grid; grid-template-rows: repeat(9, 1fr); margin-top: .04in; }
 .writing-lines span { border-bottom: 1px solid #d5d8d0; }
@@ -703,10 +744,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-handwriting-space { min-height: .13in; flex: 1 1 auto; position: relative; margin-top: .015in; border-bottom: 1px solid #d5d8d0; }
 .paper-handwriting-space > span { position: absolute; left: 0; bottom: -.01in; color: #a4492e; font: 400 15pt/.72 "Newsreader", Georgia, serif; transform: scaleX(.72); transform-origin: left bottom; }
 
-@page letter { size: Letter; margin: 1in 0 0; }
-@page letter:first { margin-top: 0; }
-@page a4 { size: A4; margin: 1in 0 0; }
-@page a4:first { margin-top: 0; }
+@page letter { size: Letter; margin: 0; }
+@page a4 { size: A4; margin: 0; }
 
 @media (max-width: 1200px) {
   .invoice-list-open { grid-template-columns: 82px minmax(170px, 1fr) minmax(140px, .65fr) auto; }

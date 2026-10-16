@@ -11,6 +11,7 @@ import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
 import { JmapClient } from "./jmap-client.mjs";
 import { DailyPaperService } from "./daily-paper.mjs";
+import { DailyPaperWeatherService } from "./daily-paper-weather.mjs";
 import { TodoPdfService } from "./todo-pdf.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
@@ -68,9 +69,11 @@ const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget)
 const payments = store.status.ready ? new PaymentService({ store, config, ledger }) : null;
 const catchUp = store.status.ready ? new CatchUpService(store, organizer, ledger) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
+const dailyPaperWeather = new DailyPaperWeatherService({ profileFacts });
 const dailyPaper = store.status.ready ? new DailyPaperService({
   organizer,
   trackerSchedule: catchUp,
+  weather: dailyPaperWeather,
   ledger,
   mediaRoot: config.mediaRoot,
   publicUrl: config.publicUrl,
@@ -611,7 +614,13 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/daily-paper") {
-      sendJson(response, 200, dailyPaper.build({
+      const snapshotId = url.searchParams.get("snapshot");
+      const snapshot = snapshotId ? dailyPaper.renderSnapshot(snapshotId) : null;
+      if (snapshotId && !snapshot) {
+        sendJson(response, 404, { error: "Daily paper render snapshot is unavailable or expired" });
+        return;
+      }
+      sendJson(response, 200, snapshot ?? await dailyPaper.buildWithWeather({
         date: url.searchParams.get("date"),
         rangeDate: url.searchParams.get("rangeDate"),
         timeZone: url.searchParams.get("timeZone"),

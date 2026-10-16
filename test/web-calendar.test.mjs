@@ -66,25 +66,46 @@ test("print preview follows the selected calendar day immediately", () => {
   assert.match(appSource, /<DailyPaper model=\{previewModel\} preview \/>/);
 });
 
-test("screen calendar days keep their aspect ratio while printable days grow with their events", () => {
+test("screen calendar keeps its aspect ratio while printable days stay fixed for the time scale", () => {
   assert.match(styles, /\.calendar-cell \{[^}]*aspect-ratio: 2 \/ 3;/);
   assert.match(styles, /\.calendar-cell \{[^}]*justify-content: flex-start;[^}]*align-items: stretch;/);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-cells \{[^}]*grid-auto-rows: max-content;[^}]*align-items: stretch;/);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*min-height: \.70in;[^}]*aspect-ratio: auto;/);
-  assert.match(calendarSource, /const visibleEvents = compact \? orderedEvents : orderedEvents\.slice\(0, eventLimit\)/);
-  assert.match(calendarSource, /!compact && day\.events\.length > eventLimit/);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-cells \{[^}]*grid-auto-rows: \.70in;[^}]*align-items: stretch;/);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*height: \.70in;/);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*aspect-ratio: auto;[^}]*overflow: hidden;/);
+  assert.match(calendarSource, /orderedEvents\.slice\(0, compact \? 3 : eventLimit\)/);
+  assert.match(calendarSource, /day\.events\.length > visibleEvents\.length/);
 });
 
-test("printable calendar shows every event with hanging-indented wrapped titles", () => {
+test("printable calendar bounds crowded days and reports omitted events", () => {
   assert.match(calendarSource, /\{visibleEvents\.map\(\(event\) => \(/);
-  assert.doesNotMatch(calendarSource, /compact \? 3/);
+  assert.match(calendarSource, /compact \? 3/);
+  assert.match(calendarSource, /\+\{day\.events\.length - visibleEvents\.length\} more/);
   assert.match(styles, /\.calendar-chip \{[^}]*align-items: flex-start;/s);
   assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
 });
 
-test("the printed timeline uses horizontal space and keeps complete events together", () => {
-  assert.match(calendarSource, /function PrintableDayTimeline/);
-  assert.match(calendarSource, /<PrintableDayTimeline[\s\S]*?events=\{model\.todayEvents\}/);
+test("the first printed page uses an exact fixed-height 05:00–23:00 timeline", () => {
+  assert.match(calendarSource, /TIMELINE_START_MINUTE = 5 \* 60/);
+  assert.match(calendarSource, /TIMELINE_END_MINUTE = 23 \* 60/);
+  assert.match(calendarSource, /function timelinePercent/);
+  assert.match(calendarSource, /function PrintableFixedTimeline/);
+  assert.match(calendarSource, /<PrintableFixedTimeline[\s\S]*?events=\{model\.todayEvents\}/);
+  assert.match(calendarSource, /className=\{`paper-event-bracket/);
+  assert.match(calendarSource, /className="paper-event-label"/);
+  assert.match(calendarSource, /className="paper-weather-gutter"/);
+  assert.match(calendarSource, /Before 05:00/);
+  assert.match(calendarSource, /23:00 and later/);
+  assert.match(styles, /\.paper-plan-page \{[^}]*height: 11in;[^}]*overflow: hidden;[^}]*break-after: page;/s);
+  assert.match(styles, /\.paper-timeline-page-section \{[^}]*flex: 1 1 auto;[^}]*display: flex;/s);
+  assert.match(styles, /\.paper-time-scale \{[^}]*flex: 1 1 auto;[^}]*position: relative;/s);
+  assert.match(styles, /\.paper-hour-rule \{[^}]*top: var\(--timeline-position\)/s);
+  assert.match(styles, /\.paper-event-bracket \{[^}]*top: var\(--event-top\);[^}]*height: var\(--event-height\)/s);
+  assert.match(styles, /\.paper-weather-point \{[^}]*top: var\(--timeline-position\)/s);
+});
+
+test("the details page preserves event notes, linked work, trackers, and pinned groups", () => {
+  assert.match(calendarSource, /function PrintableEventDetails/);
+  assert.match(calendarSource, /<PrintableEventDetails[\s\S]*?events=\{model\.todayEvents\}/);
   assert.match(calendarSource, /className="paper-event-description">\{event\.description\}<\/p>/);
   assert.match(styles, /\.daily-paper \.timeline-list p \{[^}]*font-size: 5\.8pt;/s);
   assert.match(styles, /\.paper-event-card p \{[^}]*-webkit-line-clamp: 2;/s);
@@ -96,16 +117,20 @@ test("the printed timeline uses horizontal space and keeps complete events toget
   assert.match(styles, /\.daily-paper \.timeline-list > li \{[^}]*break-inside: avoid-page;/s);
 });
 
-test("daily paper keeps one today section with event-owned to-dos and pinned groups appended", () => {
+test("daily paper separates the proportional plan page from complete daily details", () => {
   const paperLayout = calendarSource.slice(calendarSource.indexOf("export function DailyPaper"));
   assert.doesNotMatch(calendarSource, /TodoWorksheet|Handwriting sheets follow|TODOS_PER_WORKSHEET/);
-  assert.match(paperLayout, /className="paper-section paper-today"/);
-  assert.match(paperLayout, /<h2>Today’s stuff<\/h2>/);
+  assert.match(paperLayout, /paper-plan-page/);
+  assert.match(paperLayout, /paper-details-page/);
+  assert.match(paperLayout, /className="paper-section paper-today paper-timeline-page-section"/);
+  assert.match(paperLayout, /<h2>Today’s timeline<\/h2>/);
+  assert.match(paperLayout, /<h2>Today’s details<\/h2>/);
   assert.doesNotMatch(paperLayout, /<h2>To-dos<\/h2>|<h2>Trackers<\/h2>/);
   assert.match(calendarSource, /className="paper-event-todos"/);
   assert.match(calendarSource, /<PrintableTodoCard todo=\{todo\} showRelationship/);
   assert.match(calendarSource, /<PrintablePinnedTodoGroups groups=\{model\.printableTodoGroups\} \/>/);
-  assert.ok(paperLayout.indexOf("PrintableDayTimeline") < paperLayout.indexOf("PrintablePinnedTodoGroups"));
+  assert.ok(paperLayout.indexOf("PrintableFixedTimeline") < paperLayout.indexOf("PrintablePinnedTodoGroups"));
+  assert.ok(paperLayout.indexOf("PrintableEventDetails") < paperLayout.indexOf("PrintablePinnedTodoGroups"));
   assert.match(calendarSource, /className="paper-todo-empty-lines"/);
   assert.match(calendarSource, /className="paper-todo-group"/);
   assert.doesNotMatch(calendarSource, /paper-todo-cluster/);
@@ -152,11 +177,10 @@ test("daily paper renders RRULE-driven tracker status", () => {
   assert.match(styles, /\.paper-trackers li \{[^}]*break-inside: avoid-page;/s);
 });
 
-test("daily paper gives continuation pages a one-inch top margin", () => {
-  assert.match(styles, /@page letter \{ size: Letter; margin: 1in 0 0; \}/);
-  assert.match(styles, /@page letter:first \{ margin-top: 0; \}/);
-  assert.match(styles, /@page a4 \{ size: A4; margin: 1in 0 0; \}/);
-  assert.match(styles, /@page a4:first \{ margin-top: 0; \}/);
+test("daily paper owns the complete physical page on every page", () => {
+  assert.match(styles, /@page letter \{ size: Letter; margin: 0; \}/);
+  assert.match(styles, /@page a4 \{ size: A4; margin: 0; \}/);
+  assert.doesNotMatch(styles, /@page (?:letter|a4):first/);
 });
 
 test("React calendar and printed paper use the day-first date contract", () => {

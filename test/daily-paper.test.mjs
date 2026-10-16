@@ -137,10 +137,35 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
   assert.equal(model.scheduledTrackers[0].name, "Weight");
   assert.equal(model.scheduledTrackers[0].frequency, "daily");
   assert.equal(model.scheduledTrackers[0].logged, false);
+  assert.equal(model.weather, null);
   assert.deepEqual(calendarRange, {
     from: "2026-09-28T04:00:00.000Z",
     to: "2026-10-12T04:00:00.000Z",
   });
+});
+
+test("daily paper adds deterministic weather without making the core calendar build asynchronous", async () => {
+  const weatherRequests = [];
+  const service = new DailyPaperService({
+    organizer: { listCalendar: () => events() },
+    weather: { async read(input) {
+      weatherRequests.push(input);
+      return {
+        status: "available", provider: "Open-Meteo.com", attributionUrl: "https://open-meteo.com/",
+        fetchedAtUtc: "2026-10-04T12:00:00.000Z", location: "Delaware, Ohio, United States",
+        temperatureUnit: "fahrenheit", points: [],
+      };
+    } },
+    ledger: {},
+    mediaRoot: "/tmp/unused-daily-paper",
+    publicUrl: "http://127.0.0.1:8787",
+    timeZone: () => "America/New_York",
+  });
+
+  assert.equal(service.build({ date: "2026-10-04" }).weather, null);
+  const enriched = await service.buildWithWeather({ date: "2026-10-04" });
+  assert.equal(enriched.weather.status, "available");
+  assert.deepEqual(weatherRequests, [{ date: "2026-10-04", timeZone: "America/New_York" }]);
 });
 
 test("daily paper includes pinned groups, their open tasks, and empty group containers", () => {
@@ -260,12 +285,16 @@ test("PDF generation registers the rendered document and its provenance", async 
     timeZone: () => "America/New_York",
     renderPdf: async (input) => {
       renderInput = input;
+      const snapshotId = new URL(input.url).searchParams.get("snapshot");
+      assert.ok(snapshotId);
+      assert.equal(service.renderSnapshot(snapshotId).date, "2026-10-04");
       await fsp.writeFile(input.filename, Buffer.from("%PDF-1.7\nfixture\n%%EOF\n"));
     },
   });
 
   const result = await service.generate({ date: "2026-10-04", paperSize: "letter" }, { requestId: "request-1", callId: "call-1" });
   assert.match(renderInput.url, /^http:\/\/127\.0\.0\.1:9123\/app\?paper=daily&/);
+  assert.match(renderInput.url, /&snapshot=[0-9a-f-]+$/);
   assert.equal(renderInput.accessToken, "private-token");
   assert.equal(renderInput.format, "Letter");
   assert.equal(registrations.length, 1);
@@ -278,6 +307,8 @@ test("PDF generation registers the rendered document and its provenance", async 
   assert.equal(registrations[0].originalFilename, "cf-clipboard-app-2026-10-04.pdf");
   assert.equal(result.file.ref, "agent-slayer://files/91");
   assert.equal(result.file.downloadUrl, "/api/files/91/download");
+  const snapshotId = new URL(renderInput.url).searchParams.get("snapshot");
+  assert.equal(service.renderSnapshot(snapshotId), null);
 });
 
 test("a missing server browser returns an actionable PDF error and removes its partial file", async (context) => {

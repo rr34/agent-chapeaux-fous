@@ -6,7 +6,7 @@ export function registerDailyPaperTools(registry, service) {
     name: "daily_paper_generate",
     title: "Generate daily paper",
     metadata: toolMetadataWithDescription(null, {
-      summary: "Generate and store one printable daily PDF from current calendar, pinned to-do groups, and scheduled journal-tracker data. This creates a snapshot; it does not update source records.",
+      summary: "Generate and store one printable daily PDF with a fixed 05:00–23:00 timeline, current forecast when available, calendar details, linked work, pinned to-do groups, and scheduled trackers. This creates a snapshot; it does not update source records.",
       actionClasses: ["CREATE"],
       effectClassifications: ["MUTATING"],
     }),
@@ -14,9 +14,9 @@ export function registerDailyPaperTools(registry, service) {
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
-      openWorldHint: false,
+      openWorldHint: true,
     },
-    description: "Generate and durably store one printable PDF for an exact local calendar date. Read the authoritative Monday-to-Sunday two-week calendar range, the selected day's chronological event timeline, to-dos linked to those events, every active to-do group pinned to the daily paper with all of its open tasks, and active journal trackers whose asking RRULE has a logging period containing that date. Preserve empty pinned groups as writable checklist sections and deduplicate tasks by stable ID. Mark a tracker logged when an observation exists in its period. Exclude completed linked to-dos unless includeCompletedTodos is true; pinning does not include completed group history. Render the shared React paper view with the requested physical paper size and leave ruled handwriting space. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe the included events, distinct printed to-dos, and trackers. The operation does not change calendar, to-do, or journal data. Validation, rendering, or storage failure returns an error and no successful generation result.",
+    description: "Generate and durably store one printable PDF for an exact local calendar date. Read the authoritative Monday-to-Sunday two-week calendar range, the selected day's events, to-dos linked to those events, every active to-do group pinned to the daily paper with all of its open tasks, and active journal trackers whose asking RRULE has a logging period containing that date. The first page plots timed events proportionally on a fixed 05:00–23:00 vertical scale and includes a compact Open-Meteo forecast aligned to that scale when the active default location resolves and the date is inside the forecast window. A details page preserves event notes, linked work, trackers, pinned groups, and handwriting space. Preserve empty pinned groups as writable checklist sections and deduplicate tasks by stable ID. Mark a tracker logged when an observation exists in its period. Exclude completed linked to-dos unless includeCompletedTodos is true; pinning does not include completed group history. Forecast failure or an unsupported forecast date omits or marks weather without blocking the document. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe the included events, distinct printed to-dos, and trackers. The operation does not change calendar, to-do, or journal data. Validation, rendering, or storage failure returns an error and no successful generation result.",
     parameters: {
       type: "object",
       additionalProperties: false,

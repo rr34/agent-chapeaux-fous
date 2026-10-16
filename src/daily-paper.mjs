@@ -193,6 +193,7 @@ export class DailyPaperService {
   constructor({
     organizer,
     trackerSchedule = null,
+    weather = null,
     ledger,
     mediaRoot,
     publicUrl,
@@ -203,6 +204,7 @@ export class DailyPaperService {
   }) {
     this.organizer = organizer;
     this.trackerSchedule = trackerSchedule;
+    this.weather = weather;
     this.ledger = ledger;
     this.mediaRoot = path.resolve(mediaRoot);
     this.publicUrl = new URL(publicUrl);
@@ -210,6 +212,7 @@ export class DailyPaperService {
     this.browserExecutable = browserExecutable;
     this.timeZone = timeZone;
     this.renderPdf = renderPdf;
+    this.renderSnapshots = new Map();
   }
 
   build(input = {}) {
@@ -299,11 +302,34 @@ export class DailyPaperService {
       scheduledTodos,
       printableTodoGroups,
       scheduledTrackers,
+      weather: null,
     };
   }
 
-  async generate(input = {}, context = {}) {
+  async buildWithWeather(input = {}) {
     const model = this.build(input);
+    if (!this.weather?.read) return model;
+    try {
+      return { ...model, weather: await this.weather.read({ date: model.date, timeZone: model.timeZone }) };
+    } catch {
+      return {
+        ...model,
+        weather: {
+          status: "unavailable",
+          provider: "Open-Meteo.com",
+          fetchedAtUtc: new Date().toISOString(),
+          message: "Weather unavailable",
+        },
+      };
+    }
+  }
+
+  renderSnapshot(snapshotId) {
+    return this.renderSnapshots.get(String(snapshotId ?? "")) ?? null;
+  }
+
+  async generate(input = {}, context = {}) {
+    const model = await this.buildWithWeather(input);
     const now = new Date();
     const relativeDirectory = path.join(
       String(now.getUTCFullYear()),
@@ -313,12 +339,11 @@ export class DailyPaperService {
     await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
     const storedName = `${randomUUID()}.pdf`;
     const filename = path.join(directory, storedName);
+    const snapshotId = randomUUID();
+    this.renderSnapshots.set(snapshotId, model);
     const renderUrl = new URL("/app", this.publicUrl);
     renderUrl.searchParams.set("paper", "daily");
-    renderUrl.searchParams.set("date", model.date);
-    renderUrl.searchParams.set("timeZone", model.timeZone);
-    renderUrl.searchParams.set("paperSize", model.paperSize);
-    renderUrl.searchParams.set("includeCompletedTodos", String(model.includeCompletedTodos));
+    renderUrl.searchParams.set("snapshot", snapshotId);
     try {
       await this.renderPdf({
         url: renderUrl.toString(),
@@ -362,6 +387,7 @@ export class DailyPaperService {
           todoCount: model.scheduledTodos.length
             + model.printableTodoGroups.reduce((count, group) => count + group.todos.length, 0),
           trackerCount: model.scheduledTrackers.length,
+          weatherStatus: model.weather?.status ?? "omitted",
         },
       });
       return {
@@ -376,6 +402,8 @@ export class DailyPaperService {
     } catch (error) {
       await fsp.unlink(filename).catch(() => {});
       throw normalizedPdfRenderError(error);
+    } finally {
+      this.renderSnapshots.delete(snapshotId);
     }
   }
 }
