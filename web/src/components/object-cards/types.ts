@@ -9,6 +9,7 @@ export interface ObjectCardModel extends FullObjectCardData {
 export interface ObjectCardProps {
   object: ObjectCardModel;
   mode?: "full" | "compact";
+  defaultExpanded?: boolean;
   controls?: ReactNode;
   focus?: boolean;
   className?: string;

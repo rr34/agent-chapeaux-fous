@@ -3,8 +3,9 @@ import { useState } from "react";
 import { ExpandIcon } from "./ObjectCardIcons";
 import type { ObjectCardModel } from "./types";
 
-export function CompactObjectCard({ object, controls, compactDetails, leading, full, className = "", as: Root = "article" }: {
+export function CompactObjectCard({ object, defaultExpanded = false, controls, compactDetails, leading, full, className = "", as: Root = "article" }: {
   object: ObjectCardModel;
+  defaultExpanded?: boolean;
   controls?: ReactNode;
   compactDetails?: ReactNode;
   leading?: ReactNode;
@@ -12,7 +13,7 @@ export function CompactObjectCard({ object, controls, compactDetails, leading, f
   className?: string;
   as?: ElementType;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const ExpandedRoot = Root === "li" ? "li" : "div";
   if (expanded) return <ExpandedRoot className="compact-object-expanded">
     {full}

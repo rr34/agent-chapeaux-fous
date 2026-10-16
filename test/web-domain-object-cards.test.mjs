@@ -44,12 +44,15 @@ test("the network dispatches to domain cards instead of rendering its own object
 
 test("compact cards have one identity and exactly the shared expand, network, and selection controls", () => {
   const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");
+  const simple = fs.readFileSync(path.join(cardsRoot, "SimpleObjectCard.tsx"), "utf8");
   const references = fs.readFileSync(path.join(root, "web/src/components/ObjectSelectionControls.tsx"), "utf8");
   const buttons = fs.readFileSync(path.join(cardsRoot, "ObjectCardButtons.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
   assert.match(compact, /object\.label/);
   assert.match(compact, /object\.display/);
   assert.match(compact, /className="compact-object-expand"/);
+  assert.match(compact, /useState\(defaultExpanded\)/);
+  assert.match(simple, /defaultExpanded=\{defaultExpanded\}/);
   assert.match(compact, /\{controls\}/);
   assert.doesNotMatch(compact, /object\.body|object\.attributes|object\.badges|actions\.map/);
   assert.match(references, /<ObjectNetworkButton identity=\{identity\}/);

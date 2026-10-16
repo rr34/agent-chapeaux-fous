@@ -572,10 +572,11 @@ export function CalendarRoutineItem({ routine, timeLabel, onChanged }: {
   </>;
 }
 
-export function CalendarEventItem({ event, timeZone, timeLabel, onChanged }: {
+export function CalendarEventItem({ event, timeZone, timeLabel, defaultExpanded = false, onChanged }: {
   event: CalendarEvent;
   timeZone: string;
   timeLabel: string;
+  defaultExpanded?: boolean;
   onChanged?: Changed;
 }) {
   const [editing, setEditing] = useState(false);
@@ -597,6 +598,7 @@ export function CalendarEventItem({ event, timeZone, timeLabel, onChanged }: {
       event={{ ...event, linkedTodos }}
       linkedTodoDetails={linkedTodoDetails}
       mode="compact"
+      defaultExpanded={defaultExpanded}
       object={{
         id: eventId, type: "calendar.event", label: "Calendar event", display: event.title,
         body: event.description,

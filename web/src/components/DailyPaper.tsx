@@ -89,9 +89,10 @@ export function CalendarGrid({
   );
 }
 
-export function DayTimeline({ events, timeZone, onChanged }: {
+export function DayTimeline({ events, timeZone, defaultExpanded = false, onChanged }: {
   events: CalendarEvent[];
   timeZone: string;
+  defaultExpanded?: boolean;
   onChanged?: () => void | Promise<void>;
 }) {
   if (!events.length) return <p className="paper-empty">No events scheduled. The day is yours.</p>;
@@ -101,6 +102,7 @@ export function DayTimeline({ events, timeZone, onChanged }: {
         event={event}
         timeZone={timeZone}
         timeLabel={timeLabel(event, timeZone)}
+        defaultExpanded={defaultExpanded}
         onChanged={onChanged}
         key={event.id}
       />)}

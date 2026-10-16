@@ -23,7 +23,9 @@ test("calendar days select the detailed timeline and linked to-dos", () => {
 
 test("screen calendar nests scheduled to-dos beneath their linked events", () => {
   assert.match(appSource, /<h2>Selected day’s plan<\/h2>/);
-  assert.match(appSource, /Expand an event to see its notes, contacts, planning prompt, and linked to-dos/);
+  assert.match(appSource, /Events are expanded by default so notes, contacts, planning prompts, and linked to-dos are visible/);
+  assert.match(appSource, /<DayTimeline[^>]+defaultExpanded/);
+  assert.match(calendarSource, /<CalendarEventItem[\s\S]*defaultExpanded=\{defaultExpanded\}/);
   assert.doesNotMatch(appSource, /<h2>Scheduled to-dos<\/h2>/);
   assert.match(styles, /\.timeline-event-linked-todos \{[^}]*display: grid;[^}]*list-style: none;/s);
 });

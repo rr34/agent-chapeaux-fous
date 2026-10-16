@@ -1158,7 +1158,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
         <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDate} onSelect={setSelectedDate} searchQuery={filterQuery} />
         <button className="calendar-range-arrow" type="button" aria-label="Next week" aria-controls="calendar-grid" title="Next week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, 7))}>▼</button>
       </section>
-      <section className="surface calendar-day-plan"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s plan</h2><p className="calendar-day-plan-intro">Expand an event to see its notes, contacts, planning prompt, and linked to-dos.</p><DayTimeline events={selectedEvents} timeZone={data.timeZone} onChanged={reload} /></section>
+      <section className="surface calendar-day-plan"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s plan</h2><p className="calendar-day-plan-intro">Events are expanded by default so notes, contacts, planning prompts, and linked to-dos are visible.</p><DayTimeline events={selectedEvents} timeZone={data.timeZone} defaultExpanded onChanged={reload} /></section>
       <details className="paper-preview surface">
         <summary>Preview the printed page</summary>
         {previewModel ? <DailyPaper model={previewModel} preview /> : <Loading label="Refreshing preview" />}
