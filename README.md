@@ -97,7 +97,8 @@ feed, the calendar, the grouped to-do list, a searchable contacts address book,
 and a grouped personal journal with native entry creation. Contacts support
 people, organizations, and services with tags, birthday, notes, and stacked
 contact methods. Possible duplicates are reviewed and merged explicitly; source records
-remain as inactive history so existing references are preserved. Stored birthdays
+remain as logically deleted inactive history so existing references are preserved without
+appearing in ordinary agent search, context, or action targets. Stored birthdays
 continue to appear on the calendar. Agent requests may include one PDF, JPEG, PNG,
 WebP, GIF, CSV, TSV, JSON, JSON Lines, vCard/VCF, or plain-text attachment. Text is decoded as UTF-8,
 UTF-16, or Windows-1252. Image originals remain in the existing media store and
@@ -404,7 +405,7 @@ capability selector, which controls which exact tool schemas are callable.
   atomic, replay-safe call rather than consuming one model tool call per row.
   `contact_merge` atomically applies one through 100 AI-reviewed merge groups
   through the same bounded array, combining contact details while retaining
-  source records as inactive history. Compact duplicate pages let one agent request review and
+  source records as logically deleted inactive history. Compact duplicate pages let one agent request review and
   resolve hundreds of groups without spending one tool call per merge.
   `contact_dedupe_clear` handles up to 500 conservative source-aware groups per
   call when names match and exact email or phone evidence connects records from

@@ -426,7 +426,7 @@ test("contact_search exposes the Contacts UI substring search to the agent", asy
     organizationName: "North Design Studio",
     tags: ["Renovation"],
   });
-  organizer.createContact({
+  const inactive = organizer.createContact({
     displayName: "Inactive Designer",
     status: "inactive",
     notes: "Design consultant",
@@ -434,13 +434,12 @@ test("contact_search exposes the Contacts UI substring search to the agent", asy
 
   const definition = registry.toolDefinitions().find(({ name }) => name === "contact_search");
   assert.deepEqual(definition.inputSchema.required, [
-    "queries", "include_inactive", "limit", "result_filter",
+    "queries", "limit", "result_filter",
   ]);
   assert.match(definition.description, /same case-insensitive substring behavior as the Contacts UI/);
 
   const result = await registry.execute("contact_search", {
     queries: ["cabinet", "DESIGN"],
-    include_inactive: false,
     limit: 20,
   }, {
     requestId: request.requestId,
@@ -462,7 +461,6 @@ test("contact_search exposes the Contacts UI substring search to the agent", asy
 
   const methodMatch = await registry.execute("contact_search", {
     queries: ["melanny@example.test"],
-    include_inactive: false,
     limit: 1,
   }, {
     requestId: request.requestId,
@@ -474,7 +472,6 @@ test("contact_search exposes the Contacts UI substring search to the agent", asy
 
   const bounded = await registry.execute("contact_search", {
     queries: ["design"],
-    include_inactive: true,
     limit: 1,
   }, {
     requestId: request.requestId,
@@ -482,9 +479,35 @@ test("contact_search exposes the Contacts UI substring search to the agent", asy
     callId: "bounded-contact-search",
     channel: "web",
   });
-  assert.equal(bounded.total_match_count, 2);
+  assert.equal(bounded.total_match_count, 1);
   assert.equal(bounded.returned_match_count, 1);
-  assert.equal(bounded.has_more, true);
+  assert.equal(bounded.has_more, false);
+  assert.deepEqual(bounded.matches.map(({ display_name: name }) => name), ["Dina Woods"]);
+
+  await assert.rejects(registry.execute("contact_update", {
+    updates: [{
+      contact_id: inactive.id,
+      expected_version: inactive.version,
+      contact_kind: null,
+      display_name: null,
+      given_name: null,
+      clear_given_name: false,
+      family_name: null,
+      clear_family_name: false,
+      organization_name: null,
+      clear_organization_name: false,
+      status: "active",
+      birth_date: null,
+      clear_birth_date: false,
+      notes: null,
+      clear_notes: false,
+    }],
+  }, {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "inactive-contact-update",
+    channel: "web",
+  }), /was not found/u);
 });
 
 test("batch contact lookup and tagging handle 1000 contacts in bounded tool calls", async (context) => {
@@ -505,6 +528,10 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
     database.exec("ROLLBACK");
     throw error;
   }
+  database.prepare(`
+    INSERT INTO contacts (display_name, status, updated_at_utc)
+    VALUES ('Batch Person 1', 'inactive', '2026-08-17T12:00:00.000Z')
+  `).run();
   const toolContext = {
     requestId: request.requestId,
     requestEventId: request.eventId,
@@ -513,7 +540,6 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
   };
   const lookup = await registry.execute("contact_lookup_batch", {
     names: ["BATCH-PERSON-1", "Batch Person 1000", "Missing Person"],
-    include_inactive: true,
     max_matches_per_name: 20,
   }, toolContext);
   assert.deepEqual(lookup.results.map(({ match_count: count }) => count), [1, 1, 0]);

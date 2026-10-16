@@ -290,6 +290,41 @@ test("a related native object never inherits the primary object's stable referen
   }]), []);
 });
 
+test("inactive contacts and their methods never become reusable object bindings", () => {
+  const groups = objectReferenceGroupsFromToolResult({
+    toolDefinition: { name: "contact_lookup_batch", source: "local", capabilityId: "contacts" },
+    result: { results: [{ matches: [{
+      contact_id: 7,
+      ref: "agent-slayer://contacts/7",
+      display_name: "Active Person",
+      status: "active",
+      methods: [{
+        contact_method_id: 70,
+        method_ref: "agent-slayer://contact-methods/70",
+        method_display: "Work: active@example.test",
+      }],
+    }, {
+      contact_id: 8,
+      ref: "agent-slayer://contacts/8",
+      display_name: "Deleted Person",
+      status: "inactive",
+      methods: [{
+        contact_method_id: 80,
+        method_ref: "agent-slayer://contact-methods/80",
+        method_display: "Work: deleted@example.test",
+      }],
+    }] }] },
+    sourceEventSeq: 41,
+  });
+
+  assert.deepEqual(groups.map(({ type, objects }) => ({
+    type, ids: objects.map(({ id }) => id),
+  })), [
+    { type: "contacts.contact", ids: [7] },
+    { type: "contacts.method", ids: [70] },
+  ]);
+});
+
 test("the canonical runtime schema requires complete machine, human, and evidence identity", () => {
   const binding = {
     mention: "that account",

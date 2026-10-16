@@ -389,7 +389,7 @@ export function registerTodoTools(registry, store, ledger) {
       if (!text) throw new Error("To-do text cannot be empty");
       const group = requireGroup(database, input.todo_group_id);
       if (input.related_contact_id != null && !database.prepare(
-        "SELECT 1 FROM contacts WHERE contact_id = ?",
+        "SELECT 1 FROM contacts WHERE contact_id = ? AND status = 'active'",
       ).get(input.related_contact_id)) throw new Error(`Related contact ${input.related_contact_id} does not exist`);
       database.exec("START TRANSACTION");
       try {
@@ -631,7 +631,14 @@ export function registerTodoTools(registry, store, ledger) {
             values.completed_at_utc = input.status === "complete" ? now : null;
           }
           if (input.clear_related_contact) values.related_contact_id = null;
-          else if (input.related_contact_id != null) values.related_contact_id = input.related_contact_id;
+          else if (input.related_contact_id != null) {
+            if (!database.prepare(
+              "SELECT 1 FROM contacts WHERE contact_id = ? AND status = 'active'",
+            ).get(input.related_contact_id)) {
+              throw new Error(`Related contact ${input.related_contact_id} does not exist`);
+            }
+            values.related_contact_id = input.related_contact_id;
+          }
           if (input.clear_planning_prompt) values.planning_prompt_text = null;
           else if (input.planning_prompt_text != null) values.planning_prompt_text = input.planning_prompt_text.trim() || null;
           if (input.clear_billable_price) {

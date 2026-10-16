@@ -2,7 +2,43 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { nativeObjectTypes, normalizeSelectedObjectCandidates, objectSearchTerms, registerNativeObjectContextView, resolveNativeObjectCandidates, searchNativeObjects } from "../src/native-object-search.mjs";
 import { objectReferenceGroupsFromToolResult } from "../src/object-references.mjs";
+import { OrganizerStore } from "../src/organizer-store.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
+
+test("carried object bindings drop contacts that are now inactive", () => {
+  const holder = { database: { prepare(sql) {
+    return { all() {
+      if (sql.includes("FROM contact_methods")) return [{ contact_method_id: 70 }];
+      return [{ contact_id: 7 }];
+    } };
+  } } };
+  const groups = [{
+    mention: "Contacts from a prior lookup", role: "subject",
+    type: "contacts.contact", source: "native:contacts",
+    objects: [
+      { id: 7, ref: "agent-slayer://contacts/7", display: "Active Person" },
+      { id: 8, ref: "agent-slayer://contacts/8", display: "Deleted Person" },
+    ],
+    sourceEventSeqs: [41],
+  }, {
+    mention: "Methods from a prior lookup", role: "subject",
+    type: "contacts.method", source: "native:contacts",
+    objects: [
+      { id: 70, ref: "agent-slayer://contact-methods/70", display: "active@example.test" },
+      { id: 80, ref: "agent-slayer://contact-methods/80", display: "deleted@example.test" },
+    ],
+    sourceEventSeqs: [41],
+  }];
+
+  assert.deepEqual(
+    OrganizerStore.prototype.filterModelVisibleObjectReferences.call(holder, groups)
+      .map(({ type, objects }) => ({ type, ids: objects.map(({ id }) => id) })),
+    [
+      { type: "contacts.contact", ids: [7] },
+      { type: "contacts.method", ids: [70] },
+    ],
+  );
+});
 
 test("native object candidates come from selected authoritative tables and rank direct names above relationships", () => {
   const statements = [];
@@ -257,7 +293,7 @@ test("composer selections are verified by stable ID without ranked-search trunca
     title: "Lucas Ruffing", detail: "", matchedOn: ["selected stable reference"], related: [],
   }]);
   assert.equal(statements.length, 1);
-  assert.match(statements[0].sql, /WHERE contact_id = \? AND 1 = 1 LIMIT 1/u);
+  assert.match(statements[0].sql, /WHERE contact_id = \? AND status <> 'inactive' LIMIT 1/u);
   assert.equal(statements[0].id, 7);
 
   assert.deepEqual(resolveNativeObjectCandidates(database, [{

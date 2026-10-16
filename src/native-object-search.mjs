@@ -26,11 +26,11 @@ export const nativeObjectTypes = Object.freeze(nativeFirstClassObjectTypes
 const byType = new Map(nativeObjectTypes.map((definition) => [definition.type, definition]));
 const byDomainType = new Map(nativeObjectTypes.map((definition) => [definition.domainType, definition]));
 
-// Exact stable-reference rereads are deliberately broader than lexical search.
-// If the application showed an object and let the user reference it, retaining
-// or completing that record must not make its stable identity unreadable.
+// Exact stable-reference rereads are deliberately broader than lexical search,
+// except for domain states that are logically deleted and no longer eligible
+// for ordinary agent context.
 const exactCandidateReads = Object.freeze({
-  contact: { display: "display_name", where: "1 = 1" },
+  contact: { display: "display_name", where: "status <> 'inactive'" },
   todo_group: { display: "name", where: "1 = 1" },
   todo: { display: "text", where: "1 = 1" },
   journal_group: { display: "name", where: "1 = 1" },
@@ -186,7 +186,8 @@ function readCandidates(database, tokens, selectedTypes = null) {
       task.todo_group_id AS parent_id, todo_group.name AS parent_title,
       task.related_contact_id AS contact_id, contact.display_name AS contact_title`,
     `todo_personal AS task JOIN todo_groups AS todo_group USING (todo_group_id)
-      LEFT JOIN contacts AS contact ON contact.contact_id = task.related_contact_id`,
+      LEFT JOIN contacts AS contact ON contact.contact_id = task.related_contact_id
+        AND contact.status <> 'inactive'`,
     "task.status IN ('todo', 'ai_suggested') AND todo_group.archived_at_utc IS NULL",
     ["task.text", "todo_group.name", "contact.display_name"], [], "task.personal_task_id DESC");
 

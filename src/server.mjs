@@ -175,7 +175,10 @@ const requestCompiler = new RequestCompiler({
   hatCatalog,
   capabilityManifest: (capabilityId) => registry.capabilityManifest(capabilityId),
 });
-const runtime = new SlayerRuntime({ modelTransport, registry, contextBuilder, requestCompiler, ledger, config });
+const runtime = new SlayerRuntime({
+  modelTransport, registry, contextBuilder, requestCompiler, ledger, config,
+  objectReferenceFilter: (groups) => organizer?.filterModelVisibleObjectReferences(groups) ?? groups,
+});
 const transcriber = new WhisperTranscriber({
   pythonExecutable: config.pythonExecutable,
   workerPath: config.whisperWorkerPath,

@@ -2,6 +2,7 @@ import type {
   CalendarDay, CalendarEvent, DailyPaperModel, DailyPaperTodoGroup,
   LinkedTodo, ScheduledTracker,
 } from "../types";
+import type { CSSProperties } from "react";
 import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
 import { CalendarEventItem } from "./EditableItems";
 import { CalendarEventCard, calendarEventCardObject } from "./object-cards/CalendarEventCard";
@@ -150,6 +151,18 @@ function weatherSymbol(code: number) {
   return "☂";
 }
 
+const WEATHER_TIMELINE_START_HOUR = 5;
+const WEATHER_TIMELINE_END_HOUR = 23;
+const WEATHER_TIMELINE_HOURS = Array.from(
+  { length: WEATHER_TIMELINE_END_HOUR - WEATHER_TIMELINE_START_HOUR + 1 },
+  (_, index) => WEATHER_TIMELINE_START_HOUR + index,
+);
+
+function weatherTimelinePosition(hour: number) {
+  const boundedHour = Math.min(WEATHER_TIMELINE_END_HOUR, Math.max(WEATHER_TIMELINE_START_HOUR, hour));
+  return ((boundedHour - WEATHER_TIMELINE_START_HOUR) / (WEATHER_TIMELINE_END_HOUR - WEATHER_TIMELINE_START_HOUR)) * 100;
+}
+
 function PrintableEventCards({ events, timeZone, includeCompletedTodos }: {
   events: CalendarEvent[];
   timeZone: string;
@@ -174,22 +187,31 @@ function PrintableEventCards({ events, timeZone, includeCompletedTodos }: {
   </ol>;
 }
 
-function PrintableWeatherSummary({ weather }: { weather: DailyPaperModel["weather"] }) {
-  if (!weather) return null;
-  if (weather.status === "unavailable") return <p className="paper-weather-summary">Weather unavailable</p>;
-  const temperatures = weather.points.map(({ temperature }) => temperature);
-  if (!temperatures.length) return null;
-  const representative = weather.points.reduce((closest, point) => (
-    Math.abs(point.hour - 14) < Math.abs(closest.hour - 14) ? point : closest
-  ));
-  const low = Math.round(Math.min(...temperatures));
-  const high = Math.round(Math.max(...temperatures));
-  const precipitation = Math.round(Math.max(...weather.points.map((point) => point.precipitationProbability)));
-  return <p className="paper-weather-summary" aria-label={`Weather, ${low} to ${high} degrees Celsius, precipitation up to ${precipitation}%`}>
-    <span aria-hidden="true">{weatherSymbol(representative.weatherCode)}</span>
-    <strong>{low}–{high}°C</strong>
-    <small>{precipitation}% precipitation</small>
-  </p>;
+function PrintableWeatherTimeline({ weather }: { weather: DailyPaperModel["weather"] }) {
+  const points = weather?.status === "available"
+    ? weather.points.filter(({ hour }) => hour >= WEATHER_TIMELINE_START_HOUR && hour <= WEATHER_TIMELINE_END_HOUR)
+    : [];
+  return <aside className="paper-weather-timeline" aria-label="Weather timeline from 05:00 through 23:00">
+    {WEATHER_TIMELINE_HOURS.map((hour) => <div
+      className="paper-weather-hour"
+      style={{ "--weather-position": `${weatherTimelinePosition(hour)}%` } as CSSProperties}
+      key={hour}
+    >
+      <time dateTime={`${String(hour).padStart(2, "0")}:00`}>{String(hour).padStart(2, "0")}</time>
+      <span aria-hidden="true" />
+    </div>)}
+    {points.map((point) => <div
+      className={`paper-weather-point${point.hour === WEATHER_TIMELINE_START_HOUR ? " is-first" : ""}${point.hour === WEATHER_TIMELINE_END_HOUR ? " is-last" : ""}`}
+      style={{ "--weather-position": `${weatherTimelinePosition(point.hour)}%` } as CSSProperties}
+      aria-label={`${String(point.hour).padStart(2, "0")}:00, ${Math.round(point.temperature)} degrees Celsius, ${Math.round(point.precipitationProbability)} percent precipitation`}
+      key={point.time}
+    >
+      <span aria-hidden="true">{weatherSymbol(point.weatherCode)}</span>
+      <strong>{Math.round(point.temperature)}°C</strong>
+      <small>{Math.round(point.precipitationProbability)}%</small>
+    </div>)}
+    {weather?.status === "unavailable" && <small className="paper-weather-unavailable">Weather unavailable</small>}
+  </aside>;
 }
 
 function trackerCadenceLabel(tracker: ScheduledTracker) {
@@ -264,12 +286,16 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
         <header className="paper-section-heading">
           <span>01</span><h2>Today’s plan</h2><small>{model.timeZone.replaceAll("_", " ")}</small>
         </header>
-        <PrintableWeatherSummary weather={model.weather} />
-        <PrintableEventCards
-          events={model.todayEvents}
-          timeZone={model.timeZone}
-          includeCompletedTodos={model.includeCompletedTodos}
-        />
+        <div className="paper-plan-body">
+          <PrintableWeatherTimeline weather={model.weather} />
+          <div className="paper-plan-events">
+            <PrintableEventCards
+              events={model.todayEvents}
+              timeZone={model.timeZone}
+              includeCompletedTodos={model.includeCompletedTodos}
+            />
+          </div>
+        </div>
       </section>
 
       <footer className="paper-footer">

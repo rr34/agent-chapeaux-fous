@@ -171,6 +171,39 @@ test("contacts support searchable-page data, multiple methods, and safe edits", 
     assert.equal(updated.methods[0].id, email.id);
     assert.deepEqual(organizer.listContacts(), []);
     assert.equal(organizer.listContacts({ scope: "all" })[0].displayName, "Alex Rivera");
+    assert.deepEqual(organizer.filterModelVisibleObjectReferences([{
+      mention: "Contacts from an earlier exchange",
+      role: "subject",
+      type: "contacts.contact",
+      source: "native:contacts",
+      objects: [{ id: created.id, ref: `agent-slayer://contacts/${created.id}`, display: "Alex Rivera" }],
+      sourceEventSeqs: [41],
+    }, {
+      mention: "Contact methods from an earlier exchange",
+      role: "subject",
+      type: "contacts.method",
+      source: "native:contacts",
+      objects: [{
+        id: email.id,
+        ref: `agent-slayer://contact-methods/${email.id}`,
+        display: "Personal: Alex@Example.test",
+      }],
+      sourceEventSeqs: [41],
+    }, {
+      mention: "Unrelated task",
+      role: "subject",
+      type: "todos.personal_task",
+      source: "native:todos",
+      objects: [{ id: 9, ref: "agent-slayer://todos/9", display: "Unrelated task" }],
+      sourceEventSeqs: [42],
+    }]), [{
+      mention: "Unrelated task",
+      role: "subject",
+      type: "todos.personal_task",
+      source: "native:todos",
+      objects: [{ id: 9, ref: "agent-slayer://todos/9", display: "Unrelated task" }],
+      sourceEventSeqs: [42],
+    }]);
     assert.throws(
       () => organizer.updateContact(created.id, { version: "stale", displayName: "Stale" }),
       (error) => error instanceof OrganizerInputError && error.statusCode === 409,

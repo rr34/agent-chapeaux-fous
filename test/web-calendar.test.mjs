@@ -85,18 +85,23 @@ test("printable calendar bounds crowded days and reports omitted events", () => 
   assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
 });
 
-test("the printed day eliminates the fixed timeline and uses reusable event cards", () => {
-  assert.doesNotMatch(calendarSource, /TIMELINE_START_MINUTE|timelinePercent|PrintableTimelineCards|paper-event-bracket|paper-event-connector/);
+test("the printed day uses an independent fixed weather timeline beside reusable event cards", () => {
+  assert.doesNotMatch(calendarSource, /PrintableTimelineCards|paper-event-bracket|paper-event-connector/);
   assert.match(calendarSource, /function PrintableEventCards/);
   assert.match(calendarSource, /<PrintableEventCards[\s\S]*?events=\{model\.todayEvents\}/);
   assert.match(calendarSource, /<CalendarEventCard[\s\S]*?object=\{calendarEventCardObject\(printableEvent\)\}/);
   assert.match(calendarSource, /className="paper-calendar-event-card"/);
-  assert.match(calendarSource, /function PrintableWeatherSummary/);
+  assert.match(calendarSource, /const WEATHER_TIMELINE_START_HOUR = 5/);
+  assert.match(calendarSource, /const WEATHER_TIMELINE_END_HOUR = 23/);
+  assert.match(calendarSource, /function PrintableWeatherTimeline/);
+  assert.match(calendarSource, /<div className="paper-plan-body">[\s\S]*<PrintableWeatherTimeline weather=\{model\.weather\} \/>[\s\S]*<div className="paper-plan-events">/);
   assert.match(styles, /\.paper-plan-page \{[^}]*min-height: 11in;[^}]*break-after: page;/s);
   assert.doesNotMatch(styles, /\.paper-plan-page \{[^}]*overflow: hidden/s);
+  assert.match(styles, /\.paper-plan-body \{[^}]*grid-template-columns: \.72in minmax\(0, 1fr\);/s);
+  assert.match(styles, /\.paper-weather-point \{[^}]*flex-direction: column;/s);
   assert.match(styles, /\.paper-calendar-event-list \{[^}]*display: grid;/s);
   assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card \.first-class-object-content \{[^}]*grid-template-columns: minmax\(1\.35in, \.8fr\) minmax\(0, 1\.4fr\);/s);
-  assert.doesNotMatch(styles, /\.paper-event-bracket|\.paper-event-connector|\.paper-time-scale/);
+  assert.doesNotMatch(styles, /\.paper-event-bracket|\.paper-event-connector/);
 });
 
 test("the reusable calendar event card owns top start and bottom end labels", () => {

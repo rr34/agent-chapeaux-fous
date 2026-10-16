@@ -121,7 +121,7 @@ test("existing domain tools preserve their results when routed through search pr
 
   const calls = [
     ["calendar_event_search", { query: "library East", include_archived: false, limit: 20 }],
-    ["contact_search", { queries: ["design"], include_inactive: false, limit: 20 }],
+    ["contact_search", { queries: ["design"], limit: 20 }],
     ["history_search", { query: "library design", limit: 20 }],
   ];
   for (const [name, argumentsObject] of calls) {

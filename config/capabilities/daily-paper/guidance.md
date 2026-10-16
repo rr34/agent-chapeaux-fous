@@ -6,8 +6,11 @@ a pinned group has no open tasks. Its first page uses the reusable calendar
 event cards. Each card owns its start and end labels; same-day events show only
 times, while events crossing a local-day boundary also show dates. When the
 active default location can be resolved and the selected date is within the
-forecast window, the document adds a compact Celsius Open-Meteo summary.
-Weather is optional enrichment and its absence must not block the document.
+forecast window, the Celsius Open-Meteo forecast is plotted against a narrow
+fixed 05:00–23:00 weather timeline
+to the left of the independently flowing event cards; the timeline does not
+position or connect to events. Weather is optional enrichment and its absence
+must not block the document.
 
 Resolve relative dates such as “today” in the user's IANA time zone and pass the
 exact local date. Exclude completed to-dos unless the user asks to include them.

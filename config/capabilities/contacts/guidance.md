@@ -7,6 +7,12 @@ contacts with `database_read`. A zero-match result supports a negative answer
 only when `scan_truncated` is false; if `has_more` is true, report that more
 matches exist beyond the returned page.
 
+Inactive contacts are logical deletions. Ordinary agent reads, exact-name
+lookups, context, reusable bindings, and new relationship targets exclude them.
+Do not use generic database reads to rediscover or act on inactive contacts.
+Blocked and deceased are distinct retained states and must not be described as
+deleted merely because they are not active.
+
 When importing contacts from an attached CSV or vCard/VCF, use
 `contact_file_import` so the application parses the full verified file in one
 call, even when model context contains only a truncated preview. For CSV, map
@@ -67,6 +73,6 @@ alone is not enough when the remaining details are ambiguous. Use the same
 expected versions from the review. The call is atomic: one stale or invalid
 group rolls back all groups. Merges keep one active
 contact, combine unique methods, tags, notes, and missing identity fields, and
-retain source records as inactive history. Continue the bulk task while the
+retain source records as logically deleted inactive history. Continue the bulk task while the
 callable-tool budget remains; report any groups skipped because evidence was
 uncertain, any work remaining, and when `scan_truncated` is true.

@@ -654,16 +654,25 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .two-week-grid--compact .calendar-cell-events small { font-size: 5pt; }
 .paper-section { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-today { border-top: 1px solid #272c24; padding-top: .12in; break-inside: auto; }
-.paper-day-card-section { flex: 1 1 auto; }
+.paper-day-card-section { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
 .paper-section-heading { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: .07in; border-bottom: 1px solid #b8bdb2; padding-bottom: .045in; break-after: avoid-page; }
 .paper-section-heading > span { color: #a4492e; font: 700 6pt Inter, Arial, sans-serif; }
 .paper-section-heading h2 { margin: 0; font: 600 12pt "Newsreader", Georgia, serif; }
 .paper-section-heading small { color: #72796d; font-size: 5.6pt; }
-.paper-weather-summary { display: flex; align-items: baseline; justify-content: flex-end; gap: .045in; margin: .055in 0 0; color: #596054; font-size: 5.5pt; }
-.paper-weather-summary span { font-size: 7pt; }
-.paper-weather-summary strong { font-size: 6pt; }
-.paper-weather-summary small { color: #72796d; font-size: 5.2pt; }
-.paper-calendar-event-list { display: grid; gap: .07in; margin: .07in 0 0; padding: 0; list-style: none; }
+.paper-plan-body { min-height: 0; flex: 1 1 auto; display: grid; grid-template-columns: .72in minmax(0, 1fr); gap: .11in; margin-top: .08in; }
+.paper-weather-timeline { position: relative; min-height: 0; border-right: 1px solid #9fa69a; color: #596054; }
+.paper-weather-hour { position: absolute; top: var(--weather-position); right: 0; left: 0; display: grid; grid-template-columns: .21in minmax(0, 1fr); align-items: center; transform: translateY(-50%); }
+.paper-weather-hour time { font: 500 4.7pt/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.paper-weather-hour span { border-top: 1px solid #d5d8d0; }
+.paper-weather-point { position: absolute; z-index: 1; top: var(--weather-position); right: .025in; width: .38in; display: flex; flex-direction: column; align-items: center; padding: .018in 0; background: #fffefa; line-height: 1; transform: translateY(-50%); }
+.paper-weather-point.is-first { transform: translateY(0); }
+.paper-weather-point.is-last { transform: translateY(-100%); }
+.paper-weather-point > span { font-size: 6.5pt; }
+.paper-weather-point strong { margin-top: .006in; font-size: 5.2pt; }
+.paper-weather-point small { margin-top: .006in; color: #72796d; font-size: 4.4pt; }
+.paper-weather-unavailable { position: absolute; top: .08in; right: .02in; left: .22in; color: #72796d; font-size: 4.6pt; line-height: 1.1; writing-mode: vertical-rl; }
+.paper-plan-events { min-width: 0; }
+.paper-calendar-event-list { display: grid; gap: .07in; margin: 0; padding: 0; list-style: none; }
 .paper-calendar-event-list > li { min-width: 0; break-inside: avoid; }
 .calendar-event-card.paper-calendar-event-card { gap: .055in .08in; padding: .07in .09in; border-color: #4f564c; border-radius: .04in; background: #fffefa; box-shadow: none; }
 .calendar-event-card.paper-calendar-event-card .first-class-object-content { grid-template-columns: minmax(1.35in, .8fr) minmax(0, 1.4fr); column-gap: .12in; }

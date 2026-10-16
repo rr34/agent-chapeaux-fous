@@ -509,6 +509,7 @@ export class SlayerRuntime {
   constructor({
     modelTransport, registry, contextBuilder, requestCompiler = null, ledger, config,
     resultFilter = new ResultFilterBoundary(),
+    objectReferenceFilter = (groups) => groups,
   }) {
     this.modelTransport = modelTransport;
     this.registry = registry;
@@ -517,6 +518,7 @@ export class SlayerRuntime {
     this.ledger = ledger;
     this.config = config;
     this.resultFilter = resultFilter;
+    this.objectReferenceFilter = objectReferenceFilter;
     this.systemPrompt = null;
   }
 
@@ -811,15 +813,17 @@ export class SlayerRuntime {
       ...relevantConversation.map(({ content }) => content),
     ].filter(Boolean).join("\n");
     const relevantRecentObjectReferences = relevantObjectReferenceCatalog(
-      relevantConversation.flatMap(({ objectReferences = [] }) => objectReferences),
+      this.objectReferenceFilter(
+        relevantConversation.flatMap(({ objectReferences = [] }) => objectReferences),
+      ),
       { evidenceText: recentEvidenceText, maximumObjects: 24 },
     );
     const availableObjectReferences = explicitReferenceObjectCatalog(
       relevantRecentObjectReferences,
-      [
+      this.objectReferenceFilter([
         ...reusableReferencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
         ...currentAttachmentReferences,
-      ],
+      ]),
     );
     const selectedObjectCandidates = args.selectedObjectCandidates ?? [];
     const orientationBaseContext = await this.contextBuilder.build(args.requestId, args.text, {

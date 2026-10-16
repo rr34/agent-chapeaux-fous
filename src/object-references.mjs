@@ -78,8 +78,21 @@ function walkRecords(value, visit, state = { remaining: maximumTraversalNodes },
     return;
   }
   if (typeof value !== "object") return;
-  visit(value);
+  if (visit(value) === false) return;
   for (const child of Object.values(value)) walkRecords(child, visit, state, depth + 1);
+}
+
+function inactiveContactRecord(record) {
+  if (!record || typeof record !== "object") return false;
+  const status = record.status
+    ?? record.contact_status
+    ?? record.contactStatus
+    ?? record.related_contact_status
+    ?? record.relatedContactStatus;
+  if (status !== "inactive") return false;
+  const contactType = nativeFirstClassObjectTypes.find(({ id }) => id === "contacts.contact");
+  return firstId(record, contactType.idFields, contactType) != null
+    && firstDisplay(record, contactType.displayFields) != null;
 }
 
 function remoteObjectTypes(toolDefinition, toolDefinitions) {
@@ -147,6 +160,9 @@ function nativeReferences(toolDefinition, result, sourceEventSeq) {
     byRole.set(role, byRef);
   };
   walkRecords(result, (record) => {
+    // Inactive contacts are logical deletions. Do not create a reusable
+    // identity for the contact or descend into its methods and tags.
+    if (inactiveContactRecord(record)) return false;
     const searchType = nativeObjectTypeForSearchType(record?.type);
     if (searchType) {
       const id = canonicalId(record.id, searchType);

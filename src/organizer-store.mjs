@@ -943,6 +943,42 @@ export class OrganizerStore {
     return resolveNativeObjectCandidates(this.database, selectedCandidates);
   }
 
+  filterModelVisibleObjectReferences(groups = []) {
+    const contactIds = new Set();
+    const methodIds = new Set();
+    for (const group of groups) {
+      if (group?.source !== "native:contacts") continue;
+      const target = group.type === "contacts.contact" ? contactIds
+        : group.type === "contacts.method" ? methodIds
+          : null;
+      if (!target) continue;
+      for (const object of group.objects ?? []) {
+        const id = Number(object.id);
+        if (Number.isSafeInteger(id) && id > 0) target.add(id);
+      }
+    }
+    const visibleContactIds = contactIds.size ? new Set(this.database.prepare(`
+      SELECT contact_id FROM contacts
+      WHERE contact_id IN (${[...contactIds].map(() => "?").join(", ")})
+        AND status <> 'inactive'
+    `).all(...contactIds).map(({ contact_id: id }) => Number(id))) : new Set();
+    const visibleMethodIds = methodIds.size ? new Set(this.database.prepare(`
+      SELECT method.contact_method_id
+      FROM contact_methods AS method
+      JOIN contacts AS contact USING (contact_id)
+      WHERE method.contact_method_id IN (${[...methodIds].map(() => "?").join(", ")})
+        AND contact.status <> 'inactive'
+    `).all(...methodIds).map(({ contact_method_id: id }) => Number(id))) : new Set();
+    return groups.map((group) => {
+      if (group?.source !== "native:contacts") return group;
+      const visibleIds = group.type === "contacts.contact" ? visibleContactIds
+        : group.type === "contacts.method" ? visibleMethodIds
+          : null;
+      if (!visibleIds) return group;
+      return { ...group, objects: (group.objects ?? []).filter(({ id }) => visibleIds.has(Number(id))) };
+    }).filter(({ objects }) => objects?.length);
+  }
+
   #activity({
     eventType, status, name, subjectType, subjectId, contentText, payload,
     actorType = "user", actorName = "Nate", source = "tailnet_web",
@@ -1160,7 +1196,7 @@ export class OrganizerStore {
     };
   }
 
-  lookupContactsByNames({ names, includeInactive = true, maxMatchesPerName = 20 } = {}) {
+  lookupContactsByNames({ names, includeInactive = false, maxMatchesPerName = 20 } = {}) {
     if (!Array.isArray(names) || names.length < 1 || names.length > 500) {
       throw new OrganizerInputError("names must contain 1 through 500 contact names.");
     }
@@ -1325,7 +1361,7 @@ export class OrganizerStore {
     try {
       const plans = updates.map((update) => {
         const contact = this.#contact(update.contactId);
-        if (!contact) {
+        if (!contact || contact.status === "inactive") {
           throw new OrganizerInputError(`Contact ${update.contactId} was not found.`, 404);
         }
         const addresses = contact.methods.filter(({ kind }) => kind === "postal_address");
@@ -1554,7 +1590,7 @@ export class OrganizerStore {
     try {
       const find = this.database.prepare(`
         SELECT contact_id, created_at_utc, updated_at_utc
-        FROM contacts WHERE contact_id = ?
+        FROM contacts WHERE contact_id = ? AND status <> 'inactive'
       `);
       const contacts = contactIds.map((contactId) => {
         const contact = find.get(contactId);
@@ -1703,6 +1739,9 @@ export class OrganizerStore {
     const allIds = [keepId, ...mergeIds];
     const records = allIds.map((id) => this.#contact(id));
     if (records.some((contact) => !contact)) throw new OrganizerInputError("A contact to merge was not found.", 404);
+    if (records.some(({ status }) => status !== "active")) {
+      throw new OrganizerInputError("Only active contacts can be merged.", 409);
+    }
     for (const contact of records) {
       if (input?.versions?.[String(contact.id)] !== contact.version) {
         throw new OrganizerInputError("A contact changed while the merge was being reviewed. Refresh and try again.", 409);
@@ -3981,7 +4020,7 @@ export class OrganizerStore {
     ).get(groupId) : null;
     if (!selectedGroup) throw new OrganizerInputError("To-do group not found.", 404);
     if (todo.relatedContactId !== null && !this.database.prepare(
-      "SELECT 1 FROM contacts WHERE contact_id = ?",
+      "SELECT 1 FROM contacts WHERE contact_id = ? AND status = 'active'",
     ).get(todo.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
     const completedAtUtc = todo.status === "complete" ? new Date().toISOString() : null;
 
@@ -4178,7 +4217,7 @@ export class OrganizerStore {
     ).get(after.groupId);
     if (!selectedAfterGroup) throw new OrganizerInputError("To-do group not found.", 404);
     if (after.relatedContactId !== null && !this.database.prepare(
-      "SELECT 1 FROM contacts WHERE contact_id = ?",
+      "SELECT 1 FROM contacts WHERE contact_id = ? AND status = 'active'",
     ).get(after.relatedContactId)) throw new OrganizerInputError("Related contact not found.", 404);
     if (after.status === "complete" && before.status !== "complete") after.completedAtUtc = new Date().toISOString();
     if (after.status !== "complete" && before.status === "complete") after.completedAtUtc = null;

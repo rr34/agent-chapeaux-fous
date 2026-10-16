@@ -83,6 +83,35 @@ test("to-dos can be created, listed, and completed without calendar fields", asy
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM calendar_events").get().count, 0);
 });
 
+test("inactive contacts behave as deleted relationship targets", async (context) => {
+  const { store, registry, toolContext } = harness(context);
+  const database = store.requireReady();
+  const activeId = Number(database.prepare(`
+    INSERT INTO contacts (display_name, status) VALUES ('Active Person', 'active')
+    RETURNING contact_id
+  `).get().contact_id);
+  const inactiveId = Number(database.prepare(`
+    INSERT INTO contacts (display_name, status) VALUES ('Deleted Person', 'inactive')
+    RETURNING contact_id
+  `).get().contact_id);
+  const created = await registry.execute("todo_add", {
+    text: "Customer task", todo_group_id: 1, status: "todo",
+    related_contact_id: activeId, planning_prompt_text: null, position: null,
+  }, toolContext);
+
+  await assert.rejects(registry.execute("todo_update", { updates: [{
+    personal_task_id: created.task.personal_task_id,
+    related_contact_id: inactiveId,
+  }] }, toolContext), /does not exist/u);
+  await assert.rejects(registry.execute("todo_add", {
+    text: "Deleted customer task", todo_group_id: 1, status: "todo",
+    related_contact_id: inactiveId, planning_prompt_text: null, position: null,
+  }, toolContext), /does not exist/u);
+  assert.equal(database.prepare(`
+    SELECT related_contact_id FROM todo_personal WHERE personal_task_id = ?
+  `).get(created.task.personal_task_id).related_contact_id, activeId);
+});
+
 test("to-do text lookup returns an exact terminal task instead of an open-task dump", async (context) => {
   const { registry, toolContext } = harness(context);
   const created = await registry.execute("todo_add", {

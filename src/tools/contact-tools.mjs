@@ -62,7 +62,7 @@ const toolDescriptions = Object.freeze({
   "contact_lookup_batch": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Resolve up to 500 exact normalized display names in one bounded lookup, returning every current match and stable ID.",
+    "summary": "Resolve up to 500 exact normalized display names against active contacts in one bounded lookup, returning every current match and stable ID.",
     "actionClasses": [
       "READ"
     ],
@@ -86,7 +86,7 @@ const toolDescriptions = Object.freeze({
   "contact_search": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Search contacts by descriptive or partial details using the Contacts UI's matching behavior.",
+    "summary": "Search active contacts by descriptive or partial details using the Contacts UI's matching behavior.",
     "actionClasses": [
       "READ"
     ],
@@ -191,7 +191,7 @@ const contactRecordSchema = {
     family_name: { description: "Person's family or last name when the contact is a person." },
     organization_name: { description: "Organization name associated with this contact when applicable." },
     is_self: { description: "1 only for the active contact record representing the user; otherwise 0." },
-    status: { description: "Current address-book status of the contact. active: Current usable contact. inactive: Retained contact not currently active. blocked: Contact from whom interaction is blocked or should be avoided. deceased: Person is known to be deceased." },
+    status: { description: "Current address-book status of the contact. active: Current usable contact. inactive: Logically deleted history, excluded from ordinary agent reads, bindings, and relationship targets. blocked: Contact from whom interaction is blocked or should be avoided. deceased: Person is known to be deceased." },
     notes: { description: "Private free-text context about the contact that does not belong in a structured relationship or method." },
     source: { description: "System or process from which this contact was imported or created." },
     external_id: { description: "Identifier assigned to this contact by the source system." },
@@ -651,7 +651,7 @@ export function registerContactTools(
               given_name: { ...nullableString, maxLength: 500, description: "Person's given or first name when the contact is a person." },
               family_name: { ...nullableString, maxLength: 500, description: "Person's family or last name when the contact is a person." },
               organization_name: { ...nullableString, maxLength: 500, description: "Organization name associated with this contact when applicable." },
-              status: { type: "string", enum: ["active", "inactive", "blocked", "deceased"], description: "Current address-book status of the contact. active: Current usable contact. inactive: Retained contact not currently active. blocked: Contact from whom interaction is blocked or should be avoided. deceased: Person is known to be deceased." },
+              status: { type: "string", enum: ["active", "inactive", "blocked", "deceased"], description: "Current address-book status of the contact. active: Current usable contact. inactive: Logically deleted history, excluded from ordinary agent reads, bindings, and relationship targets. blocked: Contact from whom interaction is blocked or should be avoided. deceased: Person is known to be deceased." },
               birth_date: { ...nullableString, maxLength: 10, description: "Contact's birth date, with an explicitly optional year, used to derive birthday calendar entries and age when possible. Do not invent a birth year; use --MM-DD when only month and day are known. Age is derived only when the stored value includes a year. Generated birthday labels are projections and must not be written back as permanent age text." },
               notes: { ...nullableString, maxLength: 10000, description: "Private free-text context about the contact that does not belong in a structured relationship or method." },
               methods: {
@@ -801,7 +801,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_search",
-    description: "Search contacts with the same case-insensitive substring behavior as the Contacts UI. Use this for descriptive keywords or partial details rather than exact known display names. The supplied queries are OR alternatives searched across display, given, and family names, organization, notes, tags, contact-method labels, email addresses, phone numbers, and other method values. Results include the matching contacts and completeness metadata; do not claim no contacts match when scan_truncated is true.",
+    description: "Search active contacts with the same case-insensitive substring behavior as the Contacts UI. Inactive contacts are logically deleted and are never searched or returned. Use this for descriptive keywords or partial details rather than exact known display names. The supplied queries are OR alternatives searched across display, given, and family names, organization, notes, tags, contact-method labels, email addresses, phone numbers, and other method values. Results include the matching contacts and completeness metadata; do not claim no contacts match when scan_truncated is true.",
     outputSchema: {
       type: "object",
       properties: {
@@ -829,17 +829,16 @@ export function registerContactTools(
           type: "array", minItems: 1, maxItems: 20, uniqueItems: true,
           items: { type: "string", minLength: 1, maxLength: 200 },
         },
-        include_inactive: { type: "boolean" },
         limit: { type: "integer", minimum: 1, maximum: 200 },
       },
-      required: ["queries", "include_inactive", "limit"],
+      required: ["queries", "limit"],
     },
-    async execute({ queries, include_inactive: includeInactive, limit }, context) {
+    async execute({ queries, limit }, context) {
       const search = searchCoordinator
         ? (await searchCoordinator.searchScope("contacts", {
-            query: queries[0], queries, limit, options: { includeInactive },
+            query: queries[0], queries, limit, options: { includeInactive: false },
           })).native
-        : organizer.searchContacts({ queries, includeInactive, limit });
+        : organizer.searchContacts({ queries, includeInactive: false, limit });
       return {
         queries: search.queries,
         scanned_contact_count: search.scannedContactCount,
@@ -872,7 +871,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_lookup_batch",
-    description: "Look up 1 through 500 contact display names in one call using exact normalized-name matching across up to 10,000 stored contacts. Use this instead of repeated database reads when resolving a large user-supplied list. Each result reports all bounded matches with current IDs, versions, methods, tags, source, and status so a later bulk action can be precise.",
+    description: "Look up 1 through 500 contact display names in one call using exact normalized-name matching across up to 10,000 active contacts. Inactive contacts are logically deleted and are never searched or returned. Use this instead of repeated database reads when resolving a large user-supplied list. Each result reports all bounded active matches with current IDs, versions, methods, tags, source, and status so a later bulk action can be precise.",
     outputSchema: {
       type: "object",
       properties: {
@@ -908,13 +907,12 @@ export function registerContactTools(
           type: "array", minItems: 1, maxItems: 500,
           items: { type: "string", minLength: 1, maxLength: 500 },
         },
-        include_inactive: { type: "boolean" },
         max_matches_per_name: { type: "integer", minimum: 1, maximum: 100 },
       },
-      required: ["names", "include_inactive", "max_matches_per_name"],
+      required: ["names", "max_matches_per_name"],
     },
-    async execute({ names, include_inactive: includeInactive, max_matches_per_name: maxMatchesPerName }, context) {
-      const lookup = organizer.lookupContactsByNames({ names, includeInactive, maxMatchesPerName });
+    async execute({ names, max_matches_per_name: maxMatchesPerName }, context) {
+      const lookup = organizer.lookupContactsByNames({ names, includeInactive: false, maxMatchesPerName });
       const result = {
         scanned_contact_count: lookup.scannedContactCount,
         query_count: lookup.results.length,
@@ -944,7 +942,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_address_update",
-    description: "Atomically set a postal address on 1 through 100 existing contacts without creating contact records or replacing their other methods, tags, or identity fields. Resolve each contact with contact_search or contact_lookup_batch and use its current expected_version. Supply address_method_id to replace one existing postal address; use null only when the contact has no postal address. An exact replay is unchanged even with the prior version. If an address already exists but no method ID is supplied, the call stops instead of guessing or adding a second address. The complete batch validates before any write.",
+    description: "Atomically set a postal address on 1 through 100 existing visible contacts without creating contact records or replacing their other methods, tags, or identity fields. Inactive contacts are logically deleted and cannot be changed. Resolve each contact with contact_search or contact_lookup_batch and use its current expected_version. Supply address_method_id to replace one existing postal address; use null only when the contact has no postal address. An exact replay is unchanged even with the prior version. If an address already exists but no method ID is supplied, the call stops instead of guessing or adding a second address. The complete batch validates before any write.",
     outputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1043,7 +1041,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_update",
-    description: "Atomically update standard fields on 1 through 100 existing contacts. Resolve every contact with contact_search or contact_lookup_batch and use its current expected_version. This changes only explicitly supplied identity or profile fields and always preserves contact methods, tags, source, external ID, and self identity. Null means leave a value unchanged; use the matching clear flag to remove an optional value. A replay that already matches the requested state is unchanged even with the prior version. Use contact_address_update for postal addresses and the dedicated tag tools for tag additions or global tag renames.",
+    description: "Atomically update standard fields on 1 through 100 existing visible contacts. Resolve every contact with contact_search or contact_lookup_batch and use its current expected_version. Setting status to inactive logically deletes the contact: it remains stored for history but disappears from ordinary agent search, context, bindings, and relationship targets. This changes only explicitly supplied identity or profile fields and always preserves contact methods, tags, source, external ID, and self identity. Null means leave a value unchanged; use the matching clear flag to remove an optional value. A replay that already matches the requested state is unchanged even with the prior version. Use contact_address_update for postal addresses and the dedicated tag tools for tag additions or global tag renames.",
     outputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1129,6 +1127,7 @@ export function registerContactTools(
         const plans = updates.map((input, index) => {
           const before = contactFromDatabase(database, input.contact_id);
           if (!before) throw new Error(`Contact ${input.contact_id} was not found`);
+          if (before.status === "inactive") throw new Error(`Contact ${input.contact_id} was not found`);
           const currentVersion = before.updated_at_utc ?? before.created_at_utc;
           const values = {};
           const setOptional = (field, clearField, maximumLength) => {
@@ -1218,7 +1217,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_tag_add_batch",
-    description: "Atomically add one tag to 1 through 10,000 existing contacts by ID in a single tool call. The operation validates every contact before writing, preserves all existing tags, is safe to replay, and reports newly tagged versus already-tagged counts. Use this after one contact_lookup_batch call; never insert contacts_tags_join one row at a time.",
+    description: "Atomically add one tag to 1 through 10,000 existing visible contacts by ID in a single tool call. Inactive contacts are logically deleted and cannot be tagged. The operation validates every contact before writing, preserves all existing tags, is safe to replay, and reports newly tagged versus already-tagged counts. Use this after one contact_lookup_batch call; never insert contacts_tags_join one row at a time.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1370,7 +1369,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_merge",
-    description: "Atomically apply 1 through 100 independently reviewed contact merge groups. A one-group request uses the same merges array. Build every group from current contact_duplicate_list candidates and exact expected_version values. One stale version, missing contact, repeated contact across groups, or invalid merge rolls back the complete call. Successful groups combine unique methods, tags, notes, and missing identity fields while retaining source records as inactive history. Never merge merely because names match when the remaining details are ambiguous.",
+    description: "Atomically apply 1 through 100 independently reviewed active-contact merge groups. A one-group request uses the same merges array. Build every group from current contact_duplicate_list candidates and exact expected_version values. One stale version, missing or inactive contact, repeated contact across groups, or invalid merge rolls back the complete call. Successful groups combine unique methods, tags, notes, and missing identity fields while retaining source records as logically deleted inactive history. Never merge merely because names match when the remaining details are ambiguous.",
     parameters: {
       type: "object",
       additionalProperties: false,

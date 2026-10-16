@@ -211,8 +211,17 @@ try {
   if (await page.locator(".paper-calendar-event-card").count() !== events.length) {
     throw new Error("Expected every event to use one reusable calendar event card");
   }
-  if (await page.locator(".paper-hour-rule, .paper-event-bracket, .paper-event-connector, .paper-time-scale").count() !== 0) {
-    throw new Error("The removed fixed timeline or connector geometry is still present");
+  if (await page.locator(".paper-event-bracket, .paper-event-connector").count() !== 0) {
+    throw new Error("Removed event brackets or connector geometry is still present");
+  }
+  if (await page.locator(".paper-weather-hour").count() !== 19) {
+    throw new Error("Expected a fixed hourly weather scale from 05:00 through 23:00");
+  }
+  if (await page.locator(".paper-weather-point").count() !== model.weather.points.length) {
+    throw new Error("Expected every forecast point on the weather timeline");
+  }
+  if (await page.locator(".paper-weather-timeline .paper-calendar-event-card").count() !== 0) {
+    throw new Error("Event cards must remain independent of the weather timeline");
   }
   const startTimes = await page.locator(".paper-calendar-event-card .calendar-event-time--start strong").allTextContents();
   const endTimes = await page.locator(".paper-calendar-event-card .calendar-event-time--end strong").allTextContents();
@@ -236,12 +245,27 @@ try {
   if (misplacedTimes.length) {
     throw new Error(`Start and end labels were not at opposing card edges: ${JSON.stringify(misplacedTimes)}`);
   }
-  if (await page.locator(".paper-weather-summary").count() !== 1) {
-    throw new Error("Expected one compact weather summary");
+  const weatherText = await page.locator(".paper-weather-timeline").innerText();
+  if (!weatherText.includes("6°C") || !weatherText.includes("15°C") || !weatherText.includes("25%")) {
+    throw new Error(`Unexpected Celsius weather timeline: ${weatherText}`);
   }
-  const weatherText = await page.locator(".paper-weather-summary").innerText();
-  if (!weatherText.includes("6–15°C") || !weatherText.includes("25% precipitation")) {
-    throw new Error(`Unexpected Celsius weather summary: ${weatherText}`);
+  const weatherGeometry = await page.locator(".paper-weather-timeline").evaluate((timeline, points) => {
+    const bounds = timeline.getBoundingClientRect();
+    const failures = Array.from(timeline.querySelectorAll(".paper-weather-point")).map((point, index) => {
+      const pointBounds = point.getBoundingClientRect();
+      const hour = points[index].hour;
+      const expected = bounds.top + bounds.height * ((hour - 5) / 18);
+      const actual = hour === 5 ? pointBounds.top : hour === 23 ? pointBounds.bottom : pointBounds.top + pointBounds.height / 2;
+      return Math.abs(actual - expected) > 1.5 ? { hour, actual, expected } : null;
+    }).filter(Boolean);
+    return { failures, right: bounds.right };
+  }, model.weather.points);
+  if (weatherGeometry.failures.length) {
+    throw new Error(`Forecast points did not align to their fixed hours: ${JSON.stringify(weatherGeometry.failures)}`);
+  }
+  const firstCard = await page.locator(".paper-calendar-event-list > li:first-child .paper-calendar-event-card").boundingBox();
+  if (!firstCard || weatherGeometry.right >= firstCard.x) {
+    throw new Error(`Weather timeline was not isolated to the left of the event cards: ${JSON.stringify({ weatherRight: weatherGeometry.right, firstCard })}`);
   }
   const firstPage = await page.locator(".paper-plan-page").boundingBox();
   const finalEventCard = await page.locator(".paper-calendar-event-list > li:last-child .paper-calendar-event-card").boundingBox();
