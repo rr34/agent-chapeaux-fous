@@ -22,12 +22,14 @@ export interface FullObjectCardAction {
 
 export function FullObjectCard({
   object, as: Root = "article", className = "", focus = false,
-  leading, controls, actions = [], details,
+  topEdge, bottomEdge, leading, controls, actions = [], details,
 }: {
   object: FullObjectCardData;
   as?: ElementType;
   className?: string;
   focus?: boolean;
+  topEdge?: ReactNode;
+  bottomEdge?: ReactNode;
   leading?: ReactNode;
   controls?: ReactNode;
   actions?: FullObjectCardAction[];
@@ -35,9 +37,10 @@ export function FullObjectCard({
 }) {
   const attributes = (object.attributes || []).filter(({ value }) => String(value).trim());
   return <Root
-    className={`first-class-object-card first-class-object-card--full${focus ? " is-focus" : ""}${className ? ` ${className}` : ""}`}
+    className={`first-class-object-card first-class-object-card--full${topEdge ? " has-top-edge" : ""}${bottomEdge ? " has-bottom-edge" : ""}${focus ? " is-focus" : ""}${className ? ` ${className}` : ""}`}
     data-object-type={object.type}
   >
+    {topEdge && <div className="first-class-object-top-edge">{topEdge}</div>}
     {leading && <div className="first-class-object-leading">{leading}</div>}
     <div className="first-class-object-content">
       <span className="first-class-object-label">{object.label}</span>
@@ -71,5 +74,6 @@ export function FullObjectCard({
           onClick={action.onClick}
         >{action.label}</button>)}
     </div>}
+    {bottomEdge && <div className="first-class-object-bottom-edge">{bottomEdge}</div>}
   </Root>;
 }

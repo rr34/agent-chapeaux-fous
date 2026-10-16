@@ -198,67 +198,55 @@ try {
   if (await page.locator(".paper-todo-empty-lines").count() !== 1) {
     throw new Error("Expected one empty pinned to-do group checklist");
   }
-  if (await page.locator(".paper-event-todos .paper-todo-card").count() !== 4) {
-    throw new Error("Expected four event-owned to-dos in the printed timeline");
+  if (await page.locator(".paper-calendar-event-card .calendar-event-expanded-details li").count() !== 4) {
+    throw new Error("Expected four event-owned to-dos inside their reusable calendar cards");
   }
   if (await page.locator(".paper-pinned-todos .paper-todo-card").count() !== 1) {
-    throw new Error("Expected one pinned-only to-do after the timeline");
+    throw new Error("Expected one pinned-only to-do after the day plan");
   }
   const pinnedText = await page.locator(".paper-pinned-todos").allTextContents();
   if (pinnedText.some((text) => text.includes("Bring the annotated draft"))) {
     throw new Error("A scheduled to-do was duplicated in the pinned appendage");
   }
-  if (await page.locator(".paper-hour-rule").count() !== 19) {
-    throw new Error("Expected fixed hourly rules from 05:00 through 23:00");
+  if (await page.locator(".paper-calendar-event-card").count() !== events.length) {
+    throw new Error("Expected every event to use one reusable calendar event card");
   }
-  if (await page.locator(".paper-event-bracket").count() !== events.length) {
-    throw new Error("Expected one proportional bracket for every timed event");
+  if (await page.locator(".paper-hour-rule, .paper-event-bracket, .paper-event-connector, .paper-time-scale").count() !== 0) {
+    throw new Error("The removed fixed timeline or connector geometry is still present");
   }
-  if (await page.locator(".paper-event-connector").count() !== events.length) {
-    throw new Error("Expected every event bracket to connect to its existing detail card");
+  const startTimes = await page.locator(".paper-calendar-event-card .calendar-event-time--start strong").allTextContents();
+  const endTimes = await page.locator(".paper-calendar-event-card .calendar-event-time--end strong").allTextContents();
+  if (startTimes.join("|") !== "08:00|09:00|14:00|18:00|4 Oct · 22:30") {
+    throw new Error(`Unexpected event start labels: ${startTimes.join("|")}`);
   }
-  const nonOrthogonalConnectors = await page.locator(".paper-event-connector polyline").evaluateAll((connectors) => connectors
-    .map((connector, index) => {
-      const points = connector.getAttribute("points")?.trim().split(/\s+/).map((point) => point.split(",").map(Number)) || [];
-      const diagonal = points.slice(1).some(([x, y], pointIndex) => {
-        const [previousX, previousY] = points[pointIndex];
-        return x !== previousX && y !== previousY;
-      });
-      return diagonal ? index : null;
-    })
-    .filter((index) => index !== null));
-  if (nonOrthogonalConnectors.length) {
-    throw new Error(`Event connectors contained diagonal segments: ${nonOrthogonalConnectors.join(", ")}`);
+  if (endTimes.join("|") !== "08:45|10:00|15:30|18:30|5 Oct · 00:30") {
+    throw new Error(`Unexpected event end labels: ${endTimes.join("|")}`);
   }
-  if (await page.locator(".paper-timeline-card > .paper-event-card").count() !== events.length) {
-    throw new Error("Expected every timed event to use one detailed card inside the fixed timeline");
-  }
-  const cardTimes = await page.locator(".paper-event-card .paper-event-identity time").allTextContents();
-  if (cardTimes.join("|") !== "08:00–08:45|09:00–10:00|14:00–15:30|18:00–18:30|4 Oct 22:30–5 Oct 00:30") {
-    throw new Error(`Event times were not rendered natively inside their cards: ${cardTimes.join("|")}`);
-  }
-  const disconnectedCards = await page.locator(".paper-positioned-event").evaluateAll((items) => items
-    .map((item, index) => {
-      const connector = item.querySelector(".paper-event-connector")?.getBoundingClientRect();
-      const card = item.querySelector(".paper-event-card")?.getBoundingClientRect();
-      return connector && card && Math.abs(connector.right - card.left) > 1
-        ? { index, connectorRight: connector.right, cardLeft: card.left }
-        : null;
+  const misplacedTimes = await page.locator(".paper-calendar-event-card").evaluateAll((cards) => cards
+    .map((card, index) => {
+      const cardBounds = card.getBoundingClientRect();
+      const start = card.querySelector(".calendar-event-time--start")?.getBoundingClientRect();
+      const end = card.querySelector(".calendar-event-time--end")?.getBoundingClientRect();
+      if (!start || !end || start.top < cardBounds.top || end.bottom > cardBounds.bottom || start.bottom >= end.top) {
+        return { index, card: cardBounds.toJSON(), start: start?.toJSON(), end: end?.toJSON() };
+      }
+      return null;
     })
     .filter(Boolean));
-  if (disconnectedCards.length) {
-    throw new Error(`Event connectors did not meet their cards: ${JSON.stringify(disconnectedCards)}`);
+  if (misplacedTimes.length) {
+    throw new Error(`Start and end labels were not at opposing card edges: ${JSON.stringify(misplacedTimes)}`);
   }
-  if (await page.locator(".paper-weather-point").count() !== model.weather.points.length) {
-    throw new Error("Expected weather points aligned to the printed time scale");
+  if (await page.locator(".paper-weather-summary").count() !== 1) {
+    throw new Error("Expected one compact weather summary");
   }
-  if ((await page.locator(".paper-plan-page").innerText()).includes("Celsius")) {
-    throw new Error("The accessible weather unit leaked into the visible print layout");
+  const weatherText = await page.locator(".paper-weather-summary").innerText();
+  if (!weatherText.includes("6–15°C") || !weatherText.includes("25% precipitation")) {
+    throw new Error(`Unexpected Celsius weather summary: ${weatherText}`);
   }
   const firstPage = await page.locator(".paper-plan-page").boundingBox();
-  const timeline = await page.locator(".paper-time-scale").boundingBox();
-  if (!firstPage || !timeline || timeline.height < 400 || timeline.y + timeline.height > firstPage.y + firstPage.height) {
-    throw new Error(`Fixed timeline did not occupy the remaining first page: ${JSON.stringify({ firstPage, timeline })}`);
+  const finalEventCard = await page.locator(".paper-calendar-event-list > li:last-child .paper-calendar-event-card").boundingBox();
+  if (!firstPage || !finalEventCard || finalEventCard.y + finalEventCard.height > firstPage.y + firstPage.height) {
+    throw new Error(`Event cards escaped the first physical page: ${JSON.stringify({ firstPage, finalEventCard })}`);
   }
   await page.emulateMedia({ media: "print" });
   const calendarOverflow = await page.locator(".two-week-grid--compact .calendar-cell").evaluateAll((cells) => cells

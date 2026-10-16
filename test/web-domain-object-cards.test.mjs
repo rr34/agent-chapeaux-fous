@@ -74,6 +74,10 @@ test("calendar event cards keep notes and event details behind the shared expans
   assert.match(calendar, /<h4>Contacts<\/h4>/);
   assert.match(calendar, /<h4>Planning prompt<\/h4>/);
   assert.match(calendar, /event\?: CalendarEvent/);
+  assert.match(calendar, /calendarEventTiming\(event, props\.timeZone\)/);
+  assert.match(calendar, /topEdge=\{timing \? <time className="calendar-event-time calendar-event-time--start"/);
+  assert.match(calendar, /bottomEdge=\{timing\?\.end \? <time className="calendar-event-time calendar-event-time--end"/);
+  assert.match(compact, /compact-object-top-edge/);
   assert.match(styles, /\.calendar-event-card \{[^}]*border-color: #8f9788;/s);
   assert.match(styles, /\.calendar-event-card \.first-class-object-body \{[^}]*-webkit-line-clamp: 2;[^}]*font-size: 11px;/s);
 });

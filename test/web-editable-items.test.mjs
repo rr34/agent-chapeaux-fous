@@ -10,6 +10,7 @@ const server = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "u
 const dailyPaperService = fs.readFileSync(new URL("../src/daily-paper.mjs", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
 const todoCard = fs.readFileSync(new URL("../web/src/components/object-cards/TodoCard.tsx", import.meta.url), "utf8");
+const calendarEventCard = fs.readFileSync(new URL("../web/src/components/object-cards/CalendarEventCard.tsx", import.meta.url), "utf8");
 
 test("timeline events use a reusable clickable editor with fresh versioned saves", () => {
   assert.match(items, /export function CalendarEventItem/);
@@ -132,8 +133,8 @@ test("events, to-dos, and routines preserve authored newlines everywhere they di
   assert.ok(dailyPaper.includes('className="multiline-item-text">{event.title}</span>'));
   assert.ok(items.includes("display: routine.title"));
   assert.ok(items.includes("body: routine.description"));
-  assert.ok(items.includes("display: event.title"));
-  assert.ok(items.includes("body: event.description"));
+  assert.ok(calendarEventCard.includes("display: event.title"));
+  assert.ok(calendarEventCard.includes("body: event.description"));
   assert.ok(items.includes('type: "todos.personal_task", label: "To-do", display: text'));
   assert.match(styles, /\.first-class-object-title \{[^}]*white-space: pre-wrap;/);
   assert.match(styles, /\.first-class-object-body \{[^}]*white-space: pre-wrap;/);

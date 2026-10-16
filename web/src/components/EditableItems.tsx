@@ -11,7 +11,7 @@ import {
 import {
   buildRecurrenceRule, RecurrenceEditor, recurrenceDraft, type RecurrenceDraft,
 } from "./RecurrenceEditor";
-import { CalendarEventCard } from "./object-cards/CalendarEventCard";
+import { CalendarEventCard, calendarEventCardObject } from "./object-cards/CalendarEventCard";
 import { CalendarRoutineCard } from "./object-cards/CalendarRoutineCard";
 import { TodoCard } from "./object-cards/TodoCard";
 
@@ -572,10 +572,9 @@ export function CalendarRoutineItem({ routine, timeLabel, onChanged }: {
   </>;
 }
 
-export function CalendarEventItem({ event, timeZone, timeLabel, defaultExpanded = false, onChanged }: {
+export function CalendarEventItem({ event, timeZone, defaultExpanded = false, onChanged }: {
   event: CalendarEvent;
   timeZone: string;
-  timeLabel: string;
   defaultExpanded?: boolean;
   onChanged?: Changed;
 }) {
@@ -593,21 +592,13 @@ export function CalendarEventItem({ event, timeZone, timeLabel, defaultExpanded 
     />)}
   </ul> : undefined;
   return <li>
-    <time>{timeLabel}</time>
     <CalendarEventCard
       event={{ ...event, linkedTodos }}
+      timeZone={timeZone}
       linkedTodoDetails={linkedTodoDetails}
       mode="compact"
       defaultExpanded={defaultExpanded}
-      object={{
-        id: eventId, type: "calendar.event", label: "Calendar event", display: event.title,
-        body: event.description,
-        attributes: [
-          ...(event.location ? [{ label: "Where", value: event.location }] : []),
-          ...(event.status ? [{ label: "Status", value: event.status }] : []),
-        ],
-        badges: event.seriesId ? ["Recurring"] : [],
-      }}
+      object={calendarEventCardObject(event)}
       onEdit={editable ? () => setEditing(true) : undefined}
       controls={Number.isSafeInteger(eventId) && eventId > 0 ? <ObjectSelectionControls identity={calendarEventIdentity(event, timeZone)} subject={`calendar event ${event.title}`} /> : undefined}
     />

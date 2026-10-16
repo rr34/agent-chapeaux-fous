@@ -3,11 +3,13 @@ import { useState } from "react";
 import { ExpandIcon } from "./ObjectCardIcons";
 import type { ObjectCardModel } from "./types";
 
-export function CompactObjectCard({ object, defaultExpanded = false, controls, compactDetails, leading, full, className = "", as: Root = "article" }: {
+export function CompactObjectCard({ object, defaultExpanded = false, controls, compactDetails, topEdge, bottomEdge, leading, full, className = "", as: Root = "article" }: {
   object: ObjectCardModel;
   defaultExpanded?: boolean;
   controls?: ReactNode;
   compactDetails?: ReactNode;
+  topEdge?: ReactNode;
+  bottomEdge?: ReactNode;
   leading?: ReactNode;
   full: ReactNode;
   className?: string;
@@ -21,7 +23,8 @@ export function CompactObjectCard({ object, defaultExpanded = false, controls, c
       <ExpandIcon expanded />
     </button>
   </ExpandedRoot>;
-  return <Root className={`compact-object-card${leading ? " has-leading" : ""}${className ? ` ${className}` : ""}`} data-object-type={object.type}>
+  return <Root className={`compact-object-card${topEdge ? " has-top-edge" : ""}${bottomEdge ? " has-bottom-edge" : ""}${leading ? " has-leading" : ""}${className ? ` ${className}` : ""}`} data-object-type={object.type}>
+    {topEdge && <div className="compact-object-top-edge">{topEdge}</div>}
     {leading && <div className="compact-object-leading">{leading}</div>}
     <div className="compact-object-identity">
       <span>{object.label}</span>
@@ -34,5 +37,6 @@ export function CompactObjectCard({ object, defaultExpanded = false, controls, c
       </button>
       {controls}
     </div>
+    {bottomEdge && <div className="compact-object-bottom-edge">{bottomEdge}</div>}
   </Root>;
 }

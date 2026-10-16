@@ -16,6 +16,8 @@ export interface ObjectCardProps {
   as?: ElementType;
   details?: ReactNode;
   compactDetails?: ReactNode;
+  topEdge?: ReactNode;
+  bottomEdge?: ReactNode;
   leading?: ReactNode;
   actions?: FullObjectCardAction[];
   onEdit?: () => void;
