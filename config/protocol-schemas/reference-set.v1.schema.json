@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-slayer.local/schemas/reference-set.v1.schema.json",
+  "title": "Agent Slayer Reference Set",
+  "description": "A named exact set of first-class objects or directed relationships between them.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol": { "const": "agent-slayer.reference-set" },
+        "version": { "const": 1 },
+        "kind": { "const": "object_set" },
+        "ref": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "display": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "memberRefs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "sourceEventSeqs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "required": ["protocol", "version", "kind", "ref", "display", "memberRefs", "sourceEventSeqs"]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol": { "const": "agent-slayer.reference-set" },
+        "version": { "const": 1 },
+        "kind": { "const": "relationship_set" },
+        "ref": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "display": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "relationshipType": { "type": "string", "pattern": "^[a-z][a-z0-9_.:-]{0,199}$" },
+        "edges": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fromRef": { "type": "string", "minLength": 1, "maxLength": 1000 },
+              "toRef": { "type": "string", "minLength": 1, "maxLength": 1000 }
+            },
+            "required": ["fromRef", "toRef"]
+          }
+        },
+        "sourceEventSeqs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "required": ["protocol", "version", "kind", "ref", "display", "relationshipType", "edges", "sourceEventSeqs"]
+    }
+  ]
+}

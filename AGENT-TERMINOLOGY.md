@@ -246,10 +246,22 @@ ontology rather than inferred from a central tool-name map.
 
 **56. Common-sense core** — The compact structured result of the first model
 interaction for an Agent request. It records the ordinary-language end state,
-batch-shaped actions, supplied stable target references, relevant user
+batch-shaped actions, supplied stable target and set references, request-local
+object and directed relationship sets, unresolved target slots, relevant user
 constraints, genuine blocking questions, bounded context requests, selected
 capability families, confirmed prepared-change references, and literal temporal
 resolutions. It does not select exact tools, copy full object bindings, generate
 audit policy, or restate generic safety prose. Application code verifies current
 selections and hydrates exact bindings before execution receives the core plus
 the exact schemas for tools in its selected capability families.
+
+**57. Object reference set** — A named immutable membership snapshot whose
+members are exact stable references to first-class objects. Selecting it selects
+every listed member. The structure may present a compact candidate set for one
+already grouped binding, but being returned together does not make that set a
+current target; orientation must select it explicitly.
+
+**58. Relationship reference set** — A named immutable snapshot of one typed,
+directed relationship containing exact `fromRef` → `toRef` edges. The edge pairs
+are first-class context and must survive orientation, pruning, execution, and
+later reference without becoming two unrelated endpoint lists.

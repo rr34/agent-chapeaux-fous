@@ -79,6 +79,7 @@ test("native coordinator searches calendar, contacts, files, and history through
   const definition = registry.toolDefinitions().find(({ name }) => name === "global_search");
   assert.deepEqual(definition.inputSchema.properties.scopes.items.enum, ["calendar", "contacts", "files", "history"]);
   assert.deepEqual(definition.inputSchema.properties.match_mode.enum, ["terms", "phrase", "near"]);
+  assert.equal(registry.toolDefinitions().some(({ name }) => name === "reference_set_record"), true);
 
   const result = await registry.execute("global_search", {
     query: "Alice",
@@ -96,6 +97,35 @@ test("native coordinator searches calendar, contacts, files, and history through
   assert.equal(result.hits.find(({ provider }) => provider === "contacts").title, "Alice Rivera");
   assert.match(result.hits.find(({ provider }) => provider === "files").title, /File #\d+ — Alice planning data/);
   assert.match(result.hits.find(({ provider }) => provider === "history").snippet, /Alice proposed/);
+
+  const referenceSets = await registry.execute("reference_set_record", {
+    object_sets: [],
+    relationship_sets: [{
+      display: "Planning event and Alice",
+      relationship_type: "calendar.event.contact",
+      edges: [{
+        from_ref: "agent-slayer://calendar-events/1",
+        to_ref: "agent-slayer://contacts/1",
+      }],
+    }],
+  }, {
+    requestId: "request-search",
+    verifiedObjectReferences: [{
+      mention: "planning event", role: "subject", type: "calendar.event", source: "native:calendar",
+      objects: [{ id: 1, ref: "agent-slayer://calendar-events/1", display: "Planning review" }],
+      sourceEventSeqs: [10],
+    }, {
+      mention: "Alice", role: "relationship_target", type: "contacts.contact", source: "native:contacts",
+      objects: [{ id: 1, ref: "agent-slayer://contacts/1", display: "Alice Rivera" }],
+      sourceEventSeqs: [11],
+    }],
+  });
+  assert.equal(referenceSets.recorded_count, 1);
+  assert.deepEqual(referenceSets.referenceSets[0].edges, [{
+    fromRef: "agent-slayer://calendar-events/1",
+    toRef: "agent-slayer://contacts/1",
+  }]);
+  assert.deepEqual(referenceSets.referenceSets[0].sourceEventSeqs, [10, 11]);
 });
 
 test("existing domain tools preserve their results when routed through search providers", async (context) => {

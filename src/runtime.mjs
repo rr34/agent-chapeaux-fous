@@ -48,9 +48,15 @@ import {
   unresolvedSelectedObjectCandidates,
 } from "./object-references.mjs";
 import {
-  constrainToolObjectInputs,
   objectInputBindingProblem,
 } from "./object-input-bindings.mjs";
+import {
+  mergeReferenceSets,
+  objectReferenceSets,
+  orientationReferenceSetProblem,
+  referenceSetObjectRefs,
+  selectedReferenceSets,
+} from "./reference-sets.mjs";
 
 function argumentsObject(value) {
   if (value == null) return {};
@@ -86,6 +92,25 @@ function objectReferenceGroupsForRefs(groups, refs) {
   });
 }
 
+function selectedObjectCandidateGroups(candidates, sourceEventSeq) {
+  const byIdentityDomain = new Map();
+  for (const candidate of candidates ?? []) {
+    if (!candidate?.ref || candidate.id == null || !candidate.type || !candidate.source) continue;
+    const key = JSON.stringify([candidate.type, candidate.source]);
+    const group = byIdentityDomain.get(key) ?? {
+      mention: "Explicit composer selections",
+      role: "subject",
+      type: candidate.type,
+      source: candidate.source,
+      objects: [],
+      sourceEventSeqs: Number.isSafeInteger(sourceEventSeq) ? [sourceEventSeq] : [],
+    };
+    group.objects.push({ id: candidate.id, ref: candidate.ref, display: candidate.display });
+    byIdentityDomain.set(key, group);
+  }
+  return mergeObjectReferenceGroups([...byIdentityDomain.values()]);
+}
+
 const operationalContinuationCue = /(?:^\s*you\s+can\b|\b(?:again|approve|confirm|continue|earlier|existing|go\s+ahead|it|last|previous(?:ly)?|prior|proceed|resume|same|that|them|these|this|those)\b)/iu;
 const localCalendarCue = /(?:\b(?:today|tomorrow|yesterday|tonight|morning|afternoon|evening|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b|\b(?:this|next|last)\s+(?:day|week|month|year|weekend)\b|\b\d{4}-\d{2}-\d{2}\b)/iu;
 
@@ -101,8 +126,14 @@ function needsLocalCalendar(requestText) {
 
 function exceptionalAuditReasons({ core, receipts, registry, findings, requestText }) {
   const reasons = [...findings.map(({ code, message }) => ({ code, message }))];
+  if (receipts.some(({ tool, ok }) => tool === "reference_set_record" && !ok)) {
+    reasons.push({
+      code: "REFERENCE_SET_RECORD_FAILED",
+      message: "Execution attempted but failed to preserve an exact object or relationship set needed for later reference.",
+    });
+  }
   const domainReceipts = receipts.filter(({ tool }) => (
-    !["request_capabilities", "request_tools"].includes(tool)
+    !["request_capabilities", "request_tools", "reference_set_record"].includes(tool)
   ));
   const successful = domainReceipts.filter(({ ok }) => ok);
   const failed = domainReceipts.filter(({ ok }) => !ok);
@@ -817,11 +848,25 @@ export class SlayerRuntime {
       args.text,
       ...relevantConversation.map(({ content }) => content),
     ].filter(Boolean).join("\n");
+    const inheritedReferenceSets = mergeReferenceSets([
+      ...(includePriorOperationalEvidence
+        ? relevantConversation.flatMap(({ referenceSets = [] }) => referenceSets)
+        : []),
+      ...reusableReferencedExchanges.flatMap(({ referenceSets = [] }) => referenceSets),
+    ]);
+    const inheritedSetObjectRefs = referenceSetObjectRefs(inheritedReferenceSets);
     const relevantRecentObjectReferences = relevantObjectReferenceCatalog(
       this.objectReferenceFilter(includePriorOperationalEvidence
         ? relevantConversation.flatMap(({ objectReferences = [] }) => objectReferences)
         : []),
-      { evidenceText: recentEvidenceText, maximumObjects: 24 },
+      {
+        evidenceText: recentEvidenceText,
+        alwaysRefs: inheritedSetObjectRefs,
+        // Orientation is the semantic selection point. Do not truncate a
+        // relevant prior batch before the model can select its members or its
+        // compact generated set.
+        maximumObjects: Math.max(500, inheritedSetObjectRefs.length),
+      },
     );
     const availableObjectReferences = explicitReferenceObjectCatalog(
       relevantRecentObjectReferences,
@@ -831,6 +876,14 @@ export class SlayerRuntime {
       ]),
     );
     const selectedObjectCandidates = args.selectedObjectCandidates ?? [];
+    const orientationObjectReferences = mergeObjectReferenceGroups([
+      ...availableObjectReferences,
+      ...selectedObjectCandidateGroups(selectedObjectCandidates, requestEventSeq),
+    ]);
+    const availableReferenceSets = mergeReferenceSets([
+      ...inheritedReferenceSets,
+      ...objectReferenceSets(orientationObjectReferences),
+    ]);
     const orientationBaseContext = await this.contextBuilder.build(args.requestId, args.text, {
       attachment: args.attachment,
       nativeConversation: false,
@@ -845,7 +898,12 @@ export class SlayerRuntime {
       capabilities: catalog.map(({ capability }) => capability),
       contextViewIds: catalog.flatMap(({ contextViews = [] }) => contextViews.map(({ id }) => id)),
       actionReferenceIds: relevantActionReferences.map(({ referenceId }) => referenceId),
-      objectRefs: availableCoreObjectRefs(availableObjectReferences, selectedObjectCandidates),
+      objectRefs: availableCoreObjectRefs(orientationObjectReferences, selectedObjectCandidates),
+      objectSetRefs: availableReferenceSets
+        .filter(({ kind }) => kind === "object_set").map(({ ref }) => ref),
+      relationshipSetRefs: availableReferenceSets
+        .filter(({ kind }) => kind === "relationship_set").map(({ ref }) => ref),
+      requestId: args.requestId,
     });
     const priorConversationSummary = JSON.stringify({
       priorObjective: previousState?.activeObjective ?? null,
@@ -862,6 +920,7 @@ export class SlayerRuntime {
         capabilityCatalog: catalog,
         selectedObjectCandidates,
         availableObjectReferences,
+        availableReferenceSets,
         deferredActionReferences: relevantActionReferences,
         explicitHats: routing.explicitHats,
         localCalendar: needsLocalCalendar(args.text)
@@ -891,8 +950,18 @@ export class SlayerRuntime {
         ...routing.capabilities.filter((capability) => capability === "database"),
       ])],
     });
+    const acceptedCore = (value) => {
+      const accepted = withCoreReadCapabilities(value);
+      const problem = orientationReferenceSetProblem(accepted, {
+        requestId: args.requestId,
+        availableSets: availableReferenceSets,
+        availableObjectReferences: orientationObjectReferences,
+      });
+      if (problem) throw new Error(`Common-sense reference selection is invalid: ${problem}`);
+      return accepted;
+    };
     let orientationSelectedCapabilities = [...orientation.value.capabilities];
-    let core = withCoreReadCapabilities(orientation.value);
+    let core = acceptedCore(orientation.value);
     let temporalFindings = temporalConsistencyFindings(core, {
       requestText: args.text,
       requestEventSeq,
@@ -931,7 +1000,7 @@ export class SlayerRuntime {
         runTimeoutMs: remainingTimeoutMs(),
       });
       orientationSelectedCapabilities = [...orientation.value.capabilities];
-      core = withCoreReadCapabilities(orientation.value);
+      core = acceptedCore(orientation.value);
       temporalFindings = temporalConsistencyFindings(core, {
         requestText: args.text,
         requestEventSeq,
@@ -1053,14 +1122,20 @@ export class SlayerRuntime {
       throw error;
     }
 
-    const selectedRefs = [...new Set([
-      ...coreTargetRefs(core),
-      ...selectedObjectCandidates.map(({ ref }) => ref).filter(Boolean),
-    ])];
     const hydratedObjectReferenceCatalog = mergeObjectReferenceGroups([
       ...availableObjectReferences,
       ...preparedObjectReferences,
     ]);
+    const acceptedReferenceSets = selectedReferenceSets(core, {
+      requestId: args.requestId,
+      requestEventSeq,
+      availableSets: availableReferenceSets,
+      availableObjectReferences: hydratedObjectReferenceCatalog,
+    });
+    const selectedRefs = [...new Set([
+      ...coreTargetRefs(core, acceptedReferenceSets),
+      ...selectedObjectCandidates.map(({ ref }) => ref).filter(Boolean),
+    ])];
     const selectedObjectReferences = mergeObjectReferenceGroups(objectReferenceGroupsForRefs(
       hydratedObjectReferenceCatalog,
       selectedRefs,
@@ -1087,7 +1162,12 @@ export class SlayerRuntime {
       type: "orientation.core", status: "complete", actorType: "service",
       actorName: "Common-sense orienter", channel, turnId: args.requestId,
       name: "Accepted common-sense core", content: core.conversationSummary,
-      payload: { core, objectReferences: selectedObjectReferences, sourceRequestId: args.requestId },
+      payload: {
+        core,
+        objectReferences: selectedObjectReferences,
+        referenceSets: acceptedReferenceSets,
+        sourceRequestId: args.requestId,
+      },
       subjectType: "orientation_core", subjectId: args.requestId,
     });
     const sourceEventSeqsForState = Number.isSafeInteger(requestEventSeq) ? [requestEventSeq] : [];
@@ -1158,7 +1238,12 @@ export class SlayerRuntime {
       },
       supplementalInstructions: joinedInstructions(
         args.supplementalInstructions,
-        commonSenseExecutionInstructions(core, executionObjectReferences, confirmedActionReferences),
+        commonSenseExecutionInstructions(
+          core,
+          executionObjectReferences,
+          confirmedActionReferences,
+          acceptedReferenceSets,
+        ),
         priorReceiptInstructions(recentToolReceipts),
       ),
       activeActionReferences: relevantActionReferences,
@@ -1347,7 +1432,32 @@ export class SlayerRuntime {
       });
       return response;
     }
-    return repair.text;
+    const repairAudit = await this.#runStructuredStep({
+      requestId: args.requestId,
+      channel,
+      step: "audit",
+      label: "Audit repaired outcome",
+      stepIndex: 6,
+      model: args.model || this.config.model,
+      effort: this.config.auditReasoningEffort ?? "low",
+      input: `Verify the repaired completion of request ${args.requestId}.`,
+      developerInstructions: auditContext({
+        core,
+        receipts: repair.receipts,
+        executorResponse: repair.text,
+        deterministicFindings: [],
+        reasons: [{
+          code: "post_repair_verification",
+          message: "A prior exceptional audit required repair; independently verify the repaired receipts before accepting completion.",
+        }],
+        callableTools: repair.callableToolCatalog,
+      }),
+      outputSchema: completionAuditSchema,
+      runTimeoutMs: remainingTimeoutMs(),
+    });
+    return repairAudit.value.outcome === "complete"
+      ? repair.text
+      : blockedAuditResponse(repairAudit.value);
   }
 
   async run(args) {
@@ -1503,9 +1613,10 @@ export class SlayerRuntime {
         throw new Error(`Model execution timed out after ${configuredRunTimeoutMs}ms`);
       }
       finalAttemptStartedNewConversation = !conversationId;
-      const tools = compilation.tools.map((tool) => constrainToolObjectInputs(
-        tool, objectReferences, observedObjectReferences,
-      ));
+      // Callable schemas remain the exact owning provider contracts. Verified
+      // bindings are identity evidence at the call boundary; they never rewrite
+      // a provider schema into a historical ID allow-list.
+      const tools = compilation.tools;
       const callableToolNames = new Set(tools.map(({ name }) => name));
       const callableToolDefinitions = new Map(tools.map((tool) => [tool.name, tool]));
       if (
@@ -1681,7 +1792,6 @@ export class SlayerRuntime {
       const requestedCapabilities = new Set();
       const requestedTools = new Set();
       let expansionRequested = false;
-      let objectBindingRefreshRequested = false;
       try {
         result = await this.modelTransport.runTurn({
           ...turnRequest,
@@ -1959,6 +2069,10 @@ export class SlayerRuntime {
             try {
               const toolResult = await this.registry.execute(name, toolArguments, {
                 requestId, requestEventId, callId, channel, attachment, temporalResolutions,
+                verifiedObjectReferences: mergeObjectReferenceGroups([
+                  ...objectReferences,
+                  ...observedObjectReferences,
+                ]),
               });
               const toolDefinition = this.registry.get(name);
               const providerResult = mcpResultDetails(toolResult);
@@ -2075,6 +2189,9 @@ export class SlayerRuntime {
                 ...deferredActionReference,
                 sourceReceiptEventSeq: receiptEventSeq,
               } : null;
+              const recordedSets = name === "reference_set_record"
+                ? mergeReferenceSets(toolResult?.referenceSets ?? [])
+                : [];
               if (
                 sourcedActionReference
                 && !generatedActionReferences.some(({ referenceId }) => (
@@ -2118,6 +2235,19 @@ export class SlayerRuntime {
                 });
                 return { ok: false, error: filtered.error, result: filtered.deliveredResult };
               }
+              if (recordedSets.length) {
+                this.ledger.append({
+                  type: "reference.sets.observed", status: "complete", actorType: "service",
+                  actorName: "Reference set recorder", channel, turnId: requestId,
+                  operationId: callId, name: "Exact reference sets recorded",
+                  content: `${recordedSets.length} exact reference set${recordedSets.length === 1 ? "" : "s"} recorded`,
+                  payload: {
+                    tool: name,
+                    sourceReceiptEventSeq: receiptEventSeq,
+                    referenceSets: recordedSets,
+                  },
+                });
+              }
               const inline = filtered ?? inlineToolResult(toolResult, {
                 tool: name,
                 receiptEventSeq,
@@ -2157,6 +2287,7 @@ export class SlayerRuntime {
                 result: inline.deliveredResult,
                 receiptEventSeq,
                 ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
+                ...(recordedSets.length ? { referenceSets: recordedSets } : {}),
                 ...(sourcedActionReference ? { deferredActionReference: sourcedActionReference } : {}),
               });
               if (!readOnly) successfulMutationAttempts.add(attemptKey);
@@ -2174,41 +2305,10 @@ export class SlayerRuntime {
                   },
                 });
               }
-              let refreshedCallableTools = null;
-              if (newObjectReferences.length) {
-                const refreshedTools = compilation.tools.map((tool) => constrainToolObjectInputs(
-                  tool, objectReferences, observedObjectReferences,
-                ));
-                if (callableToolsFingerprint(refreshedTools)
-                  !== callableToolsFingerprint(tools)) {
-                  refreshedCallableTools = refreshedTools;
-                  const firstRefreshRequest = !objectBindingRefreshRequested;
-                  objectBindingRefreshRequested = true;
-                  if (firstRefreshRequest) {
-                    this.ledger.append({
-                      type: "tools.schema_refresh.requested", status: "complete", actorType: "service",
-                      actorName: "Object binding compiler", channel, turnId: requestId,
-                      operationId: callId, name: "Callable schemas require refreshed object bindings",
-                      content: `New verified object bindings from ${name} will be coalesced after sibling tool calls`,
-                      payload: {
-                        callId, name, sourceReceiptEventSeq: receiptEventSeq,
-                        objectReferences: newObjectReferences,
-                      },
-                    });
-                  }
-                }
-              }
               return {
                 ok: true,
                 result: inline.deliveredResult,
                 ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
-                ...(refreshedCallableTools ? {
-                  controlTransfer: {
-                    type: "object_binding_refresh",
-                    continuation: "Agent Slayer will continue this request with refreshed exact object-bound tool schemas.",
-                    tools: refreshedCallableTools,
-                  },
-                } : {}),
               };
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
@@ -2284,13 +2384,6 @@ export class SlayerRuntime {
         },
       });
 
-      if (
-        objectBindingRefreshRequested
-        && !(Number(result.protocol?.objectBindingRefreshCount) > 0)
-      ) {
-        conversationId = null;
-        continue;
-      }
       if (requestedCapabilities.size === 0 && requestedTools.size === 0) break;
       if (!this.requestCompiler) throw new Error("Tool expansion requires the request compiler");
       conversationId = null;

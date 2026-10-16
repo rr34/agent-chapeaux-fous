@@ -3,9 +3,58 @@ import test from "node:test";
 import {
   interactionObjectActivity,
   interactionObjectReferences,
+  interactionReferenceSets,
   interactionTaskOutcome,
   reusableInteractionObjectReferences,
+  reusableInteractionReferenceSets,
 } from "../src/ledger.mjs";
+
+test("accepted relationship sets survive the ledger projection with exact directed edges", () => {
+  const relationshipSet = {
+    protocol: "agent-slayer.reference-set",
+    version: 1,
+    kind: "relationship_set",
+    ref: "agent-slayer://requests/request-links/relationship-sets/watch-job-contacts",
+    display: "Watch Jobs and matching contacts",
+    relationshipType: "todos.related_contact",
+    edges: [{
+      fromRef: "agent-slayer://todos/7",
+      toRef: "agent-slayer://contacts/70",
+    }],
+    sourceEventSeqs: [39, 40],
+  };
+  assert.deepEqual(interactionReferenceSets([{
+    eventSeq: 40,
+    type: "orientation.core",
+    status: "complete",
+    payload: { referenceSets: [relationshipSet] },
+  }]), [relationshipSet]);
+});
+
+test("an incomplete exchange keeps observed sets but withholds orientation-only sets", () => {
+  const set = (suffix) => ({
+    protocol: "agent-slayer.reference-set", version: 1, kind: "object_set",
+    ref: `agent-slayer://requests/request-sets/object-sets/${suffix}`,
+    display: suffix,
+    memberRefs: [`agent-slayer://todos/${suffix}`],
+    sourceEventSeqs: [70],
+  });
+  const selected = set("selected");
+  const observed = set("observed");
+  const events = [{
+    eventSeq: 70, type: "orientation.core", status: "complete",
+    payload: { referenceSets: [selected] },
+  }, {
+    eventSeq: 71, type: "reference.sets.observed", status: "complete",
+    payload: { referenceSets: [observed] },
+  }, {
+    eventSeq: 72, type: "tool.retry.blocked", status: "error",
+  }, {
+    eventSeq: 73, type: "request.complete", status: "complete",
+  }];
+  assert.equal(interactionTaskOutcome(events), "incomplete");
+  assert.deepEqual(reusableInteractionReferenceSets(events), [observed]);
+});
 
 test("object activity prefers the exact mutation event over its matching tool result", () => {
   const activity = interactionObjectActivity([

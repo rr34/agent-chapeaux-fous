@@ -1,5 +1,6 @@
 import { schemaProblem } from "./tools/registry.mjs";
 import { compactObjectReferenceContext, flatObjectReferences } from "./object-references.mjs";
+import { compactReferenceSets, referenceSetObjectRefs } from "./reference-sets.mjs";
 
 const text = (maximum = 2_000) => ({ type: "string", minLength: 1, maxLength: maximum });
 const textList = (maximumItems = 12, maximumText = 1_000) => ({
@@ -46,11 +47,39 @@ function enumArray(values, maximumItems = values.length) {
 
 export function commonSenseCoreSchema({
   capabilities = [], contextViewIds = [], actionReferenceIds = [], objectRefs = [],
+  objectSetRefs = [], relationshipSetRefs = [], requestId = "request",
 } = {}) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
   const allowedContextViews = [...new Set(contextViewIds)].sort();
   const allowedActionReferences = [...new Set(actionReferenceIds)].sort();
   const allowedObjectRefs = [...new Set(objectRefs)].sort();
+  const objectRefValue = allowedObjectRefs.length
+    ? { type: "string", enum: allowedObjectRefs }
+    : { type: "string" };
+  const allowedObjectSetRefs = [...new Set(objectSetRefs)].sort();
+  const allowedRelationshipSetRefs = [...new Set(relationshipSetRefs)].sort();
+  const localObjectSetPattern = `^agent-slayer://requests/${encodeURIComponent(requestId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/object-sets/[A-Za-z0-9._~-]+$`;
+  const localRelationshipSetPattern = `^agent-slayer://requests/${encodeURIComponent(requestId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/relationship-sets/[A-Za-z0-9._~-]+$`;
+  const selectableSetRefs = (availableRefs, localPattern) => ({
+    type: "array",
+    maxItems: 100,
+    uniqueItems: true,
+    items: availableRefs.length
+      ? { anyOf: [{ type: "string", enum: availableRefs }, { type: "string", pattern: localPattern }] }
+      : { type: "string", pattern: localPattern },
+  });
+  const unresolvedTarget = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      slot: { type: "string", pattern: "^[a-z][a-z0-9_]{0,79}$" },
+      description: text(1_000),
+      objectType: text(200),
+      role: text(200),
+      cardinality: { type: "string", enum: ["one", "many"] },
+    },
+    required: ["slot", "description", "objectType", "role", "cardinality"],
+  };
   return {
     type: "object",
     additionalProperties: false,
@@ -78,8 +107,63 @@ export function commonSenseCoreSchema({
               ...enumArray(allowedObjectRefs, 500),
               description: "Only the exact supplied objects that the user intends this action to affect. Previously observed objects are evidence, not automatic targets; never copy a whole binding group merely because some members are relevant. Omit objects that have not been supplied as references.",
             },
+            targetSetRefs: {
+              ...selectableSetRefs(allowedObjectSetRefs, localObjectSetPattern),
+              description: "Named exact object sets to which this action applies. Selecting a set selects every member exactly once.",
+            },
+            relationshipSetRefs: {
+              ...selectableSetRefs(allowedRelationshipSetRefs, localRelationshipSetPattern),
+              description: "Named exact directed relationship sets to preserve while carrying out this action. Never replace their edges with two independent object lists.",
+            },
+            unresolvedTargets: {
+              type: "array",
+              maxItems: 20,
+              items: unresolvedTarget,
+              description: "Target roles described by the user whose exact objects have not yet been supplied. Execution may resolve these through an owning read.",
+            },
           },
-          required: ["instruction", "targetRefs"],
+          required: ["instruction", "targetRefs", "targetSetRefs", "relationshipSetRefs", "unresolvedTargets"],
+        },
+      },
+      objectSets: {
+        type: "array",
+        maxItems: 50,
+        description: "Request-local named sets assembled only from supplied exact object references.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            ref: { type: "string", pattern: localObjectSetPattern },
+            display: text(500),
+            memberRefs: { ...enumArray(allowedObjectRefs, 500), minItems: 1 },
+          },
+          required: ["ref", "display", "memberRefs"],
+        },
+      },
+      relationshipSets: {
+        type: "array",
+        maxItems: 50,
+        description: "Request-local exact directed edge sets assembled only from supplied object references.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            ref: { type: "string", pattern: localRelationshipSetPattern },
+            display: text(500),
+            relationshipType: { type: "string", pattern: "^[a-z][a-z0-9_.:-]{0,199}$" },
+            edges: {
+              type: "array", minItems: 1, maxItems: 500,
+              items: {
+                type: "object", additionalProperties: false,
+                properties: {
+                  fromRef: objectRefValue,
+                  toRef: objectRefValue,
+                },
+                required: ["fromRef", "toRef"],
+              },
+            },
+          },
+          required: ["ref", "display", "relationshipType", "edges"],
         },
       },
       constraints: {
@@ -110,7 +194,8 @@ export function commonSenseCoreSchema({
       },
     },
     required: [
-      "version", "mode", "objective", "conversationSummary", "actions", "constraints",
+      "version", "mode", "objective", "conversationSummary", "actions", "objectSets",
+      "relationshipSets", "constraints",
       "questions", "capabilities", "contextRequests", "confirmedActionReferenceIds",
       "temporalResolutions",
     ],
@@ -180,6 +265,7 @@ export function commonSenseContext({
   capabilityCatalog,
   selectedObjectCandidates = [],
   availableObjectReferences = [],
+  availableReferenceSets = [],
   deferredActionReferences = [],
   explicitHats = [],
   localCalendar = null,
@@ -213,6 +299,12 @@ export function commonSenseContext({
       JSON.stringify(priorObjects, null, 2),
       "",
     ] : []),
+    ...(availableReferenceSets.length ? [
+      "## Exact selectable sets",
+      "An object set preserves exact membership. A relationship set preserves exact directed pairs and relationship type; it is not equivalent to two object sets. Select a whole set only when the user's request applies to every member or every listed edge.",
+      JSON.stringify(compactReferenceSets(availableReferenceSets), null, 2),
+      "",
+    ] : []),
     ...(deferredActionReferences.length ? [
       "## Prepared changes awaiting confirmation",
       "Select an exact reference only when the user is clearly confirming that prepared change.",
@@ -231,11 +323,13 @@ export function commonSenseContext({
     ] : []),
     "## Connected capability families",
     compactCapabilityCatalog(capabilityCatalog),
-    "Select capability families, not tools. Batch work is one action with a list of targetRefs when the same change applies to all targets.",
+    "Select capability families, not tools. You may point directly to supplied objects and supplied sets. You may also define a request-local object set or relationship set from supplied object refs, then select that set from an action. Describe not-yet-supplied targets in unresolvedTargets so execution can resolve them through an owning read.",
   ].join("\n");
 }
 
-export function commonSenseExecutionInstructions(core, objectReferences, confirmedActionReferences = []) {
+export function commonSenseExecutionInstructions(
+  core, objectReferences, confirmedActionReferences = [], referenceSets = [],
+) {
   return [
     "# Accepted common-sense core",
     "Carry out the ordinary-language objective below. The exact current user request remains authoritative. Preserve explicit constraints, handle each action completely, and use bulk tools for batch targets when available.",
@@ -244,6 +338,10 @@ export function commonSenseExecutionInstructions(core, objectReferences, confirm
     "# Verified object bindings",
     "These are the exact application-verified identities relevant to the request. Use their IDs directly. Do not rediscover an explicitly selected object by searching its display name. A singleton tool must not silently choose one object from a batch; use a bulk-shaped operation or clearly report the limitation.",
     JSON.stringify(compactObjectReferenceContext(objectReferences), null, 2),
+    "",
+    "# Verified object and relationship sets",
+    "Object sets are exact membership snapshots. Relationship sets are exact directed edge snapshots: preserve each fromRef → toRef pair and never infer a Cartesian product or collapse multiple targets to one endpoint.",
+    JSON.stringify(compactReferenceSets(referenceSets), null, 2),
     "",
     "# Confirmed prepared changes",
     "Only these exact provider-owned prepared changes are confirmed. Copy their opaque values exactly.",
@@ -284,7 +382,9 @@ export const commonSenseInstructions = [
   "You are the common-sense orientation phase of Time v3 Agent. Produce only the schema-constrained intent core.",
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
-  "For a batch, write one action whose targetRefs contains exactly the objects the user intends to affect: all intended targets and no merely observed objects. A bulk-shaped prior binding is identity evidence, not proof that every member is a current target. Use separate actions only for genuinely different requested operations.",
+  "For a batch, write one action and directly select exact object refs or an exact object set. A binding is identity evidence, not proof that every member is a current target. Use separate actions only for genuinely different requested operations.",
+  "When the request specifies pairings, preserve them as one directed relationship set with one exact fromRef/toRef edge per pairing. Never represent pairings as two independent lists, because that loses correspondence.",
+  "You may define request-local sets only from object refs supplied in this orientation interaction. Put targets that still require search or resolution in unresolvedTargets instead of inventing refs.",
   "Select the smallest plausible capability-family set. A capability family says where execution belongs; exact tool selection happens later from exact schemas.",
   "Use contextRequests only for advertised read-only context that execution genuinely needs. Explicit composer selections are verified automatically.",
   "When the request names a weekday or relative calendar date that governs execution, record the literal, source event, IANA time zone, weekday, resolved local date, role, and affected field in temporalResolutions.",
@@ -297,8 +397,11 @@ export const auditInstructions = [
   "Unresolved target identity is not proof that a capability is unavailable. When a callable owning read can resolve the target and a callable mutation contract states the requested effect, require repair rather than reporting a terminal block.",
 ].join("\n");
 
-export function coreTargetRefs(core) {
-  return [...new Set((core.actions ?? []).flatMap(({ targetRefs = [] }) => targetRefs))];
+export function coreTargetRefs(core, referenceSets = []) {
+  return [...new Set([
+    ...(core.actions ?? []).flatMap(({ targetRefs = [] }) => targetRefs),
+    ...referenceSetObjectRefs(referenceSets),
+  ])];
 }
 
 export function availableCoreObjectRefs(groups, selectedObjectCandidates = []) {

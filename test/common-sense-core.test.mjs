@@ -21,7 +21,12 @@ function validCore() {
         "agent-slayer://todos/8",
         "agent-slayer://todos/9",
       ],
+      targetSetRefs: [],
+      relationshipSetRefs: [],
+      unresolvedTargets: [],
     }],
+    objectSets: [],
+    relationshipSets: [],
     constraints: [],
     questions: [],
     capabilities: ["todos"],
@@ -118,7 +123,7 @@ test("orientation contains families and selections but no exact tool catalog", (
   assert.match(context, /never copy the whole group/i);
   assert.doesNotMatch(context, /todo_complete_batch/);
   assert.match(commonSenseInstructions, /common-sense orientation/i);
-  assert.match(commonSenseInstructions, /no merely observed objects/i);
+  assert.match(commonSenseInstructions, /not proof that every member is a current target/i);
 });
 
 test("orientation omits empty sections and serializes calendar evidence", () => {
@@ -138,4 +143,36 @@ test("orientation omits empty sections and serializes calendar evidence", () => 
   assert.doesNotMatch(context, /Explicitly invoked roles/);
   assert.doesNotMatch(context, /\[object Object\]/);
   assert.match(context, /"tomorrow": "2026-10-15"/);
+});
+
+test("the core can define and select exact relationship sets from supplied objects", () => {
+  const requestId = "request-links";
+  const relationshipRef = `agent-slayer://requests/${requestId}/relationship-sets/task-contacts`;
+  const schema = commonSenseCoreSchema({
+    requestId,
+    capabilities: ["todos", "contacts"],
+    objectRefs: ["agent-slayer://todos/7", "agent-slayer://contacts/70"],
+  });
+  const value = {
+    ...validCore(),
+    objective: "Link the task to its matching contact.",
+    capabilities: ["todos", "contacts"],
+    actions: [{
+      instruction: "Apply the exact task-to-contact pairing.",
+      targetRefs: [],
+      targetSetRefs: [],
+      relationshipSetRefs: [relationshipRef],
+      unresolvedTargets: [],
+    }],
+    relationshipSets: [{
+      ref: relationshipRef,
+      display: "Task and matching contact",
+      relationshipType: "todos.related_contact",
+      edges: [{
+        fromRef: "agent-slayer://todos/7",
+        toRef: "agent-slayer://contacts/70",
+      }],
+    }],
+  };
+  assert.deepEqual(parseStructuredModelOutput(JSON.stringify(value), schema, "Orientation"), value);
 });

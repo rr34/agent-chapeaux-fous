@@ -317,7 +317,7 @@ test("the payment-status tool consumes a complete multi-invoice binding", () => 
     argumentsObject: { updates: [{ invoice_id: 5, payment_status: "paid" }] },
     selectedGroups,
     completeGroups: selectedGroups,
-  }), /must include the complete accepted.*Brian Lesko/u);
+  }), /must include the complete explicit.*Brian Lesko/u);
   assert.equal(objectInputBindingProblem({
     toolDefinition: definition,
     argumentsObject: { updates: [

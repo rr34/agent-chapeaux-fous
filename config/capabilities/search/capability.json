@@ -4,7 +4,7 @@
   "version": 1,
   "id": "search",
   "title": "Global search",
-  "summary": "Search across native calendar, contacts, durable uploads, and conversation history.",
+  "summary": "Search across native domains and preserve exact object or relationship sets discovered during the request.",
   "aliases": [
     "global search",
     "search everywhere"

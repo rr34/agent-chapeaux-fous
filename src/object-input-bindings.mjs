@@ -39,11 +39,7 @@ function valuesAt(value, segments, index = 0) {
   return valuesAt(value[segment], segments, index + 1);
 }
 
-function bindingRole(value) {
-  return value?.role ?? defaultObjectBindingRole;
-}
-
-function referencesFor(toolDefinition, objectType, role, selectedGroups, observedGroups) {
+function referencesFor(toolDefinition, objectType, selectedGroups, observedGroups) {
   const source = toolDefinition?.source;
   const artifactBridge = toolDefinition?.metadata?.["agent-slayer/artifactUpload"];
   const sourceMatches = (object) => object.source === source
@@ -52,17 +48,7 @@ function referencesFor(toolDefinition, objectType, role, selectedGroups, observe
   const matching = (object) => object.type === objectType && sourceMatches(object);
   const selected = flatObjectReferences(selectedGroups).filter(matching);
   const observed = flatObjectReferences(observedGroups).filter(matching);
-  const selectedForRole = selected.filter((object) => bindingRole(object) === role);
-  if (selectedForRole.length) return selectedForRole;
-  const observedForRole = observed.filter((object) => bindingRole(object) === role);
-  if (observedForRole.length) return observedForRole;
-  // A newly discovered generic object can fill a more specific role on the
-  // next schema interaction. Never apply this fallback to orientation-selected
-  // subjects: that would once again let one selected object occupy every
-  // same-type input field.
-  return role === defaultObjectBindingRole
-    ? []
-    : observed.filter((object) => bindingRole(object) === defaultObjectBindingRole);
+  return [...new Map([...selected, ...observed].map((object) => [object.ref, object])).values()];
 }
 
 function schemaAtPointer(root, segments) {
@@ -75,37 +61,13 @@ function schemaAtPointer(root, segments) {
   return current ?? null;
 }
 
-function schemaAllowsNull(schema) {
-  if (!schema || typeof schema !== "object") return false;
-  if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.includes("null"))) {
-    return true;
-  }
-  if (schema.const === null || schema.enum?.includes(null)) return true;
-  return [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])].some(schemaAllowsNull);
-}
-
 export function constrainToolObjectInputs(toolDefinition, selectedGroups = [], observedGroups = []) {
-  const contract = toolDefinition?.metadata?.[objectInputBindingsMetadataKey];
-  if (!contract) return toolDefinition;
-  const inputSchema = structuredClone(toolDefinition.inputSchema);
-  let changed = false;
-  for (const binding of contract.bindings) {
-    const role = bindingRole(binding);
-    const references = referencesFor(
-      toolDefinition, binding.objectType, role, selectedGroups, observedGroups,
-    );
-    if (!references.length) continue;
-    const target = schemaAtPointer(inputSchema, pointerSegments(binding.path));
-    if (!target) continue;
-    const allowed = [...new Set(references.map((object) => object[binding.value]))];
-    // A nullable object identity represents the provider-owned branch where no
-    // existing object is consumed (for example, creating a missing tracker).
-    // Narrow exact observed identities without erasing that declared branch.
-    if (schemaAllowsNull(target)) allowed.push(null);
-    target.enum = allowed;
-    changed = true;
-  }
-  return changed ? { ...toolDefinition, inputSchema } : toolDefinition;
+  void selectedGroups;
+  void observedGroups;
+  // Bindings establish exact identity at the call boundary. They must not
+  // rewrite the owning provider's callable schema or turn prior observations
+  // into an artificial authorization allow-list.
+  return toolDefinition;
 }
 
 export function objectInputBindingProblem({
@@ -115,44 +77,39 @@ export function objectInputBindingProblem({
   const contract = toolDefinition?.metadata?.[objectInputBindingsMetadataKey];
   if (!contract) return null;
   for (const binding of contract.bindings) {
-    const role = bindingRole(binding);
     const segments = pointerSegments(binding.path);
     const supplied = valuesAt(argumentsObject, pointerSegments(binding.path))
       .filter((value) => value !== undefined && value !== null);
     if (!supplied.length) continue;
     const selectedReferences = referencesFor(
-      toolDefinition, binding.objectType, role, selectedGroups, [],
+      toolDefinition, binding.objectType, selectedGroups, [],
     );
     const completeReferences = referencesFor(
-      toolDefinition, binding.objectType, role, completeGroups, [],
+      toolDefinition, binding.objectType, completeGroups, [],
     );
     const references = referencesFor(
-      toolDefinition, binding.objectType, role, selectedGroups, observedGroups,
+      toolDefinition, binding.objectType, selectedGroups, observedGroups,
     );
     const allowed = new Set(references.map((object) => object[binding.value]));
     const invalid = supplied.find((value) => !allowed.has(value));
     if (invalid === undefined && selectedReferences.length) {
-      if (!segments.includes("*") && selectedReferences.length !== 1) {
-        const exact = selectedReferences.map(({ id, ref, display }) => ({ id, ref, display }));
-        return `${toolDefinition.name}${binding.path} is a singleton input but the accepted ${binding.objectType} binding in role ${role} contains ${selectedReferences.length} objects: ${JSON.stringify(exact)}. Use a batch-shaped tool; never select only one object silently.`;
-      }
       if (segments.includes("*") && completeReferences.length) {
         const suppliedSet = new Set(supplied);
         const missing = completeReferences
           .filter((object) => !suppliedSet.has(object[binding.value]));
         if (missing.length) {
           const exact = missing.map(({ id, ref, display }) => ({ id, ref, display }));
-          return `${toolDefinition.name}${binding.path} must include the complete accepted ${binding.objectType} binding in role ${role}; missing ${binding.value} values for ${JSON.stringify(exact)}`;
+          return `${toolDefinition.name}${binding.path} must include the complete explicit ${binding.objectType} selection; missing ${binding.value} values for ${JSON.stringify(exact)}`;
         }
       }
     }
     if (invalid === undefined) continue;
     if (!references.length && binding.allowUnbound === true) continue;
     if (!references.length) {
-      return `${toolDefinition.name}${binding.path} requires a verified ${binding.objectType} binding in role ${role} from its owning read tool; ${JSON.stringify(invalid)} is not identified`;
+      return `${toolDefinition.name}${binding.path} requires a verified ${binding.objectType} binding from its owning read tool; ${JSON.stringify(invalid)} is not identified`;
     }
     const exact = references.map(({ id, ref, display }) => ({ id, ref, display }));
-    return `${toolDefinition.name}${binding.path} must use the exact ${binding.value} from the accepted ${binding.objectType} binding in role ${role}: ${JSON.stringify(exact)}`;
+    return `${toolDefinition.name}${binding.path} must use an exact verified ${binding.value} from the available ${binding.objectType} bindings: ${JSON.stringify(exact)}`;
   }
   return null;
 }

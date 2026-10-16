@@ -9,6 +9,7 @@ import {
   presentationProfileFactTypes,
 } from "./presentation-preferences.mjs";
 import { compactObjectReferenceContext } from "./object-references.mjs";
+import { compactReferenceSets } from "./reference-sets.mjs";
 
 function bounded(value, maximum) {
   const text = String(value ?? "");
@@ -83,6 +84,9 @@ function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectRefe
           requiresFreshRead ? [] : exchange.objectReferences ?? [],
         )),
         "</referenced_object_references>",
+        "<referenced_reference_sets>",
+        JSON.stringify(compactReferenceSets(requiresFreshRead ? [] : exchange.referenceSets ?? [])),
+        "</referenced_reference_sets>",
         ...(requiresFreshRead ? [
           "This exchange did not complete its requested work. Its prose remains intent evidence, but its object bindings are withheld from reuse. Select the owning read tool and establish fresh exact bindings before any mutation.",
         ] : []),
@@ -103,7 +107,7 @@ function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectRefe
 }
 
 function referencedExchangeSources(exchanges) {
-  return exchanges.map(({ request, response, objectReferences, ...source }) => {
+  return exchanges.map(({ request, response, objectReferences, referenceSets, ...source }) => {
     const requiresFreshRead = source.objectReferencePolicy == null
       ? source.taskOutcome === "incomplete" || source.status === "error"
       : source.objectReferencePolicy === "fresh_read_required";
@@ -117,6 +121,7 @@ function referencedExchangeSources(exchanges) {
       requestCharacters: String(request ?? "").length,
       responseCharacters: String(response ?? "").length,
       objectReferenceCount: requiresFreshRead ? 0 : suppliedObjectCount,
+      referenceSetCount: requiresFreshRead ? 0 : (referenceSets ?? []).length,
       withheldObjectReferenceCount: requiresFreshRead
         ? source.withheldObjectReferenceCount ?? suppliedObjectCount
         : source.withheldObjectReferenceCount ?? 0,

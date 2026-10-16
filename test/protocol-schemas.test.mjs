@@ -22,6 +22,10 @@ const objectInputBindingsSchemaPath = new URL(
   "../config/protocol-schemas/object-input-bindings.v1.schema.json",
   import.meta.url,
 );
+const referenceSetSchemaPath = new URL(
+  "../config/protocol-schemas/reference-set.v1.schema.json",
+  import.meta.url,
+);
 const manifestoPath = new URL("../AGENT-TOOL-MANIFESTO.md", import.meta.url);
 
 test("the manifesto references one authoritative versioned retry descriptor", () => {
@@ -128,4 +132,19 @@ test("the manifesto publishes domain-owned first-class object input bindings", (
   assert.match(manifesto, /2A\.2\. Object-input binding contract/);
   assert.match(manifesto, /never guesses it at runtime from names such as/);
   assert.match(manifesto, /cannot reach the tool/);
+});
+
+test("the manifesto publishes exact object and directed relationship sets", () => {
+  const schema = JSON.parse(fs.readFileSync(referenceSetSchemaPath, "utf8"));
+  const manifesto = fs.readFileSync(manifestoPath, "utf8");
+  assert.equal(schema.oneOf[0].properties.protocol.const, "agent-slayer.reference-set");
+  assert.equal(schema.oneOf[0].properties.kind.const, "object_set");
+  assert.equal(schema.oneOf[1].properties.kind.const, "relationship_set");
+  assert.deepEqual(
+    new Set(schema.oneOf[1].properties.edges.items.required),
+    new Set(["fromRef", "toRef"]),
+  );
+  assert.match(manifesto, /2A\.3\. Object and relationship set contract/);
+  assert.match(manifesto, /config\/protocol-schemas\/reference-set\.v1\.schema\.json/);
+  assert.match(manifesto, /must never be represented as two lists/);
 });

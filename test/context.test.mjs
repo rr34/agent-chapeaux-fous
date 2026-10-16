@@ -141,6 +141,7 @@ test("an explicitly referenced exchange remains literal context outside rolling 
     requestCharacters: referenced.request.length,
     responseCharacters: referenced.response.length,
     objectReferenceCount: 0,
+    referenceSetCount: 0,
     withheldObjectReferenceCount: 1,
   }]);
 });

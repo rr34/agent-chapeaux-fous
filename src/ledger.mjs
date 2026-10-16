@@ -7,6 +7,7 @@ import {
   mergeObjectReferenceGroups,
   normalizeObjectReferenceGroups,
 } from "./object-references.mjs";
+import { mergeReferenceSets } from "./reference-sets.mjs";
 
 function publicEvent(row) {
   if (!row) return null;
@@ -296,6 +297,24 @@ export function interactionObjectReferences(events) {
   })));
 }
 
+export function interactionReferenceSets(events) {
+  return mergeReferenceSets((events ?? []).flatMap((event) => (
+    event?.status === "complete" && event.type === "orientation.core"
+      ? event.payload?.referenceSets ?? []
+      : event?.status === "complete" && event.type === "reference.sets.observed"
+        ? event.payload?.referenceSets ?? []
+      : []
+  )));
+}
+
+function observedInteractionReferenceSets(events) {
+  return mergeReferenceSets((events ?? []).flatMap((event) => (
+    event?.status === "complete" && event.type === "reference.sets.observed"
+      ? event.payload?.referenceSets ?? []
+      : []
+  )));
+}
+
 function observedInteractionObjectReferences(events) {
   const observedGroups = [];
   for (const event of events ?? []) {
@@ -358,6 +377,12 @@ export function reusableInteractionObjectReferences(events) {
   // completed application operations; an orientation selection is not itself a
   // fresh observation and therefore cannot survive on its own.
   return observedInteractionObjectReferences(events);
+}
+
+export function reusableInteractionReferenceSets(events) {
+  return interactionTaskOutcome(events) === "incomplete"
+    ? observedInteractionReferenceSets(events)
+    : interactionReferenceSets(events);
 }
 
 function placeholders(values) {
@@ -1272,6 +1297,8 @@ export class Ledger {
     const taskOutcome = interactionTaskOutcome(events);
     const allObjectReferences = interactionObjectReferences(events);
     const objectReferences = reusableInteractionObjectReferences(events);
+    const allReferenceSets = interactionReferenceSets(events);
+    const referenceSets = reusableInteractionReferenceSets(events);
     const allObjectReferenceCount = allObjectReferences.reduce(
       (count, group) => count + group.objects.length, 0,
     );
@@ -1292,6 +1319,8 @@ export class Ledger {
       taskOutcome,
       objectReferencePolicy: objectReferencesReusable ? "reusable" : "fresh_read_required",
       objectReferences,
+      referenceSets,
+      withheldReferenceSetCount: Math.max(0, allReferenceSets.length - referenceSets.length),
       withheldObjectReferenceCount: Math.max(0, allObjectReferenceCount - objectReferenceCount),
       status: terminal.status,
       error: terminal.status === "error" ? (terminal.error || terminal.content || null) : null,
@@ -1456,11 +1485,18 @@ export class Ledger {
       Math.min(40, Math.max(2, limit * 2)),
     ).map(publicEvent).reverse();
     const referencesByRequest = new Map();
+    const setsByRequest = new Map();
     const objectReferences = (requestId) => {
       if (!referencesByRequest.has(requestId)) {
         referencesByRequest.set(requestId, reusableInteractionObjectReferences(this.trace(requestId)));
       }
       return referencesByRequest.get(requestId);
+    };
+    const referenceSets = (requestId) => {
+      if (!setsByRequest.has(requestId)) {
+        setsByRequest.set(requestId, reusableInteractionReferenceSets(this.trace(requestId)));
+      }
+      return setsByRequest.get(requestId);
     };
     return rows.map((event) => ({
       eventSeq: event.eventSeq,
@@ -1470,7 +1506,10 @@ export class Ledger {
       occurredAtUtc: event.occurredAtUtc,
       ...(receivedEventTypes.includes(event.type)
         ? {}
-        : { objectReferences: objectReferences(event.turnId) }),
+        : {
+            objectReferences: objectReferences(event.turnId),
+            referenceSets: referenceSets(event.turnId),
+          }),
     })).filter((entry) => entry.content);
   }
 

@@ -38,14 +38,14 @@ function fixtureSelection(summary) {
   };
 }
 
-test("provider-declared object inputs narrow the callable schema to accepted exact IDs", () => {
+test("provider-declared object bindings preserve the owning callable schema", () => {
   assert.deepEqual(validateObjectInputBindings(contract), contract);
   const constrained = constrainToolObjectInputs(tool, selected);
-  assert.deepEqual(constrained.inputSchema.properties.account_id.enum, [178]);
+  assert.equal(constrained, tool);
   assert.equal(tool.inputSchema.properties.account_id.enum, undefined, "the registered provider schema stays immutable");
 });
 
-test("schema narrowing preserves a provider-declared null branch", () => {
+test("provider-declared nullable branches remain unchanged", () => {
   const nullableTool = {
     ...tool,
     inputSchema: {
@@ -54,7 +54,7 @@ test("schema narrowing preserves a provider-declared null branch", () => {
     },
   };
   const constrained = constrainToolObjectInputs(nullableTool, selected);
-  assert.deepEqual(constrained.inputSchema.properties.account_id.enum, [178, null]);
+  assert.equal(constrained, nullableTool);
   assert.equal(objectInputBindingProblem({
     toolDefinition: nullableTool, argumentsObject: { account_id: null }, selectedGroups: selected,
   }), null);
@@ -63,13 +63,13 @@ test("schema narrowing preserves a provider-declared null branch", () => {
 test("the call boundary rejects a substituted ID and accepts the exact bound ID", () => {
   assert.match(objectInputBindingProblem({
     toolDefinition: tool, argumentsObject: { account_id: 1 }, selectedGroups: selected,
-  }), /must use the exact id.*178/);
+  }), /must use an exact verified id.*178/);
   assert.equal(objectInputBindingProblem({
     toolDefinition: tool, argumentsObject: { account_id: 178 }, selectedGroups: selected,
   }), null);
 });
 
-test("singleton inputs reject multi-object bindings and explicit batch selections require the complete set", () => {
+test("singleton inputs may choose one verified object while explicit batch selections require the complete set", () => {
   const selectedBatch = [{
     ...selected[0],
     objects: [
@@ -77,9 +77,9 @@ test("singleton inputs reject multi-object bindings and explicit batch selection
       { id: 179, ref: "accounting://accounts/179", display: "Tax Checking" },
     ],
   }];
-  assert.match(objectInputBindingProblem({
+  assert.equal(objectInputBindingProblem({
     toolDefinition: tool, argumentsObject: { account_id: 178 }, selectedGroups: selectedBatch,
-  }), /singleton input.*contains 2 objects.*batch-shaped tool/u);
+  }), null);
 
   const batchTool = {
     ...tool,
@@ -100,7 +100,7 @@ test("singleton inputs reject multi-object bindings and explicit batch selection
     argumentsObject: { updates: [{ account_id: 178 }] },
     selectedGroups: selectedBatch,
     completeGroups: selectedBatch,
-  }), /must include the complete accepted.*Tax Checking/u);
+  }), /must include the complete explicit.*Tax Checking/u);
   assert.equal(objectInputBindingProblem({
     toolDefinition: batchTool,
     argumentsObject: { updates: [{ account_id: 178 }, { account_id: 179 }] },
@@ -141,10 +141,10 @@ test("a batch may use a verified subset of ordinary observed intent bindings", (
     toolDefinition: batchTool,
     argumentsObject: { updates: [{ account_id: 999 }] },
     selectedGroups: selectedBatch,
-  }), /must use the exact id/u);
+  }), /must use an exact verified id/u);
 });
 
-test("same-type objects remain distinct across role-qualified input paths", () => {
+test("roles remain context while every exact same-type binding is available to provider inputs", () => {
   const roleTool = {
     name: "remote_accounting_preview_statement",
     source: "mcp:accounting",
@@ -172,20 +172,19 @@ test("same-type objects remain distinct across role-qualified input paths", () =
     sourceEventSeqs: [30_802],
   }];
   const constrained = constrainToolObjectInputs(roleTool, selected, observed);
-  assert.deepEqual(constrained.inputSchema.properties.account_id.enum, [178]);
-  assert.deepEqual(constrained.inputSchema.properties.suspense_account_id.enum, [279]);
+  assert.equal(constrained, roleTool);
   assert.equal(objectInputBindingProblem({
     toolDefinition: roleTool,
     argumentsObject: { account_id: 178, suspense_account_id: 279 },
     selectedGroups: selected,
     observedGroups: observed,
   }), null);
-  assert.match(objectInputBindingProblem({
+  assert.equal(objectInputBindingProblem({
     toolDefinition: roleTool,
     argumentsObject: { account_id: 178, suspense_account_id: 178 },
     selectedGroups: selected,
     observedGroups: observed,
-  }), /role designated_suspense_account.*279/);
+  }), null);
 });
 
 test("a declared object input cannot receive an ID before its object is identified", () => {
@@ -226,7 +225,7 @@ test("native tool registration declares first-class IDs, including IDs inside ba
     toolDefinition: definition,
     argumentsObject: { updates: [{ personal_task_id: 1 }] },
     selectedGroups: selectedTodo,
-  }), /must use the exact id.*8/);
+  }), /must use an exact verified id.*8/);
 });
 
 test("database string IDs canonicalize before a native calendar-contact action", () => {
@@ -266,10 +265,7 @@ test("database string IDs canonicalize before a native calendar-contact action",
     argumentsObject: { calendar_event_id: 3113, contact_id: 578 },
     selectedGroups: observed,
   }), null);
-  assert.deepEqual(
-    constrainToolObjectInputs(definition, observed).inputSchema.properties.calendar_event_id.enum,
-    [3113],
-  );
+  assert.equal(constrainToolObjectInputs(definition, observed), definition);
 });
 
 test("local tool results expose native database identities as integers", async () => {
@@ -322,5 +318,5 @@ test("the application-owned MCP upload bridge consumes an exact native file bind
   }), null);
   assert.match(objectInputBindingProblem({
     toolDefinition: uploadTool, argumentsObject: { file_id: 1 }, selectedGroups: files,
-  }), /must use the exact id.*293/);
+  }), /must use an exact verified id.*293/);
 });

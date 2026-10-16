@@ -77,11 +77,14 @@ those canonical observations while withholding selections that were merely
 mentioned in orientation and never independently observed during the request.
 A failed or uncertain operation never becomes successful identity evidence.
 
-The common-sense core names supplied stable references rather than copying full
-bindings. After orientation the application hydrates those references from its
+The common-sense core names supplied stable references and exact selectable
+sets rather than copying full bindings. It may define request-local object sets
+from supplied references and directed relationship sets from supplied endpoint
+pairs. After orientation the application hydrates those references from its
 verified catalog and verifies explicit composer selections through their named
 read-only resolver. This deterministic step is recorded in the trace, never
-adds an unselected object, and never silently shrinks an intended batch.
+adds an unselected object, never silently shrinks an intended batch, and never
+turns an exact relationship set into two independent object lists.
 
 These bindings are priority context, not context bloat. Context pruning removes
 bulky records and repeated prose before it removes the compact ID/reference/
@@ -183,11 +186,10 @@ For every request, the structure:
     semantic audit when those checks are insufficient.
 
 When one model response contains sibling tool calls, execution completes every
-still-valid sibling before reacting to bindings produced by their results. The
-application unions those bindings, refreshes affected exact tool schemas once,
-and returns all sibling results through the same provider response chain. A
-schema refresh must not serialize an otherwise valid batch into one model call
-per tool call.
+still-valid sibling and returns all sibling results through the same provider
+response chain. Newly observed bindings become exact identity evidence for
+later calls in that exchange. They do not rewrite or refresh provider-owned
+tool schemas.
 
 Core validation includes deterministic facts that application code can
 prove without interpreting user intent. In particular, a named weekday and a
@@ -356,9 +358,10 @@ A tool that accepts a first-class object identity publishes domain-owned
 an exact JSON Pointer in that tool's input schema to a domain-qualified Object
 Description type, declares the compact contextual `role` required at that
 input, and states whether the input carries its provider ID or stable reference.
-This is the consumer contract: `objectType` and `role` select a canonical
-first-class object binding with the same `type` and intended use, and `value`
-selects that binding's `objects[].id` or `objects[].ref`. `*` pointer segments
+This is the consumer contract: `objectType` selects canonical first-class
+object bindings with that type and owning source, `role` describes their
+intended use-site context, and `value` selects each binding's `objects[].id` or
+`objects[].ref`. `*` pointer segments
 address every member of an input array. Legacy declarations without `role`
 normalize to `subject`. The owning MCP publishes this mapping for remote tools;
 the application derives it from the same reviewed native object catalog for
@@ -369,43 +372,71 @@ source. Agent Slayer never guesses it at runtime from names such as
 `account_id`, descriptions, or workflow conventions.
 
 The common-sense core uses supplied stable-reference enums but does not copy
-provider IDs, human display text, or entire bindings. After parsing, the
-application hydrates each selected reference from the verified catalog. Exact
-tool schemas then expose provider-owned input roles during execution without
-repeating them in orientation.
+provider IDs, human display text, or entire bindings. It may select an
+individual reference, select an exact named set, define a request-local set
+from supplied references, or describe an unresolved target slot for an owning
+read to resolve during execution. After parsing, the application hydrates each
+selected reference from the verified catalog. Exact provider tool schemas then
+expose provider-owned inputs during execution without repeating them in
+orientation.
 
 Discovery rejects an invalid mapping, a missing input-schema path, or an object
 type not declared by the same connection or native catalog. Every owned domain
 publishes mappings for every tool input that consumes one of its first-class
 objects and keeps those mappings in contract tests.
 
-Before an exact tool schema becomes callable, the application narrows every
-mapped input to IDs or references in the accepted verified binding set with the
-same type, source, and role when one exists. The call boundary validates the
-arguments again before invoking the provider. A substituted, guessed,
-conventional, stale-context, or same-type-but-wrong-role value such as `1`
-therefore cannot reach the tool. If orientation did not already bind that role,
-a mapped input may use an object observed from its owning read tool in the same
-execution. An exact-role observation takes precedence over generic newly
-observed subjects; a selected object in another role never shadows it. An
-absent optional mapped input remains absent; the contract does not invent tool
-arguments or provider workflow. A provider may explicitly mark an
+The callable schema remains the owning provider's exact schema. The application
+does not inject historical ID enums, treat an orientation selection as an
+authorization allow-list, or change the schema after a read. At the call
+boundary, every mapped ID or reference must still match a verified binding of
+the declared type and owning source. A substituted, guessed, conventional, or
+unidentified value such as `1` therefore cannot reach the tool. The verified
+object may have been supplied to orientation or observed from its owning read
+tool in the same execution. Roles remain compact use-site context for the model
+and trace; they do not hide an otherwise verified same-type object from an
+exact provider input. An absent optional mapped input remains absent; the
+contract does not invent tool arguments or provider workflow. A provider may explicitly mark an
 authoritative identifying read as accepting an unbound identity; that exception
 lets the read verify an exact user- or application-supplied ID and does not
 carry into downstream consuming tools.
 
-When a successful tool result identifies a new object that changes any
-callable tool's exact narrowed schema, the current model interaction ends after
-that result. The runtime records the binding, recompiles the affected schemas,
-and continues the same Agent request with compact same-request receipts. A
-schema snapshot taken before an object existed must never force the model to
-use an older same-type object or prevent it from using the newly returned ID.
+For a batch-shaped input every supplied member is checked. An explicit composer
+selection remains complete and cannot be silently shortened. Ordinary observed
+bindings and orientation-created sets may be used in the exact subset and
+shape expressed by the accepted action; a singleton call is not rejected just
+because other verified objects of the same type exist. The input contract
+enforces identity continuity only. Authorization, freshness, business
+validation, and result meaning remain with the owning tool.
 
-For a singleton input the selected binding must contain one intended object.
-For a batch-shaped input every supplied member is checked, and completion must
-cover the complete intended binding rather than silently selecting its first
-member. The input contract enforces identity continuity only. Authorization,
-freshness, business validation, and result meaning remain with the owning tool.
+## 2A.3. Object and relationship set contract
+
+The normative set shape is
+`config/protocol-schemas/reference-set.v1.schema.json`. An object set is a
+named immutable snapshot of exact stable object references. A relationship set
+is a named immutable snapshot of one relationship type and exact directed
+`fromRef` → `toRef` edges. Direction and pairing are data: a relationship set
+must never be represented as two lists, expanded into a Cartesian product, or
+collapsed by assigning every source to one convenient target.
+
+Orientation receives both individual supplied objects and compact selectable
+sets. It may select a supplied set or define a request-local set using only
+objects visible in that same orientation interaction. A selected object set
+deterministically expands to every member; a selected relationship set expands
+to every endpoint while the edge list itself is carried intact into execution.
+If exact objects are not yet present, orientation records a bounded unresolved
+target slot instead of fabricating a reference. Execution may resolve that slot
+through an owning read and continues under the ordinary-language action. When
+execution derives a reusable membership or pairing only after those reads, the
+exact `reference_set_record` application function validates every endpoint
+against current verified bindings and records the resulting canonical set in
+the trace. Recording conversational context does not create the corresponding
+provider-domain relationship.
+
+Bindings, sets, and relationships have different jobs. A binding proves object
+identity. An object set preserves membership. A relationship set preserves
+typed correspondence. The accepted common-sense core decides which of those
+objects and sets the request applies to. Provider tools decide current validity
+and business semantics.
 
 # 2B. Search engine / filter / pruner
 
@@ -479,7 +510,8 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
 
 1. **Orient** — understand the exact request as ordinary conversation and emit
    a compact common-sense core containing its end state, batch-shaped actions,
-   relevant supplied references, explicit constraints, genuine questions,
+   relevant supplied object and set references, exact directed relationship
+   sets, unresolved target slots, explicit constraints, genuine questions,
    context needs, and capability families. Do not select exact tools or audits.
 2. **Prepare** — deterministically verify explicit selections, read the core's
    bounded context requests, and hydrate exact bindings without another model
@@ -490,8 +522,9 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
 4. **Audit when exceptional** — compare the ordinary-language outcome with
    exact contracts and receipts only when deterministic completion is
    insufficient.
-5. **Repair** — correct a concrete audited gap within the user's authorization
-   and verify the repaired outcome.
+5. **Repair** — correct a concrete audited gap within the user's authorization.
+6. **Verify repair** — run another semantic audit over the repaired receipts;
+   never accept repair merely because the repair model returned prose.
 
 Typed successful receipts complete ordinary reads and mutations without an
 additional model call. Audit is required for destructive-language semantics,

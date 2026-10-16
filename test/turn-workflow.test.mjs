@@ -33,7 +33,7 @@ function completed(text, totalTokens = 20) {
 }
 
 function core(overrides = {}) {
-  return {
+  const value = {
     version: 1,
     mode: "act",
     objective: "Update the selected object.",
@@ -46,6 +46,17 @@ function core(overrides = {}) {
     confirmedActionReferenceIds: [],
     temporalResolutions: [],
     ...overrides,
+  };
+  return {
+    ...value,
+    actions: value.actions.map((action) => ({
+      targetSetRefs: [],
+      relationshipSetRefs: [],
+      unresolvedTargets: [],
+      ...action,
+    })),
+    objectSets: value.objectSets ?? [],
+    relationshipSets: value.relationshipSets ?? [],
   };
 }
 
@@ -390,7 +401,7 @@ test("a requested context view supplies observed bindings directly to execution"
   assert.equal(additions, 1);
   assert.equal(requests.length, 2);
   assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), false);
-  assert.equal(ledger.events.filter(({ type }) => type === "tools.schema_refresh.requested").length, 1);
+  assert.equal(ledger.events.filter(({ type }) => type === "tools.schema_refresh.requested").length, 0);
   assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
 
@@ -504,7 +515,7 @@ test("explicit batch selections are verified once and stay one bulk action", asy
         arguments: { updates: [7, 8].map((personal_task_id) => ({ personal_task_id })) },
       });
       assert.equal(incomplete.ok, false);
-      assert.match(incomplete.error, /must include the complete accepted.*Task 9/u);
+      assert.match(incomplete.error, /must include the complete explicit.*Task 9/u);
       const result = await payload.onToolCall({
         callId: "complete-batch",
         tool: "todo_complete_batch",
@@ -678,6 +689,82 @@ test("destructive language triggers the exceptional semantic audit", async () =>
     requestId: "request-delete", requestEventId: "event-current", text: "Delete calendar event 3165.",
   }), "I cancelled the event, but that receipt does not prove permanent deletion.");
   assert.equal(requests.length, 3);
+});
+
+test("an exceptional repair is audited again before its response is accepted", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  calendarUpdateTool(registry, async () => ({
+    updated: true,
+    event: { calendar_event_id: 3165, status: "cancelled" },
+  }));
+  registry.withCapability("calendar").register({
+    name: "calendar_event_delete",
+    description: "Permanently delete one exact calendar event.",
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { calendar_event_id: { type: "integer", minimum: 1 } },
+      required: ["calendar_event_id"],
+    },
+    async execute({ calendar_event_id: calendarEventId }) {
+      return { deleted: true, calendar_event_id: calendarEventId };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(core({
+        objective: "Delete calendar event 3165.",
+        actions: [{ instruction: "Delete calendar event 3165.", targetRefs: [] }],
+      })));
+      if (index === 1) {
+        await payload.onToolCall({
+          callId: "cancel-first", tool: "calendar_event_update",
+          arguments: { calendar_event_id: 3165, title: null, status: "cancelled" },
+        });
+        return completed("Cancelled the event.");
+      }
+      if (index === 2) return completed(JSON.stringify({
+        version: 1,
+        outcome: "repair_needed",
+        summary: "Cancellation did not satisfy deletion.",
+        satisfied: ["The event was cancelled."],
+        remaining: ["The event must be permanently deleted."],
+        repairInstructions: ["Call the exact permanent-delete tool for event 3165."],
+      }));
+      if (index === 3) {
+        assert.match(payload.developerInstructions, /Cancellation did not satisfy deletion/);
+        const result = await payload.onToolCall({
+          callId: "delete-repair", tool: "calendar_event_delete",
+          arguments: { calendar_event_id: 3165 },
+        });
+        assert.equal(result.ok, true);
+        return completed("Deleted the event permanently.");
+      }
+      assert.equal(index, 4);
+      assert.match(payload.developerInstructions, /post_repair_verification/);
+      assert.match(payload.developerInstructions, /calendar_event_delete/);
+      return completed(JSON.stringify({
+        version: 1,
+        outcome: "complete",
+        summary: "The repaired receipt proves permanent deletion.",
+        satisfied: ["Calendar event 3165 was permanently deleted."],
+        remaining: [],
+        repairInstructions: [],
+      }));
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-delete-repair", requestEventId: "event-current",
+    text: "Delete calendar event 3165.",
+  }), "Deleted the event permanently.");
+  assert.equal(requests.length, 5);
 });
 
 test("ordinary informational work needs no mutation receipt and no audit", async () => {
