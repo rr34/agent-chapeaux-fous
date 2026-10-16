@@ -29,6 +29,7 @@ const events = [
   { id: 2, title: "Planning breakfast", description: "Decide the next experiment and the one thing that would make today feel complete.", location: "Kitchen table", startsAtUtc: "2026-10-04T13:00:00.000Z", endsAtUtc: "2026-10-04T14:00:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed", linkedTodos: [] },
   { id: 3, title: "Review the draft", location: "Studio", startsAtUtc: "2026-10-04T18:00:00.000Z", endsAtUtc: "2026-10-04T19:30:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed", linkedTodos: [] },
   { id: 4, title: "Call Mom", startsAtUtc: "2026-10-04T22:00:00.000Z", endsAtUtc: "2026-10-04T22:30:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed", linkedTodos: [] },
+  { id: 5, title: "Overnight handoff", startsAtUtc: "2026-10-05T02:30:00.000Z", endsAtUtc: "2026-10-05T04:30:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed", linkedTodos: [] },
 ];
 dates[1].events = [{ ...events[0], id: 11, title: "Dentist" }];
 dates[3].events = [{ ...events[1], id: 12, title: "Project check-in" }];
@@ -216,8 +217,25 @@ try {
   if (await page.locator(".paper-event-connector").count() !== events.length) {
     throw new Error("Expected every event bracket to connect to its existing detail card");
   }
+  const nonOrthogonalConnectors = await page.locator(".paper-event-connector polyline").evaluateAll((connectors) => connectors
+    .map((connector, index) => {
+      const points = connector.getAttribute("points")?.trim().split(/\s+/).map((point) => point.split(",").map(Number)) || [];
+      const diagonal = points.slice(1).some(([x, y], pointIndex) => {
+        const [previousX, previousY] = points[pointIndex];
+        return x !== previousX && y !== previousY;
+      });
+      return diagonal ? index : null;
+    })
+    .filter((index) => index !== null));
+  if (nonOrthogonalConnectors.length) {
+    throw new Error(`Event connectors contained diagonal segments: ${nonOrthogonalConnectors.join(", ")}`);
+  }
   if (await page.locator(".paper-timeline-card > .paper-event-card").count() !== events.length) {
     throw new Error("Expected every timed event to use one detailed card inside the fixed timeline");
+  }
+  const cardTimes = await page.locator(".paper-event-card .paper-event-identity time").allTextContents();
+  if (cardTimes.join("|") !== "08:00–08:45|09:00–10:00|14:00–15:30|18:00–18:30|4 Oct 22:30–5 Oct 00:30") {
+    throw new Error(`Event times were not rendered natively inside their cards: ${cardTimes.join("|")}`);
   }
   const disconnectedCards = await page.locator(".paper-positioned-event").evaluateAll((items) => items
     .map((item, index) => {

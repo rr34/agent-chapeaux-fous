@@ -13,6 +13,27 @@ function timeLabel(event: CalendarEvent, timeZone: string) {
   return event.endsAtUtc ? `${start}–${formatDisplayTime(event.endsAtUtc, timeZone)}` : start;
 }
 
+function shortEventDate(value: string, timeZone: string, includeYear: boolean) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    day: "numeric",
+    month: "short",
+    ...(includeYear ? { year: "numeric" } : {}),
+  }).format(new Date(value));
+}
+
+function eventCardTimeLabel(event: CalendarEvent, timeZone: string) {
+  if (event.isAllDay) return "All day";
+  const startTime = formatDisplayTime(event.startsAtUtc, timeZone);
+  if (!event.endsAtUtc) return startTime;
+  const endTime = formatDisplayTime(event.endsAtUtc, timeZone);
+  const startDate = localInstantParts(event.startsAtUtc, timeZone).date;
+  const endDate = localInstantParts(event.endsAtUtc, timeZone).date;
+  if (startDate === endDate) return `${startTime}–${endTime}`;
+  const crossesYear = startDate.slice(0, 4) !== endDate.slice(0, 4);
+  return `${shortEventDate(event.startsAtUtc, timeZone, crossesYear)} ${startTime}–${shortEventDate(event.endsAtUtc, timeZone, crossesYear)} ${endTime}`;
+}
+
 function calendarRangeMarkerLabel(localDate: string) {
   const [year, month, day] = localDate.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -188,7 +209,7 @@ type PositionedEvent = {
 
 function estimatedCardSpan(event: CalendarEvent) {
   const linkedTodoCount = event.linkedTodos?.length ?? 0;
-  return 42 + (event.description ? 20 : 0) + linkedTodoCount * 58;
+  return 54 + (event.description ? 20 : 0) + linkedTodoCount * 58;
 }
 
 function positionedTimelineEvents(events: CalendarEvent[], date: string, timeZone: string) {
@@ -289,14 +310,18 @@ function OutsideTimelineEvents({ label, events, timeZone }: {
   </div>;
 }
 
-function PrintableEventCard({ event, includeCompletedTodos }: {
+function PrintableEventCard({ event, timeZone, includeCompletedTodos }: {
   event: CalendarEvent;
+  timeZone: string;
   includeCompletedTodos: boolean;
 }) {
   const linkedTodos = (event.linkedTodos || [])
     .filter((todo) => includeCompletedTodos || todo.status !== "complete");
   return <article className={`paper-event-card${event.description ? " has-description" : ""}${event.location ? " has-location" : ""}${linkedTodos.length ? " has-linked-todos" : ""}`}>
-    <strong className="multiline-item-text">{event.title}</strong>
+    <header className="paper-event-identity">
+      <strong className="multiline-item-text">{event.title}</strong>
+      <time>{eventCardTimeLabel(event, timeZone)}</time>
+    </header>
     {event.description && <p className="paper-event-description">{event.description}</p>}
     {event.location && <small className="paper-event-location">{event.location}</small>}
     {linkedTodos.length > 0 && <ul className="paper-event-todos" aria-label={`To-dos linked to ${event.title}`}>
@@ -342,11 +367,13 @@ function PrintableTimelineCards({ events, date, timeZone, weather, includeComple
         return <div className="paper-positioned-event" aria-label={`${timeLabel(item.event, timeZone)}, ${item.event.title}`} key={`${item.event.id}-${item.event.startsAtUtc}`}>
           <span className={`paper-event-bracket${item.isPoint ? " is-point" : ""}${item.continuesBefore ? " continues-before" : ""}${item.continuesAfter ? " continues-after" : ""}`} style={bracketStyle} aria-hidden="true" />
           <svg className="paper-event-connector" style={connectorStyle} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            <line x1="0" y1={timelinePercent(item.start)} x2="100" y2={timelinePercent(item.labelMinute)} vectorEffect="non-scaling-stroke" />
+            <polyline
+              points={`0,${timelinePercent(item.start)} 50,${timelinePercent(item.start)} 50,${timelinePercent(item.labelMinute)} 100,${timelinePercent(item.labelMinute)}`}
+              vectorEffect="non-scaling-stroke"
+            />
           </svg>
           <div className="paper-timeline-card" style={cardStyle}>
-            <time>{timeLabel(item.event, timeZone)}</time>
-            <PrintableEventCard event={item.event} includeCompletedTodos={includeCompletedTodos} />
+            <PrintableEventCard event={item.event} timeZone={timeZone} includeCompletedTodos={includeCompletedTodos} />
           </div>
         </div>;
       })}

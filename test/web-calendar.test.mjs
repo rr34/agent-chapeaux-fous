@@ -92,6 +92,7 @@ test("the first printed page uses an exact fixed-height 05:00–23:00 timeline",
   assert.match(calendarSource, /<PrintableTimelineCards[\s\S]*?events=\{model\.todayEvents\}/);
   assert.match(calendarSource, /className=\{`paper-event-bracket/);
   assert.match(calendarSource, /className="paper-event-connector"/);
+  assert.match(calendarSource, /<polyline[\s\S]*?points=\{`0,\$\{timelinePercent\(item\.start\)\} 50,\$\{timelinePercent\(item\.start\)\} 50,\$\{timelinePercent\(item\.labelMinute\)\} 100,\$\{timelinePercent\(item\.labelMinute\)\}`\}/);
   assert.match(calendarSource, /className="paper-timeline-card"/);
   assert.match(calendarSource, /className="paper-weather-column"/);
   assert.match(calendarSource, /Before 05:00/);
@@ -101,22 +102,27 @@ test("the first printed page uses an exact fixed-height 05:00–23:00 timeline",
   assert.match(styles, /\.paper-time-scale \{[^}]*flex: 1 1 auto;[^}]*position: relative;/s);
   assert.match(styles, /\.paper-hour-rule \{[^}]*top: var\(--timeline-position\)/s);
   assert.match(styles, /\.paper-event-bracket \{[^}]*top: var\(--event-top\);[^}]*height: var\(--event-height\)/s);
-  assert.match(styles, /\.paper-event-connector \{[^}]*left: calc\(1\.13in \+ var\(--event-lane\) \* \.15in\)/s);
+  assert.match(styles, /\.paper-event-connector \{[^}]*left: calc\(\.91in \+ var\(--event-lane\) \* \.08in\)/s);
+  assert.match(styles, /\.paper-event-connector polyline \{[^}]*stroke-linejoin: miter/s);
   assert.match(styles, /\.paper-timeline-card \{[^}]*top: var\(--event-card-top\)/s);
-  assert.match(styles, /\.paper-weather-column \{[^}]*left: 0;[^}]*width: \.48in/s);
-  assert.match(styles, /\.paper-weather-point \{[^}]*top: var\(--timeline-position\)/s);
+  assert.match(styles, /\.paper-weather-column \{[^}]*left: 0;[^}]*width: \.27in/s);
+  assert.match(styles, /\.paper-weather-point \{[^}]*top: var\(--timeline-position\);[^}]*flex-direction: column/s);
 });
 
 test("the proportional timeline preserves the existing detailed event cards", () => {
   assert.match(calendarSource, /function PrintableEventCard/);
-  assert.match(calendarSource, /<PrintableEventCard event=\{item\.event\} includeCompletedTodos=\{includeCompletedTodos\} \/>/);
+  assert.match(calendarSource, /<PrintableEventCard event=\{item\.event\} timeZone=\{timeZone\} includeCompletedTodos=\{includeCompletedTodos\} \/>/);
+  assert.match(calendarSource, /className="paper-event-identity"/);
+  assert.match(calendarSource, /<time>\{eventCardTimeLabel\(event, timeZone\)\}<\/time>/);
+  assert.match(calendarSource, /if \(startDate === endDate\) return `\$\{startTime\}–\$\{endTime\}`/);
+  assert.match(calendarSource, /shortEventDate\(event\.startsAtUtc, timeZone, crossesYear\)/);
   assert.match(calendarSource, /className="paper-event-description">\{event\.description\}<\/p>/);
   assert.match(styles, /\.paper-event-card p \{[^}]*-webkit-line-clamp: 2;/s);
   assert.match(styles, /\.paper-event-card \{[^}]*grid-template-columns: minmax\(1\.35in, \.8fr\) minmax\(0, 1\.4fr\) auto;/s);
   assert.match(styles, /\.paper-event-card \{[^}]*border: 1\.5px solid #4f564c;[^}]*print-color-adjust: exact;/s);
   assert.match(styles, /@media print \{[\s\S]*\.paper-event-card \{[^}]*border-color: #30362e;/s);
   assert.match(styles, /\.paper-event-card > \.paper-event-description \{[^}]*grid-column: 2;/s);
-  assert.match(styles, /\.paper-event-card:not\(\.has-description\):not\(\.has-location\) > strong \{[^}]*grid-column: 1 \/ -1;/s);
+  assert.match(styles, /\.paper-event-card:not\(\.has-description\):not\(\.has-location\) > \.paper-event-identity \{[^}]*grid-column: 1 \/ -1;/s);
 });
 
 test("daily paper uses one card-based timeline and keeps follow-through material separate", () => {
