@@ -299,7 +299,7 @@ export class OpenAIResponsesClient {
     await this.start();
     if (!this.health().ready) throw new Error(this.health().reason);
     const instructions = combinedInstructions(baseInstructions, developerInstructions);
-    const callableTools = openAITools(tools);
+    let callableTools = openAITools(tools);
     const providerOutputSchema = openAICompatibleSchema(outputSchema);
     const totalUsage = {
       inputTokens: 0,
@@ -313,6 +313,7 @@ export class OpenAIResponsesClient {
     const events = [];
     const usageByServiceTier = new Map();
     const controlTransfers = [];
+    let objectBindingRefreshCount = 0;
     let terminalVerificationRounds = terminalFailureObserved ? 1 : null;
     let response;
     let previousResponseId = conversationId;
@@ -430,6 +431,7 @@ export class OpenAIResponsesClient {
         previousResponseId = response.id;
         nextInput = [];
         let immediateControlTransfer = false;
+        let refreshedToolDefinitions = null;
         let stopCurrentToolLoop = false;
         for (const call of calls) {
           toolCallCount += 1;
@@ -462,12 +464,21 @@ export class OpenAIResponsesClient {
             controlTransfers.push({ tool: call.name, callId: call.call_id });
           }
           if (result?.ok === true && result?.controlTransfer?.type === "object_binding_refresh") {
-            controlTransfers.push({
-              tool: call.name,
-              callId: call.call_id,
-              type: "object_binding_refresh",
-            });
-            immediateControlTransfer = true;
+            if (Array.isArray(result.controlTransfer.tools)) {
+              // Keep executing sibling calls from this response. Each callback
+              // sees the runtime's cumulatively observed bindings, so the last
+              // returned tool set is the union needed by the continuation.
+              refreshedToolDefinitions = result.controlTransfer.tools;
+            } else {
+              // Compatibility fallback for transports/callers that cannot
+              // provide refreshed exact schemas inline.
+              controlTransfers.push({
+                tool: call.name,
+                callId: call.call_id,
+                type: "object_binding_refresh",
+              });
+              immediateControlTransfer = true;
+            }
           }
           if (result?.toolFailure?.terminalForCurrentRequest === true && terminalVerificationRounds === null) {
             terminalVerificationRounds = 1;
@@ -482,6 +493,18 @@ export class OpenAIResponsesClient {
             output: JSON.stringify(result ?? null),
           });
           if (immediateControlTransfer) break;
+        }
+        if (!immediateControlTransfer && refreshedToolDefinitions) {
+          callableTools = openAITools(refreshedToolDefinitions);
+          objectBindingRefreshCount += 1;
+          await onEvent?.({
+            type: "tools.refreshed",
+            modelCallIndex: modelCallCount,
+            reason: "object_binding_refresh",
+            toolSchemaCount: refreshedToolDefinitions.length,
+            tools: refreshedToolDefinitions,
+            providerTools: callableTools,
+          });
         }
         if (immediateControlTransfer) break;
       }
@@ -506,6 +529,7 @@ export class OpenAIResponsesClient {
           structuredOutput: Boolean(providerOutputSchema),
           imageDetail: requestAttachmentInput?.mediaKind === "image" ? this.imageDetail : null,
           controlTransfer: controlTransfers.length > 0,
+          objectBindingRefreshCount,
         },
       };
     } catch (error) {

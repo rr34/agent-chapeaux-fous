@@ -220,7 +220,7 @@ test("OpenAI Responses accepts an empty completion after a successful tool-expan
   ]);
 });
 
-test("an object-binding refresh returns control immediately without another stale-schema call", async () => {
+test("an object-binding refresh without inline schemas returns control immediately", async () => {
   let requests = 0;
   const toolCalls = [];
   const client = new OpenAIResponsesClient({
@@ -257,6 +257,98 @@ test("an object-binding refresh returns control immediately without another stal
   assert.deepEqual(result.controlTransfers, [{
     tool: "produce_file", callId: "produce", type: "object_binding_refresh",
   }]);
+});
+
+test("object-binding refresh executes every sibling call and continues with one coalesced schema set", async () => {
+  const requests = [];
+  const observedEvents = [];
+  const responses = [
+    {
+      id: "batch",
+      status: "completed",
+      output: Array.from({ length: 5 }, (_, index) => ({
+        type: "function_call",
+        call_id: `add-${index + 1}`,
+        name: "journal_add",
+        arguments: JSON.stringify({ tracker_id: index + 1 }),
+      })),
+    },
+    {
+      id: "finish",
+      status: "completed",
+      output: [{
+        type: "message", role: "assistant",
+        content: [{ type: "output_text", text: "Logged all five observations." }],
+      }],
+    },
+  ];
+  const initialTools = [{
+    name: "journal_add",
+    description: "Add one journal observation.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { tracker_id: { type: "integer", enum: [1, 2, 3, 4, 5] } },
+      required: ["tracker_id"],
+    },
+  }, {
+    name: "journal_update",
+    description: "Update one exact journal entry.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: { journal_entry_id: { type: "integer" } },
+      required: ["journal_entry_id"],
+    },
+  }];
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse(responses.shift());
+    },
+  });
+  const calls = [];
+  const result = await client.runTurn({
+    model: "test", input: "Log the workout.", tools: initialTools,
+    onEvent: event => observedEvents.push(event),
+    onToolCall: async (call) => {
+      calls.push(call);
+      const entryIds = Array.from({ length: calls.length }, (_, index) => 100 + index);
+      return {
+        ok: true,
+        result: { journal_entry_id: entryIds.at(-1) },
+        controlTransfer: {
+          type: "object_binding_refresh",
+          tools: [initialTools[0], {
+            ...initialTools[1],
+            inputSchema: {
+              ...initialTools[1].inputSchema,
+              properties: { journal_entry_id: { type: "integer", enum: entryIds } },
+            },
+          }],
+        },
+      };
+    },
+  });
+
+  assert.equal(requests.length, 2);
+  assert.equal(result.usage.modelCallCount, 2);
+  assert.equal(calls.length, 5);
+  assert.equal(requests[1].previous_response_id, "batch");
+  assert.equal(requests[1].input.length, 5);
+  assert.deepEqual(requests[1].input.map(({ call_id }) => call_id), [
+    "add-1", "add-2", "add-3", "add-4", "add-5",
+  ]);
+  assert.deepEqual(
+    requests[1].tools.find(({ name }) => name === "journal_update")
+      .parameters.properties.journal_entry_id.enum,
+    [100, 101, 102, 103, 104],
+  );
+  assert.equal(requests[1].tool_choice, "auto");
+  assert.equal(observedEvents.filter(({ type }) => type === "tools.refreshed").length, 1);
+  assert.deepEqual(result.controlTransfers, []);
+  assert.equal(result.protocol.objectBindingRefreshCount, 1);
+  assert.equal(result.protocol.controlTransfer, false);
+  assert.equal(result.text, "Logged all five observations.");
 });
 
 test("an identical failed-call marker forces the next model round to finish without tools", async () => {

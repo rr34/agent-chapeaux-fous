@@ -182,6 +182,13 @@ For every request, the structure:
 11. accepts a final answer after deterministic receipt checks or an exceptional
     semantic audit when those checks are insufficient.
 
+When one model response contains sibling tool calls, execution completes every
+still-valid sibling before reacting to bindings produced by their results. The
+application unions those bindings, refreshes affected exact tool schemas once,
+and returns all sibling results through the same provider response chain. A
+schema refresh must not serialize an otherwise valid batch into one model call
+per tool call.
+
 Core validation includes deterministic facts that application code can
 prove without interpreting user intent. In particular, a named weekday and a
 resolved local calendar date must agree before execution begins. A rejected

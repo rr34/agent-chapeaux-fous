@@ -15,7 +15,7 @@ web or voice input
   -> deterministic core validation, with one visible correction pass for invalid weekday/date claims
   -> deterministic selection verification, bounded context reads, and exact binding hydration
   -> execution with the accepted common-sense core and exact schemas for the selected capability families
-  -> local or MCP tool execution, with results returned to that same model exchange
+  -> local or MCP tool execution, with sibling calls completed as a batch and all results returned to that same model exchange
   -> deterministic receipt checks, with a semantic audit only for exceptional ambiguity
   -> optional receipt-aware repair within the remaining turn-wide budget
   -> final response

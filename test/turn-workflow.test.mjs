@@ -312,8 +312,39 @@ test("a requested context view supplies observed bindings directly to execution"
       additions += 1;
       assert.equal(tracker_id, 1);
       assert.equal(number_value, 75.8);
-      return { created: true, tracker: { tracker_id: 1, name: "Weight" } };
+      return {
+        created: true,
+        tracker: {
+          tracker_id: 1, journal_group_id: 5, name: "Weight",
+          ref: "agent-slayer://journal-trackers/1",
+        },
+        entry: {
+          journal_entry_id: 190, tracker_id: 1,
+          content_text: "Weight measurement: 75.8 kg.",
+          ref: "agent-slayer://journal-entries/190",
+          tracker_name: "Weight",
+        },
+      };
     },
+  });
+  registry.register({
+    name: "journal_update",
+    description: "Update one exact journal entry.",
+    capabilityId: "journal",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    metadata: {
+      "agent-slayer/object-input-bindings": {
+        protocol: "agent-slayer.object-input-bindings",
+        version: 1,
+        bindings: [{ path: "/journal_entry_id", objectType: "journal.entry", value: "id", role: "subject" }],
+      },
+    },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { journal_entry_id: { type: "integer" } },
+      required: ["journal_entry_id"],
+    },
+    async execute() { throw new Error("journal_update should not run"); },
   });
   const runtime = runtimeWith({
     registry,
@@ -338,14 +369,17 @@ test("a requested context view supplies observed bindings directly to execution"
       assert.match(payload.developerInstructions, /agent-slayer:\/\/journal-trackers\/1/);
       assert.doesNotMatch(payload.developerInstructions, /unrelated-invoice-action|unrelated invoice/);
       assert.doesNotMatch(payload.developerInstructions, /Recent durable receipt index/);
-      assert.deepEqual(payload.tools.map(({ name }) => name), ["journal_add"]);
+      assert.deepEqual(payload.tools.map(({ name }) => name), ["journal_add", "journal_update"]);
       const result = await payload.onToolCall({
         callId: "log-weight",
         tool: "journal_add",
         arguments: { tracker_id: 1, number_value: 75.8 },
       });
       assert.equal(result.ok, true);
-      return completed("Logged your weight: 75.8 kg.", 30);
+      return {
+        ...completed("Logged your weight: 75.8 kg.", 30),
+        protocol: { objectBindingRefreshCount: 1 },
+      };
     },
   });
 
@@ -355,6 +389,7 @@ test("a requested context view supplies observed bindings directly to execution"
   assert.equal(additions, 1);
   assert.equal(requests.length, 2);
   assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), false);
+  assert.equal(ledger.events.filter(({ type }) => type === "tools.schema_refresh.requested").length, 1);
   assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
 

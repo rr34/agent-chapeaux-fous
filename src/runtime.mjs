@@ -1644,6 +1644,21 @@ export class SlayerRuntime {
         result = await this.modelTransport.runTurn({
           ...turnRequest,
           onEvent: (event) => {
+            if (event.type === "tools.refreshed") {
+              this.ledger.append({
+                type: "tools.sent", status: "complete", actorType: "system",
+                actorName: "Object binding compiler", channel, turnId: requestId,
+                operationId, name: `${event.toolSchemaCount} callable tools refreshed in the same model exchange`,
+                content: "Coalesced newly verified object bindings after all sibling tool calls",
+                payload: {
+                  workflowStep, workflowStepLabel, stepIndex, reasoningEffort: selectedEffort,
+                  attempt, reason: event.reason, count: event.toolSchemaCount,
+                  delivery: "same_exchange_refresh",
+                  tools: event.providerTools ?? event.tools ?? [],
+                },
+              });
+              return;
+            }
             if (event.type !== "request.started") return;
             this.ledger.append({
               type: "model.call", phase: "start", status: "processing", actorType: "service",
@@ -2116,33 +2131,39 @@ export class SlayerRuntime {
                   },
                 });
               }
+              let refreshedCallableTools = null;
               if (newObjectReferences.length) {
                 const refreshedTools = compilation.tools.map((tool) => constrainToolObjectInputs(
                   tool, objectReferences, observedObjectReferences,
                 ));
                 if (callableToolsFingerprint(refreshedTools)
                   !== callableToolsFingerprint(tools)) {
+                  refreshedCallableTools = refreshedTools;
+                  const firstRefreshRequest = !objectBindingRefreshRequested;
                   objectBindingRefreshRequested = true;
-                  this.ledger.append({
-                    type: "tools.schema_refresh.requested", status: "complete", actorType: "service",
-                    actorName: "Object binding compiler", channel, turnId: requestId,
-                    operationId: callId, name: "Callable schemas require refreshed object bindings",
-                    content: `New verified object bindings from ${name} change at least one callable input schema`,
-                    payload: {
-                      callId, name, sourceReceiptEventSeq: receiptEventSeq,
-                      objectReferences: newObjectReferences,
-                    },
-                  });
+                  if (firstRefreshRequest) {
+                    this.ledger.append({
+                      type: "tools.schema_refresh.requested", status: "complete", actorType: "service",
+                      actorName: "Object binding compiler", channel, turnId: requestId,
+                      operationId: callId, name: "Callable schemas require refreshed object bindings",
+                      content: `New verified object bindings from ${name} will be coalesced after sibling tool calls`,
+                      payload: {
+                        callId, name, sourceReceiptEventSeq: receiptEventSeq,
+                        objectReferences: newObjectReferences,
+                      },
+                    });
+                  }
                 }
               }
               return {
                 ok: true,
                 result: inline.deliveredResult,
                 ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
-                ...(objectBindingRefreshRequested ? {
+                ...(refreshedCallableTools ? {
                   controlTransfer: {
                     type: "object_binding_refresh",
                     continuation: "Agent Slayer will continue this request with refreshed exact object-bound tool schemas.",
+                    tools: refreshedCallableTools,
                   },
                 } : {}),
               };
@@ -2220,7 +2241,10 @@ export class SlayerRuntime {
         },
       });
 
-      if (objectBindingRefreshRequested) {
+      if (
+        objectBindingRefreshRequested
+        && !(Number(result.protocol?.objectBindingRefreshCount) > 0)
+      ) {
         conversationId = null;
         continue;
       }
