@@ -635,25 +635,30 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .two-week-grid--compact .calendar-chip { gap: .02in; padding-left: .025in; font-size: 5.5pt; line-height: 1.15; }
 .two-week-grid--compact .calendar-chip time { font-size: 4.8pt; }
 .two-week-grid--compact .calendar-cell-events small { font-size: 5pt; }
-.paper-section { break-inside: avoid; }
+.paper-section { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-today { border-top: 1px solid #272c24; padding-top: .12in; break-inside: auto; }
-.paper-section-heading { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: .07in; border-bottom: 1px solid #b8bdb2; padding-bottom: .045in; }
+.paper-section-heading { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: .07in; border-bottom: 1px solid #b8bdb2; padding-bottom: .045in; break-after: avoid-page; }
 .paper-section-heading > span { color: #a4492e; font: 700 6pt Inter, Arial, sans-serif; }
 .paper-section-heading h2 { margin: 0; font: 600 12pt "Newsreader", Georgia, serif; }
 .paper-section-heading small { color: #72796d; font-size: 5.6pt; }
 .daily-paper .timeline-list { margin-top: .1in; }
-.daily-paper .timeline-list > li { grid-template-columns: .62in 1fr; gap: .06in; padding-bottom: .09in; }
+.daily-paper .timeline-list > li { grid-template-columns: .62in 1fr; gap: .06in; padding-bottom: .09in; page-break-inside: avoid; break-inside: avoid-page; }
 .daily-paper .timeline-list > li:not(:last-child)::after { left: .615in; top: .12in; }
 .daily-paper .timeline-list > li > time { font-size: 6.2pt; text-align: left; white-space: nowrap; }
 .daily-paper .timeline-list .timeline-event-item { padding-left: .09in; }
 .daily-paper .timeline-list .timeline-event-item::before { width: .045in; height: .045in; left: -.025in; top: .045in; box-shadow: 0 0 0 2px #fffefa; }
 .daily-paper .timeline-list strong { font-size: 7.4pt; }
 .daily-paper .timeline-list p { max-height: .28in; overflow: hidden; margin-top: .02in; font-size: 5.8pt; line-height: 1.25; }
-.paper-event-card { min-width: 0; padding-left: .09in; }
-.paper-event-card strong { display: block; }
+.paper-event-card { min-width: 0; display: grid; grid-template-columns: minmax(1.35in, .8fr) minmax(0, 1.4fr) auto; align-items: start; gap: .04in .09in; padding-left: .09in; }
+.paper-event-card > strong { grid-column: 1; display: block; }
+.paper-event-card > .paper-event-description { grid-column: 2; margin: 0; }
+.paper-event-card > .paper-event-location { grid-column: 3; margin: 0; white-space: nowrap; }
+.paper-event-card.has-description:not(.has-location) > .paper-event-description,
+.paper-event-card:not(.has-description).has-location > .paper-event-location { grid-column: 2 / -1; }
+.paper-event-card:not(.has-description):not(.has-location) > strong { grid-column: 1 / -1; }
 .paper-event-card p { display: -webkit-box; overflow: hidden; color: #596054; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
-.paper-event-card small { display: block; margin-top: .015in; color: #70776b; font-size: 5.4pt; line-height: 1.15; }
-.paper-event-todos { display: grid; gap: .04in; margin: .055in 0 0 .02in; padding: .045in 0 0 .10in; border-top: 1px solid #d5d8d0; border-left: 2px solid #a4492e; list-style: none; }
+.paper-event-card small { display: block; color: #70776b; font-size: 5.4pt; line-height: 1.15; }
+.paper-event-todos { grid-column: 1 / -1; display: grid; gap: .04in; margin: .015in 0 0 .02in; padding: .045in 0 0 .10in; border-top: 1px solid #d5d8d0; border-left: 2px solid #a4492e; list-style: none; }
 .paper-event-todos .paper-todo-card { background: #fbfaf5; }
 .daily-paper .event-place { font-size: 5.7pt; }
 .daily-paper .paper-todos { gap: .065in; margin-top: .1in; }
@@ -663,24 +668,25 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .daily-paper .paper-todos small { font-size: 5.6pt; }
 .daily-paper .paper-empty { margin: .1in 0; font-size: 6.5pt; }
 .paper-trackers { display: grid; gap: .045in; margin: .08in 0 0; padding: 0; list-style: none; }
-.paper-trackers li { display: grid; grid-template-columns: .13in minmax(0, 1fr); align-items: start; gap: .055in; }
+.paper-trackers li { display: grid; grid-template-columns: .13in minmax(0, 1fr); align-items: start; gap: .055in; page-break-inside: avoid; break-inside: avoid-page; }
 .tracker-card { border: 1px solid var(--line); }
 .paper-tracker-check { box-sizing: border-box; width: .12in; height: .12in; display: grid; place-items: center; border: 1px solid #60675d; margin-top: .005in; color: #4f6544; font-size: 6.5pt; font-weight: 800; line-height: 1; }
 .paper-tracker-text { min-width: 0; display: grid; gap: .005in; }
 .paper-tracker-text strong { font-size: 7pt; line-height: 1.15; }
 .paper-tracker-text small { overflow: hidden; color: #72796d; font-size: 5.2pt; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
 .paper-trackers li.is-logged .paper-tracker-text { color: #596253; }
-.paper-append-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .12in; margin-bottom: .055in; }
+.paper-append-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .12in; margin-bottom: .055in; break-after: avoid-page; }
 .paper-append-heading h3 { margin: 0; color: #252b22; font: 700 6.5pt/1.1 Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 .paper-append-heading small { color: #72796d; font-size: 5.4pt; }
 .paper-today-trackers, .paper-pinned-todos { margin-top: .11in; padding-top: .075in; border-top: 1px solid #b8bdb2; }
+.paper-today-trackers { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-notes { min-height: 2.25in; flex: 1 0 2.25in; display: flex; flex-direction: column; border-top: 1px solid #272c24; margin-top: .14in; padding-top: .12in; }
 .writing-lines { flex: 1; min-height: 1.8in; display: grid; grid-template-rows: repeat(9, 1fr); margin-top: .04in; }
 .writing-lines span { border-bottom: 1px solid #d5d8d0; }
 .paper-footer { display: flex; justify-content: space-between; border-top: 1px solid #272c24; margin-top: .11in; padding-top: .045in; color: #73796e; font-size: 5.5pt; }
 
 .paper-todo-groups { display: grid; gap: .09in; margin-top: .08in; }
-.paper-todo-group { display: grid; gap: .045in; }
+.paper-todo-group { display: grid; gap: .045in; page-break-inside: avoid; break-inside: avoid-page; }
 .paper-todo-group > h3 { margin: 0; padding-bottom: .018in; border-bottom: 1px solid #80877c; color: #252b22; font: 700 6.4pt/1.1 Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; break-after: avoid; }
 .paper-todo-empty-lines { display: grid; grid-template-rows: repeat(3, .18in); }
 .paper-todo-empty-lines span { border-bottom: 1px solid #d5d8d0; }
@@ -688,16 +694,18 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-todo-card { min-height: .32in; display: grid; grid-template-columns: .12in minmax(0, 1fr); align-items: start; gap: .055in; padding: .045in .06in .035in; border: 1px solid #484d45; border-radius: .04in; break-inside: avoid; }
 .paper-todo-check { box-sizing: border-box; width: .11in; height: .11in; display: grid; place-items: center; margin-top: .005in; border: 1px solid #60675d; color: #4f6544; font-size: 6pt; font-weight: 800; line-height: 1; }
 .paper-todo-card > div { min-width: 0; }
-.paper-todo-card header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .08in; }
+.paper-todo-card header { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(1.2in, .75fr); align-items: start; gap: .08in; }
+.paper-todo-card header:not(.has-details) > strong { grid-column: 1 / -1; }
 .paper-todo-card strong { font: 600 7.2pt/1.15 "Newsreader", Georgia, serif; }
-.paper-todo-card small { margin-top: .01in; color: #70776b; font-size: 5.3pt; line-height: 1.1; }
-.paper-todo-relationships { display: block; }
-.paper-todo-id { color: #252b22; font: 700 7pt/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+.paper-todo-card small { color: #70776b; font-size: 5.3pt; line-height: 1.1; }
+.paper-todo-relationships { grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .paper-handwriting-space { min-height: .13in; flex: 1 1 auto; position: relative; margin-top: .015in; border-bottom: 1px solid #d5d8d0; }
 .paper-handwriting-space > span { position: absolute; left: 0; bottom: -.01in; color: #a4492e; font: 400 15pt/.72 "Newsreader", Georgia, serif; transform: scaleX(.72); transform-origin: left bottom; }
 
-@page letter { size: Letter; margin: 0; }
-@page a4 { size: A4; margin: 0; }
+@page letter { size: Letter; margin: .22in 0 0; }
+@page letter:first { margin-top: 0; }
+@page a4 { size: A4; margin: .22in 0 0; }
+@page a4:first { margin-top: 0; }
 
 @media (max-width: 1200px) {
   .invoice-list-open { grid-template-columns: 82px minmax(170px, 1fr) minmax(140px, .65fr) auto; }

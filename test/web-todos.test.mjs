@@ -38,8 +38,12 @@ test("the React to-do page prints exactly its visible filtered groups as a PDF c
   assert.match(serverSource, /request\.method === "POST" && url\.pathname === "\/api\/todos\/pdf"[\s\S]*readJson\(request, 8 \* 1024 \* 1024\)/);
 });
 
-test("completed to-dos sort ahead of open work with the newest completion first", () => {
-  assert.match(appSource, /const todos = showCompleted \? \[\.\.\.filteredTodos\]\.sort\(compareTodoDisplayOrder\) : filteredTodos/);
+test("completed to-dos keep each group's intended ordering", () => {
+  assert.match(appSource, /\.filter\(\(group\) => Boolean\(group\.usesSequence\)\)/);
+  assert.match(appSource, /String\(leftGroupId\) !== String\(rightGroupId\)\) return 0/);
+  assert.match(appSource, /sequencedGroupIds\.has\(String\(leftGroupId\)\)/);
+  assert.match(appSource, /const sequenceDifference = Number\(rightSequence\) - Number\(leftSequence\)/);
+  assert.match(appSource, /\.sort\(\(left, right\) => compareTodoDisplayOrder\(left, right, sequencedGroupIds\)\)/);
   assert.match(appSource, /if \(leftComplete !== rightComplete\) return leftComplete \? -1 : 1/);
   assert.match(appSource, /rightCompletedAt > leftCompletedAt \? 1 : -1/);
 });

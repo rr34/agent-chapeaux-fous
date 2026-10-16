@@ -126,7 +126,8 @@ export function renderTodoChecklistHtml(model, generatedAt = new Date()) {
   </section>`).join("");
   const generated = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeStyle: "short" }).format(generatedAt);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>To-do checklist</title><style>
-    @page { size: Letter; margin: .5in; }
+    @page { size: Letter; margin: .72in .5in .5in; }
+    @page :first { margin-top: .5in; }
     * { box-sizing: border-box; }
     body { margin: 0; color: #20251e; background: white; font-family: Arial, sans-serif; font-size: 10pt; }
     header { margin-bottom: .22in; padding-bottom: .14in; border-bottom: 2px solid #68745a; }
@@ -136,7 +137,7 @@ export function renderTodoChecklistHtml(model, generatedAt = new Date()) {
     .filters { display: flex; flex-wrap: wrap; gap: .07in .18in; margin: 0 0 .22in; padding: .09in .12in; border: 1px solid #cbd0c6; border-radius: .08in; background: #f4f6f1; }
     .filters span { display: flex; gap: .05in; color: #41483c; font-size: 7.5pt; }
     .filters strong { color: #68745a; text-transform: uppercase; letter-spacing: .05em; }
-    .todo-group { margin: 0 0 .2in; }
+    .todo-group { margin: 0 0 .2in; page-break-inside: avoid; break-inside: avoid-page; }
     h2 { margin: 0 0 .07in; padding-bottom: .04in; border-bottom: 1px solid #cbd0c6; font: 700 14pt/1.15 Georgia, serif; break-after: avoid; }
     h2 span { margin-left: .05in; color: #71766d; font: 700 7pt Arial, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
     ul { display: grid; gap: .055in; margin: 0; padding: 0; list-style: none; }

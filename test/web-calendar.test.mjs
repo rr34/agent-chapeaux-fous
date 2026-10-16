@@ -82,12 +82,16 @@ test("printable calendar shows every event with hanging-indented wrapped titles"
   assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
 });
 
-test("the printed timeline has its own compact event layout with two-line notes", () => {
+test("the printed timeline uses horizontal space and keeps complete events together", () => {
   assert.match(calendarSource, /function PrintableDayTimeline/);
   assert.match(calendarSource, /<PrintableDayTimeline[\s\S]*?events=\{model\.todayEvents\}/);
-  assert.match(calendarSource, /event\.description && <p>\{event\.description\}<\/p>/);
+  assert.match(calendarSource, /className="paper-event-description">\{event\.description\}<\/p>/);
   assert.match(styles, /\.daily-paper \.timeline-list p \{[^}]*font-size: 5\.8pt;/s);
   assert.match(styles, /\.paper-event-card p \{[^}]*-webkit-line-clamp: 2;/s);
+  assert.match(styles, /\.paper-event-card \{[^}]*grid-template-columns: minmax\(1\.35in, \.8fr\) minmax\(0, 1\.4fr\) auto;/s);
+  assert.match(styles, /\.paper-event-card > \.paper-event-description \{[^}]*grid-column: 2;/s);
+  assert.match(styles, /\.paper-event-card:not\(\.has-description\):not\(\.has-location\) > strong \{[^}]*grid-column: 1 \/ -1;/s);
+  assert.match(styles, /\.daily-paper \.timeline-list > li \{[^}]*break-inside: avoid-page;/s);
 });
 
 test("daily paper keeps one today section with event-owned to-dos and pinned groups appended", () => {
@@ -105,10 +109,8 @@ test("daily paper keeps one today section with event-owned to-dos and pinned gro
   assert.doesNotMatch(calendarSource, /paper-todo-cluster/);
   assert.match(organizerSource, /related_contact\.display_name AS related_contact_name/);
   assert.match(organizerSource, /linkedTodos: links\.get\(eventId\(event\)\) \?\? \[\]/);
-  assert.match(calendarSource, /return `personal_task_id:\$\{todo\.todoId\}`/);
-  assert.match(calendarSource, /data-object-reference=\{todoPrintIdentifier\(todo\)\}/);
-  assert.match(calendarSource, /className="paper-todo-id">\{todoPrintIdentifier\(todo\)\}/);
-  assert.match(calendarSource, /Blank writing area for \$\{todoPrintIdentifier\(todo\)\}/);
+  assert.doesNotMatch(calendarSource, /personal_task_id|todoPrintIdentifier|data-object-reference|paper-todo-id/);
+  assert.match(calendarSource, /Blank writing area for \$\{todoTitle\(todo\)\}/);
   assert.match(calendarSource, /className="paper-handwriting-space"/);
   assert.match(styles, /\.paper-today \{[^}]*border-top: 1px solid/s);
   assert.match(styles, /\.daily-paper \.timeline-list > li \{[^}]*grid-template-columns: \.62in 1fr/s);
@@ -116,6 +118,12 @@ test("daily paper keeps one today section with event-owned to-dos and pinned gro
   assert.match(styles, /\.paper-event-todos \{[^}]*border-left: 2px solid #a4492e/s);
   assert.match(styles, /\.paper-todo-group > h3 \{/);
   assert.match(styles, /\.paper-todo-card \{[^}]*border: 1px solid/s);
+  assert.match(calendarSource, /<strong className="multiline-item-text">\{todoTitle\(todo\)\}<\/strong>[\s\S]*className="paper-todo-relationships"/);
+  assert.match(styles, /\.paper-todo-card header \{[^}]*grid-template-columns: minmax\(0, 1\.25fr\) minmax\(1\.2in, \.75fr\);/s);
+  assert.match(styles, /\.paper-todo-card header:not\(\.has-details\) > strong \{[^}]*grid-column: 1 \/ -1;/s);
+  assert.doesNotMatch(styles, /\.paper-todo-id/);
+  assert.match(styles, /\.paper-todo-relationships \{[^}]*grid-column: 2;/s);
+  assert.match(styles, /\.paper-todo-group \{[^}]*break-inside: avoid-page;/s);
 });
 
 test("journal trackers expose basic daily, weekly, and monthly RRULE controls", () => {
@@ -138,6 +146,15 @@ test("daily paper renders RRULE-driven tracker status", () => {
   assert.match(calendarSource, /tracker\.logged \? "✓" : ""/);
   assert.match(calendarSource, /trackerCadenceLabel\(tracker\)/);
   assert.match(styles, /\.paper-trackers \{/);
+  assert.match(styles, /\.paper-today-trackers \{[^}]*break-inside: avoid-page;/s);
+  assert.match(styles, /\.paper-trackers li \{[^}]*break-inside: avoid-page;/s);
+});
+
+test("daily paper gives continuation pages extra top margin", () => {
+  assert.match(styles, /@page letter \{ size: Letter; margin: \.22in 0 0; \}/);
+  assert.match(styles, /@page letter:first \{ margin-top: 0; \}/);
+  assert.match(styles, /@page a4 \{ size: A4; margin: \.22in 0 0; \}/);
+  assert.match(styles, /@page a4:first \{ margin-top: 0; \}/);
 });
 
 test("React calendar and printed paper use the day-first date contract", () => {

@@ -31,6 +31,9 @@ test("to-do PDF normalizes the bounded visible projection and renders a safe che
   assert.doesNotMatch(html, /class="sequence">#123/);
   assert.match(html, /grid-template-columns: max-content \.18in minmax\(0, 1fr\)/);
   assert.match(html, /\.sequence \{ min-width: \.32in;[^}]*width: max-content;[^}]*white-space: nowrap;/);
+  assert.match(html, /@page \{ size: Letter; margin: \.72in \.5in \.5in; \}/);
+  assert.match(html, /@page :first \{ margin-top: \.5in; \}/);
+  assert.match(html, /\.todo-group \{[^}]*page-break-inside: avoid;[^}]*break-inside: avoid-page;/);
   assert.match(html, /Search<\/strong>paint/);
   assert.match(html, /Billable \$45\.00/);
 });

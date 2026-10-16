@@ -146,7 +146,20 @@ function todoCompletionTime(todo: Entity) {
   return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
 }
 
-function compareTodoDisplayOrder(left: Entity, right: Entity) {
+function compareTodoDisplayOrder(left: Entity, right: Entity, sequencedGroupIds: ReadonlySet<string>) {
+  const leftGroupId = readKey(left, "groupId");
+  const rightGroupId = readKey(right, "groupId");
+  if (leftGroupId == null || rightGroupId == null || String(leftGroupId) !== String(rightGroupId)) return 0;
+  if (sequencedGroupIds.has(String(leftGroupId))) {
+    const leftSequence = readKey(left, "sequence");
+    const rightSequence = readKey(right, "sequence");
+    if (leftSequence != null || rightSequence != null) {
+      if (leftSequence == null) return 1;
+      if (rightSequence == null) return -1;
+      const sequenceDifference = Number(rightSequence) - Number(leftSequence);
+      if (sequenceDifference !== 0) return sequenceDifference;
+    }
+  }
   const leftComplete = left.status === "complete";
   const rightComplete = right.status === "complete";
   if (leftComplete !== rightComplete) return leftComplete ? -1 : 1;
@@ -1188,7 +1201,14 @@ function TodoScreen() {
     ? statusTodos
     : statusTodos.filter((todo) => String(readKey(todo, "groupId")) === selectedGroupId);
   const filteredTodos = groupTodos.filter((todo) => matchesSearch(todo, filterQuery));
-  const todos = showCompleted ? [...filteredTodos].sort(compareTodoDisplayOrder) : filteredTodos;
+  const sequencedGroupIds = new Set(
+    (groupData?.groups || [])
+      .filter((group) => Boolean(group.usesSequence))
+      .map((group) => String(group.id)),
+  );
+  const todos = showCompleted
+    ? [...filteredTodos].sort((left, right) => compareTodoDisplayOrder(left, right, sequencedGroupIds))
+    : filteredTodos;
   const setDailyPaperPinned = async (groupId: number, dailyPaperPinned: boolean) => {
     await api(`/api/todo-groups/${groupId}/daily-paper-pin`, {
       method: "POST",

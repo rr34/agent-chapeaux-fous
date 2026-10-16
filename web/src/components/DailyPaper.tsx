@@ -114,10 +114,6 @@ function todoTitle(todo: LinkedTodo) {
   return todo.text || todo.title || "Task";
 }
 
-function todoPrintIdentifier(todo: LinkedTodo) {
-  return `personal_task_id:${todo.todoId}`;
-}
-
 function relationshipKindLabel(value?: string | null) {
   return value ? value[0].toUpperCase() + value.slice(1) : null;
 }
@@ -130,15 +126,14 @@ function PrintableTodoCard({ todo, showRelationship = false }: {
     showRelationship ? relationshipKindLabel(todo.relationshipKind) : null,
     todo.relatedContact ? `Contact · ${todo.relatedContact.displayName}` : null,
   ].filter(Boolean);
-  return <li className="paper-todo-card" data-object-reference={todoPrintIdentifier(todo)}>
+  return <li className="paper-todo-card">
     <span className="paper-todo-check" aria-hidden="true">{todo.status === "complete" ? "✓" : ""}</span>
     <div>
-      <header>
+      <header className={details.length ? "has-details" : undefined}>
         <strong className="multiline-item-text">{todoTitle(todo)}</strong>
-        <span className="paper-todo-id">{todoPrintIdentifier(todo)}</span>
+        {details.length > 0 && <small className="paper-todo-relationships">{details.join(" · ")}</small>}
       </header>
-      {details.length > 0 && <small className="paper-todo-relationships multiline-item-text">{details.join(" · ")}</small>}
-      <div className="paper-handwriting-space" aria-label={`Blank writing area for ${todoPrintIdentifier(todo)}`}>
+      <div className="paper-handwriting-space" aria-label={`Blank writing area for ${todoTitle(todo)}`}>
         <span aria-hidden="true">&#123;</span>
       </div>
     </div>
@@ -157,10 +152,10 @@ function PrintableDayTimeline({ events, timeZone, includeCompletedTodos }: {
         .filter((todo) => includeCompletedTodos || todo.status !== "complete");
       return <li key={`${event.id}-${event.startsAtUtc}`}>
         <time>{timeLabel(event, timeZone)}</time>
-        <article className={`paper-event-card${linkedTodos.length ? " has-linked-todos" : ""}`}>
+        <article className={`paper-event-card${event.description ? " has-description" : ""}${event.location ? " has-location" : ""}${linkedTodos.length ? " has-linked-todos" : ""}`}>
           <strong className="multiline-item-text">{event.title}</strong>
-          {event.description && <p>{event.description}</p>}
-          {event.location && <small>{event.location}</small>}
+          {event.description && <p className="paper-event-description">{event.description}</p>}
+          {event.location && <small className="paper-event-location">{event.location}</small>}
           {linkedTodos.length > 0 && <ul className="paper-event-todos" aria-label={`To-dos linked to ${event.title}`}>
             {linkedTodos.map((todo) => <PrintableTodoCard todo={todo} showRelationship key={todo.todoId} />)}
           </ul>}
