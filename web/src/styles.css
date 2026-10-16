@@ -113,6 +113,7 @@ a { color: inherit; }
 .first-class-object-card:has(.object-selection-checkbox:checked),
 .compact-object-card:has(.object-selection-checkbox:checked) { border-color: var(--olive-dark); box-shadow: 0 0 0 3px rgba(104, 116, 90, .12); }
 .object-card-controls { display: inline-flex; align-items: center; gap: 6px; }
+.calendar-event-card { border-color: #8f9788; }
 .calendar-event-card .first-class-object-body { -webkit-line-clamp: 2; font-size: 11px; line-height: 1.35; }
 .calendar-event-expanded-details { display: grid; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .calendar-event-expanded-details section { display: grid; gap: 6px; }
@@ -649,7 +650,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .daily-paper .timeline-list .timeline-event-item::before { width: .045in; height: .045in; left: -.025in; top: .045in; box-shadow: 0 0 0 2px #fffefa; }
 .daily-paper .timeline-list strong { font-size: 7.4pt; }
 .daily-paper .timeline-list p { max-height: .28in; overflow: hidden; margin-top: .02in; font-size: 5.8pt; line-height: 1.25; }
-.paper-event-card { min-width: 0; display: grid; grid-template-columns: minmax(1.35in, .8fr) minmax(0, 1.4fr) auto; align-items: start; gap: .04in .09in; padding-left: .09in; }
+.paper-event-card { min-width: 0; display: grid; grid-template-columns: minmax(1.35in, .8fr) minmax(0, 1.4fr) auto; align-items: start; gap: .04in .09in; padding: .045in .07in; border: 1.5px solid #4f564c; border-radius: .035in; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .paper-event-card > strong { grid-column: 1; display: block; }
 .paper-event-card > .paper-event-description { grid-column: 2; margin: 0; }
 .paper-event-card > .paper-event-location { grid-column: 3; margin: 0; white-space: nowrap; }
@@ -814,6 +815,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .daily-paper-document { width: auto !important; max-width: none !important; margin: 0 !important; }
   .daily-paper { margin: 0 !important; box-shadow: none !important; break-after: page; }
   .daily-paper:last-child { break-after: auto; }
+  .paper-event-card { border-color: #30362e; }
 }
 
 .mention-composer { position: relative; min-width: 0; }

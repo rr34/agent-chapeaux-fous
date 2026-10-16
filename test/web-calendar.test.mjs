@@ -89,6 +89,8 @@ test("the printed timeline uses horizontal space and keeps complete events toget
   assert.match(styles, /\.daily-paper \.timeline-list p \{[^}]*font-size: 5\.8pt;/s);
   assert.match(styles, /\.paper-event-card p \{[^}]*-webkit-line-clamp: 2;/s);
   assert.match(styles, /\.paper-event-card \{[^}]*grid-template-columns: minmax\(1\.35in, \.8fr\) minmax\(0, 1\.4fr\) auto;/s);
+  assert.match(styles, /\.paper-event-card \{[^}]*border: 1\.5px solid #4f564c;[^}]*print-color-adjust: exact;/s);
+  assert.match(styles, /@media print \{[\s\S]*\.paper-event-card \{[^}]*border-color: #30362e;/s);
   assert.match(styles, /\.paper-event-card > \.paper-event-description \{[^}]*grid-column: 2;/s);
   assert.match(styles, /\.paper-event-card:not\(\.has-description\):not\(\.has-location\) > strong \{[^}]*grid-column: 1 \/ -1;/s);
   assert.match(styles, /\.daily-paper \.timeline-list > li \{[^}]*break-inside: avoid-page;/s);
