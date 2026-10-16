@@ -702,9 +702,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-handwriting-space { min-height: .13in; flex: 1 1 auto; position: relative; margin-top: .015in; border-bottom: 1px solid #d5d8d0; }
 .paper-handwriting-space > span { position: absolute; left: 0; bottom: -.01in; color: #a4492e; font: 400 15pt/.72 "Newsreader", Georgia, serif; transform: scaleX(.72); transform-origin: left bottom; }
 
-@page letter { size: Letter; margin: .22in 0 0; }
+@page letter { size: Letter; margin: 1in 0 0; }
 @page letter:first { margin-top: 0; }
-@page a4 { size: A4; margin: .22in 0 0; }
+@page a4 { size: A4; margin: 1in 0 0; }
 @page a4:first { margin-top: 0; }
 
 @media (max-width: 1200px) {

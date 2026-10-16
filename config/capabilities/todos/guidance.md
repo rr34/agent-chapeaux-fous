@@ -5,9 +5,11 @@ belongs to a calendar event. Never simulate scheduling by adding a date to the
 to-do text.
 
 Honor an explicitly named group by retaining its complete binding and passing
-its exact `todo_group_id`. Without one, call `todo_group_list` and choose the
-best clear existing bound group. Do not target a group by name alone or invent
-a group; use Inbox only when no existing group reasonably fits. New user-authored work uses status `todo`;
+its exact `todo_group_id`. When `todos.active_groups` prepared a matching exact
+group binding, use it directly instead of calling `todo_group_list`. Without a
+prepared or otherwise exact group binding, call `todo_group_list` and choose
+the best clear existing bound group. Do not target a group by name alone or
+invent a group; use Inbox only when no existing group reasonably fits. New user-authored work uses status `todo`;
 `ai_suggested` is reserved for agent-proposed work that the user has not
 accepted or dismissed. Preserve an exact user-supplied planning question in
 `planning_prompt_text`; the prompt and lifecycle status remain independent.

@@ -26,6 +26,17 @@ function harness(context) {
   return { store, registry, toolContext };
 }
 
+test("active-group context tells orientation when to prepare exact group bindings", () => {
+  const registry = new ToolRegistry();
+  registerTodoTools(registry, {}, {});
+  const view = registry.capabilityManifest("todos").contextViews.find(
+    ({ id }) => id === "todos.active_groups",
+  );
+  assert.match(view.description, /creating or moving a to-do/i);
+  assert.match(view.description, /unless an exact to-do-group binding is already supplied/i);
+  assert.match(view.description, /No individual to-do items/i);
+});
+
 test("native to-do contracts are entirely non-temporal", () => {
   const tools = definitions();
   for (const retired of ["routine_list", "routine_add", "routine_update", "todo_recurrence_set", "todo_move_overdue_to_today"]) {

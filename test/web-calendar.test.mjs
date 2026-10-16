@@ -150,10 +150,10 @@ test("daily paper renders RRULE-driven tracker status", () => {
   assert.match(styles, /\.paper-trackers li \{[^}]*break-inside: avoid-page;/s);
 });
 
-test("daily paper gives continuation pages extra top margin", () => {
-  assert.match(styles, /@page letter \{ size: Letter; margin: \.22in 0 0; \}/);
+test("daily paper gives continuation pages a one-inch top margin", () => {
+  assert.match(styles, /@page letter \{ size: Letter; margin: 1in 0 0; \}/);
   assert.match(styles, /@page letter:first \{ margin-top: 0; \}/);
-  assert.match(styles, /@page a4 \{ size: A4; margin: \.22in 0 0; \}/);
+  assert.match(styles, /@page a4 \{ size: A4; margin: 1in 0 0; \}/);
   assert.match(styles, /@page a4:first \{ margin-top: 0; \}/);
 });
 
