@@ -58,7 +58,6 @@ export function registerSearchTools(registry, searchCoordinator) {
   });
   registry.register({
     name: "reference_set_record",
-    capabilityId: "orchestration",
     description: "Record exact sets derived during this request so later conversation can refer to them without reconstructing membership or pairings from prose. Every member and every relationship endpoint must already be a verified stable object reference returned in this request or supplied in its accepted core. A relationship set is directed: preserve each from_ref → to_ref pair exactly, declare the actual domain type at each endpoint, and never submit two independent endpoint lists.",
     annotations: { readOnlyHint: false, destructiveHint: false },
     parameters: {

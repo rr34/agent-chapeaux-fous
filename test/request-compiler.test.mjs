@@ -23,6 +23,7 @@ import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
 import { registerVideoScriptTools } from "../src/tools/video-script-tools.mjs";
 import { loadHatCatalog } from "../src/hat-catalog.mjs";
+import { assertNativeCapabilityRegistrations } from "../src/native-capabilities.mjs";
 import { assertNativeToolDescriptions } from "../src/native-tool-descriptions.mjs";
 import { toolDescriptionMetadataKey } from "../src/tool-description.mjs";
 
@@ -326,6 +327,7 @@ test("every currently registered local tool belongs to an explicit capability", 
   registerVideoScriptTools(registry, {}, { videoContent: {} });
   registerAgentSelfTools(registry, { hatCatalog });
   assertNativeToolDescriptions(registry.toolDefinitions());
+  assertNativeCapabilityRegistrations(registry.toolDefinitions());
   assert.deepEqual(
     registry.toolDefinitions().filter((definition) => capabilityForTool(definition) === "unclassified"),
     [],
@@ -774,7 +776,7 @@ test("focused executions always include relationship-set recording infrastructur
     tools: [
       { ...tool("todo_list"), capabilityId: "todos" },
       { ...tool("todo_update"), capabilityId: "todos" },
-      { ...tool("reference_set_record"), capabilityId: "orchestration" },
+      { ...tool("reference_set_record"), capabilityId: "search" },
       { ...tool("contact_search"), capabilityId: "contacts" },
     ],
     text: "Read these tasks.",
