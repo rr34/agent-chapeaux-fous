@@ -337,27 +337,31 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
     }
   }
   if (migration.version === 52) {
+    const legacyTableName = "payment_invoice_line_receipts";
+    const currentTableName = relationshipTableRenames[legacyTableName];
     const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'payment_invoice_line_receipts'`, [databaseName]);
-    if (tables[0]?.TABLE_TYPE !== "BASE TABLE") {
-      throw new Error("Migration 0052 is missing payment_invoice_line_receipts");
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (?, ?)`, [databaseName, legacyTableName, currentTableName]);
+    const tableName = [currentTableName, legacyTableName]
+      .find((candidate) => tables.some((row) => row.TABLE_NAME === candidate && row.TABLE_TYPE === "BASE TABLE"));
+    if (!tableName) {
+      throw new Error(`Migration 0052 is missing ${legacyTableName} (currently ${currentTableName})`);
     }
     const [columns] = await connection.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'payment_invoice_line_receipts'`, [databaseName]);
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`, [databaseName, tableName]);
     const names = new Set(columns.map((row) => row.COLUMN_NAME));
     for (const name of ["payment_invoice_line_id", "file_id", "display_name_snapshot", "mime_type_snapshot", "sha256_snapshot"]) {
-      if (!names.has(name)) throw new Error(`Migration 0052 is missing payment_invoice_line_receipts.${name}`);
+      if (!names.has(name)) throw new Error(`Migration 0052 is missing ${tableName}.${name}`);
     }
     const [keys] = await connection.query(`SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
       FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ?
-        AND TABLE_NAME = 'payment_invoice_line_receipts'`, [databaseName]);
+        AND TABLE_NAME = ?`, [databaseName, tableName]);
     for (const [column, parent, target] of [
       ["payment_invoice_line_id", "payment_invoice_lines", "payment_invoice_line_id"],
       ["file_id", "files", "file_id"],
     ]) {
       if (!keys.some((row) => row.COLUMN_NAME === column
         && row.REFERENCED_TABLE_NAME === parent && row.REFERENCED_COLUMN_NAME === target)) {
-        throw new Error(`Migration 0052 is missing payment_invoice_line_receipts.${column} to ${parent} relationship`);
+        throw new Error(`Migration 0052 is missing ${tableName}.${column} to ${parent} relationship`);
       }
     }
   }

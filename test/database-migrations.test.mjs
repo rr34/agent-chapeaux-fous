@@ -48,6 +48,40 @@ test("relationship join rename integrity rejects legacy or missing destinations"
   }
 });
 
+test("invoice receipt integrity follows its relationship table across the version 53 rename", async () => {
+  const expectedColumns = [
+    "payment_invoice_line_id", "file_id", "display_name_snapshot", "mime_type_snapshot", "sha256_snapshot",
+  ].map((COLUMN_NAME) => ({ COLUMN_NAME }));
+  const expectedKeys = [
+    { COLUMN_NAME: "payment_invoice_line_id", REFERENCED_TABLE_NAME: "payment_invoice_lines", REFERENCED_COLUMN_NAME: "payment_invoice_line_id" },
+    { COLUMN_NAME: "file_id", REFERENCED_TABLE_NAME: "files", REFERENCED_COLUMN_NAME: "file_id" },
+  ];
+  const connection = ({ tableName = "payment_invoice_line_receipts_join", columns = expectedColumns, keys = expectedKeys } = {}) => ({
+    async query(sql, parameters) {
+      assert.equal(parameters[0], "test_database");
+      if (sql.includes("information_schema.TABLES")) return [[{ TABLE_NAME: tableName, TABLE_TYPE: "BASE TABLE" }]];
+      assert.equal(parameters[1], tableName);
+      if (sql.includes("information_schema.COLUMNS")) return [columns];
+      if (sql.includes("information_schema.KEY_COLUMN_USAGE")) return [keys];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+  await assertMigrationSpecificIntegrity(connection(), { version: 52 }, "test_database");
+  await assertMigrationSpecificIntegrity(
+    connection({ tableName: "payment_invoice_line_receipts" }),
+    { version: 52 },
+    "test_database",
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ tableName: "unrelated_table" }), { version: 52 }, "test_database"),
+    /Migration 0052 is missing payment_invoice_line_receipts/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: expectedColumns.slice(1) }), { version: 52 }, "test_database"),
+    /missing payment_invoice_line_receipts_join\.payment_invoice_line_id/u,
+  );
+});
+
 test("daily-paper group pin integrity requires a default-false column and check", async () => {
   const validColumn = [{
     COLUMN_NAME: "daily_paper_pinned", DATA_TYPE: "tinyint",
