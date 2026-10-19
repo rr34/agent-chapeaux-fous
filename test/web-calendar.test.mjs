@@ -100,6 +100,7 @@ test("the printed day uses an independent fixed weather timeline beside reusable
   assert.match(styles, /\.paper-plan-body \{[^}]*grid-template-columns: \.72in minmax\(0, 1fr\);/s);
   assert.match(styles, /\.paper-weather-point \{[^}]*flex-direction: column;/s);
   assert.match(styles, /\.paper-calendar-event-list \{[^}]*display: grid;/s);
+  assert.match(styles, /@media print \{[\s\S]*\.calendar-event-card,\s*\.calendar-routine-card \{[^}]*border-color: #000;/s);
   assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card \.first-class-object-content \{[^}]*grid-template-columns: minmax\(1\.35in, \.8fr\) minmax\(0, 1\.4fr\);/s);
   assert.doesNotMatch(styles, /\.paper-event-bracket|\.paper-event-connector/);
 });
