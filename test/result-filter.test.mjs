@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 import { ResultFilterBoundary } from "../src/search/result-filter.mjs";
+import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
 function filterRequest(overrides = {}) {
@@ -82,6 +84,28 @@ test("read-only tool schemas require the search-data filter without changing pro
 
   await registry.execute("records_read", { status: "active" });
   assert.deepEqual(executedArguments, { status: "active" });
+});
+
+test("contact reads advertise their exact filterable result collections", () => {
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registerContactTools(registry, {}, {}, {});
+  const definitions = new Map(registry.toolDefinitions().map((definition) => (
+    [definition.name, definition]
+  )));
+  assert.deepEqual(
+    definitions.get("contact_search").inputSchema.properties
+      .result_filter.properties.collection_path.enum,
+    ["/matches"],
+  );
+  assert.deepEqual(
+    definitions.get("contact_lookup_batch").inputSchema.properties
+      .result_filter.properties.collection_path.enum,
+    ["/results"],
+  );
+  assert.deepEqual(registry.get("contact_lookup_batch").readResultProtectedFields, [
+    "query", "normalized_name", "match_count", "matches_truncated", "matches",
+  ]);
 });
 
 test("the result boundary deterministically searches, projects, and limits a record collection", () => {

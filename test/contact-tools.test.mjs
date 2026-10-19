@@ -436,6 +436,10 @@ test("contact_search exposes the Contacts UI substring search to the agent", asy
   assert.deepEqual(definition.inputSchema.required, [
     "queries", "limit", "result_filter",
   ]);
+  assert.deepEqual(
+    definition.inputSchema.properties.result_filter.properties.collection_path.enum,
+    ["/matches"],
+  );
   assert.match(definition.description, /same case-insensitive substring behavior as the Contacts UI/);
 
   const result = await registry.execute("contact_search", {
@@ -512,6 +516,12 @@ test("contact_search exposes the Contacts UI substring search to the agent", asy
 
 test("batch contact lookup and tagging handle 1000 contacts in bounded tool calls", async (context) => {
   const { store, registry, request } = harness(context);
+  const lookupDefinition = registry.toolDefinitions()
+    .find(({ name }) => name === "contact_lookup_batch");
+  assert.deepEqual(
+    lookupDefinition.inputSchema.properties.result_filter.properties.collection_path.enum,
+    ["/results"],
+  );
   const database = store.requireReady();
   const insert = database.prepare(`
     INSERT INTO contacts (display_name, updated_at_utc)

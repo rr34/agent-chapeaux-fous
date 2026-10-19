@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  auditContext,
+  auditInstructions,
   commonSenseContext,
   commonSenseCoreSchema,
+  commonSenseExecutionInstructions,
   commonSenseInstructions,
   coreTargetRefs,
   parseStructuredModelOutput,
@@ -52,6 +55,19 @@ test("the common-sense core is compact, batch-shaped, and contains no tool plann
   assert.equal(Object.hasOwn(schema.properties, "audit"), false);
   assert.equal(Object.hasOwn(schema.properties, "conversationState"), false);
   assert.equal(Object.hasOwn(schema.properties, "completionCriteria"), false);
+  assert.match(schema.properties.mode.description, /act only when.*mutation/i);
+});
+
+test("read-only work is answer mode and current receipts can correct factual premises", () => {
+  assert.match(commonSenseInstructions, /answer for read-only retrieval/i);
+  assert.match(commonSenseExecutionInstructions(validCore(), []), /Tool results are authoritative for current facts/);
+  assert.match(commonSenseExecutionInstructions(validCore(), []), /never fabricate missing records/i);
+  const audit = auditContext({
+    core: validCore(), receipts: [], executorResponse: "There are 63 current records.",
+  });
+  assert.match(audit, /receipts are authoritative for current facts/i);
+  assert.match(auditInstructions, /factual premises about current data/i);
+  assert.match(auditInstructions, /preserve exact bound sets/i);
 });
 
 test("the core rejects unavailable capability families, context views, and object references", () => {

@@ -85,7 +85,11 @@ export function commonSenseCoreSchema({
     additionalProperties: false,
     properties: {
       version: { type: "integer", enum: [1] },
-      mode: { type: "string", enum: ["act", "answer", "clarify"] },
+      mode: {
+        type: "string",
+        enum: ["act", "answer", "clarify"],
+        description: "Use act only when the requested end state requires an application mutation; use answer for read-only retrieval, analysis, explanation, or writing; use clarify only for a genuinely blocking ambiguity.",
+      },
       objective: {
         ...text(2_000),
         description: "The ordinary-language end state the user wants, without tool or protocol terminology.",
@@ -332,7 +336,7 @@ export function commonSenseExecutionInstructions(
 ) {
   return [
     "# Accepted common-sense core",
-    "Carry out the ordinary-language objective below. The exact current user request remains authoritative. Preserve explicit constraints, handle each action completely, and use bulk tools for batch targets when available.",
+    "Carry out the ordinary-language objective below. The requested outcome, exact bound targets, and explicit constraints remain authoritative. Tool results are authoritative for current facts. When current evidence contradicts a factual premise in the request, explain the discrepancy and use the evidenced current scope; never fabricate missing records or silently replace an exact bound set or explicitly requested historical snapshot. Handle each action completely and use bulk tools for batch targets when available.",
     JSON.stringify(core, null, 2),
     "",
     "# Verified object bindings",
@@ -356,7 +360,7 @@ export function auditContext({
 }) {
   return [
     "# Exceptional completion audit",
-    "This request triggered a semantic audit because deterministic receipt checks were insufficient. Compare the accepted common-sense objective with literal receipts and the proposed response. Do not treat cancellation, archival, deletion, creation, or update as interchangeable unless the owning tool contract or receipt explicitly establishes that meaning.",
+    "This request triggered a semantic audit because deterministic receipt checks were insufficient. Compare the accepted common-sense objective with literal receipts and the proposed response. The requested outcome and exact bound scope remain authoritative, while receipts are authoritative for current facts. An explicitly reconciled factual premise is not an omitted target; never demand nonexistent current records unless the request identifies an exact bound set or historical snapshot. Do not treat cancellation, archival, deletion, creation, or update as interchangeable unless the owning tool contract or receipt explicitly establishes that meaning.",
     "",
     "## Audit reasons",
     JSON.stringify(reasons, null, 2),
@@ -388,12 +392,13 @@ export const commonSenseInstructions = [
   "Select the smallest plausible capability-family set. A capability family says where execution belongs; exact tool selection happens later from exact schemas.",
   "Use contextRequests only for advertised read-only context that execution genuinely needs. Explicit composer selections are verified automatically.",
   "When the request names a weekday or relative calendar date that governs execution, record the literal, source event, IANA time zone, weekday, resolved local date, role, and affected field in temporalResolutions.",
-  "Use mode clarify only for a genuine unresolved ambiguity that blocks a correct result. Otherwise prefer act for requested application work and answer for explanation or writing that needs no application mutation.",
+  "Use mode act only when the requested end state requires an application mutation. Use answer for read-only retrieval, analysis, explanation, or writing, including work that needs read-only application tools. Use clarify only for a genuine unresolved ambiguity that blocks a correct result.",
 ].join("\n");
 
 export const auditInstructions = [
   "You are the exceptional completion-audit phase of Time v3 Agent. Produce only the schema-constrained audit result.",
   "Judge the ordinary-language end state from tool receipts and tool contracts, not from confidence in the proposed response.",
+  "Distinguish the requested outcome and exact bound scope from factual premises about current data. When authoritative receipts contradict a premise and the proposed response explicitly reconciles the discrepancy while covering the evidenced current scope, do not demand nonexistent records; preserve exact bound sets and explicitly requested historical snapshots.",
   "Unresolved target identity is not proof that a capability is unavailable. When a callable owning read can resolve the target and a callable mutation contract states the requested effect, require repair rather than reporting a terminal block.",
 ].join("\n");
 

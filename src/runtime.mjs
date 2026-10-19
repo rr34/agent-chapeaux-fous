@@ -357,7 +357,14 @@ function terminalToolFailureNotice(findings) {
   ].join("");
 }
 
-const internalBlockedResponseNarration = /\b(?:the user|the executor|the (?:proposed )?response|executor response)\b/iu;
+const internalBlockedResponseNarration = /\b(?:the user|the executor|the (?:executor|proposed|repaired) response|(?:completion|post-repair|semantic) audit|audit (?:outcome|result|summary)|(?:execution|mutation|repaired|tool) receipts?|repair(?:ed)? (?:attempt|outcome|response))\b/iu;
+
+function protectedReadResultFields(toolDefinition, toolDefinitions) {
+  return [...new Set([
+    ...objectReferenceProtectedFields(toolDefinition, toolDefinitions),
+    ...(toolDefinition?.readResultProtectedFields ?? []),
+  ])];
+}
 
 function blockedAuditResponse(audit) {
   const summary = String(audit?.summary ?? "").trim();
@@ -2146,7 +2153,7 @@ export class SlayerRuntime {
                       source: registeredTool?.source ?? callableToolDefinitions.get(name)?.source,
                       filterRequest,
                       receiptEventSeq,
-                      protectedFields: objectReferenceProtectedFields(
+                      protectedFields: protectedReadResultFields(
                         registeredTool ?? callableToolDefinitions.get(name),
                         this.registry.toolDefinitions(),
                       ),
@@ -2208,7 +2215,7 @@ export class SlayerRuntime {
                     source: registeredTool?.source ?? callableToolDefinitions.get(name)?.source,
                     filterRequest,
                     receiptEventSeq,
-                    protectedFields: objectReferenceProtectedFields(
+                    protectedFields: protectedReadResultFields(
                       registeredTool ?? callableToolDefinitions.get(name),
                       this.registry.toolDefinitions(),
                     ),

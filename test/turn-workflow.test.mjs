@@ -677,7 +677,7 @@ test("destructive language triggers the exceptional semantic audit", async () =>
       return completed(JSON.stringify({
         version: 1,
         outcome: "blocked",
-        summary: "I cancelled the event, but that receipt does not prove permanent deletion.",
+        summary: "The repaired receipts do not prove permanent deletion.",
         satisfied: ["The event was cancelled."],
         remaining: ["Permanent deletion remains unverified."],
         repairInstructions: [],
@@ -687,7 +687,12 @@ test("destructive language triggers the exceptional semantic audit", async () =>
 
   assert.equal(await runtime.run({
     requestId: "request-delete", requestEventId: "event-current", text: "Delete calendar event 3165.",
-  }), "I cancelled the event, but that receipt does not prove permanent deletion.");
+  }), [
+    "I completed part of the request, but I couldn't complete everything requested.",
+    "",
+    "Still incomplete:",
+    "- Permanent deletion remains unverified.",
+  ].join("\n"));
   assert.equal(requests.length, 3);
 });
 
@@ -817,6 +822,76 @@ test("ordinary informational work needs no mutation receipt and no audit", async
   assert.equal(await runtime.run({
     requestId: "request-list", requestEventId: "event-current", text: "What are my current to-dos?",
   }), "There are no current to-dos.");
+  assert.equal(requests.length, 2);
+});
+
+test("tool-specific protected fields preserve nested batch evidence through projection", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("contacts").register({
+    name: "nested_contact_lookup",
+    description: "Return exact contact matches grouped by query.",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    readResultCollectionPaths: ["/results"],
+    readResultProtectedFields: ["query", "match_count", "matches"],
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() {
+      return {
+        query_count: 1,
+        results: [{
+          query: "Eddie Moore",
+          match_count: 1,
+          matches: [{ contact_id: 383, display_name: "Eddie Moore", status: "active" }],
+        }],
+      };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          mode: "answer",
+          objective: "Find the current contact for Eddie Moore.",
+          conversationSummary: "The user requested one read-only contact lookup.",
+          actions: [],
+          capabilities: ["contacts"],
+        })));
+      }
+      assert.equal(index, 1);
+      const result = await payload.onToolCall({
+        callId: "nested-lookup",
+        tool: "nested_contact_lookup",
+        arguments: {
+          result_filter: {
+            collection_path: "/results",
+            query: null,
+            match_mode: "all_terms",
+            include_fields: ["contact_id", "display_name", "status"],
+            exclude_fields: [],
+            max_items: 100,
+            max_characters: 30_000,
+          },
+        },
+      });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.result.results, [{
+        query: "Eddie Moore",
+        match_count: 1,
+        matches: [{ contact_id: 383, display_name: "Eddie Moore", status: "active" }],
+      }]);
+      return completed("Eddie Moore matches active contact 383.");
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-nested-lookup", requestEventId: "event-current",
+    text: "Find the current contact for Eddie Moore without changing anything.",
+  }), "Eddie Moore matches active contact 383.");
   assert.equal(requests.length, 2);
 });
 

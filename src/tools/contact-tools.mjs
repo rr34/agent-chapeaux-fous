@@ -801,6 +801,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_search",
+    readResultCollectionPaths: ["/matches"],
     description: "Search active contacts with the same case-insensitive substring behavior as the Contacts UI. Inactive contacts are logically deleted and are never searched or returned. Use this for descriptive keywords or partial details rather than exact known display names. The supplied queries are OR alternatives searched across display, given, and family names, organization, notes, tags, contact-method labels, email addresses, phone numbers, and other method values. Results include the matching contacts and completeness metadata; do not claim no contacts match when scan_truncated is true.",
     outputSchema: {
       type: "object",
@@ -871,6 +872,10 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_lookup_batch",
+    readResultCollectionPaths: ["/results"],
+    readResultProtectedFields: [
+      "query", "normalized_name", "match_count", "matches_truncated", "matches",
+    ],
     description: "Look up 1 through 500 contact display names in one call using exact normalized-name matching across up to 10,000 active contacts. Inactive contacts are logically deleted and are never searched or returned. Use this instead of repeated database reads when resolving a large user-supplied list. Each result reports all bounded active matches with current IDs, versions, methods, tags, source, and status so a later bulk action can be precise.",
     outputSchema: {
       type: "object",
