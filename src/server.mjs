@@ -569,7 +569,10 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       sendJson(response, 200, {
-        requests: presentation(ledger.recentRequests(url.searchParams.get("limit"))),
+        requests: presentation(ledger.recentRequests(
+          url.searchParams.get("limit"),
+          url.searchParams.get("q"),
+        )),
       });
       return;
     }
@@ -594,7 +597,10 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/ai-usage") {
       sendJson(response, 200, {
-        entries: ledger.modelUsage({ limit: url.searchParams.get("limit") || 1000 }),
+        entries: ledger.modelUsage({
+          limit: url.searchParams.get("limit") || 1000,
+          query: url.searchParams.get("q"),
+        }),
         current: {
           transport: modelTransport.id,
           model: config.model,
@@ -714,6 +720,7 @@ const server = http.createServer(async (request, response) => {
         contacts: organizer.listContacts({
           scope: url.searchParams.get("scope") || "active",
           limit: url.searchParams.get("limit") || 500,
+          query: url.searchParams.get("q"),
         }),
       });
       return;
@@ -827,6 +834,7 @@ const server = http.createServer(async (request, response) => {
         todos: organizer.listTodos({
           scope: url.searchParams.get("scope") || "active",
           limit: url.searchParams.get("limit") || 500,
+          query: url.searchParams.get("q"),
         }),
       });
       return;
@@ -964,6 +972,7 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, videoScripts.list({
         status: url.searchParams.get("status") || "draft",
         limit: Number(url.searchParams.get("limit") || 200),
+        query: url.searchParams.get("q"),
       }));
       return;
     }
@@ -1139,6 +1148,7 @@ const server = http.createServer(async (request, response) => {
           limit: url.searchParams.get("limit") || 200,
           timeZone: url.searchParams.get("timeZone"),
           localDate: url.searchParams.get("localDate"),
+          query: url.searchParams.get("q"),
         }),
       });
       return;
@@ -1149,6 +1159,7 @@ const server = http.createServer(async (request, response) => {
           trackerId: url.searchParams.get("trackerId"),
           groupId: url.searchParams.get("groupId"),
           limit: url.searchParams.get("limit") || 200,
+          query: url.searchParams.get("q"),
         }),
       });
       return;

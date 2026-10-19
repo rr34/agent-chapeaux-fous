@@ -1052,6 +1052,13 @@ function AgentScreen({ onShowTrace, refreshKey, optimisticRequests, onRequestsOb
 }) {
   const { data, error, loading, reload } = useRequestFeed(25, 3000);
   const [filterQuery, setFilterQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
+  const requestSearchUrl = serverQuery
+    ? `/api/requests?limit=200&q=${encodeURIComponent(serverQuery)}`
+    : null;
+  const {
+    data: searchData, error: searchError, loading: searchLoading, reload: reloadSearch,
+  } = useApi<{ requests: RequestRecord[] }>(requestSearchUrl);
   const initialScrollPending = useRef(true);
   useEffect(() => { if (refreshKey > 0) void reload(); }, [refreshKey, reload]);
   useEffect(() => {
@@ -1078,18 +1085,25 @@ function AgentScreen({ onShowTrace, refreshKey, optimisticRequests, onRequestsOb
     await api(`/api/requests/${request.requestId}/turn-brief/${decision}`, { method: "POST", body: JSON.stringify({ approvalId: request.turnBriefApproval.approvalId }) });
     await reload();
   };
-  const serverRequests = data?.requests || [];
+  const serverRequests = serverQuery ? searchData?.requests || [] : data?.requests || [];
   const serverRequestIds = new Set(serverRequests.map(({ requestId }) => requestId));
   const requests = [
     ...optimisticRequests.filter(({ requestId }) => !serverRequestIds.has(requestId)),
     ...serverRequests,
   ];
   const visibleRequests = requests.filter((request) => matchesSearch(request, filterQuery));
+  const searchRequests = () => {
+    const nextQuery = filterQuery.trim();
+    if (nextQuery === serverQuery) {
+      if (nextQuery) void reloadSearch();
+      else void reload();
+    } else setServerQuery(nextQuery);
+  };
   return <>
     <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Time v3 Agent orients, shows its brief, then acts with visible tools." />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleRequests.length} noun="exchange" />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchRequests} searching={loading || searchLoading} count={visibleRequests.length} noun="exchange" />
     <section className="conversation">
-      {loading && <Loading label="Loading requests" />}{error ? <ErrorState error={error} retry={reload} /> : null}
+      {(loading || searchLoading) && <Loading label="Loading requests" />}{(serverQuery ? searchError : error) ? <ErrorState error={(serverQuery ? searchError : error)!} retry={serverQuery ? reloadSearch : reload} /> : null}
       {visibleRequests.length ? [...visibleRequests].reverse().map((request) => <article className="request-card" key={request.requestId}>
         <div className="request-question"><span>You</span><p>{request.request}</p></div>
         {request.turnBriefApproval?.approvalId && <div className="turn-brief">
@@ -1114,8 +1128,15 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   const [selectedDate, setSelectedDate] = useState(date);
   const [displayDate, setDisplayDate] = useState(date);
   const [filterQuery, setFilterQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
   const requestParameters = new URLSearchParams({ date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${requestParameters}`);
+  const calendarSearchUrl = serverQuery
+    ? `/api/calendar-events/search?q=${encodeURIComponent(serverQuery)}&limit=200`
+    : null;
+  const {
+    data: calendarSearchData, error: calendarSearchError, loading: calendarSearchLoading, reload: reloadCalendarSearch,
+  } = useApi<{ events: DailyPaperModel["todayEvents"] }>(calendarSearchUrl);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<unknown>(null);
   const [addingEvent, setAddingEvent] = useState(false);
@@ -1141,9 +1162,18 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
       weather: data.date === selectedDate ? data.weather : null,
     };
   }, [data, selectedDate, selectedEvents, selectedTodos]);
-  const matchingEventCount = (data?.calendarDays || [])
+  const visibleCalendarSearchEvents = (calendarSearchData?.events || [])
+    .filter((event) => matchesSearch(event, filterQuery));
+  const matchingEventCount = serverQuery ? visibleCalendarSearchEvents.length : (data?.calendarDays || [])
     .flatMap((day) => day.events)
     .filter((event) => matchesSearch(event, filterQuery)).length;
+  const searchCalendar = () => {
+    const nextQuery = filterQuery.trim();
+    if (nextQuery === serverQuery) {
+      if (nextQuery) void reloadCalendarSearch();
+      else void reload();
+    } else setServerQuery(nextQuery);
+  };
   const generate = async () => {
     setGenerationError(null);
     setGenerating(true);
@@ -1157,7 +1187,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={
       <><button className="button" type="button" onClick={() => setAddingEvent(true)}>Add calendar event</button><button className="button button--quiet" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button></>
     } />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={matchingEventCount} noun="event" />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchCalendar} searching={loading || calendarSearchLoading} count={matchingEventCount} noun="event" />
     {generationNotice && <div className="calendar-generation-notice surface" role="status"><span>{generationNotice}</span>{dismissGenerationNotice && <button className="button button--quiet" onClick={dismissGenerationNotice}>Dismiss</button>}</div>}
     {generationError && <ErrorState
       error={generationError}
@@ -1165,6 +1195,13 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
       dismiss={() => setGenerationError(null)}
     />}
     {loading && <Loading label="Composing your day" />}{error && <ErrorState error={error} retry={reload} />}
+    {calendarSearchError && <ErrorState error={calendarSearchError} retry={reloadCalendarSearch} />}
+    {serverQuery && !calendarSearchLoading && !calendarSearchError && <section className="surface calendar-search-results">
+      <div className="section-title"><div><p className="eyebrow">Server search</p><h2>Matching calendar events</h2></div><span>{visibleCalendarSearchEvents.length} {visibleCalendarSearchEvents.length === 1 ? "event" : "events"}</span></div>
+      {visibleCalendarSearchEvents.length
+        ? <DayTimeline events={visibleCalendarSearchEvents} timeZone={timeZone} defaultExpanded onChanged={reloadCalendarSearch} />
+        : <Empty>No calendar events match the search.</Empty>}
+    </section>}
     {data && <div className="calendar-screen">
       <section className="surface calendar-overview">
         <div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><div className="calendar-overview-actions"><button className="button button--quiet" type="button" onClick={() => { setSelectedDate(date); setDisplayDate(date); }}>Today</button><button className="button button--quiet" type="button" onClick={() => window.print()}>Print browser view</button></div></div>
@@ -1186,8 +1223,11 @@ function TodoScreen() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [filterQuery, setFilterQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
   const scope = showCompleted ? "all" : "active";
-  const { data, error, loading, reload } = useApi<{ todos: Entity[] }>(`/api/todos?scope=${scope}&limit=1000`);
+  const todoParameters = new URLSearchParams({ scope, limit: serverQuery ? "10000" : "1000" });
+  if (serverQuery) todoParameters.set("q", serverQuery);
+  const { data, error, loading, reload } = useApi<{ todos: Entity[] }>(`/api/todos?${todoParameters}`);
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/todo-groups");
   const [addingTodo, setAddingTodo] = useState(false);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
@@ -1309,8 +1349,13 @@ function TodoScreen() {
       setGeneratingPdf(false);
     }
   };
+  const searchTodos = () => {
+    const nextQuery = filterQuery.trim();
+    if (nextQuery === serverQuery) void reload();
+    else setServerQuery(nextQuery);
+  };
   return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<><button className="button" type="button" onClick={() => setAddingTodo(true)}>Add to-do</button><button className="button button--quiet" type="button" onClick={() => void generatePdf()} disabled={generatingPdf || loading || groupsLoading || Boolean(error || groupError)}>{generatingPdf ? "Making PDF…" : "Print PDF"}</button></>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={todos.length} noun="to-do" controls={<>
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchTodos} searching={loading} count={todos.length} noun="to-do" controls={<>
       <SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
         <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
       </SectionSelectFilter>
@@ -1351,13 +1396,16 @@ function TodoScreen() {
 }
 
 function ContactsScreen() {
-  const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=all&limit=10000");
   const [addingContact, setAddingContact] = useState(false);
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
   const [selectedKind, setSelectedKind] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("active");
   const [selectedTag, setSelectedTag] = useState("all");
+  const contactParameters = new URLSearchParams({ scope: "all", limit: "10000" });
+  if (serverQuery) contactParameters.set("q", serverQuery);
+  const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>(`/api/contacts?${contactParameters}`);
   const contacts = data?.contacts || [];
   const contactTags = useMemo(() => [...new Set(contacts.flatMap((contact) => (contact.tags as string[] | undefined) || []))].sort((left, right) => left.localeCompare(right)), [contacts]);
   const visibleContacts = contacts.filter((contact) =>
@@ -1378,12 +1426,17 @@ function ContactsScreen() {
     return [...grouped.values()].filter((group) => group.contacts.length);
   }, [visibleContacts]);
   const contactsFiltered = query.trim() || selectedKind !== "all" || selectedStatus !== "active" || selectedTag !== "all";
+  const searchContacts = () => {
+    const nextQuery = query.trim();
+    if (nextQuery === serverQuery) void reload();
+    else setServerQuery(nextQuery);
+  };
   return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<div className="section-heading-actions">
     <button className="button" type="button" onClick={() => setAddingContact(true)}>Add contact</button>
   </div>} />
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && <>
-      <SectionFilter query={query} onChange={setQuery} count={visibleContacts.length} noun="contact" controls={<>
+      <SectionFilter query={query} onChange={setQuery} onSearch={searchContacts} searching={loading} count={visibleContacts.length} noun="contact" controls={<>
         <SectionSelectFilter label="Group" value={selectedKind} onChange={setSelectedKind}>
           <option value="all">All groups</option><option value="person">People</option><option value="organization">Organizations</option><option value="service">Services</option>
         </SectionSelectFilter>
@@ -1449,11 +1502,14 @@ const genericScreens: Record<GenericObjectKind, { eyebrow: string; title: string
 };
 
 function LibraryScreen() {
-  const { data, error, loading, reload } = useApi<{ content: Entity[] }>("/api/content-items?limit=1000");
-  const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/content-groups");
   const [filterQuery, setFilterQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
+  const contentParameters = new URLSearchParams({ limit: serverQuery ? "5000" : "1000" });
+  if (serverQuery) contentParameters.set("q", serverQuery);
+  const { data, error, loading, reload } = useApi<{ content: Entity[] }>(`/api/content-items?${contentParameters}`);
+  const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/content-groups");
   const content = data?.content || [];
   const visibleContent = content.filter((entity) =>
     (selectedGroupId === "all" || String(readKey(entity, "groupId")) === selectedGroupId)
@@ -1485,9 +1541,14 @@ function LibraryScreen() {
     return filterQuery.trim() ? allGroups.filter((group) => group.items.length) : allGroups;
   }, [filterQuery, groupData?.groups, selectedGroupId, visibleContent]);
   const reloadLibrary = () => { void reload(); void reloadGroups(); };
+  const searchLibrary = () => {
+    const nextQuery = filterQuery.trim();
+    if (nextQuery === serverQuery) void reload();
+    else setServerQuery(nextQuery);
+  };
   return <>
     <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleContent.length} noun="item" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchLibrary} searching={loading} count={visibleContent.length} noun="item" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
       <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
     </SectionSelectFilter>} />
     {(loading || groupsLoading) && <Loading />}
@@ -1528,9 +1589,12 @@ function LibraryScreen() {
 }
 
 function VideoScriptsScreen() {
-  const { data, error, loading, reload } = useApi<{ scripts: Entity[] }>("/api/video-scripts?status=all&limit=500");
   const [filterQuery, setFilterQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
+  const scriptParameters = new URLSearchParams({ status: "all", limit: "500" });
+  if (serverQuery) scriptParameters.set("q", serverQuery);
+  const { data, error, loading, reload } = useApi<{ scripts: Entity[] }>(`/api/video-scripts?${scriptParameters}`);
   const scripts = data?.scripts || [];
   const visibleScripts = scripts.filter((script) =>
     (selectedStatus === "all" || textKey(script, "status") === selectedStatus)
@@ -1553,9 +1617,14 @@ function VideoScriptsScreen() {
     const allGroups = [...grouped.values()];
     return filterQuery.trim() ? allGroups.filter((group) => group.scripts.length) : allGroups;
   }, [filterQuery, selectedStatus, visibleScripts]);
+  const searchScripts = () => {
+    const nextQuery = filterQuery.trim();
+    if (nextQuery === serverQuery) void reload();
+    else setServerQuery(nextQuery);
+  };
   return <>
     <PageHeading eyebrow="Production" title="Video Scripts" detail="Scripts grounded in completed conversations." />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleScripts.length} noun="script" controls={<SectionSelectFilter label="Group" value={selectedStatus} onChange={setSelectedStatus}>
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchScripts} searching={loading} count={visibleScripts.length} noun="script" controls={<SectionSelectFilter label="Group" value={selectedStatus} onChange={setSelectedStatus}>
       <option value="all">All groups</option><option value="draft">Drafts</option><option value="archived">Archived</option>
     </SectionSelectFilter>} />
     {loading && <Loading />}
@@ -1593,8 +1662,11 @@ function VideoScriptsScreen() {
 }
 
 function FilesScreen() {
-  const { data, error, loading, reload } = useApi<{ files: Entity[] }>("/api/files?limit=200");
   const [filterQuery, setFilterQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
+  const fileParameters = new URLSearchParams({ limit: serverQuery ? "500" : "200" });
+  if (serverQuery) fileParameters.set("query", serverQuery);
+  const { data, error, loading, reload } = useApi<{ files: Entity[] }>(`/api/files?${fileParameters}`);
   const [selectedMediaKind, setSelectedMediaKind] = useState("all");
   const files = data?.files || [];
   const fileGroupLabels: Record<string, string> = { document: "Documents", image: "Images", video: "Videos", audio: "Audio" };
@@ -1623,9 +1695,14 @@ function FilesScreen() {
       return (leftIndex < 0 ? fileGroupOrder.length : leftIndex) - (rightIndex < 0 ? fileGroupOrder.length : rightIndex);
     });
   }, [visibleFiles]);
+  const searchFiles = () => {
+    const nextQuery = filterQuery.trim();
+    if (nextQuery === serverQuery) void reload();
+    else setServerQuery(nextQuery);
+  };
   return <>
     <PageHeading eyebrow="Durable artifacts" title="Files" detail="Uploads, generated documents, and their source evidence." />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleFiles.length} noun="file" controls={<SectionSelectFilter label="Group" value={selectedMediaKind} onChange={setSelectedMediaKind} disabled={!fileGroupOptions.length}>
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchFiles} searching={loading} count={visibleFiles.length} noun="file" controls={<SectionSelectFilter label="Group" value={selectedMediaKind} onChange={setSelectedMediaKind} disabled={!fileGroupOptions.length}>
       <option value="all">All groups</option>{fileGroupOptions.map((kind) => <option value={kind} key={kind}>{fileGroupLabels[kind] || `${kind.replaceAll("_", " ")} files`}</option>)}
     </SectionSelectFilter>} />
     {loading && <Loading />}
@@ -1666,7 +1743,7 @@ function GenericScreen({ kind }: { kind: keyof typeof genericScreens }) {
   const [filterQuery, setFilterQuery] = useState("");
   const entities = ((data?.[config.key] as Entity[] | undefined) || []);
   const visibleEntities = entities.filter((entity) => matchesSearch(entity, filterQuery));
-  return <><PageHeading eyebrow={config.eyebrow} title={config.title} detail={config.detail} /><SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleEntities.length} noun="item" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !visibleEntities.length && <Empty>{filterQuery.trim() ? `No ${config.title.toLowerCase()} items match the filter.` : "Nothing here yet."}</Empty>}<div className="card-grid">{visibleEntities.map((entity, index) => {
+  return <><PageHeading eyebrow={config.eyebrow} title={config.title} detail={config.detail} /><SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={() => void reload()} searching={loading} count={visibleEntities.length} noun="item" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !visibleEntities.length && <Empty>{filterQuery.trim() ? `No ${config.title.toLowerCase()} items match the filter.` : "Nothing here yet."}</Empty>}<div className="card-grid">{visibleEntities.map((entity, index) => {
     const entityId = entity.id || entity.fileId;
     const title = textKey(entity, "title", "name", "originalFilename") || `Item ${entityId || index + 1}`;
     const type = kind === "content" ? "video.content_item" : kind === "video-scripts" ? "video.script" : "files.file";
@@ -1689,15 +1766,18 @@ function HatsScreen() {
   const [filterQuery, setFilterQuery] = useState("");
   const hats = ((data?.hats as Entity[] | undefined) || (data?.catalog as Entity[] | undefined) || []);
   const visibleHats = hats.filter((hat) => matchesSearch(hat, filterQuery));
-  return <><PageHeading eyebrow="Ways of working" title="Hats" detail={String(data?.introduction || "Name a hat when you want a particular working stance.")} /><SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleHats.length} noun="hat" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !visibleHats.length && <Empty>{filterQuery.trim() ? "No hats match the filter." : "No hats are available."}</Empty>}<div className="hat-grid">{visibleHats.map((hat, index) => <article className="hat-card" key={hat.id || index}><img className="hat-shape" src="/logo-outline-hat.svg" alt="" aria-hidden="true" /><h2>{textKey(hat, "title", "label", "name")}</h2><p>{textKey(hat, "description", "summary")}</p></article>)}</div></>;
+  return <><PageHeading eyebrow="Ways of working" title="Hats" detail={String(data?.introduction || "Name a hat when you want a particular working stance.")} /><SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={() => void reload()} searching={loading} count={visibleHats.length} noun="hat" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !visibleHats.length && <Empty>{filterQuery.trim() ? "No hats match the filter." : "No hats are available."}</Empty>}<div className="hat-grid">{visibleHats.map((hat, index) => <article className="hat-card" key={hat.id || index}><img className="hat-shape" src="/logo-outline-hat.svg" alt="" aria-hidden="true" /><h2>{textKey(hat, "title", "label", "name")}</h2><p>{textKey(hat, "description", "summary")}</p></article>)}</div></>;
 }
 
 function JournalScreen() {
-  const { data: trackers, error, loading, reload } = useApi<{ trackers: Entity[] }>("/api/journal-trackers?limit=200");
-  const { data: entries, error: entryError, loading: entriesLoading, reload: reloadEntries } = useApi<{ entries: Entity[] }>("/api/journal-entries?limit=100");
   const [filterQuery, setFilterQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
+  const journalParameters = new URLSearchParams({ limit: "500" });
+  if (serverQuery) journalParameters.set("q", serverQuery);
+  const { data: trackers, error, loading, reload } = useApi<{ trackers: Entity[] }>(`/api/journal-trackers?${journalParameters}`);
+  const { data: entries, error: entryError, loading: entriesLoading, reload: reloadEntries } = useApi<{ entries: Entity[] }>(`/api/journal-entries?${journalParameters}`);
   const journalTrackers = trackers?.trackers || [];
   const journalEntries = entries?.entries || [];
   const journalGroupOptions = useMemo(() => {
@@ -1736,9 +1816,14 @@ function JournalScreen() {
     return [...grouped.values()];
   }, [visibleEntries, visibleTrackers]);
   const reloadJournal = () => { void reload(); void reloadEntries(); };
+  const searchJournal = () => {
+    const nextQuery = filterQuery.trim();
+    if (nextQuery === serverQuery) reloadJournal();
+    else setServerQuery(nextQuery);
+  };
   return <>
     <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleCount} noun="result" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={!journalGroupOptions.length}>
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchJournal} searching={loading || entriesLoading} count={visibleCount} noun="result" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={!journalGroupOptions.length}>
       <option value="all">All groups</option>{journalGroupOptions.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}
     </SectionSelectFilter>} />
     {(loading || entriesLoading) && <Loading />}
@@ -1793,13 +1878,21 @@ function JournalScreen() {
 }
 
 function UsageScreen() {
-  const { data, error, loading, reload } = useApi<{ entries: Entity[]; current: Entity }>("/api/ai-usage?limit=10000");
   const [filterQuery, setFilterQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
+  const usageParameters = new URLSearchParams({ limit: "10000" });
+  if (serverQuery) usageParameters.set("q", serverQuery);
+  const { data, error, loading, reload } = useApi<{ entries: Entity[]; current: Entity }>(`/api/ai-usage?${usageParameters}`);
   const visibleEntries = (data?.entries || []).filter((entry) => matchesSearch(entry, filterQuery));
   const totals = useMemo(() => visibleEntries.reduce<{ calls: number; input: number; output: number }>(
     (result, entry) => ({ calls: result.calls + 1, input: result.input + Number(readKey(entry, "inputTokens", "input_tokens") || 0), output: result.output + Number(readKey(entry, "outputTokens", "output_tokens") || 0) }), { calls: 0, input: 0, output: 0 },
   ), [visibleEntries]);
-  return <><PageHeading eyebrow="Metered model work" title="AI Usage" detail={`${textKey(data?.current || {}, "transport")} · ${textKey(data?.current || {}, "model")}`} /><SectionFilter query={filterQuery} onChange={setFilterQuery} count={visibleEntries.length} noun="call" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="metric-grid"><article><span>Calls</span><strong>{totals.calls.toLocaleString()}</strong></article><article><span>Input tokens</span><strong>{totals.input.toLocaleString()}</strong></article><article><span>Output tokens</span><strong>{totals.output.toLocaleString()}</strong></article></div></>;
+  const searchUsage = () => {
+    const nextQuery = filterQuery.trim();
+    if (nextQuery === serverQuery) void reload();
+    else setServerQuery(nextQuery);
+  };
+  return <><PageHeading eyebrow="Metered model work" title="AI Usage" detail={`${textKey(data?.current || {}, "transport")} · ${textKey(data?.current || {}, "model")}`} /><SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchUsage} searching={loading} count={visibleEntries.length} noun="call" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="metric-grid"><article><span>Calls</span><strong>{totals.calls.toLocaleString()}</strong></article><article><span>Input tokens</span><strong>{totals.input.toLocaleString()}</strong></article><article><span>Output tokens</span><strong>{totals.output.toLocaleString()}</strong></article></div></>;
 }
 
 interface StripeConnectionStatus {

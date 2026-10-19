@@ -28,6 +28,14 @@ function requiredText(value, label, maximum) {
   return result;
 }
 
+function optionalSearch(value) {
+  const query = String(value ?? "").trim();
+  if (!query) return [];
+  if (query.length > 500) throw new Error("Video script query cannot exceed 500 characters");
+  return [...new Set(query.match(/[\p{L}\p{N}]+/gu) ?? [])].slice(0, 12).map((term) =>
+    `%${term.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
+}
+
 function requestId(value) {
   const result = String(value ?? "").trim();
   if (!result || result.length > 64 || /[\u0000-\u001f\u007f]/u.test(result)) {
@@ -310,16 +318,22 @@ export class VideoScripts {
     return publicScript(row, row ? this.#scriptSources(id) : [], row ? this.#latestRender(id) : null);
   }
 
-  list({ status = "draft", limit = 200 } = {}) {
+  list({ status = "draft", limit = 200, query = null } = {}) {
     if (!scriptStatuses.has(status)) throw new Error(`Unknown video script status: ${status}`);
     const boundedLimit = positiveInteger(limit, "Video script limit");
     if (boundedLimit > 500) throw new Error("Video script limit cannot exceed 500");
+    const conditions = status === "all" ? [] : ["status = ?"];
+    const values = status === "all" ? [] : [status];
+    for (const pattern of optionalSearch(query)) {
+      conditions.push(`(title LIKE ? ESCAPE '\\\\' OR script_text LIKE ? ESCAPE '\\\\' OR script_json LIKE ? ESCAPE '\\\\')`);
+      values.push(pattern, pattern, pattern);
+    }
     const rows = this.store.requireReady().prepare(`
       SELECT * FROM video_scripts
-      ${status === "all" ? "" : "WHERE status = ?"}
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       ORDER BY COALESCE(updated_at_utc, created_at_utc) DESC, video_script_id DESC
       LIMIT ?
-    `).all(...(status === "all" ? [boundedLimit] : [status, boundedLimit]));
+    `).all(...values, boundedLimit);
     const scripts = rows.map((row) => {
       const id = Number(row.video_script_id);
       return publicScript(row, this.#scriptSources(id), this.#latestRender(id));

@@ -196,7 +196,7 @@ export function RoutineScreen({ onGenerated }: {
   const matchingRoutineCount = (data?.routines || []).filter((routine) => matchesSearch(routine, filterQuery)).length;
   return <>
     <header className="page-heading"><div><p className="eyebrow">Reusable rhythms</p><h1>Routine</h1><p>Your daily and weekly rhythm, followed by routines tied to the month.</p></div><div className="heading-actions"><button className="button" type="button" onClick={() => setAdding(true)}>Add routine</button></div></header>
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} count={matchingRoutineCount} noun="routine" />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={() => void reload()} searching={loading} count={matchingRoutineCount} noun="routine" />
     <section className="surface routine-publish-panel">
       <div><p className="eyebrow">Populate the calendar</p><h2>Generate concrete events</h2><p>Choose a bounded week. Existing routine events will not be duplicated.</p></div>
       <div className="routine-publish-actions">

@@ -56,6 +56,7 @@ a { color: inherit; }
 .heading-actions { display: flex; align-items: end; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 .section-filter { display: flex; align-items: end; gap: 16px; margin: -12px 0 24px; padding: 14px 16px; }
 .section-filter-field { display: grid; flex: 1; gap: 6px; max-width: 680px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.section-filter-search { flex: 0 0 auto; }
 .section-filter-controls { display: flex; align-items: end; gap: 12px; }
 .section-filter-count { margin-left: auto; padding-bottom: 10px; color: var(--muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
 
@@ -800,6 +801,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .todo-group-meta { width: 100%; justify-content: space-between; }
   .section-filter { align-items: stretch; flex-direction: column; margin-top: -8px; }
   .section-filter-field { width: 100%; max-width: none; }
+  .section-filter-search { width: 100%; }
   .section-filter-controls { align-items: stretch; flex-direction: column; width: 100%; }
   .section-filter-count { margin-left: 0; padding-bottom: 0; }
   .journal-tracker-row, .journal-entry-row { grid-template-columns: 74px minmax(0, 1fr) auto; }

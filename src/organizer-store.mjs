@@ -52,6 +52,21 @@ function optionalText(value, label, maximum = 10_000) {
   return value.trim().slice(0, maximum) || null;
 }
 
+function searchPatterns(value, label = "query") {
+  const query = optionalText(value, label, 500);
+  if (!query) return [];
+  return [...new Set(query.match(/[\p{L}\p{N}]+/gu) ?? [])]
+    .slice(0, 12)
+    .map((term) => `%${term.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
+}
+
+function appendTermSearch(conditions, values, patterns, expressions) {
+  for (const pattern of patterns) {
+    conditions.push(`(${expressions.map((expression) => `${expression} LIKE ? ESCAPE '\\\\'`).join(" OR ")})`);
+    values.push(...expressions.map(() => pattern));
+  }
+}
+
 function httpUrl(value, label = "url") {
   const result = optionalText(value, label, 2048);
   if (result === null) return null;
@@ -1082,17 +1097,48 @@ export class OrganizerStore {
     return row;
   }
 
-  listContacts({ scope = "active", limit = 500 } = {}) {
+  listContacts({ scope = "active", limit = 500, query = null } = {}) {
     if (!new Set(["active", "all"]).has(scope)) {
       throw new OrganizerInputError("scope must be active or all.");
     }
     const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 10_000 });
+    const conditions = scope === "active" ? ["contact.status = 'active'"] : [];
+    const values = [];
+    const patterns = searchPatterns(query);
+    for (const pattern of patterns) {
+      conditions.push(`(
+        contact.display_name LIKE ? ESCAPE '\\\\'
+        OR contact.given_name LIKE ? ESCAPE '\\\\'
+        OR contact.family_name LIKE ? ESCAPE '\\\\'
+        OR contact.organization_name LIKE ? ESCAPE '\\\\'
+        OR contact.notes LIKE ? ESCAPE '\\\\'
+        OR contact.contact_kind LIKE ? ESCAPE '\\\\'
+        OR contact.status LIKE ? ESCAPE '\\\\'
+        OR CAST(contact.birth_date AS CHAR) LIKE ? ESCAPE '\\\\'
+        OR EXISTS (
+          SELECT 1 FROM contact_methods AS method
+          WHERE method.contact_id = contact.contact_id
+            AND (method.label LIKE ? ESCAPE '\\\\' OR method.value LIKE ? ESCAPE '\\\\')
+        )
+        OR EXISTS (
+          SELECT 1 FROM contacts_tags_join AS assignment
+          JOIN tags AS tag USING (tag_id)
+          WHERE assignment.record_type = 'contact'
+            AND assignment.record_id = CAST(contact.contact_id AS CHAR)
+            AND tag.label LIKE ? ESCAPE '\\\\'
+        )
+      )`);
+      values.push(
+        pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern,
+        pattern, pattern, pattern,
+      );
+    }
     const rows = this.database.prepare(`
-      SELECT * FROM contacts
-      ${scope === "active" ? "WHERE status = 'active'" : ""}
-      ORDER BY status <> 'active', display_name, contact_id
+      SELECT contact.* FROM contacts AS contact
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+      ORDER BY contact.status <> 'active', contact.display_name, contact.contact_id
       LIMIT ?
-    `).all(boundedLimit);
+    `).all(...values, boundedLimit);
     if (rows.length === 0) return [];
     const methodsByContact = new Map();
     const tagsByContact = new Map();
@@ -2024,16 +2070,21 @@ export class OrganizerStore {
     };
   }
 
-  listTodos({ scope = "active", limit = 500 } = {}) {
+  listTodos({ scope = "active", limit = 500, query = null } = {}) {
     const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 10_000 });
     if (!new Set(["active", "all", "completed"]).has(scope)) {
       throw new OrganizerInputError("scope must be active, completed, or all.");
     }
-    let where = scope === "active"
-      ? "WHERE task.status IN ('todo', 'ai_suggested')"
+    const conditions = scope === "active"
+      ? ["task.status IN ('todo', 'ai_suggested')"]
       : scope === "completed"
-        ? "WHERE task.status = 'complete'"
-        : "";
+        ? ["task.status = 'complete'"]
+        : [];
+    const values = [];
+    appendTermSearch(conditions, values, searchPatterns(query), [
+      "task.text", "task.status", "task.planning_prompt_text", "CAST(task.sequence AS CHAR)",
+      "todo_group.name", "related_contact.display_name",
+    ]);
     return this.database.prepare(`
       SELECT task.*, todo_group.name AS group_name,
              todo_group.archived_at_utc AS group_archived_at_utc,
@@ -2042,7 +2093,7 @@ export class OrganizerStore {
       FROM todo_personal AS task
       JOIN todo_groups AS todo_group USING (todo_group_id)
       LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
-      ${where}
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       ORDER BY
         todo_group.sort_position,
         todo_group.todo_group_id,
@@ -2051,7 +2102,7 @@ export class OrganizerStore {
         task.sort_position,
         task.personal_task_id
       LIMIT ?
-    `).all(boundedLimit).map(publicTodo);
+    `).all(...values, boundedLimit).map(publicTodo);
   }
 
   listTodoGroups({ includeArchived = false } = {}) {
@@ -2763,11 +2814,10 @@ export class OrganizerStore {
       conditions.push("content.content_status = ?");
       values.push(enumValue(status, contentStatuses, "status", "active"));
     }
-    const search = optionalText(query, "query", 500);
-    if (search) {
-      conditions.push("(content.title LIKE ? OR content.description LIKE ? OR content.transcript LIKE ?)");
-      values.push(`%${search}%`, `%${search}%`, `%${search}%`);
-    }
+    appendTermSearch(conditions, values, searchPatterns(query), [
+      "content.title", "content.description", "content.transcript", "content.content_status",
+      "content.content_type", "content_group.name",
+    ]);
     const boundedLimit = integer(limit, "limit", { fallback: 1000, minimum: 1, maximum: 5000 });
     return this.database.prepare(`
       SELECT content.*, content_group.name AS group_name,
@@ -3229,6 +3279,7 @@ export class OrganizerStore {
     groupId = null,
     includeArchived = false,
     limit = 200,
+    query = null,
     timeZone: timeZoneValue = null,
     localDate = null,
   } = {}) {
@@ -3242,6 +3293,9 @@ export class OrganizerStore {
       conditions.push("tracker.journal_group_id = ?");
       values.push(identifier(groupId, "journal group id"));
     }
+    appendTermSearch(conditions, values, searchPatterns(query), [
+      "tracker.name", "tracker.unit", "journal_group.name",
+    ]);
     const boundedLimit = integer(limit, "limit", { fallback: 200, minimum: 1, maximum: 500 });
     const trackerRows = this.database.prepare(`
       SELECT tracker.*, journal_group.name AS group_name,
@@ -3283,7 +3337,7 @@ export class OrganizerStore {
     }));
   }
 
-  listJournalEntries({ trackerId = null, groupId = null, limit = 200 } = {}) {
+  listJournalEntries({ trackerId = null, groupId = null, limit = 200, query = null } = {}) {
     const conditions = [];
     const values = [];
     if (trackerId != null && trackerId !== "") {
@@ -3294,6 +3348,9 @@ export class OrganizerStore {
       conditions.push("tracker.journal_group_id = ?");
       values.push(identifier(groupId, "journal group id"));
     }
+    appendTermSearch(conditions, values, searchPatterns(query), [
+      "entry.content_text", "CAST(entry.number_value AS CHAR)", "tracker.name", "tracker.unit", "journal_group.name",
+    ]);
     const boundedLimit = integer(limit, "limit", { fallback: 200, minimum: 1, maximum: 500 });
     return this.database.prepare(`
       SELECT entry.*, tracker.name AS tracker_name, tracker.journal_group_id,

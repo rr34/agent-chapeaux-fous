@@ -60,6 +60,14 @@ function publicFile(row) {
   };
 }
 
+function searchPatterns(value) {
+  const query = String(value ?? "").trim();
+  if (!query) return [];
+  if (query.length > 500) throw new Error("Search query cannot exceed 500 characters");
+  return [...new Set(query.match(/[\p{L}\p{N}]+/gu) ?? [])].slice(0, 12).map((term) =>
+    `%${term.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
+}
+
 const receivedEventTypes = ["request.received", "voice.request.received"];
 const responseEventTypes = ["assistant.response", "agent.turn.end"];
 const conversationTextEventTypes = [
@@ -1038,8 +1046,19 @@ export class Ledger {
     };
   }
 
-  modelUsage({ limit = 1000 } = {}) {
+  modelUsage({ limit = 1000, query = null } = {}) {
     const selectedLimit = Math.max(1, Math.min(10_000, Number.parseInt(String(limit), 10) || 1000));
+    const conditions = ["usage_event.event_type = 'model.usage'"];
+    const values = [];
+    for (const pattern of searchPatterns(query)) {
+      conditions.push(`(
+        usage_event.turn_id LIKE ? ESCAPE '\\\\'
+        OR usage_event.payload_json LIKE ? ESCAPE '\\\\'
+        OR response.actor_name LIKE ? ESCAPE '\\\\'
+        OR response.payload_json LIKE ? ESCAPE '\\\\'
+      )`);
+      values.push(pattern, pattern, pattern, pattern);
+    }
     const rows = this.store.requireReady().prepare(`
       SELECT usage_event.*, response.actor_name AS response_model,
              response.payload_json AS response_payload_json
@@ -1055,10 +1074,10 @@ export class Ledger {
            AND candidate.event_type = 'model.response'
            AND candidate.event_seq < usage_event.event_seq
        )
-      WHERE usage_event.event_type = 'model.usage'
+      WHERE ${conditions.join(" AND ")}
       ORDER BY usage_event.event_seq DESC
       LIMIT ?
-    `).all(selectedLimit);
+    `).all(...values, selectedLimit);
     return rows.map((row) => {
       const event = publicEvent(row);
       let responsePayload = {};
@@ -1204,13 +1223,28 @@ export class Ledger {
     };
   }
 
-  recentRequests(limit = 100) {
+  recentRequests(limit = 100, query = null) {
     const bounded = Math.min(200, Math.max(1, Number(limit) || 100));
+    const conditions = [`event_type IN (${placeholders(receivedEventTypes)})`];
+    const values = [...receivedEventTypes];
+    for (const pattern of searchPatterns(query)) {
+      conditions.push(`(
+        activity_events.content_text LIKE ? ESCAPE '\\\\'
+        OR activity_events.turn_id LIKE ? ESCAPE '\\\\'
+        OR EXISTS (
+          SELECT 1 FROM activity_events AS related
+          WHERE related.turn_id = activity_events.turn_id
+            AND related.event_type IN (${placeholders(responseEventTypes)})
+            AND related.content_text LIKE ? ESCAPE '\\\\'
+        )
+      )`);
+      values.push(pattern, pattern, ...responseEventTypes, pattern);
+    }
     const received = this.store.requireReady().prepare(`
       SELECT * FROM activity_events FORCE INDEX (activity_events_type)
-      WHERE event_type IN (${placeholders(receivedEventTypes)})
+      WHERE ${conditions.join(" AND ")}
       ORDER BY event_seq DESC LIMIT ?
-    `).all(...receivedEventTypes, bounded).map(publicEvent);
+    `).all(...values, bounded).map(publicEvent);
     const recentVideoRequests = this.#recentVideoRequests();
     return received.map((request) => this.#requestDetails(request, { recentVideoRequests }));
   }
@@ -1754,21 +1788,24 @@ export class Ledger {
       throw new Error("File list limit must be an integer from 1 to 500");
     }
     const selectedQuery = String(query ?? "").trim();
-    const pattern = `%${selectedQuery.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+    const conditions = [];
+    const values = [];
+    for (const pattern of searchPatterns(selectedQuery)) {
+      conditions.push(`(
+        file.title LIKE ? ESCAPE '\\\\'
+        OR file.description LIKE ? ESCAPE '\\\\'
+        OR file.original_filename LIKE ? ESCAPE '\\\\'
+        OR CAST(file.file_id AS CHAR) LIKE ? ESCAPE '\\\\'
+      )`);
+      values.push(pattern, pattern, pattern, pattern);
+    }
     const rows = this.store.requireReady().prepare(`
-      SELECT DISTINCT file.*
+      SELECT file.*
       FROM files AS file
-      LEFT JOIN activity_events AS event
-        ON event.primary_file_id = file.file_id
-       AND event.event_type IN ('request.received', 'voice.request.received')
-      WHERE ? = ''
-         OR file.title LIKE ? ESCAPE '\\\\'
-         OR file.description LIKE ? ESCAPE '\\\\'
-         OR file.original_filename LIKE ? ESCAPE '\\\\'
-         OR event.content_text LIKE ? ESCAPE '\\\\'
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       ORDER BY file.created_at_utc DESC, file.file_id DESC
       LIMIT ?
-    `).all(selectedQuery, pattern, pattern, pattern, pattern, bounded).map(publicFile);
+    `).all(...values, bounded).map(publicFile);
     return { query: selectedQuery || null, count: rows.length, files: rows };
   }
 

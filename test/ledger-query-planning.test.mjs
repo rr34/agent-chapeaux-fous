@@ -168,3 +168,29 @@ test("AI usage avoids the reserved usage alias and uses selective indexes", () =
   assert.match(calls[0].sql, /response FORCE INDEX \(activity_events_operation\)/u);
   assert.deepEqual(calls[0].parameters, [10]);
 });
+
+test("file listing searches every query term across durable server metadata", () => {
+  const calls = [];
+  const database = {
+    prepare(sql) {
+      return {
+        all(...parameters) {
+          calls.push({ sql, parameters });
+          return [];
+        },
+      };
+    },
+  };
+  const ledger = new Ledger({ requireReady: () => database });
+
+  assert.deepEqual(ledger.listFiles({ query: "Jobs customer", limit: 500 }).files, []);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /file\.original_filename LIKE \? ESCAPE/);
+  assert.match(calls[0].sql, /CAST\(file\.file_id AS CHAR\) LIKE \? ESCAPE/);
+  assert.equal((calls[0].sql.match(/file\.title LIKE \?/gu) ?? []).length, 2);
+  assert.deepEqual(calls[0].parameters, [
+    "%Jobs%", "%Jobs%", "%Jobs%", "%Jobs%",
+    "%customer%", "%customer%", "%customer%", "%customer%",
+    500,
+  ]);
+});

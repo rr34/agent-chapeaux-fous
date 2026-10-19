@@ -18,6 +18,9 @@ test("section filters require every query term while allowing terms in any field
 
 test("React sections share one consistent filter control", () => {
   assert.match(filterComponentSource, /placeholder="Type words in any order…"/);
+  assert.match(filterComponentSource, /<form className="section-filter surface"/);
+  assert.match(filterComponentSource, /onSubmit=\{\(event\) => \{ event\.preventDefault\(\); onSearch\(\); \}\}/);
+  assert.match(filterComponentSource, /\{searching \? "Searching…" : "Search"\}[\s\S]*<\/button>/);
   for (const screen of ["AgentScreen", "CalendarScreen", "TodoScreen", "ContactsScreen", "LibraryScreen", "VideoScriptsScreen", "FilesScreen", "GenericScreen", "HatsScreen", "JournalScreen", "UsageScreen"]) {
     const start = appSource.indexOf(`function ${screen}`);
     assert.notEqual(start, -1, `${screen} exists`);
@@ -25,6 +28,18 @@ test("React sections share one consistent filter control", () => {
     assert.match(appSource.slice(start, next < 0 ? undefined : next), /<SectionFilter /, `${screen} uses SectionFilter`);
   }
   assert.match(routineSource, /<SectionFilter /);
+});
+
+test("bounded section searches submit their query to server endpoints", () => {
+  assert.match(appSource, /`\/api\/files\?\$\{fileParameters\}`/);
+  assert.match(appSource, /fileParameters\.set\("query", serverQuery\)/);
+  assert.match(appSource, /`\/api\/todos\?\$\{todoParameters\}`/);
+  assert.match(appSource, /todoParameters\.set\("q", serverQuery\)/);
+  assert.match(appSource, /`\/api\/contacts\?\$\{contactParameters\}`/);
+  assert.match(appSource, /contactParameters\.set\("q", serverQuery\)/);
+  assert.match(appSource, /`\/api\/journal-entries\?\$\{journalParameters\}`/);
+  assert.match(appSource, /`\/api\/requests\?limit=200&q=\$\{encodeURIComponent\(serverQuery\)\}`/);
+  assert.match(appSource, /`\/api\/calendar-events\/search\?q=\$\{encodeURIComponent\(serverQuery\)\}&limit=200`/);
 });
 
 test("calendar filters highlight matching events without removing the calendar", () => {
