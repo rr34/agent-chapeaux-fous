@@ -99,7 +99,7 @@ const toolDescriptions = Object.freeze({
   "todo_list": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Search or read paginated batches of non-temporal native personal to-dos and linked content by task text, exact IDs, exact group-local sequence numbers, group, status, or completion date.",
+    "summary": "Search or read paginated batches of non-temporal native personal to-dos with their connected contacts and linked content by task text, exact IDs, exact group-local sequence numbers, group, status, or completion date.",
     "actionClasses": [
       "READ"
     ],
@@ -158,6 +158,18 @@ const linkedContentRecordSchema = {
   },
 };
 
+const relatedContactRecordSchema = {
+  type: ["object", "null"],
+  description: "The exact contact currently connected to this personal to-do, or null when it has no connected contact.",
+  properties: {
+    contact_id: { type: "integer", description: "Stable native contact primary ID." },
+    ref: { type: "string", description: "Stable Agent Slayer reference for this exact contact." },
+    display_name: { type: "string", description: "Preferred human-facing contact name." },
+    status: { type: "string", description: "Current address-book status. Inactive contacts describe a retained relationship but are not reusable action targets." },
+  },
+  required: ["contact_id", "ref", "display_name", "status"],
+};
+
 const todoTaskRecordSchema = {
   type: ["object", "null"],
   description: "One non-temporal item in the user's authoritative personal to-do list. Calendar events own schedules and deadlines.",
@@ -165,6 +177,7 @@ const todoTaskRecordSchema = {
     ...Object.fromEntries(todoFields.map((name) => [name, {}])),
     ref: { description: "Stable Agent Slayer reference for this exact personal to-do." },
     group_name: {},
+    related_contact: relatedContactRecordSchema,
     linked_content: { type: "array", items: linkedContentRecordSchema },
   },
 };
@@ -211,20 +224,39 @@ function linkedContentByTaskIds(database, taskIds) {
   return byTask;
 }
 
-function databaseTask(row, linkedContent = []) {
+function relatedContactsByIds(database, contactIds) {
+  const ids = [...new Set(contactIds.filter((id) => id != null).map(Number))];
+  if (!ids.length) return new Map();
+  const rows = database.prepare(`
+    SELECT contact_id, display_name, status
+    FROM contacts
+    WHERE contact_id IN (${ids.map(() => "?").join(", ")})
+  `).all(...ids);
+  return new Map(rows.map((row) => [Number(row.contact_id), {
+    contact_id: Number(row.contact_id),
+    ref: `agent-slayer://contacts/${Number(row.contact_id)}`,
+    display_name: row.display_name,
+    status: row.status,
+  }]));
+}
+
+function databaseTask(row, linkedContent = [], relatedContact = null) {
   if (!row) return null;
   return {
     ...selectedFields(row, todoFields),
     ref: `agent-slayer://todos/${Number(row.personal_task_id)}`,
     group_name: row.group_name,
+    related_contact: relatedContact,
     linked_content: linkedContent,
   };
 }
 
-function databaseTaskWithContent(database, row) {
+function databaseTaskWithRelationships(database, row) {
   if (!row) return null;
+  const relatedContacts = relatedContactsByIds(database, [row.related_contact_id]);
   return databaseTask(row, linkedContentByTaskIds(database, [row.personal_task_id])
-    .get(Number(row.personal_task_id)) ?? []);
+    .get(Number(row.personal_task_id)) ?? [],
+  relatedContacts.get(Number(row.related_contact_id)) ?? null);
 }
 
 function contentWithContext(database, contentId) {
@@ -347,7 +379,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_list",
-    description: "Search or read non-temporal native personal to-dos and their linked content-library items in one or more paginated queries. When the user names numbered items within a named group, such as Watch Jobs 11 and 12, use that exact group with sequences [11, 12]; sequence numbers are stable only within their owning group and are not personal task IDs. Use text_query for descriptive task-text lookup; query_id only correlates each query with its result and never searches data. When conversation supplies a candidate task ID, verify it with personal_task_ids and status null instead of scanning all open tasks. Use a null result_filter query because this tool applies its owned filters before returning task records. Schedules and deadlines are calendar events and are read with calendar tools.",
+    description: "Search or read non-temporal native personal to-dos with each task's complete connected-contact identity and linked content-library items in one or more paginated queries. Connected contacts and linked content are batch-enriched by this owning read; do not issue separate contact or database reads for them. When the user names numbered items within a named group, such as Watch Jobs 11 and 12, use that exact group with sequences [11, 12]; sequence numbers are stable only within their owning group and are not personal task IDs. Use text_query for descriptive task-text lookup; query_id only correlates each query with its result and never searches data. When conversation supplies a candidate task ID, verify it with personal_task_ids and status null instead of scanning all open tasks. Use a null result_filter query because this tool applies its owned filters before returning task records. Schedules and deadlines are calendar events and are read with calendar tools.",
     outputSchema: { type: "object", properties: {
       has_more: { type: "boolean" }, results: { type: "array", items: { type: "object", properties: {
         query_id: { type: "string" }, filters: { type: "object", properties: todoQueryFilterProperties },
@@ -359,11 +391,15 @@ export function registerTodoTools(registry, store, ledger) {
     async execute({ queries }) {
       const database = store.requireReady();
       const result = listTodoQueryPages(database, queries);
-      const linkedByTask = linkedContentByTaskIds(database, result.results
-        .flatMap((page) => page.tasks.map((task) => task.personal_task_id)));
+      const tasks = result.results.flatMap((page) => page.tasks);
+      const linkedByTask = linkedContentByTaskIds(database,
+        tasks.map((task) => task.personal_task_id));
+      const relatedContacts = relatedContactsByIds(database,
+        tasks.map((task) => task.related_contact_id));
       return { ...result, results: result.results.map((page) => ({
         ...page, tasks: page.tasks.map((task) => databaseTask(
           task, linkedByTask.get(Number(task.personal_task_id)) ?? [],
+          relatedContacts.get(Number(task.related_contact_id)) ?? null,
         )),
       })) };
     },
@@ -407,7 +443,7 @@ export function registerTodoTools(registry, store, ledger) {
           completed, input.planning_prompt_text?.trim() || null, context.requestEventId || null,
           input.billable_amount_minor ?? null, input.billable_currency ?? null);
         if (input.position != null) setTodoPosition(database, Number(inserted.personal_task_id), input.position);
-        const task = databaseTaskWithContent(database, taskWithContext(database, inserted.personal_task_id));
+        const task = databaseTaskWithRelationships(database, taskWithContext(database, inserted.personal_task_id));
         appendLedger(ledger, context, { type: "personal_todo.created", actorName: "todo_add",
           name: "Personal to-do created", content: task.text, payload: { task },
           subjectType: "personal_task", subjectId: String(task.personal_task_id) });
@@ -488,7 +524,7 @@ export function registerTodoTools(registry, store, ledger) {
           changed_count: planned.filter(({ changed }) => changed).length,
           unchanged_count: planned.filter(({ changed }) => !changed).length,
           results: planned,
-          tasks: taskIds.map((taskId) => databaseTaskWithContent(
+          tasks: taskIds.map((taskId) => databaseTaskWithRelationships(
             database, taskWithContext(database, taskId),
           )),
           contents: contentIds.map((contentId) => contentRows.get(contentId)),
@@ -520,7 +556,7 @@ export function registerTodoTools(registry, store, ledger) {
       database.exec("START TRANSACTION");
       try {
         const movement = setTodoPosition(database, id, position);
-        const task = databaseTaskWithContent(database, taskWithContext(database, id));
+        const task = databaseTaskWithRelationships(database, taskWithContext(database, id));
         appendLedger(ledger, context, { type: "personal_todo.repositioned", actorName: "todo_position_set",
           name: "Personal to-do repositioned", content: task.text, payload: { movement, task },
           subjectType: "personal_task", subjectId: String(id) });
@@ -660,7 +696,7 @@ export function registerTodoTools(registry, store, ledger) {
       database.exec("START TRANSACTION");
       try {
         const items = updates.map((input) => {
-          const before = databaseTaskWithContent(database, taskWithContext(database, input.personal_task_id));
+          const before = databaseTaskWithRelationships(database, taskWithContext(database, input.personal_task_id));
           if (!before) throw new Error(`To-do ${input.personal_task_id} does not exist`);
           const values = {};
           if (input.text != null) values.text = input.text.trim();
@@ -694,7 +730,7 @@ export function registerTodoTools(registry, store, ledger) {
           values.updated_at_utc = now;
           database.prepare(`UPDATE todo_personal SET ${Object.keys(values).map((key) => `\`${key}\` = ?`).join(", ")}
             WHERE personal_task_id = ?`).run(...Object.values(values), input.personal_task_id);
-          return { before, task: databaseTaskWithContent(
+          return { before, task: databaseTaskWithRelationships(
             database, taskWithContext(database, input.personal_task_id),
           ) };
         });

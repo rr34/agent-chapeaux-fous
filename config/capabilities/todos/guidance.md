@@ -37,6 +37,10 @@ supplies a candidate `#<id>`, verify it with `personal_task_ids` and with
 owning read but is not itself a binding for mutation. Use a null
 `result_filter.query` because `todo_list` applies its domain filters before
 returning records. Follow each `next_cursor` until the needed result is complete.
+Each returned task already includes the complete identity of its connected
+contact, when present, and its linked content. Use those related objects
+directly; never spend separate contact or generic-database tool calls resolving
+their IDs one at a time.
 `completed_date_range` filters the task's completion instant; there is no
 scheduled-date filter. Show stable task IDs as `#<id>` in user-facing lists and
 confirmations.

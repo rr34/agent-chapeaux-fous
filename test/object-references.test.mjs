@@ -290,6 +290,30 @@ test("a related native object never inherits the primary object's stable referen
   }]), []);
 });
 
+test("todo_list returns its connected contacts as complete reusable bindings", () => {
+  const groups = objectReferenceGroupsFromToolResult({
+    toolDefinition: { name: "todo_list", source: "local", capabilityId: "todos" },
+    result: { tasks: [{
+      personal_task_id: 364,
+      text: "Call Lucas",
+      ref: "agent-slayer://todos/364",
+      related_contact: {
+        contact_id: 578,
+        ref: "agent-slayer://contacts/578",
+        display_name: "Lucas Ruffing",
+        status: "active",
+      },
+    }] },
+    sourceEventSeq: 35531,
+  });
+
+  assert.deepEqual(groups.find(({ type }) => type === "contacts.contact").objects, [{
+    id: 578,
+    ref: "agent-slayer://contacts/578",
+    display: "Lucas Ruffing",
+  }]);
+});
+
 test("inactive contacts and their methods never become reusable object bindings", () => {
   const groups = objectReferenceGroupsFromToolResult({
     toolDefinition: { name: "contact_lookup_batch", source: "local", capabilityId: "contacts" },

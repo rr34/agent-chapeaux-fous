@@ -112,6 +112,44 @@ test("inactive contacts behave as deleted relationship targets", async (context)
   `).get(created.task.personal_task_id).related_contact_id, activeId);
 });
 
+test("to-do reads return complete connected-contact identities for the batch", async (context) => {
+  const { store, registry, toolContext } = harness(context);
+  const database = store.requireReady();
+  const firstContactId = Number(database.prepare(`
+    INSERT INTO contacts (display_name, status) VALUES ('First Person', 'active')
+    RETURNING contact_id
+  `).get().contact_id);
+  const secondContactId = Number(database.prepare(`
+    INSERT INTO contacts (display_name, status) VALUES ('Second Person', 'active')
+    RETURNING contact_id
+  `).get().contact_id);
+  const first = await registry.execute("todo_add", {
+    text: "Call first", todo_group_id: 1, status: "todo",
+    related_contact_id: firstContactId, planning_prompt_text: null, position: null,
+  }, toolContext);
+  const second = await registry.execute("todo_add", {
+    text: "Call second", todo_group_id: 1, status: "todo",
+    related_contact_id: secondContactId, planning_prompt_text: null, position: null,
+  }, toolContext);
+
+  const listed = await registry.execute("todo_list", { queries: [{
+    query_id: "connected", group: null, status: null,
+    personal_task_ids: [first.task.personal_task_id, second.task.personal_task_id], limit: 20,
+  }] });
+
+  assert.deepEqual(listed.results[0].tasks.map(({ related_contact: contact }) => contact), [{
+    contact_id: secondContactId,
+    ref: `agent-slayer://contacts/${secondContactId}`,
+    display_name: "Second Person",
+    status: "active",
+  }, {
+    contact_id: firstContactId,
+    ref: `agent-slayer://contacts/${firstContactId}`,
+    display_name: "First Person",
+    status: "active",
+  }]);
+});
+
 test("to-do text lookup returns an exact terminal task instead of an open-task dump", async (context) => {
   const { registry, toolContext } = harness(context);
   const created = await registry.execute("todo_add", {

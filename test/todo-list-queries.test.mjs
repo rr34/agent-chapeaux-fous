@@ -11,18 +11,24 @@ const task = (id, overrides = {}) => ({
   sequence: null, sort_position: 100, text: `Task ${id}`, ...overrides,
 });
 
-function fixture(pages = []) {
+function fixture(pages = [], contactRows = []) {
   const reads = [];
+  const contactReads = [];
   const database = { prepare(sql) {
     return { all(...parameters) {
       if (/FROM todo_content_join AS relation/u.test(sql)) return [];
+      if (/FROM contacts/u.test(sql)) {
+        contactReads.push({ sql, parameters });
+        return contactRows;
+      }
       reads.push({ sql, parameters });
       return pages.shift() ?? [];
     } };
   } };
   const registry = new ToolRegistry();
   registerTodoTools(registry, { requireReady: () => database }, {});
-  return { registry, reads, execute: queries => registry.execute("todo_list", { queries }) };
+  return { registry, reads, contactReads,
+    execute: queries => registry.execute("todo_list", { queries }) };
 }
 
 test("todo_list accepts only bounded query batches and validates the full batch before reading", async () => {
@@ -65,6 +71,24 @@ test("group-local sequence lookup resolves numbered tasks without treating seque
   assert.match(reads[0].sql, /task\.sequence IN \(\?, \?\)/u);
   assert.doesNotMatch(reads[0].sql, /status NOT IN/u);
   assert.deepEqual(reads[0].parameters, ["Watch Jobs", 11, 12, 3]);
+});
+
+test("todo_list resolves every distinct connected contact in one bounded batch read", async () => {
+  const { execute, contactReads } = fixture([[
+    task(131, { related_contact_id: 41 }),
+    task(132, { related_contact_id: 42 }),
+    task(133, { related_contact_id: 41 }),
+  ]], [{ contact_id: 41, display_name: "First Person", status: "active" },
+    { contact_id: 42, display_name: "Second Person", status: "active" }]);
+
+  const result = await execute([query({ limit: 20 })]);
+
+  assert.equal(contactReads.length, 1);
+  assert.match(contactReads[0].sql, /contact_id IN \(\?, \?\)/u);
+  assert.deepEqual(contactReads[0].parameters, [41, 42]);
+  assert.deepEqual(result.results[0].tasks.map(({ related_contact: contact }) => (
+    [contact.contact_id, contact.display_name]
+  )), [[41, "First Person"], [42, "Second Person"], [41, "First Person"]]);
 });
 
 test("task-text lookup searches owned task records and includes terminal matches", async () => {
