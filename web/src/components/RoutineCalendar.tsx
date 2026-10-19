@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { api } from "../api";
-import { formatDisplayTime, formatLocalDate } from "../date-format";
+import { formatLocalDate } from "../date-format";
 import { localToday, useApi } from "../hooks";
 import type {
   CalendarDay,
@@ -114,14 +114,6 @@ function monthlyRoutineDays(
     .map((occurrence) => occurrenceEvent(occurrence, routines)), representativeMonth));
 }
 
-function recurrenceLabel(rule: string) {
-  const frequency = routineFrequency(rule);
-  if (!frequency) return "Recurring";
-  const interval = Number(/(?:^|;)INTERVAL=(\d+)/i.exec(rule)?.[1] || 1);
-  const name = frequency.toLowerCase().replace(/ly$/, "");
-  return interval === 1 ? `${name[0].toUpperCase()}${name.slice(1)}ly` : `Every ${interval} ${name}s`;
-}
-
 function RoutineAgenda({ day, routines, query, onChanged }: {
   day?: CalendarDay;
   routines: Map<number, CalendarRoutine>;
@@ -135,8 +127,7 @@ function RoutineAgenda({ day, routines, query, onChanged }: {
     {visibleEvents.map((event) => {
       const routine = routines.get(Number(event.id));
       if (!routine) return null;
-      const timeLabel = `${event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, event.timeZone || undefined)} · ${recurrenceLabel(routine.recurrenceRule)}`;
-      return <CalendarRoutineItem key={`${event.id}-${event.startsAtUtc}`} routine={routine} timeLabel={timeLabel} onChanged={onChanged} />;
+      return <CalendarRoutineItem key={`${event.id}-${event.startsAtUtc}`} routine={routine} onChanged={onChanged} />;
     })}
   </div>;
 }

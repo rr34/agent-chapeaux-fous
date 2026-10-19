@@ -119,6 +119,8 @@ a { color: inherit; }
 .calendar-event-card { border-color: #8f9788; }
 .calendar-event-card .first-class-object-label,
 .calendar-event-card .compact-object-identity > span:first-child { display: none; }
+.calendar-routine-card .first-class-object-label,
+.calendar-routine-card .compact-object-identity > span:first-child { display: none; }
 .calendar-event-card .first-class-object-content { grid-template-columns: minmax(9rem, .8fr) minmax(0, 1.4fr); align-items: start; column-gap: 18px; }
 .calendar-event-card .first-class-object-title { grid-column: 1; }
 .calendar-event-card .first-class-object-body { grid-column: 2; margin: 0; }

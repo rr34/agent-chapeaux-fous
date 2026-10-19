@@ -544,9 +544,8 @@ export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
   </EditorFrame>;
 }
 
-export function CalendarRoutineItem({ routine, timeLabel, onChanged }: {
+export function CalendarRoutineItem({ routine, onChanged }: {
   routine: CalendarRoutine;
-  timeLabel: string;
   onChanged?: Changed;
 }) {
   const [editing, setEditing] = useState(false);
@@ -554,12 +553,12 @@ export function CalendarRoutineItem({ routine, timeLabel, onChanged }: {
   const editable = Boolean(onChanged && Number.isSafeInteger(id) && id > 0);
   return <>
     <CalendarRoutineCard
+      routine={routine}
       mode="compact"
       object={{
         id, type: "calendar.routine", label: "Calendar routine", display: routine.title,
         body: routine.description,
         attributes: [
-          { label: "When", value: timeLabel },
           ...(routine.location ? [{ label: "Where", value: routine.location }] : []),
           { label: "Repeats", value: routine.recurrenceRule },
         ],

@@ -85,6 +85,19 @@ test("calendar event cards keep notes and event details behind the shared expans
   assert.match(styles, /\.calendar-event-card \.first-class-object-body \{[^}]*-webkit-line-clamp: 2;[^}]*font-size: 11px;/s);
 });
 
+test("calendar routine cards own event-style timing and omit the redundant type heading", () => {
+  const routine = fs.readFileSync(path.join(cardsRoot, "CalendarRoutineCard.tsx"), "utf8");
+  const editable = fs.readFileSync(path.join(root, "web/src/components/EditableItems.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
+  assert.match(routine, /routine\?: CalendarRoutine/);
+  assert.match(routine, /calendarEventTiming\(props\.routine, props\.timeZone\)/);
+  assert.match(routine, /topEdge=\{timing \? <time className="calendar-event-time calendar-event-time--start"/);
+  assert.match(routine, /bottomEdge=\{timing\?\.end \? <time className="calendar-event-time calendar-event-time--end"/);
+  assert.match(editable, /<CalendarRoutineCard[\s\S]*routine=\{routine\}/);
+  assert.doesNotMatch(editable, /\{ label: "When", value: timeLabel \}/);
+  assert.match(styles, /\.calendar-routine-card \.first-class-object-label,[\s\S]*\.calendar-routine-card \.compact-object-identity > span:first-child \{ display: none; \}/);
+});
+
 test("sequenced to-dos and library items own one prominent marker in full and compact cards", () => {
   const todo = fs.readFileSync(path.join(cardsRoot, "TodoCard.tsx"), "utf8");
   const library = fs.readFileSync(path.join(cardsRoot, "LibraryItemCard.tsx"), "utf8");
