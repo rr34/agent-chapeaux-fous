@@ -16,6 +16,11 @@ test("the React Agent conversation renders sanitized Markdown responses", () => 
   assert.match(markdown, /markdownRenderer\.image =/);
   assert.doesNotMatch(markdown, /"img"/);
   assert.match(markdown, /link\.rel = "noopener noreferrer"/);
+  assert.match(markdown, /import \{ downloadAuthenticated \} from "\.\.\/api"/);
+  assert.match(markdown, /\^\\\/api\\\/files\\\/\\d\+\\\/download\$/);
+  assert.match(markdown, /url\.origin !== window\.location\.origin/);
+  assert.match(markdown, /event\.preventDefault\(\)/);
+  assert.match(markdown, /downloadAuthenticated\(downloadPath/);
   assert.match(styles, /\.request-response-markdown pre/);
   assert.match(styles, /\.request-response-markdown table/);
 });
