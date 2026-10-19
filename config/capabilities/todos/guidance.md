@@ -42,8 +42,13 @@ contact, when present, and its linked content. Use those related objects
 directly; never spend separate contact or generic-database tool calls resolving
 their IDs one at a time.
 `completed_date_range` filters the task's completion instant; there is no
-scheduled-date filter. Show stable task IDs as `#<id>` in user-facing lists and
-confirmations.
+scheduled-date filter. For an unsequenced group, show the stable task ID as
+`#<id>` in user-facing lists and confirmations. For a sequenced group, use the
+group-local sequence as the primary user-facing number and keep it paired with
+the group name so it cannot be mistaken for a personal task ID. Whenever
+`todo_add` returns a non-null `task.sequence`, the completion response must
+include that sequence number and the returned `task.group_name`; never present
+the `personal_task_id` as the group's sequence number.
 
 Some groups use stable group-local sequence numbers as their user-facing item
 numbers. When the user names numbered items within an exact group, resolve them

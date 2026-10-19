@@ -175,8 +175,10 @@ const todoTaskRecordSchema = {
   description: "One non-temporal item in the user's authoritative personal to-do list. Calendar events own schedules and deadlines.",
   properties: {
     ...Object.fromEntries(todoFields.map((name) => [name, {}])),
+    personal_task_id: { description: "Stable database identity for this to-do. It is not the group-local sequence number." },
+    sequence: { description: "Stable user-facing number within the owning group, or null when that group is not sequenced." },
     ref: { description: "Stable Agent Slayer reference for this exact personal to-do." },
-    group_name: {},
+    group_name: { description: "Human-facing name of the owning to-do group." },
     related_contact: relatedContactRecordSchema,
     linked_content: { type: "array", items: linkedContentRecordSchema },
   },
@@ -407,7 +409,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_add",
-    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. New items default to the top of their group unless an explicit position is supplied. It may carry a fixed billable amount in minor currency units. To place work or a deadline on the calendar, create a calendar event and link it to the to-do.",
+    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. New items default to the top of their group unless an explicit position is supplied. It may carry a fixed billable amount in minor currency units. To place work or a deadline on the calendar, create a calendar event and link it to the to-do. When the returned task has a non-null sequence, report that group-local sequence together with group_name in the completion response; personal_task_id is a different database identity.",
     outputSchema: { type: "object", properties: { task: todoTaskRecordSchema } },
     parameters: { type: "object", additionalProperties: false, properties: {
       text: { type: "string", minLength: 1, maxLength: 10000 },

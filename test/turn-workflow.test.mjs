@@ -240,6 +240,72 @@ test("the normal mutation path is one common-sense call plus execution and skips
   assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
 
+test("sequenced to-do creation responses include the group-local sequence from the receipt", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("todos").register({
+    name: "todo_add",
+    description: "Add one to-do and return its database ID and optional group-local sequence.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        text: { type: "string" },
+        todo_group_id: { type: "integer" },
+      },
+      required: ["text", "todo_group_id"],
+    },
+    async execute({ text, todo_group_id }) {
+      return {
+        created: true,
+        task: {
+          personal_task_id: 433,
+          todo_group_id,
+          sequence: "167",
+          group_name: "Watch Jobs",
+          text,
+          ref: "agent-slayer://todos/433",
+        },
+      };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          objective: "Add a sequenced Watch Jobs to-do.",
+          conversationSummary: "The user wants one Watch Jobs to-do created.",
+          actions: [{ instruction: "Add the Watch Jobs to-do.", targetRefs: [] }],
+          capabilities: ["todos"],
+        })));
+      }
+      assert.equal(index, 1);
+      const result = await payload.onToolCall({
+        callId: "add-watch-job",
+        tool: "todo_add",
+        arguments: { text: "Remove watch links", todo_group_id: 10 },
+      });
+      assert.equal(result.ok, true);
+      return completed("Added **#433** to **Watch Jobs**.", 30);
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-add-watch-job",
+    requestEventId: "event-current",
+    text: "Add a Watch Jobs to-do.",
+  }), "Added **#433** to **Watch Jobs**.\n\nSequence number: **Watch Jobs #167**.");
+  assert.equal(requests.length, 2);
+  assert.match(ledger.events.find(({ name, phase }) => name === "Execute request" && phase === "end").content,
+    /Sequence number: \*\*Watch Jobs #167\*\*/u);
+});
+
 test("a requested context view supplies observed bindings directly to execution", async () => {
   const requests = [];
   const ledger = fakeLedger({

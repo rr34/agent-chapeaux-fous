@@ -1,4 +1,5 @@
 import { SimpleObjectCard } from "./SimpleObjectCard";
+import { contactMonogram } from "./contact-monogram";
 import { attributeValue, type ObjectCardProps } from "./types";
 
 export function ContactCard(props: ObjectCardProps) {
@@ -13,7 +14,7 @@ export function ContactCard(props: ObjectCardProps) {
   return <SimpleObjectCard
     {...props}
     className={`contact-card${inactive ? " is-inactive" : ""}${props.className ? ` ${props.className}` : ""}`}
-    leading={<div className="contact-monogram" aria-hidden="true">{object.display.slice(0, 2).toUpperCase()}</div>}
+    leading={<div className="contact-monogram" aria-hidden="true">{contactMonogram(object.display)}</div>}
     actions={actions}
   />;
 }

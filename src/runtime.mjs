@@ -221,6 +221,36 @@ function receiptAttemptKey(receipt) {
   return toolAttemptKey(receipt?.tool, argumentsObject);
 }
 
+function regexEscape(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function responseWithCreatedTodoSequences(response, receipts) {
+  const text = String(response ?? "").trim();
+  const sequencedTasks = new Map();
+  for (const receipt of receipts ?? []) {
+    if (receipt?.tool !== "todo_add" || receipt.ok !== true) continue;
+    const task = receipt.result?.task;
+    const sequence = String(task?.sequence ?? "").trim();
+    if (!/^\d+$/u.test(sequence)) continue;
+    const groupName = String(task?.group_name ?? "").trim();
+    const key = `${groupName}\n${sequence}`;
+    sequencedTasks.set(key, { groupName, sequence });
+  }
+  const missing = [...sequencedTasks.values()].filter(({ sequence }) => {
+    const number = regexEscape(sequence);
+    return !new RegExp(`(?:#\\s*${number}\\b|\\bsequence(?:\\s+number)?\\s*(?:is|:|#)?\\s*${number}\\b)`, "iu").test(text);
+  });
+  if (missing.length === 0) return text;
+  const references = missing.map(({ groupName, sequence }) => (
+    `**${groupName ? `${groupName} ` : ""}#${sequence}**`
+  ));
+  const sequenceNotice = missing.length === 1
+    ? `Sequence number: ${references[0]}.`
+    : ["Sequence numbers:", ...references.map((reference) => `- ${reference}`)].join("\n");
+  return text ? `${text}\n\n${sequenceNotice}` : sequenceNotice;
+}
+
 function recentToolReceiptIndex(ledger, recentConversation, maximumReceipts = 16) {
   if (typeof ledger?.toolReceiptList !== "function") return [];
   const requestIds = [...new Set(
@@ -2457,7 +2487,7 @@ export class SlayerRuntime {
       });
     }
     return {
-      text: result.text,
+      text: responseWithCreatedTodoSequences(result.text, sameRequestReceipts),
       result,
       receipts: sameRequestReceipts,
       actionReferences: generatedActionReferences,

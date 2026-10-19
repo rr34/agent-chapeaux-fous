@@ -53,6 +53,10 @@ test("native to-do contracts are entirely non-temporal", () => {
   }
   assert.equal(schemaProblem({ created: true, task: { personal_task_id: 1, text: "Call Ruby" } },
     tools.todo_add.outputSchema), null);
+  assert.match(tools.todo_add.description, /non-null sequence/u);
+  assert.match(tools.todo_add.description, /personal_task_id is a different database identity/u);
+  assert.match(tools.todo_add.outputSchema.properties.task.properties.sequence.description,
+    /user-facing number within the owning group/u);
 });
 
 test("to-dos can be created, listed, and completed without calendar fields", async (context) => {
