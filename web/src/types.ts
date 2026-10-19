@@ -212,6 +212,15 @@ export interface SelectedObjectCandidate {
   selectionOrigin?: "card" | "mention";
 }
 
+export interface PersistedObjectCandidate {
+  mention: string;
+  type: string;
+  source: string;
+  id: number | string;
+  ref: string;
+  display: string;
+}
+
 export interface NetworkObject {
   type: string;
   source: string;
@@ -256,6 +265,7 @@ export interface RequestRecord {
   submittedAtMs?: number;
   elapsedMs?: number | null;
   attachedObjectCount?: number;
+  selectedObjectCandidates?: PersistedObjectCandidate[];
   progress?: RequestProgress | null;
   usage?: RequestUsage | null;
   turnBriefApproval?: {

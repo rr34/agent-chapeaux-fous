@@ -11,6 +11,19 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 53: Finish relationship join-table names
+
+Renames `payment_invoice_line_receipts` to
+`payment_invoice_line_receipts_join` and `correspondence_participants` to
+`correspondence_participants_join`. The rename preserves every relationship
+row, index, check, and foreign key; it does not add the deferred correspondence
+mutation tools.
+
+The matching application requires schema version 53. Apply with writers
+stopped because payment and correspondence readers must switch table names with
+the schema. MariaDB DDL commits implicitly; after a partial failure, keep
+writers stopped and replay the guarded migration.
+
 ## Version 52: Attach receipts to invoice lines
 
 Adds a payment-owned association from each invoice line to at most one durable

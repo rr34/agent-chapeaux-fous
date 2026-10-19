@@ -348,7 +348,7 @@ export function commonSenseExecutionInstructions(
 ) {
   return [
     "# Accepted common-sense core",
-    "Carry out the ordinary-language objective below. The requested outcome, exact bound targets, and explicit constraints remain authoritative. Tool results are authoritative for current facts. When current evidence contradicts a factual premise in the request, explain the discrepancy and use the evidenced current scope; never fabricate missing records or silently replace an exact bound set or explicitly requested historical snapshot. Handle each action completely and use bulk tools for batch targets when available.",
+    "Carry out the ordinary-language objective below. The requested outcome, exact bound targets, and explicit constraints remain authoritative. Tool results are authoritative for current facts. When current evidence contradicts a factual premise in the request, explain the discrepancy and use the evidenced current scope; never fabricate missing records or silently replace an exact bound set or explicitly requested historical snapshot. Handle each action completely and use bulk tools for batch targets when available. A successful owning-domain read is sufficient evidence for facts it returned: do not use generic database, schema, or receipt tools to rediscover, validate, recount, or reinterpret those same facts. Use those generic reads only for a specific required fact absent from the current owning result. For non-completeness-sensitive bulk analysis, project read results to the needed fields with result_filter, including nested dot paths, and retain the correlation and pagination fields needed to judge completeness.",
     JSON.stringify(core, null, 2),
     "",
     "# Verified object bindings",

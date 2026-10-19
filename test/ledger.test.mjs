@@ -92,6 +92,33 @@ test("one-shot run limits persist on the queued request event", () => {
   }
 });
 
+test("request records retain exact composer object selections for display", () => {
+  const temporary = temporaryDatabase();
+  const store = new SlayerDatabase(temporary.target);
+  const ledger = new Ledger(store);
+  try {
+    const selection = {
+      mention: "@Watch Jobs customer export — File #100",
+      type: "files.file",
+      source: "native:files",
+      id: 100,
+      ref: "agent-slayer://files/100",
+      display: "Watch Jobs customer export",
+    };
+    ledger.createRequest({
+      text: `Inspect ${selection.mention}.`,
+      metadata: { selectedObjectCandidates: [selection] },
+    });
+
+    const request = ledger.recentRequests()[0];
+    assert.deepEqual(request.selectedObjectCandidates, [selection]);
+    assert.equal(request.attachedObjectCount, 1);
+  } finally {
+    store.close();
+    temporary.cleanup();
+  }
+});
+
 test("a pending TurnBrief review is public and cancellation is terminal", () => {
   const temporary = temporaryDatabase();
   const store = new SlayerDatabase(temporary.target);

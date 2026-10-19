@@ -22,7 +22,7 @@ const toolDescriptions = Object.freeze({
   "todo_content_link_set": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Link or unlink one exact personal to-do and one exact content-library item.",
+    "summary": "Atomically link or unlink up to 500 exact personal to-do and content-library item pairs.",
     "actionClasses": [
       "UPDATE"
     ],
@@ -419,52 +419,91 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_content_link_set",
-    description: "Link or unlink one exact existing personal to-do and one exact existing content-library item. This changes only their association; it does not modify, move, complete, or delete either parent record.",
+    description: "Atomically link or unlink one through 500 exact existing personal to-do and content-library item pairs. The complete batch is validated before any association changes. This changes only the requested associations; it does not modify, move, complete, or delete either parent record.",
     outputSchema: { type: "object", properties: {
-      changed: { type: "boolean", description: "False when this exact association was already in the requested state." },
-      linked: { type: "boolean" },
-      task: todoTaskRecordSchema,
-      content: linkedContentRecordSchema,
-    }, required: ["changed", "linked", "task", "content"] },
+      selected_count: { type: "integer", minimum: 1 },
+      changed_count: { type: "integer", minimum: 0 },
+      unchanged_count: { type: "integer", minimum: 0 },
+      results: { type: "array", items: { type: "object", properties: {
+        personal_task_id: { type: "integer" }, content_id: { type: "integer" },
+        linked: { type: "boolean" }, changed: { type: "boolean" },
+      }, required: ["personal_task_id", "content_id", "linked", "changed"] } },
+      tasks: { type: "array", items: todoTaskRecordSchema },
+      contents: { type: "array", items: linkedContentRecordSchema },
+    }, required: ["selected_count", "changed_count", "unchanged_count", "results", "tasks", "contents"] },
     parameters: { type: "object", additionalProperties: false, properties: {
-      personal_task_id: { type: "integer", minimum: 1, description: "Existing personal to-do ID from an authoritative to-do read." },
-      content_id: { type: "integer", minimum: 1, description: "Existing content-library item ID from an authoritative content read." },
-      linked: { type: "boolean", description: "True creates the association; false removes only this exact association." },
-    }, required: ["personal_task_id", "content_id", "linked"] },
-    async execute({ personal_task_id: taskId, content_id: contentId, linked }, context) {
+      links: { type: "array", minItems: 1, maxItems: 500, items: {
+        type: "object", additionalProperties: false, properties: {
+          personal_task_id: { type: "integer", minimum: 1, description: "Existing personal to-do ID from an authoritative to-do read." },
+          content_id: { type: "integer", minimum: 1, description: "Existing content-library item ID from an authoritative content read." },
+          linked: { type: "boolean", description: "True creates the association; false removes only this exact association." },
+        }, required: ["personal_task_id", "content_id", "linked"],
+      } },
+    }, required: ["links"] },
+    async execute({ links }, context) {
       const database = store.requireReady();
+      const edgeKeys = links.map(({ personal_task_id: taskId, content_id: contentId }) => `${taskId}:${contentId}`);
+      if (new Set(edgeKeys).size !== edgeKeys.length) {
+        throw new Error("Duplicate to-do/content pair in link batch");
+      }
       database.exec("START TRANSACTION");
       try {
-        const taskRow = taskWithContext(database, taskId);
-        if (!taskRow) throw new Error(`To-do ${taskId} does not exist`);
-        const content = contentWithContext(database, contentId);
-        if (!content) throw new Error(`Content item ${contentId} does not exist`);
-        let changed = false;
-        if (linked) {
-          changed = database.prepare(`
+        const taskIds = [...new Set(links.map(({ personal_task_id: taskId }) => taskId))];
+        const contentIds = [...new Set(links.map(({ content_id: contentId }) => contentId))];
+        for (const taskId of taskIds) {
+          const task = taskWithContext(database, taskId);
+          if (!task) throw new Error(`To-do ${taskId} does not exist`);
+        }
+        const contentRows = new Map(contentIds.map((contentId) => {
+          const content = contentWithContext(database, contentId);
+          if (!content) throw new Error(`Content item ${contentId} does not exist`);
+          return [contentId, content];
+        }));
+        const existing = database.prepare(`SELECT 1 AS linked FROM todo_content_join
+          WHERE personal_task_id = ? AND content_id = ?`);
+        const planned = links.map((link) => ({
+          ...link,
+          changed: Boolean(existing.get(link.personal_task_id, link.content_id)) !== link.linked,
+        }));
+        const insert = database.prepare(`
             INSERT IGNORE INTO todo_content_join (personal_task_id, content_id)
             VALUES (?, ?)
-          `).run(taskId, contentId).changes > 0;
-        } else {
-          changed = database.prepare(`
+          `);
+        const remove = database.prepare(`
             DELETE FROM todo_content_join
             WHERE personal_task_id = ? AND content_id = ?
-          `).run(taskId, contentId).changes > 0;
+          `);
+        for (const link of planned.filter(({ changed }) => changed)) {
+          (link.linked ? insert : remove).run(link.personal_task_id, link.content_id);
         }
-        if (changed) database.prepare(`
+        const changedTaskIds = [...new Set(planned.filter(({ changed }) => changed)
+          .map(({ personal_task_id: taskId }) => taskId))];
+        const touchTask = database.prepare(`
           UPDATE todo_personal SET updated_at_utc = ? WHERE personal_task_id = ?
-        `).run(new Date().toISOString(), taskId);
-        const task = databaseTaskWithContent(database, taskWithContext(database, taskId));
+        `);
+        const now = new Date().toISOString();
+        for (const taskId of changedTaskIds) touchTask.run(now, taskId);
+        const result = {
+          selected_count: planned.length,
+          changed_count: planned.filter(({ changed }) => changed).length,
+          unchanged_count: planned.filter(({ changed }) => !changed).length,
+          results: planned,
+          tasks: taskIds.map((taskId) => databaseTaskWithContent(
+            database, taskWithContext(database, taskId),
+          )),
+          contents: contentIds.map((contentId) => contentRows.get(contentId)),
+        };
         appendLedger(ledger, context, {
-          type: linked ? "personal_todo.content_linked" : "personal_todo.content_unlinked",
+          type: "personal_todo.content_links_set",
           actorName: "todo_content_link_set",
-          name: linked ? "Content linked to personal to-do" : "Content unlinked from personal to-do",
-          content: `${task.text}: ${content.content_title}`,
-          payload: { changed, linked, task, content },
-          subjectType: "personal_task", subjectId: String(taskId),
+          name: "Personal to-do content links set",
+          content: `${result.changed_count} of ${result.selected_count} requested content links changed`,
+          payload: result,
+          subjectType: taskIds.length === 1 ? "personal_task" : "personal_task_batch",
+          subjectId: taskIds.length === 1 ? String(taskIds[0]) : String(taskIds.length),
         });
         database.exec("COMMIT");
-        return { changed, linked, task, content };
+        return result;
       } catch (error) { database.exec("ROLLBACK"); throw error; }
     },
   });

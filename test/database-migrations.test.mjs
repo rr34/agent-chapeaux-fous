@@ -16,6 +16,7 @@ import {
   readCurrentSchemaVersion,
   runDatabaseMigrations,
   joinTableRenames,
+  relationshipTableRenames,
 } from "../scripts/migrate-database.mjs";
 import { requiredEnumColumns } from "../src/database.mjs";
 
@@ -23,6 +24,29 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   const label = String(version).padStart(4, "0");
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
+
+test("relationship join rename integrity rejects legacy or missing destinations", async () => {
+  const expected = Object.values(relationshipTableRenames)
+    .map((TABLE_NAME) => ({ TABLE_NAME, TABLE_TYPE: "BASE TABLE" }));
+  let rows = expected;
+  const connection = { async query(sql, parameters) {
+    assert.match(sql, /^SELECT TABLE_NAME, TABLE_TYPE/u);
+    assert.equal(parameters[0], "test_database");
+    return [rows];
+  } };
+  await assertMigrationSpecificIntegrity(connection, { version: 53 }, "test_database");
+  for (const broken of [
+    expected.slice(1),
+    [...expected, { TABLE_NAME: "payment_invoice_line_receipts", TABLE_TYPE: "BASE TABLE" }],
+    expected.map((row) => ({ ...row, TABLE_TYPE: "VIEW" })),
+  ]) {
+    rows = broken;
+    await assert.rejects(
+      assertMigrationSpecificIntegrity(connection, { version: 53 }, "test_database"),
+      /Migration 0053/u,
+    );
+  }
+});
 
 test("daily-paper group pin integrity requires a default-false column and check", async () => {
   const validColumn = [{
@@ -371,11 +395,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
-  for (let current = 29; current <= 52; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53]);
+  for (let current = 29; current <= 53; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 52 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 53 - current }, (_, index) => current + index + 1),
     );
   }
 });

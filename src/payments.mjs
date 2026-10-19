@@ -504,7 +504,7 @@ export class PaymentService {
         receipt.file_id AS receipt_file_id, receipt.display_name_snapshot AS receipt_display_name,
         receipt.mime_type_snapshot AS receipt_mime_type, receipt.sha256_snapshot AS receipt_sha256
       FROM payment_invoice_lines line
-      LEFT JOIN payment_invoice_line_receipts receipt USING (payment_invoice_line_id)
+      LEFT JOIN payment_invoice_line_receipts_join receipt USING (payment_invoice_line_id)
       WHERE line.payment_invoice_id = ? ORDER BY line.line_position`).all(id);
     return {
       invoiceId: Number(row.payment_invoice_id), ref: `agent-slayer://payment-invoices/${Number(row.payment_invoice_id)}`,
@@ -898,7 +898,7 @@ export class PaymentService {
       }
       const existingReceiptRows = this.database.prepare(`SELECT line.line_position, receipt.file_id,
           receipt.display_name_snapshot, receipt.mime_type_snapshot, receipt.sha256_snapshot
-        FROM payment_invoice_line_receipts receipt
+        FROM payment_invoice_line_receipts_join receipt
         JOIN payment_invoice_lines line USING (payment_invoice_line_id)
         WHERE line.payment_invoice_id = ? ORDER BY line.line_position FOR UPDATE`).all(invoiceId);
       const receiptsByPosition = new Map(existingReceiptRows.map((receipt) => [Number(receipt.line_position), {
@@ -1032,9 +1032,9 @@ export class PaymentService {
         }
       }
       if (receiptUpdates.length) {
-        const deleteReceipt = this.database.prepare(`DELETE FROM payment_invoice_line_receipts
+        const deleteReceipt = this.database.prepare(`DELETE FROM payment_invoice_line_receipts_join
           WHERE payment_invoice_line_id = ?`);
-        const upsertReceipt = this.database.prepare(`INSERT INTO payment_invoice_line_receipts
+        const upsertReceipt = this.database.prepare(`INSERT INTO payment_invoice_line_receipts_join
           (payment_invoice_line_id,file_id,display_name_snapshot,mime_type_snapshot,sha256_snapshot)
           VALUES (?,?,?,?,?)
           ON DUPLICATE KEY UPDATE file_id=VALUES(file_id),display_name_snapshot=VALUES(display_name_snapshot),

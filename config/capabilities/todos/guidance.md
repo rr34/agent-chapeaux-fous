@@ -56,8 +56,8 @@ connection.
 
 When a to-do needs supporting or related material from the content library,
 resolve the exact to-do with `todo_list` and the exact library item with
-`video_content_list`, preserving both bindings. Use `todo_content_link_set` to
-add or remove only that association. One to-do may link to many content items,
+`video_content_list`, preserving both bindings. Use one `todo_content_link_set`
+call containing every intended pair to add or remove those associations atomically. One to-do may link to many content items,
 and one content item may link to many to-dos. Linking never moves, completes,
 edits, or deletes either parent record.
 

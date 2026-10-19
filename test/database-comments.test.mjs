@@ -16,7 +16,7 @@ function catalog(database) {
     "catch_up_questions",
     "todo_correspondence_join",
     "calendar_events_correspondence_join",
-    "payment_invoice_line_receipts",
+    "payment_invoice_line_receipts_join",
   ]);
   const isInstant = (name) => name.endsWith("_at_utc")
     || ["ask_after", "resolved_at", "routine_occurrence_key"].includes(name);
@@ -65,7 +65,7 @@ test("comment migration preserves mechanics and rows, supports replay, and expos
     connectionSettings: temporary.target.connection,
     backupConfirmed: true, writersStopped: true, output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53]);
   assert.deepEqual(catalog(database), before);
   assert.deepEqual(database.prepare("SELECT * FROM files").all(), rows);
   await verifyDatabase(database);
@@ -74,7 +74,7 @@ test("comment migration preserves mechanics and rows, supports replay, and expos
   restoreLegacyJoinTableNames(database);
   restorePre46JournalTableNames(database);
   database.exec("UPDATE database_meta SET schema_version = 34 WHERE singleton = 1");
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53]);
   assert.deepEqual(catalog(database), before);
   const store = new SlayerDatabase(temporary.target);
   context.after(() => store.close());

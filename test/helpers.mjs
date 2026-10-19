@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { MariaDatabaseSync } from "../src/mariadb-sync.mjs";
 import { baselineFilename } from "../scripts/agent-schema.mjs";
-import { joinTableRenames } from "../scripts/migrate-database.mjs";
+import { joinTableRenames, relationshipTableRenames } from "../scripts/migrate-database.mjs";
 import {
   databaseConnectionFromEnvironment,
   parseMariaDbScript,
@@ -14,9 +14,16 @@ import {
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
 export function baselineBeforeInvoiceLineReceipts(source) {
-  return source
+  return baselineBeforeRelationshipJoinRenames(source)
     .replace(/CREATE TABLE payment_invoice_line_receipts \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
     .replace("VALUES (1, 52,", "VALUES (1, 51,");
+}
+
+export function baselineBeforeRelationshipJoinRenames(source) {
+  for (const [previous, current] of Object.entries(relationshipTableRenames)) {
+    source = source.replaceAll(current, previous);
+  }
+  return source.replace("VALUES (1, 53,", "VALUES (1, 52,");
 }
 
 export function baselineBeforeIncompleteInvoiceDrafts(source) {
@@ -121,7 +128,10 @@ export function baselineBeforeNativeDateTime(source) {
 
 // Historical replay tests must restore the table names used by their SQL.
 export function restoreLegacyJoinTableNames(database) {
-  for (const [previous, current] of Object.entries(joinTableRenames)) {
+  for (const [previous, current] of Object.entries({
+    ...joinTableRenames,
+    ...relationshipTableRenames,
+  })) {
     const exists = database.prepare(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`).get(current);
     if (exists) database.exec(`RENAME TABLE ${current} TO ${previous}`);

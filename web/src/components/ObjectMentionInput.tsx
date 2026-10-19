@@ -3,7 +3,9 @@ import {
   useEffect, useMemo, useState,
 } from "react";
 import { api } from "../api";
-import type { ObjectSearchCandidate, SelectedObjectCandidate } from "../types";
+import type {
+  ObjectSearchCandidate, PersistedObjectCandidate, SelectedObjectCandidate,
+} from "../types";
 import { descriptiveObjectMention, maximumObjectReferences } from "../object-references";
 
 const groupOrder = [
@@ -24,11 +26,13 @@ interface ActiveMention {
   query: string;
 }
 
-interface MentionSegment {
+type MentionSelection = Pick<SelectedObjectCandidate, "mention" | "ref" | "display">;
+
+interface MentionSegment<T extends MentionSelection = MentionSelection> {
   start: number;
   end: number;
   text: string;
-  selection?: SelectedObjectCandidate;
+  selection?: T;
 }
 
 interface MentionPopover {
@@ -71,8 +75,11 @@ function submissionCandidate(candidate: ObjectSearchCandidate): SelectedObjectCa
   };
 }
 
-function mentionSegments(value: string, selections: SelectedObjectCandidate[]) {
-  const matches: MentionSegment[] = [];
+function mentionSegments<T extends MentionSelection>(
+  value: string,
+  selections: T[],
+) {
+  const matches: MentionSegment<T>[] = [];
   for (const selection of selections) {
     let offset = 0;
     while (offset < value.length) {
@@ -89,7 +96,7 @@ function mentionSegments(value: string, selections: SelectedObjectCandidate[]) {
     }
   }
   matches.sort((left, right) => left.start - right.start || right.end - left.end);
-  const segments: MentionSegment[] = [];
+  const segments: MentionSegment<T>[] = [];
   let cursor = 0;
   for (const match of matches) {
     if (match.start < cursor) continue;
@@ -101,6 +108,24 @@ function mentionSegments(value: string, selections: SelectedObjectCandidate[]) {
   }
   if (cursor < value.length) segments.push({ start: cursor, end: value.length, text: value.slice(cursor) });
   return segments;
+}
+
+export function ObjectMentionText({
+  value, selections,
+}: {
+  value: string;
+  selections: PersistedObjectCandidate[];
+}) {
+  const segments = mentionSegments(value, selections);
+  return <>{segments.map((segment) => segment.selection
+    ? <span
+      className="mention-inline-token request-object-reference"
+      key={`${segment.selection.ref}-${segment.start}`}
+      title={`${segment.selection.display} · selected object`}
+    >
+      {segment.text}
+    </span>
+    : <span key={`text-${segment.start}`}>{segment.text}</span>)}</>;
 }
 
 export function ObjectMentionInput({

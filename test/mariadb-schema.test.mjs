@@ -68,7 +68,7 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 52", () => {
+test("the authoritative MariaDB baseline is complete at schema version 53", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 37);
@@ -133,22 +133,34 @@ test("the authoritative MariaDB baseline is complete at schema version 52", () =
   assert.match(invoiceLinesTable, /line_source = 'todo' AND personal_task_id IS NOT NULL[\s\S]*line_source = 'manual' AND personal_task_id IS NULL/u);
   assert.match(invoiceLinesTable, /amount_minor_snapshot\s+BIGINT UNSIGNED NOT NULL DEFAULT 0/u);
   assert.match(invoiceLinesTable, /payment_invoice_lines_amount CHECK \(amount_minor_snapshot >= 0\)/u);
-  const invoiceLineReceiptsTable = statements.find((statement) => statement.startsWith("CREATE TABLE payment_invoice_line_receipts "));
+  const invoiceLineReceiptsTable = statements.find((statement) => statement.startsWith("CREATE TABLE payment_invoice_line_receipts_join "));
   assert.ok(invoiceLineReceiptsTable);
   assert.match(invoiceLineReceiptsTable, /PRIMARY KEY \(payment_invoice_line_id\)/u);
   assert.match(invoiceLineReceiptsTable, /KEY payment_invoice_line_receipts_file \(file_id, payment_invoice_line_id\)/u);
   assert.match(invoiceLineReceiptsTable, /REFERENCES files\(file_id\) ON DELETE RESTRICT/u);
+  assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE correspondence_participants_join ")));
+  assert.doesNotMatch(source, /CREATE TABLE (?:payment_invoice_line_receipts|correspondence_participants)\s*\(/u);
   for (const retired of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
     assert.doesNotMatch(todoTable, new RegExp(`\\b${retired}\\b`, "u"));
   }
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 52, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 53, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
   );
+});
+
+test("the relationship-table rename migration finishes the join naming invariant", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 53);
+  assert.equal(migration.label, "0053:finish-relationship-join-table-names");
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.match(migration.sql, /RENAME TABLE payment_invoice_line_receipts TO payment_invoice_line_receipts_join/u);
+  assert.match(migration.sql, /RENAME TABLE correspondence_participants TO correspondence_participants_join/u);
+  assert.doesNotMatch(migration.sql, /^\s*(?:UPDATE|DELETE|TRUNCATE)\b/gimu);
 });
 
 test("the invoice-line receipt migration adds only the constrained receipt relationship", () => {

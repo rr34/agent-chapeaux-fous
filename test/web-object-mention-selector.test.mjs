@@ -51,6 +51,13 @@ test("selected identities render as inline objects with hover details", () => {
   assert.match(references, /maximumObjectReferences = 500/);
 });
 
+test("submitted request text retains exact selected-object formatting", () => {
+  assert.match(app, /ObjectMentionText value=\{request\.request\} selections=\{request\.selectedObjectCandidates \|\| \[\]\}/);
+  assert.match(app, /selectedObjectCandidates,/);
+  assert.match(picker, /className="mention-inline-token request-object-reference"/);
+  assert.match(picker, /title=\{`\$\{segment\.selection\.display\} · selected object`\}/);
+});
+
 test("the composer retains its cursor when an external reference control takes focus", () => {
   assert.match(picker, /onSelectionChange: \(selection: \{ start: number; end: number \}\) => void/);
   assert.match(picker, /onSelect=\{\(event\) => onSelectionChange/);

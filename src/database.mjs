@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 52;
+export const requiredDatabaseSchemaVersion = 53;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -30,7 +30,7 @@ export const requiredDatabaseShape = {
   ],
   jmap_email_sync_state: ["source_account_key", "email_state", "synchronized_at_utc"],
   correspondence_files_join: ["correspondence_id", "file_id", "attachment_role"],
-  correspondence_participants: [
+  correspondence_participants_join: [
     "correspondence_id", "participant_role", "contact_id", "contact_method_id",
     "address_value", "display_name",
   ],
@@ -89,7 +89,7 @@ export const requiredDatabaseShape = {
     "payment_invoice_line_id", "payment_invoice_id", "line_source", "personal_task_id", "line_position",
     "description_snapshot", "amount_minor_snapshot", "created_at_utc",
   ],
-  payment_invoice_line_receipts: [
+  payment_invoice_line_receipts_join: [
     "payment_invoice_line_id", "file_id", "display_name_snapshot", "mime_type_snapshot",
     "sha256_snapshot", "created_at_utc",
   ],
@@ -158,7 +158,7 @@ export const requiredEnumColumns = {
     call_disposition: ["answered", "missed"],
   },
   correspondence_files_join: { attachment_role: ["attachment", "inline", "recording", "other"] },
-  correspondence_participants: { participant_role: ["from", "to", "cc", "bcc", "reply_to", "sender", "recipient"] },
+  correspondence_participants_join: { participant_role: ["from", "to", "cc", "bcc", "reply_to", "sender", "recipient"] },
 };
 
 // Focused native domains own every current application table. Generic model

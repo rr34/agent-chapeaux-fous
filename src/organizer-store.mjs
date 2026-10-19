@@ -3663,62 +3663,116 @@ export class OrganizerStore {
     return event ? attachCalendarEventLinks(this.database, [event])[0] : null;
   }
 
-  changeCalendarEventContactLink(idValue, input, context = {}) {
-    const id = identifier(idValue, "calendar event id");
-    const contactId = identifier(input?.contactId, "contact id");
-    const role = enumValue(input?.participantRole,
-      new Set(["organizer", "attendee", "customer", "other"]), "participantRole", "other");
-    if (typeof input?.linked !== "boolean") throw new OrganizerInputError("linked must be a boolean.");
-    const event = this.getCalendar(id);
-    if (!event) throw new OrganizerInputError("Calendar event not found.", 404);
-    if (event.recurrenceRule) {
-      throw new OrganizerInputError("Link a contact to a concrete event occurrence, not a recurring series.", 409);
+  changeCalendarEventContactLinks(input, context = {}) {
+    if (!Array.isArray(input?.links) || input.links.length < 1 || input.links.length > 500) {
+      throw new OrganizerInputError("links must contain between 1 and 500 event/contact relationships.");
     }
-    if (input.linked) {
-      const contact = this.getContact(contactId);
-      if (!contact) throw new OrganizerInputError("Contact not found.", 404);
-      if (contact.status !== "active") throw new OrganizerInputError("Only active contacts can be linked to an event.", 409);
+    const links = input.links.map((link) => ({
+      calendarEventId: identifier(link?.calendarEventId, "calendar event id"),
+      contactId: identifier(link?.contactId, "contact id"),
+      participantRole: enumValue(link?.participantRole,
+        new Set(["organizer", "attendee", "customer", "other"]), "participantRole", "other"),
+      linked: link?.linked,
+    }));
+    if (links.some(({ linked }) => typeof linked !== "boolean")) {
+      throw new OrganizerInputError("Every link needs a boolean linked value.");
     }
-    const existing = this.database.prepare(`
-      SELECT contact_id FROM calendar_event_contacts_join
-      WHERE calendar_event_id = ? AND contact_id = ? AND participant_role = ?
-    `).get(id, contactId, role);
-    if (Boolean(existing) === input.linked) return { changed: false, event };
+    const keys = links.map(({ calendarEventId, contactId, participantRole }) => (
+      `${calendarEventId}:${contactId}:${participantRole}`
+    ));
+    if (new Set(keys).size !== keys.length) {
+      throw new OrganizerInputError("Duplicate event/contact/role relationship in link batch.");
+    }
     this.database.exec("START TRANSACTION");
     try {
-      if (input.linked) {
-        this.database.prepare(`
+      const events = new Map();
+      const existing = this.database.prepare(`SELECT contact_id FROM calendar_event_contacts_join
+        WHERE calendar_event_id = ? AND contact_id = ? AND participant_role = ?`);
+      const planned = links.map((link) => {
+        let event = events.get(link.calendarEventId);
+        if (!event) {
+          event = this.getCalendar(link.calendarEventId);
+          if (!event) throw new OrganizerInputError("Calendar event not found.", 404);
+          if (event.recurrenceRule) {
+            throw new OrganizerInputError("Link a contact to a concrete event occurrence, not a recurring series.", 409);
+          }
+          events.set(link.calendarEventId, event);
+        }
+        if (link.linked) {
+          const contact = this.getContact(link.contactId);
+          if (!contact) throw new OrganizerInputError("Contact not found.", 404);
+          if (contact.status !== "active") {
+            throw new OrganizerInputError("Only active contacts can be linked to an event.", 409);
+          }
+        }
+        return {
+          ...link,
+          changed: Boolean(existing.get(
+            link.calendarEventId, link.contactId, link.participantRole,
+          )) !== link.linked,
+        };
+      });
+      const insert = this.database.prepare(`
           INSERT INTO calendar_event_contacts_join
             (calendar_event_id, contact_id, participant_role)
           VALUES (?, ?, ?)
-        `).run(id, contactId, role);
-      } else {
-        this.database.prepare(`
+        `);
+      const remove = this.database.prepare(`
           DELETE FROM calendar_event_contacts_join
           WHERE calendar_event_id = ? AND contact_id = ? AND participant_role = ?
-        `).run(id, contactId, role);
+        `);
+      for (const link of planned.filter(({ changed }) => changed)) {
+        (link.linked ? insert : remove).run(
+          link.calendarEventId, link.contactId, link.participantRole,
+        );
       }
-      const previousVersionMs = new Date(event.version).getTime();
-      const updatedAt = new Date(Math.max(Date.now(), previousVersionMs + 1)).toISOString();
-      this.database.prepare(`
+      const changedEventIds = [...new Set(planned.filter(({ changed }) => changed)
+        .map(({ calendarEventId }) => calendarEventId))];
+      const touchEvent = this.database.prepare(`
         UPDATE calendar_events SET updated_at_utc = ? WHERE calendar_event_id = ?
-      `).run(updatedAt, id);
-      this.#activity({
-        eventType: input.linked ? "calendar.event.contact_link_added" : "calendar.event.contact_link_removed",
-        status: "complete",
-        name: input.linked ? "Calendar event contact linked" : "Calendar event contact unlinked",
-        subjectType: "calendar_event", subjectId: id, contentText: event.title,
-        payload: { calendarEventId: id, contactId, participantRole: role },
-        actorType: context.actorType ?? "user", actorName: context.actorName ?? "Nate",
-        source: context.source ?? "tailnet_web", channel: context.channel ?? "tailnet_web",
-        turnId: context.requestId ?? null, operationId: context.callId ?? null,
-      });
+      `);
+      for (const eventId of changedEventIds) {
+        const event = events.get(eventId);
+        const previousVersionMs = new Date(event.version).getTime();
+        touchEvent.run(new Date(Math.max(Date.now(), previousVersionMs + 1)).toISOString(), eventId);
+      }
+      for (const link of planned.filter(({ changed }) => changed)) {
+        this.#activity({
+          eventType: link.linked ? "calendar.event.contact_link_added" : "calendar.event.contact_link_removed",
+          status: "complete",
+          name: link.linked ? "Calendar event contact linked" : "Calendar event contact unlinked",
+          subjectType: "calendar_event", subjectId: link.calendarEventId,
+          contentText: events.get(link.calendarEventId).title,
+          payload: { calendarEventId: link.calendarEventId, contactId: link.contactId,
+            participantRole: link.participantRole },
+          actorType: context.actorType ?? "user", actorName: context.actorName ?? "Nate",
+          source: context.source ?? "tailnet_web", channel: context.channel ?? "tailnet_web",
+          turnId: context.requestId ?? null, operationId: context.callId ?? null,
+        });
+      }
+      const result = {
+        selectedCount: planned.length,
+        changedCount: planned.filter(({ changed }) => changed).length,
+        unchangedCount: planned.filter(({ changed }) => !changed).length,
+        results: planned,
+        events: [...events.keys()].map((eventId) => this.getCalendar(eventId)),
+      };
       this.database.exec("COMMIT");
-      return { changed: true, event: this.getCalendar(id) };
+      return result;
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  changeCalendarEventContactLink(idValue, input, context = {}) {
+    const result = this.changeCalendarEventContactLinks({ links: [{
+      calendarEventId: idValue,
+      contactId: input?.contactId,
+      participantRole: input?.participantRole,
+      linked: input?.linked,
+    }] }, context);
+    return { changed: result.results[0].changed, event: result.events[0] };
   }
 
   setCalendarEventTodoLinks(idValue, input, context = {}) {

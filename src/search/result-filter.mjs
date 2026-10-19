@@ -1,6 +1,6 @@
 const protocol = "agent-slayer.search-data";
 const protocolVersion = 1;
-const protectedField = /(?:^id$|_id$|Id$|^objectType$|^name$|^title$|^status$|^version$|^(?:source_)?occurrence_key$|Ref$|_ref$)/u;
+const protectedField = /(?:^id$|_id$|Id$|^objectType$|^name$|^title$|^status$|^version$|^(?:source_)?occurrence_key$|^ref$|Ref$|_ref$)/u;
 
 export const readResultFilterSchema = {
   type: "object",
@@ -22,12 +22,12 @@ export const readResultFilterSchema = {
     include_fields: {
       type: "array", maxItems: 100, uniqueItems: true,
       items: { type: "string", minLength: 1, maxLength: 200 },
-      description: "Top-level collection-item fields to retain. Stable identity and reference fields are retained automatically. Empty keeps all fields.",
+      description: "Collection-item fields to retain. Use dot-separated paths such as tasks.text for fields nested in objects or arrays; array traversal is automatic. Stable identity and reference fields are retained automatically at every projected level. Empty keeps all fields.",
     },
     exclude_fields: {
       type: "array", maxItems: 100, uniqueItems: true,
       items: { type: "string", minLength: 1, maxLength: 200 },
-      description: "Top-level collection-item fields to remove, except protected identity and reference fields.",
+      description: "Collection-item fields to remove. Use dot-separated paths for nested object or array fields. Protected identity and reference fields are never removed.",
     },
     max_items: {
       type: "integer", minimum: 1, maximum: 10000,
@@ -152,15 +152,46 @@ function queryMatches(value, query, mode) {
     : terms.every((term) => candidate.includes(term));
 }
 
-function projectedItem(value, includeFields, excludeFields, protectedFields) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const include = new Set(includeFields);
-  const exclude = new Set(excludeFields);
-  return Object.fromEntries(Object.entries(value).filter(([field]) => {
-    if (protectedField.test(field) || protectedFields.has(field)) return true;
-    if (exclude.has(field)) return false;
-    return include.size === 0 || include.has(field);
+function fieldPaths(fields) {
+  return fields.map((field) => field.split(".").filter(Boolean));
+}
+
+function projectedValue(value, includePaths, excludePaths, protectedFields, restrict) {
+  if (Array.isArray(value)) {
+    return value.map((item) => projectedValue(
+      item, includePaths, excludePaths, protectedFields, restrict,
+    ));
+  }
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(Object.entries(value).flatMap(([field, entry]) => {
+    const protectedEntry = protectedField.test(field) || protectedFields.has(field);
+    const includes = includePaths.filter(([head]) => head === field);
+    const excludes = excludePaths.filter(([head]) => head === field);
+    const includedExactly = includes.some((path) => path.length === 1);
+    const excludedExactly = excludes.some((path) => path.length === 1);
+    const nestedIncludes = includes.filter((path) => path.length > 1).map((path) => path.slice(1));
+    const nestedExcludes = excludes.filter((path) => path.length > 1).map((path) => path.slice(1));
+
+    if (excludedExactly && !protectedEntry) return [];
+    if (restrict && !protectedEntry && !includedExactly && nestedIncludes.length === 0) return [];
+
+    const shouldRestrictEntry = restrict && !includedExactly;
+    const projected = nestedIncludes.length || nestedExcludes.length || shouldRestrictEntry
+      ? projectedValue(entry, nestedIncludes, nestedExcludes, protectedFields, shouldRestrictEntry)
+      : entry;
+    return [[field, projected]];
   }));
+}
+
+function projectedItem(value, includeFields, excludeFields, protectedFields) {
+  return projectedValue(
+    value,
+    fieldPaths(includeFields),
+    fieldPaths(excludeFields),
+    protectedFields,
+    includeFields.length > 0,
+  );
 }
 
 function omitDuplicateResourceLinks(value) {

@@ -139,6 +139,11 @@ export const joinTableRenames = {
   correspondence_files: "correspondence_files_join",
 };
 
+export const relationshipTableRenames = {
+  payment_invoice_line_receipts: "payment_invoice_line_receipts_join",
+  correspondence_participants: "correspondence_participants_join",
+};
+
 async function assertVersion30Integrity(connection, databaseName) {
   const [columns] = await connection.query(
     `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
@@ -155,7 +160,8 @@ async function assertVersion30Integrity(connection, databaseName) {
       const qualifiedName = `${tableName}.${fieldName}`;
       // Historical enum validation also runs before migration 0044 renames
       // these tables. The latest schema is checked separately by inspection.
-      const legacyName = Object.entries(joinTableRenames).find(([, current]) => current === tableName)?.[0];
+      const legacyName = Object.entries({ ...joinTableRenames, ...relationshipTableRenames })
+        .find(([, current]) => current === tableName)?.[0];
       const actualValues = actualByName.get(qualifiedName)
         ?? (legacyName ? actualByName.get(`${legacyName}.${fieldName}`) : undefined);
       const historicallyValidValues = qualifiedName === "todo_personal.status"
@@ -319,6 +325,17 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 53) {
+    const names = Object.entries(relationshipTableRenames).flat();
+    const [rows] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${names.map(() => "?").join(", ")})`, [databaseName, ...names]);
+    const tables = new Map(rows.map((row) => [row.TABLE_NAME, row.TABLE_TYPE]));
+    for (const [previous, current] of Object.entries(relationshipTableRenames)) {
+      if (tables.has(previous) || tables.get(current) !== "BASE TABLE") {
+        throw new Error(`Migration 0053 must rename ${previous} to ${current}`);
+      }
+    }
+  }
   if (migration.version === 52) {
     const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'payment_invoice_line_receipts'`, [databaseName]);

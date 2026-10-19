@@ -16,12 +16,12 @@ range. Preserve an exact user-supplied question about event time that still need
 in nullable `planning_prompt_text`. Do not treat that prompt as the event title,
 description, or a separate scheduled action.
 
-Associate an existing contact with a concrete calendar event using
-`calendar_event_contact_link_set` after resolving the contact ID. Use the `other`
+Associate existing contacts with concrete calendar events using one
+`calendar_event_contact_link_set` call containing every intended pair after resolving the contact IDs. Use the `other`
 role when the user only asks to mark an event with a contact; this records a
 neutral association and does not imply an invitation or response. Use the named
 organizer, attendee, or customer roles only when the request supports them.
-The tool can also remove one exact contact-role association. It does not send
+The tool can also remove exact contact-role associations in the same atomic batch. It does not send
 an invitation or change any to-do. Calendar reads return linked contacts.
 
 Calendar events are the sole owner of all scheduled times and deadlines. Place

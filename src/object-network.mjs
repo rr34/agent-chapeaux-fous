@@ -296,7 +296,7 @@ export class ObjectNetworkService {
         ...read(`SELECT personal_task_id AS id FROM payment_invoice_lines
           WHERE payment_invoice_id = ? AND personal_task_id IS NOT NULL ORDER BY line_position LIMIT 101`, id)
           .map((row) => edge("todos.personal_task", row.id, "invoice-line")),
-        ...read(`SELECT DISTINCT receipt.file_id AS id FROM payment_invoice_line_receipts receipt
+        ...read(`SELECT DISTINCT receipt.file_id AS id FROM payment_invoice_line_receipts_join receipt
           JOIN payment_invoice_lines line USING (payment_invoice_line_id)
           WHERE line.payment_invoice_id = ? ORDER BY receipt.file_id LIMIT 101`, id)
           .map((row) => edge("files.file", row.id, "invoice-line-receipt"))] : [];
@@ -346,7 +346,7 @@ export class ObjectNetworkService {
       ...read(`SELECT content_id AS id FROM content_items
         WHERE primary_file_id = ? ORDER BY content_id DESC LIMIT 101`, id)
         .map((row) => edge("video.content_item", row.id, "content-file")),
-      ...read(`SELECT DISTINCT line.payment_invoice_id AS id FROM payment_invoice_line_receipts receipt
+      ...read(`SELECT DISTINCT line.payment_invoice_id AS id FROM payment_invoice_line_receipts_join receipt
         JOIN payment_invoice_lines line USING (payment_invoice_line_id)
         WHERE receipt.file_id = ? ORDER BY line.payment_invoice_id DESC LIMIT 101`, id)
         .map((row) => edge("payments.invoice", row.id, "invoice-line-receipt")),
@@ -462,7 +462,7 @@ export class ObjectNetworkService {
       const todo = selected.left.type === "todos.personal_task" ? selected.left : selected.right;
       const content = selected.left.type === "video.content_item" ? selected.left : selected.right;
       await this.registry.execute("todo_content_link_set", {
-        personal_task_id: todo.id, content_id: content.id, linked,
+        links: [{ personal_task_id: todo.id, content_id: content.id, linked }],
       }, { ...context, channel: context.channel ?? "web" });
     } else {
       throw new OrganizerInputError("Those object types do not have a simple direct connection.", 409);

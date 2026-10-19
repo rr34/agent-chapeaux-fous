@@ -20,7 +20,7 @@ const toolDescriptions = Object.freeze({
   "calendar_event_contact_link_set": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Link or unlink an existing contact on one concrete calendar event with an explicit role. A neutral association uses other; no invitation is sent and no to-do is changed.",
+    "summary": "Atomically link or unlink up to 500 exact contact and concrete-calendar-event pairs with explicit roles; no invitation is sent and no to-do is changed.",
     "actionClasses": [
       "UPDATE"
     ],
@@ -738,25 +738,51 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_contact_link_set",
-    description: "Link or unlink one existing contact on one concrete calendar event. Resolve the contact with contact_search or contact_lookup_batch. Use participant_role=other for a neutral association such as 'mark this event with Brian'; attendee means actual attendance or invitation, customer means the customer, and organizer means the organizer. This stores an association only: it sends no invitation and changes no to-dos. A recurring master must first be resolved to a concrete occurrence.",
+    description: "Atomically link or unlink one through 500 exact existing contact and concrete-calendar-event pairs. Resolve contacts with contact_search or contact_lookup_batch. Use participant_role=other for a neutral association such as 'mark this event with Brian'; attendee means actual attendance or invitation, customer means the customer, and organizer means the organizer. The complete batch is validated before any association changes. This stores associations only: it sends no invitations and changes no to-dos. Recurring masters must first be resolved to concrete occurrences.",
     outputSchema: { type: "object", properties: {
-      changed: { type: "boolean", description: "False when this exact link was already in the requested state." },
-      event: calendarEventRecordSchema,
-    }, required: ["changed", "event"] },
+      selected_count: { type: "integer", minimum: 1 },
+      changed_count: { type: "integer", minimum: 0 },
+      unchanged_count: { type: "integer", minimum: 0 },
+      results: { type: "array", items: { type: "object", properties: {
+        calendar_event_id: { type: "integer" }, contact_id: { type: "integer" },
+        participant_role: { type: "string" }, linked: { type: "boolean" }, changed: { type: "boolean" },
+      }, required: ["calendar_event_id", "contact_id", "participant_role", "linked", "changed"] } },
+      events: { type: "array", items: calendarEventRecordSchema },
+    }, required: ["selected_count", "changed_count", "unchanged_count", "results", "events"] },
     parameters: { type: "object", additionalProperties: false, properties: {
-      calendar_event_id: { type: "integer", minimum: 1, description: "Existing concrete calendar event ID, not a recurring master." },
-      contact_id: { type: "integer", minimum: 1, description: "Existing contact ID from an authoritative contact read." },
-      participant_role: { type: "string", enum: ["organizer", "attendee", "customer", "other"], description: "Relationship to this event. Use other if the request only asks to associate a contact." },
-      linked: { type: "boolean", description: "True adds this contact and role; false removes only this exact contact and role." },
-    }, required: ["calendar_event_id", "contact_id", "participant_role", "linked"] },
-    async execute(input, context) {
-      const result = organizer.changeCalendarEventContactLink(input.calendar_event_id, {
-        contactId: input.contact_id, participantRole: input.participant_role, linked: input.linked,
-      }, { actorType: "tool", actorName: "calendar_event_contact_link_set",
+      links: { type: "array", minItems: 1, maxItems: 500, items: {
+        type: "object", additionalProperties: false, properties: {
+          calendar_event_id: { type: "integer", minimum: 1, description: "Existing concrete calendar event ID, not a recurring master." },
+          contact_id: { type: "integer", minimum: 1, description: "Existing contact ID from an authoritative contact read." },
+          participant_role: { type: "string", enum: ["organizer", "attendee", "customer", "other"], description: "Relationship to this event. Use other if the request only asks to associate a contact." },
+          linked: { type: "boolean", description: "True adds this contact and role; false removes only this exact contact and role." },
+        }, required: ["calendar_event_id", "contact_id", "participant_role", "linked"],
+      } },
+    }, required: ["links"] },
+    async execute({ links }, context) {
+      const result = organizer.changeCalendarEventContactLinks({ links: links.map((link) => ({
+        calendarEventId: link.calendar_event_id,
+        contactId: link.contact_id,
+        participantRole: link.participant_role,
+        linked: link.linked,
+      })) }, { actorType: "tool", actorName: "calendar_event_contact_link_set",
         source: "agent-slayer", channel: context.channel, requestId: context.requestId,
         callId: context.callId });
-      return { changed: result.changed,
-        event: calendarEventWithTodos(store.requireReady(), input.calendar_event_id) };
+      return {
+        selected_count: result.selectedCount,
+        changed_count: result.changedCount,
+        unchanged_count: result.unchangedCount,
+        results: result.results.map((link) => ({
+          calendar_event_id: link.calendarEventId,
+          contact_id: link.contactId,
+          participant_role: link.participantRole,
+          linked: link.linked,
+          changed: link.changed,
+        })),
+        events: result.events.map((event) => (
+          calendarEventWithTodos(store.requireReady(), event.id)
+        )),
+      };
     },
   });
 

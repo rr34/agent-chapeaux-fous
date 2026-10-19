@@ -178,8 +178,8 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     value: "id", role: "subject",
   }]);
   assert.deepEqual(bindings("todo_content_link_set"), [
-    { path: "/personal_task_id", objectType: "todos.personal_task", value: "id", role: "subject" },
-    { path: "/content_id", objectType: "video.content_item", value: "id", role: "subject" },
+    { path: "/links/*/personal_task_id", objectType: "todos.personal_task", value: "id", role: "subject" },
+    { path: "/links/*/content_id", objectType: "video.content_item", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("contact_merge"), [
     { path: "/merges/*/keep_contact_id", objectType: "contacts.contact", value: "id", role: "merge_destination" },
@@ -189,8 +189,8 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     path: "/updates/*/contact_id", objectType: "contacts.contact", value: "id", role: "subject",
   }]);
   assert.deepEqual(bindings("calendar_event_contact_link_set"), [
-    { path: "/calendar_event_id", objectType: "calendar.event", value: "id", role: "subject" },
-    { path: "/contact_id", objectType: "contacts.contact", value: "id", role: "subject" },
+    { path: "/links/*/calendar_event_id", objectType: "calendar.event", value: "id", role: "subject" },
+    { path: "/links/*/contact_id", objectType: "contacts.contact", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("payment_invoice_payment_status_set"), [{
     path: "/updates/*/invoice_id", objectType: "payments.invoice", value: "id", role: "subject",
@@ -390,14 +390,19 @@ test("native results bind only complete identity and preserve the correct parent
     toolDefinitions: definitions,
     sourceEventSeq: 96,
     result: {
-      task: {
+      tasks: [{
         personal_task_id: 17, ref: "agent-slayer://todos/17", text: "Review tutorial",
         linked_content: [{
           content_id: 23,
           content_ref: "agent-slayer://content-items/23",
           content_title: "Launch tutorial",
         }],
-      },
+      }],
+      contents: [{
+        content_id: 23,
+        content_ref: "agent-slayer://content-items/23",
+        content_title: "Launch tutorial",
+      }],
     },
   }).map(({ type, objects }) => [type, objects]), [
     ["todos.personal_task", [{

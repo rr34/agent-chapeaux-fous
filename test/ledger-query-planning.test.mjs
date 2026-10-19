@@ -98,7 +98,14 @@ test("initial incremental loading projects only feed fields for recent requests"
   const received = {
     ...requestRow("turn-1", 1),
     payload_json: JSON.stringify({
-      selectedObjectCandidates: [{ ref: "agent-slayer://contacts/7" }],
+      selectedObjectCandidates: [{
+        mention: "@Lucas Ruffing — Contact #7",
+        type: "contacts.contact",
+        source: "native:contacts",
+        id: 7,
+        ref: "agent-slayer://contacts/7",
+        display: "Lucas Ruffing",
+      }],
       referencedRequestIds: ["exchange-1", "exchange-2"],
     }),
   };
@@ -139,6 +146,14 @@ test("initial incremental loading projects only feed fields for recent requests"
   assert.equal(result.requests.length, 1);
   assert.equal(result.requests[0].status, "complete");
   assert.equal(result.requests[0].attachedObjectCount, 3);
+  assert.deepEqual(result.requests[0].selectedObjectCandidates, [{
+    mention: "@Lucas Ruffing — Contact #7",
+    type: "contacts.contact",
+    source: "native:contacts",
+    id: 7,
+    ref: "agent-slayer://contacts/7",
+    display: "Lucas Ruffing",
+  }]);
   assert.equal("steps" in result.requests[0], false);
   assert.equal("objectActivity" in result.requests[0], false);
   assert.equal(calls.length, 3);

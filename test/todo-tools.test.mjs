@@ -146,23 +146,24 @@ test("to-dos can link and unlink exact content-library items idempotently", asyn
     INSERT INTO content_items (content_group_id, sequence, title)
     VALUES (1, 1, 'Launch tutorial') RETURNING content_id
   `).get();
-  const input = {
+  const link = {
     personal_task_id: created.task.personal_task_id,
     content_id: Number(content.content_id),
     linked: true,
   };
+  const input = { links: [link] };
 
   const linked = await registry.execute("todo_content_link_set", input, toolContext);
-  assert.equal(linked.changed, true);
-  assert.equal(linked.linked, true);
-  assert.deepEqual(linked.task.linked_content.map((item) => ({
+  assert.equal(linked.changed_count, 1);
+  assert.equal(linked.results[0].linked, true);
+  assert.deepEqual(linked.tasks[0].linked_content.map((item) => ({
     id: item.content_id, ref: item.content_ref, title: item.content_title,
   })), [{
     id: Number(content.content_id),
     ref: `agent-slayer://content-items/${Number(content.content_id)}`,
     title: "Launch tutorial",
   }]);
-  assert.equal((await registry.execute("todo_content_link_set", input, toolContext)).changed, false);
+  assert.equal((await registry.execute("todo_content_link_set", input, toolContext)).changed_count, 0);
 
   const listed = await registry.execute("todo_list", { queries: [{
     query_id: "linked", group: null, status: null,
@@ -170,9 +171,18 @@ test("to-dos can link and unlink exact content-library items idempotently", asyn
   }] });
   assert.equal(listed.results[0].tasks[0].linked_content[0].content_title, "Launch tutorial");
 
-  const unlinked = await registry.execute("todo_content_link_set", { ...input, linked: false }, toolContext);
-  assert.equal(unlinked.changed, true);
-  assert.deepEqual(unlinked.task.linked_content, []);
+  const unlinked = await registry.execute("todo_content_link_set", {
+    links: [{ ...link, linked: false }],
+  }, toolContext);
+  assert.equal(unlinked.changed_count, 1);
+  assert.deepEqual(unlinked.tasks[0].linked_content, []);
+
+  await assert.rejects(registry.execute("todo_content_link_set", { links: [
+    link,
+    { ...link, content_id: Number(content.content_id) + 999 },
+  ] }, toolContext), /does not exist/);
+  assert.equal(Number(database.prepare(`SELECT COUNT(*) AS count FROM todo_content_join
+    WHERE personal_task_id = ?`).get(created.task.personal_task_id).count), 0);
 });
 
 test("to-do update batches stay atomic", async (context) => {

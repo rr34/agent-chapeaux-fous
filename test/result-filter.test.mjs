@@ -146,6 +146,65 @@ test("the result boundary deterministically searches, projects, and limits a rec
   assert.match(result.deliveredResult.result_filter.requiredAction, /Do not treat this partial result/);
 });
 
+test("nested dot paths compact batched read envelopes while retaining nested identities", () => {
+  const result = new ResultFilterBoundary().filterReadResult({
+    results: [{
+      query_id: "watch-jobs",
+      filters: { status: "todo" },
+      tasks: [{
+        personal_task_id: 81,
+        ref: "agent-slayer://todos/81",
+        text: "Review customer export",
+        related_contact_id: 17,
+        source: "agent-slayer",
+        created_at_utc: "2026-10-19T12:00:00.000Z",
+        linked_content: [{
+          content_id: 23,
+          content_ref: "agent-slayer://content-items/23",
+          title: "Export notes",
+          body: "large unneeded body",
+        }],
+      }],
+      count: 1,
+      has_more: false,
+      next_cursor: null,
+    }],
+    has_more: false,
+  }, {
+    requestId: "request-nested-projection",
+    interactionId: "call-nested-projection",
+    tool: "todo_list",
+    source: "local",
+    filterRequest: filterRequest({
+      collection_path: "/results",
+      include_fields: [
+        "tasks.text", "tasks.related_contact_id", "tasks.linked_content.title",
+        "count", "has_more", "next_cursor",
+      ],
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.deliveredResult.results, [{
+    query_id: "watch-jobs",
+    tasks: [{
+      personal_task_id: 81,
+      ref: "agent-slayer://todos/81",
+      text: "Review customer export",
+      related_contact_id: 17,
+      linked_content: [{
+        content_id: 23,
+        content_ref: "agent-slayer://content-items/23",
+        title: "Export notes",
+      }],
+    }],
+    count: 1,
+    has_more: false,
+    next_cursor: null,
+  }]);
+  assert.equal(result.receipt.summary.prunedByReason.fields, true);
+});
+
 test("query correlation metadata cannot masquerade as matching record evidence", () => {
   const result = new ResultFilterBoundary().filterReadResult({
     results: [{

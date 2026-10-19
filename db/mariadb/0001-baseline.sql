@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 52.
+-- Target: MariaDB 10.11, schema version 53.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -572,7 +572,7 @@ CREATE TABLE payment_invoice_lines (
     CONSTRAINT payment_invoice_lines_amount CHECK (amount_minor_snapshot >= 0)
 ) ENGINE=InnoDB COMMENT='Immutable task-backed or manual line snapshots composing an invoice.';
 
-CREATE TABLE payment_invoice_line_receipts (
+CREATE TABLE payment_invoice_line_receipts_join (
     payment_invoice_line_id BIGINT UNSIGNED NOT NULL COMMENT 'Invoice line supported by this receipt; the primary key permits at most one receipt per line.',
     file_id BIGINT UNSIGNED NOT NULL COMMENT 'Durably stored receipt file. The same file may support multiple lines.',
     display_name_snapshot VARCHAR(255) NOT NULL COMMENT 'Customer-facing receipt label frozen with the prepared invoice preview.',
@@ -954,7 +954,7 @@ CREATE TABLE correspondence (
       (medium = 'call' AND call_disposition IS NOT NULL AND delivery_status IS NULL)
       OR (medium <> 'call' AND call_disposition IS NULL AND call_duration_seconds IS NULL)
     )
-) ENGINE=InnoDB COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants and correspondence_files_join for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
+) ENGINE=InnoDB COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants_join and correspondence_files_join for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
 
 CREATE TABLE jmap_email_sync_state (
     -- sourceOfTruth: true
@@ -1008,7 +1008,7 @@ CREATE TABLE correspondence_files_join (
     CONSTRAINT correspondence_files_file FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE
 ) ENGINE=InnoDB COMMENT='Associates externally stored files with correspondence and identifies how each file appears in the message. One row links one file to one message as an attachment, inline asset, recording, or other file role. The file bytes live in agent media storage; this table stores only the relationship. Sensitivity: Reveals which private files belong to private communications.';
 
-CREATE TABLE correspondence_participants (
+CREATE TABLE correspondence_participants_join (
     -- sourceOfTruth: true
     -- synonyms: ["message recipients", "message senders"]
     -- keywords: ["sender", "recipient", "from whom", "to whom", "cc", "bcc", "message participant"]
@@ -1336,4 +1336,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 52, 'Chapeaux Fous MariaDB database');
+VALUES (1, 53, 'Chapeaux Fous MariaDB database');

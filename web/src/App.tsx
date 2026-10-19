@@ -4,7 +4,7 @@ import { useApi, localToday, useRequestFeed } from "./hooks";
 import { CalendarGrid, DailyPaper, DayTimeline } from "./components/DailyPaper";
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
-import { ObjectMentionInput } from "./components/ObjectMentionInput";
+import { ObjectMentionInput, ObjectMentionText } from "./components/ObjectMentionInput";
 import { CalendarEventEditor, ContactEditor, TodoEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
@@ -830,6 +830,7 @@ function AgentComposer({
         status: "queued",
         submittedAtMs,
         attachedObjectCount: selections.length,
+        selectedObjectCandidates,
         progress: {
           label: "Queued",
           startedAtMs: submittedAtMs,
@@ -1132,7 +1133,7 @@ function AgentScreen({ onShowTrace, refreshKey, optimisticRequests, onRequestsOb
     <section className="conversation">
       {(loading || searchLoading) && <Loading label="Loading requests" />}{(serverQuery ? searchError : error) ? <ErrorState error={(serverQuery ? searchError : error)!} retry={serverQuery ? reloadSearch : reload} /> : null}
       {visibleRequests.length ? [...visibleRequests].reverse().map((request) => <article className="request-card" key={request.requestId}>
-        <div className="request-question"><span>You</span><p>{request.request}</p></div>
+        <div className="request-question"><span>You</span><p><ObjectMentionText value={request.request} selections={request.selectedObjectCandidates || []} /></p></div>
         {request.turnBriefApproval?.approvalId && <div className="turn-brief">
           <p className="eyebrow">Turn brief</p><strong>{request.turnBriefApproval.objective || request.turnBriefApproval.summary}</strong><p>{request.turnBriefApproval.summary}</p>
           <div><button className="button" onClick={() => void decide(request, "continue")}>Continue</button><button className="button button--quiet" onClick={() => void decide(request, "cancel")}>Cancel</button></div>

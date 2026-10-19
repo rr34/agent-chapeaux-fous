@@ -163,23 +163,24 @@ test("calendar contact links are visible, role-specific, idempotent, and leave t
     VALUES ('Regular Work Window', '2026-09-18T11:00:00.000Z', 'confirmed')
     RETURNING calendar_event_id
   `).get().calendar_event_id);
-  const argumentsObject = {
+  const link = {
     calendar_event_id: eventId, contact_id: contactId,
     participant_role: "other", linked: true,
   };
+  const argumentsObject = { links: [link] };
   const definition = registry.toolDefinitions().find(({ name }) => name === "calendar_event_contact_link_set");
-  assert.deepEqual(definition.inputSchema.required,
-    ["calendar_event_id", "contact_id", "participant_role", "linked"]);
+  assert.deepEqual(definition.inputSchema.required, ["links"]);
+  assert.equal(definition.inputSchema.properties.links.maxItems, 500);
 
   const added = await registry.execute("calendar_event_contact_link_set", argumentsObject);
-  assert.equal(added.changed, true);
-  assert.deepEqual(added.event.linked_contacts, [{
+  assert.equal(added.changed_count, 1);
+  assert.deepEqual(added.events[0].linked_contacts, [{
     contact_id: contactId, display_name: "Brian Lesko", contact_status: "active",
     participant_role: "other", response_status: null,
   }]);
-  assert.deepEqual(added.event.linked_todos, []);
+  assert.deepEqual(added.events[0].linked_todos, []);
   const repeated = await registry.execute("calendar_event_contact_link_set", argumentsObject);
-  assert.equal(repeated.changed, false);
+  assert.equal(repeated.changed_count, 0);
   assert.equal(Number(database.prepare(`
     SELECT COUNT(*) AS count FROM calendar_event_contacts_join WHERE calendar_event_id = ?
   `).get(eventId).count), 1);
@@ -188,24 +189,27 @@ test("calendar contact links are visible, role-specific, idempotent, and leave t
     starts_at_utc: "2026-09-18T00:00:00.000Z",
     ends_at_utc: "2026-09-19T00:00:00.000Z",
   });
-  assert.deepEqual(listed.occurrences[0].calendar_events.linked_contacts, added.event.linked_contacts);
+  assert.deepEqual(listed.occurrences[0].calendar_events.linked_contacts, added.events[0].linked_contacts);
   const webEvent = organizer.getCalendar(eventId);
   assert.equal(webEvent.linkedContacts[0].displayName, "Brian Lesko");
   assert.equal(webEvent.linkedContacts[0].participantRole, "other");
 
   const removed = await registry.execute("calendar_event_contact_link_set", {
-    ...argumentsObject, linked: false,
+    links: [{ ...link, linked: false }],
   });
-  assert.equal(removed.changed, true);
-  assert.deepEqual(removed.event.linked_contacts, []);
-  assert.equal(removed.event.starts_at_utc, "2026-09-18T11:00:00.000Z");
+  assert.equal(removed.changed_count, 1);
+  assert.deepEqual(removed.events[0].linked_contacts, []);
+  assert.equal(removed.events[0].starts_at_utc, "2026-09-18T11:00:00.000Z");
   assert.equal(Number(database.prepare(`
     SELECT COUNT(*) AS count FROM calendar_events_todo_join WHERE calendar_event_id = ?
   `).get(eventId).count), 0);
 
   await assert.rejects(registry.execute("calendar_event_contact_link_set", {
-    ...argumentsObject, contact_id: contactId + 999,
+    links: [link, { ...link, contact_id: contactId + 999 }],
   }), /Contact not found/);
+  assert.equal(Number(database.prepare(`
+    SELECT COUNT(*) AS count FROM calendar_event_contacts_join WHERE calendar_event_id = ?
+  `).get(eventId).count), 0);
   database.prepare("UPDATE contacts SET status = 'inactive' WHERE contact_id = ?").run(contactId);
   await assert.rejects(registry.execute("calendar_event_contact_link_set", argumentsObject),
     /Only active contacts/);

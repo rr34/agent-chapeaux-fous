@@ -61,6 +61,8 @@ test("the common-sense core is compact, batch-shaped, and contains no tool plann
 test("read-only work is answer mode and current receipts can correct factual premises", () => {
   assert.match(commonSenseInstructions, /answer for read-only retrieval/i);
   assert.match(commonSenseExecutionInstructions(validCore(), []), /Tool results are authoritative for current facts/);
+  assert.match(commonSenseExecutionInstructions(validCore(), []), /successful owning-domain read is sufficient evidence/);
+  assert.match(commonSenseExecutionInstructions(validCore(), []), /nested dot paths/);
   assert.match(commonSenseExecutionInstructions(validCore(), []), /never fabricate missing records/i);
   const audit = auditContext({
     core: validCore(), receipts: [], executorResponse: "There are 63 current records.",

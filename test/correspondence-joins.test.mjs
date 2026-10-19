@@ -19,7 +19,7 @@ test("message joins support many-to-many links, reject invalid pairs, cascade on
   const migration = readMigrationLedger(migrationsFilename).find(item => item.version === 37);
   // Recover from a partial DDL commit with just the first table present.
   db.exec(splitMariaDbStatements(migration.sql)[0]);
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53]);
   db.exec("INSERT INTO correspondence (correspondence_id, medium, direction) VALUES (1, 'email', 'inbound'), (2, 'sms', 'outbound')");
   db.exec("INSERT INTO correspondence (correspondence_id, medium, direction, call_disposition, call_duration_seconds) VALUES (3, 'call', 'inbound', 'answered', 240)");
   assert.throws(() => db.exec("INSERT INTO correspondence (medium, direction) VALUES ('call', 'inbound')"), /constraint/iu);
@@ -28,14 +28,14 @@ test("message joins support many-to-many links, reject invalid pairs, cascade on
   db.exec("INSERT INTO contacts (contact_id, contact_kind, display_name) VALUES (10, 'person', 'Watch Customer')");
   db.exec("INSERT INTO tags (tag_id, slug, label) VALUES (10, 'watch-customer', 'Watch Customer')");
   db.exec("INSERT INTO contacts_tags_join (tag_id, record_type, record_id) VALUES (10, 'contact', '10')");
-  db.exec(`INSERT INTO correspondence_participants
+  db.exec(`INSERT INTO correspondence_participants_join
     (correspondence_id, participant_role, contact_id, address_value, display_name)
     VALUES (2, 'sender', NULL, '+15550000000', 'Me'),
            (2, 'recipient', 10, '+15551112222', 'Watch Customer'),
            (2, 'recipient', NULL, '+15553334444', 'Other group participant')`);
   const watchMessages = db.prepare(`SELECT DISTINCT message.correspondence_id
     FROM correspondence AS message
-    JOIN correspondence_participants AS participant USING (correspondence_id)
+    JOIN correspondence_participants_join AS participant USING (correspondence_id)
     JOIN contacts_tags_join AS assignment
       ON assignment.record_type = 'contact'
      AND assignment.record_id = CAST(participant.contact_id AS CHAR)
@@ -45,7 +45,7 @@ test("message joins support many-to-many links, reject invalid pairs, cascade on
       AND message.occurred_at_utc >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 6 MONTH)
       AND tag.slug = 'watch-customer'`).all();
   assert.deepEqual(watchMessages, [{ correspondence_id: 2 }]);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM correspondence_participants WHERE correspondence_id = 2").get().count, 3);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM correspondence_participants_join WHERE correspondence_id = 2").get().count, 3);
   db.exec("INSERT INTO todo_personal (personal_task_id, todo_group_id, text) SELECT 1, todo_group_id, 'First task' FROM todo_groups WHERE name = 'Inbox'");
   db.exec("INSERT INTO todo_personal (personal_task_id, todo_group_id, text) SELECT 2, todo_group_id, 'Second task' FROM todo_groups WHERE name = 'Inbox'");
   const insertEvent = db.prepare("INSERT INTO calendar_events (calendar_event_id, title, starts_at_utc) VALUES (?, ?, ?)");

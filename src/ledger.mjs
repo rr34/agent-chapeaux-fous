@@ -801,11 +801,12 @@ export class Ledger {
     const turnBriefApproval = approvalRequired && !approvalResolved && !terminal
       ? approvalRequired.payload
       : null;
-    const attachedObjectCount = (
-      Array.isArray(request.payload?.selectedObjectCandidates)
-        ? request.payload.selectedObjectCandidates.length
-        : 0
-    ) + (
+    const selectedObjectCandidates = Array.isArray(request.payload?.selectedObjectCandidates)
+      ? request.payload.selectedObjectCandidates.map(({
+        mention, type, source, id, ref, display,
+      }) => ({ mention, type, source, id, ref, display }))
+      : [];
+    const attachedObjectCount = selectedObjectCandidates.length + (
       Array.isArray(request.payload?.referencedRequestIds)
         ? new Set(request.payload.referencedRequestIds).size
         : 0
@@ -844,6 +845,7 @@ export class Ledger {
       error: terminal?.error || (terminal?.status === "error" ? terminal.content : null),
       usage,
       attachedObjectCount,
+      ...(selectedObjectCandidates.length ? { selectedObjectCandidates } : {}),
       ...(includeSteps ? { steps: workflowSteps(events) } : {}),
       ...(includeObjectActivity ? { objectActivity: interactionObjectActivity(events) } : {}),
       eventCount: events.length,

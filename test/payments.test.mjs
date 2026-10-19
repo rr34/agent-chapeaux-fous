@@ -719,7 +719,7 @@ test("a prepared local invoice can atomically revise existing lines, append a ma
     prepare(sql) {
       if (/SELECT \* FROM payment_invoices/u.test(sql)) return { get: () => row };
       if (/SELECT payment_invoice_line_id, line_source/u.test(sql)) return { all: () => existingLines };
-      if (/FROM payment_invoice_line_receipts/u.test(sql)) return { all: () => [] };
+      if (/FROM payment_invoice_line_receipts_join/u.test(sql)) return { all: () => [] };
       if (/UPDATE payment_invoice_lines/u.test(sql)) return {
         run(...values) { writes.lines.push(values); return { changes: 1 }; },
       };
@@ -800,15 +800,15 @@ test("a prepared invoice can bind one verified receipt file to several lines ato
     prepare(sql) {
       if (/SELECT \* FROM payment_invoices/u.test(sql)) return { get: () => row };
       if (/SELECT payment_invoice_line_id, line_source/u.test(sql)) return { all: () => existingLines };
-      if (/FROM payment_invoice_line_receipts receipt/u.test(sql)) return { all: () => [] };
+      if (/FROM payment_invoice_line_receipts_join receipt/u.test(sql)) return { all: () => [] };
       if (/FROM files WHERE file_id/u.test(sql)) return { get: () => ({
         file_id: 42, title: "Hardware receipt", original_filename: "receipt.pdf",
         mime_type: "application/pdf", sha256: "a".repeat(64), byte_size: 2048,
       }) };
       if (/UPDATE payment_invoice_lines/u.test(sql)) return { run: () => ({ changes: 1 }) };
       if (/INSERT INTO payment_invoice_lines/u.test(sql)) return { run: () => ({ lastInsertRowid: 0 }) };
-      if (/DELETE FROM payment_invoice_line_receipts/u.test(sql)) return { run: () => ({ changes: 0 }) };
-      if (/INSERT INTO payment_invoice_line_receipts/u.test(sql)) return {
+      if (/DELETE FROM payment_invoice_line_receipts_join/u.test(sql)) return { run: () => ({ changes: 0 }) };
+      if (/INSERT INTO payment_invoice_line_receipts_join/u.test(sql)) return {
         run(...values) { writes.receipts.push(values); return { changes: 1 }; },
       };
       if (/UPDATE payment_invoices/u.test(sql)) return {
@@ -866,7 +866,7 @@ test("saving an unchanged prepared invoice preserves its digest without requesti
         payment_invoice_line_id: 921, line_source: "manual", personal_task_id: null, line_position: 1,
         description_snapshot: "Help moving", amount_minor_snapshot: 2500,
       }] };
-      if (/FROM payment_invoice_line_receipts/u.test(sql)) return { all: () => [] };
+      if (/FROM payment_invoice_line_receipts_join/u.test(sql)) return { all: () => [] };
       throw new Error(`An unchanged invoice must not be written: ${sql}`);
     },
   };

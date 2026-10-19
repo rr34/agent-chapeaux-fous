@@ -88,6 +88,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /date and\s+topic are filtered in one lookup/);
   assert.match(instructions, /stored database field names/);
   assert.match(instructions, /tool contracts explain their meaning/);
+  assert.match(instructions, /do not request the full schema catalog by\s+default/);
   assert.match(instructions, /previous Monday-through-Monday interval/);
   assert.match(instructions, /never ask the user to\s+write\s+RRULE syntax/);
   assert.match(instructions, /personal-journal tools/);

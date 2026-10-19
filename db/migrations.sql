@@ -16,6 +16,28 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0053: finish-relationship-join-table-names
+-- writer downtime: required; payment and correspondence readers/writers must
+-- switch to the matching application code while these two tables are renamed.
+-- locking: RENAME TABLE takes metadata locks without rewriting relationship rows.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped and rerun this
+-- block after a partial commit. Each rename checks for its old table and never
+-- overwrites an existing destination. Rows, keys and foreign keys are retained.
+
+SET @relationship_join_rename_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payment_invoice_line_receipts' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE payment_invoice_line_receipts TO payment_invoice_line_receipts_join', 'DO 0');
+PREPARE relationship_join_rename_statement FROM @relationship_join_rename_sql;
+EXECUTE relationship_join_rename_statement;
+DEALLOCATE PREPARE relationship_join_rename_statement;
+
+SET @relationship_join_rename_sql = IF(EXISTS (SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'correspondence_participants' AND TABLE_TYPE = 'BASE TABLE'), 'RENAME TABLE correspondence_participants TO correspondence_participants_join', 'DO 0');
+PREPARE relationship_join_rename_statement FROM @relationship_join_rename_sql;
+EXECUTE relationship_join_rename_statement;
+DEALLOCATE PREPARE relationship_join_rename_statement;
+
+ALTER TABLE correspondence COMMENT='Preserves complete logical messages and call-history entries across email, SMS, MMS, RCS, iMessage, WhatsApp, other chats, telephone calls, voicemail, and future communication media. One row represents one inbound or outbound message or call, independent of how many participants or files it has. Preserve the complete available communication rather than replacing it with extracted facts or a summary. Use correspondence_participants_join and correspondence_files_join for people and attachments; group-thread reconstruction is not an owned requirement. Sensitivity: Contains highly private communications, message bodies, headers, account identifiers, call history, and provider metadata.';
+
+-- end migration 0053
+
 -- migration 0052: attach-receipts-to-invoice-lines
 -- writer downtime: required; payment readers and writers must switch together
 -- because invoice preview digests and line result shapes now include receipts.
