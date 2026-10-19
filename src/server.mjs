@@ -13,6 +13,7 @@ import { JmapClient } from "./jmap-client.mjs";
 import { DailyPaperService } from "./daily-paper.mjs";
 import { DailyPaperWeatherService } from "./daily-paper-weather.mjs";
 import { TodoPdfService } from "./todo-pdf.mjs";
+import { PrintableReportService } from "./printable-report.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { ObjectNetworkService } from "./object-network.mjs";
@@ -33,6 +34,7 @@ import { WhisperTranscriber } from "./transcriber.mjs";
 import { OpenAISpeechService } from "./openai-speech.mjs";
 import { VideoRenderWorker } from "./video-render-worker.mjs";
 import { registerDailyPaperTools } from "./tools/daily-paper-tools.mjs";
+import { registerPrintableReportTools } from "./tools/printable-report-tools.mjs";
 import { registerDatabaseTools } from "./tools/database-tools.mjs";
 import { registerFileTools } from "./tools/file-tools.mjs";
 import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
@@ -88,6 +90,12 @@ const todoPdf = store.status.ready ? new TodoPdfService({
   mediaRoot: config.mediaRoot,
   browserExecutable: config.pdfBrowserExecutable,
 }) : null;
+const printableReport = store.status.ready ? new PrintableReportService({
+  ledger,
+  mediaRoot: config.mediaRoot,
+  browserExecutable: config.pdfBrowserExecutable,
+  maximumBytes: config.maxRequestAttachmentBytes,
+}) : null;
 const videoScripts = store.status.ready ? new VideoScripts({ store, ledger }) : null;
 const videoContent = store.status.ready ? new VideoContent({ videoScripts, organizer }) : null;
 let videoRenderWorker = null;
@@ -126,6 +134,7 @@ if (store.status.ready) {
   registerCalendarTools(registry, store, organizer, ledger, searchCoordinator, catchUp);
   registerContactTools(registry, store, organizer, ledger, searchCoordinator);
   registerDailyPaperTools(registry, dailyPaper);
+  registerPrintableReportTools(registry, printableReport);
   registerTodoTools(registry, store, ledger);
   registerPaymentTools(registry, payments);
   registerJournalTools(registry, store, ledger);

@@ -111,20 +111,24 @@ function mentionSegments<T extends MentionSelection>(
 }
 
 export function ObjectMentionText({
-  value, selections,
+  value, selections, onSelect,
 }: {
   value: string;
   selections: PersistedObjectCandidate[];
+  onSelect: (selection: PersistedObjectCandidate) => void;
 }) {
   const segments = mentionSegments(value, selections);
   return <>{segments.map((segment) => segment.selection
-    ? <span
+    ? <button
+      type="button"
       className="mention-inline-token request-object-reference"
       key={`${segment.selection.ref}-${segment.start}`}
-      title={`${segment.selection.display} · selected object`}
+      title={`Use ${segment.selection.display} in the next request`}
+      aria-label={`Use ${segment.selection.display} in the next Agent request`}
+      onClick={() => onSelect(segment.selection!)}
     >
       {segment.text}
-    </span>
+    </button>
     : <span key={`text-${segment.start}`}>{segment.text}</span>)}</>;
 }
 

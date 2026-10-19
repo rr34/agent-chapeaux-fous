@@ -19,7 +19,9 @@ test("every card selection stages one exact object in the shared Agent request s
   assert.match(context, /ObjectSelectionContext\.Provider/);
   assert.match(app, /<ObjectSelectionProvider selections=\{agentObjectSelections\} toggleSelection=\{toggleObjectSelection\}>/);
   assert.match(app, /selectionOrigin: "card"/);
-  assert.doesNotMatch(app, /insertObjectMentions/);
+  const toggleStart = app.indexOf("const toggleObjectSelection =");
+  const toggleEnd = app.indexOf("const reuseObjectMention =", toggleStart);
+  assert.doesNotMatch(app.slice(toggleStart, toggleEnd), /insertObjectMentions/);
 });
 
 test("the composer counts selections by object type without duplicating selected cards", () => {

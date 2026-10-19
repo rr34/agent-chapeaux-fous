@@ -45,8 +45,10 @@ test("card checkboxes stage exact native object bindings without modifying the i
   const app = fs.readFileSync(path.join(root, "web", "src", "App.tsx"), "utf8");
   const summaryFormatter = fs.readFileSync(path.join(root, "web", "src", "object-selection-summary.ts"), "utf8");
   const references = fs.readFileSync(path.join(root, "web", "src", "components", "ObjectSelectionControls.tsx"), "utf8");
+  const toggleStart = app.indexOf("const toggleObjectSelection =");
+  const toggleEnd = app.indexOf("const reuseObjectMention =", toggleStart);
   assert.doesNotMatch(app, /"In reference to:\\n" \+ identity/);
-  assert.doesNotMatch(app, /insertObjectMentions/);
+  assert.doesNotMatch(app.slice(toggleStart, toggleEnd), /insertObjectMentions/);
   assert.match(app, /selectionOrigin: "card"/);
   assert.match(app, /composer-selection-summary/);
   assert.match(app, /selectedObjectSummary\(selections\)/);

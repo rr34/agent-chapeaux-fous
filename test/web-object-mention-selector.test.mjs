@@ -52,10 +52,20 @@ test("selected identities render as inline objects with hover details", () => {
 });
 
 test("submitted request text retains exact selected-object formatting", () => {
-  assert.match(app, /ObjectMentionText value=\{request\.request\} selections=\{request\.selectedObjectCandidates \|\| \[\]\}/);
+  assert.match(app, /ObjectMentionText value=\{request\.request\} selections=\{request\.selectedObjectCandidates \|\| \[\]\} onSelect=\{onReuseObjectMention\}/);
   assert.match(app, /selectedObjectCandidates,/);
   assert.match(picker, /className="mention-inline-token request-object-reference"/);
-  assert.match(picker, /title=\{`\$\{segment\.selection\.display\} · selected object`\}/);
+  assert.match(picker, /type="button"/);
+  assert.match(picker, /onClick=\{\(\) => onSelect\(segment\.selection!\)\}/);
+});
+
+test("clicking a submitted object mention stages it in the next request", () => {
+  assert.match(app, /const reuseObjectMention = \(selection: PersistedObjectCandidate\) =>/);
+  assert.match(app, /insertObjectMentions\(agentDraft, \[selection\.mention\], agentComposerSelection\)/);
+  assert.match(app, /selectionOrigin: "mention"/);
+  assert.match(app, /current\.filter\(\(\{ ref \}\) => ref !== selection\.ref\)/);
+  assert.match(app, /is already in the next request/);
+  assert.match(app, /onReuseObjectMention=\{reuseObjectMention\}/);
 });
 
 test("the composer retains its cursor when an external reference control takes focus", () => {

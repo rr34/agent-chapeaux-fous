@@ -135,6 +135,16 @@ agent can invoke the same behavior through `daily_paper_generate`. Chromium is
 required only on the server and can be overridden with
 `SLAYER_PDF_BROWSER_EXECUTABLE` when a system browser is preferred.
 
+The native **Printable reports** capability handles requested PDFs that do not
+belong to a more specific document workflow. After the owning domain tools have
+returned the requested information, `printable_report_generate` renders one
+bounded report containing table, list, or checklist sections. The application
+owns validation, safe text rendering, pagination, PDF verification, durable
+file registration, and the typed completion receipt; the tool never accepts
+model-authored HTML, CSS, scripts, remote assets, or generic database queries.
+Rows may cite only stable first-class object references already verified in the
+same execution, and the receipt distinguishes sourced from unsourced rows.
+
 Each finished Agent exchange also exposes a chat-style **↩ Reply** action. It
 places an `In reference to:` block with the full source request ID in the
 composer. On submission, the server validates that ID and records it as bounded

@@ -265,3 +265,12 @@ current target; orientation must select it explicitly.
 directed relationship containing exact `fromRef` → `toRef` edges. The edge pairs
 are first-class context and must survive orientation, pruning, execution, and
 later reference without becoming two unrelated endpoint lists.
+
+**59. Printable-report service** — The native document function that validates
+one bounded, versioned model of table, list, or checklist sections; renders it
+through application-owned print templates; verifies and durably registers the
+resulting PDF; and returns a typed receipt plus first-class file binding. It
+formats already gathered content and verifies any supplied source references
+against the current exact object bindings. It does not query source domains,
+accept arbitrary HTML or remote assets, or replace purpose-built document
+workflows such as Daily Paper and Payments invoices.

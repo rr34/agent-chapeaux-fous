@@ -1,0 +1,20 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "printable-report",
+  "title": "Printable reports",
+  "summary": "Generate a durable printable PDF from bounded tables, lists, or checklists assembled from user-provided text, agent-composed material, or information returned by owning domain tools, while retaining verified first-class object provenance when supplied.",
+  "aliases": [
+    "printable report",
+    "printable list",
+    "printable pdf",
+    "pdf report",
+    "custom report",
+    "custom pdf",
+    "print report",
+    "make a pdf",
+    "generate a pdf"
+  ],
+  "guidance": "guidance.md"
+}

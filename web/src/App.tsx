@@ -27,13 +27,15 @@ import {
   journalGroupIdentity, journalTrackerIdentity, todoGroupIdentity, todoIdentity,
   type GenericObjectKind,
 } from "./components/ObjectSelectionControls";
-import { maximumObjectReferences, type ComposerTextSelection } from "./object-references";
+import {
+  insertObjectMentions, maximumObjectReferences, type ComposerTextSelection,
+} from "./object-references";
 import { selectedObjectSummary } from "./object-selection-summary";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
 import { matchesSearch } from "./search-filter";
 import type {
   DailyPaperModel, DailyPaperTodoGroup, Entity, LinkedTodo, RequestRecord,
-  SelectedObjectCandidate, StoredFileBinding,
+  PersistedObjectCandidate, SelectedObjectCandidate, StoredFileBinding,
 } from "./types";
 import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
@@ -1072,8 +1074,11 @@ function RequestInteractionMetrics({ request }: { request: RequestRecord }) {
   </div>;
 }
 
-function AgentScreen({ onShowTrace, refreshKey, optimisticRequests, onRequestsObserved }: {
+function AgentScreen({
+  onShowTrace, onReuseObjectMention, refreshKey, optimisticRequests, onRequestsObserved,
+}: {
   onShowTrace: (requestId: string) => void;
+  onReuseObjectMention: (selection: PersistedObjectCandidate) => void;
   refreshKey: number;
   optimisticRequests: RequestRecord[];
   onRequestsObserved: (requestIds: string[]) => void;
@@ -1133,7 +1138,7 @@ function AgentScreen({ onShowTrace, refreshKey, optimisticRequests, onRequestsOb
     <section className="conversation">
       {(loading || searchLoading) && <Loading label="Loading requests" />}{(serverQuery ? searchError : error) ? <ErrorState error={(serverQuery ? searchError : error)!} retry={serverQuery ? reloadSearch : reload} /> : null}
       {visibleRequests.length ? [...visibleRequests].reverse().map((request) => <article className="request-card" key={request.requestId}>
-        <div className="request-question"><span>You</span><p><ObjectMentionText value={request.request} selections={request.selectedObjectCandidates || []} /></p></div>
+        <div className="request-question"><span>You</span><p><ObjectMentionText value={request.request} selections={request.selectedObjectCandidates || []} onSelect={onReuseObjectMention} /></p></div>
         {request.turnBriefApproval?.approvalId && <div className="turn-brief">
           <p className="eyebrow">Turn brief</p><strong>{request.turnBriefApproval.objective || request.turnBriefApproval.summary}</strong><p>{request.turnBriefApproval.summary}</p>
           <div><button className="button" onClick={() => void decide(request, "continue")}>Continue</button><button className="button button--quiet" onClick={() => void decide(request, "cancel")}>Cancel</button></div>
@@ -2613,6 +2618,45 @@ function Workspace() {
     setAgentSelectionNotice(null);
     setAgentObjectSelections((current) => [...current, { ...identity, selectionOrigin: "card" }]);
   };
+  const reuseObjectMention = (selection: PersistedObjectCandidate) => {
+    const existingSelection = agentObjectSelections.find(({ ref }) => ref === selection.ref);
+    const existingMentionStart = agentDraft.indexOf(selection.mention);
+    if (!existingSelection && agentObjectSelections.length >= maximumObjectReferences) {
+      setAgentSelectionNotice(`A request can reference at most ${maximumObjectReferences} objects. Nothing was selected or truncated.`);
+      return;
+    }
+    const idSuffix = ` #${String(selection.id)}`;
+    const labelStart = selection.mention.lastIndexOf(" — ");
+    const labelEnd = selection.mention.endsWith(idSuffix)
+      ? selection.mention.length - idSuffix.length
+      : -1;
+    const label = labelStart >= 0 && labelEnd > labelStart + 3
+      ? selection.mention.slice(labelStart + 3, labelEnd)
+      : "Object";
+    const stagedSelection: SelectedObjectCandidate = {
+      ...selection,
+      label,
+      selectionOrigin: "mention",
+    };
+    let cursor = existingMentionStart < 0 ? null : existingMentionStart + selection.mention.length;
+    if (existingMentionStart < 0) {
+      const inserted = insertObjectMentions(agentDraft, [selection.mention], agentComposerSelection);
+      setAgentDraft(inserted.value);
+      cursor = inserted.cursor;
+    }
+    setAgentObjectSelections((current) => [
+      ...current.filter(({ ref }) => ref !== selection.ref),
+      stagedSelection,
+    ]);
+    setAgentSelectionNotice(existingMentionStart < 0
+      ? `${selection.display} was added to the next request.`
+      : `${selection.display} is already in the next request.`);
+    setAgentComposerSelection({ start: cursor!, end: cursor! });
+    setAgentComposerCursorRequest((current) => ({
+      position: cursor!,
+      revision: (current?.revision ?? 0) + 1,
+    }));
+  };
   const showTrace = async (requestId: string) => {
     setTraceRequestId(requestId);
     setRequestTrace(null);
@@ -2629,6 +2673,7 @@ function Workspace() {
   let screen: ReactNode;
   if (view === "agent") screen = <AgentScreen
     onShowTrace={(requestId) => void showTrace(requestId)}
+    onReuseObjectMention={reuseObjectMention}
     refreshKey={requestRefreshKey}
     optimisticRequests={optimisticRequests}
     onRequestsObserved={(requestIds) => {

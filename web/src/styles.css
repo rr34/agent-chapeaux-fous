@@ -863,7 +863,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .mention-highlight-content { min-height: 100%; transform-origin: top left; }
 .mention-inline-token { position: relative; border-radius: 4px; color: var(--olive-dark); background: #d9e5cf; box-shadow: 0 0 0 2px #d9e5cf, inset 0 -1px 0 #9bac8d; cursor: help; font-weight: inherit; pointer-events: auto; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .mention-inline-token:hover, .mention-inline-token:focus-visible { color: #fff; background: var(--olive-dark); box-shadow: 0 0 0 2px var(--olive-dark); outline: none; }
-.request-object-reference { cursor: default; font-weight: 700; }
+button.request-object-reference { display: inline; margin: 0; padding: 0; appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 700; line-height: inherit; text-align: inherit; }
 .mention-object-popover { position: absolute; z-index: 14; display: grid; gap: 3px; width: max-content; max-width: min(360px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #abb5a1; border-radius: 10px; color: var(--ink); background: #fffefa; box-shadow: 0 12px 34px rgba(25, 31, 21, .22); font-size: 11px; font-weight: 500; line-height: 1.35; pointer-events: none; text-align: left; white-space: normal; }
 .mention-object-popover::after { position: absolute; top: 100%; left: 14px; width: 9px; height: 9px; border-right: 1px solid #abb5a1; border-bottom: 1px solid #abb5a1; background: #fffefa; content: ""; transform: translateY(-5px) rotate(45deg); }
 .mention-object-popover strong { color: var(--olive-dark); font-size: 12px; }
