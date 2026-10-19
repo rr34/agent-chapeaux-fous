@@ -34,6 +34,17 @@ test("the Agent conversation initially scrolls to its newest interaction", () =>
   assert.match(agentScreen, /initialScrollPending\.current = false/);
 });
 
+test("the Agent can explicitly start a new model conversation", () => {
+  const agentScreen = app.slice(app.indexOf("function AgentScreen("), app.indexOf("function CalendarScreen("));
+  assert.match(agentScreen, /resettingConversation \? "Starting…" : "New conversation"/);
+  assert.match(agentScreen, /role="alertdialog"/);
+  assert.match(agentScreen, />Start a new conversation\?<\/strong>/);
+  assert.match(agentScreen, /resettingConversation \? "Starting…" : "Start new conversation"/);
+  assert.match(agentScreen, /api\("\/api\/conversation\/reset", \{ method: "POST" \}\)/);
+  assert.match(agentScreen, /New conversation ready\. Your next request will start without the earlier conversation context\./);
+  assert.match(styles, /\.agent-conversation-reset-confirmation \{/);
+});
+
 test("plain Enter sends an Agent request while Shift+Enter keeps a newline", () => {
   assert.match(objectMentionInput, /event\.key === "Enter" && !event\.shiftKey && !event\.nativeEvent\.isComposing/);
   assert.match(objectMentionInput, /event\.preventDefault\(\);\s*event\.currentTarget\.form\?\.requestSubmit\(\);/s);
