@@ -103,6 +103,8 @@ test("native coordinator searches calendar, contacts, files, and history through
     relationship_sets: [{
       display: "Planning event and Alice",
       relationship_type: "calendar.event.contact",
+      from_type: "calendar.event",
+      to_type: "contacts.contact",
       edges: [{
         from_ref: "agent-slayer://calendar-events/1",
         to_ref: "agent-slayer://contacts/1",
@@ -121,6 +123,8 @@ test("native coordinator searches calendar, contacts, files, and history through
     }],
   });
   assert.equal(referenceSets.recorded_count, 1);
+  assert.equal(referenceSets.referenceSets[0].fromType, "calendar.event");
+  assert.equal(referenceSets.referenceSets[0].toType, "contacts.contact");
   assert.deepEqual(referenceSets.referenceSets[0].edges, [{
     fromRef: "agent-slayer://calendar-events/1",
     toRef: "agent-slayer://contacts/1",

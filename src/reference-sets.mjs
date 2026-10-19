@@ -24,6 +24,26 @@ function edgeKey(edge) {
   return `${edge.fromRef}\u0000${edge.toRef}`;
 }
 
+function relationshipEndpointTypeProblem(set, objects, label) {
+  if (typeof set.fromType !== "string" || !set.fromType) {
+    return `${label} must declare fromType`;
+  }
+  if (typeof set.toType !== "string" || !set.toType) {
+    return `${label} must declare toType`;
+  }
+  for (const edge of set.edges) {
+    const from = objects.get(edge.fromRef);
+    const to = objects.get(edge.toRef);
+    if (from?.type !== set.fromType) {
+      return `${label} from endpoint ${edge.fromRef} has type ${from?.type ?? "unknown"}; expected ${set.fromType}`;
+    }
+    if (to?.type !== set.toType) {
+      return `${label} to endpoint ${edge.toRef} has type ${to?.type ?? "unknown"}; expected ${set.toType}`;
+    }
+  }
+  return null;
+}
+
 export function validateReferenceSet(value, { label = "reference set" } = {}) {
   if (!validateSchema(value)) {
     const problem = validateSchema.errors?.[0];
@@ -112,6 +132,8 @@ export function orientationReferenceSetProblem(core, {
     const unknown = endpointRefs.find((ref) => !objects.has(ref));
     if (unknown) return `${set.ref} contains unavailable object reference ${unknown}`;
     if (set.kind === "relationship_set") {
+      const endpointTypeProblem = relationshipEndpointTypeProblem(set, objects, set.ref);
+      if (endpointTypeProblem) return endpointTypeProblem;
       const keys = set.edges.map(edgeKey);
       if (new Set(keys).size !== keys.length) {
         return `${set.ref} contains a duplicate directed relationship`;
@@ -191,6 +213,8 @@ export function recordedReferenceSets({
       kind: "relationship_set",
       display: set.display,
       relationshipType: set.relationshipType,
+      fromType: set.fromType,
+      toType: set.toType,
       edges: set.edges,
     })),
   ];
@@ -202,6 +226,8 @@ export function recordedReferenceSets({
     const unknown = refs.find((ref) => !objects.has(ref));
     if (unknown) throw new Error(`Reference set contains unverified object reference ${unknown}`);
     if (set.kind === "relationship_set") {
+      const endpointTypeProblem = relationshipEndpointTypeProblem(set, objects, "Reference set");
+      if (endpointTypeProblem) throw new Error(endpointTypeProblem);
       const keys = set.edges.map(edgeKey);
       if (new Set(keys).size !== keys.length) {
         throw new Error("Reference set contains a duplicate directed relationship");
@@ -209,7 +235,14 @@ export function recordedReferenceSets({
     }
     const identity = set.kind === "object_set"
       ? { kind: set.kind, display: set.display, memberRefs: sortedUnique(set.memberRefs) }
-      : { kind: set.kind, display: set.display, relationshipType: set.relationshipType, edges: set.edges };
+      : {
+          kind: set.kind,
+          display: set.display,
+          relationshipType: set.relationshipType,
+          fromType: set.fromType,
+          toType: set.toType,
+          edges: set.edges,
+        };
     const suffix = createHash("sha256").update(JSON.stringify(identity)).digest("hex").slice(0, 24);
     const sourceEventSeqs = sortedUnique(refs.flatMap((ref) => objects.get(ref).sourceEventSeqs ?? []));
     return validateReferenceSet({

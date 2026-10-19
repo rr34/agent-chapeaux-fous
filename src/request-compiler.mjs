@@ -69,6 +69,11 @@ const capabilitySummaries = new Map([
 // an accepted common-sense core. They are never a fallback for a missing domain-owned
 // mutation tool, especially one owned by an MCP.
 const explicitSelectionOnlyCapabilities = new Set(["database-write"]);
+const executionInfrastructureToolNames = new Set(["reference_set_record"]);
+
+function isExecutionInfrastructureTool(tool) {
+  return executionInfrastructureToolNames.has(tool.name);
+}
 
 export function capabilityForTool(tool) {
   if (typeof tool.capabilityId === "string" && tool.capabilityId) return tool.capabilityId;
@@ -268,7 +273,9 @@ export function selectRequestCapabilities({
     dependentToolNames.add("contact_lookup_batch");
   }
   const selectedTools = tools.filter((tool) => (
-    selected.has(capabilityForTool(tool)) || dependentToolNames.has(tool.name)
+    selected.has(capabilityForTool(tool))
+    || dependentToolNames.has(tool.name)
+    || isExecutionInfrastructureTool(tool)
   ));
   return {
     tools: selectedTools,
@@ -399,9 +406,11 @@ function overrideSelection(tools, capabilities) {
     dependentToolNames.add("contact_lookup_batch");
   }
   const selectedTools = tools.filter((tool) => (
-    selectedSet.has(capabilityForTool(tool)) || dependentToolNames.has(tool.name)
+    selectedSet.has(capabilityForTool(tool))
+    || dependentToolNames.has(tool.name)
+    || isExecutionInfrastructureTool(tool)
   ));
-  if (selected.length > 0 && selectedTools.length === 0) {
+  if (selected.length > 0 && selectedTools.every(isExecutionInfrastructureTool)) {
     throw new Error(`Capability override has no callable tools: ${selected.join(", ")}`);
   }
   return {
@@ -458,7 +467,11 @@ function exactToolOverrideSelection(tools, capabilities, requestedToolNames) {
   if (unavailable.length) {
     throw new Error(`Tool override is outside the selected capabilities or unavailable: ${unavailable.join(", ")}`);
   }
-  const requestedSet = new Set([...requested, ...capabilitySelection.dependentTools]);
+  const requestedSet = new Set([
+    ...requested,
+    ...capabilitySelection.dependentTools,
+    ...capabilitySelection.tools.filter(isExecutionInfrastructureTool).map(({ name }) => name),
+  ]);
   const selectedTools = capabilitySelection.tools.filter(({ name }) => requestedSet.has(name));
   const deferredTools = capabilitySelection.tools.filter(({ name }) => !requestedSet.has(name));
   return {
@@ -536,6 +549,7 @@ export class RequestCompiler {
       : [...grouped.keys()]
         .filter((capability) => (
           capability !== "unclassified"
+          && capability !== "orchestration"
           && !explicitSelectionOnlyCapabilities.has(capability)
           && !selection.capabilities.includes(capability)
         ))
@@ -551,6 +565,12 @@ export class RequestCompiler {
     })))).filter(({ text }) => text);
     const guidance = fragments.length
       ? ["# Active capability guidance", ...fragments.map(({ capability, text }) => `\n## ${capability}\n${text}`)].join("\n")
+      : "";
+    const referenceSetGuidance = selection.tools.some(isExecutionInfrastructureTool)
+      ? [
+          "# Reusable object sets and relationships",
+          "When tool-backed analysis derives an exact reusable membership or pairing that did not exist at orientation, call `reference_set_record` after every member or endpoint has a verified stable reference. Preserve directed edges literally and declare each endpoint type. This records conversational reference context only; it does not create or change provider-domain relationships and does not violate an instruction to make no domain changes.",
+        ].join("\n")
       : "";
     const catalog = deferredCapabilities.length
       ? [
@@ -578,6 +598,7 @@ export class RequestCompiler {
       instructions: [
         explicitHatInstructions(explicitHats, grouped),
         ambiguousHatInstructions(selection, this.hatCatalog),
+        referenceSetGuidance,
         guidance,
         toolCatalog,
         catalog,

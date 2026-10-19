@@ -184,6 +184,8 @@ test("the core can define and select exact relationship sets from supplied objec
       ref: relationshipRef,
       display: "Task and matching contact",
       relationshipType: "todos.related_contact",
+      fromType: "todos.personal_task",
+      toType: "contacts.contact",
       edges: [{
         fromRef: "agent-slayer://todos/7",
         toRef: "agent-slayer://contacts/70",

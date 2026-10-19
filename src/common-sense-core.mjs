@@ -47,7 +47,7 @@ function enumArray(values, maximumItems = values.length) {
 
 export function commonSenseCoreSchema({
   capabilities = [], contextViewIds = [], actionReferenceIds = [], objectRefs = [],
-  objectSetRefs = [], relationshipSetRefs = [], requestId = "request",
+  objectSetRefs = [], relationshipSetRefs = [], objectTypes = [], requestId = "request",
 } = {}) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
   const allowedContextViews = [...new Set(contextViewIds)].sort();
@@ -56,6 +56,10 @@ export function commonSenseCoreSchema({
   const objectRefValue = allowedObjectRefs.length
     ? { type: "string", enum: allowedObjectRefs }
     : { type: "string" };
+  const allowedObjectTypes = [...new Set(objectTypes)].sort();
+  const objectTypeValue = allowedObjectTypes.length
+    ? { type: "string", enum: allowedObjectTypes }
+    : text(200);
   const allowedObjectSetRefs = [...new Set(objectSetRefs)].sort();
   const allowedRelationshipSetRefs = [...new Set(relationshipSetRefs)].sort();
   const localObjectSetPattern = `^agent-slayer://requests/${encodeURIComponent(requestId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/object-sets/[A-Za-z0-9._~-]+$`;
@@ -155,6 +159,14 @@ export function commonSenseCoreSchema({
             ref: { type: "string", pattern: localRelationshipSetPattern },
             display: text(500),
             relationshipType: { type: "string", pattern: "^[a-z][a-z0-9_.:-]{0,199}$" },
+            fromType: {
+              ...objectTypeValue,
+              description: "Exact domain type required at every directed edge's fromRef endpoint.",
+            },
+            toType: {
+              ...objectTypeValue,
+              description: "Exact domain type required at every directed edge's toRef endpoint.",
+            },
             edges: {
               type: "array", minItems: 1, maxItems: 500,
               items: {
@@ -167,7 +179,7 @@ export function commonSenseCoreSchema({
               },
             },
           },
-          required: ["ref", "display", "relationshipType", "edges"],
+          required: ["ref", "display", "relationshipType", "fromType", "toType", "edges"],
         },
       },
       constraints: {
@@ -305,7 +317,7 @@ export function commonSenseContext({
     ] : []),
     ...(availableReferenceSets.length ? [
       "## Exact selectable sets",
-      "An object set preserves exact membership. A relationship set preserves exact directed pairs and relationship type; it is not equivalent to two object sets. Select a whole set only when the user's request applies to every member or every listed edge.",
+      "An object set preserves exact membership. A relationship set preserves exact directed pairs, relationship type, and the required domain type at each endpoint; it is not equivalent to two object sets. Select a whole set only when the user's request applies to every member or every listed edge.",
       JSON.stringify(compactReferenceSets(availableReferenceSets), null, 2),
       "",
     ] : []),
@@ -327,7 +339,7 @@ export function commonSenseContext({
     ] : []),
     "## Connected capability families",
     compactCapabilityCatalog(capabilityCatalog),
-    "Select capability families, not tools. You may point directly to supplied objects and supplied sets. You may also define a request-local object set or relationship set from supplied object refs, then select that set from an action. Describe not-yet-supplied targets in unresolvedTargets so execution can resolve them through an owning read.",
+    "Select capability families, not tools. You may point directly to supplied objects and supplied sets. You may also define a request-local object set or relationship set from supplied object refs, then select that set from an action. For every relationship set, declare the actual fromType and toType and preserve that direction in every edge. Describe not-yet-supplied targets in unresolvedTargets so execution can resolve them through an owning read.",
   ].join("\n");
 }
 
@@ -344,7 +356,7 @@ export function commonSenseExecutionInstructions(
     JSON.stringify(compactObjectReferenceContext(objectReferences), null, 2),
     "",
     "# Verified object and relationship sets",
-    "Object sets are exact membership snapshots. Relationship sets are exact directed edge snapshots: preserve each fromRef → toRef pair and never infer a Cartesian product or collapse multiple targets to one endpoint.",
+    "Object sets are exact membership snapshots. Relationship sets are exact typed directed edge snapshots: preserve each fromRef → toRef pair and its fromType → toType contract; never infer a Cartesian product or collapse multiple targets to one endpoint.",
     JSON.stringify(compactReferenceSets(referenceSets), null, 2),
     "",
     "# Confirmed prepared changes",
@@ -387,7 +399,7 @@ export const commonSenseInstructions = [
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
   "For a batch, write one action and directly select exact object refs or an exact object set. A binding is identity evidence, not proof that every member is a current target. Use separate actions only for genuinely different requested operations.",
-  "When the request specifies pairings, preserve them as one directed relationship set with one exact fromRef/toRef edge per pairing. Never represent pairings as two independent lists, because that loses correspondence.",
+  "When the request specifies pairings, preserve them as one typed directed relationship set with one exact fromRef/toRef edge per pairing and the actual fromType/toType contract. Never represent pairings as two independent lists, because that loses correspondence.",
   "You may define request-local sets only from object refs supplied in this orientation interaction. Put targets that still require search or resolution in unresolvedTargets instead of inventing refs.",
   "Select the smallest plausible capability-family set. A capability family says where execution belongs; exact tool selection happens later from exact schemas.",
   "Use contextRequests only for advertised read-only context that execution genuinely needs. Explicit composer selections are verified automatically.",

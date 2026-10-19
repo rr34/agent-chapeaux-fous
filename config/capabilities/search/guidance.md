@@ -15,12 +15,6 @@ Global results are compact discovery references. After identifying a result,
 use the domain-specific capability for rich filters, complete native fields, or
 any follow-up action. Search never authorizes or performs a write.
 
-When this request derives a reusable membership or pairing that did not exist
-at orientation, call `reference_set_record` after every member or endpoint has
-an exact verified stable reference. Preserve directed relationship pairs
-literally. This records conversational reference context; it does not create or
-change a provider-domain relationship.
-
 For an uploaded file, global discovery searches its metadata and originating
 request text. Select the Files capability and call `file_text_search` with its
 stable file ID to search the verified contents using literal text or RE2 regex.

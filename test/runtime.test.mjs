@@ -1160,6 +1160,108 @@ test("an identical failed tool call is blocked while a materially corrected retr
   assert.equal(responses[2].result.totalCount, 273);
 });
 
+test("a pre-execution binding rejection can retry unchanged after an owning read supplies identity", async () => {
+  const responses = [];
+  let updates = 0;
+  let receiptEventSequence = 0;
+  const modelTransport = fakeTransport(async (payload) => {
+    responses.push(await payload.onToolCall({
+      callId: "update-before-binding",
+      tool: "update_task",
+      arguments: { personal_task_id: 178, status: "complete" },
+    }));
+    responses.push(await payload.onToolCall({
+      callId: "read-binding",
+      tool: "find_task",
+      arguments: { personal_task_id: 178, result_filter: identityResultFilter() },
+    }));
+    responses.push(await payload.onToolCall({
+      callId: "update-after-binding",
+      tool: "update_task",
+      arguments: { personal_task_id: 178, status: "complete" },
+    }));
+    return completedTurn({ text: "Task 178 is complete." });
+  });
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "find_task",
+    description: "Read one task.",
+    annotations: { readOnlyHint: true },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { personal_task_id: { type: "integer" } },
+      required: ["personal_task_id"],
+    },
+    async execute({ personal_task_id }) {
+      return [{
+        personal_task_id,
+        ref: `agent-slayer://todos/${personal_task_id}`,
+        text: "Call Alice",
+      }];
+    },
+  });
+  registry.register({
+    name: "update_task",
+    description: "Update one exact task.",
+    annotations: { readOnlyHint: false },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        personal_task_id: { type: "integer" },
+        status: { type: "string" },
+      },
+      required: ["personal_task_id", "status"],
+    },
+    metadata: {
+      [objectInputBindingsMetadataKey]: {
+        protocol: objectInputBindingsProtocol,
+        version: objectInputBindingsVersion,
+        bindings: [{
+          path: "/personal_task_id",
+          objectType: "todos.personal_task",
+          value: "id",
+          role: "subject",
+        }],
+      },
+    },
+    async execute({ personal_task_id }) {
+      updates += 1;
+      return { personal_task_id, status: "complete" };
+    },
+  });
+  const runtime = new SlayerRuntime({
+    modelTransport,
+    registry,
+    contextBuilder: {
+      async build() {
+        return { text: "context", profileFacts: [], history: [], contextBudget: { truncated: false } };
+      },
+    },
+    ledger: {
+      append() {
+        receiptEventSequence += 1;
+        return receiptEventSequence;
+      },
+      eventSequence(eventId) { return eventId; },
+    },
+    config: { ...runtimeConfig(), maxToolCalls: 4 },
+  });
+  runtime.systemPrompt = "prompt";
+
+  assert.equal(await runtime.run({
+    requestId: "binding-retry",
+    requestEventId: "binding-retry-event",
+    text: "Mark task 178 complete.",
+  }), "Task 178 is complete.");
+  assert.equal(responses[0].ok, false);
+  assert.match(responses[0].error, /requires a verified todos\.personal_task binding/u);
+  assert.equal(responses[1].ok, true);
+  assert.equal(responses[2].ok, true, responses[2].error);
+  assert.equal(updates, 1);
+});
+
 test("a newly observed object refreshes dependent callable schemas before its ID is used", async () => {
   let modelTurns = 0;
   let uploads = 0;

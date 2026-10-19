@@ -768,6 +768,28 @@ test("a focused payment execution includes authoritative payer and to-do reads",
   );
 });
 
+test("focused executions always include relationship-set recording infrastructure", async () => {
+  const compiler = new RequestCompiler();
+  const compiled = await compiler.compile({
+    tools: [
+      { ...tool("todo_list"), capabilityId: "todos" },
+      { ...tool("todo_update"), capabilityId: "todos" },
+      { ...tool("reference_set_record"), capabilityId: "orchestration" },
+      { ...tool("contact_search"), capabilityId: "contacts" },
+    ],
+    text: "Read these tasks.",
+    capabilityOverride: ["todos"],
+    toolOverride: ["todo_list"],
+    allowCapabilityExpansion: false,
+    allowToolExpansion: true,
+  });
+
+  assert.deepEqual(names(compiled), ["todo_list", "reference_set_record", "request_tools"]);
+  assert.deepEqual(compiled.deferredTools.map(({ name }) => name), ["todo_update"]);
+  assert.equal(compiled.deferredCapabilities.includes("orchestration"), false);
+  assert.match(compiled.instructions, /Reusable object sets and relationships/);
+});
+
 test("the compiler loads instructions only for selected callable capabilities", async () => {
   const compiler = new RequestCompiler({
   });

@@ -41,6 +41,7 @@ import {
 import {
   currentRequestAttachmentObjectReferences,
   explicitReferenceObjectCatalog,
+  flatObjectReferences,
   mergeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
   objectReferenceProtectedFields,
@@ -844,6 +845,9 @@ export class SlayerRuntime {
         ? exchange.taskOutcome !== "incomplete" && exchange.status !== "error"
         : exchange.objectReferencePolicy !== "fresh_read_required"
     ));
+    const reusableReferencedObjectReferences = this.objectReferenceFilter(
+      reusableReferencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
+    );
     const requestEventSeq = typeof this.ledger.eventSequence === "function"
       ? this.ledger.eventSequence(args.requestEventId)
       : null;
@@ -878,7 +882,7 @@ export class SlayerRuntime {
     const availableObjectReferences = explicitReferenceObjectCatalog(
       relevantRecentObjectReferences,
       this.objectReferenceFilter([
-        ...reusableReferencedExchanges.flatMap(({ objectReferences = [] }) => objectReferences),
+        ...reusableReferencedObjectReferences,
         ...currentAttachmentReferences,
       ]),
     );
@@ -910,6 +914,7 @@ export class SlayerRuntime {
         .filter(({ kind }) => kind === "object_set").map(({ ref }) => ref),
       relationshipSetRefs: availableReferenceSets
         .filter(({ kind }) => kind === "relationship_set").map(({ ref }) => ref),
+      objectTypes: flatObjectReferences(orientationObjectReferences).map(({ type }) => type),
       requestId: args.requestId,
     });
     const priorConversationSummary = JSON.stringify({
@@ -1259,7 +1264,10 @@ export class SlayerRuntime {
       temporalResolutions: core.temporalResolutions,
       objectReferences: selectedObjectReferences,
       completeObjectReferences,
-      initialObjectReferences: executionObjectReferences,
+      initialObjectReferences: mergeObjectReferenceGroups([
+        ...executionObjectReferences,
+        ...reusableReferencedObjectReferences,
+      ]),
     };
 
     if (typeof args.awaitTurnBriefApproval === "function") {
@@ -1607,7 +1615,9 @@ export class SlayerRuntime {
     const generatedActionReferences = [];
     let conversationCheckpoint = null;
     let finalAttemptStartedNewConversation = !conversationId;
-    const failedToolAttempts = new Set(initialReceipts.filter((receipt) => !receipt.ok)
+    const failedToolAttempts = new Set(initialReceipts.filter((receipt) => (
+      !receipt.ok && receipt.preExecutionRejection !== true
+    ))
       .map(receiptAttemptKey));
     while (true) {
       attempt += 1;
@@ -2044,21 +2054,30 @@ export class SlayerRuntime {
               completeGroups: completeObjectReferences,
             });
             if (objectBindingProblem) {
-              failedToolAttempts.add(attemptKey);
               sameRequestReceipts.push({
-                tool: name, arguments: toolArguments, ok: false, error: objectBindingProblem,
+                tool: name,
+                arguments: toolArguments,
+                ok: false,
+                error: objectBindingProblem,
+                preExecutionRejection: true,
               });
               this.ledger.append({
                 type: "object.binding.rejected", phase: "error", status: "error",
                 actorType: "service", actorName: "Object binding guard", channel,
                 turnId: requestId, operationId: callId, name: `${name} object binding rejected`,
                 content: objectBindingProblem,
-                payload: { callId, name, arguments: toolArguments }, error: objectBindingProblem,
+                payload: {
+                  callId,
+                  name,
+                  arguments: toolArguments,
+                  preExecutionRejection: true,
+                },
+                error: objectBindingProblem,
               });
               this.ledger.append({
                 type: "tool.result", phase: "error", status: "error", actorType: "tool",
                 actorName: name, channel, turnId: requestId, operationId: callId, name,
-                payload: { callId, name }, error: objectBindingProblem,
+                payload: { callId, name, preExecutionRejection: true }, error: objectBindingProblem,
               });
               return { ok: false, error: objectBindingProblem };
             }

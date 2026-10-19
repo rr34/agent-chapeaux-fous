@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   objectReferenceSets,
   orientationReferenceSetProblem,
+  recordedReferenceSets,
   referenceSetObjectRefs,
   selectedReferenceSets,
   validateReferenceSet,
@@ -51,6 +52,8 @@ test("orientation can select an exact directed relationship set without losing p
       ref: relationshipRef,
       display: "Each Watch Job and its matching contact",
       relationshipType: "todos.related_contact",
+      fromType: "todos.personal_task",
+      toType: "contacts.contact",
       edges: [
         { fromRef: "agent-slayer://todos/7", toRef: "agent-slayer://contacts/70" },
         { fromRef: "agent-slayer://todos/8", toRef: "agent-slayer://contacts/80" },
@@ -81,6 +84,8 @@ test("relationship sets reject unavailable endpoints and duplicate directed edge
     ref,
     display: "Bad edges",
     relationshipType: "todos.related_contact",
+    fromType: "todos.personal_task",
+    toType: "contacts.contact",
     edges: [{ fromRef: "agent-slayer://todos/7", toRef: "agent-slayer://contacts/999" }],
   };
   const core = {
@@ -98,4 +103,46 @@ test("relationship sets reject unavailable endpoints and duplicate directed edge
   assert.match(orientationReferenceSetProblem(core, {
     requestId, availableObjectReferences: references,
   }), /duplicate directed relationship/u);
+
+  relationship.edges = [
+    { fromRef: "agent-slayer://contacts/70", toRef: "agent-slayer://todos/7" },
+  ];
+  assert.match(orientationReferenceSetProblem(core, {
+    requestId, availableObjectReferences: references,
+  }), /from endpoint.*has type contacts\.contact; expected todos\.personal_task/u);
+});
+
+test("tool-backed relationship recording persists and enforces endpoint types", () => {
+  const sets = recordedReferenceSets({
+    requestId: "request-recorded-links",
+    availableObjectReferences: references,
+    relationshipSets: [{
+      display: "Each Watch Job and its matching contact",
+      relationshipType: "todos.related_contact",
+      fromType: "todos.personal_task",
+      toType: "contacts.contact",
+      edges: [{
+        fromRef: "agent-slayer://todos/7",
+        toRef: "agent-slayer://contacts/70",
+      }],
+    }],
+  });
+  assert.equal(sets.length, 1);
+  assert.equal(sets[0].fromType, "todos.personal_task");
+  assert.equal(sets[0].toType, "contacts.contact");
+
+  assert.throws(() => recordedReferenceSets({
+    requestId: "request-recorded-links",
+    availableObjectReferences: references,
+    relationshipSets: [{
+      display: "Reversed link",
+      relationshipType: "todos.related_contact",
+      fromType: "todos.personal_task",
+      toType: "contacts.contact",
+      edges: [{
+        fromRef: "agent-slayer://contacts/70",
+        toRef: "agent-slayer://todos/7",
+      }],
+    }],
+  }), /from endpoint.*has type contacts\.contact; expected todos\.personal_task/u);
 });

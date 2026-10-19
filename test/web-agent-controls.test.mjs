@@ -35,14 +35,19 @@ test("the Agent conversation initially scrolls to its newest interaction", () =>
 });
 
 test("the Agent can explicitly start a new model conversation", () => {
-  const agentScreen = app.slice(app.indexOf("function AgentScreen("), app.indexOf("function CalendarScreen("));
-  assert.match(agentScreen, /resettingConversation \? "Starting…" : "New conversation"/);
-  assert.match(agentScreen, /role="alertdialog"/);
-  assert.match(agentScreen, />Start a new conversation\?<\/strong>/);
-  assert.match(agentScreen, /resettingConversation \? "Starting…" : "Start new conversation"/);
-  assert.match(agentScreen, /api\("\/api\/conversation\/reset", \{ method: "POST" \}\)/);
-  assert.match(agentScreen, /New conversation ready\. Your next request will start without the earlier conversation context\./);
-  assert.match(styles, /\.agent-conversation-reset-confirmation \{/);
+  const composer = app.slice(app.indexOf("function AgentComposer("), app.indexOf("function AgentScreen("));
+  const toolbarActions = composer.slice(composer.indexOf('<div className="composer-toolbar-actions">'), composer.indexOf('</div>', composer.indexOf('<div className="composer-toolbar-actions">')));
+  const increaseLimitsIndex = toolbarActions.indexOf(">Increase limits</button>");
+  const newConversationIndex = toolbarActions.indexOf('"New conversation"');
+  assert.ok(increaseLimitsIndex >= 0 && newConversationIndex > increaseLimitsIndex);
+  assert.match(composer, /resettingConversation \? "Starting…" : "New conversation"/);
+  assert.match(composer, /role="alertdialog"/);
+  assert.match(composer, />Start a new conversation\?<\/strong>/);
+  assert.match(composer, /resettingConversation \? "Starting…" : "Start new conversation"/);
+  assert.match(composer, /api\("\/api\/conversation\/reset", \{ method: "POST" \}\)/);
+  assert.match(composer, /New conversation ready\. Your next request will start without the earlier conversation context\./);
+  assert.match(styles, /\.composer-toolbar-actions \{/);
+  assert.match(styles, /\.composer-conversation-reset-confirmation \{/);
 });
 
 test("plain Enter sends an Agent request while Shift+Enter keeps a newline", () => {

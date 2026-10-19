@@ -474,6 +474,9 @@ function AgentComposer({
   const [attachment, setAttachment] = useState<PendingRequestAttachment | null>(null);
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [runLimitsOpen, setRunLimitsOpen] = useState(false);
+  const [resettingConversation, setResettingConversation] = useState(false);
+  const [confirmingConversationReset, setConfirmingConversationReset] = useState(false);
+  const [conversationResetMessage, setConversationResetMessage] = useState("");
   const [toolCallLimit, setToolCallLimit] = useState(256);
   const [toolCallsUnlimited, setToolCallsUnlimited] = useState(false);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(60);
@@ -741,6 +744,20 @@ function AgentComposer({
     setRunLimitsOpen(true);
   };
 
+  const resetConversation = async () => {
+    setResettingConversation(true);
+    setConversationResetMessage("");
+    try {
+      await api("/api/conversation/reset", { method: "POST" });
+      setConfirmingConversationReset(false);
+      setConversationResetMessage("New conversation ready. Your next request will start without the earlier conversation context.");
+    } catch (caught) {
+      setConversationResetMessage(caught instanceof Error ? caught.message : "Could not start a new conversation.");
+    } finally {
+      setResettingConversation(false);
+    }
+  };
+
   const applyRunLimits = (event: FormEvent) => {
     event.preventDefault();
     setPendingRunLimits({
@@ -863,14 +880,24 @@ function AgentComposer({
     {selectionNotice && <div className="composer-feedback" role="status">{selectionNotice}</div>}
     {recordingStatus && <div className="composer-feedback recording-status" role="status">{recordingStatus}</div>}
     {attachmentStatus && <div className="composer-feedback" role="status">{attachmentStatus}</div>}
+    {conversationResetMessage && <div className="composer-feedback" role="status">{conversationResetMessage}</div>}
     {submitError && <ErrorState error={submitError} dismiss={() => setSubmitError(null)} />}
     {selections.length > 0 && <div className="composer-selection-summary">
       <span role="status">{selectedObjectSummary(selections)}</span>
       <button className="button button--quiet" type="button" onClick={clearObjectSelections}>Clear</button>
     </div>}
+    {!isRecording && confirmingConversationReset && <section className="composer-conversation-reset-confirmation" role="alertdialog" aria-labelledby="conversation-reset-title" aria-describedby="conversation-reset-detail">
+      <div><strong id="conversation-reset-title">Start a new conversation?</strong><p id="conversation-reset-detail">Time v3 Agent will stop carrying the current conversation context into your next request.</p></div>
+      <div className="composer-conversation-reset-actions"><button className="button" type="button" onClick={() => void resetConversation()} disabled={resettingConversation}>{resettingConversation ? "Starting…" : "Start new conversation"}</button><button className="button button--quiet" type="button" onClick={() => setConfirmingConversationReset(false)} disabled={resettingConversation}>Cancel</button></div>
+    </section>}
     {!isRecording && <div className="composer-toolbar">
       <div className="composer-run-limits">
-        <button className={`button button--quiet run-limits-button${pendingRunLimits ? " ready" : ""}`} type="button" onClick={openRunLimits}>Increase limits</button>
+        <div className="composer-toolbar-actions">
+          <button className={`button button--quiet run-limits-button${pendingRunLimits ? " ready" : ""}`} type="button" onClick={openRunLimits}>Increase limits</button>
+          <button className="button button--quiet run-limits-button" type="button" onClick={() => { setConversationResetMessage(""); setConfirmingConversationReset(true); }} disabled={resettingConversation || confirmingConversationReset}>
+            {resettingConversation ? "Starting…" : "New conversation"}
+          </button>
+        </div>
         {pendingRunLimits && <span className="run-limits-summary" role="status">Next interaction: {runLimitsText(pendingRunLimits)}</span>}
       </div>
       <button
@@ -1053,9 +1080,6 @@ function AgentScreen({ onShowTrace, refreshKey, optimisticRequests, onRequestsOb
   const { data, error, loading, reload } = useRequestFeed(25, 3000);
   const [filterQuery, setFilterQuery] = useState("");
   const [serverQuery, setServerQuery] = useState("");
-  const [resettingConversation, setResettingConversation] = useState(false);
-  const [confirmingConversationReset, setConfirmingConversationReset] = useState(false);
-  const [conversationResetMessage, setConversationResetMessage] = useState("");
   const requestSearchUrl = serverQuery
     ? `/api/requests?limit=200&q=${encodeURIComponent(serverQuery)}`
     : null;
@@ -1102,30 +1126,8 @@ function AgentScreen({ onShowTrace, refreshKey, optimisticRequests, onRequestsOb
       else void reload();
     } else setServerQuery(nextQuery);
   };
-  const resetConversation = async () => {
-    setResettingConversation(true);
-    setConversationResetMessage("");
-    try {
-      await api("/api/conversation/reset", { method: "POST" });
-      setConfirmingConversationReset(false);
-      setConversationResetMessage("New conversation ready. Your next request will start without the earlier conversation context.");
-    } catch (caught) {
-      setConversationResetMessage(caught instanceof Error ? caught.message : "Could not start a new conversation.");
-    } finally {
-      setResettingConversation(false);
-    }
-  };
   return <>
-    <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Time v3 Agent orients, shows its brief, then acts with visible tools." actions={
-      <button className="button button--quiet" type="button" onClick={() => { setConversationResetMessage(""); setConfirmingConversationReset(true); }} disabled={resettingConversation || confirmingConversationReset}>
-        {resettingConversation ? "Starting…" : "New conversation"}
-      </button>
-    } />
-    {confirmingConversationReset && <section className="agent-conversation-reset-confirmation" role="alertdialog" aria-labelledby="conversation-reset-title" aria-describedby="conversation-reset-detail">
-      <div><strong id="conversation-reset-title">Start a new conversation?</strong><p id="conversation-reset-detail">Time v3 Agent will stop carrying the current conversation context into your next request.</p></div>
-      <div className="agent-conversation-reset-actions"><button className="button" type="button" onClick={() => void resetConversation()} disabled={resettingConversation}>{resettingConversation ? "Starting…" : "Start new conversation"}</button><button className="button button--quiet" type="button" onClick={() => setConfirmingConversationReset(false)} disabled={resettingConversation}>Cancel</button></div>
-    </section>}
-    {conversationResetMessage && <p className="agent-reference-notice" role="status">{conversationResetMessage}</p>}
+    <PageHeading eyebrow="Your operating desk" title="Agent" detail="Ask in ordinary language. Time v3 Agent orients, shows its brief, then acts with visible tools." />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchRequests} searching={loading || searchLoading} count={visibleRequests.length} noun="exchange" />
     <section className="conversation">
       {(loading || searchLoading) && <Loading label="Loading requests" />}{(serverQuery ? searchError : error) ? <ErrorState error={(serverQuery ? searchError : error)!} retry={serverQuery ? reloadSearch : reload} /> : null}

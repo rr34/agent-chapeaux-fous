@@ -588,6 +588,93 @@ test("missing explicit selections stop execution deterministically", async () =>
   assert.equal(requests.length, 1);
 });
 
+test("an explicitly referenced reusable exchange supplies tool-boundary identity evidence", async () => {
+  const requests = [];
+  const referencedTask = {
+    mention: "Task 178 from the referenced exchange",
+    role: "subject",
+    type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{
+      id: 178,
+      ref: "agent-slayer://todos/178",
+      display: "Call Alice",
+    }],
+    sourceEventSeqs: [5],
+  };
+  const ledger = fakeLedger({
+    referencedExchanges: [{
+      requestId: "request-prior-task",
+      status: "complete",
+      taskOutcome: "complete",
+      objectReferencePolicy: "reusable",
+      objectReferences: [referencedTask],
+    }],
+  });
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  let updates = 0;
+  registry.withCapability("todos").register({
+    name: "todo_complete_one",
+    description: "Complete one exact to-do.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    metadata: {
+      [objectInputBindingsMetadataKey]: {
+        protocol: "agent-slayer.object-input-bindings",
+        version: 1,
+        bindings: [{
+          path: "/personal_task_id",
+          objectType: "todos.personal_task",
+          value: "id",
+          role: "subject",
+        }],
+      },
+    },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { personal_task_id: { type: "integer", minimum: 1 } },
+      required: ["personal_task_id"],
+    },
+    async execute({ personal_task_id }) {
+      updates += 1;
+      return { updated: true, personal_task_id };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        assert.match(payload.developerInstructions, /agent-slayer:\/\/todos\/178/u);
+        return completed(JSON.stringify(core({
+          objective: "Complete task 178 from the referenced exchange.",
+          conversationSummary: "The referenced exchange identifies task 178.",
+          actions: [{ instruction: "Complete task 178.", targetRefs: [] }],
+          capabilities: ["todos"],
+        })));
+      }
+      assert.equal(index, 1);
+      const result = await payload.onToolCall({
+        callId: "complete-referenced-task",
+        tool: "todo_complete_one",
+        arguments: { personal_task_id: 178 },
+      });
+      assert.equal(result.ok, true);
+      return completed("Completed task 178.", 30);
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-reference-use",
+    requestEventId: "event-current",
+    text: "Complete that task.",
+  }), "Completed task 178.");
+  assert.equal(updates, 1);
+  assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), false);
+});
+
 test("date inconsistency gets one exceptional correction before tools are exposed", async () => {
   const requests = [];
   const ledger = fakeLedger();
