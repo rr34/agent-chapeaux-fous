@@ -3661,6 +3661,15 @@ export class OrganizerStore {
       ORDER BY occurred_at_utc
     `).all(...trackerIds);
     const averagesByTracker = dailyNumericAverages(numericRows, { averageTimeZone, asOfDate });
+    const numericHistoryByTracker = new Map();
+    for (const row of numericRows) {
+      const history = numericHistoryByTracker.get(row.tracker_id) ?? [];
+      history.push({
+        occurredAtUtc: row.occurred_at_utc,
+        value: Number(row.number_value),
+      });
+      numericHistoryByTracker.set(row.tracker_id, history);
+    }
     const emptyAverages = {
       sevenDay: { value: null, dayCount: 0 },
       oneYear: { value: null, dayCount: 0 },
@@ -3669,6 +3678,7 @@ export class OrganizerStore {
     return trackerRows.map((row) => ({
       ...publicJournalTracker(row),
       numericAverages: averagesByTracker.get(row.tracker_id) ?? emptyAverages,
+      numericHistory: numericHistoryByTracker.get(row.tracker_id) ?? [],
     }));
   }
 

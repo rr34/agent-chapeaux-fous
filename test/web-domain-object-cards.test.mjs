@@ -99,6 +99,21 @@ test("calendar routine cards own event-style timing and omit the redundant type 
   assert.match(styles, /\.calendar-routine-card \.first-class-object-label,[\s\S]*\.calendar-routine-card \.compact-object-identity > span:first-child \{ display: none; \}/);
 });
 
+test("journal tracker cards own their stock-style value history and default to one month", () => {
+  const tracker = fs.readFileSync(path.join(cardsRoot, "JournalTrackerCard.tsx"), "utf8");
+  const app = fs.readFileSync(path.join(root, "web/src/App.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
+  assert.match(tracker, /useState<TrackerChartRange>\("1M"\)/);
+  for (const range of ["1W", "1M", "1Q", "6M", "YTD", "1Y", "All"]) {
+    assert.match(tracker, new RegExp(`key: "${range}"`));
+  }
+  assert.match(tracker, /<svg[\s\S]*<polyline/);
+  assert.match(tracker, /aria-pressed=\{range === option\.key\}/);
+  assert.match(app, /values=\{journalTrackerValues\(tracker\)\}/);
+  assert.match(styles, /\.tracker-chart-range/);
+  assert.match(styles, /\.tracker-chart-line/);
+});
+
 test("sequenced to-dos and library items own one prominent marker in full and compact cards", () => {
   const todo = fs.readFileSync(path.join(cardsRoot, "TodoCard.tsx"), "utf8");
   const library = fs.readFileSync(path.join(cardsRoot, "LibraryItemCard.tsx"), "utf8");

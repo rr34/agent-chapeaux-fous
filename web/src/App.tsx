@@ -16,6 +16,7 @@ import { InvoiceCard } from "./components/object-cards/InvoiceCard";
 import { JournalEntryCard } from "./components/object-cards/JournalEntryCard";
 import { JournalGroupCard } from "./components/object-cards/JournalGroupCard";
 import { JournalTrackerCard } from "./components/object-cards/JournalTrackerCard";
+import type { JournalTrackerValuePoint } from "./components/object-cards/JournalTrackerCard";
 import { LibraryGroupCard } from "./components/object-cards/LibraryGroupCard";
 import { LibraryItemCard } from "./components/object-cards/LibraryItemCard";
 import { ObjectCard, type ObjectCardModel } from "./components/object-cards/ObjectCard";
@@ -124,6 +125,17 @@ function readKey(entity: Entity, ...keys: string[]) {
 function textKey(entity: Entity, ...keys: string[]) {
   const value = readKey(entity, ...keys);
   return value == null ? "" : String(value);
+}
+
+function journalTrackerValues(tracker: Entity): JournalTrackerValuePoint[] {
+  const history = readKey(tracker, "numericHistory");
+  if (!Array.isArray(history)) return [];
+  return history.flatMap((point) => {
+    if (typeof point !== "object" || point === null) return [];
+    const occurredAtUtc = "occurredAtUtc" in point ? String(point.occurredAtUtc || "") : "";
+    const value = "value" in point ? Number(point.value) : Number.NaN;
+    return occurredAtUtc && Number.isFinite(value) ? [{ occurredAtUtc, value }] : [];
+  });
 }
 
 function cardAttribute(label: string, value: unknown) {
@@ -1888,6 +1900,7 @@ function JournalScreen() {
               return <JournalTrackerCard
                 as="li"
                 key={`tracker-${tracker.id}`}
+                values={journalTrackerValues(tracker)}
                 object={objectCardData({
                   id: Number(tracker.id), type: "journal.tracker", label: "Journal tracker", display: name,
                   attributes: [

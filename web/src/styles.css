@@ -897,6 +897,31 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .todo-card.is-complete .first-class-object-title { color: var(--muted); text-decoration: line-through; }
 .journal-row-schedule .tracker-schedule,
 .first-class-object-details .tracker-schedule { margin-top: 0; padding-top: 0; border-top: 0; }
+.journal-tracker-details { display: grid; gap: 16px; }
+.journal-tracker-details > .tracker-schedule { padding-top: 16px; border-top: 1px solid var(--line); }
+.tracker-value-chart { min-width: 0; display: grid; gap: 9px; padding-top: 2px; color: var(--olive-dark); }
+.tracker-chart-range { display: flex; align-items: center; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.tracker-chart-range button { min-width: 42px; min-height: 32px; padding: 6px 9px; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; font-size: 11px; font-weight: 750; }
+.tracker-chart-range button:hover { color: var(--olive-dark); background: var(--olive-soft); }
+.tracker-chart-range button.is-active { border-bottom-color: var(--olive-dark); color: var(--olive-dark); }
+.tracker-chart-summary { min-height: 31px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 12px; font-variant-numeric: tabular-nums; }
+.tracker-chart-summary strong { color: var(--ink); font: 650 25px/1 "Newsreader", Georgia, serif; }
+.tracker-chart-summary strong small { color: var(--muted); font: 700 11px/1 Inter, ui-sans-serif, system-ui, sans-serif; }
+.tracker-chart-summary span { font-size: 11px; font-weight: 750; }
+.tracker-chart-summary .is-positive { color: #3f6f3a; }
+.tracker-chart-summary .is-negative { color: #a44a35; }
+.tracker-chart-summary .is-neutral { color: var(--muted); }
+.tracker-chart-plot { position: relative; min-width: 0; height: 180px; }
+.tracker-chart-plot svg { width: 100%; height: 100%; overflow: visible; color: var(--olive); }
+.tracker-chart-gridline { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tracker-chart-line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.tracker-chart-point { fill: var(--paper); stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.tracker-chart-area { color: var(--olive); }
+.tracker-chart-maximum, .tracker-chart-minimum { position: absolute; z-index: 1; right: 4px; padding-left: 4px; color: var(--muted); background: rgba(251, 250, 245, .82); font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; }
+.tracker-chart-maximum { top: 2px; }
+.tracker-chart-minimum { bottom: 2px; }
+.tracker-chart-dates { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; font-weight: 650; }
+.tracker-chart-empty { min-height: 90px; display: grid; place-items: center; margin: 0; color: var(--muted); border-bottom: 1px solid var(--line); font-size: 12px; }
 
 @media (max-width: 720px) {
   .first-class-object-card,
