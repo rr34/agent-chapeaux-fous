@@ -38,28 +38,17 @@ against those accepted local-date targets before beginning their transactions.
 
 ## Repository development contracts
 
-This README is the canonical home for repository development instructions and
-product-specific coding contracts. Add or revise those instructions here under
-a descriptive heading instead of creating scattered instruction files or
-component-level READMEs that are difficult to discover. Keep a contract beside
-code only when an external format or tool requires that location.
+This README is the canonical home for product-specific architecture and
+implementation contracts: what the application does and what its code must
+preserve. Add or revise those contracts here under a descriptive heading
+instead of creating scattered contract files or component-level READMEs that
+are difficult to discover. Keep a contract beside code only when an external
+format or tool requires that location.
 
-`AGENTS.md` is only the Codex discovery pointer to these contracts and must not
-duplicate them. `AGENT-TOOL-MANIFESTO.md` remains separate because Agent Slayer
-and third-party MCP creators use it as the shared agent/tool integration
+Coding procedures—how Codex should perform repository work—belong in
+`AGENTS.md`, not here. `AGENT-TOOL-MANIFESTO.md` remains separate because Agent
+Slayer and third-party MCP creators use it as the shared agent/tool integration
 contract. `AGENT-TERMINOLOGY.md` remains the numbered canonical glossary.
-
-### Change safety
-
-- Leave changes unstaged unless Nate explicitly requests a Git action.
-- Never commit secrets or `.env`.
-- Do not deploy or restart services as part of repository work unless Nate
-  explicitly requests that live-system action.
-- Treat the live MariaDB database as Nate's data. Do not replace, recreate, or
-  mutate its schema without explicit approval.
-- Run `npm run db:verify` before and after database-dependent changes.
-- Keep observability linear and literal. Product users should not need to know
-  internal lifecycle terminology to understand a trace.
 
 ### Reusable object-card contract
 

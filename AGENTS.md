@@ -13,12 +13,12 @@ to test or simulate them.
 
 ## Canonical instructions
 
-- Read and follow `README.md` section **Repository development contracts** for
-  repository-wide development instructions. Apply its **Change safety** section
-  to every task and its other contracts when the affected code falls within
-  their scope.
-- Put new repository development instructions in that README section under a
-  descriptive heading rather than creating another instruction file.
+- Coding procedures that govern how Codex performs repository work belong in
+  this file. Product architecture and implementation contracts that describe
+  what the application does or what its code must preserve belong under
+  **Repository development contracts** in `README.md`.
+- Read and preserve the relevant contracts in that README section when changing
+  code within their scope.
 - When changing model interactions, context selection, native tools, MCP
   connections, routing, approval workflows, receipts, audits, or domain
   persistence, read and preserve `AGENT-TOOL-MANIFESTO.md`, the canonical
@@ -28,3 +28,15 @@ to test or simulate them.
 - Read these product contracts when they are relevant to the code being
   changed; do not enact them as the conversational protocol for repository
   development.
+
+## Change safety
+
+- Leave changes unstaged unless Nate explicitly requests a Git action.
+- Never commit secrets or `.env`.
+- Do not deploy or restart services as part of repository work unless Nate
+  explicitly requests that live-system action.
+- Treat the live MariaDB database as Nate's data. Do not replace, recreate, or
+  mutate its schema without explicit approval.
+- Run `npm run db:verify` before and after database-dependent changes.
+- Keep observability linear and literal. Product users should not need to know
+  internal lifecycle terminology to understand a trace.

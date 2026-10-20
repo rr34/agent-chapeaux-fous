@@ -114,6 +114,8 @@ test("the reusable calendar event card owns top start and bottom end labels", ()
   assert.match(calendarCardSource, /end: spansDays \? `\$\{shortDate/);
   assert.match(calendarCardSource, /topEdge=\{timing \? <time className="calendar-event-time calendar-event-time--start"/);
   assert.match(calendarCardSource, /bottomEdge=\{timing\?\.end \? <time className="calendar-event-time calendar-event-time--end"/);
+  assert.match(calendarCardSource, /<strong>\{timing\.start\}<\/strong><span>\{!event!/);
+  assert.match(calendarCardSource, /<strong>\{timing\.end\}<\/strong><span>End<\/span>/);
   assert.match(calendarCardSource, /!event!\.isAllDay && !event!\.endsAtUtc \? "Time" : "Start"/);
   assert.match(styles, /\.calendar-event-time--start \{[^}]*border-bottom:/s);
   assert.match(styles, /\.calendar-event-time--end \{[^}]*border-top:/s);
