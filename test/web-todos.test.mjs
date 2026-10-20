@@ -83,6 +83,21 @@ test("the React to-do page pins group containers rather than individual tasks", 
   assert.match(styles, /\.todo-group-pin\.is-pinned/);
 });
 
+test("the React to-do group editor exposes the existing safe delete operation", () => {
+  assert.match(appSource, /type GroupDeleteAction = \{/);
+  assert.match(appSource, /deleteAction\?: GroupDeleteAction/);
+  assert.match(appSource, /className="group-delete-confirmation" role="alertdialog"/);
+  assert.match(appSource, /setConfirmingDelete\(true\)/);
+  assert.match(appSource, /Keep group/);
+  assert.match(appSource, /onClick=\{\(\) => void deleteGroup\(\)\}/);
+  assert.match(appSource, /deleting \? "Deleting…" : `Yes, \$\{deleteAction\.label\.toLowerCase\(\)\}`/);
+  assert.match(appSource, /label: "Delete group"/);
+  assert.match(appSource, /api\(`\/api\/todo-groups\/\$\{editingGroup\.id\}\/archive`, \{ method: "POST" \}\)/);
+  assert.match(appSource, /setSelectedGroupId\("all"\)/);
+  assert.match(styles, /\.button--danger \{[^}]*margin-right: auto;/);
+  assert.match(styles, /\.group-delete-confirmation \{[^}]*background: #fff3ef;/);
+});
+
 test("each React to-do card moves that item within its group by one step or to either end", () => {
   assert.match(appSource, /type TodoPriorityMovement = "top" \| "up" \| "down" \| "bottom"/);
   assert.match(appSource, /label: "to top priority"/);

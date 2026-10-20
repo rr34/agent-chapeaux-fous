@@ -208,14 +208,24 @@ type EditableGroup = {
   resource: "todo-groups" | "content-groups" | "journal-groups";
 };
 
-function GroupEditor({ group, onClose, onChanged }: {
+type GroupDeleteAction = {
+  label: string;
+  description?: string;
+  confirmation: string;
+  execute: () => Promise<void>;
+};
+
+function GroupEditor({ group, onClose, onChanged, deleteAction }: {
   group: EditableGroup;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
+  deleteAction?: GroupDeleteAction;
 }) {
   const [name, setName] = useState(group.name);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const save = async (event: FormEvent) => {
     event.preventDefault();
     const nextName = name.trim();
@@ -236,13 +246,32 @@ function GroupEditor({ group, onClose, onChanged }: {
       setSaving(false);
     }
   };
+  const deleteGroup = async () => {
+    if (!deleteAction) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteAction.execute();
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not delete the group.");
+    } finally {
+      setDeleting(false);
+    }
+  };
   return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="object-editor" role="dialog" aria-modal="true" aria-labelledby="group-editor-title">
       <form onSubmit={(event) => void save(event)}>
         <header className="object-editor-heading"><div><p className="eyebrow">Group</p><h2 id="group-editor-title">Edit {group.name}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
         <label>Group name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required autoFocus /></label>
+        {deleteAction?.description && <p className="field-hint">{deleteAction.description}</p>}
+        {deleteAction && confirmingDelete && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm group deletion">
+          <p>{deleteAction.confirmation}</p>
+          <div><button className="button button--quiet" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Keep group</button><button className="button button--danger" type="button" disabled={deleting} onClick={() => void deleteGroup()}>{deleting ? "Deleting…" : `Yes, ${deleteAction.label.toLowerCase()}`}</button></div>
+        </section>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" type="submit" disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save changes"}</button></footer>
+        <footer className="object-editor-actions">{deleteAction && !confirmingDelete && <button className="button button--danger" type="button" onClick={() => { setError(""); setConfirmingDelete(true); }} disabled={saving || deleting}>{deleteAction.label}</button>}<button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" type="submit" disabled={saving || deleting || confirmingDelete || !name.trim()}>{saving ? "Saving…" : "Save changes"}</button></footer>
       </form>
     </section>
   </div>;
@@ -1436,7 +1465,20 @@ function TodoScreen() {
       onClose={() => setAddingTodo(false)}
       onChanged={reload}
     />}
-    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }} />}
+    {editingGroup && <GroupEditor
+      group={editingGroup}
+      onClose={() => setEditingGroup(null)}
+      onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }}
+      deleteAction={{
+        label: "Delete group",
+        description: "Delete is available after every active task has been moved, completed, ignored, or archived. Terminal tasks retain the historical group name.",
+        confirmation: `Delete the ${editingGroup.name} group? Terminal tasks will retain this historical group.`,
+        execute: async () => {
+          await api(`/api/todo-groups/${editingGroup.id}/archive`, { method: "POST" });
+          if (selectedGroupId === String(editingGroup.id)) setSelectedGroupId("all");
+        },
+      }}
+    />}
   </>;
 }
 

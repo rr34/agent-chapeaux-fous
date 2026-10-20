@@ -430,6 +430,10 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .object-editor-check input { width: 17px; height: 17px; margin: 0; accent-color: var(--olive-dark); }
 .object-editor-note, .object-editor-state { margin: 0; padding: 10px 12px; border-radius: 9px; color: var(--muted); background: var(--olive-soft); font-size: 12px; }
 .object-editor-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.group-delete-confirmation { display: grid; gap: 11px; padding: 14px; border: 1px solid #d8aaa2; border-radius: 11px; background: #fff3ef; }
+.group-delete-confirmation p { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.5; }
+.group-delete-confirmation > div { display: flex; justify-content: flex-end; gap: 8px; }
+.group-delete-confirmation .button--danger { margin-right: 0; }
 .recurrence-editor { min-width: 0; display: grid; gap: 10px; margin: 0; padding: 13px; border: 1px solid var(--line); border-radius: 11px; }
 .recurrence-editor > legend, .recurrence-weekdays > legend { padding: 0 5px; color: var(--ink); font-size: 12px; font-weight: 700; }
 .recurrence-fields { display: grid; gap: 11px; }
